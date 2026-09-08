@@ -170,7 +170,9 @@ async function main(): Promise<void> {
     const savedA = editor().rosters.find((entry) => entry.name === 'Rail A')
     assert.ok(savedA, 'Rail A exists in the hook state')
     assert.equal(editor().selectedRosterId, savedA!.id, 'clicking the rail row selects it')
-    assert.equal(railA!.getAttribute('aria-pressed'), 'true', 'the selected row is pressed for AT')
+    // The rail is the kit's RowButton, and a row states its selection as
+    // `aria-current` — "the roster you are looking at" — not as a thrown toggle.
+    assert.equal(railA!.getAttribute('aria-current'), 'true', 'the selected row is current for AT')
     unmount()
   })
 

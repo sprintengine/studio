@@ -10,8 +10,8 @@ import {
   type SprintEngineIssueTotal,
 } from '../../utils/sprintengineRunSummary'
 import { getSprintEngineRoleLabel, sprintEngineTaskStateLabel } from '../../utils/sprintengine'
-import { RoleGlyph } from '../ui'
-import { FOCUS_RING_CLASS, TONE_COLOR_VAR, type Tone } from '../ui/tokens'
+import { GhostButton, RoleGlyph } from '../ui'
+import { TONE_COLOR_VAR, type Tone } from '../ui/tokens'
 
 const TABULAR: React.CSSProperties = { fontVariantNumeric: 'tabular-nums' }
 
@@ -241,16 +241,17 @@ export function AgentActivityTimeline({
               key={row.agentId}
               className={`${LANE_GRID} items-center transition-opacity ${dimmed ? 'opacity-30' : 'opacity-100'}`}
             >
-              <button
-                type="button"
+              <GhostButton
+                size="inline"
+                align="start"
+                pressed={soloed}
                 onClick={() => setSoloAgentId((current) => (current === row.agentId ? null : row.agentId))}
-                aria-pressed={soloed}
                 aria-label={`${roleLabel ? `${roleLabel} ` : ''}${row.agentId}: ${taskCount} task${taskCount === 1 ? '' : 's'}, ${activeLabel} on tasks${soloed ? ' — filtered' : ''}`}
-                className={`group inline-flex min-w-0 items-baseline gap-2 rounded-sm text-left ${FOCUS_RING_CLASS}`}
+                className="group min-w-0"
               >
-                {row.role ? <RoleGlyph role={row.role} size="sm" className="translate-y-[2px]" /> : null}
+                {row.role ? <RoleGlyph role={row.role} size="sm" /> : null}
                 <span className="truncate font-mono text-meta text-[color:var(--text-strong)]">{row.agentId}</span>
-              </button>
+              </GhostButton>
               <div className="relative h-4">
                 <span className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[color:var(--border-subtle)]" />
                 {row.segments.map((seg, index) => {

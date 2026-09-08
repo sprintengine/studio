@@ -136,7 +136,22 @@ expectIncludes(contextMenu, "event.key === 'End'", 'ContextMenu roves focus to t
 // hand focus to the checked row on open through the one shared helper.
 const presetMenu = read('src/renderer/src/components/workspace/agentComposer/agentSpawnShared.tsx')
 expectIncludes(presetMenu, 'role="menuitemradio"', 'preset rows expose menuitemradio semantics')
-expectIncludes(presetMenu, 'aria-checked={active}', 'the checked preset states it with aria-checked')
+// The rows are `ui/MenuOption` now, so the checked state travels as `selected`
+// and the PRIMITIVE picks the attribute the role takes — `aria-checked` for the
+// three checkable roles, `aria-selected` for a listbox option. Emitting the
+// wrong one is silent, which is why the mapping is asserted where it lives.
+expectIncludes(presetMenu, 'selected={active}', 'the checked preset states it through the row primitive')
+const menuOption = read('src/renderer/src/components/ui/MenuOption.tsx')
+expectIncludes(
+  menuOption,
+  'aria-checked={checkable ? selected === true : undefined}',
+  'MenuOption emits aria-checked for the checkable roles',
+)
+expectIncludes(
+  menuOption,
+  'aria-selected={checkable ? undefined : selected === true}',
+  'and aria-selected for a listbox option, never both',
+)
 expectIncludes(presetMenu, 'tabIndex={active ? 0 : -1}', 'preset rows rove: the checked row is the one tab stop')
 expectIncludes(presetMenu, "event.key === 'ArrowDown'", 'preset menu roves focus on ArrowDown')
 expectIncludes(presetMenu, "event.key === 'ArrowUp'", 'preset menu roves focus on ArrowUp')
@@ -298,7 +313,10 @@ assert.ok(
 expectIncludes(sprintEnginePanel, 'aria-label={`Run configuration: ${runConfigLabel}`}', 'Run configuration chip names itself and the current run state')
 expectIncludes(sprintEnginePanel, 'aria-haspopup="dialog"', 'Run configuration chip advertises its dialog popover')
 expectIncludes(sprintEngineSettingsPopover, 'role="radiogroup"', 'Sprint Engine automation modes form a radio group')
-expectIncludes(sprintEngineSettingsPopover, 'aria-checked={checked}', 'Sprint Engine automation mode radios expose checked state')
+// The rows are `ui/MenuOption role="radio"` since MC-2115, and the primitive is
+// what emits `aria-checked` for a checkable role (asserted per role in
+// buttonSpecies.test.tsx) — so what the panel owes is the state it hands over.
+expectIncludes(sprintEngineSettingsPopover, 'selected={checked}', 'Sprint Engine automation mode radios expose checked state')
 
 // Drawer — right-slide-in primitive with focus trap, ESC close, focus restoration, scroll-lock, reduced-motion.
 expectIncludes(drawer, 'role="dialog"', 'Drawer surface exposes the dialog role')

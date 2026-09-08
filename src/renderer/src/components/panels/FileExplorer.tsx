@@ -31,7 +31,7 @@ import { EmptyState } from '../ui/EmptyState'
 import { Spinner } from '../ui/Spinner'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
 import { Skeleton } from '../ui/Skeleton'
-import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { Input } from '../ui/Input'
 import { Tooltip } from '../ui/Tooltip'
 import { showToast } from '../../store/toastStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -230,18 +230,20 @@ function FileIcon({ name, dimmed = false }: { name: string; dimmed?: boolean }) 
 
 function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React.MouseEventHandler<HTMLButtonElement> }) {
   return (
-    <button
-      type="button"
+    <IconButton
+      size="xs"
       tabIndex={-1}
       onClick={onClick}
-      // 24x24 box on a 12x16 flow advance: the negative margins give back the
-      // padding, so the chevron draws exactly where it did while the box a
-      // pointer has to hit clears the hit-target floor. The 16px advance sits
-      // level with the 16px folder and file glyphs beside it, so the row's
-      // `min-h-[26px]` — not this box — is what sets its height; drop the
-      // negative margins and the row jumps to 32px. The sibling spacer on file
-      // rows is still w-3, so the columns line up.
-      className="-mx-1.5 -my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center text-[color:var(--text-muted)] transition-colors group-hover:text-[color:var(--text-default)]"
+      // The kit's `xs` step IS this box — 24x24, `size.hit-target-min` — on a
+      // 12x16 flow advance: the negative margins give back the padding, so the
+      // chevron draws exactly where it did while the box a pointer has to hit
+      // clears the floor. The 16px advance sits level with the 16px folder and
+      // file glyphs beside it, so the row's `min-h-[26px]` — not this box — is
+      // what sets its height; drop the negative margins and the row jumps to
+      // 32px. The sibling spacer on file rows is still w-3, so the columns line
+      // up. The ink and the hover step are now the kit's: the chevron lifts under
+      // its own pointer rather than only with the row.
+      className="-mx-1.5 -my-1 shrink-0"
       aria-label={expanded ? 'Collapse folder' : 'Expand folder'}
     >
       <svg
@@ -252,7 +254,7 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
       >
         <path d="M4.25 2.5 7.75 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-    </button>
+    </IconButton>
   )
 }
 
@@ -2051,8 +2053,10 @@ function ExplorerTree({
     if (!renameDraft) return null
 
     return (
-      <input
+      <Input
         ref={renameInputRef}
+        variant="well"
+        size="none"
         value={renameDraft.value}
         onChange={(event) =>
           setRenameDraft((current) => current ? { ...current, value: event.target.value } : current)
@@ -2069,13 +2073,16 @@ function ExplorerTree({
             cancelRename()
           }
         }}
-        // ANNOTATED OFF-RAMP (MC-2114). `h-5` is 20px, below the 26/30/34 control
-        // ramp's first step, and deliberately so: this field replaces the NAME
-        // INSIDE a file-tree row, and a tree row is 22px tall. A ramp-height
-        // field would push every sibling row down while one is being renamed,
-        // which is the one thing an in-place edit must not do. Everything else
-        // — the border token, the ground, the focus ring — is the kit's.
-        className={`h-5 min-w-0 flex-1 rounded-xs border border-[color:var(--border-strong)] bg-[color:var(--bg-app)] px-1.5 text-meta text-[color:var(--text-strong)] ${FOCUS_RING_CLASS} ${className}`}
+        // ANNOTATED OFF-RAMP (MC-2114, held through MC-2115). The primitive is
+        // the kit's `Input` on the `well` ground, and `size="none"` is what lets
+        // the box stay off the ramp: `h-5` is 20px, below the 26/30/34 ramp's
+        // first step, and deliberately so — this field replaces the NAME INSIDE a
+        // file-tree row, and a tree row is 22px tall. A ramp-height field would
+        // push every sibling row down while one is being renamed, which is the
+        // one thing an in-place edit must not do. Everything else — the border,
+        // the ground, the radius, the focus ring — is now the primitive's.
+        fullWidth={false}
+        className={`h-5 min-w-0 flex-1 px-1.5 text-meta text-[color:var(--text-strong)] ${className}`}
       />
     )
   }

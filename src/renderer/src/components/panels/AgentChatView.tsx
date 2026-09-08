@@ -45,7 +45,7 @@ import {
   openAttachmentImage,
 } from './ComposerAttachmentStrip'
 import { renderMarkdown } from '../../utils/markdown'
-import { COMPOSER_SURFACE_CLASS, ContextMenu, FilterMenu, FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, IconButton, InlineNotice, InlineSkillPicker, MENU_DIVIDER_CLASS, MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS, MenuDivider, MenuItem, OutlineButton, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { CardButton, ChipButton, COMPOSER_SURFACE_CLASS, ContextMenu, FilterMenu, FOCUS_RING_WITHIN_INPUT_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, IconButton, InlineNotice, InlineSkillPicker, Input, LinkButton, MENU_DIVIDER_CLASS, MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS, MenuDivider, MenuItem, MenuOption, OutlineButton, Popover, PrimaryButton, RowButton, SkillPickerPopover, StatusDot, Textarea, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillMention, renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -1171,8 +1171,14 @@ type Props = {
 // ring — it used to be an accent border swap, a second idiom (MC-2107).
 // `text-body`, not the raw Tailwind `text-sm` it shipped with — the one type
 // scale is the token's (remote-sessions-ux / composer-surface-premium).
+// The composer's BOX only. Ground, ink, placeholder tier, the missing outline
+// and the content sizing are `Textarea variant="composer"`'s — the wrapper
+// already draws the border and takes the ring through
+// `FOCUS_RING_WITHIN_TEXTAREA_CLASS`, which is the pairing that variant exists
+// for. The bounds are the caller's, per the variant's contract, and they are the
+// same pair the new-chat composer uses.
 const COMPOSER_CLASS =
-  'min-h-[40px] w-full resize-none rounded-t-lg bg-transparent px-3 pb-1 pt-2.5 text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] disabled:opacity-45'
+  'max-h-[280px] min-h-[40px] overflow-y-auto rounded-t-lg px-3 pb-1 pt-2.5'
 
 type PendingAction = 'starting' | 'sending' | 'stopping' | null
 
@@ -2318,8 +2324,10 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
             Message {label}
           </label>
-          <textarea
+          <Textarea
             ref={composerRef}
+            variant="composer"
+            resize="none"
             id={`chat-composer-${agentId}`}
             value={draft}
             onPaste={(event) => {
@@ -2711,19 +2719,22 @@ export function PermissionPresetPill({
           }
           placement="top"
         >
-          <button
+          {/* `ChipButton`, not a ghost: the bypass warning is an INK the chip
+              names as a tone, and a ghost tone map has no warn — spelling it in
+              `className` would put two `text-[color:var(--…)]` utilities of equal
+              specificity on the element. Content height, so it rides the footer
+              strip rather than setting it. */}
+          <ChipButton
             ref={ref}
-            type="button"
+            tone={preset === 'bypass' ? 'warn' : 'subtle'}
             onClick={togglePopover}
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
-              preset === 'bypass' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
-            }`}
+            className="shrink-0"
             {...triggerProps}
           >
             {asks ? <LockGlyph className="icon-xs" /> : <UnlockedGlyph className="icon-xs" />}
             {permissionPresetLabel(preset)}
             <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
-          </button>
+          </ChipButton>
         </Tooltip>
       )}
     >
@@ -2851,18 +2862,17 @@ function ModelPickerPill({
       onOpenAutoFocus={focusOnOpen}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <Tooltip content={shortcutLabel ? `Model · ${shortcutLabel}` : 'Model'} placement="top">
-          <button
+          <ChipButton
             ref={ref}
-            type="button"
+            tone="neutral"
             onClick={togglePopover}
             aria-keyshortcuts={shortcutLabel ?? undefined}
-            className={`inline-flex items-center gap-1.5 rounded-sm px-1.5 py-1 text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
             {...triggerProps}
           >
             <ChatGlyph className="icon-sm text-[color:var(--text-muted)]" />
             <TruncatedText as="span" text={label} className="max-w-[200px]" />
             <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
-          </button>
+          </ChipButton>
         </Tooltip>
       )}
     >
@@ -2871,18 +2881,25 @@ function ModelPickerPill({
           // Search + the shared filter glyph, matching the panel-toolbar
           // pattern (Backlog, agent composer): search is the at-rest control,
           // the provider axis collapses behind FilterMenu.
-          <div className="flex items-center gap-1 border-b border-[color:var(--border-subtle)] p-1 pl-2.5">
+          // The glyph + field + menu row is the composed control the kit's
+          // `seamless` field is made for: the BOX is this wrapper, which draws
+          // the edge and takes the ring for whatever input is focused inside it.
+          // A `seamless` field without that wrapper class has no focus indicator
+          // at all, which is why the two arrive together.
+          <div className={`flex items-center gap-1 border-b border-[color:var(--border-subtle)] p-1 pl-2.5 ${FOCUS_RING_WITHIN_INPUT_CLASS}`}>
             <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
               <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>
-            <input
+            <Input
+              variant="seamless"
+              fullWidth={false}
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder="Search models…"
               aria-label="Search models"
-              className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-body text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+              className="min-w-0 flex-1 px-1 py-1 text-body"
             />
             {groups.length > 1 ? (
               <FilterMenu
@@ -2949,13 +2966,13 @@ function ModelPickerPill({
                       <p className="pb-1 text-micro leading-4 text-[color:var(--text-muted)]">
                         Add an API key to browse this provider’s models.
                       </p>
-                      <button
-                        type="button"
+                      <GhostButton
+                        size="inline"
+                        tone="accent"
                         onClick={() => onAddKey(group.providerId)}
-                        className={`rounded-sm px-2 py-1 text-meta font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
                       >
                         Add key in Settings
-                      </button>
+                      </GhostButton>
                     </div>
                   ) : (
                     <p className="px-2.5 pb-1.5 pt-0.5 text-micro leading-4 text-[color:var(--text-muted)]" role="status">
@@ -2970,35 +2987,33 @@ function ModelPickerPill({
                   )
                   const jumpHint = jumpIndex >= 0 && jumpIndex < 9 ? `${jumpModifier}${jumpIndex + 1}` : null
                   return (
-                    <button
+                    // The value row primitive carries the geometry, the hover
+                    // fill it suppresses while checked, the disabled state, the
+                    // inset focus ring, and the `aria-checked` this role takes.
+                    <MenuOption
                       key={`${group.providerId}:${model.id}`}
-                      type="button"
                       role="menuitemradio"
-                      aria-checked={isCurrent}
+                      selected={isCurrent}
                       aria-keyshortcuts={jumpHint ? `${window.api.platform === 'darwin' ? 'Meta' : 'Control'}+${jumpIndex + 1}` : undefined}
                       disabled={Boolean(group.unavailable)}
                       onClick={() => onSelect(group.providerId, model.id)}
-                      // The menu canon carries the row geometry, the hover
-                      // fill, the disabled state and the inset focus ring; the
-                      // row only adds its ink and the checked fill.
-                      className={`${MENU_ITEM_CLASS} ${
-                        isCurrent
-                          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                          : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)] disabled:hover:text-[color:var(--text-default)]'
-                      }`}
+                      trailing={
+                        <>
+                          {/* aria-checked on the radio carries the meaning; the
+                              mark inherits the selected row's ink. */}
+                          {isCurrent ? <CheckIcon className="icon-xs shrink-0" /> : null}
+                          {/* The spec's trailing hint: mono micro at text.disabled,
+                              plain text rather than a kbd capsule. */}
+                          {jumpHint ? (
+                            <span aria-hidden="true" className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">
+                              {jumpHint}
+                            </span>
+                          ) : null}
+                        </>
+                      }
                     >
                       <TruncatedText as="span" text={model.displayName ?? model.id} className="min-w-0 flex-1" />
-                      {/* aria-checked on the radio carries the meaning; the
-                          mark inherits the selected row's ink. */}
-                      {isCurrent ? <CheckIcon className="icon-xs shrink-0" /> : null}
-                      {/* The spec's trailing hint: mono micro at text.disabled,
-                          plain text rather than a kbd capsule. */}
-                      {jumpHint ? (
-                        <span aria-hidden="true" className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">
-                          {jumpHint}
-                        </span>
-                      ) : null}
-                    </button>
+                    </MenuOption>
                   )
                 })}
               </div>
@@ -3598,20 +3613,18 @@ function ConversationQuestionCard({
           const checked = picks.includes(option.label)
           const parsed = parseOptionLabel(option.label)
           return (
-            <button
+            // `role="checkbox"` is not one of the value-row roles, and inside a
+            // `group` a multi-select answer is a `menuitemcheckbox`; the single
+            // answer stays a `radio` in its radiogroup. Both take `aria-checked`,
+            // which is what the primitive emits for either.
+            <MenuOption
               key={option.label}
-              type="button"
-              role={question.multiSelect ? 'checkbox' : 'radio'}
-              aria-checked={checked}
+              role={question.multiSelect ? 'menuitemcheckbox' : 'radio'}
+              stacked
+              selected={checked}
               disabled={busy}
               onClick={() => toggleOption(option.label)}
-              className={`flex items-start gap-2.5 rounded-sm px-2.5 py-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
-                checked
-                  ? 'bg-[color:var(--bg-selected)]'
-                  : 'hover:bg-[color:var(--bg-hover)]'
-              }`}
-            >
-              {index < 9 ? (
+              icon={index < 9 ? (
                 <span
                   aria-hidden="true"
                   className={`mt-0.5 shrink-0 rounded-xs border px-1 py-px font-mono text-micro font-medium leading-none ${
@@ -3623,7 +3636,7 @@ function ConversationQuestionCard({
                   {index + 1}
                 </span>
               ) : null}
-              <span className="min-w-0">
+            >
                 <span className="block text-body font-semibold leading-5 text-[color:var(--text-strong)]">
                   {parsed.text}
                   {parsed.recommended ? (
@@ -3633,19 +3646,19 @@ function ConversationQuestionCard({
                   ) : null}
                 </span>
                 {option.description ? (
-                  <span className="mt-px block text-meta leading-[1.45] text-[color:var(--text-muted)]">
+                  <span className="block text-meta leading-[1.45] text-[color:var(--text-muted)]">
                     {option.description}
                   </span>
                 ) : null}
-              </span>
-            </button>
+            </MenuOption>
           )
         })}
       </div>
       {question.allowFreeText !== false ? (
         <div className="px-5 pb-1 pt-1.5">
-          <input
-            type="text"
+          <Input
+            variant="quiet"
+            size="content"
             value={otherText[question.question] ?? ''}
             onChange={(event) =>
               setOtherText((current) => ({ ...current, [question.question]: event.target.value }))
@@ -3665,7 +3678,6 @@ function ConversationQuestionCard({
             placeholder="Something else…"
             disabled={busy}
             aria-label={`Other answer for: ${question.question}`}
-            className={`w-full rounded-sm border border-[color:var(--border-subtle)] bg-transparent px-2.5 py-2 text-body text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] ${FOCUS_RING_CLASS}`}
           />
         </div>
       ) : null}
@@ -3779,15 +3791,15 @@ function ThoughtRow({ reasoning, durationMs }: { reasoning: string; durationMs?:
   const [expanded, setExpanded] = useState(false)
   return (
     <div className="mb-1.5">
-      <button
-        type="button"
+      <GhostButton
+        size="inline"
+        tone="subtle"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
-        className={`inline-flex items-center gap-1.5 rounded-sm py-0.5 pl-1 pr-2 text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
       >
         <ChevronRightGlyph className={`icon-xs transition-transform ${expanded ? 'rotate-90' : ''}`} />
         {durationMs !== undefined ? `Thought for ${formatStepDuration(durationMs)}` : 'Thought'}
-      </button>
+      </GhostButton>
       {expanded ? (
         <p className="mb-1 mt-1 max-w-[68ch] whitespace-pre-wrap pl-1 text-body italic leading-5 text-[color:var(--text-muted)]">
           {reasoning}
@@ -3822,11 +3834,10 @@ export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; li
   const working = live || allSteps.some((tool) => tool.status === 'running')
   return (
     <div className="mb-3">
-      <button
-        type="button"
+      <GhostButton
+        size="inline"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className={`inline-flex items-center gap-1.5 rounded-sm py-0.5 pl-1 pr-2 text-meta font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
       >
         <ChevronRightGlyph className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`} />
         {working ? (
@@ -3839,17 +3850,19 @@ export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; li
             {allSteps.length} {allSteps.length === 1 ? 'step' : 'steps'}
           </span>
         )}
-      </button>
+      </GhostButton>
       {open ? (
         <div className="ml-1.5 mt-1.5 flex flex-col gap-0.5 border-l border-[color:var(--border-default)] pl-4">
           {hiddenSteps > 0 ? (
-            <button
-              type="button"
+            <GhostButton
+              size="inline"
+              tone="subtle"
+              align="start"
               onClick={() => setShowAllSteps(true)}
-              className={`self-start rounded-sm px-2 py-1 text-left text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
+              className="self-start"
             >
               Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
-            </button>
+            </GhostButton>
           ) : null}
           {visibleTools.map((tool) => (
             <WorkTimelineStep key={tool.id} tool={tool} />
@@ -3891,9 +3904,11 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   // Steps only appear once the agent reports its first tool call, so a lane
   // with none yet is a plain row rather than an expander onto nothing.
   const expandable = children.length > 0
-  const headerClass = `relative flex w-full items-baseline gap-2 rounded-sm px-2 py-1 text-left text-meta ${
-    running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
-  }`
+  // The lane header's ink, split from the box: the pressable branch is a kit row
+  // (which owns the box, the hover ground and the ring) and the readable twin
+  // keeps the shape it always had.
+  const headerInk = running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
+  const headerClass = `relative flex w-full items-baseline gap-2 rounded-sm px-2 py-1 text-left text-meta ${headerInk}`
   const header = (
     <>
       <StatusDot tone={running ? 'accent' : 'neutral'} pulse={running} className="absolute -left-[19px] top-[10px]" />
@@ -3923,27 +3938,29 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   return (
     <div>
       {expandable ? (
-        <button
-          type="button"
+        <RowButton
+          density="row"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          className={`${headerClass} transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+          className={headerInk}
         >
           {header}
-        </button>
+        </RowButton>
       ) : (
         <div className={headerClass}>{header}</div>
       )}
       {open && expandable ? (
         <div className="ml-2 mt-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-4">
           {hiddenSteps > 0 ? (
-            <button
-              type="button"
+            <GhostButton
+              size="inline"
+              tone="subtle"
+              align="start"
               onClick={() => setShowAllSteps(true)}
-              className={`self-start rounded-sm px-2 py-1 text-left text-meta text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
+              className="self-start"
             >
               Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
-            </button>
+            </GhostButton>
           ) : null}
           {visibleChildren.map((child) => (
             <WorkTimelineStep key={child.id} tool={child} />
@@ -4026,15 +4043,15 @@ function StepOutput({ output }: { output: string }) {
         ))}
       </pre>
       {lines.length > STEP_OUTPUT_COLLAPSED_LINES ? (
-        <button
-          type="button"
+        // `bleed`: the row is full-bleed inside an `overflow-hidden` block, so
+        // an outset ring would be clipped by it.
+        <RowButton
+          density="bleed"
           onClick={() => setExpanded((value) => !value)}
-          // Inset: the row is full-bleed inside an `overflow-hidden` block, so
-          // an outset ring would be clipped by it.
-          className={`block w-full border-t border-[color:var(--border-subtle)] px-3 py-1 text-left text-micro text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-muted)] ${FOCUS_RING_INSET_CLASS}`}
+          className="border-t border-[color:var(--border-subtle)] text-micro"
         >
           {collapsed ? `Show ${lines.length - STEP_OUTPUT_COLLAPSED_LINES} more lines` : 'Show less'}
-        </button>
+        </RowButton>
       ) : null}
     </div>
   )
@@ -4070,14 +4087,14 @@ function TurnErrorBlock({
           </OutlineButton>
         ) : null}
         {detail ? (
-          <button
-            type="button"
+          <LinkButton
+            ink="quiet"
             aria-expanded={showDetails}
             onClick={() => setShowDetails((value) => !value)}
-            className={`ml-auto rounded-sm text-meta text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
+            className="ml-auto"
           >
             {showDetails ? 'Hide details' : 'Show details'}
-          </button>
+          </LinkButton>
         ) : null}
       </div>
       {showDetails && detail ? (
@@ -4112,11 +4129,12 @@ function ResolvedDecisionGroupRow({ row }: { row: Extract<ConversationDecisionRo
   const [expanded, setExpanded] = useState(false)
   return (
     <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-4">
-      <button
-        type="button"
+      <GhostButton
+        size="inline"
+        tone="strong"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
-        className={`inline-flex items-center gap-1.5 rounded-sm py-0.5 pl-1 pr-2 text-body font-medium text-[color:var(--text-strong)] transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+        className="text-body"
       >
         <ChevronRightGlyph
           className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -4127,7 +4145,7 @@ function ResolvedDecisionGroupRow({ row }: { row: Extract<ConversationDecisionRo
           <StatusDot tone="error" />
         ) : null}
         {row.label}
-      </button>
+      </GhostButton>
       {expanded ? (
         <ul className="mt-1 flex flex-col gap-0.5 pl-1">
           {row.entries.map((entry) => {
@@ -4241,18 +4259,20 @@ function EmptyChatState({
       </p>
       <div className="flex w-full max-w-[420px] flex-col gap-1.5 text-left">
         {suggestions.map((suggestion) => (
-          <button
+          <CardButton
             key={suggestion.text}
-            type="button"
+            variant="bordered"
             onClick={() => onSuggestion(suggestion.text)}
-            className={`group flex items-center gap-2.5 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+            className="group px-3 py-2.5 text-body"
           >
-            {suggestion.glyph}
-            <span className="min-w-0 flex-1">{suggestion.text}</span>
-            <span aria-hidden="true" className="text-micro text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
-              ⏎
+            <span className="flex w-full items-center gap-2.5">
+              {suggestion.glyph}
+              <span className="min-w-0 flex-1">{suggestion.text}</span>
+              <span aria-hidden="true" className="text-micro text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+                ⏎
+              </span>
             </span>
-          </button>
+          </CardButton>
         ))}
       </div>
       <p className="mt-5 text-micro text-[color:var(--text-subtle)]">

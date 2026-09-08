@@ -682,7 +682,9 @@ run('the link state machine and renderer are extracted out of BacklogPanel', () 
 })
 
 run('openable Backlog links render as a focusable button, not an inert span', () => {
-  assert.match(linksSectionSource, /<button/, 'an openable link is a real button')
+  // The kit's `RowButton` — still a real `<button>`, and now the same list row
+  // every other navigable row in the product draws.
+  assert.match(linksSectionSource, /<RowButton/, 'an openable link is a real button')
   assert.match(linksSectionSource, /onClick=\{\(\) => onOpen\(link\)\}/, 'the button opens the link through the provider')
   // The pre-T4 inert link pill carried a native title and no interactivity.
   assert.ok(!linksSectionSource.includes('title={link.target.path'), 'inert title-only link pill is gone')

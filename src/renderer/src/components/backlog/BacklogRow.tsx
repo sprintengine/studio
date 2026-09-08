@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { IconButton, LifecycleGlyph, StarGlyph, Tooltip, TruncatedText, type LifecycleState } from '../ui'
+import { ChipButton, IconButton, LifecycleGlyph, StarGlyph, Tooltip, TruncatedText, type LifecycleState } from '../ui'
 import { BacklogTypeGlyph } from './BacklogTypeGlyph'
 import type {
   BacklogCriticality,
@@ -563,18 +563,20 @@ function EpicPill({ epic, onOpen }: { epic: BacklogEpicMeta; onOpen?: () => void
         // The one nested control inside a clickable row: the pill claims its own
         // click (stopPropagation) so opening the epic never also re-selects the
         // member row underneath it.
-        <button
-          type="button"
+        <ChipButton
           aria-label={`Open epic ${epic.title}`}
+          // The epic's hue as the kit's IDENTITY tint: its own ink over a 12% mix
+          // of itself, which is the weight every other identity mark in the
+          // system carries. The display-only form below keeps its own pill.
+          tint={swatch?.hex}
           onClick={(event) => {
             event.stopPropagation()
             onOpen()
           }}
-          className={`${pillClass} cursor-pointer transition-colors hover:text-[color:var(--text-strong)] focus-visible:focus-ring`}
-          style={pillStyle}
+          className="max-w-[14ch] shrink"
         >
           {body}
-        </button>
+        </ChipButton>
       ) : (
         <span role="img" aria-label={`Epic: ${epic.title}`} className={pillClass} style={pillStyle}>
           {body}

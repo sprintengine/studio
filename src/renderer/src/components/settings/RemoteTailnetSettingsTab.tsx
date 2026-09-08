@@ -8,7 +8,7 @@ import {
   type TailnetScope,
 } from '../../../../shared/tailnet'
 import type { TailnetPeerScan } from '../../../../shared/tailnet-peers'
-import { FOCUS_RING_CLASS, InlineNotice, Input, OutlineButton, PrimaryButton, StatusDot } from '../ui'
+import { FOCUS_RING_CLASS, InlineNotice, Input, LinkButton, OutlineButton, PrimaryButton, StatusDot } from '../ui'
 import { MetaCell, SettingsPageHeader, SettingsSectionTitle, SettingToggle, formatDate } from './SettingsAtoms'
 import { deviceSummary, outstandingPairingNote, pairingExpiry, tailnetReadiness } from './tailnetPanelModel'
 import { PeerPicker } from '../remote/PeerPicker'
@@ -442,14 +442,16 @@ function PairingOffer({
         )}
         <div className="min-w-0 flex-1 space-y-2">
           {url ? (
-            <button
-              type="button"
+            // No underline: one drawn under a mono URL collides with its
+            // glyphs (design-system/components/link-button → Variants).
+            <LinkButton
+              underline="never"
               onClick={() => onCopy(url, 'Pairing link')}
-              className={`block w-full break-all text-left font-mono text-meta text-[color:var(--text-default)] transition-colors hover:text-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
+              className="break-all font-mono"
               aria-label="Copy the pairing link"
             >
               {url}
-            </button>
+            </LinkButton>
           ) : null}
           <div className="text-meta text-[color:var(--text-muted)]">
             {pairingExpiry(offer.expiresAt, now)} · works once · grants {offer.scopes.length} scopes

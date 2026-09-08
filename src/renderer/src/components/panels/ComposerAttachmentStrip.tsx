@@ -6,10 +6,10 @@
 
 import type { ConversationImageAttachment } from '../../../../shared/conversation-runtime'
 import { showToast } from '../../store/toastStore'
-// The token module directly, not the `../ui` barrel: this strip is on the
-// lazily-loaded launch surface's path and should pull in one constant, not the
+// The two button modules directly, not the `../ui` barrel: this strip is on the
+// lazily-loaded launch surface's path and should pull in two primitives, not the
 // whole kit.
-import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { IconButton, MediaButton } from '../ui/Buttons'
 
 // A `data:` URL for rendering an attachment thumbnail. The base64 is already in
 // memory, so this avoids an object-URL lifecycle with nothing to revoke.
@@ -59,14 +59,13 @@ export function AttachmentThumbnail({
 }) {
   const label = attachmentImageLabel(attachment)
   return (
-    <button
-      type="button"
+    <MediaButton
       onClick={() => void openAttachmentImage(attachment)}
       aria-label={`Open ${label}`}
-      className={`interactive block overflow-hidden rounded-sm border border-[color:var(--border-subtle)] hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS} ${className}`}
+      className={className}
     >
       <img src={attachmentPreviewUrl(attachment)} alt={label} className="h-full w-full object-cover" />
-    </button>
+    </MediaButton>
   )
 }
 
@@ -93,16 +92,24 @@ export function ComposerAttachmentStrip({
       {attachments.map((attachment) => (
         <li key={attachment.id} className="relative">
           <AttachmentThumbnail attachment={attachment} className="h-12 w-12" />
-          <button
-            type="button"
-            aria-label={`Remove ${attachment.name ?? 'attached image'}`}
-            onClick={() => onRemove(attachment.id)}
-            className={`interactive absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-xs bg-[color:var(--bg-surface-raised)]/85 text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
+          {/* The kit's `3xs` step pads its hit target out to the floor with a
+              centred pseudo-element, which makes the control `relative`; the
+              placement therefore belongs to this wrapper rather than to the
+              button. The resting ground is the caller's because `IconButton`
+              declares none at rest, and a bare cross over a photograph is not
+              legible. */}
+          <span className="absolute right-1 top-1">
+            <IconButton
+              size="3xs"
+              aria-label={`Remove ${attachment.name ?? 'attached image'}`}
+              onClick={() => onRemove(attachment.id)}
+              className="bg-[color:var(--bg-surface-raised)]/85"
+            >
+              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </IconButton>
+          </span>
         </li>
       ))}
       {reading > 0 ? (

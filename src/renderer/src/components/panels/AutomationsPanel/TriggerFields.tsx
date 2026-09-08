@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { Field, GhostButton, InlineNotice, Input, Select, type SelectItem, Switch } from '../../ui'
+import { ChipButton, Field, GhostButton, InlineNotice, Input, Select, type SelectItem, Switch } from '../../ui'
 import type { AutomationDefinition, AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
 import { foreignScheduleTimeZone } from '../../../../../shared/automations/cadence'
 import {
@@ -302,15 +302,15 @@ function ScheduleFields({
             {WEEKDAY_SHORT.map((label, day) => {
               const checked = value.daysOfWeek.includes(day)
               return (
-                <button
+                <ChipButton
                   key={day}
-                  type="button"
-                  aria-pressed={checked}
+                  variant="outline"
+                  pressed={checked}
                   onClick={() => onChange({ daysOfWeek: checked ? value.daysOfWeek.filter((d) => d !== day) : [...value.daysOfWeek, day] })}
-                  className={chipClass(checked)}
+                  className="min-w-9 justify-center"
                 >
                   {label}
-                </button>
+                </ChipButton>
               )
             })}
           </div>
@@ -354,20 +354,20 @@ function RepoEventFields({
           {REPO_EVENT_TYPES.map((event) => {
             const checked = value.eventTypes.includes(event.value)
             return (
-              <button
+              <ChipButton
                 key={event.value}
-                type="button"
-                aria-pressed={checked}
+                variant="outline"
+                pressed={checked}
                 onClick={() => onChange({
                   ...value,
                   eventTypes: checked
                     ? value.eventTypes.filter((e) => e !== event.value)
                     : [...value.eventTypes, event.value],
                 })}
-                className={chipClass(checked)}
+                className="min-w-9 justify-center"
               >
                 {event.label}
-              </button>
+              </ChipButton>
             )
           })}
         </div>
@@ -491,13 +491,4 @@ function WebhookFields({
       </p>
     </>
   )
-}
-
-function chipClass(active: boolean): string {
-  return [
-    'h-7 min-w-9 rounded-sm border px-2 text-micro outline-none transition-colors focus-visible:focus-ring',
-    active
-      ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-      : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]',
-  ].join(' ')
 }

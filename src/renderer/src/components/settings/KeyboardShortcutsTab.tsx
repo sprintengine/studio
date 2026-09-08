@@ -27,7 +27,7 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { KeybindingSettings } from '../../types/workspace'
 import { SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
 import {
-  FOCUS_RING_CLASS,
+  GhostButton,
   IconButton,
   InboxSearchInput,
   KbdChord,
@@ -502,8 +502,13 @@ function KeybindingCell({
 
   return (
     <>
-      <button
-        type="button"
+      {/* `armed`, not `pressed`: the recorder is LISTENING, which is the one
+          borderless state that takes the accent — as a tint, for the moment it
+          lasts. `end`, because the chord is right-aligned under its column. */}
+      <GhostButton
+        size="sm"
+        align="end"
+        armed={recording}
         aria-pressed={recording}
         aria-describedby={recording ? liveId : undefined}
         aria-label={
@@ -516,13 +521,7 @@ function KeybindingCell({
         onClick={() => (recording ? onCancelRecording() : onStartRecording())}
         onKeyDown={handleKeyDown}
         onBlur={() => recording && onCancelRecording()}
-        className={[
-          'interactive inline-flex h-control-sm min-w-[72px] items-center justify-end gap-1.5 rounded-sm px-2',
-          FOCUS_RING_CLASS,
-          recording
-            ? 'bg-[color:var(--accent-primary-soft)]'
-            : 'bg-transparent hover:bg-[color:var(--bg-hover)]',
-        ].join(' ')}
+        className="min-w-[72px]"
       >
         {recording ? (
           <span className="text-body font-medium text-[color:var(--accent-primary)]">Press keys…</span>
@@ -533,7 +532,7 @@ function KeybindingCell({
             Add shortcut
           </span>
         )}
-      </button>
+      </GhostButton>
       <span id={liveId} role="status" aria-live="polite" className="sr-only">
         {recording ? `Recording a shortcut for ${row.title}. Press Escape to cancel.` : ''}
       </span>

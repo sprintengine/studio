@@ -9,7 +9,6 @@ import {
   Checkbox,
   EmptyState,
   Field,
-  FOCUS_RING_CLASS,
   GhostButton,
   InlineNotice,
   Input,
@@ -403,10 +402,14 @@ export default function WorktreeManager({
             <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{rows.length}</span>
           </div>
         ) : (
-          <button
-            type="button"
+          // A heading that opens a section: `inline` spends no height, and `ink`
+          // takes no ground, so the section title still reads as a heading.
+          <GhostButton
+            size="inline"
+            align="start"
+            tone="ink"
             onClick={() => setOpen((current) => !current)}
-            className={`group flex min-w-0 items-center gap-1.5 rounded-md pr-2 text-left ${FOCUS_RING_CLASS}`}
+            className="group min-w-0"
             aria-expanded={open}
           >
             <svg
@@ -419,7 +422,7 @@ export default function WorktreeManager({
             </svg>
             <span className="text-meta font-semibold text-[color:var(--text-strong)]">Worktrees</span>
             <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{rows.length}</span>
-          </button>
+          </GhostButton>
         )}
         {contentOpen ? (
           <div className="flex shrink-0 items-center gap-1">

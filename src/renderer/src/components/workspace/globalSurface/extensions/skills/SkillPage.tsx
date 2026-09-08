@@ -10,8 +10,15 @@
 import React, { useState } from 'react'
 
 import { skillDirName, skillNameWarning, type ScannedSkill, type SkillSource } from '../../../../../../../shared/skills'
-import { Badge, DefinitionList, GhostButton, PrimaryButton, StatusDot, type DefinitionItem } from '../../../../ui'
-import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
+import {
+  Badge,
+  DefinitionList,
+  GhostButton,
+  LinkButton,
+  PrimaryButton,
+  StatusDot,
+  type DefinitionItem,
+} from '../../../../ui'
 import { SkillReader } from './SkillReader'
 import { SourceMonogram } from './SourceMonogram'
 import {
@@ -118,13 +125,21 @@ export function SkillPage({
             {skill.description}
           </p>
           {longDescription ? (
-            <button
-              type="button"
-              onClick={() => setDescriptionOpen((open) => !open)}
-              className={`mt-1 rounded-sm text-meta text-[color:var(--text-muted)] underline underline-offset-2 hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-            >
-              {descriptionOpen ? 'Less' : 'More'}
-            </button>
+            // The kit's link button, `quiet` ink: the disclosure under a
+            // clamped description is the case that variant is named for. Its
+            // standing underline is the primitive's — now drawn in
+            // `border.strong` rather than in the ink itself, so the rule sits
+            // under the words instead of competing with them.
+            //
+            // The 4px gap moves to a wrapper because the primitive is `inline`
+            // — that is what keeps it on the baseline of a sentence — and a
+            // vertical margin on an inline box is ignored. Here it is not in a
+            // sentence but under one, so the block that holds it owns the gap.
+            <div className="mt-1">
+              <LinkButton ink="quiet" onClick={() => setDescriptionOpen((open) => !open)}>
+                {descriptionOpen ? 'Less' : 'More'}
+              </LinkButton>
+            </div>
           ) : null}
         </div>
       ) : (

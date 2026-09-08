@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   EmptyState,
-  FOCUS_RING_CLASS,
   GhostButton,
   IconButton,
   InboxSearchInput,
@@ -13,9 +12,11 @@ import {
   Popover,
   PrimaryButton,
   RefreshIcon,
+  RowButton,
   Section,
   Skeleton,
   Tooltip,
+  TriggerButton,
   TruncatedText,
   useConfirmDialog,
   type OverflowMenuItem,
@@ -2808,15 +2809,16 @@ export function BacklogDetail({
             it navigates sideways to a sibling concept, not "back"). Carries the
             epic's identity colour, and its full name in a tooltip when clipped. */}
         {parentEpic ? (
-          <button
-            type="button"
+          <GhostButton
+            size="inline"
+            align="start"
             onClick={() => onNavigate(parentEpic.id)}
             aria-label={`Open epic ${parentEpic.title}`}
-            className={`interactive mt-1.5 -ml-1.5 flex min-h-6 max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-meta font-medium text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className="mt-1.5 -ml-1 min-h-6 max-w-full"
           >
             <EpicColorDot color={parentEpicColor} size={7} />
             <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
-          </button>
+          </GhostButton>
         ) : null}
 
         {/* A host's own band, directly under the title — the loudest thing in
@@ -3054,11 +3056,7 @@ function BacklogEpicChildren({
                 {/* The member's path rides the product tooltip on the row button
                     (its own focusable trigger), not a native `title`. */}
                 <Tooltip content={child.relativePath} placement="top" openDelayMs={600} wrapperClassName="block">
-                <button
-                  type="button"
-                  onClick={() => onNavigate(child.id)}
-                  className={`interactive flex w-full items-center gap-2 rounded-sm px-1.5 py-1.5 text-left hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
-                >
+                <RowButton onClick={() => onNavigate(child.id)}>
                   <Tooltip
                     content={
                       glyph?.label
@@ -3091,7 +3089,7 @@ function BacklogEpicChildren({
                   />
                   <DifficultyIndicator difficulty={child.difficulty} />
                   <CriticalityIndicator criticality={child.criticality} />
-                </button>
+                </RowButton>
                 </Tooltip>
               </li>
               )
@@ -3157,21 +3155,21 @@ function BacklogEpicSearchEditor({
       placement="bottom-start"
       surfaceClassName="min-w-[19rem] p-1"
       renderTrigger={({ ref, togglePopover, triggerProps }) => (
-        <button
+        <TriggerButton
           ref={ref}
-          type="button"
+          open={triggerProps['aria-expanded'] === true}
           aria-haspopup="dialog"
           aria-expanded={triggerProps['aria-expanded']}
           aria-controls={triggerProps['aria-controls']}
           aria-label="Move to epic"
           onClick={togglePopover}
-          className="interactive inline-flex h-control-sm w-full min-w-[140px] items-center justify-between gap-2 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-meta text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+          className="min-w-[140px]"
         >
           <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className="shrink-0 text-[color:var(--text-muted)]">
             <path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-        </button>
+        </TriggerButton>
       )}
     >
       <BacklogItemSearchPicker
@@ -3193,27 +3191,29 @@ function BacklogEpicSearchEditor({
         }}
       />
       <div className="border-t border-[color:var(--border-subtle)] pt-1">
-        <button
-          type="button"
+        {/* `RowButton`, not `MenuOption`: these two commit an ACTION rather than
+            a value, so neither of the option roles is honest, and the popover is
+            a dialog the keyboard tabs into rather than a menu with roving focus —
+            which is the tab stop `MenuItem` would take away. */}
+        <RowButton
           onClick={() => {
             setOpen(false)
             actions.createEpic(item)
           }}
-          className={`interactive w-full rounded-sm px-2.5 py-1.5 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+          className="text-meta"
         >
           New epic…
-        </button>
+        </RowButton>
         {item.epic ? (
-          <button
-            type="button"
+          <RowButton
             onClick={() => {
               setOpen(false)
               actions.setEpic(item, null)
             }}
-            className={`interactive w-full rounded-sm px-2.5 py-1.5 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className="text-meta"
           >
             Remove from epic
-          </button>
+          </RowButton>
         ) : null}
       </div>
     </Popover>

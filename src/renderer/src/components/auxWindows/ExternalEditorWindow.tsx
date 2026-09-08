@@ -5,7 +5,7 @@ import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { renderMarkdown } from '../../utils/markdown'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
-import { CloseIconButton, EmptyState, FOCUS_RING_INSET_CLASS, GhostButton, IconButton, InlineNotice, Spinner, Tooltip } from '../ui'
+import { CloseIconButton, EmptyState, GhostButton, IconButton, InlineNotice, RowButton, Spinner, Tooltip } from '../ui'
 import {
   createExternalFileLoadingBuffer,
   createExternalFileTab,
@@ -194,15 +194,17 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
                 }`}
               >
                 <Tooltip content={tab.path} placement="bottom" wrapperClassName="flex min-w-0">
-                  <button
-                    type="button"
+                  {/* `flush`: the tab chip around it owns the fill and the radius,
+                      and this is one of the two targets inside it. Its ring is
+                      inset, which the scrolling strip needs — an outset one at
+                      either end is clipped by the overflow container. */}
+                  <RowButton
+                    density="flush"
                     onClick={() => setActivePath(tab.path)}
-                    // Inset: the strip scrolls horizontally, so an outset ring
-                    // at either end would be clipped by the overflow container.
-                    className={`min-w-0 max-w-[200px] truncate rounded-sm bg-transparent ${FOCUS_RING_INSET_CLASS}`}
+                    className="max-w-[200px]"
                   >
-                    {tab.name}
-                  </button>
+                    <span className="min-w-0 truncate">{tab.name}</span>
+                  </RowButton>
                 </Tooltip>
                 <span
                   className={`inline-flex size-control-xs shrink-0 items-center justify-center ${

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { FilePreviewPane, FOCUS_RING_INSET_CLASS, GhostButton, InboxRow, InboxSearchInput, InlineNotice, PanelHeader, Section, SidePane, Tooltip } from '../../ui'
+import { FilePreviewPane, FOCUS_RING_INSET_CLASS, GhostButton, InboxRow, InboxSearchInput, InlineNotice, PanelHeader, RowButton, Section, SidePane, Tooltip } from '../../ui'
 import { BacklogRowContent, BacklogRowHoverCard } from '../../backlog/BacklogRow'
 import { HtmlArtifactFrame } from '../../htmlArtifact/HtmlArtifactFrame'
 import { isEditableTarget } from '../../../utils/keyboard'
@@ -610,16 +610,22 @@ function SprintEngineSeedRowButton({
   const isChild = row.role === 'epic-child'
 
   return (
+    // The ground moved up here from the row: the trailing controls are siblings
+    // of the row inside this strip, and `RowButton density="flush"` leaves the
+    // fill and the hover step to whatever wraps it.
     <div
-      className={`group relative flex items-stretch ${selected ? 'bg-[color:var(--bg-selected)]' : ''}`}
+      className={`group relative flex items-stretch ${selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'}`}
     >
-      <button
-        type="button"
+      <RowButton
+        density="flush"
         onClick={onOpen}
         aria-current={selected ? 'true' : undefined}
-        // design-tokens-allow: alignment — an epic's child row indents one glyph slot past the epic row's own text edge
-        className={`interactive flex min-w-0 flex-1 flex-col gap-0.5 py-1.5 pr-3 text-left focus-visible:focus-ring-inset ${isChild ? 'pl-10' : 'pl-5'} ${selected ? '' : 'hover:bg-[color:var(--bg-surface)]'}`}
+        className="min-w-0 flex-1"
       >
+        {/* The row's own stack. The indent is measured from the kit row's inset
+            rather than from the strip's edge. */}
+        {/* design-tokens-allow: alignment — an epic's child row indents one glyph slot past the epic row's own text edge */}
+        <span className={`flex min-w-0 flex-1 flex-col gap-0.5 ${isChild ? 'pl-8' : 'pl-3'}`}>
         {item ? (
           <Tooltip
             content={<BacklogRowHoverCard item={item} />}
@@ -666,7 +672,8 @@ function SprintEngineSeedRowButton({
             className="pl-[22px]"
           />
         ) : null}
-      </button>
+        </span>
+      </RowButton>
       {/* The launch seed's mark. A backlog row's title line has no slot to take
           it inline, so it holds the trailing edge — where every row's actions
           also live — rather than displacing the title. */}
@@ -676,24 +683,24 @@ function SprintEngineSeedRowButton({
         </span>
       ) : null}
       {provenance?.url ? (
-        <button
-          type="button"
+        <GhostButton
+          size="inline"
           onClick={() => void window.api.openExternal(provenance.url)}
           aria-label={`View ${provenance.nativeKey} in ${sprintEngineSeedProvenanceProviderLabel(provenance.provider)}`}
-          className="interactive mr-1 shrink-0 self-center rounded px-1.5 py-1 text-micro font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 group-focus-within:opacity-100"
+          className="mr-1 shrink-0 self-center opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
         >
           View in {sprintEngineSeedProvenanceProviderLabel(provenance.provider)}
-        </button>
+        </GhostButton>
       ) : null}
       {row.backlogPath ? (
-        <button
-          type="button"
+        <GhostButton
+          size="inline"
           onClick={() => onOpenInBacklog(row.backlogPath as string)}
           aria-label={`Open ${row.fileName} in Backlog`}
-          className="interactive mr-2 shrink-0 self-center rounded px-1.5 py-1 text-micro font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:focus-ring group-hover:opacity-100 group-focus-within:opacity-100"
+          className="mr-2 shrink-0 self-center opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
         >
           Open in Backlog
-        </button>
+        </GhostButton>
       ) : null}
     </div>
   )

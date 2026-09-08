@@ -1,7 +1,6 @@
 import React, { useCallback, useRef } from 'react'
 import { APP_THEMES, colorSchemeForResolvedTheme, type AppTheme, type ThemeSwatches } from '../../types/appTheme'
-import { FOCUS_RING_CLASS } from '../ui/tokens'
-import { TruncatedText } from '../ui'
+import { CardButton, TruncatedText } from '../ui'
 
 type AppThemePickerProps = {
   value: AppTheme
@@ -77,28 +76,26 @@ function AppThemePicker({ value, onChange }: AppThemePickerProps) {
         const isSelected = value === theme.id
         const scheme = theme.resolved ? colorSchemeForResolvedTheme(theme.resolved) : null
         return (
-          <button
+          <CardButton
             key={theme.id}
             ref={(node) => {
               buttonRefs.current[index] = node
             }}
-            type="button"
+            variant="bordered"
+            // Selection is neutral: the kit tile's fill, strong edge and inset
+            // selection ring, never the accent — an accent ring on an unfocused
+            // card read as focus, and spent the one solid hue on a resting state.
+            selected={isSelected}
             role="radio"
             aria-checked={isSelected}
+            // The tile's own `selected` would also emit `aria-pressed`; a radio
+            // states its state as `aria-checked`, and two would be read twice.
+            aria-pressed={undefined}
             aria-label={scheme ? `${theme.label}, ${scheme}` : theme.label}
             tabIndex={index === fallbackTabIndex ? 0 : -1}
             onClick={() => onChange(theme.id)}
             onKeyDown={(event) => handleKeyDown(event, index)}
-            className={[
-              'interactive flex flex-col items-center gap-2.5 rounded-md border px-3 pb-3 pt-4 text-center',
-              // Selection is neutral: the selected fill and the strong edge,
-              // never the accent — an accent ring on an unfocused card read
-              // as focus, and spent the one solid hue on a resting state.
-              isSelected
-                ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
-                : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)]',
-              FOCUS_RING_CLASS,
-            ].join(' ')}
+            className="items-center gap-2.5 px-3 pb-3 pt-4"
           >
             {theme.swatches ? (
               <ThemeSwatch swatches={theme.swatches} scheme={scheme ?? 'dark'} />
@@ -108,11 +105,11 @@ function AppThemePicker({ value, onChange }: AppThemePickerProps) {
             <TruncatedText
               as="span"
               text={theme.label}
-              className={`w-full text-body ${
+              className={`w-full text-center text-body ${
                 isSelected ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
               }`}
             />
-          </button>
+          </CardButton>
         )
       })}
     </div>

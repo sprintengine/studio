@@ -3,7 +3,6 @@ import {
   CliModelPickerButton,
   CliModelPopoverSurface,
   ContextMenu,
-  FOCUS_RING_INSET_CLASS,
   GhostButton,
   IconButton,
   LifecycleGlyph,
@@ -13,6 +12,7 @@ import {
   OutlineButton,
   PanelHeader,
   Popover,
+  RowButton,
   StatusDot,
   Tooltip,
   TruncatedText,
@@ -661,17 +661,20 @@ export function SprintEngineRosterView({
           // Selection fill, and hover skipped on the picked row: `--bg-hover`
           // sits below `--bg-selected`, so letting it win would dim the row the
           // pointer is over (design-system/patterns/selection.html).
-          className={`group flex min-h-[34px] w-full min-w-0 items-center gap-2.5 px-4 transition-colors ${
+          // The seat's own left inset is split with the row below: `pl-2` here and
+          // the kit row's own `px-2` inside it add back up to the band's 16px
+          // edge, so the rhythm holds while the kit owns the control's padding.
+          className={`group flex min-h-[34px] w-full min-w-0 items-center gap-2.5 pl-2 pr-4 transition-colors ${
             selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
           }`}
         >
           {/* The seat itself — status, name, activity — is the control that
               picks it; the trailing actions stay siblings so no button nests
               inside another. */}
-          <button
-            type="button"
+          <RowButton
+            density="flush"
             onClick={() => onSelectAgent(agent.id)}
-            className={`flex min-w-0 flex-1 items-center gap-2.5 text-left ${FOCUS_RING_INSET_CLASS}`}
+            className="min-w-0 flex-1"
           >
             <span className="flex w-3 shrink-0 items-center justify-center">
               {lifecycle ? (
@@ -723,7 +726,7 @@ export function SprintEngineRosterView({
               text={activity}
               className="min-w-0 flex-1 text-meta text-[color:var(--text-subtle)]"
             />
-          </button>
+          </RowButton>
           <span className="flex shrink-0 items-center gap-2">
             {divergedFrom ? (
               <span

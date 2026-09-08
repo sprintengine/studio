@@ -6,7 +6,7 @@
 // owner of the form state and the one save path. Nothing here reads or writes
 // an automation; every control hands its choice back through `onPatchConfig`.
 
-import { CliModelPickerButton, FOCUS_RING_CLASS, MenuItem, Popover, Select, type SelectItem } from '../../ui'
+import { CliModelPickerButton, MenuItem, Popover, Select, type SelectItem, TriggerButton } from '../../ui'
 import { MENU_LIST_CLASS } from '../../ui/menuClasses'
 import type { AgentCliCatalogOption } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import { useSpecialistRoster } from '../../workspace/agentComposer/useAgentComposer'
@@ -68,15 +68,14 @@ export function AgentModelFields({
           popupRole="menu"
           placement="bottom-start"
           renderTrigger={({ ref, triggerProps, togglePopover }) => (
-            <button
+            <TriggerButton
               ref={ref}
-              type="button"
+              size="content"
               aria-label="Choose agent"
               onClick={togglePopover}
-              className={`grid w-full grid-cols-[24px_1fr_auto] items-center gap-2.5 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 py-2 text-left transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`}
               {...triggerProps}
             >
-              <span className="flex h-6 w-6 items-center justify-center text-[color:var(--text-muted)]">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center text-[color:var(--text-muted)]">
                 {selectedSpecialist ? (
                   <SpecialistActionIcon icon={selectedSpecialist.icon} className="h-4 w-4" />
                 ) : (
@@ -86,7 +85,7 @@ export function AgentModelFields({
                   </svg>
                 )}
               </span>
-              <span className="min-w-0">
+              <span className="min-w-0 flex-1">
                 <span className="block truncate text-meta font-medium text-[color:var(--text-strong)]">
                   {selectedSpecialist ? selectedSpecialist.shortLabel : 'No role'}
                 </span>
@@ -102,7 +101,7 @@ export function AgentModelFields({
               <svg className="icon-sm shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                 <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-            </button>
+            </TriggerButton>
           )}
         >
           <RoleMenu

@@ -11,16 +11,17 @@ import {
 } from '../../store/sprintRunStoreSlice'
 import {
  Banner,
+ CardButton,
  CliModelPickerButton,
  CloseIconButton,
  InlineNotice,
  OverflowMenu,
  GhostButton,
  LifecycleGlyph,
- FOCUS_RING_CLASS,
   FOCUS_RING_INSET_CLASS,
  EmptyState,
  Input,
+ MenuOption,
  Popover,
  SegmentedControl,
  Textarea,
@@ -31,6 +32,7 @@ import {
  Checkbox,
  Select,
  Tabs,
+ TriggerButton,
  TruncatedText,
  DefinitionList,
  type LifecycleState,
@@ -282,11 +284,10 @@ function SprintEngineModelField({
  className="block w-full"
  surfaceClassName="min-w-[var(--popover-trigger-width)] p-1"
  renderTrigger={({ ref, triggerProps, togglePopover }) => (
- <button
+ <TriggerButton
  ref={ref}
- type="button"
+ open={open}
  onClick={togglePopover}
- className="flex h-10 w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-sm text-[color:var(--text-strong)] outline-none interactive hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
  {...triggerProps}
  >
  <TruncatedText
@@ -302,7 +303,7 @@ function SprintEngineModelField({
  >
  <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
- </button>
+ </TriggerButton>
  )}
  >
  {[
@@ -311,53 +312,49 @@ function SprintEngineModelField({
  ].map((option) => {
  const selected = option.id === model
  return (
- <button
+ // The chosen model is a selection, so it takes the selection fill the
+ // primitive paints: in `--bg-hover` it was the same picture as whichever
+ // option the pointer happened to be over
+ // (design-system/patterns/selection.html).
+ <MenuOption
  key={option.id ?? '__default__'}
- type="button"
  role="option"
- aria-selected={selected}
+ selected={selected}
  onClick={() => {
  onChange(option.id)
  setOpen(false)
  }}
- // The chosen model is a selection, so it takes the selection fill:
- // painted in `--bg-hover` it was the same picture as whichever option
- // the pointer happened to be over
- // (design-system/patterns/selection.html).
- className={`flex w-full items-center gap-3 rounded-sm px-3 py-2 text-left text-body interactive ${FOCUS_RING_INSET_CLASS} ${
- selected
- ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
- : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
- }`}
- >
- <TruncatedText as="span" text={option.label} className="min-w-0 flex-1" />
- {selected ? (
+ trailing={selected ? (
  <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
  <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
  ) : null}
- </button>
+ >
+ <TruncatedText as="span" text={option.label} className="min-w-0 flex-1" />
+ </MenuOption>
  )
  })}
  {model && !catalog.options.some((option) => option.id === model) ? (
- <button
- type="button"
- role="option"
- aria-selected
- onClick={() => setOpen(false)}
  // The custom id in force is the selected option of this listbox, so it
  // carries the same selection fill as the catalog rows above it.
- className={`flex w-full items-center gap-3 rounded-sm bg-[color:var(--bg-selected)] px-3 py-2 text-left font-mono text-body text-[color:var(--text-strong)] ${FOCUS_RING_INSET_CLASS}`}
- >
- <TruncatedText as="span" text={model} className="min-w-0 flex-1" />
+ <MenuOption
+ role="option"
+ selected
+ onClick={() => setOpen(false)}
+ className="font-mono"
+ trailing={
  <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
  <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
- </button>
+ }
+ >
+ <TruncatedText as="span" text={model} className="min-w-0 flex-1" />
+ </MenuOption>
  ) : null}
  {catalog.allowCustomId ? (
- <input
- type="text"
+ <Input
+ variant="quiet"
+ size="content"
  value={customModel}
  placeholder="Custom model id"
  aria-label={`Custom model id for ${cliOption.label}`}
@@ -372,7 +369,7 @@ function SprintEngineModelField({
  }
  }
  }}
- className={`mt-1 w-full rounded-md border border-[color:var(--border-subtle)] bg-transparent px-3 py-2 font-mono text-body text-[color:var(--text-default)] placeholder:font-sans placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+ className="mt-1 font-mono placeholder:font-sans"
  />
  ) : null}
  </Popover>
@@ -494,20 +491,13 @@ export function SprintEngineSettingsPopover({
  {sprintEngineAutomationModeOptions.map((option) => {
  const checked = option.value === automationMode
  return (
- <button
+ <MenuOption
  key={option.value}
- type="button"
  role="radio"
- aria-checked={checked}
+ stacked
+ selected={checked}
  onClick={() => onChangeAutomationMode(option.value)}
- className="interactive flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
- >
- <span className="min-w-0 flex-1">
- <span className={`block text-meta ${checked ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
- {option.label}
- </span>
- <span className="mt-0.5 block text-micro leading-4 text-[color:var(--text-muted)]">{option.hint}</span>
- </span>
+ trailing={
  <svg
  className={`icon-sm mt-0.5 shrink-0 text-[color:var(--accent-primary)] ${checked ? '' : 'invisible'}`}
  viewBox="0 0 16 16"
@@ -516,7 +506,13 @@ export function SprintEngineSettingsPopover({
  >
  <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
- </button>
+ }
+ >
+ <span className={`block text-meta ${checked ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
+ {option.label}
+ </span>
+ <span className="block text-micro leading-4 text-[color:var(--text-muted)]">{option.hint}</span>
+ </MenuOption>
  )
  })}
  </div>
@@ -542,14 +538,15 @@ export function SprintEngineSettingsPopover({
  <p className="mt-1 text-micro leading-4 text-[color:var(--text-muted)]">{runtimeReasonDisplay}</p>
  ) : null}
  {runtimeTask && onOpenRuntimeTask ? (
- <button
- type="button"
+ <GhostButton
+ size="inline"
+ align="start"
  onClick={() => {
  onOpenRuntimeTask(runtimeTask.id)
  onClose()
  }}
  aria-label={`Open task ${runtimeTask.id} ${runtimeTask.title}`}
- className="interactive -mx-1 mt-1 flex w-[calc(100%+0.5rem)] items-baseline gap-2 rounded-sm px-1 py-1 text-left hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
+ className="-mx-1 mt-1 w-[calc(100%+0.5rem)]"
  >
  <span className="shrink-0 font-mono tabular-nums text-micro text-[color:var(--text-muted)]">
  {runtimeTask.id}
@@ -559,7 +556,7 @@ export function SprintEngineSettingsPopover({
  text={runtimeTask.title}
  className="min-w-0 flex-1 text-meta text-[color:var(--text-strong)]"
  />
- </button>
+ </GhostButton>
  ) : null}
  </div>
  ) : null}
@@ -2599,19 +2596,20 @@ export function SprintRunBoard({
  popupRole="dialog"
  placement="bottom-end"
  renderTrigger={({ ref, triggerProps, togglePopover }) => (
- <button
+ <GhostButton
  ref={ref}
- type="button"
+ size="inline"
+ // The open ground is the kit's thrown fill; the ANNOUNCEMENT stays
+ // `aria-expanded` alone, because a disclosure that also says
+ // `aria-pressed` states the same fact twice.
+ pressed={settingsOpen}
+ aria-pressed={undefined}
  aria-label={`Run configuration: ${runConfigLabel}`}
  aria-haspopup="dialog"
  aria-expanded={triggerProps['aria-expanded']}
  aria-controls={triggerProps['aria-controls']}
  onClick={togglePopover}
- className={`interactive flex h-6 max-w-[200px] shrink-0 items-center gap-1.5 rounded-sm px-1.5 text-micro focus-visible:focus-ring ${
- settingsOpen
- ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
- : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
- }`}
+ className="max-w-[200px] shrink-0"
  >
  {automationRuntimeState === 'running' ? (
  <Spinner size={14} />
@@ -2622,7 +2620,7 @@ export function SprintRunBoard({
  <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 12 12" fill="none" aria-hidden="true">
  <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
- </button>
+ </GhostButton>
  )}
  >
   <SprintEngineSettingsPopover
@@ -2707,14 +2705,14 @@ export function SprintRunBoard({
  {expansion.tasks.map((task, index) => (
  <React.Fragment key={task.id}>
  {index > 0 ? <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span> : null}
- <button
- type="button"
+ <GhostButton
+ size="inline"
  onClick={() => showAutomationRuntimeTask(task.id)}
  aria-label={`Open ${task.id} ${task.title}`}
- className="interactive rounded-[3px] px-0.5 font-mono tabular-nums text-micro text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
+ className="font-mono tabular-nums"
  >
  {task.id}
- </button>
+ </GhostButton>
  </React.Fragment>
  ))}
  </>
@@ -3058,11 +3056,11 @@ export function SprintRunBoard({
  className="block w-full"
  surfaceClassName="min-w-[var(--popover-trigger-width)] p-1"
  renderTrigger={({ ref, triggerProps, togglePopover }) => (
- <button
+ <TriggerButton
  ref={ref}
- type="button"
+ size="content"
+ open={cliPickerOpen}
  onClick={togglePopover}
- className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-[color:var(--text-strong)] outline-none interactive hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring"
  {...triggerProps}
  >
  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)]">
@@ -3087,31 +3085,27 @@ export function SprintRunBoard({
  >
  <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
- </button>
+ </TriggerButton>
  )}
  >
  {cliOptions.map((option) => {
  const selected = recoveryDialog.cli === option.value
  return (
- <button
+ // Same listbox, same rule as the model picker above: the chosen CLI
+ // takes `--bg-selected`, never the hover fill — which is what the
+ // primitive's `selected` paints.
+ <MenuOption
  key={option.value}
- type="button"
  role="option"
- aria-selected={selected}
+ stacked
+ selected={selected}
  onClick={() => {
  setRecoveryDialog((current) =>
  current ? { ...current, cli: option.value, model: undefined } : current
  )
  setCliPickerOpen(false)
  }}
- // Same listbox, same rule as the model picker above: the chosen CLI
- // takes `--bg-selected`, never the hover fill.
- className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left interactive ${FOCUS_RING_INSET_CLASS} ${
- selected
- ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
- : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
- }`}
- >
+ icon={
  <span
  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
  selected
@@ -3121,20 +3115,20 @@ export function SprintRunBoard({
  >
  <CliIcon cli={option.value} className="h-5 w-5" />
  </span>
- <span className="min-w-0 flex-1">
- <span className="block text-sm font-semibold">{option.label}</span>
- <TruncatedText
- as="span"
- text={option.description}
- className="mt-0.5 block text-meta text-[color:var(--text-muted)]"
- />
- </span>
- {selected ? (
+ }
+ trailing={selected ? (
  <svg className="icon-md shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
  <path d="M4.5 10.5L8 14L15.5 6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
  ) : null}
- </button>
+ >
+ <span className="block text-sm font-semibold">{option.label}</span>
+ <TruncatedText
+ as="span"
+ text={option.description}
+ className="block text-meta text-[color:var(--text-muted)]"
+ />
+ </MenuOption>
  )
  })}
  </Popover>
@@ -3309,16 +3303,11 @@ export function SprintRunBoard({
  const selected = role === addMemberRole
 
  return (
- <button
+ <CardButton
  key={role}
- type="button"
+ selected={selected}
  onClick={() => selectAddMemberRole(role as SprintEngineRole)}
- aria-pressed={selected}
- className={`w-full rounded-sm px-3 py-3 text-left interactive ${FOCUS_RING_CLASS} ${
- selected
- ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
- : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
- }`}
+ className="w-full px-3 py-3"
  >
  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
  <span
@@ -3342,7 +3331,7 @@ export function SprintRunBoard({
  {option.activeForRole} active / {option.openTasksForRole} open
  </span>
  </div>
- </button>
+ </CardButton>
  )
  })}
 

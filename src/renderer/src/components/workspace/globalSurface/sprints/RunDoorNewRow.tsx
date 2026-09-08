@@ -3,8 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
 import { BacklogItemSearchPicker, type BacklogItemSearchOption } from '../../../backlog/BacklogItemSearchPicker'
-import { GhostButton, PrimaryButton, Select, Textarea, type SelectItem } from '../../../ui'
-import { FOCUS_RING_CLASS } from '../../../ui/tokens'
+import { GhostButton, PrimaryButton, RowButton, Select, Textarea, type SelectItem } from '../../../ui'
 import { useBacklogScan } from '../../newWorkspace/useBacklogScan'
 import { buildNewSprintSource, epicPickKey } from '../../newSprint/newSprintModel'
 import { isBacklogEpicPath } from '../../../../utils/backlogEpics'
@@ -56,12 +55,6 @@ const PLUS_ICON = (
   </svg>
 )
 
-// The rail's own dashed New row, at the END of the list rather than the top of
-// it. Same shape as `SurfaceRailHeader`'s, deliberately: one affordance means
-// one appearance, wherever in the column it sits.
-const NEW_ROW_CLASS =
-  'flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-
 export function RunDoorNewRow({
   door,
   /** The project the rail's lens is narrowed to, if any — the row starts there. */
@@ -104,15 +97,16 @@ export function RunDoorNewRow({
   if (!open) {
     return (
       <div className="px-1 pt-1">
-        <button
-          ref={plusRef}
-          type="button"
-          onClick={() => setOpen(true)}
-          className={`${NEW_ROW_CLASS} ${FOCUS_RING_CLASS}`}
-        >
+        {/* The rail's own dashed New row, at the END of the list rather than
+            the top of it — and now literally the same object as
+            `SurfaceRailHeader`'s, not a class string copied to look like it.
+            The local `NEW_ROW_CLASS` is gone; one affordance means one
+            appearance, wherever in the column it sits. `RowButton` forwards the
+            ref, so closing the form still returns focus here. */}
+        <RowButton ref={plusRef} variant="dashed" onClick={() => setOpen(true)} className="text-meta">
           {PLUS_ICON}
           {door.newRowLabel}
-        </button>
+        </RowButton>
       </div>
     )
   }

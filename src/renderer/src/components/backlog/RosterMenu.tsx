@@ -10,7 +10,7 @@
 import { useCallback, useState } from 'react'
 
 import { CheckIcon, ChevronDownIcon } from '../AppIcons'
-import { MenuItem, Popover, StatusDot, roveMenuFocus } from '../ui'
+import { MenuItem, Popover, StatusDot, TriggerButton, roveMenuFocus } from '../ui'
 import { MENU_LIST_CLASS } from '../ui/menuClasses'
 import type { SprintEngineRoster } from '../../types/workspace'
 import { isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
@@ -22,9 +22,6 @@ import { isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
 // no roles in it"). Picking just an agent IS what no-roster means — the agent
 // picker beside this control is where WHICH agent gets chosen.
 const JUST_AN_AGENT_LABEL = 'Just an agent'
-
-const POLICY_ROSTER_TRIGGER_CLASS =
-  'interactive inline-flex h-control-sm items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring'
 
 export function RosterMenu({
   rosters,
@@ -86,10 +83,10 @@ export function RosterMenu({
       placement="bottom-start"
       surfaceClassName={`w-[260px] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusFirstRow}
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <button
+      renderTrigger={({ ref, triggerProps, togglePopover, open: opened }) => (
+        <TriggerButton
           ref={ref}
-          type="button"
+          open={opened}
           {...triggerProps}
           onClick={(event) => {
             // A host may make the surrounding row a click target of its own;
@@ -101,17 +98,20 @@ export function RosterMenu({
           // the control does. `ariaLabel` names the popup; the button needs its
           // own accessible name or a screen-reader user hears just "Mobile UI".
           aria-label={`${ariaLabel}: ${triggerLabel}${triggerTier}`}
-          className={POLICY_ROSTER_TRIGGER_CLASS}
         >
-          {/* The missing tier is a status, so it is carried by the app's status
-              glyph beside the word — never by tone ink or a tinted edge alone. */}
-          {missing ? <StatusDot tone="warn" /> : null}
-          <span>
-            {triggerLabel}
-            {missing ? ' (not found)' : ''}
+          {/* The face on the left, the chevron on the right — the trigger's own
+              `justify-between`, so the value and the affordance keep their ends. */}
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            {/* The missing tier is a status, so it is carried by the app's status
+                glyph beside the word — never by tone ink or a tinted edge alone. */}
+            {missing ? <StatusDot tone="warn" /> : null}
+            <span className="truncate">
+              {triggerLabel}
+              {missing ? ' (not found)' : ''}
+            </span>
           </span>
           <ChevronDownIcon className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-        </button>
+        </TriggerButton>
       )}
     >
       <div onKeyDown={(event) => roveMenuFocus(event, event.currentTarget.closest<HTMLElement>('[role="menu"]'))}>

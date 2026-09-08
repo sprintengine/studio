@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { EmptyState, GhostButton, LifecycleGlyph, OverflowMenu, type OverflowMenuItem, PrimaryButton, Spinner, TruncatedText } from '../../ui'
+import { EmptyState, GhostButton, LifecycleGlyph, OverflowMenu, type OverflowMenuItem, PrimaryButton, RowButton, Spinner, TruncatedText } from '../../ui'
 import type { AutomationDefinition } from '../../../../../shared/automations/contracts'
 import {
   DEFINITION_LIFECYCLE,
@@ -114,27 +114,24 @@ function DefinitionRow({
       // select.
       onClick={onSelect}
       className={[
-        // px-3 is the shared row inset (ui/InboxRow, the backlog rows, the
-        // Sprint board): one horizontal rhythm across every list surface.
-        'group relative cursor-pointer border-b border-[color:var(--border-subtle)] px-3 py-2 transition-colors',
+        // The row's inset now belongs to `RowButton density="flush"` (the kit
+        // owns a row's padding); this element keeps the ground, the hairline and
+        // the click convenience, and the trailing strip below matches the row's
+        // inset with the same `px-2`.
+        'group relative cursor-pointer border-b border-[color:var(--border-subtle)] transition-colors',
         selected
           ? 'bg-[color:var(--bg-selected)]'
           : 'hover:bg-[color:var(--bg-hover)]',
       ].join(' ')}
     >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="flex w-full items-start gap-2 text-left outline-none focus-visible:focus-ring-inset"
-      >
+      <RowButton density="flush" onClick={onSelect}>
         {busy ? (
-          <Spinner size={14} label="Working" className="mt-[2px]" />
+          <Spinner size={14} label="Working" />
         ) : (
           <LifecycleGlyph
             state={DEFINITION_LIFECYCLE[def.status]}
             live={def.status === 'enabled'}
             label={statusLabel}
-            className="mt-0.5"
           />
         )}
         <div className="min-w-0 flex-1">
@@ -181,7 +178,7 @@ function DefinitionRow({
             )}
           </div>
         </div>
-      </button>
+      </RowButton>
 
       {/* Trailing actions: revealed on hover/focus/selection so a resting row stays calm.
           Run now is the one resting affordance; Pause/Enable, Edit and Delete live in the
@@ -192,7 +189,7 @@ function DefinitionRow({
           here would leave a dead strip beside the buttons that never selects the row. */}
       <div
         className={[
-          'mt-1.5 flex items-center gap-1 pl-6 transition-opacity',
+          'flex items-center gap-1 pb-1.5 pl-8 pr-2 transition-opacity',
           selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
         ].join(' ')}
       >

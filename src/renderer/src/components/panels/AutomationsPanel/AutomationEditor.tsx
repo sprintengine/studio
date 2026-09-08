@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { DefinitionList, Field, GhostButton, INLINE_TITLE_EDIT_CLASS, InlineNotice, Input, PrimaryButton, Select, type SelectItem, Switch, Textarea } from '../../ui'
+import { DefinitionList, Field, GhostButton, InlineNotice, Input, PrimaryButton, Select, type SelectItem, Switch, Textarea } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import { orderSpecialistActions } from '../../../specialists/specialistActions'
@@ -93,10 +93,10 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
 // which is the mechanism, not the exception (MC-2114). Its `h-7` was 28px, off
 // the 26/30/34 ramp entirely; the kit's `sm` step is 30px.
 // The name, edited in place as the page's own title (mockup §.head). The chrome
-// is the kit's `INLINE_TITLE_EDIT_CLASS` — the New sprint dialog's run-name field
-// is the same idiom and used to spell its own copy (MC-2114); what stays here is
-// the type step, which is this surface's own decision.
-const NAME_INPUT = `${INLINE_TITLE_EDIT_CLASS} text-title font-semibold tracking-tight text-[color:var(--text-strong)]`
+// is `Input variant="inline"` — the promoted `INLINE_TITLE_EDIT_CLASS`, which the
+// New sprint dialog's run-name field used to spell as its own copy (MC-2114);
+// what stays here is the type step, which is this surface's own decision.
+const NAME_INPUT = 'text-title font-semibold tracking-tight text-[color:var(--text-strong)]'
 // Auto-grows with its content (field-sizing: content) from the rows={4} floor up
 // to a cap, then scrolls internally — no native drag handle. The `rows` attribute
 // sets the minimum height; max-h caps the growth so the form stays usable.
@@ -530,9 +530,9 @@ export function AutomationEditor({
           <AutomationTypeGlyph kind={form.actionKind} />
         </span>
         <div className="min-w-0 flex-1">
-          <input
+          <Input
             id="automation-name"
-            type="text"
+            variant="inline"
             aria-label="Name"
             aria-required="true"
             value={form.name}

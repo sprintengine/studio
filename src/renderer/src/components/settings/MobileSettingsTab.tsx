@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useId, useState } from 'react'
-import { EmptyState, FOCUS_RING_CLASS, GhostButton, InlineNotice, Input, OutlineButton, PrimaryButton, StatusDot, type Tone } from '../ui'
+import { EmptyState, GhostButton, InlineNotice, Input, LinkButton, OutlineButton, PrimaryButton, StatusDot, type Tone } from '../ui'
 import { MetaCell, SettingsPageHeader, SettingsRow, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 type MobileControlCommandType =
@@ -375,14 +375,18 @@ export default function MobileSettingsTab() {
         </SettingsSectionTitle>
         {pairingChallenge ? (
           <div className="mt-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-4 py-3">
-            <button
-              type="button"
+            {/* The code IS the control: no box at all, the caller's own type, and
+                no underline — one under a tracked mono code collides with it. */}
+            <LinkButton
+              size="inherit"
+              underline="never"
               onClick={() => void copyPairingCode()}
-              className={`block font-mono text-[32px] font-semibold tracking-[0.2em] text-[color:var(--text-strong)] transition-colors hover:text-[color:var(--accent-primary)] focus-visible:text-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
               aria-label={`Copy pairing code ${pairingChallenge.pairingCode}`}
             >
-              {pairingChallenge.pairingCode}
-            </button>
+              <span className="font-mono text-[32px] font-semibold tracking-[0.2em]">
+                {pairingChallenge.pairingCode}
+              </span>
+            </LinkButton>
             <div className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
               Expires {formatDate(pairingChallenge.expiresAt)} · tap to copy
             </div>

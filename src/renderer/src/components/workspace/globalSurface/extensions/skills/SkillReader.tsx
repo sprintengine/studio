@@ -12,8 +12,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ScannedSkill, SkillFileRef, SkillSource } from '../../../../../../../shared/skills'
-import { GhostButton, InlineNotice, Spinner, Tooltip } from '../../../../ui'
-import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
+import { GhostButton, InlineNotice, RowButton, Spinner, Tooltip } from '../../../../ui'
 import { renderMarkdown, type MarkdownLinkResolver } from '../../../../../utils/markdown'
 import {
   defaultSkillFilePath,
@@ -105,16 +104,11 @@ function SkillFileList({
               {/* The rail is 196px, so `scripts/block-dangerous-git.sh` reads
                   truncated: hover or focus carries the path it would install. */}
               <Tooltip content={file.path} placement="right" wrapperClassName="block w-full">
-                <button
-                  type="button"
-                  onClick={() => onOpen(file.path)}
-                  aria-current={current ? 'true' : undefined}
-                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors ${FOCUS_RING_CLASS} ${
-                    current
-                      ? 'bg-[color:var(--bg-selected)]'
-                      : 'hover:bg-[color:var(--bg-hover)]'
-                  }`}
-                >
+                {/* The kit's row button: this rail entry is the shape it names
+                    — a file path with a size on the end. The fill, its inset
+                    selection edge, the hover ground and `aria-current` come
+                    with `selected`; the row's own contents stay here. */}
+                <RowButton selected={current} onClick={() => onOpen(file.path)}>
                   <span
                     className={`min-w-0 flex-1 truncate font-mono text-meta ${
                       current ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'
@@ -128,7 +122,7 @@ function SkillFileList({
                   <span className="shrink-0 text-meta tabular-nums text-[color:var(--text-subtle)]">
                     {formatSkillFileSize(file.size)}
                   </span>
-                </button>
+                </RowButton>
               </Tooltip>
             </li>
           )

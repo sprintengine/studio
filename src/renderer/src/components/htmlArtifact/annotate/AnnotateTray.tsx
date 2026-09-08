@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { FOCUS_RING_CLASS, OutlineButton } from '../../ui'
+import { GhostButton, IconButton, OutlineButton } from '../../ui'
 import {
   annotateSubmitLabel,
   annotationDisplayRect,
@@ -77,40 +77,45 @@ export function AnnotateTray({
                 >
                   {index + 1}
                 </span>
-                <button
-                  type="button"
+                {/* `inline` is the one step that spends no height, and `ink` the one
+                    tone that takes no ground: the note's body IS the row, and a
+                    26px box or a fill would set the list's rhythm instead of
+                    riding it. */}
+                <GhostButton
+                  size="inline"
+                  align="start"
+                  tone="ink"
                   disabled={submitting}
                   onClick={() => onEdit(index)}
                   aria-label={`Edit note ${index + 1}: ${annotation.message}`}
-                  className={`min-w-0 flex-1 rounded-xs text-left disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS}`}
+                  className="min-w-0 flex-1"
                 >
-                  <span className="line-clamp-2 text-meta leading-5 text-[color:var(--text-default)]">
-                    {annotation.message}
-                  </span>
-                  {unanchored ? (
-                    <span className="text-micro text-[color:var(--tone-warn)]">
-                      Unanchored — this element is no longer in the file
+                  <span className="flex min-w-0 flex-col">
+                    <span className="line-clamp-2 text-meta leading-5 text-[color:var(--text-default)]">
+                      {annotation.message}
                     </span>
-                  ) : null}
-                </button>
-                <button
-                  type="button"
+                    {unanchored ? (
+                      <span className="text-micro text-[color:var(--tone-warn)]">
+                        Unanchored — this element is no longer in the file
+                      </span>
+                    ) : null}
+                  </span>
+                </GhostButton>
+                {/* Revealed on hover AND on keyboard focus inside the row; the
+                    drawn square is the kit's 22px step, whose hit target still
+                    pads out to the 24px floor. */}
+                <IconButton
+                  size="2xs"
+                  tone="subtle"
                   disabled={submitting}
                   onClick={() => onRemove(index)}
                   aria-label={`Remove note ${index + 1}`}
-                  className={`
-                    mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm
-                    text-[color:var(--text-subtle)] opacity-0 transition-opacity
-                    hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]
-                    ${FOCUS_RING_CLASS}
-                    focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100
-                    disabled:cursor-not-allowed disabled:opacity-0
-                  `}
+                  className="mt-0.5 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                 >
                   <svg viewBox="0 0 12 12" className="icon-xs" fill="none" aria-hidden="true">
                     <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
                   </svg>
-                </button>
+                </IconButton>
               </li>
             )
           })}
@@ -125,16 +130,14 @@ export function AnnotateTray({
         </div>
       ) : null}
       <div className="flex items-center gap-1 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-1 shadow-[var(--shadow-drawer)]">
-        <button
+        {/* `strong`: the ink stays put and only the ground moves, because hovering
+            the control that opens the list must not read as dimming it. */}
+        <GhostButton
           ref={countButtonRef}
-          type="button"
+          size="xs"
+          tone="strong"
           onClick={onToggleList}
           aria-expanded={listOpen}
-          className={`
-            inline-flex h-6 items-center gap-1 rounded-sm px-2.5 text-micro text-[color:var(--text-strong)]
-            transition-colors hover:bg-[color:var(--bg-hover)]
-            ${FOCUS_RING_CLASS}
-          `}
         >
           <span className="tabular-nums font-semibold">{annotations.length}</span>
           note{annotations.length === 1 ? '' : 's'}
@@ -146,20 +149,10 @@ export function AnnotateTray({
           >
             <path d="M2 6.5 5 3.5l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-        </button>
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={onClear}
-          className={`
-            inline-flex h-6 items-center rounded-sm px-2 text-micro text-[color:var(--text-subtle)]
-            transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]
-            disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-subtle)]
-            ${FOCUS_RING_CLASS}
-          `}
-        >
+        </GhostButton>
+        <GhostButton size="xs" tone="subtle" disabled={submitting} onClick={onClear}>
           Clear
-        </button>
+        </GhostButton>
         <OutlineButton size="xs" disabled={submitting || annotations.length === 0} onClick={onSend}>
           {submitting ? 'Sending…' : submitLabel ?? annotateSubmitLabel(annotations.length)}
         </OutlineButton>

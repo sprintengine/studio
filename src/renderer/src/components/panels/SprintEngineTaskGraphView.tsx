@@ -25,7 +25,7 @@ import {
 } from '../../utils/sprintengine'
 import { formatSprintEngineGoal } from '../../utils/sprintengineRunSummary'
 import { isEditableTarget } from '../../utils/keyboard'
-import { EmptyState, IconButton, LifecycleGlyph, PanelHeader, Tooltip, TruncatedText } from '../ui'
+import { CardButton, ChipButton, EmptyState, IconButton, LifecycleGlyph, PanelHeader, Tooltip, TruncatedText } from '../ui'
 import { taskBoardColumnToLifecycle } from '../../../../shared/sprintengine/state'
 import {
   buildTaskGraphLayout,
@@ -136,11 +136,11 @@ function taskGraphNodeStatusLabel(
 // node that is also the selected one, and panning to a node that looks like
 // every other node (what dropping the old focus border left behind) cannot
 // happen again.
-function taskGraphNodeClass(selected: boolean, focused: boolean): string {
- const resting = selected
- ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
- : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] hover:bg-[color:var(--bg-hover)]'
- return focused ? resting + ' focus-ring' : resting
+// The node's edge, ground and selection fill are `CardButton variant="bordered"`
+// now; what stays here is the standing ring on the ONE task the view centred on,
+// which is a mark on the canvas rather than a state of the control.
+function taskGraphNodeClass(focused: boolean): string {
+ return focused ? 'focus-ring' : ''
 }
 
 export function SprintEngineTaskGraphView({
@@ -508,12 +508,13 @@ export function SprintEngineTaskGraphView({
  : 'root'
 
  return (
- <button
+ <CardButton
  key={node.id}
+ variant="bordered"
+ selected={isSelected}
  data-task-graph-node={task.id}
  onClick={() => onSelectTask(task.id)}
- aria-pressed={isSelected}
- className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col overflow-hidden rounded-sm border p-3 text-left transition-colors [content-visibility:auto] [contain-intrinsic-size:272px_154px] focus-visible:focus-ring ${taskGraphNodeClass(isSelected, isFocused)} ${
+ className={`absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer overflow-hidden p-3 [content-visibility:auto] [contain-intrinsic-size:272px_154px] ${taskGraphNodeClass(isFocused)} ${
  isSelected || isFocused ? 'z-10' : 'z-0'
  }`}
  style={{
@@ -586,7 +587,7 @@ export function SprintEngineTaskGraphView({
  </>
  ) : null}
  </div>
- </button>
+ </CardButton>
  )
  }), [graph, rosterById, focusTaskId, selectedTaskId, boardColumnByTaskId, sprintEngineState, terminalCount, onSelectTask])
 
@@ -889,11 +890,11 @@ export function SprintEngineTaskGraphView({
  {taskCount > 0 ? (
  <div className="pointer-events-none absolute bottom-3 left-3 z-[var(--z-float)]">
  <div className="pointer-events-auto inline-flex flex-col items-start">
- <button
- type="button"
+ <ChipButton
+ variant="overlay"
+ tone="neutral"
  onClick={() => setLegendOpen((open) => !open)}
  aria-expanded={legendOpen}
- className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-micro font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
  >
  Legend
  <svg
@@ -904,7 +905,7 @@ export function SprintEngineTaskGraphView({
  >
  <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
- </button>
+ </ChipButton>
  {legendOpen ? (
  // Inline disclosure under the legend toggle: flow-positioned, no outside-click,
  // no Escape close. Not a popover semantically — kept as a graph-overlay
@@ -940,11 +941,11 @@ export function SprintEngineTaskGraphView({
  {taskCount > 0 ? (
  <div className="pointer-events-none absolute bottom-3 right-3 z-[var(--z-float)]">
  <div className="pointer-events-auto inline-flex flex-col items-end">
- <button
- type="button"
+ <ChipButton
+ variant="overlay"
+ tone="neutral"
  onClick={() => setMinimapOpen((open) => !open)}
  aria-expanded={minimapOpen}
- className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-micro font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
  >
  Minimap
  <svg
@@ -955,7 +956,7 @@ export function SprintEngineTaskGraphView({
  >
  <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
- </button>
+ </ChipButton>
  {minimapOpen ? (
  // Inline disclosure under the minimap toggle: flow-positioned, no
  // outside-click, no Escape close. Not a popover semantically — kept as a

@@ -4,7 +4,7 @@ import { focusOrAddFileTab } from '../../utils/modelRegistry'
 import { renderMarkdown } from '../../utils/markdown'
 import { bucketForNode, colorForBucket } from './MemoryGraphCanvas'
 import { Tooltip } from '../ui/Tooltip'
-import { CloseIconButton, GhostButton, InlineNotice, PanelHeader } from '../ui'
+import { ChipButton, CloseIconButton, GhostButton, InlineNotice, PanelHeader } from '../ui'
 
 type Props = {
   workspaceId: string
@@ -182,11 +182,14 @@ export default function MemoryPreviewPane({
               const targetColor = colorForBucket(targetBucket)
               const label = target.title?.trim() || target.name.replace(/\.mdx?$/i, '')
               return (
-                <button
+                <ChipButton
                   key={target.id}
-                  type="button"
+                  // The outline chip is what a related-node mark on a canvas takes:
+                  // findable on a busy surface, and content-height so the wrap row
+                  // keeps its rhythm.
+                  variant="outline"
+                  tone="neutral"
                   onClick={() => onNavigate(target)}
-                  className="group inline-flex items-center gap-1.5 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 text-micro text-[color:var(--text-default)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:focus-ring"
                 >
                   <span
                     className="h-[6px] w-[6px] rounded-full"
@@ -194,7 +197,7 @@ export default function MemoryPreviewPane({
                     aria-hidden
                   />
                   {label}
-                </button>
+                </ChipButton>
               )
             })}
           </div>

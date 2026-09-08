@@ -30,8 +30,7 @@ import {
   type ScanResult,
   type SkillSource,
 } from '../../../../../../../shared/skills'
-import { GhostButton, InlineNotice, Input, PrimaryButton, Spinner } from '../../../../ui'
-import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
+import { GhostButton, InlineNotice, Input, LinkButton, PrimaryButton, Spinner } from '../../../../ui'
 import { Modal, ModalBody, ModalFooter, ModalHeader } from '../../../../ui/Modal'
 import { addedRepoKeys } from './discoverModel'
 import { SkillsDiscover } from './SkillsDiscover'
@@ -152,14 +151,19 @@ export function AddSkillSourceModal({
         {phase.kind === 'added' ? <ScanSummary scan={phase.scan} /> : null}
 
         {phase.kind === 'idle' ? (
-          <button
-            type="button"
+          // The kit's link button, `quiet` ink — the disclosure sentence, in the
+          // one shape the system gives it: muted ink lifting to `text.primary`
+          // over a standing `border.strong` underline. `self-start` is the only
+          // class left, because where it sits in the modal's column is this
+          // file's business and nothing else here is.
+          <LinkButton
+            ink="quiet"
             onClick={() => setDiscovering((value) => !value)}
             aria-expanded={discovering}
-            className={`self-start rounded-sm text-meta text-[color:var(--text-muted)] underline decoration-[color:var(--border-strong)] underline-offset-2 hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className="self-start"
           >
             {discovering ? 'Hide search' : "Don't have one in mind? Search GitHub"}
-          </button>
+          </LinkButton>
         ) : null}
         {phase.kind === 'idle' && discovering ? (
           <div className="max-h-[320px] min-h-0 overflow-y-auto">

@@ -19,7 +19,7 @@ import {
   selectAgentCliCatalog,
   type CliAvailabilityFilterStatus,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { IconButton, PrimaryButton, SkillPickerPopover, StarGlyph, Tooltip } from '../ui'
+import { IconButton, PrimaryButton, RowButton, SkillPickerPopover, StarGlyph, Tooltip } from '../ui'
 import { revealBacklogItemInPane } from '../workspace/pane/backlogPaneReveal'
 import { bracketedPaste } from '../../utils/terminalDrop'
 import { clearAgentLaunchFailed } from '../../utils/terminalColdLoad'
@@ -485,9 +485,12 @@ export default function AgentPanel({
               isTerminalSuspended ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
             }`}
           >
-            <div className="overflow-hidden">
-              <button
-                type="button"
+            {/* The strip's own surface — the hairline and the ground — sits on
+                this wrapper rather than on the row, so the row inside it is only
+                the control and takes the kit's row inset, ink and hover. */}
+            <div className="overflow-hidden border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)]">
+              <RowButton
+                density="bleed"
                 onClick={resumeTerminal}
                 tabIndex={isTerminalSuspended ? 0 : -1}
                 aria-label={
@@ -495,7 +498,7 @@ export default function AgentPanel({
                     ? 'Resuming agent'
                     : 'Resume paused agent — click or type to resume'
                 }
-                className="group flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-4 py-2 text-left text-micro text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:focus-ring"
+                className="group text-micro"
               >
                 {/* Pause glyph, low-opacity — a status mark, not a call to action.
                     The pulse while resuming is the "alive right now" signal; it
@@ -530,7 +533,7 @@ export default function AgentPanel({
                 >
                   click or type to resume
                 </span>
-              </button>
+              </RowButton>
             </div>
           </div>
         ) : null}

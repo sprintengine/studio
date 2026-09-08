@@ -1,7 +1,7 @@
 import type { RailModel, StepView } from './reviewSelectors'
 import { OVERVIEW_PANE_ID } from './reviewSelectors'
 import { OutlineButton } from '../../components/ui/Buttons'
-import { FOCUS_RING_INSET_CLASS } from '../../components/ui/tokens'
+import { RowButton } from '../../components/ui/RowButton'
 
 interface StepRailProps {
   rail: RailModel
@@ -53,15 +53,13 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
         </div>
       </div>
 
-      <button
-        type="button"
+      {/* `bleed`: a full-bleed rail row — no radius, and the inset ring an
+          edge-to-edge row needs. Selection is the kit's neutral canon. */}
+      <RowButton
+        density="bleed"
+        selected={activePaneId === OVERVIEW_PANE_ID}
         onClick={() => onSelectPane(OVERVIEW_PANE_ID)}
-        aria-current={activePaneId === OVERVIEW_PANE_ID ? 'true' : undefined}
-        className={`relative mb-0.5 flex w-full items-start gap-2.5 px-4 py-2.5 text-left ${FOCUS_RING_INSET_CLASS} ${
-          activePaneId === OVERVIEW_PANE_ID
-            ? 'bg-[color:var(--bg-selected)]'
-            : 'hover:bg-[color:var(--bg-hover)]'
-        }`}
+        className="relative mb-0.5"
       >
         {/* Selection is neutral: the row's `bg-selected` fill and the ink lift
             carry "active", never an accent ring — the accent here marks read
@@ -82,26 +80,22 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
           <span className="block text-body font-medium leading-tight text-[color:var(--text-strong)]">Overview</span>
           <span className="mt-0.5 block text-micro text-[color:var(--text-subtle)]">What this change is · blast radius</span>
         </span>
-      </button>
+      </RowButton>
 
       {/* The connector line is this element's ::before, so the step rings mask
           it by tree order alone — they are siblings on the same layer, not a
           raise above it, and take no z-index. */}
-      {/* design-tokens-allow: alignment — the connector line's 14px end insets centre it on the 19px step rings at the first and last row; geometry, not rhythm */}
-      <div className="relative before:absolute before:bottom-3.5 before:left-[26px] before:top-3.5 before:w-px before:bg-[color:var(--border-subtle)] before:content-['']">
+      {/* design-tokens-allow: alignment — the connector line's end insets centre it on the 19px step rings at the first and last row, and its left inset is the kit row's own 8px plus half a ring; geometry, not rhythm */}
+      <div className="relative before:absolute before:bottom-3.5 before:left-[18px] before:top-3.5 before:w-px before:bg-[color:var(--border-subtle)] before:content-['']">
         {rail.steps.map((view) => {
           const active = activePaneId === view.step.id
           return (
-            <button
+            <RowButton
               key={view.step.id}
-              type="button"
+              density="bleed"
+              selected={active}
               onClick={() => onSelectPane(view.step.id)}
-              aria-current={active ? 'true' : undefined}
-              className={`relative flex w-full items-start gap-2.5 px-4 py-2.5 text-left ${FOCUS_RING_INSET_CLASS} ${
-                active
-                  ? 'bg-[color:var(--bg-selected)]'
-                  : 'hover:bg-[color:var(--bg-hover)]'
-              }`}
+              className="relative"
             >
               <StepRing view={view} />
               <span className="min-w-0 flex-1">
@@ -110,7 +104,7 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
                 </span>
                 <span className="mt-0.5 block text-micro tabular-nums text-[color:var(--text-subtle)]">{view.metaLabel}</span>
               </span>
-            </button>
+            </RowButton>
           )
         })}
       </div>

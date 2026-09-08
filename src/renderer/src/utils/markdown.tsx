@@ -2,7 +2,8 @@ import React from 'react'
 import type { Element } from 'hast'
 import ReactMarkdown, { type Components, type ExtraProps, type UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { FOCUS_RING_CLASS } from '../components/ui/tokens'
+import { Checkbox } from '../components/ui/Checkbox'
+import { LinkButton } from '../components/ui/LinkButton'
 import type { GitLineChange } from './gitDiff'
 
 /**
@@ -213,16 +214,19 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       if (target?.kind === 'file') {
         const path = target.path
         return (
-          <button
-            type="button"
+          // The kit's inline link: a control set inside prose, taking the
+          // surrounding text's size and weight, with a standing underline so it
+          // reads as a link beside the `<a>` rows above. It opens a file rather
+          // than navigating, which is why it is a button and not an anchor.
+          <LinkButton
+            ink="accent"
+            underline="always"
+            size="inherit"
             onClick={() => links?.open(path)}
-            // It is the one control on the reader rendered by this module
-            // rather than by the surface, so it carries the surface's own focus
-            // ring — a keyboard reader must not meet a different ring here.
-            className={joinClasses(className, LINK_CLASS, FOCUS_RING_CLASS, 'rounded-sm cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] leading-[inherit]')}
+            className={className}
           >
             {children}
-          </button>
+          </LinkButton>
         )
       }
 
@@ -310,14 +314,14 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
         {children}
       </li>
     ),
-    input: ({ className, checked, type }: MarkdownComponentProps<'input'>) => (
-      <input
-        checked={checked}
-        type={type}
-        className={joinClasses(className, 'mr-2 translate-y-[1px] accent-[color:var(--tone-good)]')}
-        disabled
-      />
-    ),
+    // A GFM task-list marker: the state comes from the document, so it is the
+    // kit checkbox in MARKER mode — no label wrapper (the list item's own text
+    // is the label), no handler, and `aria-readonly` rather than `disabled`,
+    // which would read as "unavailable" for a box that is neither.
+    input: ({ className, checked, type }: MarkdownComponentProps<'input'>) =>
+      type === 'checkbox' ? (
+        <Checkbox readOnly checked={checked === true} className={joinClasses(className, 'mr-2')} />
+      ) : null,
     img: ({ alt, className }: MarkdownComponentProps<'img'>) => (
       <span className={joinClasses(className, 'text-[color:var(--text-muted)]')}>
         {alt ? `[Image: ${alt}]` : '[Image]'}

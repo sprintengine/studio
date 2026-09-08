@@ -9,7 +9,7 @@
 
 import React from 'react'
 
-import { Badge, GhostButton, PrimaryButton, TruncatedText } from '../../ui'
+import { Badge, GhostButton, PrimaryButton, RowButton, TruncatedText } from '../../ui'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
@@ -106,19 +106,24 @@ export function ConnectorRow({
     </>
   )
   return (
-    <div className={`group relative flex items-center gap-2 rounded-md p-2.5 transition-colors ${rowClass}`}>
+    // The row's own inset moved onto the two content branches, because the
+    // interactive one is now `RowButton density="flush"` and the kit owns a row's
+    // padding. The non-interactive twin repeats it verbatim so the two branches
+    // stay the same shape; this element keeps the ground, the radius and the
+    // right-hand inset the trailing actions sit in.
+    <div className={`group relative flex items-center gap-2 rounded-md pr-2.5 transition-colors ${rowClass}`}>
       {onOpen ? (
-        <button
-          type="button"
+        <RowButton
+          density="flush"
           onClick={onOpen}
           aria-expanded={selected}
           aria-label={`Show details for ${name}`}
-          className="interactive flex min-w-0 flex-1 items-center gap-3 rounded-md text-left focus-visible:focus-ring"
+          className="min-w-0 flex-1"
         >
           {content}
-        </button>
+        </RowButton>
       ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-3">{content}</div>
+        <div className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5">{content}</div>
       )}
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>

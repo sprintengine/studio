@@ -7,7 +7,7 @@
 
 import { useCallback, useMemo, useState } from 'react'
 
-import { FOCUS_RING_CLASS, GhostButton, Select, type SelectItem } from '../../ui'
+import { GhostButton, Select, type SelectItem, TriggerButton } from '../../ui'
 import { SkillPickerPopover } from '../../ui/SkillPickerPopover'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -110,18 +110,17 @@ export function AttachmentFields({
               filterSkill={onlyBuiltinSkills}
               placement="bottom-start"
               renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                <button
+                <TriggerButton
                   ref={ref}
-                  type="button"
+                  variant="dashed"
                   onClick={togglePopover}
-                  className={`flex h-7 w-full items-center justify-between rounded-sm border border-dashed border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-meta text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] ${FOCUS_RING_CLASS}`}
                   {...triggerProps}
                 >
                   Add a skill
                   <svg className="icon-xs shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                     <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                   </svg>
-                </button>
+                </TriggerButton>
               )}
             />
           )}

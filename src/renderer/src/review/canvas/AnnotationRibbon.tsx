@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { ReviewAnnotation } from '../../../../shared/review'
 import { GhostButton } from '../../components/ui/Buttons'
-import { FOCUS_RING_INSET_CLASS } from '../../components/ui/tokens'
+import { LinkButton } from '../../components/ui/LinkButton'
 import { anchorRangeLabel } from './anchorLabel'
 import { ZONE_CONTENT_INSET } from './annotationZones'
 
@@ -78,16 +78,21 @@ export function AnnotationRibbon({ annotation, onAskGuide, onMeasured }: Annotat
       className={`flex gap-2.5 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-hover)] py-2.5 ${ZONE_CONTENT_INSET} pr-4`}
     >
       <SparkMark />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 text-body leading-5">
         {expandable ? (
-          <button
-            type="button"
+          // The head line is PROSE that happens to open something, so it is the
+          // kit's inline link, not a box: it wraps with the sentence, takes the
+          // ribbon's own type, and states `aria-expanded` for the detail below.
+          // No underline — the chevron is the affordance.
+          <LinkButton
+            ink="quiet"
+            underline="never"
+            size="inherit"
             onClick={() => setOpen((value) => !value)}
             aria-expanded={open}
-            className={`block w-full cursor-pointer text-left text-body leading-5 text-[color:var(--text-default)] ${FOCUS_RING_INSET_CLASS}`}
           >
             {headLine}
-          </button>
+          </LinkButton>
         ) : (
           <p className="text-body leading-5 text-[color:var(--text-default)]">{headLine}</p>
         )}

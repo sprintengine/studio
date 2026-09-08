@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { FOCUS_RING_CLASS, Tooltip } from '../ui'
+import { ChipButton, Tooltip } from '../ui'
 import { sameSelection, type StripEntry } from './branchSteps'
 import type { BranchStepSelection } from '../../../../shared/electron-api'
 
@@ -81,20 +81,21 @@ export function BranchStepStrip({
           {entries.map((entry, index) => {
             const active = sameSelection(entry.selection, selection)
             return (
-              <button
+              <ChipButton
                 key={entry.key}
-                type="button"
+                variant="outline"
+                selected={active}
                 role="tab"
                 aria-selected={active}
+                // The chip's own `selected` would also emit `aria-current`; a tab
+                // states its state as `aria-selected`, and two state attributes on
+                // one row make a screen reader read the choice twice.
+                aria-current={undefined}
                 aria-controls={BRANCH_STEP_PANEL_ID}
                 // Roving: one tab stop for the whole strip, on the selected chip.
                 tabIndex={index === selectedIndex ? 0 : -1}
                 onClick={() => onSelect(entry.selection)}
-                className={`${FOCUS_RING_CLASS} flex h-control-sm shrink-0 items-center gap-1 whitespace-nowrap rounded-control border border-[color:var(--border-default)] px-2 text-meta ${
-                  active
-                    ? 'bg-[color:var(--bg-selected)] font-semibold text-[color:var(--text-primary)]'
-                    : 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-                }`}
+                className="shrink-0 whitespace-nowrap"
               >
                 {entry.isMerge ? <MergeGlyph /> : null}
                 {entry.hash ? (
@@ -103,7 +104,7 @@ export function BranchStepStrip({
                   </span>
                 ) : null}
                 <span className="max-w-[22ch] overflow-hidden text-ellipsis">{entry.label}</span>
-              </button>
+              </ChipButton>
             )
           })}
         </div>

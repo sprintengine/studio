@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
-import { Skeleton, Tooltip, TruncatedText } from '../ui'
+import { ChipButton, GhostButton, IconButton, Skeleton, Tooltip, TruncatedText } from '../ui'
 import {
   anchorFromSelect,
   addAnnotation,
@@ -527,21 +527,13 @@ export function HtmlArtifactFrame({
           {view.showToggle ? (
             <span role="group" aria-label="View mode" className="flex items-center gap-0.5">
               {HTML_ARTIFACT_VIEW_MODES.map((option) => (
-                <button
+                <ChipButton
                   key={option.id}
-                  type="button"
                   onClick={() => setViewMode(option.id)}
-                  aria-pressed={view.mode === option.id}
-                  className={`
-                    inline-flex h-6 items-center rounded-sm px-1.5 text-micro
-                    transition-colors focus-visible:focus-ring
-                    ${view.mode === option.id
-                      ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                      : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'}
-                  `}
+                  pressed={view.mode === option.id}
                 >
                   {option.label}
-                </button>
+                </ChipButton>
               ))}
             </span>
           ) : null}
@@ -549,72 +541,42 @@ export function HtmlArtifactFrame({
             <>
               <span role="group" aria-label="Viewport width" className="flex items-center gap-0.5">
                 {PREVIEW_VIEWPORTS.map((option) => (
-                  <button
+                  <ChipButton
                     key={option.label}
-                    type="button"
                     onClick={() => setViewport(option.id)}
-                    aria-pressed={viewport === option.id}
-                    className={`
-                      inline-flex h-6 items-center rounded-sm px-1.5 text-micro tabular-nums
-                      transition-colors focus-visible:focus-ring
-                      ${viewport === option.id
-                        ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                        : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'}
-                    `}
+                    pressed={viewport === option.id}
+                    className="tabular-nums"
                   >
                     {option.label}
-                  </button>
+                  </ChipButton>
                 ))}
               </span>
-              <button
-                type="button"
+              <ChipButton
                 onClick={() => setZoom((value) => nextHtmlPreviewZoom(value))}
                 aria-label={`Zoom ${Math.round(zoom * 100)} percent`}
-                className="
-                  inline-flex h-6 items-center rounded-sm px-1.5 text-micro tabular-nums text-[color:var(--text-muted)]
-                  transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-                  focus-visible:focus-ring
-                "
+                className="tabular-nums"
               >
                 {Math.round(zoom * 100)}%
-              </button>
+              </ChipButton>
               {/* Hairline between the viewport+zoom cluster and the actions cluster. */}
               <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-[color:var(--border-subtle)]" />
             </>
           ) : null}
           <Tooltip content="Reload">
-            <button
-              type="button"
-              aria-label="Reload preview"
-              onClick={() => setReloadNonce((nonce) => nonce + 1)}
-              className="
-                inline-flex h-6 w-6 items-center justify-center rounded-sm text-[color:var(--text-muted)]
-                transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-                focus-visible:focus-ring
-              "
-            >
+            <IconButton size="xs" aria-label="Reload preview" onClick={() => setReloadNonce((nonce) => nonce + 1)}>
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <path d="M13 8a5 5 0 1 1-1.5-3.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 <path d="M13 1.8v3h-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-            </button>
+            </IconButton>
           </Tooltip>
           <Tooltip content={copiedPath ? 'Copied' : 'Copy path'}>
-            <button
-              type="button"
-              aria-label="Copy path"
-              onClick={() => void onCopyPath()}
-              className="
-                inline-flex h-6 w-6 items-center justify-center rounded-sm text-[color:var(--text-muted)]
-                transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-                focus-visible:focus-ring
-              "
-            >
+            <IconButton size="xs" aria-label="Copy path" onClick={() => void onCopyPath()}>
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
                 <path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" stroke="currentColor" strokeWidth="1.4" />
               </svg>
-            </button>
+            </IconButton>
           </Tooltip>
           {annotateEnabled && view.showsPreviewControls ? (
             // aria-disabled (not disabled) keeps the unavailable toggle
@@ -628,17 +590,13 @@ export function HtmlArtifactFrame({
             />
           ) : null}
           {view.showsPreviewControls && !annotateActive ? (
-            <button
-              type="button"
+            // The chip's `warn` tone: the standing warning the control itself
+            // carries — scripts are running in this preview, and this is where
+            // they are turned off (design-system/components/chip-button → Tone).
+            <ChipButton
+              tone="warn"
               onClick={() => setAllowScripts((value) => !value)}
-              aria-pressed={allowScripts}
-              className={`
-                inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-micro
-                transition-colors focus-visible:focus-ring
-                ${allowScripts
-                  ? 'bg-[color:var(--tone-warn-soft)] text-[color:var(--tone-warn)]'
-                  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'}
-              `}
+              pressed={allowScripts}
             >
               {allowScripts ? (
                 <>
@@ -653,21 +611,18 @@ export function HtmlArtifactFrame({
               ) : (
                 <>Allow interactive demo</>
               )}
-            </button>
+            </ChipButton>
           ) : null}
-          <button
-            type="button"
+          {/* `busy`, not merely disabled: the control is off BECAUSE it is
+              working, so the cursor says wait rather than no. */}
+          <GhostButton
+            size="xs"
             onClick={() => void onOpenInBrowser()}
             disabled={browserOpenState.kind === 'opening'}
-            className="
-              inline-flex h-6 items-center rounded-sm px-1.5 text-micro text-[color:var(--text-muted)]
-              transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-              disabled:cursor-wait disabled:opacity-60
-              focus-visible:focus-ring
-            "
+            busy={browserOpenState.kind === 'opening'}
           >
             {browserOpenState.kind === 'opening' ? 'Opening…' : 'Open in browser'}
-          </button>
+          </GhostButton>
         </span>
       </div>
       {browserOpenState.kind === 'failed' ? (
@@ -802,19 +757,15 @@ function CommentToggle({
 }) {
   const unavailable = unavailableReason !== null
   const button = (
-    <button
+    // The kit's `aria-disabled` treatment — the unavailable state of a toggle
+    // whose tooltip says why it is off: the same look as `disabled`, and the tab
+    // stop kept so the explanation is reachable without a pointer.
+    <GhostButton
       ref={buttonRef}
-      type="button"
+      size="xs"
       onClick={unavailable ? undefined : onToggle}
-      aria-pressed={active}
+      pressed={active}
       aria-disabled={unavailable || undefined}
-      className={`
-        inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-micro
-        transition-colors focus-visible:focus-ring
-        ${unavailable ? 'cursor-not-allowed text-[color:var(--text-muted)] opacity-50' : ''}
-        ${!unavailable && active ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : ''}
-        ${!unavailable && !active ? 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]' : ''}
-      `}
     >
       <svg viewBox="0 0 14 14" className="icon-xs" aria-hidden="true">
         <path
@@ -826,7 +777,7 @@ function CommentToggle({
         />
       </svg>
       {active ? 'Commenting' : 'Comment'}
-    </button>
+    </GhostButton>
   )
   return unavailable ? <Tooltip content={unavailableReason}>{button}</Tooltip> : button
 }

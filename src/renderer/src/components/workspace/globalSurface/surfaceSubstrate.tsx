@@ -31,6 +31,7 @@ import { EmptyState } from '../../ui/EmptyState'
 import { FilterMenu, type FilterMenuGroup } from '../../ui/FilterMenu'
 import { InboxSearchInput } from '../../ui/InboxSearchInput'
 import { InlineNotice } from '../../ui/InlineNotice'
+import { RowButton } from '../../ui/RowButton'
 import { type SelectItem } from '../../ui/Select'
 import { Spinner } from '../../ui/Spinner'
 import { StatusDot } from '../../ui/StatusDot'
@@ -337,29 +338,29 @@ export function SurfaceRailHeader({
       {intro ? (
         <div className="mb-2 text-meta leading-4 text-[color:var(--text-muted)]">{intro}</div>
       ) : null}
-      <button
-        type="button"
+      {/* The kit's row button in its `dashed` variant — the system's one dashed
+          edge, and the "New …" affordance it exists for (design-system/
+          components/row-button). The width, the inset, the dashed edge, the
+          muted ink and its hover lift, the selection fill and the disabled
+          canon (the opacity step, `not-allowed`, and the hover pinned back off
+          under `disabled:hover:`) are all the primitive's now, so none of them
+          is spelled here. `aria-current` stays explicit: the row announces
+          itself as the current one whenever the door says it is selected, even
+          while it is off, which is one step wider than the fill it paints. */}
+      <RowButton
+        variant="dashed"
+        selected={newAffordance.selected && !newAffordance.disabled}
         aria-current={newAffordance.selected ? 'true' : undefined}
         disabled={newAffordance.disabled}
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect()
           newAffordance.onActivate({ x: rect.left, y: rect.bottom })
         }}
-        // Disabled is the button canon (ui/Buttons): the opacity step and the
-        // `not-allowed` cursor, with the hover lift pinned back under
-        // `disabled:hover:` — `:hover` still matches a disabled button, so
-        // without the pin the row would light up while refusing the click. It
-        // used to swap to disabled ink with no opacity step, and read as a
-        // quiet label rather than a control that is off.
-        className={`mb-2 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-meta transition-colors disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS} ${
-          newAffordance.selected && !newAffordance.disabled
-            ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
-            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-        }`}
+        className="mb-2 text-meta"
       >
         {PLUS_ICON}
         {newAffordance.label}
-      </button>
+      </RowButton>
       {search ? (
         <div className="flex items-center gap-1 pb-2">
           <InboxSearchInput
@@ -395,6 +396,17 @@ function richRowSurfaceClass(row: SurfaceRailRow, selected: boolean): string {
  * `text-heading` title whose weight is the emphasis tier and whose ink is the
  * surface's. Kept as a function of the row rather than a component so the
  * rail's roving `ref` lands on the button exactly as it does on a plain row.
+ *
+ * It stays a raw `<button>` where the plain row above became a `RowButton`, and
+ * the reason is `richRowSurfaceClass`: a row that wants a person wears the gold
+ * wash and a row that finished unseen wears the green one, both HELD on hover
+ * so hovering never reads as the ask going away. `RowButton` ships one ground —
+ * `bg.hover` at rest, `bg.selected` when chosen — and no status surface, so the
+ * wash could only arrive through `className`, where its `bg-…`, `hover:bg-…`
+ * and `text-…` meet the primitive's own at equal specificity and which of them
+ * paints is stylesheet order. That is the exact failure `RowButton` exists to
+ * prevent, so this waits for a `surface` axis on the primitive rather than
+ * gambling on the build's emit order.
  */
 function renderRichRowButton(
   row: SurfaceRailRow,
@@ -603,12 +615,19 @@ export function SurfaceRail({
         rowRefs.current.set(row.id, node)
       }, onSelect)
     ) : (
-      <button
+      // The kit's row button at its default density, which IS this row's shape:
+      // full width, left-aligned, `radius.overlay`, the 8px inset and the 8px
+      // icon-to-title gap the 36px title offset above is measured from. The
+      // selection fill, its inset edge and its `aria-current` are the
+      // primitive's `selected`; the roving `ref`, the context menu and the rest
+      // pass straight through. The press scale is gone with the raw classes: a
+      // full-width row that shrank under the pointer detached from the rows
+      // either side of it, which is why `RowButton` states no `.interactive`.
+      <RowButton
         ref={(node) => {
           rowRefs.current.set(row.id, node)
         }}
-        type="button"
-        aria-current={selected ? 'true' : undefined}
+        selected={selected}
         onClick={() => onSelect(row.id)}
         onContextMenu={
           row.onContextMenu
@@ -618,9 +637,6 @@ export function SurfaceRail({
               }
             : undefined
         }
-        className={`interactive flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${FOCUS_RING_CLASS} ${
-          selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
-        }`}
       >
         {reserveIconSlot ? (
           <span
@@ -661,7 +677,7 @@ export function SurfaceRail({
         {/* Reserve the trailing gutter so revealing the overflow never reflows
             the title mid-hover. */}
         {row.actions ? <span aria-hidden="true" className="w-5 shrink-0" /> : null}
-      </button>
+      </RowButton>
     )
     return (
       <li key={row.id} className="group/rail-row relative flex min-w-0">
@@ -747,7 +763,12 @@ export function SurfaceRail({
               }`}
             >
               <span className="text-micro font-semibold text-[color:var(--text-subtle)]">{group.label}</span>
-              <span className="font-mono text-micro tabular-nums text-[color:var(--text-disabled)]">
+              {/* The UI face, not the mono one: after the Design door's captions,
+                  token paths and provenance line came off mono (2026-09-08),
+                  two digits in a rail heading were the last mono string in a
+                  door's chrome. `tabular-nums` is what a count actually needed
+                  from that face. */}
+              <span className="text-micro tabular-nums text-[color:var(--text-disabled)]">
                 {group.rows.length}
               </span>
             </div>

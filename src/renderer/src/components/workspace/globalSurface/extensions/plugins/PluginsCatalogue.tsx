@@ -41,8 +41,7 @@ import {
   type SkillHarness,
   type SkillSource,
 } from '../../../../../../../shared/skills'
-import { GhostButton, InlineNotice, Spinner } from '../../../../ui'
-import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
+import { GhostButton, InlineNotice, LinkButton, Spinner } from '../../../../ui'
 import { PluginDetailPanel } from '../../../../settings/BrowseStorefront'
 import { ConnectorEntryRow, ConnectorRow } from '../../../../panels/ConnectorsPanel/ConnectorRow'
 import { CustomMcpServerForm } from '../../../../panels/ConnectorsPanel/CustomMcpServerForm'
@@ -895,27 +894,23 @@ function SourceStateLine({
       {skills > 0 ? (
         <>
           {' · '}
-          <button
-            type="button"
+          // The kit's link button: an action set INSIDE a sentence, which is
+          // exactly where this one sits — a clause of the ` · `-separated state
+          // line. Accent ink underlining on hover is its default, and it keeps
+          // the line's baseline because it spends no box and no height.
+          <LinkButton
             onClick={onOpenUnderSkills}
             aria-label={`Open the ${skills} skills in ${catalogueTabLabel(source)} under Skills`}
-            className={`interactive rounded-[3px] text-meta text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
           >
             {catalogueHoldingsLine([[skills, 'skill', 'skills']])}
-          </button>
+          </LinkButton>
         </>
       ) : null}
       {shortfall.map((part) => (
         <React.Fragment key={part.text}>
           {' · '}
           {part.action === 'github-settings' ? (
-            <button
-              type="button"
-              onClick={openGitHubSettings}
-              className={`interactive rounded-[3px] text-meta text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
-            >
-              {part.text}
-            </button>
+            <LinkButton onClick={openGitHubSettings}>{part.text}</LinkButton>
           ) : (
             <span className="text-[color:var(--text-muted)]">{part.text}</span>
           )}

@@ -34,12 +34,12 @@ import {
   InboxSearchInput,
   InlineNotice,
   OutlineButton,
+  RowButton,
   Section,
   SegmentedControl,
   Spinner,
   StarGlyph,
 } from '../../../../ui'
-import { FOCUS_RING_INSET_CLASS } from '../../../../ui/tokens'
 
 import {
   createSkillSearchScheduler,
@@ -393,16 +393,20 @@ function HitRow({
 }): JSX.Element {
   return (
     <div className="flex items-stretch rounded-md transition-colors hover:bg-[color:var(--bg-hover)]">
-      <button
-        type="button"
+      {/* The kit's row button at `flush` density — the step it ships for one of
+          two targets inside a wrapper that owns the fill. It draws no ground
+          and no radius of its own in any state, and takes the ring INWARD,
+          because an outset ring on a target sitting flush inside the row's fill
+          collides with the neighbouring rows'. That was written out here by
+          hand; it is the primitive's now, and only the flex placement is left. */}
+      <RowButton
+        density="flush"
         aria-label={openLabel}
         onClick={() => void window.api.openExternal(href)}
-        // Inset ring: the target sits flush inside the row's fill, so an
-        // outset ring would collide with the neighbouring rows' fills.
-        className={`flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-2.5 pr-2 text-left ${FOCUS_RING_INSET_CLASS}`}
+        className="min-w-0 flex-1"
       >
         {body}
-      </button>
+      </RowButton>
       <div className="flex shrink-0 items-center pr-1.5">
         {added ? (
           <span className="px-2 text-meta text-[color:var(--text-muted)]">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { FOCUS_RING_CLASS, IconButton, InlineNotice, Section, Tooltip } from '../ui'
+import { IconButton, InlineNotice, RowButton, Section, Tooltip } from '../ui'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../../utils/backlog'
 import {
   backlogLinkControlModel,
@@ -172,14 +172,10 @@ function BacklogLinkControl({
     <li className="flex min-w-0 items-center gap-2">
       {model.canOpen ? (
         <Tooltip content={model.detail} placement="top" wrapperClassName="inline-flex min-w-0 flex-1">
-          <button
-            type="button"
-            onClick={() => onOpen(link)}
-            className={`interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-          >
+          <RowButton onClick={() => onOpen(link)} className="min-w-0 flex-1 text-meta">
             <span className="min-w-0 truncate">{model.label}</span>
             <OpenLinkGlyph />
-          </button>
+          </RowButton>
         </Tooltip>
       ) : (
         <Tooltip content={model.detail} placement="top" wrapperClassName="inline-flex min-w-0 flex-1">

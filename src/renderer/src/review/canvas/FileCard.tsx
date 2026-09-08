@@ -1,7 +1,7 @@
 import React, { Suspense } from 'react'
 
 import type { ChangeSetFile, DiffView, ReviewAnchor, ReviewAnnotation, ReviewComment } from '../../../../shared/review'
-import { FOCUS_RING_CLASS } from '../../components/ui/tokens'
+import { OutlineButton } from '../../components/ui/Buttons'
 import { TruncatedText } from '../../components/ui/TruncatedText'
 import { fileWhyLine } from './reviewSelectors'
 
@@ -41,27 +41,18 @@ function DeltaCounts({ additions, deletions }: { additions: number; deletions: n
 
 function MarkReadButton({ read, onClick }: { read: boolean; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={read}
-      // Pressed is a selection, and selection is neutral: `bg-selected` with the
-      // ink lifted to strong and a neutral tick — never the accent, which is the
-      // view's one action (Post review). Sized on the control ramp (xs, 26px)
-      // and the control radius, like the row actions beside it.
-      className={`interactive inline-flex h-control-xs shrink-0 items-center gap-1.5 rounded-sm border px-2.5 text-meta font-medium ${FOCUS_RING_CLASS} ${
-        read
-          ? 'border-[color:var(--border-default)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-          : 'border-[color:var(--border-default)] bg-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-      }`}
-    >
+    // The kit's thrown outline chip — the case its `pressed` prop is named for.
+    // Pressed is a selection, and selection is neutral: `bg-selected` with the ink
+    // lifted to strong and a neutral tick, never the accent, which is the view's
+    // one action (Post review).
+    <OutlineButton size="xs" onClick={onClick} pressed={read} className="shrink-0">
       {read ? (
         <svg viewBox="0 0 16 16" className="icon-xs" fill="none" aria-hidden="true">
           <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       ) : null}
       {read ? 'Read' : 'Mark read'}
-    </button>
+    </OutlineButton>
   )
 }
 

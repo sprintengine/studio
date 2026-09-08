@@ -15,6 +15,7 @@
 import React, { useMemo, useState } from 'react'
 
 import {
+  IconButton,
   InboxSearchInput,
   OverflowMenu,
   Pager,
@@ -23,7 +24,6 @@ import {
   Tooltip,
   type TabItem,
 } from '../../../../ui'
-import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { ConnectorSectionHeading } from '../../../../panels/ConnectorsPanel/ConnectorRow'
 import { GlobalSurfaceShell } from '../../GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../../surfaceBackNav'
@@ -252,18 +252,25 @@ function AddSourceMenu({ add }: { add: CatalogueAddMenu }): JSX.Element {
       ]}
       trigger={(open, opened) => (
         <Tooltip content="Add source" placement="bottom">
-          <button
-            type="button"
+          {/* The kit's icon button at `2xs` — `icon.size.lg`, the 22px step the
+              kit ships FOR a glyph inside a tab strip, with the neutral ghost
+              tone that is already this trigger's ink pair. It brings the chip
+              radius the sub-ramp steps take and a transparent hit pad out to
+              `size.hit-target-min`, so the drawn square stays 22px while the
+              thing a pointer has to find is 24px. `mb-1` is all that is left:
+              where the plus sits against the tabs is this row's business. */}
+          <IconButton
+            size="2xs"
             aria-label="Add source"
             aria-expanded={opened}
             aria-haspopup="menu"
             onClick={open}
-            className={`mb-1 inline-flex size-icon-lg shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className="mb-1 shrink-0"
           >
             <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
               <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
-          </button>
+          </IconButton>
         </Tooltip>
       )}
     />

@@ -1,8 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react'
 
-import { Popover, type SelectItem } from '../ui'
-import { MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
-import { FOCUS_RING_CLASS } from '../ui/tokens'
+import { IconButton, MenuOption, Popover, type SelectItem } from '../ui'
+import { MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'
 import type { BacklogGroup, BacklogSort, BacklogView } from '../../utils/backlogTriage'
 
 // The Backlog toolbar's filter/sort affordance. The lens + sort controls used to
@@ -118,22 +117,20 @@ export function BacklogFilterMenu({
       surfaceClassName={`min-w-[12rem] ${MENU_LIST_CLASS}`}
       onOpenAutoFocus={focusSelected}
       renderTrigger={({ ref, togglePopover, triggerProps, open: opened }) => (
-        <button
+        <IconButton
           ref={ref}
-          type="button"
+          size="xs"
+          // Accent INK while the menu is open or a filter is on — never the
+          // neutral `pressed` fill, which would say "selected" about a control
+          // that is announcing "narrowed".
+          tone={opened || active ? 'accent' : 'neutral'}
           aria-haspopup="menu"
           aria-expanded={triggerProps['aria-expanded']}
           aria-controls={triggerProps['aria-controls']}
           aria-label={active ? 'Filter and sort — filters active' : 'Filter and sort'}
           onClick={togglePopover}
-          className={[
-            'interactive relative inline-flex h-6 w-6 items-center justify-center rounded-sm',
-            FOCUS_RING_CLASS,
-            opened || active
-              ? 'text-[color:var(--accent-primary)]'
-              : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]',
-            opened ? 'bg-[color:var(--bg-hover)]' : 'hover:bg-[color:var(--bg-hover)]',
-          ].join(' ')}
+          // `relative` only: the marker below is positioned against the box.
+          className="relative"
         >
           <FilterGlyph />
           {active ? (
@@ -143,7 +140,7 @@ export function BacklogFilterMenu({
               className="absolute -right-px -top-px h-1.5 w-1.5 rounded-full bg-[color:var(--accent-primary)] ring-2 ring-[color:var(--bg-app)]"
             />
           ) : null}
-        </button>
+        </IconButton>
       )}
     >
       {project ? (
@@ -211,11 +208,13 @@ function FilterGroup<T extends string>({
       {items.map((item) => {
         const selected = item.value === current
         return (
-          <button
+          <MenuOption
             key={String(item.value)}
-            type="button"
+            // `ui/MenuOption` wears `MENU_OPTION_CLASS` — `MENU_ITEM_CLASS`'s own shape
+            // without the hover step a selection fill has to outrank.
+            // design-tokens-allow: 2026-09-08 — the row IS the canon, the newer one.
             role="menuitemradio"
-            aria-checked={selected}
+            selected={selected}
             data-filter-option="true"
             data-selected={selected || undefined}
             // The checked option is the group's tab stop (radiogroup roving);
@@ -223,18 +222,14 @@ function FilterGroup<T extends string>({
             tabIndex={selected ? 0 : -1}
             onKeyDown={onOptionKey}
             onClick={() => onSelect(item.value)}
-            className={[
-              MENU_ITEM_CLASS,
-              selected
-                ? 'text-[color:var(--text-strong)]'
-                : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
-            ].join(' ')}
+            icon={
+              <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[color:var(--accent-primary)]">
+                {selected ? <CheckGlyph /> : null}
+              </span>
+            }
           >
-            <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-[color:var(--accent-primary)]">
-              {selected ? <CheckGlyph /> : null}
-            </span>
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-          </button>
+            {item.label}
+          </MenuOption>
         )
       })}
     </div>

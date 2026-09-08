@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { EmptyState, InboxSearchInput, MENU_ITEM_CLASS } from '../ui'
+import { EmptyState, InboxSearchInput, MenuItem, MenuOption } from '../ui'
 
 export type BacklogItemSearchOption = {
   id: string
@@ -116,31 +116,45 @@ export function BacklogItemSearchPicker({
         >
           {visible.map((option) => {
             const checked = selected.has(option.value)
-            return (
-              <button
+            const displayId = (
+              <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
+                {option.displayId ?? option.value}
+              </span>
+            )
+            // A row that carries a VALUE is the kit's menu option, which emits the
+            // state attribute its role actually takes. The single-select row inside
+            // a `menu` is a plain `menuitem` — an action, not a value in force — so
+            // it stays the kit's menu item rather than being promoted to a role it
+            // never announced.
+            return resultRole === 'listbox' || multiple ? (
+              <MenuOption
                 key={option.id}
-                type="button"
-                role={resultRole === 'listbox' ? 'option' : multiple ? 'menuitemcheckbox' : 'menuitem'}
-                aria-selected={resultRole === 'listbox' ? checked : undefined}
-                aria-checked={resultRole === 'menu' && multiple ? checked : undefined}
+                role={resultRole === 'listbox' ? 'option' : 'menuitemcheckbox'}
+                selected={checked}
                 data-menu-item="true"
                 data-backlog-search-result="true"
                 tabIndex={-1}
                 onClick={() => onSelect(option)}
-                // The shared menu row: full-bleed hover, the inset ring, the
-                // menu's own size — the same row a kebab or a right-click opens.
-                className={`${MENU_ITEM_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
+                icon={
+                  multiple ? (
+                    <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
+                      {checked ? <CheckGlyph /> : null}
+                    </span>
+                  ) : null
+                }
+                trailing={displayId}
               >
-                {multiple ? (
-                  <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
-                    {checked ? <CheckGlyph /> : null}
-                  </span>
-                ) : null}
-                <span className="min-w-0 flex-1 truncate">{option.title}</span>
-                <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
-                  {option.displayId ?? option.value}
-                </span>
-              </button>
+                {option.title}
+              </MenuOption>
+            ) : (
+              <MenuItem
+                key={option.id}
+                data-backlog-search-result="true"
+                onClick={() => onSelect(option)}
+                trailing={displayId}
+              >
+                {option.title}
+              </MenuItem>
             )
           })}
           {remaining > 0 ? (

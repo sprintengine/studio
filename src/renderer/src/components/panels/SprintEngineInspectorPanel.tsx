@@ -72,22 +72,24 @@ import { formatRelativeTime } from '../../utils/time'
 import { formatTokenCount } from '../../utils/sprintengineTokenUsage'
 import type { SprintEngineTaskTokenUsage } from '../../../../shared/sprintengine-token-usage'
 import {
+  CardButton,
   CloseIconButton,
   DefinitionList,
   FilePreviewPane,
   FOCUS_RING_CLASS,
-  FOCUS_RING_INSET_CLASS,
   GhostButton,
   IconButton,
   InboxRow,
   InlineNotice,
   LIFECYCLE_LABEL,
   LifecycleGlyph,
+  LinkButton,
   OutlineButton,
   OverflowMenu,
   PanelHeader,
   PrimaryButton,
   RoleAvatar,
+  RowButton,
   Spinner,
   Textarea,
   Tooltip,
@@ -452,15 +454,16 @@ function SprintEngineArtifactInspector({
     items.push({
       term: 'Task',
       description: (
-        <button
-          type="button"
+        <GhostButton
+          size="inline"
+          align="start"
           onClick={() => onSelectTask(artifact.taskId)}
           disabled={!task}
-          className={`interactive font-mono text-[color:var(--text-strong)] hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+          className="font-mono"
         >
           {artifact.taskId}
-          {task ? <span className="ml-1.5 font-sans text-[color:var(--text-muted)]">{task.title}</span> : null}
-        </button>
+          {task ? <span className="font-sans text-[color:var(--text-muted)]">{task.title}</span> : null}
+        </GhostButton>
       ),
     })
   }
@@ -667,15 +670,16 @@ function SprintEngineArtifactList({
                       <>
                         <span>{sprintEngineArtifactKindLabel(artifact.kind)}</span>
                         <span>·</span>
-                        <button
-                          type="button"
+                        <GhostButton
+                          size="inline"
+                          align="start"
                           onClick={() => onSelectTask(artifact.taskId)}
                           disabled={!task}
-                          className={`interactive font-mono text-[color:var(--text-muted)] hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+                          className="font-mono"
                         >
                           {artifact.taskId}
-                          {task ? <span className="ml-1.5 font-sans">{task.title}</span> : null}
-                        </button>
+                          {task ? <span className="font-sans">{task.title}</span> : null}
+                        </GhostButton>
                         <span>·</span>
                       </>
                     )}
@@ -850,8 +854,8 @@ function TaskImplementerRow({
   )
   return (
     <li className="flex items-center gap-2 text-meta text-[color:var(--text-muted)]">
-      <button
-        type="button"
+      <GhostButton
+        size="inline"
         onClick={() => onOpenAgentTerminal(entry.agentId)}
         disabled={Boolean(terminalActionsUnavailable)}
         aria-label={
@@ -859,15 +863,10 @@ function TaskImplementerRow({
             ? `Open ${entry.label} terminal — unavailable: ${terminalActionsUnavailable}`
             : `Open ${entry.label} terminal`
         }
-        className={
-          'interactive -mx-1.5 inline-flex items-center gap-2 rounded px-1.5 py-0.5 ' +
-          'hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
-          'disabled:cursor-not-allowed disabled:hover:bg-transparent ' +
-          FOCUS_RING_CLASS
-        }
+        className="-mx-1"
       >
         {identityCluster}
-      </button>
+      </GhostButton>
       <ImplementerTicks passCount={entry.passCount} />
       {entry.isActive ? (
         <ActiveImplementerStatus runtimeStatus={entry.runtimeStatus} />
@@ -1420,18 +1419,12 @@ function CollapsibleMessage({
   return (
     <div className={className}>
       <span>{display}</span>{' '}
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className={
-          'interactive text-micro text-[color:var(--text-muted)] underline-offset-2 ' +
-          'hover:text-[color:var(--text-strong)] hover:underline ' +
-          FOCUS_RING_CLASS
-        }
-      >
+      {/* `LinkButton`, not a ghost: this sits INSIDE the sentence it truncates,
+          and an inline-flex control there does not ride the text's baseline —
+          which is the case the kit's quiet link exists for. */}
+      <LinkButton ink="quiet" onClick={onToggle} aria-expanded={expanded}>
         {expanded ? 'Show less' : 'Show more'}
-      </button>
+      </LinkButton>
     </div>
   )
 }
@@ -1647,18 +1640,14 @@ function FeedbackDetail({
             ) : null}
           </span>
           {openFindings > 0 && onJumpToFindings ? (
-            <button
-              type="button"
+            <GhostButton
+              size="inline"
+              tone="accent"
               onClick={onJumpToFindings}
-              className={
-                'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-micro '
-                + 'text-[color:var(--accent-primary)] underline-offset-2 '
-                + 'hover:text-[color:var(--accent-primary-hover)] hover:underline '
-                + FOCUS_RING_CLASS
-              }
+              className="-mx-1"
             >
               Open findings →
-            </button>
+            </GhostButton>
           ) : null}
         </div>
       ) : null}
@@ -1684,18 +1673,14 @@ function ArtifactDetail({
       </div>
       <div className="text-[color:var(--text-strong)] [overflow-wrap:anywhere]">{artifact.title}</div>
       {onOpen ? (
-        <button
-          type="button"
+        <GhostButton
+          size="inline"
+          tone="accent"
           onClick={onOpen}
-          className={
-            'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-micro '
-            + 'text-[color:var(--accent-primary)] underline-offset-2 '
-            + 'hover:text-[color:var(--accent-primary-hover)] hover:underline '
-            + FOCUS_RING_CLASS
-          }
+          className="-mx-1"
         >
           Open artifact →
-        </button>
+        </GhostButton>
       ) : null}
     </div>
   )
@@ -1739,18 +1724,14 @@ function EvidenceDetail({
         ) : null}
       </div>
       {diffCount > 0 && onViewDiff ? (
-        <button
-          type="button"
+        <GhostButton
+          size="inline"
+          tone="accent"
           onClick={onViewDiff}
-          className={
-            'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-micro '
-            + 'text-[color:var(--accent-primary)] underline-offset-2 '
-            + 'hover:text-[color:var(--accent-primary-hover)] hover:underline '
-            + FOCUS_RING_CLASS
-          }
+          className="-mx-1"
         >
           View diff →
-        </button>
+        </GhostButton>
       ) : null}
     </div>
   )
@@ -1850,19 +1831,15 @@ function TaskTimeline({
             <LifecycleGlyph state={lifecycle} live={false} className="translate-y-[3px]" />
             <div className="min-w-0">
               {hasDetail ? (
-                <button
-                  type="button"
+                <GhostButton
+                  size="inline"
+                  align="start"
                   onClick={() => toggleExpanded(group.key)}
                   aria-expanded={isExpanded}
-                  className={
-                    'interactive -mx-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded px-1 py-0.5 '
-                    + 'text-left text-micro text-[color:var(--text-muted)] '
-                    + 'hover:text-[color:var(--text-strong)] '
-                    + FOCUS_RING_CLASS
-                  }
+                  className="-mx-1 flex-wrap"
                 >
                   {verbContent}
-                </button>
+                </GhostButton>
               ) : (
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
                   {verbContent}
@@ -2026,11 +2003,8 @@ function AgentWorkedOnTasksList({
         const relative = latestActivityAt ? formatRelativeTime(latestActivityAt) : null
         return (
           <li key={task.id}>
-            <button
-              type="button"
-              onClick={() => onSelectTask(task.id)}
-              className={`block w-full px-1 py-2.5 text-left interactive hover:bg-[color:var(--bg-surface-raised)] ${FOCUS_RING_INSET_CLASS}`}
-            >
+            <RowButton density="bleed" onClick={() => onSelectTask(task.id)}>
+              <span className="block min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
                 <span className="font-mono text-[color:var(--tone-warn)]">{task.id}</span>
                 <span>{statusLabel}</span>
@@ -2041,7 +2015,8 @@ function AgentWorkedOnTasksList({
                 ) : null}
               </div>
               <TruncatedText as="div" text={task.title} className="mt-0.5 text-sm text-[color:var(--text-strong)]" />
-            </button>
+              </span>
+            </RowButton>
           </li>
         )
       })}
@@ -2102,19 +2077,14 @@ function AgentActivityFeed({
                 <LifecycleGlyph state={lifecycle} live={false} className="translate-y-[3px]" />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-muted)]">
-                    <button
-                      type="button"
+                    <GhostButton
+                      size="inline"
                       onClick={() => onSelectTask(taskId)}
                       aria-label={`Open ${taskId}`}
-                      className={
-                        'interactive -mx-1 inline-flex items-baseline rounded px-1 py-0.5 '
-                        + 'font-mono text-[color:var(--tone-warn)] '
-                        + 'hover:text-[color:var(--text-strong)] '
-                        + FOCUS_RING_CLASS
-                      }
+                      className="-mx-1 font-mono text-[color:var(--tone-warn)]"
                     >
                       {taskId}
-                    </button>
+                    </GhostButton>
                     <TruncatedText
                       as="span"
                       text={taskTitle}
@@ -2280,15 +2250,18 @@ function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
           return (
             <div key={`${diff.path}:${diff.oldPath ?? ''}:${index}`}>
               {expandable ? (
-                <button
-                  type="button"
+                <RowButton
+                  density="bleed"
                   aria-expanded={expanded}
                   aria-controls={panelId}
                   onClick={() => toggle(diff.path)}
-                  className={`${rowLayout} interactive hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_INSET_CLASS}`}
                 >
-                  {rowContent}
-                </button>
+                  {/* The row's two columns stay the caller's grid; the kit owns
+                      the inset, the ink, the hover fill and the inset ring. */}
+                  <span className="grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3">
+                    {rowContent}
+                  </span>
+                </RowButton>
               ) : (
                 <div className={rowLayout}>{rowContent}</div>
               )}
@@ -2365,6 +2338,11 @@ function TaskItemPointer({
     </>
   )
 
+  // The row inside the box, shared by both branches so the readable twin and the
+  // pressable one are the same shape.
+  const inner = 'flex w-full items-center gap-2'
+  // The BOX. Only the non-interactive branch draws its own edge and ground; the
+  // pressable branch takes `CardButton variant="bordered"`, which draws both.
   const layout =
     'mt-3 flex w-full items-center gap-2 rounded-sm border border-[color:var(--border-default)] '
     + 'bg-[color:var(--bg-surface-raised)] px-2.5 py-1.5 text-left'
@@ -2382,14 +2360,14 @@ function TaskItemPointer({
     // The item's own path is the tooltip: the row shows its key, and the key
     // alone does not say which file it is on a multi-repo run.
     <Tooltip content={pointer.title} placement="top" wrapperClassName="block">
-      <button
-        type="button"
+      <CardButton
+        variant="bordered"
         onClick={pointer.onOpen}
         aria-label={`Open ${pointer.label}`}
-        className={`${layout} interactive hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+        className="mt-3 w-full px-2.5 py-1.5"
       >
-        {body}
-      </button>
+        <span className={inner}>{body}</span>
+      </CardButton>
     </Tooltip>
   )
 }
@@ -2570,11 +2548,10 @@ function TaskReadouts({
 
       <div className="min-w-0 flex-1">
         {diff && onToggleDiff ? (
-          <button
-            type="button"
+          <CardButton
             onClick={onToggleDiff}
             aria-expanded={diffOpen}
-            className={`interactive -mx-1 block w-full rounded px-1 text-left ${FOCUS_RING_CLASS}`}
+            className="-mx-1 w-full px-1"
           >
             <div className="text-micro text-[color:var(--text-subtle)]">
               Diff
@@ -2591,7 +2568,7 @@ function TaskReadouts({
               +{diff.additions} −{diff.deletions}
             </div>
             <DiffRatioBar additions={diff.additions} deletions={diff.deletions} />
-          </button>
+          </CardButton>
         ) : (
           <TaskReadout
             label="Diff"
@@ -2918,14 +2895,14 @@ export function SprintEngineInspectorPanel({
           <div>
             <h3 className="mb-2 text-meta font-semibold text-[color:var(--text-strong)]">Currently working on</h3>
             {currentTask ? (
-              <button
-                type="button"
+              <CardButton
+                variant="bordered"
                 onClick={() => onSelectTask(currentTask.id)}
-                className={`block w-full rounded-md border border-[color:var(--border-default)] px-3 py-2 text-left interactive hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)] ${FOCUS_RING_CLASS}`}
+                className="w-full px-3 py-2"
               >
                 <div className="font-mono text-micro text-[color:var(--tone-warn)]">{currentTask.id}</div>
                 <TruncatedText as="div" text={currentTask.title} className="mt-1 text-sm font-semibold text-[color:var(--text-strong)]" />
-              </button>
+              </CardButton>
             ) : (
               <div className="text-[color:var(--text-subtle)]">No active task assignment.</div>
             )}

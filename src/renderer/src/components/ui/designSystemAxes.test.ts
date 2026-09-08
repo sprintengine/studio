@@ -160,13 +160,13 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // the HTML artifact frame's, which survived it and moved to
     // `components/htmlArtifact` below — the same off-ramps at a new address,
     // not a win — and the wizard's own panes took the rest with them.
-    'components/workspace': 29,
+    'components/workspace': 14, // 2026-09-08: the second swap
     // 35 → 34, 2026-09-06: the retired plan door's plan column was deleted
     // with its door (a70ba0931).
     // 34 → 26, 2026-09-08: SwitchboardBoardPanel, SwitchboardWorkspacePanel and
     // the eight WatchtowerPanel files left the tree with their feature. Banked
     // rather than left as headroom — that is where the next regression hides.
-    'components/panels': 26,
+    'components/panels': 16, // 2026-09-08: the second swap moved the panels' controls onto the kit
     // 30 → 29 with ui 9 → 10: the extension icon chip MOVED into the kit as
     // `ui/ExtensionIcon` (it was `McpBrandIcon` here) so the Skills and MCPs
     // aside could draw the same mark as the Extensions door. Its one
@@ -226,7 +226,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   type: {
     // 10 → 9: the session composer's raw `text-sm` became the `text-body`
     // token step (remote-sessions-ux / composer-surface-premium).
-    'components/panels': 9,
+    'components/panels': 8, // 2026-09-08: the second swap
     utils: 6,
     'components/diagnostics': 2,
   },
@@ -267,7 +267,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // mounted since NewAgentPanel became the live surface, so its one
     // hand-spelled icon box goes with it. Banked, not left as headroom.
     'components/workspace': 11,
-    'components/panels': 12,
+    'components/panels': 10, // 2026-09-08: the second swap
     'components/ui': 14,
     // New directory, 2026-09-08 — a MOVE, not a regression. The Design Wizard
     // was deleted; the generated-HTML artifact frame and its annotate mode
@@ -275,8 +275,8 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // board/inspector are its real consumers) and moved out of the wizard's
     // folder to `components/htmlArtifact`. Its off-ramps changed address out of
     // `components/workspace`, which drops by the same amount below.
-    'components/htmlArtifact': 6,
-    'components/backlog': 3,
+    'components/htmlArtifact': 3, // 2026-09-08: the second swap
+    'components/backlog': 2, // 2026-09-08: the second swap
     'components/settings': 1,
   },
 }

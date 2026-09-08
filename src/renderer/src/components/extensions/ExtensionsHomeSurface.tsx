@@ -3,9 +3,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/library'
 import type { HostedCard } from '../../../../shared/hosted-card-feed'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { CardButton } from '../ui/CardButton'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
 import { Skeleton } from '../ui/Skeleton'
-import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { useExtensionsDrawerRows } from '../workspace/extensionsDrawerRows'
 import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
@@ -109,14 +109,14 @@ function ExtensionsHomeTile({
   onClick: () => void
 }): JSX.Element {
   return (
-    <button
-      type="button"
+    <CardButton
+      variant="bordered"
       onClick={onClick}
-      // One object, repeated: the same edges, the same padding, the glyph in
-      // the same corner, so the row of them reads as one control repeated
-      // rather than a handful of cards that happen to be adjacent. A hairline and the
-      // raised surface do the containing — no shadow, because nothing in the
-      // document flow takes one (principles, "Hairlines carry the structure").
+      // One object, repeated: the kit's bordered tile, so the row of them reads
+      // as one control repeated rather than a handful of cards that happen to be
+      // adjacent. The hairline is present at rest and hover moves the ground —
+      // nothing appears, so nothing in the grid reflows under the pointer
+      // (principles, "Hairlines carry the structure").
       //
       // Full height with the count pushed to the foot, so the count lines sit on
       // one line however many lines each summary takes. A tile whose number
@@ -125,7 +125,7 @@ function ExtensionsHomeTile({
       //
       // The name is the accessible name and it is real text, so the tile needs
       // no aria-label; the glyph and the chevron are decorative and say so.
-      className={`flex h-full flex-col rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 pb-2.5 pt-3 text-left transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+      className="h-full px-3 pb-2.5 pt-3"
     >
       <span aria-hidden="true" className="mb-1.5 flex items-start justify-between">
         {/* Neutral ink, not the accent: a row of accented glyphs would be a
@@ -149,7 +149,7 @@ function ExtensionsHomeTile({
           {count}
         </span>
       ) : null}
-    </button>
+    </CardButton>
   )
 }
 

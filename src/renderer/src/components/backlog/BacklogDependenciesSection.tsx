@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { FOCUS_RING_CLASS, GhostButton, IconButton, InlineNotice, Popover, Section, Tooltip, TruncatedText } from '../ui'
+import { GhostButton, IconButton, InlineNotice, Popover, RowButton, Section, Tooltip, TruncatedText } from '../ui'
 import type { BacklogItem } from '../../utils/backlog'
 import type {
   BacklogDependencyNode,
@@ -215,18 +215,14 @@ function NavigateButton({
   onNavigate: () => void
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      onClick={onNavigate}
-      className={`interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-    >
+    <RowButton onClick={onNavigate} className="min-w-0 flex-1 text-meta">
       {displayId ? (
         <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">
           {displayId}
         </span>
       ) : null}
       <TruncatedText as="span" text={title} className="min-w-0 flex-1" />
-    </button>
+    </RowButton>
   )
 }
 

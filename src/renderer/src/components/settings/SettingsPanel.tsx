@@ -29,6 +29,7 @@ import {
   ProviderStateId,
   RefreshIcon,
   resolveCliProviderState,
+  RowButton,
   SegmentedControl,
   Spinner,
   Tooltip,
@@ -2181,21 +2182,23 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
 }>(function SettingsTabButton({ tab, active, onClick, onKeyDown }, ref) {
   const Icon = tab.icon ?? tab.moduleSection?.icon
   return (
-    <button
+    <RowButton
       ref={ref}
-      type="button"
+      // `nav`: the rail's navigation rhythm — a `size.control.sm` floor so a
+      // one-line door row matches the controls above it.
+      density="nav"
+      selected={active}
       role="tab"
       id={`settings-tab-${tab.id}`}
       aria-selected={active}
+      // The row's own `selected` would also emit `aria-current`; a tab states
+      // its state as `aria-selected`, and two would be announced twice.
+      aria-current={undefined}
       aria-controls={`settings-panel-${tab.id}`}
       tabIndex={active ? 0 : -1}
       onClick={onClick}
       onKeyDown={onKeyDown}
-      className={`interactive flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-body leading-5 focus-visible:focus-ring ${
-        active
-          ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
-      }`}
+      className="text-body leading-5"
     >
       {Icon ? (
         <Icon
@@ -2203,7 +2206,7 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
         />
       ) : null}
       <span className="min-w-0 truncate">{tab.label}</span>
-    </button>
+    </RowButton>
   )
 })
 

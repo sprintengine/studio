@@ -10,7 +10,7 @@
 // useRosterEditor was drawn wrong.
 import { useId, useState } from 'react'
 
-import { EmptyState, FOCUS_RING_CLASS, InlineNotice, Input, PrimaryButton } from '../ui'
+import { EmptyState, InlineNotice, Input, PrimaryButton, RowButton } from '../ui'
 import { SprintEngineRosterPanel } from '../workspace/newWorkspace/SprintEngineRosterPanel'
 import type { useRosterEditor } from '../workspace/newWorkspace/useRosterEditor'
 import { NO_ROLES_ROSTER_NAME, sprintEngineRosterNameTaken } from '../workspace/newWorkspace/savedRosters'
@@ -42,24 +42,21 @@ export function RosterEditor({
             editor.rosters.map((entry) => {
               const staffed = Object.values(entry.roleCounts).filter((count) => (count ?? 0) > 0).length
               return (
-                <button
+                <RowButton
                   key={entry.id}
-                  type="button"
-                  aria-pressed={entry.id === editor.selectedRosterId}
+                  // Selection is neutral: the kit row's selected fill and its inset
+                  // edge, never the accent — that is spent on "New roster" below.
+                  // It announces `aria-current`, which is what a rail row is: the
+                  // roster you are looking at, not a switch you threw.
+                  selected={entry.id === editor.selectedRosterId}
                   onClick={() => editor.onSelectRoster(entry.id)}
-                  // Selection is neutral: the selected fill and a title lift, never
-                  // the accent — that is spent on "New roster" below.
-                  className={`interactive flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-meta ${FOCUS_RING_CLASS} ${
-                    entry.id === editor.selectedRosterId
-                      ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                      : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
-                  }`}
+                  className="text-meta"
                 >
                   <span className="min-w-0 flex-1 truncate">{entry.name}</span>
                   <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">
                     {staffed}
                   </span>
-                </button>
+                </RowButton>
               )
             })
           )}

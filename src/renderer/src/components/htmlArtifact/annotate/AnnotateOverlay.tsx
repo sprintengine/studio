@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { GhostButton, PrimaryButton, Textarea } from '../../ui'
 import { pageRectToOverlayRect, type OverlayTransform } from './bridge'
 import {
   ANNOTATE_COMPOSER_WIDTH,
@@ -189,8 +190,12 @@ function NoteComposer({
       style={{ left: position.left, top: position.top, width: ANNOTATE_COMPOSER_WIDTH }}
     >
       <span className="truncate font-mono text-micro text-[color:var(--text-subtle)]">{selector}</span>
-      <textarea
+      {/* `quiet`: the field sits inside a floating card that is already grounded,
+          where the raised field material would read as a panel nested in a panel. */}
+      <Textarea
         ref={textareaRef}
+        variant="quiet"
+        resize="none"
         value={message}
         rows={3}
         placeholder="Describe the change"
@@ -201,52 +206,20 @@ function NoteComposer({
             onCommit()
           }
         }}
-        className="
-          resize-none rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]
-          px-2 py-1.5 text-meta leading-5 text-[color:var(--text-default)]
-          placeholder:text-[color:var(--text-subtle)]
-          focus-visible:focus-ring
-        "
       />
       <div className="flex items-center gap-1.5">
         {mode === 'edit' ? (
-          <button
-            type="button"
-            onClick={onRemove}
-            className="
-              inline-flex h-6 items-center rounded-sm px-1.5 text-micro text-[color:var(--tone-warn)]
-              transition-colors hover:bg-[color:var(--tone-warn-soft)]
-              focus-visible:focus-ring
-            "
-          >
+          <GhostButton size="xs" tone="danger" onClick={onRemove}>
             Remove
-          </button>
+          </GhostButton>
         ) : null}
         <span className="ml-auto flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="
-              inline-flex h-6 items-center rounded-sm px-1.5 text-micro text-[color:var(--text-muted)]
-              transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]
-              focus-visible:focus-ring
-            "
-          >
+          <GhostButton size="xs" onClick={onCancel}>
             Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onCommit}
-            disabled={commitDisabled}
-            className="
-              inline-flex h-6 items-center rounded-sm bg-[color:var(--accent-primary)] px-2 text-micro font-medium
-              text-[color:var(--text-on-accent)] transition-colors disabled:opacity-50
-              enabled:hover:opacity-90
-              focus-visible:focus-ring
-            "
-          >
+          </GhostButton>
+          <PrimaryButton size="xs" onClick={onCommit} disabled={commitDisabled}>
             {mode === 'edit' ? 'Save' : 'Add note'}
-          </button>
+          </PrimaryButton>
         </span>
       </div>
     </div>

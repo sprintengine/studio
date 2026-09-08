@@ -4,6 +4,8 @@ import {
   CloseIconButton,
   EmptyState,
   FOCUS_RING_CLASS,
+  GhostButton,
+  IconButton,
   InlineNotice,
   type InlineNoticeTone,
   LifecycleGlyph,
@@ -497,13 +499,18 @@ function ColumnHint({ label, hint }: { label: string; hint: string }) {
         </span>
       }
     >
-      <button
-        type="button"
+      {/* The kit's hairline badge: `shape="circle"` draws the ring and lifts it
+          on hover, `3xs` is the 16px box, and `tone="ink"` is the ground-less ink
+          a 16px mark takes. Only the baseline nudge into the heading is ours. */}
+      <IconButton
+        size="3xs"
+        shape="circle"
+        tone="ink"
         aria-label={`What does "${label}" mean?`}
-        className={`ml-1 inline-flex size-icon-sm translate-y-[3px] items-center justify-center rounded-full border border-[color:var(--border-strong)] text-micro font-normal leading-none text-[color:var(--text-disabled)] hover:border-[color:var(--text-muted)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
+        className="ml-1 translate-y-[3px]"
       >
         ?
-      </button>
+      </IconButton>
     </Tooltip>
   )
 }
@@ -637,11 +644,11 @@ function AgentBreakdownSection({
 
         {idleRows.length > 0 ? (
           <div className="mt-4">
-            <button
-              type="button"
+            <GhostButton
+              size="inline"
+              align="start"
               onClick={() => setShowIdle((value) => !value)}
               aria-expanded={showIdle}
-              className={`inline-flex items-baseline gap-1.5 rounded-sm text-meta text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               <span aria-hidden="true" className="text-micro text-[color:var(--text-disabled)]">
                 {showIdle ? '▾' : '▸'}
@@ -649,7 +656,7 @@ function AgentBreakdownSection({
               {showIdle
                 ? 'Hide idle agents'
                 : `Show ${idleRows.length} idle agent${idleRows.length === 1 ? '' : 's'}`}
-            </button>
+            </GhostButton>
             {showIdle ? (
               <ul className="mt-2 flex flex-wrap gap-x-6 gap-y-1.5">
                 {idleRows.map((row) => (
@@ -1019,14 +1026,15 @@ function AgentRow({
         {/* glyph + id already encode the role — the verbose role label was
             dropped to give the numeric columns room to breathe. */}
         {expandable ? (
-          <button
-            type="button"
+          <GhostButton
+            size="inline"
+            align="start"
             onClick={onToggle}
             aria-expanded={expanded}
-            className={`group inline-flex items-baseline gap-2 whitespace-nowrap rounded-sm text-left ${FOCUS_RING_CLASS}`}
+            className="group whitespace-nowrap"
           >
             {identity}
-          </button>
+          </GhostButton>
         ) : (
           <span className="inline-flex items-baseline gap-2 whitespace-nowrap">{identity}</span>
         )}
@@ -1109,11 +1117,12 @@ function AgentDetailRow({
               <div className="min-w-0">
                 <div className="flex flex-wrap items-baseline gap-2">
                   {onOpenTask ? (
-                    <button
-                      type="button"
+                    <GhostButton
+                      size="inline"
+                      align="start"
                       onClick={() => onOpenTask(task.id)}
                       aria-label={`Open task ${task.id}`}
-                      className={`group inline-flex min-w-0 items-baseline gap-2 rounded-sm text-left ${FOCUS_RING_CLASS}`}
+                      className="group min-w-0"
                     >
                       <span className="font-mono text-micro text-[color:var(--text-muted)] group-hover:text-[color:var(--accent-primary)]">
                         {task.id}
@@ -1121,7 +1130,7 @@ function AgentDetailRow({
                       <span className="text-body text-[color:var(--text-default)] underline-offset-2 [overflow-wrap:anywhere] group-hover:text-[color:var(--text-strong)] group-hover:underline">
                         {task.title}
                       </span>
-                    </button>
+                    </GhostButton>
                   ) : (
                     <>
                       <span className="font-mono text-micro text-[color:var(--text-muted)]">
@@ -1208,11 +1217,12 @@ function FindingItem({
       )}
       <span className="min-w-0">
         {hasDetail ? (
-          <button
-            type="button"
+          <GhostButton
+            size="inline"
+            align="start"
             onClick={() => setOpen((value) => !value)}
             aria-expanded={open}
-            className={`rounded-sm text-left ${FOCUS_RING_CLASS}`}
+            className="min-w-0"
           >
             <span className="text-body text-[color:var(--text-default)] [overflow-wrap:anywhere]">
               {finding.title}
@@ -1220,7 +1230,7 @@ function FindingItem({
             <span aria-hidden="true" className="ml-1 text-micro text-[color:var(--text-disabled)]">
               {open ? '▾' : '▸'}
             </span>
-          </button>
+          </GhostButton>
         ) : (
           <span className="text-body text-[color:var(--text-default)] [overflow-wrap:anywhere]">
             {finding.title}

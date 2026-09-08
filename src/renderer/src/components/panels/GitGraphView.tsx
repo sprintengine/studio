@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react'
 import type { GitGraphCommit, GitGraphSnapshot, GitResetMode } from '../../../../shared/electron-api'
 import { computeGitGraphLayout, type GitGraphLine } from '../../utils/gitGraphLayout'
-import { EmptyState, GhostButton, InlineNotice, MenuItem, OutlineButton, OverflowMenu, Skeleton, Tooltip, TruncatedText, type OverflowMenuItem } from '../ui'
+import { EmptyState, GhostButton, InlineNotice, MenuItem, OutlineButton, OverflowMenu, RowButton, Skeleton, Tooltip, TruncatedText, type OverflowMenuItem } from '../ui'
 import { setCommitDropData } from '../../utils/terminalDrop'
 
 export type GitGraphState =
@@ -391,8 +391,12 @@ function GitGraphCommitRow({
       }`}
       style={{ height: ROW_HEIGHT }}
     >
-      <button
-        type="button"
+      {/* `density="flush"`: the ground, the hover step and the fixed height stay
+          with the row div above — this is the target inside it, so it draws no
+          surface of its own. The gutter keeps its own `ROW_HEIGHT`, so it still
+          spans the row and its lanes still meet the rows above and below. */}
+      <RowButton
+        density="flush"
         aria-pressed={selected}
         aria-label={`Commit ${commit.shortHash}: ${commit.subject}${
           refs.length > 0 ? ` (${refs.map((ref) => ref.label).join(', ')})` : ''
@@ -406,7 +410,7 @@ function GitGraphCommitRow({
           event.preventDefault()
           openMenuRef.current?.()
         }}
-        className="flex min-w-0 flex-1 items-stretch gap-2 text-left text-meta focus-visible:focus-ring"
+        className="min-w-0 flex-1 text-meta"
       >
         <GitGraphGutter
           commitHash={commit.hash}
@@ -450,7 +454,7 @@ function GitGraphCommitRow({
             <TruncatedText as="span" text={commit.author} className="min-w-0" />
           </span>
         </span>
-      </button>
+      </RowButton>
       <span className="flex shrink-0 items-center pr-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <OverflowMenu
           ariaLabel={`Commit ${commit.shortHash} actions`}

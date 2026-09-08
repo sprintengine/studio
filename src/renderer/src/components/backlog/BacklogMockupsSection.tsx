@@ -4,8 +4,8 @@ import {
   GhostButton,
   IconButton,
   Input,
-  MENU_ITEM_STACKED_CLASS,
   MENU_LIST_CLASS,
+  MenuOption,
   Popover,
   Section,
   Tooltip,
@@ -425,42 +425,36 @@ function AttachMockupEditor({
         >
           {filtered.map((choice) => (
             <li key={choice.relativePath}>
-              <button
-                type="button"
+              <MenuOption
                 role="option"
-                aria-selected={false}
+                stacked
                 data-menu-item="true"
                 tabIndex={-1}
                 onClick={() => commit(choice.relativePath)}
-                className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
               >
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-meta">{choice.title}</span>
-                  <TruncatedText
-                    as="span"
-                    text={choice.relativePath}
-                    className="font-mono text-micro text-[color:var(--text-subtle)]"
-                  />
-                </span>
-              </button>
+                <span className="truncate text-meta">{choice.title}</span>
+                <TruncatedText
+                  as="span"
+                  text={choice.relativePath}
+                  className="font-mono text-micro text-[color:var(--text-subtle)]"
+                />
+              </MenuOption>
             </li>
           ))}
           {freeTextValid ? (
             <li>
-              <button
-                type="button"
+              <MenuOption
                 role="option"
-                aria-selected={false}
+                stacked
                 data-menu-item="true"
                 tabIndex={-1}
                 onClick={() => commit(freeTextPath)}
-                className={`${MENU_ITEM_STACKED_CLASS} text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]`}
               >
-                <span className="flex min-w-0 flex-1 items-center gap-1 text-meta">
+                <span className="flex min-w-0 items-center gap-1 text-meta">
                   <span className="shrink-0 text-[color:var(--text-muted)]">Attach path</span>
                   <span className="truncate font-mono text-micro">{freeTextPath}</span>
                 </span>
-              </button>
+              </MenuOption>
             </li>
           ) : null}
           {filtered.length === 0 && !freeTextValid ? (

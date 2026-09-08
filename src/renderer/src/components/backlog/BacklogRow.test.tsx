@@ -914,7 +914,20 @@ run('detail dependencies use the shared search picker and exclude self', () => {
   assert.match(dependenciesSectionSource, /candidate\.id !== item\.id/, 'the editor excludes the item itself')
   assert.match(dependenciesSectionSource, /ariaLabel="Search prerequisite items"/, 'the detail editor is search-first too')
   assert.match(dependenciesSectionSource, /selectedValues=\{dependsOn\}/, 'the editor reflects current prerequisites through the picker')
-  assert.match(itemSearchPickerSource, /aria-selected=\{resultRole === 'listbox' \? checked : undefined\}/, 'dialog-hosted search results expose selected prerequisites accessibly')
+  // The row is `ui/MenuOption` now, which emits the state attribute its ROLE
+  // takes — `aria-selected` for a listbox option, `aria-checked` for the
+  // checkable ones — so the picker states the role and the selection, not the
+  // attribute.
+  assert.match(
+    itemSearchPickerSource,
+    /role=\{resultRole === 'listbox' \? 'option' : 'menuitemcheckbox'\}/,
+    'dialog-hosted search results are listbox options',
+  )
+  assert.match(
+    itemSearchPickerSource,
+    /selected=\{checked\}/,
+    'dialog-hosted search results expose selected prerequisites accessibly',
+  )
   assert.match(dependenciesSectionSource, /const \{ prerequisites, blocks, inCycle \} = node/, 'the section renders the derived prerequisites, blocks, and cycle flag')
   assert.match(dependenciesSectionSource, /dependency cycle/, 'a non-fatal cycle warning is rendered from inCycle')
 })
