@@ -3,7 +3,7 @@
   "$serialComment": "Tests that must not share a CPU with the rest: they assert on scheduler timing, so contention makes them flake. They run last, one at a time.",
   "$skipComment": "Not run by default, with the reason each is held back. They are listed on every run so a skip stays visible instead of quietly rotting. Include them with --all.",
   "skip": {
-    "src/main/mobile/bridge/index.test.ts": "Reaches into the sibling multiauth checkout (../../multiauth) for its relay and auth services, so it cannot run on a machine that only has this repo. Currently fails there too: the device.revoke result never comes back from the fake relay (the relay:device:revoke scope still exists in multiauth, so this looks like real cross-repo drift rather than a stale assertion)."
+    "validation/multiauth-relay-e2e/bridge-against-relay.test.ts": "Drives a real multiauth AuthService/RelayService out of the sibling ../multiauth checkout (plus a pg stub), so it cannot build on a machine that only has this repo. Held out of the public gate on purpose; see validation/multiauth-relay-e2e/README.md."
   },
   "serial": [
     "src/main/account-client.test.ts",
@@ -589,6 +589,7 @@
     "src/renderer/src/utils/workspaceSettle.test.ts": "cjs-bundled",
     "src/seams/freshInstallWalkSeam.test.ts": "cjs-external",
     "src/seams/prepackagedAutomationsSeam.test.ts": "cjs-external",
-    "src/seams/sprintCreationParitySeam.test.tsx": "cjs-bundled-jsx-jsdom"
+    "src/seams/sprintCreationParitySeam.test.tsx": "cjs-bundled-jsx-jsdom",
+    "validation/multiauth-relay-e2e/bridge-against-relay.test.ts": "cjs-external"
   }
 }

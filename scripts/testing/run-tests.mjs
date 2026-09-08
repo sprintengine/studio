@@ -35,7 +35,7 @@ const cacheDir = path.join(repoRoot, 'node_modules', '.cache', 'multicode')
 
 // Where test files live. Anything matching *.test.ts / *.test.tsx under these
 // roots runs; node_modules and build output never do.
-const ROOTS = ['src', 'packages', 'resources/marketplace']
+const ROOTS = ['src', 'packages', 'resources/marketplace', 'validation']
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'out', 'build', '__fixtures__'])
 
 function parseArgs(argv) {
