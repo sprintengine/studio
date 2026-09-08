@@ -470,12 +470,6 @@ async function testMcpSkillBundleIsVisibleAndLaunchesTerminalWithInstalledMcp():
 
     const sender = createMockWebContents()
     await withElectronMock(join(temp, 'electron-user-data'), sender, async () => {
-      const catalog = services.mcpConfigService.listCatalog()
-      assert.equal(catalog.ok, true, catalog.ok ? undefined : catalog.message)
-      if (catalog.ok) {
-        assert.ok(catalog.servers.length > 0, 'MCP catalog should be readable for Settings visibility')
-      }
-
       const runtimeModule = require('../terminal-runtime') as RuntimeModule
       const syncInputs: Array<{ settings: McpSettings; clients: string[] }> = []
       const runtime = runtimeModule.createTerminalRuntime({

@@ -116,13 +116,14 @@ export type CardAction =
   // deliberately does not have. `cli` is a plugin id under `resources/plugins/`
   // (`claude-code`, `codex`), never a vendor name or a binary path.
   | { verb: 'require.cli'; cli: string }
-  // A server from the bundled MCP catalogue, by its catalogue id — reverse-DNS,
-  // as `resources/mcps/catalog.json` writes them
-  // (`io-github-domdomegg-gmail-mcp`). There is NO source dimension:
-  // `mcpConfigService.listCatalog()` reads one bundled file and there is nowhere
-  // else an MCP server comes from, so a `source` field would be a parameter with
-  // exactly one legal value — and the first cut's `"source": "builtin"` named a
-  // source id that no longer exists.
+  // An MCP server by its id. The bundled catalogue this used to resolve against
+  // was retired with the third-party ruling (MC-2519, 2026-09-08) — sixteen
+  // servers nobody here wrote — and no bundled list replaced it: an MCP server
+  // arrives inside a plugin now, which `install.plugin` installs. The verb stays
+  // in the schema because it is a published contract every build in the field
+  // parses, but the executor can only honour an id the workspace already holds
+  // in its MCP settings; any other id is refused by name
+  // (`src/main/cards/run-card.ts`).
   | { verb: 'install.mcp'; id: string }
   // A skill and a plugin each name a source the app already holds and an id
   // within it. `source` is a source id as src/shared/skills.ts mints them:
@@ -142,7 +143,7 @@ export type CardAction =
   // `skills: WorkspaceSkill[]` beside `mcpServers: AgentComposerConnector[]`),
   // and a flat list could not say which an entry was. `skills` names installed
   // skills by directory name — a `WorkspaceSkill.id`; `mcpServers` names
-  // catalogue ids. `send` is required rather than optional: R4 is "Go goes", and
+  // MCP server ids. `send` is required rather than optional: R4 is "Go goes", and
   // an unstated `send` leaves the reader guessing whether the card meant to park
   // its prompt in the composer for somebody to approve.
   //
@@ -188,7 +189,8 @@ export type CardActionVerb = CardAction['verb']
  *
  * `clone.repo` is the outlier among the verbs. Every other id a card carries is
  * resolved against something this build already holds: a CLI against the
- * registered agent-CLI plugin ids, a server against the bundled MCP catalogue,
+ * registered agent-CLI plugin ids, a server against the workspace's own MCP
+ * settings,
  * a skill or a plugin against that source's own scan, a view against the four
  * `CARD_SURFACE_VIEWS`. A repository was resolved against nothing. The only
  * test applied to it was its SHAPE, and `owner/name` is a shape every public
@@ -392,7 +394,7 @@ export function parseCardAction(raw: unknown): { ok: true; action: CardAction } 
     }
     case 'install.mcp': {
       const id = text(raw.id)
-      return id ? { ok: true, action: { verb, id } } : { ok: false, message: 'install.mcp needs a catalogue id.' }
+      return id ? { ok: true, action: { verb, id } } : { ok: false, message: 'install.mcp needs a server id.' }
     }
     case 'install.skill':
     case 'install.plugin': {

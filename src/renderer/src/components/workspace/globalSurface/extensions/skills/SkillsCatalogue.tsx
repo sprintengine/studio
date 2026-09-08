@@ -33,6 +33,7 @@ import {
   INSTALLED_TAB_ID,
   type CatalogueCount,
 } from '../catalogue/catalogueTabs'
+import { RecommendedSources } from '../catalogue/RecommendedSources'
 import { SourceTabActions } from '../catalogue/SourceTabActions'
 import { SkillPage } from './SkillPage'
 import { SourceMonogram } from './SourceMonogram'
@@ -254,6 +255,11 @@ export function SkillsCatalogue({
               sources.refreshInstalled()
               setReport({ sourceId: source.id, outcome: summarizeSyncRun(result), error: null })
             }}
+            // The manual update check reports into the same head line a sync
+            // reports into: one place the source says what just happened to it.
+            onCheckReport={(source, message) =>
+              setReport({ sourceId: source.id, outcome: message, error: null })
+            }
             onSyncFailed={(source, message) => setReport({ sourceId: source.id, outcome: null, error: message })}
             onRemoved={() => {
               sources.refreshSources()
@@ -282,17 +288,28 @@ export function SkillsCatalogue({
   const body = ((): React.ReactNode => {
     if (tabId === INSTALLED_TAB_ID) {
       return (
-        <InstalledExtensionsInventory
-          key={inventoryNonce}
-          mcpServers={[]}
-          moduleOverrides={moduleOverrides}
-          workspaceRoot={workspaceRoot}
-          kinds={['skill']}
-          sourceGrouping={{ sources: sources.sources, records: sources.installedPlugins }}
-          paging={{ noun: 'skill', query }}
-          onRemoveSkill={(dirName) => void removeSkill(dirName)}
-          onUseSkillInNewAgent={onUseSkillInNewAgent}
-        />
+        <div className="space-y-6">
+          <InstalledExtensionsInventory
+            key={inventoryNonce}
+            mcpServers={[]}
+            moduleOverrides={moduleOverrides}
+            workspaceRoot={workspaceRoot}
+            kinds={['skill']}
+            sourceGrouping={{ sources: sources.sources, records: sources.installedPlugins }}
+            paging={{ noun: 'skill', query }}
+            onRemoveSkill={(dirName) => void removeSkill(dirName)}
+            onUseSkillInNewAgent={onUseSkillInNewAgent}
+          />
+          {/* Where somebody stands when they have run out of skills to install:
+              under what they have, the places to get more (MC-2519). */}
+          <RecommendedSources
+            existingSources={sources.sources}
+            onAdded={(sourceId) => {
+              sources.refreshSources()
+              onSelectTab(sourceId)
+            }}
+          />
+        </div>
       )
     }
     if (sources.sourcesLoad.status === 'error') {

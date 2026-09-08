@@ -1,12 +1,19 @@
 import type { IpcMain } from 'electron'
 
-import type { HostedModelFeedReadInput, HostedModelFeedReadResult } from '../../shared/electron-api'
+import type {
+  HostedModelFeedReadInput,
+  HostedModelFeedReadResult,
+  HostedSourcesFeedReadResult,
+} from '../../shared/electron-api'
 import { configuredModelFeedUrl } from '../hosted-feed/model-feed-client'
 import { readHostedModelFeed } from '../hosted-feed/hosted-feed-service'
+import { configuredSourcesFeedUrl } from '../hosted-feed/sources-feed-client'
+import { readHostedSourcesFeed } from '../hosted-feed/sources-feed-service'
 import { isRecord } from '../../shared/records'
 
 export type HostedModelFeedIpcHandlers = {
   read(input?: HostedModelFeedReadInput): Promise<HostedModelFeedReadResult>
+  readSources(): Promise<HostedSourcesFeedReadResult>
 }
 
 // `hosted-model-feed:get` serves what is on disk (cache, else seed) and never
@@ -20,6 +27,24 @@ export function registerHostedModelFeedIpc(
   overrides: Partial<HostedModelFeedIpcHandlers> = {},
 ): void {
   const read = overrides.read ?? ((input?: HostedModelFeedReadInput) => readHostedModelFeed(input))
+  const readSources = overrides.readSources ?? (() => readHostedSourcesFeed({ cachedOnly: true }))
+
+  // `hosted-sources-feed:get` serves what is on disk (cache, else seed) and
+  // never touches the network: the Extensions door draws its recommended
+  // sources on open, and must not wait out a fetch to do it. The poller's feed
+  // leg is what keeps that disk copy fresh (MC-2519).
+  ipcMain.handle('hosted-sources-feed:get', async (): Promise<HostedSourcesFeedReadResult> => {
+    try {
+      return await readSources()
+    } catch (error) {
+      return {
+        ok: false,
+        state: 'fetch-error',
+        feedUrl: configuredSourcesFeedUrl(),
+        message: error instanceof Error ? error.message : String(error),
+      }
+    }
+  })
 
   ipcMain.handle('hosted-model-feed:get', async (): Promise<HostedModelFeedReadResult> => {
     try {

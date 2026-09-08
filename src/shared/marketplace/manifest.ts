@@ -48,7 +48,7 @@ type MarketplacePublisher = {
 }
 
 // Inline-MCP registry entries ship MCP server configs directly (modeled on
-// resources/mcps/catalog.json server entries) instead of a signed bundle.
+// the shape an MCP server config takes) instead of a signed bundle.
 type MarketplaceInlineMcp = {
   servers: McpServerConfig[]
 }

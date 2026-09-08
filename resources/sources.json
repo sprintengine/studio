@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-09-08T00:00:00Z",
+  "sources": [
+    {
+      "id": "claude-plugins-official",
+      "repo": "anthropics/claude-plugins-official",
+      "kind": "claude-marketplace",
+      "description": "Anthropic's managed directory of Claude Code plugins. The largest source by far, and the first one to look in: a plugin here brings its own skills, commands and .mcp.json."
+    },
+    {
+      "id": "anthropic-agent-skills",
+      "repo": "anthropics/skills",
+      "kind": "claude-marketplace",
+      "description": "Anthropic's own Agent Skills, published as a marketplace. Small and deliberately so: these are the reference skills, not a catalogue."
+    },
+    {
+      "id": "claude-code-plugins",
+      "repo": "anthropics/claude-code",
+      "kind": "claude-marketplace",
+      "description": "The plugins that ship alongside the Claude Code CLI itself, in the CLI's own repository."
+    },
+    {
+      "id": "wshobson-agents",
+      "repo": "wshobson/agents",
+      "kind": "claude-marketplace",
+      "description": "A large community marketplace of agent and workflow plugins that targets several harnesses, not only Claude Code."
+    },
+    {
+      "id": "voltagent-subagents",
+      "repo": "VoltAgent/awesome-claude-code-subagents",
+      "kind": "claude-marketplace",
+      "description": "Community subagent collections packaged as plugins, grouped by domain."
+    },
+    {
+      "id": "ruflo",
+      "repo": "ruvnet/ruflo",
+      "kind": "claude-marketplace",
+      "description": "Multi-agent orchestration plugins from the project formerly published as ruvnet/claude-flow."
+    }
+  ]
+}

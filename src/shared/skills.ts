@@ -729,8 +729,19 @@ export const OFFICIAL_PLUGINS_SKILL_SOURCE_NAME = 'Anthropic'
  * reports a failure the person could not have avoided.
  */
 export function isBundledSkillSource(id: string): boolean {
-  return id === STUDIO_SKILL_SOURCE_ID || id === OFFICIAL_PLUGINS_SKILL_SOURCE_ID
+  return ALWAYS_PRESENT_SKILL_SOURCE_IDS.includes(id)
 }
+
+/**
+ * The ids of those sources, as a list. `isBundledSkillSource` is the predicate;
+ * this is what a de-duplication needs — the recommended-sources region in the
+ * Extensions door subtracts these from the hosted feed so a source every
+ * machine already ships is never offered as an Add (MC-2519).
+ */
+export const ALWAYS_PRESENT_SKILL_SOURCE_IDS: readonly string[] = [
+  STUDIO_SKILL_SOURCE_ID,
+  OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+]
 
 /** Every local source's id is this prefix plus its absolute path. */
 export const LOCAL_SKILL_SOURCE_ID_PREFIX = 'local:'
@@ -1234,4 +1245,60 @@ export function skillSourceMonogram(name: string): string {
   if (words.length === 0) return '?'
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
   return `${words[0][0]}${words[1][0]}`.toUpperCase()
+}
+
+// ── Update-check cadence (MC-2519, owner ruling 2026-09-08) ──────────────────
+//
+// How often a repository source is asked for its head depends on whether a
+// GitHub token is configured. Anonymous GitHub allows 60 requests an hour for
+// the whole machine, shared with every other read the app makes and with
+// anything else on the same IP; a source checked hourly spends 24 of those a
+// day on a question whose answer changes far less often, and a person with
+// several sources can exhaust the budget on update checks alone and then find a
+// scan or an install refused. With a token the limit is 5,000 an hour, where
+// hourly costs nothing.
+//
+// The window is enforced per source in `src/main/skills/source-updates.ts`, so
+// it holds for every caller — the scheduled check and a manual "Check now"
+// alike. The sentences live here because Settings and the Extensions door both
+// say them, and neither can import main.
+
+const HOUR_MS = 60 * 60 * 1000
+
+/** With a token: GitHub allows 5,000 requests an hour, so hourly costs nothing. */
+export const SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS = HOUR_MS
+/** Without one: 60 an hour for the whole machine, so once a day per source. */
+export const SOURCE_UPDATE_INTERVAL_ANONYMOUS_MS = 24 * HOUR_MS
+
+export function sourceUpdateIntervalMs(hasToken: boolean): number {
+  return hasToken ? SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS : SOURCE_UPDATE_INTERVAL_ANONYMOUS_MS
+}
+
+/** "3 hours", "12 minutes", "just now" — the age of a check, said plainly. */
+export function describeCheckAge(ageMs: number): string {
+  const minutes = Math.floor(ageMs / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+  const days = Math.floor(hours / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}
+
+/**
+ * Why a source was not checked, for the person who asked for one. It names the
+ * token, because configuring one is the thing that changes the answer.
+ */
+export function sourceUpdateSkipMessage(ageMs: number, hasToken: boolean): string {
+  const age = describeCheckAge(ageMs)
+  return hasToken
+    ? `Checked ${age}; the studio checks each source once an hour.`
+    : `Checked ${age}; without a GitHub token the studio checks each source once a day.`
+}
+
+/** The cadence in force, for the line beside the token field in Settings. */
+export function sourceUpdateCadenceLine(hasToken: boolean): string {
+  return hasToken
+    ? 'Plugin sources are checked for updates once an hour, because this GitHub token raises the rate limit to 5,000 requests an hour. Without one the studio checks once a day.'
+    : 'No GitHub token: plugin sources are checked for updates once a day. Anonymous GitHub allows 60 requests an hour for this whole machine, which an hourly check would spend on one question. With a token the studio checks hourly.'
 }

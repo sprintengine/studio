@@ -11,10 +11,10 @@ import { SettingsPageHeader } from './SettingsAtoms'
 // and the in-app issue picker all went with the native layer, because browsing
 // tickets here competes with the tracker's own UI and loses.
 //
-// It stays a named surface rather than four rows in the general MCP catalogue:
+// It stays a named surface rather than four rows in the plugin catalogue:
 // "connect my issue tracker" is a thing people come looking for, and it should
 // be findable without knowing it is an MCP.
-export function TicketTrackersTab({ workspaceRoot }: { workspaceRoot: string | null }): JSX.Element {
+export function TicketTrackersTab(): JSX.Element {
   return (
     <div
       role="tabpanel"
@@ -23,7 +23,7 @@ export function TicketTrackersTab({ workspaceRoot }: { workspaceRoot: string | n
       className="space-y-6"
     >
       <SettingsPageHeader title="Ticket trackers" />
-      <TicketTrackerSection workspaceRoot={workspaceRoot} />
+      <TicketTrackerSection />
     </div>
   )
 }

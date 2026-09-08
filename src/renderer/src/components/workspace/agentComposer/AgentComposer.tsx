@@ -6,7 +6,8 @@ import { getSpecialistAction, type SpecialistAction } from '../../../specialists
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
-import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
+import { ExtensionIcon } from '../../ui/ExtensionIcon'
+import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import { PermissionPresetChips, SpawnDebugToggle, TerminalSessionIcon } from './agentSpawnShared'
 import { CliInstallRosterRow } from '../cliInstallRoute'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
@@ -355,7 +356,7 @@ export default function AgentComposer({
                   key={`mcp-${server.id}`}
                   className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--accent-primary-soft)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-strong)]"
                 >
-                  <McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={16} />
+                  <ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={16} />
                   {server.name}
                   <button
                     type="button"

@@ -79,6 +79,7 @@ import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShel
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 import { TicketTrackersTab } from './TicketTrackersTab'
+import { sourceUpdateCadenceLine } from '../../../../shared/skills'
 
 interface Props {
   onClose: () => void
@@ -200,16 +201,16 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
   )
 }
 
-// The 'updates' and 'telemetry' tabs folded into 'general' (their content now
-// renders as sections on the General page), and 'specialist-packs' folded into
-// 'modules'. Map any legacy deep-link that named the old tabs onto their new
-// homes so bookmarked/menu routes still land correctly.
-const GENERAL_FOLDED_SETTINGS_TABS = ['updates', 'telemetry'] as const
-
+// The 'updates' tab folded into 'general' (its content now renders as a section
+// on the General page), and 'specialist-packs' folded into 'modules'. Map any
+// legacy deep-link that named the old tabs onto their new homes so
+// bookmarked/menu routes still land correctly.
+//
+// 'telemetry' was listed here too until MC-2519 (2026-09-08). It named a tab
+// this app never shipped a route to — no menu item, no deep-link, no caller
+// anywhere in the tree — so it aliased nothing to nothing.
 function resolveInitialSettingsTab(initialTab: string | null | undefined): string | null {
-  if (initialTab && (GENERAL_FOLDED_SETTINGS_TABS as readonly string[]).includes(initialTab)) {
-    return 'general'
-  }
+  if (initialTab === 'updates') return 'general'
   if (initialTab === 'specialist-packs') return 'modules'
   // Voice dictation moved onto the module-contributed section path (MC-1861);
   // legacy deep-links (Learn center, persisted routes) land on its section tab.
@@ -1620,13 +1621,22 @@ export default function SettingsPanel({
                     {githubTokenMessage}
                   </p>
                 ) : null}
+
+                {/* The cadence the token decides, said where the decision is
+                    made (MC-2519). Without a token GitHub allows 60 requests an
+                    hour for the whole machine, so plugin sources are checked
+                    once a day rather than hourly — a person who finds updates
+                    slow to appear should read why here, not guess. */}
+                <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
+                  {sourceUpdateCadenceLine(githubTokenStatus?.configured === true)}
+                </p>
               </div>
             }
           />
         </div>
       ) : null}
 
-      {activeSettingsTab === 'trackers' ? <TicketTrackersTab workspaceRoot={activeSprintEngineRoot} /> : null}
+      {activeSettingsTab === 'trackers' ? <TicketTrackersTab /> : null}
 
       {activeSettingsTab === 'agents' ? (
         <div

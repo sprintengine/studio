@@ -16,7 +16,6 @@ import type {
   AgentCliAvailabilityMap,
   InstalledPluginRecord,
   MarketplaceUpdateStatesResult,
-  McpCatalogServer,
   WorkspaceSkill,
 } from '../../../../../shared/electron-api'
 import type { SkillSource } from '../../../../../shared/skills'
@@ -48,7 +47,8 @@ import {
   renderSkillInvocation,
   skillInstalledForHarness,
 } from '../../../utils/skillInvocation'
-import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
+import { ExtensionIcon } from '../../ui/ExtensionIcon'
+import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { TRUST_PRESENTATION } from '../../settings/ThirdPartyModuleList'
 import { pluginTrust } from '../../settings/BrowseStorefront'
@@ -79,9 +79,6 @@ import { cliOnlyRegistryIds, deriveManageUpdateBanner } from './extensionUpdates
 // Per-row actions, all optional: the host wires only the handlers that exist
 // today (no new IPC), and rows without a matching handler carry no affordance.
 type InventoryActions = {
-  // Catalog entries enrich MCP rows: real icon, and skill-linked entries get the
-  // launch affordances.
-  catalogServers?: McpCatalogServer[]
   // Where the registry's relative icon paths resolve from, so an installed CLI
   // wears the same mark its Browse row does.
   registryUrl?: string | null
@@ -689,8 +686,6 @@ function InstalledRow({
   skillUse: SkillUseContext
   cliUpdate?: CliUpdateContext
 }) {
-  const catalogEntry =
-    item.kind === 'mcp' ? actions.catalogServers?.find((server) => server.id === item.id) : undefined
   const registryEntry = item.kind === 'cli' ? registryPlugins?.find((plugin) => plugin.id === item.id) : undefined
   const launchable = item.kind === 'mcp' && item.enabled === true
   const cliUpdating = item.kind === 'cli' && cliUpdate?.updatingId === item.id
@@ -709,7 +704,7 @@ function InstalledRow({
         <PrimaryButton
           key="launch"
           size="sm"
-          onClick={() => actions.onLaunchConnector!({ id: item.id, name: item.name, icon: catalogEntry?.icon })}
+          onClick={() => actions.onLaunchConnector!({ id: item.id, name: item.name })}
         >
           New chat
         </PrimaryButton>,
@@ -770,7 +765,7 @@ function InstalledRow({
     <ConnectorRow
       icon={
         item.kind === 'mcp' ? (
-          <McpBrandIcon slug={mcpIconSlug(item.id)} name={item.name} icon={catalogEntry?.icon} size={36} />
+          <ExtensionIcon slug={mcpIconSlug(item.id)} name={item.name} size={36} />
         ) : (
           <PluginIcon
             iconUrl={registryEntry ? resolveIconUrl(actions.registryUrl ?? null, registryEntry.icon) : null}

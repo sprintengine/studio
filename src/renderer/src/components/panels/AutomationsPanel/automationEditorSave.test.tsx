@@ -56,7 +56,6 @@ const updateCalls: UpdateCall[] = []
 
 domWindow.api = {
   platform: 'darwin',
-  mcpListCatalog: async () => ({ ok: true, servers: [] }),
   updateAutomation: async (input: UpdateCall) => {
     updateCalls.push(input)
     return { ok: true, value: { id: input.automationId } }

@@ -23,6 +23,7 @@ import type {
   SkillSearchInput,
   SkillSearchOutcome,
   SkillSourcesResult,
+  SkillSourceUpdateCheck,
   SkillSyncSourceInput,
   SkillSyncSourceOutcome,
   SkillUninstallInput,
@@ -32,6 +33,14 @@ import type { SkillsService } from '../skills'
 
 export function registerSkillsIpc(ipcMain: IpcMain, service: SkillsService): void {
   ipcMain.handle('skills:list-sources', (): Promise<SkillSourcesResult> => service.listSources())
+  // The manual Check now. It runs the same check the poller runs, under the
+  // same per-source cadence window (MC-2519), so a person pressing it cannot
+  // spend the anonymous GitHub budget the window exists to protect — the
+  // result names the sources it left alone and says when they were last asked.
+  ipcMain.handle(
+    'skills:check-source-updates',
+    (): Promise<SkillSourceUpdateCheck> => service.checkSourceUpdates()
+  )
   ipcMain.handle(
     'skills:add-source',
     (_, input: SkillAddSourceInput): Promise<SkillAddSourceResult> => service.addSource(input)

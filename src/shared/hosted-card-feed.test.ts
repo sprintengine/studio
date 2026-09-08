@@ -124,7 +124,7 @@ const rejects = (go: unknown, match: RegExp) => {
     verb: 'install.mcp',
     id: 'io-github-domdomegg-gmail-mcp',
   })
-  rejects({ verb: 'install.mcp' }, /install\.mcp needs a catalogue id/)
+  rejects({ verb: 'install.mcp' }, /install\.mcp needs a server id/)
 
   for (const verb of ['install.skill', 'install.plugin']) {
     assert.deepEqual(one({ verb, source: 'github:sprintengine/studio-releases', id: 'studio-skills/skills/debug' }), {

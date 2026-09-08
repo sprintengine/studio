@@ -15,6 +15,7 @@ import type { MulticodeUpdateService } from './update-service'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
 import { readHostedModelFeed } from './hosted-feed/hosted-feed-service'
 import { readHostedCardFeed } from './hosted-feed/card-feed-service'
+import { readHostedSourcesFeed } from './hosted-feed/sources-feed-service'
 import { readCliVersionAdvisories } from './cli-version-advisory-service'
 
 type RegisterAppLifecycleOptions = {
@@ -216,16 +217,23 @@ export function registerAppLifecycle({
         if (!app.isPackaged) return
         await updateService.checkForUpdates(false)
       },
-      // Three riders on one hour. The plugin-source update check rides the feed
+      // Four riders on one hour. The plugin-source update check rides the feed
       // leg for the cadence it wants and one fewer timer
       // (backlog/2026-09-05-plugin-sources.md), and the card feed rides it for
       // the same reason — this is the ONLY thing in the app that ever fetches
       // the card feed, and without it a shipped machine serves the bundled seed
       // until the next release, which is the whole point of hosting the file.
+      // The sources feed (MC-2519) rides it for the same reason again: its IPC
+      // only ever reads disk, so this leg is the only thing that refreshes the
+      // recommended list a machine offers.
       //
-      // The tick is a heartbeat and not a schedule: both clients own their own
-      // TTL and retry gap, so an hourly knock on a feed fetched forty minutes
-      // ago costs nothing and an offline machine is not made to pay a timeout.
+      // The tick is a heartbeat and not a schedule: every rider owns its own
+      // window, so an hourly knock on a feed fetched forty minutes ago costs
+      // nothing and an offline machine is not made to pay a timeout. The feeds
+      // own a TTL and a retry gap; the plugin-source check owns a per-source
+      // cadence window that widens to a day when no GitHub token is configured
+      // (MC-2519), which is why the ruling changed no timer here — the leg
+      // still knocks hourly and simply finds nothing due 23 times out of 24.
       //
       // Each rider is awaited on its own so one feed that cannot be read does
       // not take the others' hour with it; the first failure is rethrown so the
@@ -234,6 +242,7 @@ export function registerAppLifecycle({
         const failures: unknown[] = []
         await readHostedModelFeed().catch((error) => void failures.push(error))
         await readHostedCardFeed().catch((error) => void failures.push(error))
+        await readHostedSourcesFeed().catch((error) => void failures.push(error))
         await checkPluginSourceUpdates?.().catch(() => undefined)
         if (failures.length > 0) throw failures[0]
       },

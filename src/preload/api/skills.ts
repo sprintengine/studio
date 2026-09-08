@@ -33,6 +33,8 @@ import type {
 
 export const skillsApi = {
   skillsListSources: (): Promise<SkillSourcesResult> => ipcRenderer.invoke('skills:list-sources'),
+  skillsCheckSourceUpdates: (): Promise<SkillSourceUpdateCheck> =>
+    ipcRenderer.invoke('skills:check-source-updates'),
   skillsAddSource: (input: SkillAddSourceInput): Promise<SkillAddSourceResult> =>
     ipcRenderer.invoke('skills:add-source', input),
   skillsAddLocalSource: (input: SkillAddLocalSourceInput): Promise<SkillAddSourceResult> =>
@@ -70,6 +72,7 @@ export const skillsApi = {
 } satisfies Pick<
   ElectronApi,
   | 'skillsListSources'
+  | 'skillsCheckSourceUpdates'
   | 'skillsAddSource'
   | 'skillsAddLocalSource'
   | 'skillsRemoveSource'

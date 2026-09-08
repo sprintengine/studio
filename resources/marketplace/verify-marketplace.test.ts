@@ -28,6 +28,133 @@ buildSync({
   outfile: verifierBundle,
 })
 
+/**
+ * The seed registry carries no signed bundle any more: the four first-party MCP
+ * bundles left with the third-party retirement (MC-2519, 2026-09-08), and what
+ * remains — 13 inline agent-CLI rows and 5 unsigned automation starters — is
+ * signature-free by construction.
+ *
+ * The signature gate is still the whole trust story for anything code-bearing,
+ * so rather than delete the tests that cover it, they build their own signed
+ * bundle: a throwaway ed25519 key signs a probe plugin inside the copied
+ * registry, and the key's fingerprint is added to that copy's
+ * trusted-publishers.json. The key itself is written to the work dir, never
+ * inside a registry root — `assertNoKeyMaterial` rejects committed key material
+ * and that check has to keep firing on real registries.
+ */
+const moduleCliBundle = join(process.cwd(), 'node_modules', '.cache', 'multicode', 'multicode-module-for-marketplace-test.cjs')
+buildSync({
+  entryPoints: [join(process.cwd(), 'packages', 'module-sdk', 'src', 'cli.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  outfile: moduleCliBundle,
+})
+
+const signingKeyPath = join(workDir, 'probe-signing.key')
+assert.equal(
+  spawnSync(process.execPath, [moduleCliBundle, 'keygen', '--out', signingKeyPath], { encoding: 'utf8' }).status,
+  0,
+  'multicode-module keygen must produce a throwaway signing key'
+)
+
+const SIGNED_PROBE_ID = 'signed-probe-mcp'
+const SIGNED_PROBE_PUBLISHER = 'Probe Labs'
+
+/**
+ * Sign a probe MCP bundle into `root` and publish it in that copy's index and
+ * trusted-publishers list. Returns the probe's registry entry as written.
+ */
+function addSignedProbeBundle(root: string): Record<string, unknown> {
+  const pluginRoot = join(root, 'plugins', SIGNED_PROBE_ID)
+  mkdirSync(join(pluginRoot, 'mcp'), { recursive: true })
+  const server = {
+    servers: [
+      {
+        id: 'probe',
+        name: 'Probe',
+        category: 'Development',
+        description: 'A probe MCP server that exists only to exercise the signature gate.',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', 'probe-mcp@latest'],
+        clients: ['codex', 'claude-code'],
+        scope: 'workspace',
+        source: 'bundled',
+        riskLevel: 'local-command',
+        auth: 'None',
+        capabilities: ['Probing'],
+        envVarNames: [],
+      },
+    ],
+  }
+  writeFileSync(join(pluginRoot, 'mcp', 'server.json'), `${JSON.stringify(server, null, 2)}\n`, 'utf8')
+  writeFileSync(
+    join(pluginRoot, 'plugin.json'),
+    `${JSON.stringify(
+      {
+        id: SIGNED_PROBE_ID,
+        displayName: 'Signed Probe MCP',
+        version: 1,
+        defaultEnabled: false,
+        source: 'third-party',
+        permissions: ['network', 'process:spawn'],
+        publisher: SIGNED_PROBE_PUBLISHER,
+        category: 'Development',
+        summary: 'A signed probe bundle that exists only to exercise the signature gate.',
+        components: { mcp: { path: 'mcp/server.json' } },
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  )
+
+  const signed = spawnSync(
+    process.execPath,
+    [moduleCliBundle, 'plugin', 'sign', pluginRoot, '--key', signingKeyPath],
+    { encoding: 'utf8' }
+  )
+  assert.equal(signed.status, 0, signed.stderr)
+  const fingerprint = /Signer fingerprint:\s*([a-f0-9]+)/i.exec(signed.stdout ?? '')?.[1]
+  assert.ok(fingerprint, `plugin sign must report a signer fingerprint; got: ${signed.stdout}`)
+
+  const manifest = JSON.parse(readFileSync(join(pluginRoot, 'plugin.json'), 'utf8')) as {
+    signature: Record<string, unknown>
+  }
+
+  const publishersPath = join(root, 'trusted-publishers.json')
+  const publishers = JSON.parse(readFileSync(publishersPath, 'utf8')) as {
+    publishers: Array<Record<string, unknown>>
+  }
+  publishers.publishers.push({
+    name: SIGNED_PROBE_PUBLISHER,
+    verified: true,
+    publicKey: manifest.signature.publicKey,
+    fingerprint,
+    scope: 'Test-only probe bundle',
+  })
+  writeFileSync(publishersPath, `${JSON.stringify(publishers, null, 2)}\n`, 'utf8')
+
+  const entry: Record<string, unknown> = {
+    id: SIGNED_PROBE_ID,
+    name: 'Signed Probe MCP',
+    publisher: { name: SIGNED_PROBE_PUBLISHER, verified: true },
+    summary: 'A signed probe bundle that exists only to exercise the signature gate.',
+    category: 'Development',
+    icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+    latest: 1,
+    source: `https://github.com/sprintengine/studio-releases/tree/main/plugins/${SIGNED_PROBE_ID}`,
+    provides: ['mcp'],
+    signature: manifest.signature,
+  }
+  const marketplacePath = join(root, 'marketplace.json')
+  const marketplace = JSON.parse(readFileSync(marketplacePath, 'utf8')) as { plugins: Array<unknown> }
+  marketplace.plugins.push(entry)
+  writeFileSync(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
+  return entry
+}
+
 type VerifyRun = {
   status: number | null
   stdout: string
@@ -58,7 +185,7 @@ function testSampleRegistryPasses(): void {
   const result = runVerifier(root)
   assert.equal(result.status, 0, result.stderr)
   const seed = JSON.parse(readFileSync(join(seedRoot, 'marketplace.json'), 'utf8')) as { plugins: unknown[] }
-  assert.ok(seed.plugins.length >= 4, 'seed registry must carry at least the signed bundles')
+  assert.ok(seed.plugins.length >= 4, 'seed registry must carry the agent CLIs and automation starters')
   assert.match(result.stdout, new RegExp(`marketplace registry verified \\(${seed.plugins.length} plugins\\)`))
 }
 
@@ -91,8 +218,8 @@ function testRegistryHoldsOnlyWhatAMarketplaceCannotCarry(): void {
       .sort()
       .join('+')
     assert.ok(
-      ['automation', 'cli', 'mcp'].includes(names),
-      `${plugin.id} provides "${names}"; the signed registry carries agent CLIs, automation starters and signed modules — anything a Claude marketplace can list belongs in one`
+      ['automation', 'cli'].includes(names),
+      `${plugin.id} provides "${names}"; the registry carries agent CLIs and automation starters — anything a Claude marketplace can list belongs in one`
     )
     kinds.set(names, (kinds.get(names) ?? 0) + 1)
   }
@@ -101,9 +228,8 @@ function testRegistryHoldsOnlyWhatAMarketplaceCannotCarry(): void {
     [
       ['automation', 5],
       ['cli', 13],
-      ['mcp', 4],
     ],
-    'the registry is 13 agent CLIs, 5 automation starters and 4 signed modules'
+    'the registry is 13 agent CLIs and 5 automation starters'
   )
 }
 
@@ -121,12 +247,12 @@ function testUnsignedEntriesNeedNoLocalManifest(): void {
   for (const plugin of unsigned) {
     assert.ok(plugin.mcp !== undefined || plugin.cli !== undefined || typeof plugin.source === 'string')
   }
-  const signed = marketplace.plugins.find((plugin) => plugin.signature !== undefined)
-  assert.ok(signed, 'generated seed must carry a signed entry')
-  rmSync(join(root, 'plugins', signed.id as string), { recursive: true, force: true })
+  addSignedProbeBundle(root)
+  assert.equal(runVerifier(root).status, 0, 'the signed probe must verify before its manifest is removed')
+  rmSync(join(root, 'plugins', SIGNED_PROBE_ID), { recursive: true, force: true })
   const result = runVerifier(root)
   assert.equal(result.status, 1)
-  assert.match(result.stderr, new RegExp(`plugins/${signed.id as string}/plugin.json`))
+  assert.match(result.stderr, new RegExp(`plugins/${SIGNED_PROBE_ID}/plugin.json`))
 }
 
 function testInlineCliVerifiedClaimIsBoundToTrustedPublisherNames(): void {
@@ -171,12 +297,13 @@ function testStrippedSignatureCannotKeepAVerifiedPublisher(): void {
   // a verified publisher: the signature is the only thing that binds a bundle
   // to its publisher, so dropping it has to be visible on the shelf.
   const root = copySeedRegistry('stripped-signature-registry')
+  addSignedProbeBundle(root)
   const path = join(root, 'marketplace.json')
   const marketplace = JSON.parse(readFileSync(path, 'utf8')) as {
     plugins: Array<Record<string, unknown>>
   }
   const signed = marketplace.plugins.find((plugin) => plugin.signature !== undefined)
-  assert.ok(signed, 'generated seed must carry a signed entry')
+  assert.ok(signed, 'the probe bundle must be the signed entry')
   delete signed.signature
   writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
 
@@ -190,7 +317,7 @@ function testUnclaimedPayloadDirFails(): void {
   // A committed payload nothing in the index claims is verified by nothing, yet
   // the packaged-seed install path would still stage it.
   const root = copySeedRegistry('orphan-payload-registry')
-  cpSync(join(root, 'plugins', 'browser-automation-mcp'), join(root, 'plugins', 'nobody-claims-me'), { recursive: true })
+  cpSync(join(root, 'plugins', AUTOMATION_STARTER_ID), join(root, 'plugins', 'nobody-claims-me'), { recursive: true })
 
   const result = runVerifier(root)
   assert.equal(result.status, 1)
@@ -275,28 +402,30 @@ function testSchemaInvalidRegistryFailsClearly(): void {
 
 function testTamperedPluginFailsThroughCliVerify(): void {
   const root = copySeedRegistry('tampered-registry')
-  const path = join(root, 'plugins', 'browser-automation-mcp', 'plugin.json')
+  addSignedProbeBundle(root)
+  const path = join(root, 'plugins', SIGNED_PROBE_ID, 'plugin.json')
   const manifest = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
-  manifest.displayName = 'Tampered Browser Automation MCP'
+  manifest.displayName = 'Tampered Probe MCP'
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 
   const result = runVerifier(root)
   assert.equal(result.status, 1)
-  assert.match(result.stderr, /plugins\/browser-automation-mcp\/plugin\.json/)
+  assert.match(result.stderr, new RegExp(`plugins/${SIGNED_PROBE_ID}/plugin\\.json`))
   assert.match(result.stderr, /multicode-module plugin verify failed/)
   assert.match(result.stderr, /INVALID signature/)
 }
 
 function testTamperedComponentFailsThroughCliVerify(): void {
   const root = copySeedRegistry('tampered-component-registry')
-  const path = join(root, 'plugins', 'browser-automation-mcp', 'mcp', 'server.json')
+  addSignedProbeBundle(root)
+  const path = join(root, 'plugins', SIGNED_PROBE_ID, 'mcp', 'server.json')
   const component = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
   component.servers = []
   writeFileSync(path, `${JSON.stringify(component, null, 2)}\n`, 'utf8')
 
   const result = runVerifier(root)
   assert.equal(result.status, 1)
-  assert.match(result.stderr, /plugins\/browser-automation-mcp\/plugin\.json/)
+  assert.match(result.stderr, new RegExp(`plugins/${SIGNED_PROBE_ID}/plugin\\.json`))
   assert.match(result.stderr, /multicode-module plugin verify failed/)
   assert.match(result.stderr, /component digests/i)
 }
@@ -305,14 +434,14 @@ function testEntrySourceOnNonAllowlistedHostFails(): void {
   const root = copySeedRegistry('evil-source-registry')
   const path = join(root, 'marketplace.json')
   const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<{ id: string; source?: string }> }
-  const target = marketplace.plugins.find((plugin) => plugin.id === 'browser-automation-mcp')
-  assert.ok(target, 'seed registry must carry the browser-automation-mcp bundle')
-  target.source = 'https://evil.example.com/plugins/browser-automation-mcp'
+  const target = marketplace.plugins.find((plugin) => plugin.id === AUTOMATION_STARTER_ID)
+  assert.ok(target, `seed registry must carry the ${AUTOMATION_STARTER_ID} starter`)
+  target.source = `https://evil.example.com/plugins/${AUTOMATION_STARTER_ID}`
   writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
 
   const result = runVerifier(root)
   assert.equal(result.status, 1)
-  assert.match(result.stderr, /plugins\.browser-automation-mcp\.source/)
+  assert.match(result.stderr, new RegExp(`plugins\\.${AUTOMATION_STARTER_ID}\\.source`))
   assert.match(result.stderr, /allowlist/)
 }
 
@@ -320,8 +449,8 @@ function testEntrySourceOnAllowlistedNonCanonicalOwnerPasses(): void {
   const root = copySeedRegistry('non-canonical-owner-registry')
   const path = join(root, 'marketplace.json')
   const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<{ id: string; source?: string }> }
-  const first = marketplace.plugins.find((plugin) => plugin.id === 'browser-automation-mcp')
-  assert.ok(first, 'seed registry must carry the browser-automation-mcp bundle')
+  const first = marketplace.plugins.find((plugin) => plugin.id === AUTOMATION_STARTER_ID)
+  assert.ok(first, `seed registry must carry the ${AUTOMATION_STARTER_ID} starter`)
   first.source = `https://github.com/another-org/registry/tree/main/plugins/${first.id}`
   writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
 

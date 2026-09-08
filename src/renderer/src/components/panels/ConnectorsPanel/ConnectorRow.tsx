@@ -10,7 +10,8 @@
 import React from 'react'
 
 import { Badge, GhostButton, PrimaryButton, TruncatedText } from '../../ui'
-import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
+import { ExtensionIcon } from '../../ui/ExtensionIcon'
+import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import type { ConnectorEntry } from './connectorsFacets'
 
@@ -139,21 +140,16 @@ export function ConnectorEntryRow({
   registryUrl: string | null
   selected: boolean
   onOpen: () => void
-  // Catalog entries only — adds the server to the active set.
+  // Installed entries only — removes the server from the active set.
   onToggleInstalled?: () => void
   // Launchable connectors only.
   onLaunch?: () => void
 }) {
-  const icon =
-    entry.source === 'catalog' && entry.catalogServer ? (
-      <McpBrandIcon slug={mcpIconSlug(entry.id)} name={entry.name} icon={entry.catalogServer.icon} size={36} />
-    ) : (
-      <PluginIcon
-        iconUrl={entry.plugin ? resolveIconUrl(registryUrl, entry.plugin.icon) : null}
-        name={entry.name}
-        size={36}
-      />
-    )
+  const icon = entry.plugin ? (
+    <PluginIcon iconUrl={resolveIconUrl(registryUrl, entry.plugin.icon)} name={entry.name} size={36} />
+  ) : (
+    <ExtensionIcon slug={mcpIconSlug(entry.id)} name={entry.name} size={36} />
+  )
   return (
     <ConnectorRow
       icon={icon}

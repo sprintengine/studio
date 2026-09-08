@@ -310,6 +310,7 @@ function actions(over: Partial<SkillSource> = {}): string {
       onSynced={() => {}}
       onSyncFailed={() => {}}
       onRemoved={() => {}}
+      onCheckReport={() => {}}
     />,
   )
 }

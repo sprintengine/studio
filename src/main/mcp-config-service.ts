@@ -7,8 +7,6 @@ function loadElectron(): typeof import('electron') {
   return require('electron')
 }
 import type {
-  McpCatalogResult,
-  McpCatalogServer,
   McpClientTarget,
   McpScope,
   McpServerConfig,
@@ -44,7 +42,6 @@ const MANAGED_MISSING_COMMAND_PREFIX = '__missing_multicode_sprintengine_mcp__:'
 export type PluginLookup = (id: string) => { manifest: PluginManifest } | undefined
 
 export type McpConfigService = {
-  listCatalog(): McpCatalogResult
   previewSync(input: McpSyncInput): McpSyncPreview
   sync(input: McpSyncInput): McpSyncResult
   removeManagedSprintEngine(input: McpManagedSprintEngineRemoveInput): McpSyncResult
@@ -63,7 +60,6 @@ export function createMcpConfigService(options: McpConfigServiceOptions = {}): M
   const userDataDir = options.userDataDir ?? (() => defaultUserDataDir(homeDir))
   const runtimeRoot = options.runtimeRoot ?? findSprintEngineRuntimeRoot
   return {
-    listCatalog,
     previewSync: (input) => syncMcpConfig({ ...input, write: false }, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
     sync: (input) => syncMcpConfig({ ...input, write: true }, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
     removeManagedSprintEngine: (input) => removeManagedSprintEngineConfig(input, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
@@ -80,57 +76,6 @@ type SyncContext = {
   homeDir: () => string
   userDataDir: () => string
   runtimeRoot: () => string | null
-}
-
-// The bundled catalog is ~100KB of generated JSON (data-URI icons included)
-// and immutable for the process lifetime in packaged builds; four renderer
-// surfaces re-request it (Connectors open, new-workspace panel, automation
-// editor, connector launch), so the sync read+parse+normalize is cached by
-// file mtime — dev regenerations still bust it.
-let catalogCache: { path: string; mtimeMs: number; result: McpCatalogResult } | null = null
-
-function listCatalog(): McpCatalogResult {
-  try {
-    const catalogPath = findCatalogPath()
-    if (!catalogPath) {
-      return { ok: false, message: 'Bundled MCP catalog was not found.' }
-    }
-    const mtimeMs = statSync(catalogPath).mtimeMs
-    if (catalogCache && catalogCache.path === catalogPath && catalogCache.mtimeMs === mtimeMs) {
-      return catalogCache.result
-    }
-    const raw = JSON.parse(readFileSync(catalogPath, 'utf8')) as { servers?: unknown }
-    if (!Array.isArray(raw.servers)) {
-      return { ok: false, message: 'Bundled MCP catalog is missing its servers array.' }
-    }
-    const servers = raw.servers
-      .map(normalizeCatalogServer)
-      .filter((server): server is McpCatalogServer => Boolean(server))
-    const result: McpCatalogResult = { ok: true, servers }
-    catalogCache = { path: catalogPath, mtimeMs, result }
-    return result
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : 'Unable to read bundled MCP catalog.',
-    }
-  }
-}
-
-function findCatalogPath(): string | null {
-  const electron = loadElectron()
-  const candidates = electron.app.isPackaged
-    ? [
-        join(process.resourcesPath, 'mcps', 'catalog.json'),
-        join(electron.app.getAppPath(), 'resources', 'mcps', 'catalog.json'),
-      ]
-    : [
-        join(process.cwd(), 'resources', 'mcps', 'catalog.json'),
-        join(electron.app.getAppPath(), 'resources', 'mcps', 'catalog.json'),
-        join(__dirname, '..', '..', 'resources', 'mcps', 'catalog.json'),
-        join(__dirname, '..', '..', '..', 'resources', 'mcps', 'catalog.json'),
-      ]
-  return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 
 function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult {
@@ -356,23 +301,6 @@ function normalizeSettings(settings: McpSettings | undefined, managedServer?: Mc
   return {
     syncEnabled: settings.syncEnabled === true || Boolean(managedServer),
     servers,
-  }
-}
-
-export function normalizeCatalogServer(value: unknown): McpCatalogServer | null {
-  const server = normalizeServer({
-    ...(value as McpServerConfig),
-    enabled: false,
-    scope: ((value as Partial<McpCatalogServer>)?.recommendedScope ?? 'workspace') as McpScope,
-    source: 'bundled',
-  })
-  if (!server) return null
-  const candidate = value as Partial<McpCatalogServer>
-  return {
-    ...server,
-    defaultClients: normalizeMcpClients(candidate.defaultClients ?? server.clients),
-    recommendedScope: candidate.recommendedScope === 'user' ? 'user' : 'workspace',
-    setupNotes: typeof candidate.setupNotes === 'string' ? candidate.setupNotes : undefined,
   }
 }
 

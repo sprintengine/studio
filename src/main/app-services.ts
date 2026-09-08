@@ -607,7 +607,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const agentLaunchService = createAgentLaunchService({
     listWorkspaces: () => workspaceSyncService.getSnapshot().state.workspaces,
     getLaunchSettings: () => sprintEngineLaunchSettings.get(),
-    listConnectorCatalog: () => mcpConfigService.listCatalog(),
     // Hooks-only selectability (decision of record 2026-08-31): a KNOWN plugin
     // whose manifest declares no agentStateSpec is refused as an agent. An id
     // the registry does not hold falls through — the launch render's own

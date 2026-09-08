@@ -64,7 +64,7 @@ const VALID_MARKETPLACE = {
 }
 
 // Inline-MCP entry: no bundle source, no signature, categories[]/tags[], and a
-// raw MCP server config modeled on resources/mcps/catalog.json.
+// raw MCP server config.
 const VALID_INLINE_MCP_ENTRY = {
   id: 'live-search-mcp',
   name: 'Live Search MCP',

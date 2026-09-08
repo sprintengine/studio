@@ -145,16 +145,6 @@ if (cards.length === 0) errors.push('the seed carries no cards; a home page with
 const heroes = cards.filter((card) => card.hero === true)
 if (heroes.length !== 1) errors.push(`exactly one card must be the hero, found ${heroes.length}`)
 
-// The bundled MCP catalogue: one file, no source dimension, reverse-DNS ids.
-const mcpIds = new Set()
-try {
-  for (const server of JSON.parse(readFileSync(join(root, 'resources', 'mcps', 'catalog.json'), 'utf8')).servers ?? []) {
-    if (typeof server?.id === 'string') mcpIds.add(server.id)
-  }
-} catch (error) {
-  errors.push(`resources/mcps/catalog.json could not be read: ${error.message}`)
-}
-
 // The agent CLIs, which are plugins under resources/plugins.
 const cliIds = new Set(
   readdirSync(join(root, 'resources', 'plugins'), { withFileTypes: true })
@@ -243,7 +233,14 @@ for (const card of cards) {
         if (!cliIds.has(action.cli)) errors.push(`${at}: "${action.cli}" is not a plugin under resources/plugins`)
         break
       case 'install.mcp':
-        if (!mcpIds.has(action.id)) errors.push(`${at}: "${action.id}" is not a server in resources/mcps/catalog.json`)
+        // There is no list of servers this build can install by id any more.
+        // The bundled catalogue went with the third-party retirement (MC-2519,
+        // 2026-09-08), and the executor now honours the verb only for a server
+        // the workspace already holds — which is a fact about the person's
+        // machine, not about this repository, so no seed card may name one.
+        errors.push(
+          `${at}: install.mcp resolved against the bundled MCP catalogue, which is gone; MCP servers arrive inside plugins now, so name the plugin with install.plugin`,
+        )
         break
       case 'install.skill': {
         if (action.source !== STUDIO_SOURCE_ID) {
@@ -288,8 +285,13 @@ for (const card of cards) {
             errors.push(`${at}: attaches skill "${skill}", which no earlier install.skill in this card installs`)
           }
         }
+        // `mcpServers` names servers an earlier `install.mcp` in the same card
+        // installed (the shared parser's own rule). No seed card can carry an
+        // `install.mcp` any more, so no seed card can attach a server either.
         for (const server of action.mcpServers ?? []) {
-          if (!mcpIds.has(server)) errors.push(`${at}: attaches "${server}", which is not a server in resources/mcps/catalog.json`)
+          errors.push(
+            `${at}: attaches "${server}", but a seed card can no longer install an MCP server for it to attach`,
+          )
         }
         if (action.send !== true) errors.push(`${at}: Go goes (R4) — a seeded card sends its prompt`)
         break

@@ -62,7 +62,6 @@ export function registerCardsIpc(
   overrides: Partial<CardRunDeps> = {},
 ): void {
   const deps: CardRunDeps = {
-    listMcpCatalog: () => services.mcpConfigService.listCatalog(),
     syncMcp: (input) => services.mcpConfigService.sync(input),
     getSkillScan: (input) => services.skillsService.getScan(input),
     installSkill: (input) => services.skillsService.install(input),

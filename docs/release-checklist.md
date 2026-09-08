@@ -87,6 +87,31 @@ of the first release that ships it, then delete the line.
   could require, a roster chip variant only its step rows used, and the backlog
   header action only its Start sprint supplied.
 
+- Third-party skills and MCP servers, 2026-09-08 (MC-2519): the studio no longer
+  ships anybody else's software. The bundled MCP catalogue
+  (`resources/mcps/catalog.json`, sixteen servers) is deleted with its reader,
+  and with it the whole `catalog` population of the Extensions door: the browse
+  grid now lists the marketplace registry's plugins only, the New chat composer
+  and the automation connector picker offer the MCP servers you have installed
+  and no others, and the Connectors detail pane for a catalogue server is gone.
+  **Nothing installed is removed or disabled** — a server already in your MCP
+  settings keeps working, keeps launching and keeps syncing. What goes is the
+  route to servers you had NOT installed: the sixteen are no longer offered, and
+  none of them has a replacement in any plugin marketplace we recommend, so a
+  card or a flow that named one now says so instead of installing it. Settings →
+  Ticket trackers lists nothing of its own for the same reason and points at the
+  plugin catalogue, where Jira, Linear, GitHub and GitLab live. The four signed
+  first-party MCP bundles leave the marketplace index in the same change: it is
+  18 rows now (13 agent CLIs, 5 automation starters) and carries no signed
+  component at all.
+- Plugin-source update cadence, 2026-09-08 (MC-2519): without a GitHub token the
+  studio checks each plugin source for updates **once a day** rather than once an
+  hour, because anonymous GitHub allows 60 requests an hour for the whole
+  machine. With a token configured the hourly cadence is unchanged. The cadence
+  in force is stated beside the token field in Settings → GitHub, and a new
+  "Check for updates" action on a source's overflow counts against the same
+  window and says when the source was last asked.
+
 ## Tag And Build
 
 - Create a tag matching `package.json`, for example `v0.4.0` or `v0.4.0-preview.1`.

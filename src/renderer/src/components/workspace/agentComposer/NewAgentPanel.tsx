@@ -50,7 +50,8 @@ import {
 } from '../../ui'
 import { CheckIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
+import { ExtensionIcon } from '../../ui/ExtensionIcon'
+import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { CliInstallCta } from '../cliInstallRoute'
 import {
@@ -1301,7 +1302,7 @@ export default function NewAgentPanel({
                 {composer.mcpServers.map((server) => (
                   <AttachmentChip
                     key={`mcp-${server.id}`}
-                    glyph={<McpBrandIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />}
+                    glyph={<ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />}
                     label={server.name}
                     removeLabel={`Remove MCP server ${server.name}`}
                     onRemove={() => composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))}

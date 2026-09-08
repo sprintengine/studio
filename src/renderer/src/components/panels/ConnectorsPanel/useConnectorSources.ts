@@ -1,77 +1,52 @@
-// The two catalog reads behind every connectors surface (the modal today, the
-// Extensions door in MC-1847): the MCP catalog (`window.api.mcpListCatalog`,
-// the launchable connectors) and the marketplace registry
-// (`window.api.readMarketplaceRegistry`, installable plugins). Extracted from
-// ConnectorsPanel so the door surface and the modal read the exact same
-// sources, degrade the exact same way, and share the workspace `.mcp.json`
-// sync — one implementation, two mounts.
+// The registry read behind every connectors surface (the modal today, the
+// Extensions door in MC-1847): `window.api.readMarketplaceRegistry`, the
+// installable plugins. Extracted from ConnectorsPanel so the door surface and
+// the modal read the exact same source, degrade the exact same way, and share
+// the workspace `.mcp.json` sync — one implementation, two mounts.
+//
+// It read a second source until the third-party retirement (MC-2519,
+// 2026-09-08): `window.api.mcpListCatalog`, the bundled catalogue of sixteen
+// servers nobody here wrote. That IPC is gone with the file, so the only MCP
+// servers this hook knows about are the ones in the workspace's own settings.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import type { McpServerConfig, McpSettings } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { mcpServerFromCatalog } from '../../settings/McpCatalog'
 import type { SourceLoad } from './connectorsFacets'
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: true, servers: {} }
 
 export type ConnectorSources = {
-  catalogLoad: SourceLoad<McpCatalogServer[]>
   registryLoad: SourceLoad<MarketplacePluginEntry[]>
   registryUrl: string | null
   mcpSettings: McpSettings
   /** Enabled server ids from MCP settings — the `installed` predicate. */
   installedServerIds: ReadonlySet<string>
   upsertMcpServer: (server: McpServerConfig) => void
-  /** Add/remove a catalog entry from the workspace's MCP settings. */
-  toggleCatalogServer: (server: McpCatalogServer) => void
-  loadCatalog: () => Promise<void>
   loadRegistry: (forceRefresh?: boolean) => Promise<void>
 }
 
 export function useConnectorSources(activeWorkspaceRoot: string | null): ConnectorSources {
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
-  const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
 
-  const [catalogLoad, setCatalogLoad] = useState<SourceLoad<McpCatalogServer[]>>({ status: 'loading' })
   const [registryLoad, setRegistryLoad] = useState<SourceLoad<MarketplacePluginEntry[]>>({ status: 'loading' })
   const [registryUrl, setRegistryUrl] = useState<string | null>(null)
 
-  const loadCatalog = useCallback(async () => {
-    if (typeof window.api.mcpListCatalog !== 'function') {
-      setCatalogLoad({ status: 'error', message: 'Connector catalog needs an app restart.' })
-      return
-    }
-    // A refresh never re-enters `loading` (the door-substrate rule): once data
-    // is on screen it stays up until the new read lands, so a post-install
-    // re-read can't unmount the detail panel mid-confirmation.
-    setCatalogLoad((current) => (current.status === 'ready' ? current : { status: 'loading' }))
-    try {
-      const result = await window.api.mcpListCatalog()
-      setCatalogLoad(
-        result.ok ? { status: 'ready', data: result.servers } : { status: 'error', message: result.message },
-      )
-    } catch (error) {
-      setCatalogLoad({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Unable to load the connector catalog.',
-      })
-    }
-  }, [])
-
   const loadRegistry = useCallback(async (forceRefresh?: boolean) => {
     if (typeof window.api.readMarketplaceRegistry !== 'function') {
-      // An older build with no registry API is not a hard failure — the catalog
-      // still carries the launchable connectors; the marketplace source degrades
-      // to a notice, so treat it as an empty, reachable registry.
+      // An older build with no registry API is not a hard failure — the
+      // marketplace source degrades to a notice, so treat it as an empty,
+      // reachable registry.
       setRegistryLoad({ status: 'ready', data: [] })
       return
     }
-    // Same refresh rule as the catalog: the post-install force-refresh keeps
-    // the current grid (and the open install-confirmation panel) mounted.
+    // A refresh never re-enters `loading` (the door-substrate rule): once data
+    // is on screen it stays up until the new read lands, so the post-install
+    // force-refresh keeps the current grid (and the open install-confirmation
+    // panel) mounted.
     setRegistryLoad((current) => (current.status === 'ready' ? current : { status: 'loading' }))
     try {
       const result = await window.api.readMarketplaceRegistry(forceRefresh ? { forceRefresh: true } : undefined)
@@ -81,8 +56,8 @@ export function useConnectorSources(activeWorkspaceRoot: string | null): Connect
         setRegistryLoad({ status: 'ready', data: result.marketplace.plugins })
       } else {
         // Offline-with-no-cache, fetch-error, invalid-schema: the marketplace
-        // source is down. The catalog still carries the launchable connectors, so
-        // this degrades to a notice on the surface, never a silent empty grid.
+        // source is down. This degrades to a notice on the surface, never a
+        // silent empty grid.
         setRegistryLoad({ status: 'error', message: result.message || 'Couldn’t reach the marketplace registry.' })
       }
     } catch (error) {
@@ -94,16 +69,15 @@ export function useConnectorSources(activeWorkspaceRoot: string | null): Connect
   }, [])
 
   useEffect(() => {
-    void loadCatalog()
     void loadRegistry()
-  }, [loadCatalog, loadRegistry])
+  }, [loadRegistry])
 
-  // Keep the active workspace's .mcp.json in step with catalog add/remove, so a
-  // "Get" here really installs into the workspace (not just UI state). Mirrors the
+  // Keep the active workspace's .mcp.json in step with an add/remove, so a
+  // change here really lands in the workspace (not just UI state). Mirrors the
   // Settings MCPs sync; a no-op without a workspace or when sync is off.
-  // Keyed on the serialized servers map rather than the mcpSettings object, so a
-  // "Get" (add/remove to active) here writes .mcp.json without re-syncing on
-  // every unrelated app-settings render.
+  // Keyed on the serialized servers map rather than the mcpSettings object, so
+  // an add/remove writes .mcp.json without re-syncing on every unrelated
+  // app-settings render.
   const serverSnapshot = JSON.stringify(mcpSettings.servers)
   const mcpSettingsRef = useRef(mcpSettings)
   mcpSettingsRef.current = mcpSettings
@@ -119,23 +93,12 @@ export function useConnectorSources(activeWorkspaceRoot: string | null): Connect
     [mcpSettings.servers],
   )
 
-  const toggleCatalogServer = useCallback(
-    (server: McpCatalogServer) => {
-      if (mcpSettings.servers[server.id]?.enabled) removeMcpServer(server.id)
-      else upsertMcpServer(mcpServerFromCatalog(server))
-    },
-    [mcpSettings.servers, removeMcpServer, upsertMcpServer],
-  )
-
   return {
-    catalogLoad,
     registryLoad,
     registryUrl,
     mcpSettings,
     installedServerIds,
     upsertMcpServer,
-    toggleCatalogServer,
-    loadCatalog,
     loadRegistry,
   }
 }

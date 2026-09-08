@@ -3,14 +3,13 @@
 //
 // A field group beside `TriggerFields` and `AgentFields`, on the same contract:
 // the editor owns the form state and the one save path, and each picker hands
-// its choice back through `onPatchConfig` / `onClearConfigKey`. The connector
-// catalog read lives here because nothing outside this group consumes it.
+// its choice back through `onPatchConfig` / `onClearConfigKey`.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
-import { FOCUS_RING_CLASS, GhostButton, InlineNotice, Select, type SelectItem } from '../../ui'
+import { FOCUS_RING_CLASS, GhostButton, Select, type SelectItem } from '../../ui'
 import { SkillPickerPopover } from '../../ui/SkillPickerPopover'
-import type { McpCatalogServer, WorkspaceSkill } from '../../../../../shared/electron-api'
+import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { launchableConnectors } from '../ConnectorsPanel/connectorsFacets'
 
@@ -18,19 +17,6 @@ import { launchableConnectors } from '../ConnectorsPanel/connectorsFacets'
 // the cleared choice is a real item rather than null, and it maps back to removing
 // the connectorId key from the action config on submit.
 const NO_CONNECTOR = ''
-
-// A launchable connector follows connectorsFacets.connectorCanLaunch — a
-// catalog entry carrying a `skill` link, or any server installed (enabled) in
-// MCP settings; the picker population comes from the shared
-// launchableConnectors so it cannot drift from the Connectors surface. The
-// load carries the raw catalog so the installed merge happens reactively in
-// the picker memo; it is undefined-free so a catalog failure renders an
-// explicit notice (installed servers still list — they launch without the
-// catalog) rather than a silently empty picker.
-type ConnectorLoad =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; connectors: McpCatalogServer[] }
 
 export function AttachmentFields({
   showSkillPicker,
@@ -72,58 +58,27 @@ export function AttachmentFields({
   const onlyBuiltinSkills = useCallback((skill: WorkspaceSkill) => skill.source === 'builtin', [])
 
   // Connector target — a spawn-agent run can be pinned to a connector (its
-  // isolated worktree + MCP, plus the driving skill when the catalog pairs one).
-  // The picker is populated from the real MCP catalog and the installed MCP
-  // settings, never a placeholder list.
-  const [connectorLoad, setConnectorLoad] = useState<ConnectorLoad>({ status: 'loading' })
-  useEffect(() => {
-    let cancelled = false
-    if (typeof window.api.mcpListCatalog !== 'function') {
-      setConnectorLoad({ status: 'error', message: 'Connectors need an app restart before they are available.' })
-      return () => { cancelled = true }
-    }
-    void window.api.mcpListCatalog().then((result) => {
-      if (cancelled) return
-      if (result.ok) {
-        setConnectorLoad({ status: 'ready', connectors: result.servers })
-      } else {
-        setConnectorLoad({ status: 'error', message: result.message })
-      }
-    }).catch((error) => {
-      if (!cancelled) {
-        setConnectorLoad({
-          status: 'error',
-          message: error instanceof Error ? error.message : 'Unable to load the connector catalog.',
-        })
-      }
-    })
-    return () => { cancelled = true }
-  }, [])
-
+  // isolated worktree and MCP). The picker's population comes from the shared
+  // `launchableConnectors`, so it cannot drift from the Connectors surface:
+  // every MCP server installed and enabled in this workspace's settings, and
+  // nothing else. It read the bundled MCP catalogue too until the third-party
+  // retirement (MC-2519, 2026-09-08); with that file gone the settings are the
+  // whole population, which is synchronous — so this picker no longer has a
+  // loading or a failure state to render.
   const selectedConnectorId = connectorId ?? NO_CONNECTOR
   const installedMcpServers = useWorkspaceStore((s) => s.appSettings.mcp?.servers)
   const connectorItems: SelectItem[] = useMemo(() => {
     const items: SelectItem[] = [{ value: NO_CONNECTOR, label: 'No connector' }]
-    if (connectorLoad.status !== 'loading') {
-      // A failed catalog load still lists the installed servers — they launch
-      // without the catalog.
-      const catalog = connectorLoad.status === 'ready' ? connectorLoad.connectors : []
-      for (const server of launchableConnectors(catalog, installedMcpServers)) {
-        items.push({ value: server.id, label: server.name })
-      }
+    for (const server of launchableConnectors(installedMcpServers)) {
+      items.push({ value: server.id, label: server.name })
     }
-    // A stored connector no longer in the catalog still round-trips and is shown
-    // as unavailable (once the catalog has resolved) rather than silently dropped.
+    // A stored connector that is no longer installed still round-trips and is
+    // shown as unavailable rather than silently dropped.
     if (selectedConnectorId && !items.some((item) => item.value === selectedConnectorId)) {
-      const resolved = connectorLoad.status === 'ready'
-      items.push({
-        value: selectedConnectorId,
-        label: resolved ? `${selectedConnectorId} — unavailable` : selectedConnectorId,
-        tone: resolved ? 'warn' : undefined,
-      })
+      items.push({ value: selectedConnectorId, label: `${selectedConnectorId} — unavailable`, tone: 'warn' })
     }
     return items
-  }, [connectorLoad, selectedConnectorId, installedMcpServers])
+  }, [selectedConnectorId, installedMcpServers])
 
   const onSelectConnector = useCallback((value: string) => {
     if (value) onPatchConfig({ connectorId: value })
@@ -179,12 +134,9 @@ export function AttachmentFields({
             value={selectedConnectorId}
             onChange={onSelectConnector}
             items={connectorItems}
-            disabled={connectorLoad.status === 'loading'}
-            placeholder={connectorLoad.status === 'loading' ? 'Loading connectors…' : 'Add a connector'}
+            placeholder="Add a connector"
           />
-          {connectorLoad.status === 'error' ? (
-            <InlineNotice tone="warn">Connectors are unavailable: {connectorLoad.message}</InlineNotice>
-          ) : connectorLoad.status === 'ready' && connectorItems.length === 1 ? (
+          {connectorItems.length === 1 ? (
             <span className="text-micro text-[color:var(--text-subtle)]">
               No connectors installed — the run uses the workspace defaults.
             </span>

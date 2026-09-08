@@ -120,12 +120,6 @@ let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<s
     attachCalls.push(input)
     return { ok: true, skillId: input.skillId, targets: [{ path: '.claude/skills/x', status: 'installed' }] }
   },
-  mcpListCatalog: async () => ({
-    ok: true,
-    servers: [
-      { id: 'linear', name: 'Linear', description: 'Issues and projects', transport: 'http', url: 'https://mcp.linear.app/sse', clients: ['claude-code'], riskLevel: 'network' },
-    ],
-  }),
   mcpSync: async (input: Record<string, unknown>) => {
     syncCalls.push(input)
     if (syncFailure) return { ok: false, message: syncFailure }
@@ -133,6 +127,26 @@ let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<s
     return { ok: true, targets: [{ client: 'claude-code', path: '/proj/.mcp.json', serverIds: Object.keys(settings.servers) }], issues: [] }
   },
 }
+// The MCP server these checks pick. It is INSTALLED — since the third-party
+// retirement (MC-2519, 2026-09-08) there is no catalogue to offer one from, so
+// the picker's rows are the workspace's own servers and nothing else. Its
+// `clients` deliberately do NOT include the launch CLI, because that is what
+// still makes picking it a real write: the pick adds the CLI and syncs the
+// workspace config before the server counts as picked.
+const LINEAR = {
+  id: 'linear',
+  name: 'Linear',
+  description: 'Issues and projects',
+  transport: 'http' as const,
+  url: 'https://mcp.linear.app/sse',
+  enabled: true,
+  required: false,
+  clients: ['codex'],
+  scope: 'workspace' as const,
+  source: 'custom' as const,
+  riskLevel: 'network' as const,
+}
+
 const attachCalls: Array<Record<string, unknown>> = []
 const syncCalls: Array<Record<string, unknown>> = []
 let syncFailure: string | null = null
@@ -204,6 +218,10 @@ async function main(): Promise<void> {
       activeWorkspaceId: 'ws-1',
       pluginCatalogEntries: plugins as never,
       pluginCatalogStatus: 'ready' as never,
+      appSettings: {
+        ...useWorkspaceStore.getState().appSettings,
+        mcp: { syncEnabled: true, servers: { linear: { ...LINEAR } } },
+      },
     } as never)
   }
 
@@ -720,7 +738,10 @@ async function main(): Promise<void> {
     const surface = () => dom.window.document.querySelector('[role="dialog"][aria-label="Skills and MCPs"]') as HTMLElement | null
     assert.ok(surface(), 'the picker opened')
     const text = surface()!.textContent ?? ''
-    for (const label of ['Skills in this workspace', 'Available to install', 'MCP servers', 'Install', 'Add', 'Included', 'sprintengine-studio']) {
+    // No "Add": the picker's Add rows were the bundled catalogue's servers,
+    // and the catalogue is gone (MC-2519). What is left under MCP servers is
+    // the studio gateway (Included) and the servers this workspace installed.
+    for (const label of ['Skills in this workspace', 'Available to install', 'MCP servers', 'Install', 'Included', 'sprintengine-studio']) {
       assert.ok(text.includes(label), `the open picker shows "${label}"`)
     }
     const listbox = surface()!.querySelector('[role="listbox"]')
@@ -753,9 +774,10 @@ async function main(): Promise<void> {
     assert.deepEqual(attachCalls.map((call) => call.skillId), ['design-system'], 'Enter installed it before anything else')
     assert.ok(view.find((el) => el.getAttribute('aria-label') === 'Remove skill design-system'), 'and it became a chip')
 
-    // A catalog MCP server: added to settings and synced into the workspace before it is a pick.
+    // An installed MCP server whose clients do not yet reach the launch CLI:
+    // the pick adds the CLI and syncs the workspace config before it counts.
     const linearRow = surface()!.querySelector('[data-picker-row="mcp:linear"]') as HTMLElement | null
-    assert.ok(linearRow, 'the catalog server is listed')
+    assert.ok(linearRow, 'the installed server is listed')
     await act(async () => {
       linearRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
@@ -786,10 +808,9 @@ async function main(): Promise<void> {
   // 5c. A sync that fails leaves nothing behind: the app's MCP settings are
   //     put back and the row says why.
   await check('a failed MCP sync rolls the settings back and stays on the row', async () => {
+    // seedStore puts Linear back as it started: installed, but not yet
+    // reaching the launch CLI, which is what makes the pick attempt a sync.
     seedStore()
-    // The previous check added Linear to the app's settings; this one needs
-    // it back in the catalog-only state.
-    useWorkspaceStore.getState().removeMcpServer('linear')
     syncCalls.length = 0
     syncFailure = 'EACCES: .mcp.json is read-only'
     const view = await render()
@@ -815,18 +836,23 @@ async function main(): Promise<void> {
     assert.equal(syncCalls.length, 1)
     assert.ok((surface.textContent ?? '').includes('EACCES'), 'the row carries the error')
     assert.equal(view.find((el) => el.getAttribute('aria-label') === 'Remove MCP server Linear'), undefined, 'no chip')
-    assert.equal(useWorkspaceStore.getState().appSettings.mcp?.servers?.linear, undefined, 'the settings were put back')
+    assert.deepEqual(
+      useWorkspaceStore.getState().appSettings.mcp?.servers?.linear?.clients,
+      ['codex'],
+      'the settings were put back — the launch CLI the failed pick added is gone again',
+    )
     syncFailure = null
     view.unmount()
   })
 
   // 5d. The door's connector list is the union of what is installed and what
   //     the catalogue offers — so a server that arrived by installing a PLUGIN
-  //     is listed here on its own, with no catalogue row behind it
-  //     (backlog/2026-09-06-shipped-mcp-servers-are-plugins.md). Checked
-  //     against the row builder rather than through the render above, because
-  //     the claim is about which rows exist, not about pressing one.
-  await check('a server installed from a plugin is listed even with no catalogue row', async () => {
+  //     is listed here on its own — which is now the only way a server gets
+  //     here at all, since the bundled catalogue was retired (MC-2519,
+  //     2026-09-08; backlog/2026-09-06-shipped-mcp-servers-are-plugins.md).
+  //     Checked against the row builder rather than through the render above,
+  //     because the claim is about which rows exist, not about pressing one.
+  await check('a server installed from a plugin is a row of its own', async () => {
     const { buildMcpRows } = await import('./SkillsAndMcpsPicker')
     const fromPlugin = {
       id: 'io-snyk-mcp',
@@ -849,25 +875,15 @@ async function main(): Promise<void> {
       },
       riskLevel: 'local-command' as const,
     }
-    const rows = buildMcpRows([], { 'io-snyk-mcp': fromPlugin })
+    const rows = buildMcpRows({ 'io-snyk-mcp': fromPlugin })
     const row = rows.find((entry) => entry.id === 'io-snyk-mcp')
     assert.ok(row, 'the plugin-installed server is a row')
-    assert.equal(row!.state, 'installed', 'and it is installed, not an Add row')
+    assert.equal(row!.state, 'installed', 'and it is installed — there is no Add row left to confuse it with')
     assert.equal(rows.filter((entry) => entry.id === 'io-snyk-mcp').length, 1, 'exactly once')
-
-    // And when the connector catalogue names the same server, the two are ONE
-    // row wearing the catalogue's display name — the duplicate-row problem the
-    // marketplace child fixed is why the plugin keeps the catalogue's id.
-    const merged = buildMcpRows(
-      [{ id: 'io-snyk-mcp', name: 'Snyk', category: 'Security', transport: 'stdio', command: 'npx', args: ['snyk'], envVarNames: [] }] as never,
-      { 'io-snyk-mcp': fromPlugin }
-    )
-    assert.equal(merged.filter((entry) => entry.id === 'io-snyk-mcp').length, 1, 'still one row')
-    assert.equal(merged.find((entry) => entry.id === 'io-snyk-mcp')?.name, 'Snyk', 'named as the catalogue names it')
 
     // A disabled server is not offered: the picker adds servers to a launch,
     // and a launch cannot use one the person turned off.
-    const off = buildMcpRows([], { 'io-snyk-mcp': { ...fromPlugin, enabled: false } })
+    const off = buildMcpRows({ 'io-snyk-mcp': { ...fromPlugin, enabled: false } })
     assert.equal(off.some((entry) => entry.id === 'io-snyk-mcp'), false, 'a disabled server is not a row')
   })
 

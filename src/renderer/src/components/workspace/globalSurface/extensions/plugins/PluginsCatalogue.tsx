@@ -43,7 +43,6 @@ import {
 } from '../../../../../../../shared/skills'
 import { GhostButton, InlineNotice, Spinner } from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
-import { McpInfoPanel } from '../../../../settings/McpCatalog'
 import { PluginDetailPanel } from '../../../../settings/BrowseStorefront'
 import { ConnectorEntryRow, ConnectorRow } from '../../../../panels/ConnectorsPanel/ConnectorRow'
 import { CustomMcpServerForm } from '../../../../panels/ConnectorsPanel/CustomMcpServerForm'
@@ -75,6 +74,7 @@ import {
   INSTALLED_TAB_ID,
   type CatalogueCount,
 } from '../catalogue/catalogueTabs'
+import { RecommendedSources } from '../catalogue/RecommendedSources'
 import { SourceTabActions } from '../catalogue/SourceTabActions'
 import { openGitHubSettings, useGitHubTokenConfigured } from '../catalogue/useGitHubToken'
 import { PluginDetailPane } from './PluginDetailPane'
@@ -163,24 +163,23 @@ export function PluginsCatalogue({
     }
   }, [workspaceRoot])
 
-  const catalog = connectors.catalogLoad.status === 'ready' ? connectors.catalogLoad.data : []
   const registry = connectors.registryLoad.status === 'ready' ? connectors.registryLoad.data : []
 
-  // The app's own catalogue holds both populations: the registry's plugins and
-  // the MCP catalogue's servers. Its tab count is what the tab actually lists.
+  // The app's own catalogue holds the registry's plugins. Its tab count is what
+  // the tab actually lists.
   const appEntries = useMemo(
-    () => buildConnectorEntries(catalog, registry, connectors.installedServerIds),
-    [catalog, registry, connectors.installedServerIds],
+    () => buildConnectorEntries(registry),
+    [registry],
   )
   const appCount = useMemo<CatalogueCount>(() => {
-    if (connectors.catalogLoad.status === 'loading' || connectors.registryLoad.status === 'loading') {
+    if (connectors.registryLoad.status === 'loading') {
       return { status: 'loading' }
     }
-    if (connectors.catalogLoad.status === 'error' && connectors.registryLoad.status === 'error') {
+    if (connectors.registryLoad.status === 'error') {
       return { status: 'error', message: 'The marketplace is unavailable.' }
     }
     return { status: 'ready', count: appEntries.length }
-  }, [appEntries.length, connectors.catalogLoad, connectors.registryLoad])
+  }, [appEntries.length, connectors.registryLoad])
 
   const counts = useMemo<Record<string, CatalogueCount>>(() => {
     const map: Record<string, CatalogueCount> = {}
@@ -474,11 +473,6 @@ export function PluginsCatalogue({
             registryUrl={connectors.registryUrl}
             selected={openRow?.kind === 'connector' && openRow.key === entry.key}
             onOpen={() => setOpenRow({ kind: 'connector', key: entry.key })}
-            onToggleInstalled={
-              entry.source === 'catalog' && entry.catalogServer
-                ? () => connectors.toggleCatalogServer(entry.catalogServer!)
-                : undefined
-            }
             onLaunch={entry.canLaunch ? () => onLaunchConnector(connectorEntryAsComposerConnector(entry)) : undefined}
           />
         )
@@ -616,6 +610,11 @@ export function PluginsCatalogue({
               sources.refreshInstalled()
               setReport({ sourceId: source.id, outcome: summarizeSyncRun(result), error: null })
             }}
+            // The manual update check reports into the same head line a sync
+            // reports into: one place the source says what just happened to it.
+            onCheckReport={(source, message) =>
+              setReport({ sourceId: source.id, outcome: message, error: null })
+            }
             onSyncFailed={(source, message) => setReport({ sourceId: source.id, outcome: null, error: message })}
             onRemoved={() => {
               sources.refreshSources()
@@ -654,7 +653,6 @@ export function PluginsCatalogue({
             mcpServers={mcpServers}
             moduleOverrides={moduleOverrides}
             workspaceRoot={workspaceRoot}
-            catalogServers={catalog}
             registryPlugins={registry}
             registryUrl={connectors.registryUrl}
             mcpSettings={connectors.mcpSettings}
@@ -668,6 +666,15 @@ export function PluginsCatalogue({
             onRemoveMcpServer={removeMcpServer}
           />
           <CustomMcpServerForm activeWorkspaceRoot={workspaceRoot} />
+          {/* Where somebody stands when they have run out of plugins to
+              install: under what they have, the places to get more (MC-2519). */}
+          <RecommendedSources
+            existingSources={sources.sources}
+            onAdded={(sourceId) => {
+              sources.refreshSources()
+              onSelectTab(sourceId)
+            }}
+          />
         </div>
       )
     }
@@ -692,12 +699,7 @@ export function PluginsCatalogue({
             title="The marketplace is unavailable."
             hint="Its plugins and MCP servers are not listed below — this is not an empty catalogue."
             action={
-              <GhostButton
-                onClick={() => {
-                  void connectors.loadCatalog()
-                  void connectors.loadRegistry(true)
-                }}
-              >
+              <GhostButton onClick={() => void connectors.loadRegistry(true)}>
                 Try again
               </GhostButton>
             }
@@ -729,20 +731,7 @@ export function PluginsCatalogue({
   const marketplaceName = scan?.marketplaceName ?? ''
 
   const detail = openConnector ? (
-    openConnector.source === 'catalog' && openConnector.catalogServer ? (
-      <McpInfoPanel
-        server={openConnector.catalogServer}
-        installed={openConnector.installed}
-        onToggle={() => connectors.toggleCatalogServer(openConnector.catalogServer!)}
-        onClose={() => setOpenRow(null)}
-        onNewChat={
-          openConnector.canLaunch
-            ? () => onLaunchConnector(connectorEntryAsComposerConnector(openConnector))
-            : undefined
-        }
-        onUseInAutomation={openConnector.canLaunch ? () => onUseInAutomation(openConnector.id) : undefined}
-      />
-    ) : openConnector.plugin ? (
+    openConnector.plugin ? (
       <PluginDetailPanel
         key={openConnector.plugin.id}
         plugin={openConnector.plugin}

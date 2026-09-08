@@ -45,8 +45,9 @@
 //
 // **Nothing a feed says is trusted as a path, a URL or an argument.** Every id
 // is resolved against something this app already holds before it is used: a CLI
-// against the registered agent-CLI plugin ids, an MCP server against
-// `listCatalog()`, a skill and a plugin against that source's own scan, and a
+// against the registered agent-CLI plugin ids, an MCP server against the
+// workspace's own installed MCP settings, a skill and a plugin against that
+// source's own scan, and a
 // repository against the `owner/name` shape re-checked here rather than taken
 // on the parser's word. `clone.repo`'s URL is built from a fixed
 // `https://github.com/` prefix and the two validated segments, so a card names
@@ -99,7 +100,6 @@ import type {
   CardRunResult,
   CardSurfaceHandoff,
   GitHubCloneResult,
-  McpCatalogResult,
   McpServerConfig,
   McpSettings,
   McpSyncResult,
@@ -110,7 +110,6 @@ import type {
 } from '../../shared/electron-api'
 import type { CardAction, CardSurfaceView } from '../../shared/hosted-card-feed'
 import { refuseCardActions } from '../../shared/hosted-card-feed'
-import { mcpServerFromCatalog } from '../../shared/connector-launch'
 import { scanPlugins, skillDirName } from '../../shared/skills'
 
 /**
@@ -130,8 +129,6 @@ export { refuseCardActions as refuseCard } from '../../shared/hosted-card-feed'
  * of these to the real service in `src/main/ipc/cards-ipc.ts`.
  */
 export type CardRunDeps = {
-  /** `mcpConfigService.listCatalog()` — the one bundled file an MCP server comes from. */
-  listMcpCatalog: () => McpCatalogResult | Promise<McpCatalogResult>
   /** `mcpConfigService.sync()` — writes the merged settings into every CLI's config. */
   syncMcp: (input: { workspaceRoot: string; settings: McpSettings }) => McpSyncResult | Promise<McpSyncResult>
   /** `skillsService.getScan()` — how a source id resolves to what that source holds. */
@@ -345,23 +342,24 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     // settings that already hold the server rewrites the same bytes, so the
     // repeat costs a file write and changes nothing.
     const existing = servers[action.id]
-    const catalog = await deps.listMcpCatalog()
-    if (!catalog.ok) return { status: 'failed', message: catalog.message }
-    // Exact match against the one bundled catalogue. There is no source
-    // dimension and nowhere else an MCP server comes from, so an id that is not
-    // in this list is an id this build cannot honour.
-    const entry = catalog.servers.find((server) => server.id === action.id)
-    if (!entry) return { status: 'failed', message: `${action.id} is not in this build's MCP catalogue.` }
-    // A server the person already has keeps the config they have: a second Go
-    // must not overwrite the env and header edits they made since the first.
-    const next = { ...servers, [entry.id]: existing ?? mcpServerFromCatalog(entry) }
-    if (!existing) syncEnabled = true
+    // The bundled MCP catalogue is gone (MC-2519, 2026-09-08): it listed
+    // sixteen servers nobody here wrote, and the studio stopped shipping other
+    // people's software. There is no longer any list this build can turn a bare
+    // catalogue id into a server config from — an MCP server now arrives inside
+    // a plugin, which `install.plugin` installs and whose own `.mcp.json` the
+    // install writes. A card that already has the server in this workspace's
+    // settings is still honoured, because that is a server the person installed.
+    if (!existing) {
+      return {
+        status: 'failed',
+        message: `${action.id} is not a server this build can install. MCP servers arrive inside plugins now.`,
+      }
+    }
+    const next = { ...servers, [existing.id]: existing }
     const synced = await deps.syncMcp({ workspaceRoot, settings: { syncEnabled, servers: next } })
     if (!synced.ok) return { status: 'failed', message: synced.message }
     servers = next
-    if (existing) return { status: 'already', message: `${entry.name} was already installed, and this project now has it.` }
-    added[entry.id] = next[entry.id]!
-    return { status: 'done', message: `${entry.name} installed.` }
+    return { status: 'already', message: `${existing.name} was already installed, and this project now has it.` }
   }
 
   async function installSkill(

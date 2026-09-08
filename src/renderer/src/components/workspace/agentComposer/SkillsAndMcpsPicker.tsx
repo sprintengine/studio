@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
-import type { AgentCli, McpCatalogServer, McpServerConfig, WorkspaceSkill } from '../../../../../shared/electron-api'
-import { mcpServerFromCatalog } from '../../../../../shared/connector-launch'
+import type { AgentCli, McpServerConfig, WorkspaceSkill } from '../../../../../shared/electron-api'
 import { STUDIO_MCP_SERVER_ID } from '../../../../../shared/product-identity'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { ensureSkillForAgent } from '../../../utils/skillInvocation'
 import { CheckIcon } from '../../AppIcons'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../../settings/extensionsRoute'
-import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
+import { ExtensionIcon } from '../../ui/ExtensionIcon'
+import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import {
   FOCUS_RING_CLASS,
   MENU_GROUP_LABEL_CLASS,
@@ -55,8 +55,7 @@ type McpRow = {
   icon?: string
   /** `stdio · workspace`, `socket · always on`: transport and scope, the row's fine print. */
   meta: string
-  state: 'installed' | 'catalog' | 'included'
-  catalog?: McpCatalogServer
+  state: 'installed' | 'included'
   config?: McpServerConfig
 }
 
@@ -74,40 +73,20 @@ const SKILL_SOURCE_LABEL: Record<WorkspaceSkill['source'], string> = {
   plugin: 'Plugin',
 }
 
-type McpInventory = { catalog: McpCatalogServer[]; loading: boolean; error: string | null }
-
-// The catalog is read once per open (an install elsewhere shows on the next
-// open); the installed set is live store state.
-function useMcpCatalog(active: boolean): McpInventory {
-  const [state, setState] = useState<McpInventory>({ catalog: [], loading: false, error: null })
-  useEffect(() => {
-    if (!active) return
-    let cancelled = false
-    setState((prev) => ({ ...prev, loading: true, error: null }))
-    window.api
-      .mcpListCatalog()
-      .then((result) => {
-        if (cancelled) return
-        setState(result.ok ? { catalog: result.servers, loading: false, error: null } : { catalog: [], loading: false, error: result.message })
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setState({ catalog: [], loading: false, error: error instanceof Error ? error.message : 'Unable to load the MCP catalog.' })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [active])
-  return state
-}
-
 function transportLabel(transport: McpServerConfig['transport'] | undefined): string {
   return transport === 'http' || transport === 'sse' ? 'http' : 'stdio'
 }
 
-/** The MCP rows: installed servers first, the catalog's rest as Add rows, the studio gateway as Included. */
-export function buildMcpRows(catalog: McpCatalogServer[], installed: Record<string, McpServerConfig>): McpRow[] {
-  const byId = new Map(catalog.map((server) => [server.id, server]))
+/**
+ * The MCP rows: the studio gateway as Included, then every installed server.
+ *
+ * A third population sat behind these until the third-party retirement
+ * (MC-2519, 2026-09-08): the bundled MCP catalogue's remaining servers, offered
+ * as `Add` rows the picker could install on the spot. The catalogue is gone —
+ * an MCP server arrives inside a plugin now — so this picker offers what the
+ * person already has and nothing else.
+ */
+export function buildMcpRows(installed: Record<string, McpServerConfig>): McpRow[] {
   const rows: McpRow[] = []
   const seen = new Set<string>([STUDIO_MCP_SERVER_ID])
   rows.push({
@@ -123,35 +102,16 @@ export function buildMcpRows(catalog: McpCatalogServer[], installed: Record<stri
   for (const config of Object.values(installed)) {
     if (!config.enabled || seen.has(config.id)) continue
     seen.add(config.id)
-    const entry = byId.get(config.id)
     rows.push({
       key: `mcp:${config.id}`,
       kind: 'mcp',
       group: 'mcp',
       id: config.id,
-      name: entry?.name ?? config.name,
-      description: entry?.description ?? config.description,
-      icon: entry?.icon,
+      name: config.name,
+      description: config.description,
       meta: `${transportLabel(config.transport)} · ${config.scope}`,
       state: 'installed',
-      catalog: entry,
       config,
-    })
-  }
-  for (const server of catalog) {
-    if (seen.has(server.id)) continue
-    seen.add(server.id)
-    rows.push({
-      key: `mcp:${server.id}`,
-      kind: 'mcp',
-      group: 'mcp',
-      id: server.id,
-      name: server.name,
-      description: server.description,
-      icon: server.icon,
-      meta: 'catalog',
-      state: 'catalog',
-      catalog: server,
     })
   }
   return rows
@@ -162,13 +122,8 @@ function rowMatches(row: PickerRow, normalized: string): boolean {
   const haystack =
     row.kind === 'skill'
       ? [row.skill.id, row.skill.name, row.skill.description ?? '']
-      : [row.id, row.name, row.description ?? '', row.catalog?.category ?? '']
+      : [row.id, row.name, row.description ?? '', row.config?.category ?? '']
   return haystack.some((text) => text.toLowerCase().includes(normalized))
-}
-
-/** A catalog server whose credentials are not set cannot be added silently. */
-function missingCredentials(server: McpCatalogServer): string[] {
-  return (server.envVarNames ?? []).filter((name) => !server.env?.[name])
 }
 
 export type SkillsAndMcpsPickerProps = {
@@ -208,7 +163,6 @@ export function SkillsAndMcpsPicker({
   const listId = useId()
 
   const skillInventory = useWorkspaceSkills(workspaceRoot, pluginId, open)
-  const mcpCatalog = useMcpCatalog(open)
   const installedServers = useWorkspaceStore((s) => s.appSettings.mcp?.servers)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
@@ -227,11 +181,11 @@ export function SkillsAndMcpsPicker({
     const ordered = [
       ...skillRows.filter((row) => row.group === 'installed'),
       ...skillRows.filter((row) => row.group === 'available'),
-      ...buildMcpRows(mcpCatalog.catalog, installedServers ?? {}),
+      ...buildMcpRows(installedServers ?? {}),
     ]
     const normalized = query.trim().toLowerCase()
     return ordered.filter((row) => rowMatches(row, normalized))
-  }, [installedHere, installedServers, mcpCatalog.catalog, query, skillInventory.skills])
+  }, [installedHere, installedServers, query, skillInventory.skills])
 
   const groupsPresent = useMemo(() => new Set(rows.map((row) => row.group)), [rows])
   const actionable = useMemo(() => rows.filter((row) => !(row.kind === 'mcp' && row.state === 'included')), [rows])
@@ -298,17 +252,10 @@ export function SkillsAndMcpsPicker({
       return
     }
     const pick: AgentComposerConnector = { id: row.id, name: row.name, ...(row.icon ? { icon: row.icon } : {}) }
-    const base = row.config ?? (row.catalog ? mcpServerFromCatalog(row.catalog) : null)
+    const base = row.config
     if (!base) return
-    if (row.state === 'catalog' && row.catalog) {
-      const missing = missingCredentials(row.catalog)
-      if (missing.length > 0) {
-        setError(row.key, `Needs ${missing.join(', ')} — set it under Manage extensions first.`)
-        return
-      }
-    }
     const needsClient = pluginId !== null && !base.clients.includes(pluginId)
-    if (row.state === 'installed' && !needsClient) {
+    if (!needsClient) {
       onMcpServersChange([...mcpServers, pick])
       return
     }
@@ -425,7 +372,7 @@ export function SkillsAndMcpsPicker({
           />
         </div>
         <div ref={listRef} id={listId} role="listbox" aria-multiselectable="true" aria-label="Skills and MCP servers" className="min-h-0 flex-1 overflow-y-auto py-1">
-          {(skillInventory.loading || mcpCatalog.loading) && rows.length === 0 ? (
+          {skillInventory.loading && rows.length === 0 ? (
             <div className="flex items-center gap-2 px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
               <Spinner />
               Loading…
@@ -436,12 +383,7 @@ export function SkillsAndMcpsPicker({
               {skillInventory.error}
             </div>
           ) : null}
-          {mcpCatalog.error ? (
-            <div className="px-2.5 py-2 text-meta text-[color:var(--tone-error)]" role="status">
-              {mcpCatalog.error}
-            </div>
-          ) : null}
-          {!skillInventory.loading && !mcpCatalog.loading && rows.length === 0 && !skillInventory.error && !mcpCatalog.error ? (
+          {!skillInventory.loading && rows.length === 0 && !skillInventory.error ? (
             <div className="px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
               {query.trim() ? `Nothing matches “${query.trim()}”` : 'No skills or MCP servers yet'}
             </div>
@@ -522,8 +464,6 @@ function PickerRowView({
     'Included'
   ) : row.kind === 'skill' ? (
     row.group === 'available' ? 'Install' : SKILL_SOURCE_LABEL[row.skill.source]
-  ) : row.state === 'catalog' ? (
-    'Add'
   ) : null
   return (
     <div
@@ -546,7 +486,7 @@ function PickerRowView({
         ) : row.kind === 'skill' ? (
           <StarGlyph filled={false} className="icon-xs text-[color:var(--text-subtle)]" />
         ) : (
-          <McpBrandIcon slug={mcpIconSlug(row.id)} name={row.name} icon={row.icon} size={16} />
+          <ExtensionIcon slug={mcpIconSlug(row.id)} name={row.name} icon={row.icon} size={16} />
         )}
       </span>
       <span className="min-w-0 flex-1">

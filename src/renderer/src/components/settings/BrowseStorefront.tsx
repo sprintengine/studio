@@ -4,7 +4,7 @@ import { isClaudeCodePluginEntry, type MarketplacePluginEntry } from '../../../.
 import type { CapabilityPermission } from '../../../../shared/modules/permissions'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
 import { Badge, CloseIconButton, FOCUS_RING_CLASS, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
-import { mcpMonogram } from './McpCatalog'
+import { mcpMonogram } from '../ui/mcpMonogram'
 import { iconHasOwnPlate } from '../ui/iconPlate'
 import { PermissionChips } from './ThirdPartyModuleList'
 import { componentKindLabels, externalSourceHref } from './storefrontView'

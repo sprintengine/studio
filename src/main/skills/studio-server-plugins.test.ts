@@ -10,13 +10,12 @@
 //      leaked secret, and the `${NAME}` form is also the only spelling the
 //      scanner reads an env var name out of.
 //   3. A server's id is the id the connector catalogue used for the same
-//      server, and the catalogue no longer carries a row for it. The New chat
-//      door lists installed servers first and the catalogue's rest after, keyed
-//      by id — so a plugin that renamed its server would put the same product on
-//      screen twice. Since the frozen-snapshots retirement (2026-09-06) the
-//      catalogue keeps only servers no plugin carries, so the id is pinned here
-//      instead of read out of a row that is gone: the merge still has to work
-//      for a server installed under that id before the row left.
+//      server. Surfaces key installed servers by id — so a plugin that renamed
+//      its server would put the same product on screen twice, and an install
+//      made under the old id would be orphaned. The catalogue itself is gone
+//      (MC-2519, 2026-09-08), which is why the id is pinned here rather than
+//      read out of a row: the merge still has to work for a server installed
+//      under that id before the catalogue left.
 //
 // The skills themselves are read with the app's own frontmatter parser, the
 // same way `studio-plugin-skills.test.ts` reads ours: a skill whose name does
@@ -35,14 +34,14 @@ import { STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID } from './studio-plugin'
 // Bundled into node_modules/.cache before it runs, so `__dirname` says nothing
 // about where the source lives; `npm run` sets the cwd to the package root.
 const ROOT = resolve(process.cwd(), 'resources', 'studio-plugin')
-const CATALOG = resolve(process.cwd(), 'resources', 'mcps', 'catalog.json')
 
 /**
  * The connector-catalogue id each shipped server plugin takes over, pinned so
  * the catalogue's own row for it can retire (frozen-snapshots retirement,
  * 2026-09-06). Renaming one of these is the duplicate-row bug rule 3 exists to
- * catch; leaving one in the catalogue as well is the two-routes bug the
- * retirement exists to catch, and both are asserted below.
+ * catch, and that is what is asserted below. The companion assertion — that the
+ * id is not ALSO a catalogue row, the two-routes bug — went with the catalogue
+ * itself (MC-2519, 2026-09-08): there is no second route left to collide with.
  *
  * EMPTY since 2026-09-08: the studio stopped shipping third-party MCP servers
  * (owner), so the three ids that used to be pinned here — brave-search,
@@ -106,10 +105,6 @@ async function main(): Promise<void> {
   assert.equal(manifest.plugins[0]?.name, STUDIO_PLUGIN_ID, 'ours leads the listing')
   assert.equal(manifest.plugins[1]?.name, STUDIO_SKILLS_PLUGIN_ID, 'the workflow skills come second')
 
-  const catalogIds = new Set(
-    (JSON.parse(await readFile(CATALOG, 'utf8')) as { servers: { id: string }[] }).servers.map((server) => server.id)
-  )
-
   let serverPlugins = 0
   for (const entry of manifest.plugins) {
     const dir = entry.source.slice(2)
@@ -149,11 +144,6 @@ async function main(): Promise<void> {
         CONVERTED_CATALOG_IDS.has(server.id),
         true,
         `${entry.name}: server id "${server.id}" is not the connector catalogue id this server had, so an install made under the old id would appear as a second row`
-      )
-      assert.equal(
-        catalogIds.has(server.id),
-        false,
-        `${entry.name}: "${server.id}" is still a connector catalogue row as well as a plugin, which is two routes to one server`
       )
       for (const [name, value] of [...Object.entries(server.env), ...Object.entries(server.headers)]) {
         assert.match(
