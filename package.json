@@ -227,7 +227,7 @@
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "notarize": true,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Multicode uses the microphone for voice dictation, transcribing your speech to text."
+        "NSMicrophoneUsageDescription": "SprintEngine Studio uses the microphone for voice dictation, transcribing your speech to text."
       }
     },
     "linux": {
@@ -252,7 +252,16 @@
       "owner": "sprintengine",
       "repo": "studio-releases",
       "releaseType": "release"
-    }
+    },
+    "protocols": [
+      {
+        "name": "SprintEngine Studio",
+        "schemes": [
+          "multicode"
+        ],
+        "role": "Viewer"
+      }
+    ]
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.202",
