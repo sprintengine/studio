@@ -15,7 +15,7 @@ export interface PluginsSliceState {
   pluginCatalogError: string | null
 }
 
-export interface RefreshPluginCatalogOptions {
+interface RefreshPluginCatalogOptions {
   // Background re-sync (e.g. window focus): don't flip the catalog to `loading`
   // and don't wipe a working catalog on a transient failure. The explicit
   // startup load and Settings retry stay foreground so their loading/error
@@ -23,7 +23,7 @@ export interface RefreshPluginCatalogOptions {
   background?: boolean
 }
 
-export interface PluginsSliceActions {
+interface PluginsSliceActions {
   refreshPluginCatalog: (options?: RefreshPluginCatalogOptions) => Promise<void>
 }
 

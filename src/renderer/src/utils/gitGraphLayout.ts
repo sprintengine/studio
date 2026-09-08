@@ -22,7 +22,7 @@ export interface GitGraphInputCommit {
   parents: string[]
 }
 
-export type GitGraphLineKind =
+type GitGraphLineKind =
   // Spans the full row height (a lane passing through, top column -> bottom column).
   | 'through'
   // Enters the node from the top edge (a child connecting down into this commit).
@@ -40,7 +40,7 @@ export interface GitGraphLine {
   colorIndex: number
 }
 
-export interface GitGraphRow {
+interface GitGraphRow {
   hash: string
   /** Column the commit node sits in. */
   column: number

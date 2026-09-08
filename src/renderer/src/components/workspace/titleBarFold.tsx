@@ -41,7 +41,7 @@ const FOLD_STEPS: readonly { minWidth: number; fold: TitleBarFold }[] = [
   { minWidth: 460, fold: 2 },
 ]
 
-export function foldForWidth(width: number): TitleBarFold {
+function foldForWidth(width: number): TitleBarFold {
   for (const step of FOLD_STEPS) {
     if (width >= step.minWidth) return step.fold
   }

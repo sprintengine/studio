@@ -100,10 +100,6 @@ const ATTENTION_TIER_RANK: Record<WorkspaceAttentionTier, number> = {
   resting: 3,
 }
 
-export function attentionTierRank(tier: WorkspaceAttentionTier): number {
-  return ATTENTION_TIER_RANK[tier]
-}
-
 // Orders workspaces by attention tier first, then — within a tier — by when
 // the person last messaged each. Live status gets a say in position, but only
 // through `tierOf`, which the sidebar deliberately freezes for the row you

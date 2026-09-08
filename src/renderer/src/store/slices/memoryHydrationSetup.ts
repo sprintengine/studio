@@ -69,4 +69,3 @@ const fakeWindow = {
 
 export const hydrationStorage = storage
 export const hydrationWorkspaceId = seededWorkspace.id
-export { seededEnvelope }

@@ -15,7 +15,7 @@ type ConfirmDialogBase = {
   contained?: boolean
 }
 
-export type ConfirmDialogProps = ConfirmDialogBase & {
+type ConfirmDialogProps = ConfirmDialogBase & {
   open: boolean
   onCancel: () => void
   onConfirm: () => void
@@ -50,7 +50,7 @@ type ConfirmDialogApi = {
 
 const ConfirmDialogContext = createContext<ConfirmDialogApi | null>(null)
 
-export function ConfirmDialog({
+function ConfirmDialog({
   open,
   onCancel,
   onConfirm,

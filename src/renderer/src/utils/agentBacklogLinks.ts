@@ -12,7 +12,6 @@ export {
   AGENT_RUNTIME_MODULE_ID,
   AGENT_TERMINAL_TARGET_KIND,
   WORKING_AGENT_LINK_ID,
-  agentLinkLabel,
   agentNameFromLink,
   buildAgentBacklogLink,
   encodeAgentLinkTargetId,

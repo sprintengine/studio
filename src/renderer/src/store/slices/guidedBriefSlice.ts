@@ -60,7 +60,7 @@ export function ensureGuidedBriefLayoutModel(model: IJsonModel | undefined): IJs
   return model && hasGuidedBriefLayout(model) ? model : guidedBriefLayoutModel()
 }
 
-export const defaultGuidedBriefBuildRoleCounts = (
+const defaultGuidedBriefBuildRoleCounts = (
   hasUi: GuidedBriefRuntimeState['hasUi'] = 'yes'
 ): SprintEngineRoleCounts => ({
   architect: 1,

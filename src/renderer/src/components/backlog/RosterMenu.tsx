@@ -21,9 +21,9 @@ import { isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
 // complaint (2026-08-06: "it's a bit unintuitive to have a drop down that says
 // no roles in it"). Picking just an agent IS what no-roster means — the agent
 // picker beside this control is where WHICH agent gets chosen.
-export const JUST_AN_AGENT_LABEL = 'Just an agent'
+const JUST_AN_AGENT_LABEL = 'Just an agent'
 
-export const POLICY_ROSTER_TRIGGER_CLASS =
+const POLICY_ROSTER_TRIGGER_CLASS =
   'interactive inline-flex h-control-sm items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-meta text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus-visible:focus-ring'
 
 export function RosterMenu({

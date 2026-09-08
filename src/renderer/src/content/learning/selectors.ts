@@ -8,7 +8,7 @@ export type LearningContext = {
   hasKnowledgeRoot: boolean
 }
 
-export function evaluateContextRule(
+function evaluateContextRule(
   rule: LearningContextRule,
   context: LearningContext
 ): boolean {
@@ -26,12 +26,12 @@ export function evaluateContextRule(
   }
 }
 
-export function isLearningItemEligible(item: LearningItem, context: LearningContext): boolean {
+function isLearningItemEligible(item: LearningItem, context: LearningContext): boolean {
   if (!item.showWhen || item.showWhen.length === 0) return true
   return item.showWhen.every((rule) => evaluateContextRule(rule, context))
 }
 
-export function filterEligibleLearningItems(
+function filterEligibleLearningItems(
   context: LearningContext,
   items: readonly LearningItem[] = LEARNING_ITEMS
 ): LearningItem[] {

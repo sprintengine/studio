@@ -14,7 +14,7 @@ import { detectLanguage } from '../../utils/files'
 // `oldLine` are 1-based REAL source line numbers (null when the row does not
 // exist on that side); `modifiedEditorLine` / `originalEditorLine` are the
 // 1-based row positions inside the reconstructed text Monaco actually renders.
-export interface DiffRow {
+interface DiffRow {
   kind: 'context' | 'add' | 'del'
   text: string
   newLine: number | null

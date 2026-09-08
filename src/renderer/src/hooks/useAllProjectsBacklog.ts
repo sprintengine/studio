@@ -1,9 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useShallow } from 'zustand/react/shallow'
+
 
 import {
-  BACKLOG_CONFIG_RELATIVE_PATH,
-  resolveBacklogDisplayKey,
   type BacklogItem,
   type BacklogItemStatus,
 } from '../utils/backlog'
@@ -23,10 +20,8 @@ import {
 } from '../utils/backlogEpics'
 import { nextBacklogItemStatusFromLinks } from '../utils/backlogLinks'
 import { isAutomationsHostWorkspace } from '../utils/workspaceVisibility'
-import { basename, joinFilePath } from '../utils/paths'
 import { workspaceFolderKey } from '../store/slices/workspacesSlice'
-import { useWorkspaceStore } from '../store/workspaceStore'
-import { subscribeBacklogScan, type BacklogScanSnapshot } from './useSharedBacklogScan'
+import { type BacklogScanSnapshot } from './useSharedBacklogScan'
 import type { Workspace } from '../types/workspace'
 
 // Cross-project Backlog read model (T8): read-time aggregation of every open
@@ -90,15 +85,6 @@ export type BacklogProjectFeed = {
   loading: boolean
   // The scan failed with no items to show; the message is the first scan error.
   error?: string
-}
-
-export type UseAllProjectsBacklogResult = {
-  projects: BacklogProjectFeed[]
-  // True only until the first project produces something to render; a background
-  // refresh of an already-populated aggregate never re-enters this state.
-  loading: boolean
-  // rootKey -> error message, for every project whose scan failed outright.
-  errors: Record<string, string>
 }
 
 // ---------------------------------------------------------------------------
@@ -199,13 +185,6 @@ export function collectBacklogProjectRootDescriptors(
 
 type BacklogProjectRoot = { root: string; rootKey: string; name: string }
 
-function parseRootDescriptor(descriptor: string): BacklogProjectRoot {
-  const sep = descriptor.indexOf(ROOT_DESCRIPTOR_SEP)
-  const rootKey = descriptor.slice(0, sep)
-  const root = descriptor.slice(sep + 1)
-  return { root, rootKey, name: basename(root) }
-}
-
 // ---------------------------------------------------------------------------
 // Feed assembly (pure — the hook only wires subscriptions + config reads to it)
 // ---------------------------------------------------------------------------
@@ -242,107 +221,4 @@ export function buildBacklogProjectFeeds(
       ...(error ? { error } : {}),
     }
   })
-}
-
-// ---------------------------------------------------------------------------
-// The hook
-// ---------------------------------------------------------------------------
-
-// Read a project's Backlog display key from its config.json, best-effort. A
-// missing/unreadable config (or no renderer window, e.g. a unit test) falls back
-// to the name-derived default — the same default the main-process allocator
-// would mint — so a fresh or key-less project still tags its rows.
-async function readProjectDisplayKey(root: string, name: string): Promise<string> {
-  let raw: string | null = null
-  try {
-    if (typeof window !== 'undefined' && typeof window.api?.readfile === 'function') {
-      raw = await window.api.readfile(joinFilePath(root, BACKLOG_CONFIG_RELATIVE_PATH))
-    }
-  } catch {
-    raw = null
-  }
-  return resolveBacklogDisplayKey(raw, name)
-}
-
-export function useAllProjectsBacklog(): UseAllProjectsBacklogResult {
-  // Shallow-stable list of `rootKey\0root` descriptors: re-subscribes only when
-  // the set of project roots changes, not on every workspace-store update.
-  const rootDescriptors = useWorkspaceStore(
-    useShallow((state) => collectBacklogProjectRootDescriptors(state.workspaces)),
-  )
-  const roots = useMemo(() => rootDescriptors.map(parseRootDescriptor), [rootDescriptors])
-  const rootsKey = useMemo(() => rootDescriptors.join('|'), [rootDescriptors])
-
-  const [snapshots, setSnapshots] = useState<Map<string, BacklogScanSnapshot>>(new Map())
-  const [displayKeys, setDisplayKeys] = useState<Map<string, string>>(new Map())
-
-  const rootsRef = useRef<ReadonlyArray<BacklogProjectRoot>>(roots)
-  rootsRef.current = roots
-
-  // Subscribe each distinct project root to its shared scan, aggregating the
-  // snapshots by rootKey. Reuses the shared subscription, so a project with an
-  // open BacklogPanel is not scanned a second time here.
-  useEffect(() => {
-    const current = rootsRef.current
-    if (current.length === 0) {
-      setSnapshots(new Map())
-      return
-    }
-    const aggregate = new Map<string, BacklogScanSnapshot>()
-    const unsubscribes = current.map(({ root, rootKey }) =>
-      subscribeBacklogScan(root, (snapshot) => {
-        aggregate.set(rootKey, snapshot)
-        setSnapshots(new Map(aggregate))
-      }),
-    )
-    return () => unsubscribes.forEach((unsubscribe) => unsubscribe())
-  }, [rootsKey])
-
-  // Resolve each project's display key once (cached across root-set changes so a
-  // project keeps its key when siblings come and go). One config read per new
-  // project — event-driven, no poller.
-  const displayKeyCache = useRef(new Map<string, string>())
-  useEffect(() => {
-    let cancelled = false
-    const current = rootsRef.current
-    const pending = current.filter(({ rootKey }) => !displayKeyCache.current.has(rootKey))
-    if (pending.length === 0) return
-    void Promise.all(
-      pending.map(async ({ root, rootKey, name }) => {
-        const key = await readProjectDisplayKey(root, name)
-        if (cancelled || displayKeyCache.current.has(rootKey)) return
-        displayKeyCache.current.set(rootKey, key)
-      }),
-    ).then(() => {
-      if (!cancelled) setDisplayKeys(new Map(displayKeyCache.current))
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [rootsKey])
-
-  const projects = useMemo(
-    () => buildBacklogProjectFeeds(roots, snapshots, displayKeys),
-    [roots, snapshots, displayKeys],
-  )
-
-  const errors = useMemo(() => {
-    const map: Record<string, string> = {}
-    for (const feed of projects) {
-      if (feed.error) map[feed.rootKey] = feed.error
-    }
-    return map
-  }, [projects])
-
-  // Loading only while nothing is renderable yet: every feed still scanning with
-  // no items and no error. Once any project has content (or an error) to show,
-  // later scans are per-feed `loading`, never a global spinner.
-  const loading = useMemo(
-    () =>
-      projects.length > 0 &&
-      projects.every((feed) => feed.loading && feed.items.length === 0 && feed.error === undefined),
-    [projects],
-  )
-
-  return { projects, loading, errors }
 }

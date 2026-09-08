@@ -13,7 +13,7 @@ import { FOCUS_RING_INSET_CLASS } from '../ui/tokens'
 // bar to give them a seat — so the column that is under them has to leave this
 // much of its own top row empty, or its right-hand controls sit under Close.
 // Keep in step with the `w-10` on the buttons below.
-export const WINDOW_CONTROLS_WIDTH = 120
+const WINDOW_CONTROLS_WIDTH = 120
 
 /**
  * The room a top strip leaves for the floating caption buttons on win/linux.

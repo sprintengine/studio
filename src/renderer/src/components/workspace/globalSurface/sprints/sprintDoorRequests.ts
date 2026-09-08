@@ -21,7 +21,7 @@ import type { RunDoorId } from './runDoors'
 // to Sprints would land in a list its own partition keeps it out of, which reads
 // as a run that was never created.
 
-export const NEW_SPRINT_REQUEST_EVENT = 'multicode:new-sprint'
+const NEW_SPRINT_REQUEST_EVENT = 'multicode:new-sprint'
 
 type NewSprintRequestDetail = {
   /**
@@ -126,7 +126,7 @@ export function consumeSprintCreationDoorClaim(): RunDoorId | null {
 // them would orphan live CLI processes — so the door asks, and the shell runs the
 // same close path the row used to.
 
-export const CLOSE_SPRINT_WORKSPACE_EVENT = 'multicode:close-sprint-workspace'
+const CLOSE_SPRINT_WORKSPACE_EVENT = 'multicode:close-sprint-workspace'
 
 type CloseSprintWorkspaceDetail = {
   // Unknown because it arrives on an event: validated before it is handed on.

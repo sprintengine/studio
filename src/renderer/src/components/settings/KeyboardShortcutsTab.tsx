@@ -56,7 +56,7 @@ export type ShortcutRow = {
   customized: boolean
 }
 
-export const CATEGORY_LABELS: Record<CommandCategory, string> = {
+const CATEGORY_LABELS: Record<CommandCategory, string> = {
   settings: 'Settings',
   command_palette: 'Command palette',
   workspace: 'Workspace',
@@ -228,7 +228,7 @@ export function eventToChordString(event: RecorderKeyEvent, platform: Keybinding
   return normalizeKeybinding([...modifiers, keyToken].join('+'))
 }
 
-export function resolvePlatform(): KeybindingPlatform {
+function resolvePlatform(): KeybindingPlatform {
   const platform = typeof window !== 'undefined' ? window.api?.platform : undefined
   if (platform === 'darwin') return 'darwin'
   if (platform === 'win32') return 'windows'

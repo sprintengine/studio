@@ -36,7 +36,7 @@ export interface ChangeMapLayoutNode {
   height: number
 }
 
-export interface ChangeMapLayoutEdge {
+interface ChangeMapLayoutEdge {
   from: string
   to: string
   label?: string

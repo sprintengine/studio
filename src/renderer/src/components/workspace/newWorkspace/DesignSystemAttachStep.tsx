@@ -42,18 +42,6 @@ export function buildDesignSystemKnowledgeNote(name: string, version: string): s
   ].join('\n')
 }
 
-/** Writes the pointer note unless one already exists (never overwrites). */
-export async function writeDesignSystemKnowledgeNote(input: {
-  workspaceRoot: string
-  knowledgeRoot: string
-  name: string
-  version: string
-}): Promise<void> {
-  const notePath = pathJoin(input.workspaceRoot, input.knowledgeRoot, 'design-system.md')
-  if (await window.api.pathExists(notePath)) return
-  await window.api.writefile(notePath, buildDesignSystemKnowledgeNote(input.name, input.version))
-}
-
 export type DesignSystemAttachStepProps = {
   /** Materialized workspace folder the bundle would be copied into. */
   workspaceRoot: string

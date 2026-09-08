@@ -5,8 +5,8 @@
 // Bounds for the dragged width. The minimum matches SidePane's preset minimum;
 // the maximum allows a genuinely roomy reading pane without swallowing the
 // board on common window sizes.
-export const INSPECTOR_PANE_MIN_WIDTH = 320
-export const INSPECTOR_PANE_MAX_WIDTH = 760
+const INSPECTOR_PANE_MIN_WIDTH = 320
+const INSPECTOR_PANE_MAX_WIDTH = 760
 
 const STORAGE_KEY = 'multicode.sprintEngine.inspectorWidth'
 

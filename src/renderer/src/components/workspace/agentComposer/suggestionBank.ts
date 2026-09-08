@@ -10,7 +10,7 @@
 // and a re-render cannot reshuffle what someone is reading.
 
 /** Grouping used to keep one draw from being four flavours of the same idea. */
-export type SuggestionCategory =
+type SuggestionCategory =
   | 'review'
   | 'design'
   | 'performance'

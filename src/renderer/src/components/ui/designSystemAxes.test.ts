@@ -175,7 +175,9 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // that item paid for are in workspace (197 → 193), panels (173 → 171),
     // backlog (21 → 20) and diagnostics (7 → 6): every dialog-scale shell in
     // the product now draws `OVERLAY_SHELL_CLASS` instead of its own radius.
-    'components/ui': 3,
+    // 3 → 2, 2026-09-08: the dead `ActionFeedback` / `__preview__` primitives
+    // went with the knip sweep; banked, not left as headroom.
+    'components/ui': 2,
   },
   // `utils/highlight.ts` is 14 of the 17: per-language terminal highlight rings,
   // each a tuned inset glow in the language's own hue. They are content colour
@@ -232,9 +234,11 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // for panels 24 → 23 (2158cff0a).
     // 23 → 12, 2026-09-08: the Switchboard and Watchtower panels were deleted
     // with their feature; banked here rather than left as headroom.
+    // ui 16 → 14, 2026-09-08: the dead `ActionFeedback` and `__preview__`
+    // primitives went with the knip sweep; banked, not left as headroom.
     'components/workspace': 21,
     'components/panels': 12,
-    'components/ui': 16,
+    'components/ui': 14,
     'components/backlog': 3,
     'components/settings': 1,
   },

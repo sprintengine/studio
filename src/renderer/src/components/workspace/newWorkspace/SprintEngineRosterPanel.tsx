@@ -294,7 +294,7 @@ function RosterRoleRow({
 // unsaved config. Exported (MC-2064) because the create surface renders it on
 // its own when "No roles" is selected — the roster panel is not mounted then,
 // and this menu is the way back to a roster.
-export function SavedRostersMenu({
+function SavedRostersMenu({
   rosters,
   selectedRosterId,
   selectedRosterDirty,

@@ -57,7 +57,7 @@ import { anchorRangeLabel } from './anchorLabel'
 // canvas, so the two never drift. Passing a null review id yields the idle session
 // (no review selected) without violating the rules of hooks.
 
-export type ReviewSessionStatus =
+type ReviewSessionStatus =
   | 'idle' // no review selected
   | 'loading' // reading the change set
   | 'error' // the change set could not be read
@@ -77,7 +77,7 @@ export interface ReviewRunProgress {
 // ordinary terminal agent now, so there is no thread to project here — the
 // question is delivered to its terminal and the answer is read there.
 // `askFromCard` opens the composer pre-quoted at an annotation's anchor.
-export interface ReviewAskController extends ReviewDrawerController {
+interface ReviewAskController extends ReviewDrawerController {
   prefill?: { text: string; nonce: number }
   askFromCard: (annotation: ReviewAnnotation) => void
 }

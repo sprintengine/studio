@@ -51,7 +51,7 @@ import React from 'react'
 export const SCRIM_CLEAR_STOP_FRACTION = 0.64
 
 /** Where the scrim stops being flat and starts to ramp. */
-export const SCRIM_FLAT_STOP_FRACTION = 0.1
+const SCRIM_FLAT_STOP_FRACTION = 0.1
 
 const SCRIM_CLEAR_STOP = `${SCRIM_CLEAR_STOP_FRACTION * 100}%`
 

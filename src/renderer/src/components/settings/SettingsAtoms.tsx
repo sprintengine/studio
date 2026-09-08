@@ -189,7 +189,7 @@ export function MetaCell({
   )
 }
 
-export function metaToneClass(tone?: MetaTone): string {
+function metaToneClass(tone?: MetaTone): string {
   switch (tone) {
     case 'positive':
       return 'text-[color:var(--tone-good)]'

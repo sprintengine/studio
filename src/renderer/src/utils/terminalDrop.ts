@@ -11,10 +11,10 @@ import {
 } from './skillInvocation'
 
 export const MULTICODE_FILE_DROP_MIME = 'application/x-multicode-file-drop'
-export const MULTICODE_COMMIT_DROP_MIME = 'application/x-multicode-commit-drop'
+const MULTICODE_COMMIT_DROP_MIME = 'application/x-multicode-commit-drop'
 export const MULTICODE_SKILL_DROP_MIME = 'application/x-multicode-skill-drop'
 
-export const BACKLOG_SKILL_ID = 'backlog'
+const BACKLOG_SKILL_ID = 'backlog'
 
 export type FileDropPayload = {
   version: 1

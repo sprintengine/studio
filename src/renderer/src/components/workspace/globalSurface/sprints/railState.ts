@@ -35,7 +35,7 @@ export type SprintRailRow = {
 // the rail only holds index summaries, so the mapping reads runtimeState +
 // repoRollup rather than the full projection, but the states and labels match —
 // Merged (purple branch), Ready for review (green branch), Complete (disc).
-export function sprintRunLifecycleGlyph(
+function sprintRunLifecycleGlyph(
   summary: SprintRunSummary,
 ): { state: LifecycleState; live: boolean; label: string } {
   switch (summary.runtimeState) {

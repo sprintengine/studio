@@ -19,7 +19,7 @@ const FOUNDATIONS_PREFIX = `${DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME}/foundations/`
 // that exists (some file under it) but has no `component.html` yet is still
 // being built — it shows a designed building card in place so the user watches
 // the system grow rather than waiting for a whole-grid refresh.
-export type GalleryComponentState = 'ready' | 'building'
+type GalleryComponentState = 'ready' | 'building'
 
 export type GalleryComponent = {
   /** Directory name under components/, e.g. `task-card`. */
@@ -55,7 +55,7 @@ export type GalleryGlyph = {
   key: string
 }
 
-export type GalleryFoundationId = 'tokens' | 'principles'
+type GalleryFoundationId = 'tokens' | 'principles'
 
 export type GalleryFoundation = {
   id: GalleryFoundationId

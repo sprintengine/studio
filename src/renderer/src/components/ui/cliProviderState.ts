@@ -15,7 +15,7 @@ import type { StatusTone } from './tokens'
 // `unknown`, never `missing`: the previous card UI collapsed the two and offered
 // an Install button for a CLI that may well have been installed all along.
 
-export type CliProviderHealth = 'checking' | 'ready' | 'missing' | 'unknown' | 'probe-failed'
+type CliProviderHealth = 'checking' | 'ready' | 'missing' | 'unknown' | 'probe-failed'
 
 export type CliProviderState = {
   health: CliProviderHealth

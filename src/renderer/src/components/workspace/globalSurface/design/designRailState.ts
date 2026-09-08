@@ -14,7 +14,7 @@ import { designSystemRegistrationId } from '../../../../../../shared/design-syst
 // is what makes "one group, no headings" fall out rather than be special-cased.
 
 /** Where a rail row's bundle came from. */
-export type DesignRailGroupKey = 'project' | 'library'
+type DesignRailGroupKey = 'project' | 'library'
 
 /**
  * One design system in the rail.
@@ -60,7 +60,7 @@ export function sourceStateFailure(
   return state === 'ok' ? null : state
 }
 
-export const DESIGN_RAIL_GROUP_LABELS: Record<DesignRailGroupKey, string> = {
+const DESIGN_RAIL_GROUP_LABELS: Record<DesignRailGroupKey, string> = {
   // Sentence case: `principles.md` rejects uppercase letter-spaced labels as
   // hierarchy, on section headers and metadata alike.
   project: 'In this project',
@@ -193,7 +193,7 @@ export const DESIGN_RAIL_STATUS_ITEMS: ReadonlyArray<{
   { value: 'broken', label: 'Needs attention' },
 ]
 
-export function designRowMatchesStatus(
+function designRowMatchesStatus(
   entry: DesignRailEntry,
   status: DesignRailStatusFilter,
 ): boolean {

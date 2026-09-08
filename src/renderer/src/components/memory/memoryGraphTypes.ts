@@ -6,47 +6,13 @@ import type {
   MemoryGraphSettings,
 } from '../../types/workspace'
 
-export type SidebarTab = 'filters' | 'groups' | 'display' | 'forces'
+type SidebarTab = 'filters' | 'groups' | 'display' | 'forces'
 
-export type Camera = {
-  x: number
-  y: number
-  scale: number
-}
-
-export type PositionedNode = MemoryGraphNode & {
-  x: number
-  y: number
-  vx: number
-  vy: number
-  fx: number | null
-  fy: number | null
-  radius: number
-  color: string
-  visible: boolean
-}
-
-export const GRAPH_PALETTE = [
-  '#818cf8',
-  '#34d399',
-  '#fbbf24',
-  '#fb7185',
-  '#22d3ee',
-  '#c084fc',
-  '#f472b6',
-  '#a3e635',
-  '#fb923c',
-  '#60a5fa',
-] as const
-
-export const UNRESOLVED_COLOR = '#3f3f46'
-export const DEFAULT_GROUP_COLOR = '#52525b'
-
-export function ruleId(): string {
+function ruleId(): string {
   return Math.random().toString(36).slice(2, 10)
 }
 
-export const DEFAULT_FILTERS: MemoryGraphFiltersConfig = {
+const DEFAULT_FILTERS: MemoryGraphFiltersConfig = {
   hideOrphans: false,
   hideAttachments: false,
   hideUnresolved: false,
@@ -57,9 +23,9 @@ export const DEFAULT_FILTERS: MemoryGraphFiltersConfig = {
 /** Bumped any time DEFAULT_DISPLAY or DEFAULT_FORCES move enough that we want
  *  untuned workspaces to inherit the new feel. Stored settings with a lower
  *  version trigger a one-shot upgrade in the panel. */
-export const GRAPH_SETTINGS_VERSION = 2
+const GRAPH_SETTINGS_VERSION = 2
 
-export const DEFAULT_DISPLAY: MemoryGraphDisplayConfig = {
+const DEFAULT_DISPLAY: MemoryGraphDisplayConfig = {
   nodeSizeScale: 1.5,
   lineThicknessScale: 1,
   labelFadeThreshold: 0.25,
@@ -70,7 +36,7 @@ export const DEFAULT_DISPLAY: MemoryGraphDisplayConfig = {
   starfield: false,
 }
 
-export const DEFAULT_FORCES: MemoryGraphForcesConfig = {
+const DEFAULT_FORCES: MemoryGraphForcesConfig = {
   centerForce: 0.45,
   repelForce: 0.15,
   linkForce: 0.55,
@@ -87,35 +53,7 @@ export const DEFAULT_GRAPH_SETTINGS: MemoryGraphSettings = {
   forces: DEFAULT_FORCES,
 }
 
-export function colorForGroup(group: string, rules: MemoryGraphColorRule[]): string {
-  for (const rule of rules) {
-    const pattern = rule.pattern.replace(/^path:/i, '').replace(/^\/+/, '')
-    if (!pattern) continue
-    if (group === pattern || group.toLowerCase() === pattern.toLowerCase()) return rule.color
-    const lower = group.toLowerCase()
-    const patternLower = pattern.toLowerCase().replace(/\/+$/u, '')
-    if (lower === patternLower) return rule.color
-  }
-  return DEFAULT_GROUP_COLOR
-}
-
-export function colorForRelativePath(
-  relativePath: string,
-  group: string,
-  rules: MemoryGraphColorRule[]
-): string {
-  const path = relativePath.toLowerCase()
-  for (const rule of rules) {
-    const pattern = rule.pattern.toLowerCase().replace(/^path:/, '').replace(/^\/+/, '')
-    if (!pattern) continue
-    if (path === pattern || path.startsWith(`${pattern.replace(/\/+$/u, '')}/`)) {
-      return rule.color
-    }
-  }
-  return colorForGroup(group, rules)
-}
-
-export function normalizeFilters(
+function normalizeFilters(
   input: Partial<MemoryGraphFiltersConfig> | null | undefined
 ): MemoryGraphFiltersConfig {
   const depth =
@@ -136,7 +74,7 @@ export function normalizeFilters(
   }
 }
 
-export function normalizeDisplay(
+function normalizeDisplay(
   input: Partial<MemoryGraphDisplayConfig> | null | undefined
 ): MemoryGraphDisplayConfig {
   const clamp = (value: unknown, min: number, max: number, fallback: number): number =>
@@ -155,7 +93,7 @@ export function normalizeDisplay(
   }
 }
 
-export function normalizeForces(
+function normalizeForces(
   input: Partial<MemoryGraphForcesConfig> | null | undefined
 ): MemoryGraphForcesConfig {
   const clamp = (value: unknown, min: number, max: number, fallback: number): number =>
@@ -170,7 +108,7 @@ export function normalizeForces(
   }
 }
 
-export function normalizeColorRules(
+function normalizeColorRules(
   input: unknown
 ): MemoryGraphColorRule[] {
   if (!Array.isArray(input)) return []

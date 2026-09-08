@@ -110,7 +110,7 @@ export type CardLaunchChoice = {
 const CARD_SELECTION: AgentComposerSelection = { kind: 'general' }
 
 /** The runtime a card insists on, or null when it names none. */
-export function cardRequiredCli(card: HostedCard): AgentCli | null {
+function cardRequiredCli(card: HostedCard): AgentCli | null {
   const action = card.go.find((entry) => entry.verb === 'require.cli')
   return action && action.verb === 'require.cli' ? action.cli : null
 }

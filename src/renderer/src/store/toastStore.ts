@@ -19,14 +19,14 @@ import type { Tone } from '../components/ui/tokens'
 // ruling 2026-09-04 — "Update available: Codex 0.153.3" with Settings and
 // Update). Every other toast stays button-free; the design-system toast
 // spec names this variant and the lint pins it.
-export type ToastAction = {
+type ToastAction = {
   id: string
   label: string
   primary?: boolean
   run: () => void
 }
 
-export type AppToast = {
+type AppToast = {
   id: string
   tone: Tone
   title: string

@@ -21,7 +21,7 @@ import {
   type TriggerKind,
   type WebhookTriggerConfig,
 } from '../../../../../shared/automations/contracts'
-import { WEEKDAY_SHORT, formatAtDatetime, scheduleCadenceSummaryForReader } from '../../../../../shared/automations/cadence'
+import { WEEKDAY_SHORT, scheduleCadenceSummaryForReader } from '../../../../../shared/automations/cadence'
 import { TRACKER_PROVIDER_LABEL } from '../../../../../shared/tracker/provider-label'
 import type { TrackerProviderId } from '../../../../../shared/tracker/provider-label'
 import { relativeFromNow } from '../../../utils/relativeTime'
@@ -30,7 +30,7 @@ import { relativeFromNow } from '../../../utils/relativeTime'
 // importing the canonical trigger-kind constants and cadence copy from this
 // module; the definitions themselves live in contracts.ts and cadence.ts.
 export { REPO_EVENT_TRIGGER_KIND, SCHEDULE_TRIGGER_KIND, SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND }
-export { WEEKDAY_SHORT, formatAtDatetime }
+export { WEEKDAY_SHORT }
 
 // Shared async + editor state used across the control-center modules.
 export type AsyncState = 'idle' | 'loading' | 'ready' | 'error'
@@ -109,7 +109,7 @@ export function isScheduleConfig(config: unknown): config is ScheduleTriggerConf
 // maps; unknown third-party kinds fall back to their raw kind.
 // ---------------------------------------------------------------------------
 
-export const ACTION_LABEL: Record<string, string> = {
+const ACTION_LABEL: Record<string, string> = {
   'spawn-agent': 'Spawn an agent',
   'run-skill-loop': 'Run a skill loop',
   'sprint-engine-run': 'Run a sprint',
@@ -124,7 +124,7 @@ export function actionLabel(kind: string): string {
 
 // Summary copy for the non-schedule trigger families (schedule cadences are
 // summarized by cadenceSummary). Unknown families fall back to the raw kind.
-export const TRIGGER_SUMMARY: Record<string, string> = {
+const TRIGGER_SUMMARY: Record<string, string> = {
   'repo-event': 'On GitHub/Jira event',
   webhook: 'On webhook',
   'sprint-engine.run-landed': 'When a sprint’s work lands',
@@ -252,12 +252,12 @@ export type ScheduleCadenceForm = {
 // True only when the loaded trigger is a schedule whose cadence the editor can
 // actually author (interval/daily/weekly/at). Cron, repo-event, webhook, and
 // any other family are read-only here.
-export function isEditableScheduleTrigger(trigger: AutomationDefinition['trigger']): boolean {
+function isEditableScheduleTrigger(trigger: AutomationDefinition['trigger']): boolean {
   if (trigger.kind !== SCHEDULE_TRIGGER_KIND || !isScheduleConfig(trigger.config)) return false
   return trigger.config.cadence.type !== 'cron'
 }
 
-export function buildScheduleCadence(form: ScheduleCadenceForm): ScheduleTriggerConfig['cadence'] {
+function buildScheduleCadence(form: ScheduleCadenceForm): ScheduleTriggerConfig['cadence'] {
   if (form.cadenceType === 'daily') return { type: 'daily', timeLocal: form.timeLocal }
   if (form.cadenceType === 'weekly') return { type: 'weekly', timeLocal: form.timeLocal, daysOfWeek: form.daysOfWeek }
   if (form.cadenceType === 'at') return { type: 'at', datetime: form.atDatetime }
@@ -321,7 +321,7 @@ export type SubmitTriggerForm = ScheduleCadenceForm & {
 // /automations/webhooks/<path> — mirrors WEBHOOK_ROUTE_PREFIX in the receiver.
 export const WEBHOOK_ROUTE_PREFIX = '/automations/webhooks/'
 export const WEBHOOK_SIGNATURE_HEADER = 'x-multicode-signature'
-export const MIN_WEBHOOK_SECRET_LENGTH = 16
+const MIN_WEBHOOK_SECRET_LENGTH = 16
 // Mirrors the receiver's path rule (webhook.ts WEBHOOK_PATH_PATTERN).
 const WEBHOOK_PATH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
@@ -334,7 +334,7 @@ export function isAuthorableTrigger(trigger: AutomationDefinition['trigger']): b
   return false
 }
 
-export function buildSprintLandedConfig(form: SprintLandedForm): SprintEngineRunLandedTriggerConfig {
+function buildSprintLandedConfig(form: SprintLandedForm): SprintEngineRunLandedTriggerConfig {
   return { kind: SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND, team: form.team.trim() }
 }
 
@@ -377,7 +377,7 @@ export function buildWebhookConfig(form: WebhookForm): WebhookTriggerConfig {
 // Compares a built webhook config against the loaded (redacted) config, ignoring
 // the write-only secret and the redaction marker, so the editor can tell whether
 // the webhook trigger actually changed.
-export function webhookConfigEquivalent(built: WebhookTriggerConfig, loaded: unknown): boolean {
+function webhookConfigEquivalent(built: WebhookTriggerConfig, loaded: unknown): boolean {
   if (!loaded || typeof loaded !== 'object') return false
   const a: Record<string, unknown> = { ...built }
   delete a.secret
@@ -652,14 +652,14 @@ export type AutomationFeedRun = {
 
 // Merge per-definition run lists into one newest-first feed, capped to a bounded
 // window so a busy project never renders thousands of rows.
-export const RUNS_FEED_LIMIT = 50
+const RUNS_FEED_LIMIT = 50
 
 // The timestamp a feed row both displays and is ordered by: the run's most
 // progressed real time (completed → started → due). Sorting on this same
 // expression keeps the feed order consistent with the stamp each row shows.
 // Null only when a run carries no parseable timestamp at all (the row then shows
 // no stamp).
-export function feedRunStamp(run: AutomationRun): number | null {
+function feedRunStamp(run: AutomationRun): number | null {
   return parseTime(run.completedAt) ?? parseTime(run.startedAt) ?? parseTime(run.dueAt)
 }
 
@@ -673,7 +673,7 @@ export function mergeFeedRuns(perDefinition: AutomationFeedRun[][], limit = RUNS
 // The per-definition runs load is raced against this so a single hung IPC (a
 // promise that never settles) cannot strand the whole feed at 'loading'. A
 // timed-out load is skipped-and-counted, exactly like a handled failure.
-export const RUNS_FEED_LOAD_TIMEOUT_MS = 8000
+const RUNS_FEED_LOAD_TIMEOUT_MS = 8000
 
 // Distinct identity so a real (even empty) result is never mistaken for a timeout.
 const FEED_LOAD_TIMEOUT = Symbol('runs-feed-load-timeout')

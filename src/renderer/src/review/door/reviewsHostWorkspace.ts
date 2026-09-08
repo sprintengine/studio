@@ -17,19 +17,19 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 // never by the user, so it has no entry in the workspace-type registry and no
 // creation flow.
 
-export function isReviewsHostWorkspace(workspace: { mode: string }): boolean {
+function isReviewsHostWorkspace(workspace: { mode: string }): boolean {
   return workspace.mode === REVIEWS_HOST_WORKSPACE_MODE
 }
 
 // Names the host after its project, because the session manager groups sessions
 // by workspace name: a reviewer with two projects' guides running sees which is
 // which without opening either.
-export function reviewsHostWorkspaceName(projectRoot: string): string {
+function reviewsHostWorkspaceName(projectRoot: string): string {
   const project = projectRoot.replace(/[\\/]+$/u, '').split(/[\\/]/u).pop()
   return project ? `Reviews — ${project}` : 'Reviews'
 }
 
-export function findReviewsHostWorkspace(
+function findReviewsHostWorkspace(
   workspaces: readonly Workspace[],
   projectRoot: string,
 ): Workspace | undefined {

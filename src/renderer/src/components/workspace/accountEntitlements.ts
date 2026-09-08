@@ -23,7 +23,7 @@ import type { MulticodeAuthState } from '../../../../shared/electron-api'
 // consumed it. Enforcement lives on the server: every relay entry point in
 // `../multiauth/src/relay/service.ts` refuses without this key, so what the
 // desktop reads here only decides what to render, never what the account can do.
-export const PAID_FEATURE_KEYS: readonly string[] = [
+const PAID_FEATURE_KEYS: readonly string[] = [
   'multicode.mobile_companion',
 ]
 

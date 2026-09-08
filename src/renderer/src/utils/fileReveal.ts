@@ -14,7 +14,7 @@
 // any live event) that would swallow a file target first. Same shape, and for the
 // same reason, as `backlogReveal.ts`.
 
-export const FILE_REVEAL_EVENT = 'multicode:reveal-file'
+const FILE_REVEAL_EVENT = 'multicode:reveal-file'
 
 export type FileRevealDetail = {
   workspaceId: string

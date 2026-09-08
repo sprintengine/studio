@@ -362,10 +362,6 @@ export const LEARNING_ITEMS: readonly LearningItem[] = [
   },
 ] as const
 
-export function getLearningItemById(id: string): LearningItem | undefined {
-  return LEARNING_ITEMS.find((item) => item.id === id)
-}
-
 function assertUniqueLearningIds(): void {
   const seen = new Set<string>()
   for (const item of LEARNING_ITEMS) {

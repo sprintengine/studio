@@ -39,33 +39,13 @@ import type {
 export type {
   AgentCli,
   AgentId,
-  SprintEngineAgentMeasuredMetrics,
   SprintEngineAgentMetrics,
-  SprintEngineAgentSelfReviewMetrics,
-  SprintEngineAgentPeerReviewMetrics,
-  SprintEngineAgentTaskCounts,
   SprintEngineArchitectDifficulty,
   SprintEngineArtifact,
-  SprintEngineArtifactApprovalMode,
-  SprintEngineArtifactKind,
-  SprintEngineArtifactReviewHistoryEntry,
-  SprintEngineArtifactStatus,
-  SprintEngineCliWatchPolling,
-  SprintEngineCurrentDispatch,
   SprintEngineEvent,
   SprintEngineFeedbackAnalysisData,
-  SprintEngineFeedbackAnalysisSummary,
-  SprintEngineFeedbackScoreStat,
   SprintEngineMockConfig,
-  SprintEngineNeedsInputKind,
-  SprintEngineNeedsInputReason,
-  SprintEngineProjectionCreation,
-  SprintEngineProjectionLockReport,
-  SprintEngineProjectionLocks,
-  SprintEngineProjectionLockWarning,
   SprintEngineProjectionSource,
-  SprintEngineProjectionStatus,
-  SprintEngineRecordedArtifact,
   SprintEngineRole,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
@@ -74,23 +54,16 @@ export type {
   SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
   SprintEngineRoleRegistryMetadata,
-  SprintEngineRoleRegistrySourceLayer,
-  SprintEngineRoleRegistryWarning,
-  SprintEngineRoleRuntime,
-  SprintEngineRoleRuntimes,
   SprintEngineRoleSettings,
   SprintEngineRosterSession,
-  SprintEngineRosterSessions,
   SprintEngineRoster,
   SprintEngineRunnerPolicy,
   SprintEngineRunSettings,
   SprintEngineRuntimeAgent,
   SprintEngineRuntimeAgentStatus,
   SprintEngineSavedRoster,
-  SprintEngineSkillMap,
   SprintEngineSource,
   SprintEngineSourceBundleItem,
-  SprintEngineSourceBundleKind,
   SprintEngineSourceBundleStateItem,
   SprintEngineSourcePlanKind,
   SprintEngineState,
@@ -98,54 +71,28 @@ export type {
   SprintEngineTaskActivityEntry,
   SprintEngineTaskActivityType,
   SprintEngineTaskBoardColumn,
-  SprintEngineTaskComment,
-  SprintEngineTaskCommentType,
   SprintEngineTaskDiff,
-  SprintEngineTaskDiffHunk,
   SprintEngineTaskDiffLine,
-  SprintEngineTaskDiffSource,
-  SprintEngineTaskDiffStatus,
   SprintEngineTaskEvidence,
   SprintEngineTaskFeedback,
   SprintEngineTaskFeedbackFinding,
-  SprintEngineTaskFeedbackFindingArea,
-  SprintEngineTaskFeedbackFindingKind,
   SprintEngineTaskFeedbackFindingSeverity,
-  SprintEngineTaskFeedbackFindingStatus,
   SprintEngineTaskFeedbackIssue,
-  SprintEngineTaskFeedbackIssueCategory,
-  SprintEngineTaskFeedbackIssueSeverity,
-  SprintEngineTaskFeedbackIssueStatus,
   SprintEngineTaskFeedbackScores,
-  SprintEngineTaskNeedsInput,
-  SprintEngineTaskPhase,
-  SprintEngineTaskSource,
-  SprintEngineTaskSourceSyncStatus,
-  SprintEngineTaskSourceType,
   SprintEngineTaskStatus,
-  SprintEngineTaskTriage,
   SprintEngineVcs,
   SprintEngineWorkspaceContext,
 } from '../../../shared/sprintengine/run-types'
 
 export type {
-  AgentBacklogItemRef,
   AgentConversationRuntime,
   AgentExecution,
   AgentExecutionMode,
   AgentKind,
-  AgentMessage,
   AgentRuntimeKind,
   AgentState,
-  AgentStatus,
-  McpClientTarget,
-  McpRiskLevel,
-  McpScope,
   McpServerConfig,
-  McpServerSource,
-  McpServerSourceRef,
   McpSettings,
-  McpTransport,
   SpecialistActionId,
 } from '../../../shared/sprintengine/agent-state'
 import type { ReviewWorkspaceState } from '../../../shared/review'
@@ -218,7 +165,6 @@ export type {
   SprintEngineAutomationEvent,
   SprintEngineAutomationMode,
   SprintEngineAutomationRuntimeState,
-  SprintEngineAutomationStopReason,
   SprintEngineCliPermissionPreset,
 } from '../../../shared/sprintengine/automation-types'
 
@@ -233,7 +179,7 @@ export type FuturePlanWorkspaceSource = {
   goal: string
 }
 
-export type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
+type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
 
 export type CliRuntimeSettings = {
   command: string
@@ -246,7 +192,7 @@ export type CliRuntimeSettings = {
 // Whether an agent CLI's binary is actually installed/runnable on this machine,
 // distinct from whether its plugin manifest is registered. Mirrors the shared
 // electron-api type. Keyed by plugin id in AgentCliAvailabilityMap.
-export type CliAvailability = {
+type CliAvailability = {
   cli: AgentCli
   installed: boolean
   resolvedPath: string | null
@@ -618,17 +564,6 @@ export type AppSettings = {
 }
 
 /**
- * What the silent first-run adoption found worth bringing over: the keys of the
- * detected MCP servers and adoptable skills. Derived live at first workspace
- * creation and handed straight to the real adoptAgentConfig IPC — it is no
- * longer a persisted user selection, because there is no longer a card that asks.
- */
-export type PendingAgentConfigAdoption = {
-  mcpServerKeys: string[]
-  skillKeys: string[]
-}
-
-/**
  * Live outcome of the first-run config adoption, read out as one line in
  * Settings → Agents. Transient app state (not persisted): set when adoption runs
  * at workspace creation, never resumed.
@@ -661,7 +596,7 @@ export type DesignSystemSeedSource = {
   path: string
 }
 
-export type GuidedBriefRoleCliDefaults = {
+type GuidedBriefRoleCliDefaults = {
   product: AgentCli
   architect: AgentCli
   frontend: AgentCli
@@ -797,21 +732,7 @@ export type AppNotification = DiagnosticLogEntry & {
   read: boolean
 }
 
-export type AgentConfig = {
-  model: string
-  systemPrompt: string
-  temperature: number
-  maxTokens: number
-}
-
-export const DEFAULT_AGENT_CONFIG: AgentConfig = {
-  model: 'claude-sonnet-4-6',
-  systemPrompt: 'You are a helpful AI assistant.',
-  temperature: 1,
-  maxTokens: 8096,
-}
-
-export type OpenFile = {
+type OpenFile = {
   path: string
   name: string
   content?: string

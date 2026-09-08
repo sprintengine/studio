@@ -10,7 +10,7 @@ import type { Tone } from '../ui'
 // refuse the switch and say why, rather than flipping a toggle that quietly
 // does nothing.
 
-export type TailnetPanelState = 'loading' | 'no-tailnet' | 'off' | 'not-listening' | 'listening'
+type TailnetPanelState = 'loading' | 'no-tailnet' | 'off' | 'not-listening' | 'listening'
 
 export type TailnetReadiness = {
   state: TailnetPanelState

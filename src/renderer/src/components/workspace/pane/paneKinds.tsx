@@ -70,7 +70,7 @@ function DiffGlyph({ className }: { className?: string }) {
   )
 }
 
-export function BrowserGlyph({ className }: { className?: string }) {
+function BrowserGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
       <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />

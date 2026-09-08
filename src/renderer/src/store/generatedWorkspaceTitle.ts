@@ -47,7 +47,7 @@ export type GeneratedTitleRequester = {
  * the answer (guardrail) or the machine (no CLI). One retry is enough for a
  * title nobody is waiting on.
  */
-export const GENERATED_TITLE_RETRY_DELAY_MS = 2_000
+const GENERATED_TITLE_RETRY_DELAY_MS = 2_000
 
 export function createGeneratedTitleRequester(
   deps: GeneratedTitleRequesterDeps,

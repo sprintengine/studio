@@ -36,13 +36,6 @@ export function unregisterTerminalInstance(sessionId: string): void {
   }
 }
 
-export function subscribeTerminalInstances(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
-}
-
 // Pure: turns per-terminal line/col readings into totals + a rough memory
 // estimate. Separated from the live registry read so it is unit-testable.
 export function computeScrollbackFootprint(entries: readonly ScrollbackEntry[]): ScrollbackFootprint {

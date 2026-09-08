@@ -32,7 +32,7 @@ import type { Workspace, WorkspaceId, WorkspaceRegistryEmptyState } from '../../
 export const WORKSPACE_REGISTRY_STORAGE_KEY = 'multicode-workspaces'
 export const WORKSPACE_REGISTRY_VERSION = 46
 
-export type WorkspaceRegistryState = {
+type WorkspaceRegistryState = {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   workspaceRegistryEmptyState: WorkspaceRegistryEmptyState | null
@@ -124,15 +124,6 @@ export function writeWorkspaceRegistry(envelope: WorkspaceRegistryEnvelope): voi
   }
 }
 
-export function clearWorkspaceRegistryLocal(): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.removeItem(WORKSPACE_REGISTRY_STORAGE_KEY)
-  } catch {
-    // best-effort
-  }
-}
-
 // Detect a legacy v44 envelope that still has appSettings/sidebarCollapsed
 // sitting inside the workspaces key. T22 stored everything under one key;
 // T23 splits non-workspace state into APP_SETTINGS_STORAGE_KEY. The split
@@ -208,10 +199,4 @@ export function splitLegacyV44Envelope(raw: string): LegacyV44SplitResult | null
   } catch {
     return null
   }
-}
-
-// Convenience for the in-memory state default. The Zustand store seeds
-// workspaceRegistryEmptyState to null at create time; this default mirrors that for tests.
-export function defaultRegistryEmptyState(): WorkspaceRegistryEmptyState | null {
-  return null
 }

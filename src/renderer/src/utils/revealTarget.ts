@@ -16,7 +16,7 @@
 
 import type { NotificationNavigationTarget } from '../types/workspace'
 
-export const REVEAL_TARGET_EVENT = 'multicode:reveal-target'
+const REVEAL_TARGET_EVENT = 'multicode:reveal-target'
 
 export type RevealTargetDetail = {
   workspaceId: string

@@ -5,15 +5,8 @@ import {
   createInitialSprintEngineState,
   normalizeSprintEngineState,
 } from '../../utils/sprintengine'
-import {
-  deleteEditorBuffer,
-  moveEditorBuffer,
-  remapEditorBuffers,
-  removeEditorBuffersForPath,
-  setEditorBuffer,
-} from '../../utils/editorBuffers'
+import { moveEditorBuffer } from '../../utils/editorBuffers'
 import { composeSprintEngineWorkspaceRecord } from '../../../../shared/sprintengine/workspace-record'
-import { detectLanguage } from '../../utils/files'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
 import {
   decideWorkspaceSettlement,
@@ -43,17 +36,14 @@ import {
 } from '../workspaceSyncClient'
 import type {
   AgentCli,
-  AgentExecution,
   AgentId,
   AgentKind,
   AgentState,
   AppSettings,
   EditorState,
   LayoutTemplate,
-  MemoryGraphSettings,
   SprintEngineAutoState,
   SprintEngineState,
-  SprintEngineRole,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleModelOverrides,
@@ -72,7 +62,6 @@ import type {
   WorkspaceMemoryConfig,
   WorkspaceMode,
   WorkspaceWorktreeState,
-  WorktreeEntry,
 } from '../../types/workspace'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
@@ -172,7 +161,7 @@ export function collectReviewStateMigrations(workspaces: Workspace[]): ReviewSta
   return migrations
 }
 
-export function defaultWorkspaceFileExplorerState(): WorkspaceFileExplorerState {
+function defaultWorkspaceFileExplorerState(): WorkspaceFileExplorerState {
   return { expandedPaths: [], selectedPath: null }
 }
 
@@ -210,7 +199,7 @@ export function normalizeWorkspaceFileExplorerState(input: unknown): WorkspaceFi
   return folderRoles ? { expandedPaths, selectedPath, folderRoles } : { expandedPaths, selectedPath }
 }
 
-export function defaultWorkspaceBacklogState(): WorkspaceBacklogState {
+function defaultWorkspaceBacklogState(): WorkspaceBacklogState {
   return { selectedRelativePath: null, view: 'active', sort: 'recent', group: 'none', search: '' }
 }
 
@@ -268,7 +257,7 @@ export function normalizeWorkspaceBacklogState(input: unknown): WorkspaceBacklog
   return { selectedRelativePath, view, sort, group, search }
 }
 
-export function defaultWorkspaceGitPanelState(): WorkspaceGitPanelState {
+function defaultWorkspaceGitPanelState(): WorkspaceGitPanelState {
   return { activeView: 'changes', activeScopeId: 'main', commitDraftsByScopeId: {} }
 }
 
@@ -302,7 +291,7 @@ export function normalizeWorkspaceGitPanelState(input: unknown): WorkspaceGitPan
   return { activeView, activeScopeId, commitDraftsByScopeId }
 }
 
-export interface WorkspacesSliceState {
+interface WorkspacesSliceState {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   workspaceWindows: WorkspaceWindowState[]
@@ -314,7 +303,7 @@ export interface WorkspacesSliceState {
   workspaceRegistryEmptyState: import('../../types/workspace').WorkspaceRegistryEmptyState | null
 }
 
-export interface WorkspacesSliceActions {
+interface WorkspacesSliceActions {
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
   registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
   updateWorkspaceWindowPlacement: (
@@ -1826,17 +1815,3 @@ export function createWorkspacesSlice(
     },
   }
 }
-
-// Re-exports of editor-buffer helpers so workspaceStore.ts editor actions can
-// still find them via the slice index when other slices land. These are pure
-// utility passthroughs; they belong with the editor/agents slice in T18.
-export {
-  deleteEditorBuffer,
-  moveEditorBuffer,
-  remapEditorBuffers,
-  removeEditorBuffersForPath,
-  setEditorBuffer,
-  detectLanguage,
-}
-// Type re-exports to keep unused-imports lint happy in callers that need them.
-export type { AgentCli, AgentExecution, MemoryGraphSettings, SprintEngineRole, WorktreeEntry }

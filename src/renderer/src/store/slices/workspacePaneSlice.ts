@@ -14,7 +14,7 @@ import type {
 // lives here, so the store's writers, the persist normalizer and the
 // migration that seeds the pane from a retired rail layout cannot disagree.
 
-export const WORKSPACE_PANE_TAB_KINDS: readonly WorkspacePaneTabKind[] = [
+const WORKSPACE_PANE_TAB_KINDS: readonly WorkspacePaneTabKind[] = [
   'browser',
   'terminal',
   'files',
@@ -25,7 +25,7 @@ export const WORKSPACE_PANE_TAB_KINDS: readonly WorkspacePaneTabKind[] = [
 
 // Kinds a workspace opens at most once: opening them again focuses the tab
 // that exists. Browser and terminal tabs may open many.
-export const SINGLETON_PANE_TAB_KINDS: ReadonlySet<WorkspacePaneTabKind> = new Set([
+const SINGLETON_PANE_TAB_KINDS: ReadonlySet<WorkspacePaneTabKind> = new Set([
   'files',
   'diff',
   'git',
@@ -41,7 +41,7 @@ const MAX_FAVICON_LENGTH = 12_000
 
 const KIND_SET = new Set<string>(WORKSPACE_PANE_TAB_KINDS)
 
-export function defaultWorkspacePaneState(): WorkspacePaneState {
+function defaultWorkspacePaneState(): WorkspacePaneState {
   return { open: false, activeTabId: null, tabs: [] }
 }
 
@@ -234,7 +234,7 @@ export function adoptLegacyBacklogTab(
   }
 }
 
-export type WorkspacePaneOpenInput = {
+type WorkspacePaneOpenInput = {
   kind: WorkspacePaneTabKind
   title?: string
   url?: string

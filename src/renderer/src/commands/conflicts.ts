@@ -1,7 +1,7 @@
 import { normalizeKeybinding } from './keybindings'
 import type { CommandDefinition, CommandScope } from './types'
 
-export type KeybindingConflictSeverity = 'blocking' | 'warning'
+type KeybindingConflictSeverity = 'blocking' | 'warning'
 
 export type KeybindingConflict = {
   severity: KeybindingConflictSeverity

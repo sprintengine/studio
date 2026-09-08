@@ -2,7 +2,7 @@
 // terminalDiagnostics.recordOutputWrite seam. The summarizer splits the recent
 // byte rate into on-screen vs hidden-but-rendering terminals, quantifying the
 // "hidden tabs still doing work" cost the panel already names as a warning.
-export const TERMINAL_WRITE_HISTORY_LIMIT = 4000
+const TERMINAL_WRITE_HISTORY_LIMIT = 4000
 
 export type TerminalWriteSample = {
   sessionId: string
@@ -31,13 +31,6 @@ export function recordTerminalWrite(sessionId: string, bytes: number, recordedAt
 
 export function getTerminalWriteSamples(): TerminalWriteSample[] {
   return [...samples]
-}
-
-export function subscribeTerminalWrites(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
 }
 
 export function summarizeTerminalThroughput(

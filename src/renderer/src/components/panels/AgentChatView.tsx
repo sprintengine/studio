@@ -137,7 +137,7 @@ export type TranscriptEntry =
 export type UserTurn = { id: string; text: string; attachments?: ConversationImageAttachment[] }
 
 /** Token counts the session has reported so far; null until the first report. */
-export type ConversationUsage = { inputTokens: number; outputTokens: number }
+type ConversationUsage = { inputTokens: number; outputTokens: number }
 
 export type ConversationProjection = {
   sessionStatus: ConversationSessionStatus | 'idle'
@@ -1012,14 +1012,13 @@ export function splitImageDataUrl(dataUrl: string): { mediaType: string; dataBas
 // The DataTransfer plumbing lives in utils/imageFileTransfer (shared with the
 // new-chat launch surface); re-exported here because this module declared it
 // first and the tests and seam read it from here.
-export { dataTransferHasFiles, imageFilesFromDataTransfer }
+export { dataTransferHasFiles }
 // The staged-image strip and its helpers live in ComposerAttachmentStrip
 // (shared with the new-chat launch surface, which must not import this panel);
 // re-exported for the same reason.
 export {
   attachmentCountLabel,
   attachmentPreviewUrl,
-  AttachmentThumbnail,
   ComposerAttachmentStrip,
   openAttachmentImage,
 }
@@ -1075,7 +1074,7 @@ function loadImageElement(src: string): Promise<HTMLImageElement> {
 //
 // Exported so the canvas/FileReader path can be exercised in a real browser:
 // the DOM-less unit test can cover the pure helpers around it but not this.
-export async function readImageAttachment(file: File, id: string): Promise<ConversationImageAttachment> {
+async function readImageAttachment(file: File, id: string): Promise<ConversationImageAttachment> {
   const dataUrl = await readFileAsDataUrl(file)
   const original = splitImageDataUrl(dataUrl)
   if (!original) throw new Error(`Could not read ${file.name || 'the image'}.`)

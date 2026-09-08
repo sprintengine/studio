@@ -21,7 +21,7 @@ type Listener = (animating: boolean) => void
 
 // Keep in sync with the `duration-150` width transition on the sidebar
 // `<aside>`. The hold buffer lets the layout settle before the trailing fit.
-export const SIDEBAR_TRANSITION_MS = 150
+const SIDEBAR_TRANSITION_MS = 150
 const HOLD_BUFFER_MS = 60
 
 let animating = false

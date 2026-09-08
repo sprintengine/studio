@@ -21,7 +21,7 @@ export function attachmentCountLabel(count: number): string {
   return count === 1 ? '1 image' : `${count} images`
 }
 
-export function attachmentImageLabel(attachment: ConversationImageAttachment): string {
+function attachmentImageLabel(attachment: ConversationImageAttachment): string {
   return attachment.name ?? 'Attached image'
 }
 

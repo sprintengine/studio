@@ -62,11 +62,11 @@ export function parseModelWindow(id: string): { baseId: string; window?: string 
 // `1m` is a token, not a word. The un-suffixed id is the model's own window,
 // which the catalog never names; "Standard" is what it is called against the
 // extended sibling that does carry a name.
-export function windowVariantLabel(window: string | undefined): string {
+function windowVariantLabel(window: string | undefined): string {
   return window ? window.toUpperCase() : 'Standard'
 }
 
-export type ModelWindowVariant = {
+type ModelWindowVariant = {
   /** The catalog id this window selects. */
   id: string
   label: string

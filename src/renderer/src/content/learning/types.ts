@@ -9,16 +9,16 @@ export type LearningCategory =
   | 'mobile'
   | 'local-safety'
 
-export type LearningDifficulty = 'basic' | 'intermediate' | 'advanced'
+type LearningDifficulty = 'basic' | 'intermediate' | 'advanced'
 
-export type LearningMedia = {
+type LearningMedia = {
   type: 'image' | 'gif' | 'video'
   src: string
   posterSrc?: string
   alt: string
 }
 
-export type LearningActionKind = 'open-learn-center' | 'open-settings-tab' | 'open-url'
+type LearningActionKind = 'open-learn-center' | 'open-settings-tab' | 'open-url'
 
 export type LearningAction = {
   label: string

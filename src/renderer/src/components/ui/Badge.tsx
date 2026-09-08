@@ -18,7 +18,7 @@ import { TONE_COLOR_VAR, TONE_SOFT_VAR, type Tone } from './tokens'
 // saturated tone — `--text-on-accent` is the token that means "foreground for a
 // filled surface" and holds on every theme.
 
-export type BadgeTone = Tone
+type BadgeTone = Tone
 
 export type BadgeProps = {
   tone?: BadgeTone

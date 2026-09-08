@@ -13,7 +13,7 @@ import type { Tone } from '../ui'
 // pairing read as the scan having failed; one that is online but silent on
 // the port says what to do over there.
 
-export type PeerRowState =
+type PeerRowState =
   /** Answers as a Studio; Connect is offered. */
   | 'connectable'
   /** Already in the fleet; the row reports reachability instead of offering Connect. */
@@ -34,7 +34,7 @@ export type PeerRowState =
   /** Tailscale says asleep or off. */
   | 'offline'
 
-export type PeerRow = {
+type PeerRow = {
   peer: TailnetPeer
   state: PeerRowState
   /** The endpoint Connect would dial. */

@@ -18,7 +18,7 @@ export type TerminalFileLinkSegment = {
   text: string
 }
 
-export type TerminalFileLinkActivateInput = {
+type TerminalFileLinkActivateInput = {
   resolvedPath: string
   name: string
   isDirectory: boolean
@@ -28,7 +28,7 @@ export type TerminalFileLinkActivateInput = {
 
 /** What the clicked path turned out to be on disk. A path that cannot be read
  *  is reported as missing, which routes to `onOpenError` rather than a menu. */
-export type TerminalFileLinkPathInfo = { exists: boolean; isDirectory: boolean }
+type TerminalFileLinkPathInfo = { exists: boolean; isDirectory: boolean }
 
 export type TerminalFileLinkProviderOptions = {
   terminal: Terminal

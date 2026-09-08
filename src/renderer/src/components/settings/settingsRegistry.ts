@@ -28,42 +28,42 @@ import { APP_THEMES, type AppTheme } from '../../types/appTheme'
 // - 'app'   — app-wide preferences shown in SettingsPanel.
 // - 'panel' — per-panel popover (Sprint Engine, Backlog).
 // - 'role'  — per-agent-role defaults (specialist, sprint engine).
-export type SettingScope = 'app' | 'panel' | 'role'
+type SettingScope = 'app' | 'panel' | 'role'
 
-export type SelectOption<V extends string = string> = {
+type SelectOption<V extends string = string> = {
   value: V
   label: string
   disabled?: boolean
 }
 
-export type SettingFieldText = {
+type SettingFieldText = {
   type: 'text'
   placeholder?: string
 }
 
-export type SettingFieldMultiline = {
+type SettingFieldMultiline = {
   type: 'multiline'
   placeholder?: string
   rows?: number
 }
 
-export type SettingFieldNumber = {
+type SettingFieldNumber = {
   type: 'number'
   min?: number
   max?: number
   step?: number
 }
 
-export type SettingFieldSwitch = {
+type SettingFieldSwitch = {
   type: 'switch'
 }
 
-export type SettingFieldSelect<V extends string = string> = {
+type SettingFieldSelect<V extends string = string> = {
   type: 'select'
   items: ReadonlyArray<SelectOption<V>>
 }
 
-export type SettingField =
+type SettingField =
   | SettingFieldText
   | SettingFieldMultiline
   | SettingFieldNumber
@@ -110,7 +110,7 @@ const APP_THEME_OPTIONS: ReadonlyArray<SelectOption<AppTheme>> = APP_THEMES.map(
   (t) => ({ value: t.id, label: t.label }),
 )
 
-export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
+const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   // Appearance — app-wide theme.
   {
     id: 'appearance-theme',
@@ -201,12 +201,4 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
 // Convenience views over the registry.
 export function getSettingDescriptor(id: string): SettingDescriptor | undefined {
   return settingsRegistry.find((entry) => entry.id === id)
-}
-
-export function getSettingsByGroup(group: string): ReadonlyArray<SettingDescriptor> {
-  return settingsRegistry.filter((entry) => entry.group === group)
-}
-
-export function getSettingsByScope(scope: SettingScope): ReadonlyArray<SettingDescriptor> {
-  return settingsRegistry.filter((entry) => entry.scope === scope)
 }

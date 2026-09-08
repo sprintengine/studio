@@ -126,7 +126,7 @@ export function migrateReviewState(
   return { ...prev, changeSetId: newCs.id, readFiles, comments }
 }
 
-export type FreshnessBannerTone = 'stale' | 'current'
+type FreshnessBannerTone = 'stale' | 'current'
 
 export interface FreshnessBannerModel {
   tone: FreshnessBannerTone

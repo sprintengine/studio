@@ -88,16 +88,6 @@ function computeDropIndex(list: HTMLOListElement, clientY: number): number {
   return cards.length
 }
 
-/** Exposed helper — same algorithm `BoardLane` uses internally. Callers can
- *  reach for this if they need to compute a drop index outside the lane's
- *  own onDragOver (e.g., for keyboard-driven move targets). */
-export function computeBoardLaneDropIndex(
-  list: HTMLOListElement,
-  clientY: number,
-): number {
-  return computeDropIndex(list, clientY)
-}
-
 export function BoardLane({
   label,
   glyph,
@@ -187,16 +177,5 @@ export function BoardLane({
         {children}
       </ol>
     </section>
-  )
-}
-
-/** 2 px accent hairline rendered as an `<li>` so it lives inside the lane's
- *  `<ol>` list semantics. Caller places one between cards at the computed
- *  drop index. */
-export function BoardLaneDropIndicator() {
-  return (
-    <li aria-hidden="true" className="-my-1 list-none">
-      <div className="h-[2px] rounded-full bg-[color:var(--accent-primary)]" />
-    </li>
   )
 }

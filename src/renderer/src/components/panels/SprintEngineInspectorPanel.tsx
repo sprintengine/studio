@@ -582,7 +582,7 @@ function SprintEngineArtifactInspector({
   )
 }
 
-export function SprintEngineArtifactList({
+function SprintEngineArtifactList({
   artifacts,
   tasksById,
   actions,

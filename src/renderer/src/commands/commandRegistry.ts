@@ -462,7 +462,3 @@ export type CommandId = (typeof COMMAND_REGISTRY)[number]['id']
 export function getCommandDefinition(commandId: string): CommandDefinition | undefined {
   return COMMAND_REGISTRY.find((commandDefinition) => commandDefinition.id === commandId)
 }
-
-export function getAvailableCommandDefinitions(): readonly CommandDefinition[] {
-  return COMMAND_REGISTRY
-}

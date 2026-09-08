@@ -74,7 +74,7 @@ export type HtmlPreviewZoom = (typeof PREVIEW_ZOOMS)[number]
 // Stable empty batch so files without notes never churn effect dependencies.
 const EMPTY_ANNOTATION_BATCH: MockupAnnotation[] = []
 
-export function nextHtmlPreviewZoom(zoom: HtmlPreviewZoom): HtmlPreviewZoom {
+function nextHtmlPreviewZoom(zoom: HtmlPreviewZoom): HtmlPreviewZoom {
   const index = PREVIEW_ZOOMS.indexOf(zoom)
   return PREVIEW_ZOOMS[(index + 1) % PREVIEW_ZOOMS.length]
 }

@@ -89,7 +89,7 @@ export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspa
 // resolved no sidecar, made the paused branch unreachable, and SPAWNED a fresh
 // CLI on every cold load. The id is only the resume *token*; nothing auto-resumes
 // while the gate flags above stay false.
-export function clearAutomationsHostAgentLaunchState(workspace: Workspace): Workspace {
+function clearAutomationsHostAgentLaunchState(workspace: Workspace): Workspace {
   if (workspace.mode !== AUTOMATIONS_HOST_WORKSPACE_MODE) return workspace
 
   return {

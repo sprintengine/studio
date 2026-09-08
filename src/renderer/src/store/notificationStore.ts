@@ -10,7 +10,7 @@ const MAX_NOTIFICATIONS = 120
 // Extensions counts the hosted cards published since its home was last looked
 // at. Kept here rather than in appSettings because it is the same kind of fact
 // as `read` — what this person has seen — and it persists alongside it.
-export type RailSeenSection = 'extensions'
+type RailSeenSection = 'extensions'
 
 interface NotificationStore {
   notifications: AppNotification[]

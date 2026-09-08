@@ -140,15 +140,11 @@ export function getHighlightSwatch(color: HighlightColor): HighlightSwatch {
   return swatches[color]
 }
 
-export function highlightHex(color: HighlightColor): string {
-  return swatches[color].hex
-}
-
 export function isStarred(highlight: WorkspaceHighlight | undefined | null): boolean {
   return highlight?.starred === true
 }
 
-export function getHighlightColor(
+function getHighlightColor(
   highlight: WorkspaceHighlight | undefined | null
 ): HighlightColor | null {
   return highlight?.color ?? null

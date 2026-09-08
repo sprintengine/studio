@@ -1,6 +1,6 @@
 export type KeybindingPlatform = 'darwin' | 'windows' | 'linux'
 
-export type KeybindingModifier = 'primary' | 'ctrl' | 'alt' | 'shift' | 'meta'
+type KeybindingModifier = 'primary' | 'ctrl' | 'alt' | 'shift' | 'meta'
 
 export type KeybindingStroke = {
   modifiers: readonly KeybindingModifier[]

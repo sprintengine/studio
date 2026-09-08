@@ -9,7 +9,7 @@ export type ExternalFileTab = {
   kind: ExternalFileKind
 }
 
-export type ExternalTextBuffer = {
+type ExternalTextBuffer = {
   kind: 'text'
   value: string
   saved: string
@@ -17,7 +17,7 @@ export type ExternalTextBuffer = {
   error: string | null
 }
 
-export type ExternalImageBuffer = {
+type ExternalImageBuffer = {
   kind: 'image'
   dataUrl: string | null
   loading: boolean
@@ -31,7 +31,7 @@ export type ExternalFileLoaderApi = {
   readImageDataUrl(path: string): Promise<string>
 }
 
-export function classifyExternalFile(path: string, name: string): ExternalFileKind {
+function classifyExternalFile(path: string, name: string): ExternalFileKind {
   return isImageFile(path || name) ? 'image' : 'text'
 }
 

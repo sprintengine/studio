@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 
-export type Camera = { x: number; y: number; zoom: number }
+type Camera = { x: number; y: number; zoom: number }
 
 export type MemoryGraphCanvasHandle = {
   zoomBy: (factor: number) => void
@@ -9,12 +9,12 @@ export type MemoryGraphCanvasHandle = {
   getCamera: () => Camera
 }
 
-export type ActivityPulse = {
+type ActivityPulse = {
   nodeId: string
   startedAt: number
 }
 
-export type ActivitySpark = {
+type ActivitySpark = {
   src: string
   dst: string
   startedAt: number
@@ -67,7 +67,7 @@ type Star = {
 // bucket names the graph knows by name — a vault's own folder and frontmatter
 // vocabulary is open-ended, so anything outside this map gets a stable
 // generated hue instead (colorForBucket).
-export const TYPE_COLORS: Record<string, string> = {
+const TYPE_COLORS: Record<string, string> = {
   concept: '#00e5ff',
   service: '#b388ff',
   flow: '#ffab40',
@@ -80,7 +80,7 @@ export const TYPE_COLORS: Record<string, string> = {
   default: '#94a3b8',
 }
 
-export function colorForNode(node: MemoryGraphNode): string {
+function colorForNode(node: MemoryGraphNode): string {
   return colorForBucket(bucketForNode(node))
 }
 

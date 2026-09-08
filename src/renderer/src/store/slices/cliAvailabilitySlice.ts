@@ -23,7 +23,7 @@ export interface CliAvailabilitySliceState {
   cliAvailabilityCheckedAt: number | null
 }
 
-export interface RefreshCliAvailabilityOptions {
+interface RefreshCliAvailabilityOptions {
   // Background re-sync (window focus): don't flip to `loading` and don't wipe a
   // working map on a transient failure, mirroring refreshPluginCatalog.
   background?: boolean
@@ -35,7 +35,7 @@ export interface RefreshCliAvailabilityOptions {
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
 }
 
-export interface CliAvailabilitySliceActions {
+interface CliAvailabilitySliceActions {
   refreshCliAvailability: (options?: RefreshCliAvailabilityOptions) => Promise<void>
 }
 

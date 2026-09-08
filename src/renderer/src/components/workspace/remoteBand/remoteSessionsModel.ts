@@ -39,12 +39,12 @@ export type RemoteBrowseEntry = {
  * for idle — and invents no dot of its own). `paused` is the one state a
  * local row has no word for: suspended to reclaim memory, resumes on open.
  */
-export type RemoteRowActivity = 'working' | 'needs-input' | 'idle' | 'paused'
+type RemoteRowActivity = 'working' | 'needs-input' | 'idle' | 'paused'
 
 /** The hook phases that mean a turn is in flight. Anything else alive is idle. */
 const WORKING_PHASES = new Set(['starting', 'thinking', 'tool_use', 'working'])
 
-export function remoteRowActivity(terminal: Pick<FleetTerminal, 'suspended' | 'phase'>): RemoteRowActivity {
+function remoteRowActivity(terminal: Pick<FleetTerminal, 'suspended' | 'phase'>): RemoteRowActivity {
   if (terminal.suspended) return 'paused'
   if (terminal.phase === 'awaiting_input') return 'needs-input'
   if (terminal.phase && WORKING_PHASES.has(terminal.phase)) return 'working'
@@ -132,7 +132,7 @@ export type RemoteSessionOpenSpec = {
 }
 
 /** The remote sessions a workspace's layout holds panes on, read off the fleet-terminal tabs. */
-export function fleetPaneSessionsOf(workspace: Workspace): Array<{ connectionId: string; remoteSessionId: string }> {
+function fleetPaneSessionsOf(workspace: Workspace): Array<{ connectionId: string; remoteSessionId: string }> {
   const panes: Array<{ connectionId: string; remoteSessionId: string }> = []
   const walk = (node: unknown): void => {
     if (!node || typeof node !== 'object') return
@@ -194,11 +194,11 @@ export function shouldBrowse(reach: FleetMachineReachability | undefined): boole
  * is not a conversation (owner ruling 2026-09-05): the band lists the agents
  * a person can read and talk to, not every pty the other machine holds.
  */
-export function isRemoteSessionRow(terminal: FleetTerminal): boolean {
+function isRemoteSessionRow(terminal: FleetTerminal): boolean {
   return terminal.kind === 'agent' && (terminal.processAlive || terminal.suspended)
 }
 
-export function remoteSessionRowOf(
+function remoteSessionRowOf(
   connection: FleetConnection,
   terminal: FleetTerminal,
   browse: FleetBrowse,

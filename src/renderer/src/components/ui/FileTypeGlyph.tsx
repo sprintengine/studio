@@ -536,7 +536,7 @@ const BODY: Record<FileTypeKind, () => JSX.Element> = {
  * the kind's identity hue from the `--sem-color-mark-*` ramp — for the File
  * Explorer, where nothing else in the row is coloured.
  */
-export type FileTypeGlyphTone = 'ink' | 'kind'
+type FileTypeGlyphTone = 'ink' | 'kind'
 
 // Kind → identity hue. The pairings are the ones people already know from
 // their editors: TypeScript blue, JavaScript yellow, Python blue, HTML orange,
@@ -572,11 +572,6 @@ const KIND_INK: Record<FileTypeKind, string | null> = {
   config: null,
   text: null,
   generic: null,
-}
-
-/** The identity-hue utility a kind wears under `tone="kind"`, or null when it keeps the row's ink. */
-export function fileTypeKindInk(kind: FileTypeKind): string | null {
-  return KIND_INK[kind]
 }
 
 type FileTypeGlyphProps = {

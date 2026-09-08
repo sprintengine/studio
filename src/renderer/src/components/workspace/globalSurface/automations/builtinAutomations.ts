@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type {
-  AutomationsInstanceEntry,
-} from '../../../../../../shared/automations/contracts'
+import type { AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
 import {
   AUTOMATION_DEFAULT_PERMISSION_PRESET,
   type AutomationCliPermissionPreset,
@@ -150,7 +148,7 @@ export function builtinFacts(
 }
 
 /** Absent ⇒ true, the same answer the store's read gives (AutomationDefinition). */
-export function builtinRunsInWorktree(entry: BuiltinAutomation): boolean {
+function builtinRunsInWorktree(entry: BuiltinAutomation): boolean {
   return entry.runInWorktree !== false
 }
 
@@ -214,7 +212,7 @@ export function useBuiltinAutomations(): BuiltinAutomationsState {
   return state
 }
 
-export type BuiltinAddState =
+type BuiltinAddState =
   | { status: 'idle' }
   | { status: 'adding'; builtinId: string }
   | { status: 'error'; message: string }

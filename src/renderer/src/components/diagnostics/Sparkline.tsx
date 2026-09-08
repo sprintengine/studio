@@ -6,7 +6,7 @@ import React from 'react'
 // where the panel otherwise shows only the latest value plus a single growth
 // slope. Pure presentational; the caller owns the data and colour (via
 // `currentColor`).
-export function buildSparklinePoints(values: readonly number[], width: number, height: number): string {
+function buildSparklinePoints(values: readonly number[], width: number, height: number): string {
   if (values.length < 2) return ''
   let min = values[0]
   let max = values[0]

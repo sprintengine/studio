@@ -1,5 +1,4 @@
 import type { FleetLiveAttachment, FleetLinkState, FleetMachineReachability } from '../../../../shared/tailnet-fleet'
-import type { StatusTone } from '../ui/tokens'
 import { since } from './peerPickerModel'
 
 // A paired machine's row, wherever one is drawn (the Remote popover, the
@@ -40,19 +39,6 @@ export function fleetMachinePhase(
   if (reach.checkedAt === null) return { phase: 'paired' }
   if (reach.reachable) return { phase: 'reachable', checkedAt: reach.checkedAt }
   return { phase: 'unreachable', detail: reach.detail ?? 'Not answering.', lastReachedAt: reach.lastReachedAt }
-}
-
-/** The status dot each machine phase draws, in our tones: good steady, warn with a halo while transitional, error when the peer stopped answering or revoked us, muted otherwise. */
-export const MACHINE_PHASE_DOT: Record<FleetMachinePhase['phase'], { tone: StatusTone; pulse: boolean; label: string }> = {
-  connected: { tone: 'good', pulse: false, label: 'Connected' },
-  connecting: { tone: 'warn', pulse: true, label: 'Connecting' },
-  reconnecting: { tone: 'warn', pulse: true, label: 'Reconnecting' },
-  offline: { tone: 'error', pulse: false, label: 'Not answering' },
-  paired: { tone: 'neutral', pulse: false, label: 'Paired' },
-  checking: { tone: 'neutral', pulse: true, label: 'Checking' },
-  reachable: { tone: 'good', pulse: false, label: 'Reachable' },
-  unreachable: { tone: 'neutral', pulse: false, label: 'Not answering' },
-  revoked: { tone: 'error', pulse: false, label: 'Revoked there' },
 }
 
 export function machinePhaseText(machineName: string, phase: FleetMachinePhase, now: number): string {

@@ -126,7 +126,7 @@ function cloneRoleCounts(roleCounts: SprintEngineRoleCounts): SprintEngineRoleCo
 // reference when nothing changes so it is a no-op inside setState (no render
 // thrash). Lives here rather than in the wizard because the roster editor is
 // its primary consumer; the wizard imports it for the guided-brief defaults.
-export function remapRoleCliDefaultsToAvailable<T extends Record<string, AgentCli | undefined>>(
+function remapRoleCliDefaultsToAvailable<T extends Record<string, AgentCli | undefined>>(
   defaults: T,
   catalog: AgentCliCatalogOption[],
 ): T {

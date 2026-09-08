@@ -13,7 +13,7 @@ import { decodeAutomationTargetRef, type RunTargetRef } from '../../../automatio
 // out of the eager module-registry graph and the notification-action provider
 // can import it directly, the same discipline `revealTarget` follows.
 
-export const AUTOMATION_SURFACE_TARGET_EVENT = 'multicode:automation-surface-target'
+const AUTOMATION_SURFACE_TARGET_EVENT = 'multicode:automation-surface-target'
 
 // What the arriving caller wants to do with the automation it named. `runs` is
 // the historical behaviour (a run notification lands on the run history);

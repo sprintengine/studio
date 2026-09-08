@@ -16,13 +16,13 @@ import { joinWorkspacePath } from './paths'
 import { useStageLiveStatus } from './useStageLiveStatus'
 import { isAgentQuiet, isStageReady, type StageLiveStatus } from './stageReadiness'
 
-export type StrategistSessionReadiness = {
+type StrategistSessionReadiness = {
   markerReceived: boolean
   fileReady: boolean
   isReady: boolean
 }
 
-export type StrategistSessionStatus =
+type StrategistSessionStatus =
   | 'idle'
   | 'starting'
   | 'running'

@@ -9,10 +9,7 @@ import { rendererSprintEngineWorkspaceCreationPort } from '../../../../utils/spr
 // the layout template `OnCreateArgs` carries, which is a window concern.
 import {
   SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
-  SprintEngineNewTeamCreationError,
-  buildSprintEngineContext,
   buildSprintEngineEffectiveSpawnAtStartRoles,
-  buildSprintEngineNewTeamCreation as composeSprintEngineNewTeamCreation,
   clampSprintEngineMaxParallelAgents,
   runSprintEngineNewTeamCreation as composeAndInitSprintEngineNewTeam,
   sprintEngineAutoStateFromRunOptions,
@@ -20,7 +17,6 @@ import {
 } from '../../../../../../shared/sprintengine/new-team-creation'
 import type {
   OnCreateArgs,
-  SprintEngineExistingTeamInput,
   SprintEngineNewTeamInput,
   SprintEngineNewTeamPorts,
   SprintEnginePlanSourcedInput,
@@ -29,13 +25,10 @@ import type {
 
 export {
   SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
-  SprintEngineNewTeamCreationError,
-  buildSprintEngineContext,
   buildSprintEngineEffectiveSpawnAtStartRoles,
-  clampSprintEngineMaxParallelAgents,
 }
 
-export class SprintEnginePlanSourcedError extends Error {
+class SprintEnginePlanSourcedError extends Error {
   constructor(public readonly code:
     | 'missing-folder'
     | 'missing-plan-option'
@@ -50,35 +43,6 @@ export class SprintEnginePlanSourcedError extends Error {
   ) {
     super(code)
     this.name = 'SprintEnginePlanSourcedError'
-  }
-}
-
-export function buildSprintEngineExistingTeamCreation(
-  input: SprintEngineExistingTeamInput,
-): OnCreateArgs {
-  const { displayName, state, context } = input.existingTeam
-  const loadedState = { ...state, name: displayName }
-  const template = createSprintEngineTemplate({
-    name: loadedState.name,
-    goal: loadedState.goal,
-    roleCounts: loadedState.roleCounts,
-  })
-  return {
-    template,
-    name: loadedState.name,
-    folderPath: input.folderPath,
-    sprintEngineState: loadedState,
-    sprintEngineContext: context,
-    sprintEngineRoleCliDefaults: input.roleCliDefaults,
-    sprintEngineAgentCliOverrides: input.agentCliOverrides,
-    sprintEngineRoleModelOverrides: input.roleModelOverrides ?? null,
-    sprintEngineInitialSpawnRoles: input.initialSpawnRoles ?? null,
-    sprintEngineAutoState: {
-      ...sprintEngineAutoStateFromRunOptions(input),
-      cliPermissionPreset: input.cliPermissionPreset,
-      // MC-1450: the ceiling is a user knob, never derived from roster size.
-      maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
-    },
   }
 }
 
@@ -100,10 +64,6 @@ function toOnCreateArgs(created: SprintEngineNewTeamCreation): OnCreateArgs {
     sprintEngineInitialSpawnRoles: created.initialSpawnRoles,
     sprintEngineAutoState: created.sprintEngineAutoState,
   }
-}
-
-export function buildSprintEngineNewTeamCreation(input: SprintEngineNewTeamInput): OnCreateArgs {
-  return toOnCreateArgs(composeSprintEngineNewTeamCreation(input))
 }
 
 export async function runSprintEngineNewTeamCreation(

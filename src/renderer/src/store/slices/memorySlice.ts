@@ -59,9 +59,9 @@ export function normalizeProjectKnowledgeRoots(
   return normalized
 }
 
-export interface MemorySliceState {}
+interface MemorySliceState {}
 
-export interface MemorySliceActions {
+interface MemorySliceActions {
   setWorkspaceMemoryRelativeRoot: (workspaceId: WorkspaceId, relativeRoot: string | null) => void
   updateMemoryGraphSettings: (
     workspaceId: WorkspaceId,

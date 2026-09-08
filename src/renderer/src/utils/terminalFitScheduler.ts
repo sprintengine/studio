@@ -33,7 +33,7 @@ export const WORKSPACE_LAYER_REVEAL_EVENT = 'multicode:workspace-layer-revealed'
 export const RESIZE_FIT_THROTTLE_MS = 100
 // A window resize is considered settled after this long without a resize
 // event; parked fits then run once at the final size.
-export const WINDOW_RESIZE_SETTLE_MS = 150
+const WINDOW_RESIZE_SETTLE_MS = 150
 
 type ResizeSettleListener = () => void
 

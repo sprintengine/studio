@@ -14,7 +14,7 @@ import type {
 } from '../types/workspace'
 import { sprintEngineRoleKey } from './sprintengine'
 
-export const feedbackScoreLabels: Array<{ key: keyof SprintEngineTaskFeedback['scores']; label: string }> = [
+const feedbackScoreLabels: Array<{ key: keyof SprintEngineTaskFeedback['scores']; label: string }> = [
   { key: 'directiveClarityPct', label: 'Directive clarity' },
   { key: 'taskClarityPct', label: 'Task clarity' },
   { key: 'acceptanceCriteriaClarityPct', label: 'Acceptance clarity' },
@@ -45,14 +45,6 @@ export const feedbackIssueSeverityLabels: Record<SprintEngineTaskFeedbackIssue['
   low: 'Low',
   medium: 'Medium',
   high: 'High',
-}
-
-export const feedbackIssueStatusLabels: Record<NonNullable<SprintEngineTaskFeedbackIssue['status']>, string> = {
-  new: 'New',
-  reviewed: 'Reviewed',
-  applied: 'Applied',
-  rejected: 'Rejected',
-  deferred: 'Deferred',
 }
 
 export const feedbackFindingKindLabels: Record<SprintEngineTaskFeedbackFinding['kind'], string> = {
@@ -90,14 +82,6 @@ export const feedbackFindingAreaLabels: Record<SprintEngineTaskFeedbackFinding['
   docs: 'Docs',
   product: 'Product',
   other: 'Other',
-}
-
-export const feedbackFindingStatusLabels: Record<NonNullable<SprintEngineTaskFeedbackFinding['status']>, string> = {
-  open: 'Open',
-  accepted: 'Accepted',
-  fixed: 'Fixed',
-  rejected: 'Rejected',
-  deferred: 'Deferred',
 }
 
 export type SprintEngineRunSummary = {
@@ -380,7 +364,7 @@ export function computeRunDurationMs(state: SprintEngineState): number | null {
   return duration > 0 ? duration : null
 }
 
-export type SprintEngineBurnupPoint = { atMs: number; done: number }
+type SprintEngineBurnupPoint = { atMs: number; done: number }
 export type SprintEngineBurnup = {
   points: SprintEngineBurnupPoint[]
   startMs: number
@@ -469,7 +453,7 @@ export function monotoneCubicPath(points: Array<[number, number]>): string {
 }
 
 // One contiguous stretch of an agent holding a task, on the run's wall clock.
-export type SprintEngineActivitySegment = {
+type SprintEngineActivitySegment = {
   taskId: string
   startMs: number
   endMs: number
@@ -478,7 +462,7 @@ export type SprintEngineActivitySegment = {
 }
 
 // One agent's lane in the activity timeline.
-export type SprintEngineAgentActivityRow = {
+type SprintEngineAgentActivityRow = {
   agentId: string
   role?: SprintEngineRoleId
   segments: SprintEngineActivitySegment[]
@@ -877,7 +861,7 @@ export function buildRunReport(
 // Agent-performance dims (confidence, autonomy, hallucination risk) are shown
 // per agent in the breakdown table and deliberately excluded here so the same
 // metric never appears in two places at two aggregation levels.
-export const processHealthDimensions: Array<{
+const processHealthDimensions: Array<{
   key: keyof SprintEngineTaskFeedbackScores
   label: string
 }> = [
@@ -912,7 +896,7 @@ export function buildProcessHealth(tasks: SprintEngineTask[]): SprintEngineProce
 // Human labels for the measured `counts` keys surfaced in the drill-down.
 // `claimsChecked` is intentionally omitted — it is the denominator for the
 // hallucination rate, not a defect to list.
-export const measuredCountLabels: Record<string, string> = {
+const measuredCountLabels: Record<string, string> = {
   implementationMistakes: 'Implementation mistakes',
   missedRequirements: 'Missed requirements',
   regressionCount: 'Regressions',

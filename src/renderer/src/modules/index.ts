@@ -20,7 +20,7 @@ import { createRendererHost, type RendererModule } from './renderer-host'
 // Bundled renderer capability modules. Features migrate onto the host one at a
 // time; this list grows as each renderer surface is extracted from the
 // hardcoded factory switch / panel rail.
-export const BUNDLED_RENDERER_MODULES: RendererModule[] = [
+const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   agentRuntimeRendererModule,
   backlogRendererModule,
   designRendererModule,
@@ -60,7 +60,7 @@ const IS_PRODUCTION_BUILD: boolean = (import.meta as { env?: { PROD?: boolean } 
 // build the full set is active and the modules remain user-toggleable. See
 // src/shared/modules/dev-only.ts.
 
-export const ACTIVE_RENDERER_MODULES: ReadonlyArray<RendererModule> = activeForChannel(
+const ACTIVE_RENDERER_MODULES: ReadonlyArray<RendererModule> = activeForChannel(
   BUNDLED_RENDERER_MODULES,
   (module) => module.manifest.id,
   !IS_PRODUCTION_BUILD
@@ -452,5 +452,3 @@ export function selectModuleEnabled(
 ): boolean {
   return enabledModuleSet(overrides).has(moduleId)
 }
-
-export type { RendererModule } from './renderer-host'

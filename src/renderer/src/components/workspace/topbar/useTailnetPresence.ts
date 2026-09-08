@@ -40,12 +40,12 @@ export type TailnetPresence = {
   fleetRemoteChanges: ReadonlyMap<string, FleetRemoteChange>
 }
 
-export type FleetRemoteChange = { what: 'terminals' | 'workspaces'; revision: number; at: number }
+type FleetRemoteChange = { what: 'terminals' | 'workspaces'; revision: number; at: number }
 
-export const EMPTY_LIVE_STATE: TailnetLiveState = { revision: 0, devices: [] }
+const EMPTY_LIVE_STATE: TailnetLiveState = { revision: 0, devices: [] }
 
 /** The bridge functions presence needs; a host missing any of them gets a quiet, absent glyph. */
-export function hasTailnetPresenceBridge(api: Partial<Window['api']> | undefined): boolean {
+function hasTailnetPresenceBridge(api: Partial<Window['api']> | undefined): boolean {
   return (
     !!api
     && typeof api.onTailnetEvent === 'function'

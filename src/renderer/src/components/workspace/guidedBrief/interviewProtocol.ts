@@ -13,11 +13,11 @@ import { stripAnsiAndOverwrites } from './parseStream'
 // state simply has no current question and the UI falls back to the raw
 // terminal; there is no fabricated card state.
 
-export const GUIDED_QUESTION_BEGIN = 'GUIDED_QUESTION_BEGIN'
-export const GUIDED_QUESTION_END = 'GUIDED_QUESTION_END'
-export const GUIDED_DECISION_PREFIX = 'GUIDED_DECISION:'
+const GUIDED_QUESTION_BEGIN = 'GUIDED_QUESTION_BEGIN'
+const GUIDED_QUESTION_END = 'GUIDED_QUESTION_END'
+const GUIDED_DECISION_PREFIX = 'GUIDED_DECISION:'
 
-export type GuidedInterviewOption = {
+type GuidedInterviewOption = {
   /** Exactly what would be typed into the terminal to choose this option. */
   key: string
   label: string

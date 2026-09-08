@@ -31,7 +31,7 @@ export const DEFAULT_PAIR_SCOPES: TailnetScope[] = PAIR_SCOPE_ROWS.filter((row) 
 )
 
 /** Digits only, at most six: "481 972" read off a screen is the same answer as "481972". */
-export function normalizeTypedCode(value: string): string {
+function normalizeTypedCode(value: string): string {
   return value.replace(/\D/gu, '').slice(0, 6)
 }
 

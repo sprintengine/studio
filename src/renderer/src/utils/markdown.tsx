@@ -10,7 +10,7 @@ import type { GitLineChange } from './gitDiff'
  * surface (the skill reader) renders at `compact`, where the heading scale is
  * the surface's own and body copy stays at its body size.
  */
-export type MarkdownDensity = 'document' | 'compact'
+type MarkdownDensity = 'document' | 'compact'
 
 /**
  * What a link that is not a web URL points at. A renderer that owns a local
@@ -18,7 +18,7 @@ export type MarkdownDensity = 'document' | 'compact'
  * opens in place, a miss is stated as a miss rather than rendered as if it
  * would work.
  */
-export type MarkdownLinkTarget =
+type MarkdownLinkTarget =
   | { kind: 'file'; path: string }
   | { kind: 'dead'; reason: string }
 

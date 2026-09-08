@@ -27,13 +27,7 @@
  * is one of a surface's views, the surface's id otherwise. Keyed that way so a
  * row's copy cannot drift onto the wrong row: the same string routes the click.
  */
-export type ExtensionsHomeTileId =
-  | 'workflows'
-  | 'sprints'
-  | 'design'
-  | 'plugins'
-  | 'skills'
-  | 'agent-clis'
+
 
 /**
  * The one-line summary under each tile's name. Not in the registry: a module

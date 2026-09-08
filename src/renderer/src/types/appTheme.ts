@@ -16,11 +16,6 @@
 //      code). LIGHT_SURFACE_THEMES below derives itself from the swatches.
 // Nothing else needs to change.
 
-type SelectItem<V extends string = string> = {
-  value: V
-  label: string
-  disabled?: boolean
-}
 
 export type AppTheme =
   | 'system'
@@ -227,7 +222,7 @@ export const APP_THEMES: readonly AppThemeDescriptor[] = [
   },
 ]
 
-export const APP_THEME_IDS: readonly AppTheme[] = APP_THEMES.map((t) => t.id)
+const APP_THEME_IDS: readonly AppTheme[] = APP_THEMES.map((t) => t.id)
 
 export type ColorScheme = 'light' | 'dark'
 
@@ -271,10 +266,6 @@ export const LIGHT_SURFACE_THEMES: readonly ResolvedAppTheme[] = APP_THEMES.flat
   t.resolved && colorSchemeForResolvedTheme(t.resolved) === 'light' ? [t.resolved] : [],
 )
 
-export const APP_THEME_SELECT_ITEMS: SelectItem<AppTheme>[] = APP_THEMES.map(
-  (t) => ({ value: t.id, label: t.label }),
-)
-
 export function isAppTheme(value: unknown): value is AppTheme {
   return typeof value === 'string' && (APP_THEME_IDS as readonly string[]).includes(value)
 }
@@ -283,7 +274,7 @@ export function isAppTheme(value: unknown): value is AppTheme {
 // 'glass' frosts the window canvas (sidebar, title strip, aside column) with
 // OS-native vibrancy under the active theme's tint; macOS-only, opt-in. The
 // picker is hidden on other platforms and main ignores 'glass' there.
-export const WINDOW_MATERIALS = ['solid', 'glass'] as const
+const WINDOW_MATERIALS = ['solid', 'glass'] as const
 export type WindowMaterial = (typeof WINDOW_MATERIALS)[number]
 
 export function isWindowMaterial(value: unknown): value is WindowMaterial {

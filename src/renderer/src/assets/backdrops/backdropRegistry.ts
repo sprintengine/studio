@@ -8,7 +8,7 @@
 // files on disk against APP_THEMES), not at runtime — and `backdropFor` returns
 // null rather than throwing, so a panel renders without art instead of crashing.
 
-import { APP_THEMES, type ResolvedAppTheme } from "../../types/appTheme";
+import { type ResolvedAppTheme } from "../../types/appTheme";
 
 // Which creation surface a plate frames. The two plates per theme share one
 // palette and differ only in medium: the workspace plate is structured
@@ -45,13 +45,6 @@ try {
   standardAssets = {};
   fourKAssets = {};
 }
-
-// The concrete themes <html data-theme="…"> can carry. `system` is excluded —
-// callers resolve it to the active light/dark theme (resolveTheme) before lookup,
-// which is why it has no plates of its own.
-export const RESOLVED_THEMES: readonly ResolvedAppTheme[] = APP_THEMES.map(
-  (theme) => theme.resolved,
-).filter((resolved): resolved is ResolvedAppTheme => resolved !== null);
 
 // Resolved-theme + surface → responsive plate URLs, or null when no standard
 // plate exists for that pair (the caller renders nothing). The 4K URL falls back

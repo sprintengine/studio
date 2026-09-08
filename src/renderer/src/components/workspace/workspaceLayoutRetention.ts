@@ -22,14 +22,14 @@ export const WORKSPACE_LAYOUT_WARM_HIDDEN_LIMIT = 3
 
 export type WorkspaceLayoutRetentionReason = 'active' | 'busy' | 'recent-inactive'
 
-export type WorkspaceLayoutRetentionDecision = {
+type WorkspaceLayoutRetentionDecision = {
   workspaceId: string
   reason: WorkspaceLayoutRetentionReason
   busy: boolean
   lastFocusedAt: number
 }
 
-export type WorkspaceLayoutEvictionDecision = {
+type WorkspaceLayoutEvictionDecision = {
   workspaceId: string
   reason: 'not-visible' | 'inactive-limit' | 'busy-limit' | 'expired'
   busy: boolean

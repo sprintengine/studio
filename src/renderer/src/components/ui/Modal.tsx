@@ -244,11 +244,3 @@ export function ModalButton({ variant = 'ghost', className, ...rest }: ModalButt
   // roomiest control rather than the dense-chrome default.
   return <Component {...rest} size="md" className={className} />
 }
-
-export function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-micro font-medium text-[color:var(--text-default)]">
-      {children}
-    </div>
-  )
-}

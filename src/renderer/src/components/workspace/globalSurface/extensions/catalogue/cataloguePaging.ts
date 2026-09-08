@@ -15,7 +15,7 @@
 export type CatalogueGroup = { key: string; label: string; count: number }
 
 /** One group's share of a page: a half-open slice of that group's own rows. */
-export type CataloguePageGroup = {
+type CataloguePageGroup = {
   key: string
   label: string
   /** Rows in the whole group, which is what its heading states. */
@@ -61,7 +61,7 @@ export function clampCataloguePage(page: number, pageCount: number): number {
   return Math.min(Math.max(floor, 1), pageCount)
 }
 
-export function catalogueTotal(groups: readonly CatalogueGroup[]): number {
+function catalogueTotal(groups: readonly CatalogueGroup[]): number {
   return groups.reduce((sum, group) => sum + Math.max(0, group.count), 0)
 }
 

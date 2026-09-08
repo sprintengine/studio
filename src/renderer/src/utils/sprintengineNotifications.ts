@@ -18,7 +18,7 @@ import {
   sprintEngineAutomationModeLabel,
 } from '../../../shared/sprintengine/automation-types'
 
-export function isSprintEngineAutomationNotification(notification: AppNotification): boolean {
+function isSprintEngineAutomationNotification(notification: AppNotification): boolean {
   return notification.source === 'sprintengine'
     && notification.title === SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE
 }

@@ -16,7 +16,7 @@ import type { SessionUser } from '../../../../shared/electron-api'
 // caller passes size, type, and colour — those differ per surface (tier tone
 // in the footer, neutral chrome in Settings).
 
-export function accountInitials(user: SessionUser | null): string {
+function accountInitials(user: SessionUser | null): string {
   const source = user?.displayName?.trim() || user?.email?.trim() || ''
   if (!source) return '?'
   const words = source.split(/\s+/).filter(Boolean)

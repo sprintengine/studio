@@ -2,11 +2,11 @@
 // `longtask` PerformanceObserver entry type. These are the stalls operators feel
 // as jank (the 700ms replay write we chased lives here). The store is a bounded
 // ring; the summarizer is pure so it unit-tests without a browser.
-export const LONG_TASK_HISTORY_LIMIT = 300
+const LONG_TASK_HISTORY_LIMIT = 300
 
 // PerformanceObserver only surfaces tasks at/over this threshold; mirrored here
 // for the blocking-time calculation (time over the 50ms budget).
-export const LONG_TASK_THRESHOLD_MS = 50
+const LONG_TASK_THRESHOLD_MS = 50
 
 export type LongTaskSample = {
   // Task duration in ms as reported by the longtask entry.
@@ -31,7 +31,7 @@ const samples: LongTaskSample[] = []
 const listeners = new Set<() => void>()
 let observer: { disconnect(): void } | null = null
 
-export function recordLongTask(durationMs: number, recordedAt = Date.now()): void {
+function recordLongTask(durationMs: number, recordedAt = Date.now()): void {
   samples.push({ durationMs, recordedAt })
   if (samples.length > LONG_TASK_HISTORY_LIMIT) {
     samples.splice(0, samples.length - LONG_TASK_HISTORY_LIMIT)
@@ -41,13 +41,6 @@ export function recordLongTask(durationMs: number, recordedAt = Date.now()): voi
 
 export function getLongTaskSamples(): LongTaskSample[] {
   return [...samples]
-}
-
-export function subscribeLongTasks(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
 }
 
 // Starts the longtask PerformanceObserver once. Browser-only and best-effort:

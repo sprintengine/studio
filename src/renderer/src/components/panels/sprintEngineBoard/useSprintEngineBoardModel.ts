@@ -25,7 +25,7 @@ import type {
   SprintEngineTaskBoardColumn,
 } from '../../../types/workspace'
 
-export type SprintEngineBoardColumn = {
+type SprintEngineBoardColumn = {
   key: SprintEngineTaskBoardColumn
   label: string
   cards: SprintEngineTask[]

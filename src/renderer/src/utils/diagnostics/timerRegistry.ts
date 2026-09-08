@@ -60,13 +60,6 @@ export function getTimerRegistrations(): TimerRegistration[] {
   return [...timers.values()]
 }
 
-export function subscribeTimers(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
-}
-
 // Collapses raw registrations into display rows (avg cost per tick), sorted by
 // avg cost so the most expensive loop floats to the top.
 export function summarizeTimers(input: readonly TimerRegistration[]): TimerRegistrationRow[] {

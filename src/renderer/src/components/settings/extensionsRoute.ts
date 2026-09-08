@@ -15,7 +15,7 @@ export const EXTENSIONS_BROWSE_DEEPLINK = 'extensions:browse'
 // is the only concept now — but deep links carrying that value are still on
 // disk in older installs and in saved learn-centre actions, and they must land
 // somewhere real rather than on nothing.
-export const CONNECTORS_FOLDED_SETTINGS_TABS = ['mcps', 'skill-packs', 'extensions'] as const
+const CONNECTORS_FOLDED_SETTINGS_TABS = ['mcps', 'skill-packs', 'extensions'] as const
 
 // The folded tab that asked for skills. It routes to the Skills rail row rather
 // than the marketplace grid the other two land on: the packs it named are gone,

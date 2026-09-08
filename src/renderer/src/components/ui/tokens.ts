@@ -243,7 +243,7 @@ export const COMPOSER_SURFACE_CLASS =
  * system tokenises is the shape and the elevation, which is what
  * OVERLAY_SHELL_CLASS below spends.
  */
-export const OVERLAY_WIDTH_PX = {
+const OVERLAY_WIDTH_PX = {
   /** A question with two buttons. It should read in one line. */
   confirm: 460,
   /** The default: a short form, a list of options, a prompt. */

@@ -31,7 +31,7 @@ export type InlineNoticeProps = {
   tone: InlineNoticeTone
   /**
    * Structured "error card" content (preferred for failures). Feed it from
-   * `presentError()` or a domain adapter like `presentTrackerError()`: a plain
+   * a domain adapter like `presentTrackerError()`: a plain
    * sentence (`title`) + what-it-means (`hint`), with any raw technical string
    * (`detail`) tucked behind a "Show details" disclosure — never inline.
    */
@@ -147,7 +147,7 @@ export function InlineNotice({ tone, title, hint, detail, children, action, clas
  * So this is a dispatcher, not a sixth dialect. A failure or a degraded state
  * renders as the notice it is; anything else renders as the copy it is.
  */
-export type ActionResultTone = 'info' | 'warn' | 'error'
+type ActionResultTone = 'info' | 'warn' | 'error'
 export type ActionResult = { tone: ActionResultTone; text: string }
 
 export function ActionResultMessage({

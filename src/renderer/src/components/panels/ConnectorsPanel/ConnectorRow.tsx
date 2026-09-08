@@ -31,7 +31,7 @@ export function ConnectorSectionHeading({ label, count }: { label: string; count
 // Small neutral text chip ("MCP server", "Skill pack", "Bundled", "http", …):
 // the kit's label badge, decorative because the row's name and summary already
 // say what it is.
-export function ConnectorChip({ label }: { label: string }) {
+function ConnectorChip({ label }: { label: string }) {
   return (
     <Badge decorative className="shrink-0">
       {label}

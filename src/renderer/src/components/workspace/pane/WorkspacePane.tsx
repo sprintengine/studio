@@ -71,7 +71,7 @@ type WorkspacePaneProps = {
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
-export function paneTabLabel(tab: WorkspacePaneTab): string {
+function paneTabLabel(tab: WorkspacePaneTab): string {
   if (tab.kind === 'browser') return browserTabLabel(tab.url, tab.title)
   return tab.title?.trim() || paneKindDefinition(tab.kind).label
 }

@@ -80,7 +80,7 @@ export function getTerminalTheme(): ITheme {
 // Companion to getTerminalTheme: the contrast floor for the current surface.
 // Set alongside the theme so 256-color / truecolor output stays legible on
 // light backgrounds (see LIGHT_TERMINAL_MIN_CONTRAST).
-export function getTerminalMinimumContrastRatio(): number {
+function getTerminalMinimumContrastRatio(): number {
   const background = readVar('--terminal-bg', readVar('--bg-app', '#08090b'))
   return isLightBackground(background) ? LIGHT_TERMINAL_MIN_CONTRAST : DEFAULT_MIN_CONTRAST
 }

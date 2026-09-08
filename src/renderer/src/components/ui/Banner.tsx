@@ -3,7 +3,7 @@ import { GhostButton } from './Buttons'
 import { StatusDot } from './StatusDot'
 import { TruncatedText } from './TruncatedText'
 
-export type BannerTone = 'error' | 'warn'
+type BannerTone = 'error' | 'warn'
 
 export type BannerProps = {
   tone: BannerTone

@@ -26,7 +26,7 @@ function MicIcon({ className }: { className?: string }) {
   )
 }
 
-export function VoiceDictationTopBarItem() {
+function VoiceDictationTopBarItem() {
   const { recording, transcribing } = React.useSyncExternalStore(
     voiceDictationController.subscribe,
     voiceDictationController.getSnapshot,

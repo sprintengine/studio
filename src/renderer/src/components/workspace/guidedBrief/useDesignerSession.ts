@@ -69,7 +69,7 @@ export function nextDesignerStageForReadiness(
   return prev
 }
 
-export type DesignerSessionReadiness = {
+type DesignerSessionReadiness = {
   markerReceived: boolean
   mockupsAvailable: boolean
   uiDirectionReady: boolean
@@ -83,7 +83,7 @@ export type DesignerSessionReadiness = {
   designSystemValidation: DesignSystemValidationState
 }
 
-export type DesignerSessionStatus =
+type DesignerSessionStatus =
   | 'idle'
   | 'starting'
   | 'running'

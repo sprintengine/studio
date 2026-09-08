@@ -23,7 +23,7 @@ import { FOCUS_RING_CLASS } from './tokens'
  * inline row actions, and 26px cannot hold a text cursor plus its inset without
  * the ink touching the border.
  */
-export type InputSize = 'sm' | 'md'
+type InputSize = 'sm' | 'md'
 
 /**
  * The two grounds a field is drawn on, and there is no third.
@@ -38,7 +38,7 @@ export type InputSize = 'sm' | 'md'
  * away from. This is the recipe that used to live twice, under one name, in two
  * settings modules with two different grounds.
  */
-export type InputVariant = 'default' | 'well'
+type InputVariant = 'default' | 'well'
 
 const SIZE: Record<InputSize, string> = {
   sm: 'h-control-sm px-2',

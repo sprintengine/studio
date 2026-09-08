@@ -22,7 +22,6 @@ import {
 import type { AgentCli } from '../../types/workspace'
 
 export type { CliRuntimeOption } from './cliRuntimeCatalog'
-export { meaningfulModelId } from './cliRuntimeCatalog'
 import { isRecentRelease } from '../../../../shared/hosted-model-feed'
 
 // The model popover: a provider rail down the left, search over a flat list of

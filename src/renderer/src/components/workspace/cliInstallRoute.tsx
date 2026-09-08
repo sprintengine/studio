@@ -29,14 +29,14 @@ import { buildAgentCliCatalog, installableCliSummary } from './newWorkspace/cliR
 // its own.
 export const AGENTS_SETTINGS_TAB = 'agents'
 
-export function useOpenCliInstall(): () => void {
+function useOpenCliInstall(): () => void {
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   return useCallback(() => {
     openSettingsOverlay({ initialTab: AGENTS_SETTINGS_TAB })
   }, [openSettingsOverlay])
 }
 
-export function useInstallableCliSummary(): string {
+function useInstallableCliSummary(): string {
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   return useMemo(
     // The unfiltered registry catalog: what can be installed, not what is.
@@ -55,7 +55,7 @@ function ChevronRightIcon({ className }: { className?: string }) {
   )
 }
 
-export function CliInstallIcon({ className }: { className?: string }) {
+function CliInstallIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path

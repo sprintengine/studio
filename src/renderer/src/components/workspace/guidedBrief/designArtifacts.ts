@@ -16,7 +16,7 @@ export type DesignArtifactKind =
   | 'notes'
   | 'inspiration'
 
-export type DesignArtifactGroupId =
+type DesignArtifactGroupId =
   | 'pages'
   | 'stylesheets'
   | 'scripts'
@@ -40,7 +40,7 @@ export type DesignArtifactEntry = {
   modifiedAtMs?: number | null
 }
 
-export type DesignArtifactGroup = {
+type DesignArtifactGroup = {
   id: DesignArtifactGroupId
   label: string
   entries: DesignArtifactEntry[]
@@ -128,7 +128,7 @@ export function designArtifactRootsForPreset(preset: GuidedBriefPreset): DesignA
 
 export const SCAFFOLD_BASELINE_RELATIVE_PATH = '.guided-brief/scaffold-baseline.json'
 
-export type ScaffoldBaselineFile = {
+type ScaffoldBaselineFile = {
   mtimeMs: number
   size: number
 }
@@ -228,25 +228,6 @@ export async function buildScaffoldBaseline(
   return { version: 1, files }
 }
 
-/**
- * Write the baseline manifest under `.guided-brief/` (app metadata, beside the
- * inspiration drop dir) so it never ships inside run artifacts.
- */
-export async function writeScaffoldBaseline(
-  workspaceRoot: string,
-  baseline: ScaffoldBaseline,
-  filesystem: {
-    ensureDir: (parent: string, name: string) => Promise<string>
-    writeFile: (path: string, content: string) => Promise<void>
-  },
-): Promise<void> {
-  await filesystem.ensureDir(workspaceRoot, '.guided-brief')
-  await filesystem.writeFile(
-    joinWorkspacePath(workspaceRoot, SCAFFOLD_BASELINE_RELATIVE_PATH),
-    serializeScaffoldBaseline(baseline),
-  )
-}
-
 // Recursion is shallow-bounded so a runaway tree can't lock the renderer —
 // matches the existing mockup walker in useDesignerSession.
 const MAX_DEPTH = 4
@@ -296,7 +277,7 @@ export function classifyMockupFile(
  * sources (`scripts/*.mjs`) stay unclassified — they are plumbing, not design
  * artifacts.
  */
-export function classifyDesignSystemBundleFile(name: string): DesignArtifactKind | null {
+function classifyDesignSystemBundleFile(name: string): DesignArtifactKind | null {
   const extension = extensionOf(name)
   if (extension === 'md' || extension === 'markdown') return 'notes'
   return EXTENSION_KIND[extension] ?? null

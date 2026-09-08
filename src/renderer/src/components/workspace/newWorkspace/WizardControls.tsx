@@ -49,7 +49,7 @@ export const cliPermissionOptions: Array<{
   },
 ]
 
-export function CliPermissionPresetRow({
+function CliPermissionPresetRow({
   preset,
   onChange,
 }: {
@@ -86,7 +86,7 @@ export function CliPermissionPresetRow({
   )
 }
 
-export function PathRadio({
+function PathRadio({
   checked,
   label,
   hint,

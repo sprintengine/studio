@@ -23,9 +23,9 @@ import {
 export type { AgentComposerConfirm, AgentComposerConnector, AgentComposerSelection } from './useAgentComposer'
 
 // One choosable project scope: a folder some open workspace lives in.
-export type ComposerProjectOption = { path: string; label: string }
+type ComposerProjectOption = { path: string; label: string }
 
-export type AgentComposerProps = {
+type AgentComposerProps = {
   // Where the chat will be created — shown in the panel header as a scoping
   // chip that doubles as a project picker: the open projects plus Browse for a
   // folder Multicode doesn't know yet. The host owns the folder state.

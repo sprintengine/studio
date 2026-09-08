@@ -63,14 +63,14 @@ export type BacklogDoorMutationApi = {
   showItemInFolder(path: string): Promise<void>
 }
 
-export type ConfirmDialog = (opts: {
+type ConfirmDialog = (opts: {
   title: string
   body?: string
   confirmLabel?: string
   tone?: 'danger' | 'default'
 }) => Promise<boolean>
 
-export type PromptDialog = (opts: {
+type PromptDialog = (opts: {
   title: string
   // Required by the shared prompt dialog: an input without a label is not an
   // accessible control, so every caller names its field.

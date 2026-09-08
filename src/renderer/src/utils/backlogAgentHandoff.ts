@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 // A readable item title from a `backlog/...` path, for the agent-side glyph
 // tooltip when the caller has no scanned title (the drag-drop path). Strips the
 // directory, the `.md`/`.html` extension, and a leading ISO date prefix.
-export function backlogTitleFromRelativePath(relativePath: string): string {
+function backlogTitleFromRelativePath(relativePath: string): string {
   const name = basename(relativePath)
     .replace(/\.(md|html?)$/i, '')
     .replace(/^\d{4}-\d{2}-\d{2}-/, '')

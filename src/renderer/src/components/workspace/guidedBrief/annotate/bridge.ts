@@ -37,10 +37,10 @@ export type FrameRect = AnnotationRect
 type ChannelTag = { channel: typeof ANNOTATE_MESSAGE_CHANNEL }
 
 /** Picker is installed and listening. */
-export type AnnotateReadyMessage = ChannelTag & { type: 'ready' }
+type AnnotateReadyMessage = ChannelTag & { type: 'ready' }
 
 /** Pointer is over an element — drives the hover chip mirror on the parent. */
-export type AnnotateHoverMessage = ChannelTag & {
+type AnnotateHoverMessage = ChannelTag & {
   type: 'hover'
   selector: string
   tagName: string
@@ -49,7 +49,7 @@ export type AnnotateHoverMessage = ChannelTag & {
 }
 
 /** Pointer left the document; clear the hover mirror. */
-export type AnnotateHoverEndMessage = ChannelTag & { type: 'hover-end' }
+type AnnotateHoverEndMessage = ChannelTag & { type: 'hover-end' }
 
 /** An element was clicked — the anchor for a new annotation. */
 export type AnnotateSelectMessage = ChannelTag & {
@@ -62,13 +62,13 @@ export type AnnotateSelectMessage = ChannelTag & {
 }
 
 /** Frame document scrolled — the parent re-projects pins with the new offset. */
-export type AnnotateScrollMessage = ChannelTag & { type: 'scroll'; scrollOffset: ScrollOffset }
+type AnnotateScrollMessage = ChannelTag & { type: 'scroll'; scrollOffset: ScrollOffset }
 
 /** One located anchor: current page-coord rect, or null when the selector no longer matches (unanchored). */
-export type AnnotateAnchor = { selector: string; rect: AnnotationRect | null }
+type AnnotateAnchor = { selector: string; rect: AnnotationRect | null }
 
 /** Answer to a locate request (also re-sent after in-frame resizes): page-coord rects per selector. */
-export type AnnotateAnchorsMessage = ChannelTag & {
+type AnnotateAnchorsMessage = ChannelTag & {
   type: 'anchors'
   anchors: AnnotateAnchor[]
   scrollOffset: ScrollOffset

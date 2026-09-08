@@ -33,7 +33,7 @@ import {
   stepCataloguePage,
   type CatalogueGroup,
 } from './cataloguePaging'
-import { INSTALLED_TAB_ID, type CatalogueTab } from './catalogueTabs'
+import { type CatalogueTab } from './catalogueTabs'
 
 const TABS_PREFIX = 'extensions-catalogue'
 
@@ -298,5 +298,3 @@ export function CatalogueHead({
     </div>
   )
 }
-
-export { INSTALLED_TAB_ID }

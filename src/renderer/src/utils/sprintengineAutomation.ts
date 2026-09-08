@@ -45,8 +45,3 @@ export function deriveSprintEngineAutomationMode(
 ): SprintEngineAutomationMode {
   return deriveSprintEngineAutomationDesiredMode(autoState)
 }
-
-// The intent -> headless-CLI polling-flag bridge relocated to the shared
-// lifecycle module (MC-1567): the main-process set-mode path is the one writer
-// of the run.yaml hint now, and this re-export keeps renderer imports working.
-export { sprintEngineCliWatchPollingForAutomationMode } from '../../../shared/sprintengine/automation-lifecycle'

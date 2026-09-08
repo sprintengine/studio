@@ -8,7 +8,6 @@
 // before it happens, in the same words the install reports afterwards.
 
 import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
-import type { MarketplacePluginEntry } from '../../../../../../../shared/marketplace/manifest'
 import { pluginNeedsOwnFiles, referencesPluginRoot } from '../../../../../../../shared/mcp/plugin-root'
 import {
   STUDIO_SKILL_SOURCE_ID,
@@ -25,7 +24,7 @@ import {
 } from '../../../../../../../shared/skills'
 import type { SkillScanLoad, SkillSourcesLoad } from '../skills/skillsSurfaceModel'
 
-export const HARNESS_LABEL: Record<SkillHarness, string> = {
+const HARNESS_LABEL: Record<SkillHarness, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   cursor: 'Cursor',
@@ -35,7 +34,7 @@ export const HARNESS_LABEL: Record<SkillHarness, string> = {
   agents: 'Shared agents directory',
 }
 
-export function pluralPlugins(count: number): string {
+function pluralPlugins(count: number): string {
   return `${count} ${count === 1 ? 'plugin' : 'plugins'}`
 }
 
@@ -354,42 +353,4 @@ export function summarizePluginInstall(outcome: {
   }
   const line = parts.length > 0 ? `Installed: ${parts.join('; ')}.` : 'Installed.'
   return outcome.warnings.length > 0 ? `${line} ${outcome.warnings[0]}` : line
-}
-
-// ── The Multicode source ─────────────────────────────────────────────────────
-
-/** A registry entry as a plugin row: what it provides, in the row's words. */
-export function deriveRegistryPluginRows(entries: readonly MarketplacePluginEntry[], query: string): PluginListItem[] {
-  const needle = query.trim().toLowerCase()
-  return entries
-    .filter((entry) =>
-      needle === '' || `${entry.name} ${entry.summary} ${entry.category} ${entry.publisher.name} ${(entry.tags ?? []).join(' ')}`.toLowerCase().includes(needle),
-    )
-    .map((entry) => ({
-      pluginId: entry.id,
-      name: entry.name,
-      description: entry.summary,
-      components: describeRegistryComponents(entry),
-      hasHooks: false,
-      linked: false,
-      // A registry entry is read from the registry itself; there is no
-      // repository behind it that could be unread.
-      unread: null,
-      // Registry installs are recorded by the marketplace lifecycle's own
-      // receipts, which the storefront detail panel reads; the row itself
-      // does not claim a state it cannot see.
-      install: { kind: 'not-installed' },
-    }))
-}
-
-function describeRegistryComponents(entry: MarketplacePluginEntry): string {
-  const parts: string[] = []
-  const skills = entry.skills?.length ?? 0
-  if (skills > 0) parts.push(`${skills} ${skills === 1 ? 'skill' : 'skills'}`)
-  const servers = entry.mcp?.servers.length ?? (entry.provides.includes('mcp') ? 1 : 0)
-  if (servers > 0) parts.push(`${servers} MCP`)
-  if (entry.provides.includes('automation')) parts.push('automation')
-  if (entry.provides.includes('module')) parts.push('module')
-  if (entry.provides.includes('cli')) parts.push('agent CLI')
-  return parts.length > 0 ? parts.join(' · ') : entry.provides.join(' · ')
 }

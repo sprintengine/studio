@@ -16,7 +16,7 @@ import { buildBacklogSelectionSourcePlan } from '../../backlog/backlogSelectionS
 import type { BacklogItem } from '../../../utils/backlog'
 import type { FuturePlanWorkspaceSource } from '../../../types/workspace'
 
-export const EPIC_KEY_PREFIX = 'epic:'
+const EPIC_KEY_PREFIX = 'epic:'
 
 // ── the Planning agent row (MC-2129) ────────────────────────────────────────
 //
@@ -118,13 +118,9 @@ export function isEpicPickKey(key: string): boolean {
   return key.startsWith(EPIC_KEY_PREFIX)
 }
 
-export function pickKeyForItem(item: BacklogItem): string {
-  return item.isEpic ? epicPickKey(epicSlug(item)) : item.relativePath
-}
-
 /** The picked items in launch order: epics lead (the bigger noun names the
  *  run), each cohort in pick order. Keys with no scanned item are dropped. */
-export function orderedPickedItems(
+function orderedPickedItems(
   pickedKeys: ReadonlyArray<string>,
   items: ReadonlyArray<BacklogItem>,
 ): BacklogItem[] {

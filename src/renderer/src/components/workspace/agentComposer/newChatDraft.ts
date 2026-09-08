@@ -28,7 +28,7 @@ export type NewChatDraftImage = ConversationImageAttachment & { path: string }
  * of spawning. It rides here, is applied as the composer's opening engine, and
  * is dropped the moment the person picks a row of their own.
  */
-export type NewChatDraftEngine = { cli: AgentCli; model: string | null; reasoning: string | null }
+type NewChatDraftEngine = { cli: AgentCli; model: string | null; reasoning: string | null }
 
 export type NewChatDraft = {
   /** The project the draft was scoped to; null for "no project picked". */

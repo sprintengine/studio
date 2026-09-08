@@ -23,7 +23,7 @@ export type SprintEngineSeedMode = 'reference' | 'copy'
 // FilePreviewPane, which itself renders markdown vs. a plain-text fallback.
 export type SprintEngineSeedPreviewKind = 'html' | 'file'
 
-export type SprintEngineSeedRole = 'primary' | 'epic-child' | 'supporting'
+type SprintEngineSeedRole = 'primary' | 'epic-child' | 'supporting'
 
 export type SprintEngineSeedRow = {
   /** Stable key for selection + list rendering. */

@@ -9,11 +9,6 @@ import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 // the shell only consumes the derived glyph.
 export type WorkspaceRunGlyph = { state: LifecycleState; live: boolean; label: string }
 
-// Matches the shell's terminal-derived activity vocabulary
-// (workspaceManagerHelpers.WorkspaceActivity) without importing across the
-// utils → components boundary.
-export type WorkspaceActivityKind = 'needs-input' | 'working' | 'failed' | 'idle'
-
 export type WorkspaceRunGlyphProviderInput = Pick<
   Workspace,
   'mode' | 'sprintEngineState' | 'sprintEngineContext' | 'sprintEngineAutoState'

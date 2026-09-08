@@ -13,7 +13,7 @@ import type { Workspace } from '../types/workspace'
 // recorded in (e.g. a persisted Backlog link target), use
 // `findWorkspaceForAgentPreferring` so that workspace disambiguates the hit and
 // the scan is only a fallback for a genuinely-moved (unique-id) agent.
-export function findWorkspaceForAgent<W extends Pick<Workspace, 'id' | 'agents'>>(
+function findWorkspaceForAgent<W extends Pick<Workspace, 'id' | 'agents'>>(
   workspaces: ReadonlyArray<W>,
   agentId: string,
 ): W | null {

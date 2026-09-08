@@ -12,26 +12,6 @@ import {
   type SprintRunIndexSnapshot,
 } from './sprintRunIndexStore'
 
-// The Sprints door's data source (item 1763): every run across every known
-// project, from the run index (T1). Shared by the surface (its rail and canvas)
-// and the sidebar door (its aggregate dot), so the door's signal stays live while
-// the surface is closed and the two never disagree about what is running.
-//
-// Runs are discovered by scanning each known project root's
-// `.multi-code/sprintengine/` tree, so a run whose sprint workspace was closed
-// long ago still lists — the index reads disk, not the workspace rail. Main
-// pushes a change event per run projection write — from its own runtime ops, and
-// from the run index's per-run directory watch for the writes the Python engine
-// makes on its own (MC-1801) — so this refetches on the event rather than
-// polling.
-//
-// The fetching itself lives in `sprintRunIndexStore`: one subscription and one
-// coalesced scan for the whole window, however many components read the index.
-// This hook is the React view of that store — see the store's header for why
-// per-consumer fetching was worth removing.
-
-export type { SprintRunIndexLoadState }
-
 export type SprintRunIndex = {
   runs: SprintRunSummary[]
   loadState: SprintRunIndexLoadState

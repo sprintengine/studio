@@ -9,7 +9,7 @@
 // board drains it on any live event) that would swallow a backlog target before
 // a cold BacklogPanel drains it.
 
-export const BACKLOG_REVEAL_EVENT = 'multicode:reveal-backlog-item'
+const BACKLOG_REVEAL_EVENT = 'multicode:reveal-backlog-item'
 
 export type BacklogRevealDetail = {
   workspaceId: string

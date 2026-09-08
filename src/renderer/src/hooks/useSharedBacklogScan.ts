@@ -32,7 +32,7 @@ const adapter: BacklogFilesystemAdapter = {
 // The minimal record the object store needs to ensure a row exists for each
 // scanned file. Shared with BacklogPanel so the store and the panel agree on
 // exactly which fields seed an item.json record.
-export function backlogRecordInput(item: BacklogItem): BacklogItemRecordInput {
+function backlogRecordInput(item: BacklogItem): BacklogItemRecordInput {
   return {
     relativePath: item.relativePath,
     status: item.status,

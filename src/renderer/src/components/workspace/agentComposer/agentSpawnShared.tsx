@@ -128,7 +128,7 @@ function PresetGlyph({ preset }: { preset: SprintEngineCliPermissionPreset }) {
  */
 export const REMOTE_PERMISSION_PRESETS: ReadonlySet<SprintEngineCliPermissionPreset> = new Set(['manual', 'auto'])
 
-export const REMOTE_PRESET_UNAVAILABLE_REASON = 'Not available on a remote machine'
+const REMOTE_PRESET_UNAVAILABLE_REASON = 'Not available on a remote machine'
 
 /** The row reasons a remote target disables, keyed by preset. */
 export const REMOTE_PRESET_DISABLED_REASONS: Partial<Record<SprintEngineCliPermissionPreset, string>> = {

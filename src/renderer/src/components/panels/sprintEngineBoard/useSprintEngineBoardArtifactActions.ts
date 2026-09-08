@@ -21,12 +21,12 @@ const artifactEditorPathHelpers = {
   isAbsoluteFilePath,
 }
 
-export type SprintEngineArtifactSyncMessage = {
+type SprintEngineArtifactSyncMessage = {
   status: 'idle' | 'syncing' | 'live' | 'error'
   message: string
 }
 
-export type SprintEngineRequestChangesDialog = {
+type SprintEngineRequestChangesDialog = {
   artifact: SprintEngineArtifact
   feedback: string
   submitting: boolean

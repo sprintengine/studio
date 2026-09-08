@@ -2,7 +2,7 @@ import type { IpcStatsSnapshot } from '../../../../shared/electron-api'
 
 // The preload reports monotonic IPC counters; the panel diffs two consecutive
 // snapshots to get per-second rates. Pure so it unit-tests without a preload.
-export type IpcChannelRate = {
+type IpcChannelRate = {
   name: string
   callsPerSec: number
   outBytesPerSec: number

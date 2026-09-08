@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   CHAINED_SPRINT_TEAM_NAME_MAX_ATTEMPTS,
   resolveChainedSprintTeamName,
-} from './chainedSprintTeamName'
+} from '../../../shared/sprintengine/chained-team-name'
 
 // Slugging close enough to the renderer's for ordering assertions: lowercase,
 // spaces → hyphens. The state path embeds the slug so an "exists on disk" probe

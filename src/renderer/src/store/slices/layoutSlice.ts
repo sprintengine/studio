@@ -307,9 +307,9 @@ export function hideNavRailTabStrip(
 // Layout state lives per-workspace in workspace.layoutModel; the layout slice
 // owns the layout-mutation action (updateLayout) and exports the layout-model
 // helpers used by addWorkspace, importWorkspace, and persisted-state migrations.
-export interface LayoutSliceState {}
+interface LayoutSliceState {}
 
-export interface LayoutSliceActions {
+interface LayoutSliceActions {
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
 }
 

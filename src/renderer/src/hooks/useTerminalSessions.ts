@@ -51,7 +51,7 @@ export function isSessionFailed(
   return session?.activity.kind === 'failed'
 }
 
-export function findSession(
+function findSession(
   sessions: TerminalSessionSnapshot[],
   predicate: (session: TerminalSessionSnapshot) => boolean
 ): TerminalSessionSnapshot | null {
@@ -245,7 +245,7 @@ export function deriveWorkspaceWorkingSince(
  * {@link deriveWorkspaceWorkingSince}: the workspace's clock is the fold of
  * these, so a row and its lines can never disagree on who is working.
  */
-export function sessionWorkingSince(session: TerminalSessionSnapshot): number | null {
+function sessionWorkingSince(session: TerminalSessionSnapshot): number | null {
   if (session.activity.kind !== 'working') return null
   if (!isHookReportedTurnInFlight(session)) return null
   const promptAt = typeof session.lastPrompt?.at === 'number' ? session.lastPrompt.at : 0
@@ -258,7 +258,7 @@ export function sessionWorkingSince(session: TerminalSessionSnapshot): number | 
  * per-session half of {@link deriveWorkspaceIdleSince}, which folds these and
  * then falls back to the workspace's persisted stamps.
  */
-export function sessionIdleSince(session: TerminalSessionSnapshot): number | null {
+function sessionIdleSince(session: TerminalSessionSnapshot): number | null {
   const activity = session.activity
   return activity.kind === 'failed'
     ? activity.at
@@ -301,7 +301,7 @@ export function deriveWorkspaceDisplayActivity(
   return 'idle'
 }
 
-export function findExecutionTerminalSession(
+function findExecutionTerminalSession(
   sessions: TerminalSessionSnapshot[],
   workspaceId: string,
   executionId: string | null | undefined

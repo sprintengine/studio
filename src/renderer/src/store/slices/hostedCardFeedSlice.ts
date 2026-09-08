@@ -24,7 +24,7 @@ export interface HostedCardFeedSliceState {
   cardFeedError: string | null
 }
 
-export interface HostedCardFeedSliceActions {
+interface HostedCardFeedSliceActions {
   // First paint: what is on disk, no network. Never throws; a missing api is a
   // no-op, which is what a test renderer and a detached tool window are.
   loadCards: () => Promise<void>

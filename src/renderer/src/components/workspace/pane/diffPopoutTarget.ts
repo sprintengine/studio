@@ -16,7 +16,7 @@ export type DiffPopoutTarget = {
   focusKind: 'staged' | 'unstaged' | null
 }
 
-export const DIFF_POPOUT_TARGET_EVENT = 'multicode:diff-popout-target'
+const DIFF_POPOUT_TARGET_EVENT = 'multicode:diff-popout-target'
 
 // The newest pending target. A second dispatch before the popout drains
 // supersedes the first — the latest "open this" wins.

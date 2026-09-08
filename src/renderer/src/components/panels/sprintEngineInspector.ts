@@ -30,7 +30,7 @@ import {
   type SprintEngineAgentRosterItem,
 } from '../../utils/sprintengine'
 import { formatTimestamp } from '../../utils/time'
-import type { LifecycleState, Tone } from '../ui'
+import type { LifecycleState } from '../ui'
 
 export { formatTimestamp }
 
@@ -61,7 +61,7 @@ export type SprintEngineInspectorSelection =
   | { kind: 'artifact'; artifact: SprintEngineArtifact }
   | { kind: 'artifact-preview'; artifact: SprintEnginePreviewedArtifact }
 
-export type ArtifactActionKind = 'open' | 'approve' | 'requestChanges'
+type ArtifactActionKind = 'open' | 'approve' | 'requestChanges'
 
 export type ArtifactActionState = {
   kind: ArtifactActionKind
@@ -71,12 +71,12 @@ export type ArtifactActionState = {
    * happened, in the user's words — never a raw ENOENT/IPC string.
    */
   message: string
-  /** What it means / the one next step. Failures only (errorPresentation's `hint`). */
+  /** What it means / the one next step. Failures only. */
   hint?: string
   /**
    * The raw technical string (absolute path, IPC error body). Rendered only
    * behind InlineNotice's "Show details" disclosure — never inline, per the
-   * shared error-card contract in `ui/errorPresentation.ts`.
+   * shared error-card contract InlineNotice documents.
    */
   detail?: string
 }
@@ -96,26 +96,6 @@ export type TaskInputActionState = {
 export type TaskCommentActionState = {
   status: 'pending' | 'success' | 'error'
   message: string
-}
-
-export function runtimeStatusTone(status: string): Tone {
-  switch (status) {
-    case 'running':
-    case 'needs_input':
-      return 'warn'
-    case 'complete':
-    case 'done':
-      return 'good'
-    case 'error':
-      return 'error'
-    // `retired` (parked, revived when work returns) and a departed agent (now
-    // plain `idle` — liveness is derived, not stored) keep a muted neutral tone.
-    case 'planning':
-    case 'exited':
-    case 'retired':
-    default:
-      return 'neutral'
-  }
 }
 
 export function runtimeStatusLabel(status: string): string {
@@ -320,15 +300,15 @@ export function formatMobileArtifactDecision(decision: MobileArtifactDecision): 
   return parts.join(' - ')
 }
 
-export function isMobileActor(actor: string): boolean {
+function isMobileActor(actor: string): boolean {
   return actor.trim().toLowerCase().startsWith('mobile:')
 }
 
-export function formatMobileActor(actor: string): string {
+function formatMobileActor(actor: string): string {
   return actor.replace(/^mobile:/i, '').replace(/[_-]+/g, ' ') || 'mobile device'
 }
 
-export function mobileActionLabel(action: string): string {
+function mobileActionLabel(action: string): string {
   switch (action) {
     case 'approve':
     case 'approved':

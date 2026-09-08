@@ -30,7 +30,7 @@ import {
 type PanelKey = 'backlog' | 'pane'
 
 // Which header cluster a switch renders into.
-export type PanelCluster = 'left' | 'right'
+type PanelCluster = 'left' | 'right'
 
 type PanelDescriptor = {
   key: PanelKey
@@ -56,7 +56,7 @@ type PanelDescriptor = {
 
 // Single source of the panel-switch descriptor. Exported so any future consumer
 // reuses the same behavior instead of re-implementing icons/module-gating.
-export const PANELS: PanelDescriptor[] = [
+const PANELS: PanelDescriptor[] = [
   {
     key: 'backlog',
     moduleId: 'backlog',

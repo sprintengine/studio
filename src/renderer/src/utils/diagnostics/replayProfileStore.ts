@@ -5,7 +5,7 @@ import type { XtermReplayProfile } from '../xtermOutputQueue'
 // `terminal-replay-profile`, and read by the diagnostics panel. Renderer-local
 // (no IPC): replay timing is a renderer concern and the panel runs in the same
 // process. Bounded so a long session cannot grow this without limit.
-export const REPLAY_PROFILE_HISTORY_LIMIT = 100
+const REPLAY_PROFILE_HISTORY_LIMIT = 100
 
 export type ReplayProfileEntry = XtermReplayProfile & {
   recordedAt: number

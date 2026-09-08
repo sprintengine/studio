@@ -73,7 +73,7 @@ export function skillInstalledForHarness(
 // Agent-spawn patch for a "+ Skill" attachment on a terminal-CLI agent:
 // builtins ride spawnSkillId (ensure-installed at the launch boundary); the
 // invocation is parked at the CLI prompt unsubmitted via cliPendingInput.
-export function skillSpawnAgentPatch(
+function skillSpawnAgentPatch(
   skill: WorkspaceSkill,
   integration: SkillIntegrationLike | undefined,
 ): { spawnSkillId?: string; cliPendingInput: string } {

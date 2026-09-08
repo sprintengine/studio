@@ -76,7 +76,7 @@ export function cardStampLabel(kind: HostedCardKind): string {
  * Derived, never carried. A `cta` string on the schema would be a field in which
  * a card could lie about what it is about to do, and no parser could check it.
  */
-export const CARD_KIND_ACTIONS: Readonly<Record<HostedCardKind, string>> = {
+const CARD_KIND_ACTIONS: Readonly<Record<HostedCardKind, string>> = {
   mcp: 'Install',
   skill: 'Install',
   plugin: 'Install',

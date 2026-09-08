@@ -16,7 +16,6 @@ import type {
 export {
   deriveSprintEngineAutomationDesiredMode,
   normalizeSprintEngineAutomationRuntimeState,
-  normalizeSprintEngineAutomationStopReason,
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
   sprintEngineAutomationShouldRun,

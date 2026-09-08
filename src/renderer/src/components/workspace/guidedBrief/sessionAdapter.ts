@@ -20,7 +20,7 @@ import { GUIDED_BRIEF_AGENT_LABELS } from './agentLabels'
 
 export type { GuidedBriefSpecialistKind }
 
-export const GUIDED_BRIEF_SPECIALIST_MARKERS: Record<GuidedBriefSpecialistKind, string> = {
+const GUIDED_BRIEF_SPECIALIST_MARKERS: Record<GuidedBriefSpecialistKind, string> = {
   strategist: 'BRIEF_READY',
   architect: 'ARCHITECTURE_PLAN_READY',
   designer: 'MOCKUP_SET_READY',
@@ -29,7 +29,7 @@ export const GUIDED_BRIEF_SPECIALIST_MARKERS: Record<GuidedBriefSpecialistKind, 
 // A designer session authoring a design-system bundle (the design-system
 // preset) signals readiness with its own marker — the bundle, not a mockup
 // set, is the artifact.
-export const GUIDED_BRIEF_DESIGN_SYSTEM_MARKER = 'DESIGN_SYSTEM_READY'
+const GUIDED_BRIEF_DESIGN_SYSTEM_MARKER = 'DESIGN_SYSTEM_READY'
 
 export type GuidedBriefSessionLifecycle =
   | 'starting'
@@ -38,7 +38,7 @@ export type GuidedBriefSessionLifecycle =
   | 'exited'
   | 'error'
 
-export type GuidedBriefSessionOutputChunk = {
+type GuidedBriefSessionOutputChunk = {
   stream: 'stdout'
   chunk: string
   at: number
@@ -50,7 +50,7 @@ export type GuidedBriefMarkerDetection = {
   watchPath: string
 }
 
-export type GuidedBriefRawTerminalTarget = {
+type GuidedBriefRawTerminalTarget = {
   sessionId: string
   cwd: string
   label: string
@@ -77,7 +77,7 @@ export type GuidedBriefTerminalApi = {
   onTerminalError: (sessionId: string, cb: (message: string) => void) => () => void
 }
 
-export type GuidedBriefStrategistSessionInput = {
+type GuidedBriefStrategistSessionInput = {
   kind: 'strategist'
   workspaceRoot: string
   // Owning workspace, threaded into the PTY spawn metadata so the session
@@ -124,7 +124,7 @@ export type GuidedBriefDesignerSessionInput = {
   }
 }
 
-export type GuidedBriefArchitectSessionInput = {
+type GuidedBriefArchitectSessionInput = {
   kind: 'architect'
   workspaceRoot: string
   // See GuidedBriefStrategistSessionInput.workspaceId.
@@ -297,16 +297,6 @@ export function guidedBriefSpecialistAgentId(
   if (input.kind === 'designer' && input.designSystem) return 'guided-brief-design-system'
   return `guided-brief-${input.kind}`
 }
-
-// Human session-manager labels for wizard specialists, keyed by the agent id
-// above. Wizard agents are never registered in workspace.agents, so both
-// transports label their session rows from this one map.
-// The label map moved to `agentLabels.ts` so the sidebar's row naming can read
-// it without this adapter — the terminal wiring, the marker parser and the
-// interview protocol behind it — riding into the eager boot chunk
-// (bundle-budget ratchet). Re-exported here because this is the module the
-// four ids belong to.
-export { GUIDED_BRIEF_AGENT_LABELS } from './agentLabels'
 
 export function markerForInput(input: StartGuidedBriefSpecialistSessionInput): string {
   if (input.kind === 'designer' && input.designSystem) return GUIDED_BRIEF_DESIGN_SYSTEM_MARKER

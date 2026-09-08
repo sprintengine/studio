@@ -78,7 +78,7 @@ export function useRunPullRequestMergePoll(input: {
 // create`), then opens the resulting PR in the browser so the user lands on it.
 // Returns the busy flag and the last failure (a hard IPC error; a `gh`/push
 // failure surfaces through the refreshed `vcs`).
-export function useRunPullRequestAction(input: { workspaceId: string; statePath: string | null }): {
+function useRunPullRequestAction(input: { workspaceId: string; statePath: string | null }): {
   busy: boolean
   actionError: string | null
   createPullRequest: () => Promise<void>
@@ -122,7 +122,7 @@ const CHIP_CLASS =
 
 // Merge state of a run branch, shared by every Run-PR source (SprintEngine,
 // automations, and any future workspace type that opens a PR from a run branch).
-export type RunPrState = 'open' | 'merged' | 'closed' | null
+type RunPrState = 'open' | 'merged' | 'closed' | null
 
 // ----------------------------------------------------------------------------
 // Generic, source-agnostic presentational core
@@ -153,7 +153,7 @@ function runPullRequestChipInk(prState: RunPrState): string {
 // `tone` defaults to the flat link accent every single-PR surface has always
 // rendered; `"state"` colors the chip by merge state for the per-project row a
 // multi-project run shows (MC-1613).
-export function RunPullRequestLinkChip({
+function RunPullRequestLinkChip({
   url,
   prState,
   label,
@@ -182,7 +182,7 @@ export function RunPullRequestLinkChip({
 // branch merges; a failure swaps the label to the retry wording and surfaces the
 // reason inline. Source-agnostic — the caller owns the create action, the busy
 // flag, the error string, and the labels.
-export function RunPullRequestActionButton({
+function RunPullRequestActionButton({
   pullRequestUrl,
   pullRequestState,
   busy,

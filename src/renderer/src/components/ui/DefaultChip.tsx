@@ -16,7 +16,7 @@ const MICRO_CHIP_TONES = {
 } as const
 
 /** The one micro chip: `radius.chip`, hairline, micro type. Every bordered micro mark renders through it. */
-export function MicroChip({
+function MicroChip({
   tone = 'neutral',
   className,
   children,

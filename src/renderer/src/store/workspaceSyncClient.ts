@@ -97,23 +97,23 @@ export type AgentTerminalSessionApply = {
 // Local application of the registry-domain events. Each is main's accepted
 // value for one user-editable fact, so a window that lost a last-write-wins
 // race converges here rather than holding its own.
-export type WorkspaceRenamedApply = {
+type WorkspaceRenamedApply = {
   workspaceId: WorkspaceId
   name: string
   titleLocked?: boolean
 }
 
-export type WorkspaceLayoutUpdatedApply = {
+type WorkspaceLayoutUpdatedApply = {
   workspaceId: WorkspaceId
   layoutModel: Workspace['layoutModel']
 }
 
-export type WorkspaceFieldsUpdatedApply = {
+type WorkspaceFieldsUpdatedApply = {
   workspaceId: WorkspaceId
   patch: WorkspaceFieldsPatch
 }
 
-export type WorkspaceAgentUpdatedApply = {
+type WorkspaceAgentUpdatedApply = {
   workspaceId: WorkspaceId
   agentId: AgentId
   /** `null` removes the agent from the roster. */
@@ -121,7 +121,7 @@ export type WorkspaceAgentUpdatedApply = {
   configEditedAt: number
 }
 
-export type WorkspaceRemovedApply = {
+type WorkspaceRemovedApply = {
   workspaceId: WorkspaceId
 }
 

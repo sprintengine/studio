@@ -167,7 +167,7 @@ function rowMatches(row: PickerRow, normalized: string): boolean {
 }
 
 /** A catalog server whose credentials are not set cannot be added silently. */
-export function missingCredentials(server: McpCatalogServer): string[] {
+function missingCredentials(server: McpCatalogServer): string[] {
   return (server.envVarNames ?? []).filter((name) => !server.env?.[name])
 }
 

@@ -34,7 +34,7 @@ const VOICE_LANGUAGE_ITEMS: SelectItem<string>[] = [
   { value: 'zh', label: 'Chinese' },
 ]
 
-export function VoiceDictationSettingsSection() {
+function VoiceDictationSettingsSection() {
   const voiceDictation = useWorkspaceStore((s) => s.appSettings.voiceDictation)
   const setVoiceDictationSettings = useWorkspaceStore((s) => s.setVoiceDictationSettings)
 

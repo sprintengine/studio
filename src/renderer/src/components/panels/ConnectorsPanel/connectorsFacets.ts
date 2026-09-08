@@ -23,7 +23,7 @@ import type {
 import { componentKindLabels } from '../../settings/storefrontView'
 import { connectorCanLaunch } from '../../../../../shared/connector-launch'
 
-export type ConnectorSource = 'catalog' | 'registry'
+type ConnectorSource = 'catalog' | 'registry'
 
 // The category an entry lands in, which is the heading it renders under.
 //

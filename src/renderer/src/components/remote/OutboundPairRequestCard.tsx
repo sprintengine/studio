@@ -10,7 +10,7 @@ import { showToast } from '../../store/toastStore'
 // the wait, so this card is drawable anywhere — the Remote popover, Settings,
 // the Fleet — and closing whichever surface asked does not end the request.
 
-export function pendingPairRequestNote(request: FleetPairRequestView, nowMs: number): string {
+function pendingPairRequestNote(request: FleetPairRequestView, nowMs: number): string {
   const expiresAtMs = Date.parse(request.expiresAt)
   if (Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs) {
     return `${request.machineName} did not answer in time. Ask again when someone is at it.`
@@ -19,7 +19,7 @@ export function pendingPairRequestNote(request: FleetPairRequestView, nowMs: num
 }
 
 /** "481 972": the digits grouped the way a person reads them aloud. */
-export function displayCode(code: string): string {
+function displayCode(code: string): string {
   return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code
 }
 

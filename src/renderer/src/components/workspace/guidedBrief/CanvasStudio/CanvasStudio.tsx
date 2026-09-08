@@ -17,7 +17,7 @@ import { AgentBubble } from './AgentBubble'
 // control that opened it. Floating chrome uses the canonical --shadow-drawer
 // elevation, never a full-viewport backdrop-filter (the repo scrim rule).
 
-export type CanvasStudioAgent = {
+type CanvasStudioAgent = {
   /** Specialist display name, e.g. "Frontend Designer". */
   name: string
   /** Live specialist status from the transport's own signal (MC-1503). */

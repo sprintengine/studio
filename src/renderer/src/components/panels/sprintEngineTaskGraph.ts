@@ -73,7 +73,7 @@ export type TaskGraphZoomAnchor = {
   viewportY: number
 }
 
-export const taskGraphZoomLevels = [0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2]
+const taskGraphZoomLevels = [0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2]
 export const defaultTaskGraphZoom = 1
 export const minTaskGraphZoom = taskGraphZoomLevels[0]
 export const maxTaskGraphZoom = taskGraphZoomLevels[taskGraphZoomLevels.length - 1]

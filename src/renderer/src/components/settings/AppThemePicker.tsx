@@ -23,7 +23,7 @@ type AppThemePickerProps = {
 //   * Home/End jump to first/last. Space and Enter activate the focused
 //     card (redundant with arrow-selects-immediately but keeps the
 //     standard radio contract).
-export function AppThemePicker({ value, onChange }: AppThemePickerProps) {
+function AppThemePicker({ value, onChange }: AppThemePickerProps) {
   const themes = APP_THEMES
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([])
 

@@ -25,7 +25,7 @@ const MARKDOWN_PREVIEW_MAX_CHARS = 2 * 1024 * 1024
 type FileTab = ExternalFileTab
 type FileBuffer = ExternalFileBuffer
 
-export type IncomingFile = {
+type IncomingFile = {
   filePath: string
   fileName: string
   workspaceId: string

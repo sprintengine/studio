@@ -77,12 +77,7 @@ export { normalizeSprintEngineRoleCliDefaults }
 // to the shared Sprint Engine state module (sprint-runtime-ownership Phase 2:
 // the main-process auto-run planner resolves runtimes too); these re-exports
 // keep every existing import site working unchanged.
-import {
-  resolveSprintEngineAgentRuntime,
-  resolveSprintEngineRoleRuntime,
-} from '../../../../shared/sprintengine/state'
-
-export { resolveSprintEngineAgentRuntime, resolveSprintEngineRoleRuntime }
+import { resolveSprintEngineAgentRuntime } from '../../../../shared/sprintengine/state'
 export { normalizeSprintEngineAutoState }
 
 function createSprintEngineWorkspaceContext(
@@ -263,9 +258,9 @@ export function migrateSprintEngineAgentNames(ws: Workspace): Workspace {
   )
 }
 
-export interface RunStateSliceState {}
+interface RunStateSliceState {}
 
-export interface RunStateSliceActions {
+interface RunStateSliceActions {
   setSprintEngineContext: (id: WorkspaceId, sprintEngineContext: SprintEngineWorkspaceContext | null) => void
   setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
   setSprintEngineAutomationMode: (

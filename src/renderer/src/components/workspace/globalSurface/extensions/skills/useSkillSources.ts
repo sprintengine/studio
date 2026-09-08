@@ -14,7 +14,7 @@ import type { SkillScanLoad, SkillSourcesLoad } from './skillsSurfaceModel'
 
 const MISSING_API_MESSAGE = 'Skills need an app restart before they are available.'
 
-export type InstalledSkillsRead =
+type InstalledSkillsRead =
   | { status: 'loading' }
   | { status: 'unavailable' }
   | { status: 'error'; message: string }

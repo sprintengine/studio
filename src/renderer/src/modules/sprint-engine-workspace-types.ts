@@ -6,7 +6,7 @@ import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
 import { isSprintEngineWorkspace } from '../utils/sprintEngineWorkspace'
 import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
 
-export const defaultSprintEngineTemplateConfig: SprintEngineMockConfig = {
+const defaultSprintEngineTemplateConfig: SprintEngineMockConfig = {
   name: 'Sprint Roster',
   goal: '',
   roleCounts: {} as SprintEngineMockConfig['roleCounts'],
@@ -24,7 +24,7 @@ export function createSprintEngineTemplate(_config: SprintEngineMockConfig): Lay
 // and deliberately excluded: a single agent terminal sitting at a prompt must
 // not light the whole sprint. The rollup already covers a manually-completed run
 // (all tasks done → `done`), so there is nothing terminal-derived to fold in.
-export function deriveSprintEngineWorkspaceRunGlyph(
+function deriveSprintEngineWorkspaceRunGlyph(
   workspace: WorkspaceRunGlyphProviderInput,
 ): WorkspaceRunGlyph | null {
   return deriveSprintEngineRunGlyph({

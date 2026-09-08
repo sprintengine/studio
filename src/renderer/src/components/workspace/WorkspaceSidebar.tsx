@@ -187,32 +187,12 @@ const ALL_CHATS_SHELF_KEY = '__all_chats__'
 const ALL_CHATS_SHELF_ID = 'ws-settled-all-chats'
 
 /**
- * Which header each row files under, with repository identity applied
- * (one-project-across-machines): a remote-born row whose machine reported
- * the same repository as an OPEN local folder files under that folder's
- * header — the person's project is one thing wherever its clones live — and
- * wears the machine mark on its own line, since the header no longer says
- * it. Everything else keeps `groupKeyOf`: local folders group by path
- * exactly as before (two local clones of one repository stay two folders),
- * and a remote row with no local twin keeps its machine · project header.
- * A worktree row is the one local row whose own path is not its key — it
- * files under the project it was cut from and says it is a worktree on its
- * own row, because branching a project did not open a second project.
- *
- * Returned as a map rather than a function of one workspace because the
- * answer depends on which OTHER folders are open.
- */
-export function resolveGroupKeys(workspaces: readonly Workspace[], identities: FolderIdentityMap): Map<string, string> {
-  return resolveGroups(workspaces, identities).keys
-}
-
-/**
  * The header facts a merged group takes from its local folder (the row that
  * founds the group may be the remote one, which has no folder of its own).
  */
 export type LocalGroupHeader = { key: string; folderPath: string; missing: boolean }
 
-export function resolveGroups(
+function resolveGroups(
   workspaces: readonly Workspace[],
   identities: FolderIdentityMap
 ): { keys: Map<string, string>; headers: Map<string, LocalGroupHeader> } {
@@ -758,7 +738,7 @@ export function provenanceMachinesOf(workspace: Workspace): string[] {
  * again when that turn ends. The active workspace never earns one — the
  * person is watching. Pure, so the sidebar's effect stays a one-liner.
  */
-export function deriveUnseenCompletions(input: {
+function deriveUnseenCompletions(input: {
   previous: ReadonlySet<string>
   workingSinceBefore: Readonly<Record<string, number | null | undefined>>
   workingSinceNow: Readonly<Record<string, number | null | undefined>>
@@ -785,7 +765,7 @@ export function deriveUnseenCompletions(input: {
 }
 
 /** A live session whose hooks report a settled phase: the turn ended, the agent is still there. */
-export function isHookSettledSession(session: { processAlive: boolean; agentState?: { phase: string; source: string } }): boolean {
+function isHookSettledSession(session: { processAlive: boolean; agentState?: { phase: string; source: string } }): boolean {
   if (!session.processAlive) return false
   const state = session.agentState
   if (!state || state.source !== 'hook') return false
@@ -843,7 +823,7 @@ function attentionRowClass(active: boolean): string {
 // one you were typing into. The wash stays; the edge went to selection.
 //
 // Exported for the row-meta suite, which pins the good-tone channels.
-export function doneRowClass(active: boolean): string {
+function doneRowClass(active: boolean): string {
   return [
     'bg-[color:var(--tone-good-faint)] hover:bg-[color:var(--tone-good-faint)]',
     active ? SELECTION_EDGE_CLASS : '',

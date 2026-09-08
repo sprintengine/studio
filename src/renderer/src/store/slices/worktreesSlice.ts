@@ -65,9 +65,9 @@ export function normalizeWorkspaceWorktreeState(
   }
 }
 
-export interface WorktreesSliceState {}
+interface WorktreesSliceState {}
 
-export interface WorktreesSliceActions {
+interface WorktreesSliceActions {
   setWorkspaceWorktreeState: (
     workspaceId: WorkspaceId,
     worktreeState: Partial<WorkspaceWorktreeState> | null

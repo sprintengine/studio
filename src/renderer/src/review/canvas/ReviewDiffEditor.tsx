@@ -90,7 +90,7 @@ function MeasuredZone({ onMeasured, children }: { onMeasured: (height: number) =
 // modes); hover tips ride inline decorations; the comment gutter glyph opens an
 // inline composer, and the human's comments render as thread zones anchored by
 // line math — so they land on the right line in side-by-side and inline alike.
-export function ReviewDiffEditor({
+function ReviewDiffEditor({
   file,
   annotations,
   diffView,

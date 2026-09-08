@@ -18,7 +18,7 @@ import {
   stableBacklogObjectId,
 } from './backlog'
 
-export type BacklogObjectRecord = {
+type BacklogObjectRecord = {
   id: string
   source: {
     type: 'file'

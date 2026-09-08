@@ -5,8 +5,8 @@ import type { ProcessMetricsSnapshot, SystemMemorySample } from '../../../../sha
 // and a "mark baseline → diff" so a change's before/after is measurable in-app
 // instead of eyeballing two copied reports. Bounded so an open panel can't grow
 // it without limit (300 samples ≈ 5 min at the 1s poll).
-export const METRICS_HISTORY_LIMIT = 300
-export const GROWTH_WINDOW_MS = 120_000
+const METRICS_HISTORY_LIMIT = 300
+const GROWTH_WINDOW_MS = 120_000
 
 // JS heap snapshot read from the renderer's non-standard `performance.memory`
 // (Chromium-only). Read at the callsite and passed in so this module stays pure.
@@ -209,13 +209,6 @@ export function setMetricsBaseline(sample: MetricsSample | null): void {
 
 export function getMetricsBaseline(): MetricsSample | null {
   return baseline
-}
-
-export function subscribeMetricsHistory(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
 }
 
 // Reads the renderer's non-standard heap counters when present (Chromium). Kept

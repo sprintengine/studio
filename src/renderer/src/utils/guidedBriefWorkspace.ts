@@ -1,10 +1,9 @@
 import type {
-  DesignSystemSeedSource,
   GuidedBriefRecordedDecision,
   SprintEngineSourceBundleItem,
 } from '../types/workspace'
 
-export type GuidedBriefHasUi = 'yes' | 'no'
+type GuidedBriefHasUi = 'yes' | 'no'
 
 export type GuidedBriefFilesystem = {
   ensureDir: (parentDir: string, name: string) => Promise<string>
@@ -29,7 +28,7 @@ export type GuidedBriefScaffoldResult = {
 
 // `product` → product/.versions/{hash}.md, `mockup` → mockups/.versions/{hash}.html,
 // `overview` → product/.versions/{hash}.html (agent-produced HTML plan overview).
-export type GuidedBriefSnapshotKind = 'product' | 'mockup' | 'overview'
+type GuidedBriefSnapshotKind = 'product' | 'mockup' | 'overview'
 
 export type GuidedBriefSnapshotInput = {
   workspaceRoot: string
@@ -47,7 +46,7 @@ export type GuidedBriefSnapshot = {
   path: string
 }
 
-export type GuidedBriefAcceptedArtifact = GuidedBriefSnapshot & {
+type GuidedBriefAcceptedArtifact = GuidedBriefSnapshot & {
   title: string
 }
 
@@ -194,7 +193,7 @@ function snapshotDirectory(
   return directory ?? (kind === 'mockup' ? 'mockups' : 'product')
 }
 
-export function buildGuidedBriefIdeaSeedMarkdown(idea: string, hasUi: GuidedBriefHasUi): string {
+function buildGuidedBriefIdeaSeedMarkdown(idea: string, hasUi: GuidedBriefHasUi): string {
   const trimmedIdea = trimRequired(idea, 'missing-idea')
   return [
     '# Idea Seed',
@@ -214,53 +213,6 @@ export function buildGuidedBriefIdeaSeedMarkdown(idea: string, hasUi: GuidedBrie
 // like the inspiration drop dir) so the design goal never ships inside the
 // portable bundle at `design-system/`.
 export const DESIGN_SYSTEM_IDEA_SEED_RELATIVE_PATH = '.guided-brief/idea-seed.md'
-
-export function buildDesignSystemIdeaSeedMarkdown(
-  idea: string,
-  seedSource?: DesignSystemSeedSource | null,
-): string {
-  const trimmedIdea = trimRequired(idea, 'missing-idea')
-  return [
-    '# Design System Goal',
-    '',
-    '## User Goal',
-    '',
-    trimmedIdea,
-    '',
-    // The seed source is recorded here (app metadata, outside the portable
-    // bundle) so the choice survives on disk and stays visible to the user;
-    // the designer session's prompt carries the extraction instructions.
-    ...(seedSource
-      ? [
-          '## Seed Source',
-          '',
-          seedSource.kind === 'brand-demo'
-            ? '- Kind: built-in example design system (demo)'
-            : '- Kind: existing product folder',
-          `- Path: \`${seedSource.path}\``,
-          '',
-        ]
-      : []),
-  ].join('\n')
-}
-
-export async function scaffoldDesignSystemWorkspaceSeed({
-  workspaceRoot,
-  idea,
-  seedSource,
-  filesystem,
-}: {
-  workspaceRoot: string
-  idea: string
-  seedSource?: DesignSystemSeedSource | null
-  filesystem: GuidedBriefFilesystem
-}): Promise<{ ideaSeedPath: string }> {
-  const root = trimRequired(workspaceRoot, 'missing-root')
-  await filesystem.ensureDir(root, '.guided-brief')
-  const ideaSeedPath = joinWorkspacePath(root, '.guided-brief', 'idea-seed.md')
-  await filesystem.writeFile(ideaSeedPath, buildDesignSystemIdeaSeedMarkdown(idea, seedSource))
-  return { ideaSeedPath }
-}
 
 export async function scaffoldGuidedBriefWorkspace({
   workspaceRoot,

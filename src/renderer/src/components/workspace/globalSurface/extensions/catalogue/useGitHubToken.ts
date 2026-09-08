@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 
 /** The Settings tab the GitHub token lives on — labelled "Version control". */
-export const GITHUB_SETTINGS_TAB = 'github'
+const GITHUB_SETTINGS_TAB = 'github'
 
 export function openGitHubSettings(): void {
   useWorkspaceStore.getState().openSettingsOverlay({ initialTab: GITHUB_SETTINGS_TAB })

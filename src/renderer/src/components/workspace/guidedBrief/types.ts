@@ -27,7 +27,6 @@ export function guidedBriefTransportForCli(
 
 export type {
   GuidedBriefHasUi,
-  GuidedBriefPreset,
   GuidedBriefStage,
   GuidedBriefAcceptedArtifact,
   GuidedBriefRecordedDecision,
@@ -155,7 +154,7 @@ function stageFamily(stage: GuidedBriefStage): GuidedBriefStage {
   }
 }
 
-export type GuidedBriefStepState = 'done' | 'active' | 'upcoming'
+type GuidedBriefStepState = 'done' | 'active' | 'upcoming'
 
 export type GuidedBriefStepInfo = {
   /** The working-family stage this step represents (or `handoff` for Build). */

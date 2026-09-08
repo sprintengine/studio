@@ -23,7 +23,7 @@ import type { StatusTone } from '../ui/tokens'
 
 // Two genuinely different groups, which is what earns them titles: the version
 // control system itself, then the hosting provider it pushes to.
-export type VersionControlSectionId = 'vcs' | 'forge'
+type VersionControlSectionId = 'vcs' | 'forge'
 
 export type VersionControlProviderSpec = {
   id: VersionControlProviderId

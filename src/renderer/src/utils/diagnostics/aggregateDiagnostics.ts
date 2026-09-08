@@ -40,7 +40,7 @@ export type TerminalDiagnosticsRow = {
   warnings: TerminalDiagnosticsWarning[]
 }
 
-export type WorkspaceDiagnosticsRollup = {
+type WorkspaceDiagnosticsRollup = {
   workspaceId: string
   workspaceName: string | null
   terminalCount: number

@@ -16,7 +16,7 @@ export { isPathOrChild }
 // existing renderer import sites are unchanged.
 import { defaultAgent, defaultAgentExecution } from '../../../../shared/sprintengine/agent-state'
 
-export { defaultAgent, defaultAgentExecution }
+export { defaultAgent }
 import {
   projectedLaunchedAgents,
   projectionKey,
@@ -74,7 +74,7 @@ export function normalizeAgentCli(agent: Partial<AgentState>, fallback?: AgentCl
 
 // A model id is only meaningful as free text the CLI will interpret; trim and
 // drop empties so a cleared selection reads as "use the CLI default".
-export function normalizeAgentCliModel(value: unknown): string | undefined {
+function normalizeAgentCliModel(value: unknown): string | undefined {
   const model = typeof value === 'string' ? value.trim() : ''
   return model || undefined
 }
@@ -121,9 +121,9 @@ export function pickWorkspaceAgentName(agents: Workspace['agents']): string {
   return pickRandomAgentName(Object.values(agents).map((agent) => agent.name))
 }
 
-export interface AgentsSliceState {}
+interface AgentsSliceState {}
 
-export interface AgentsSliceActions {
+interface AgentsSliceActions {
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   applyAgentTerminalSessionEvent: (apply: AgentTerminalSessionApply) => void
   applyAgentTerminalLaunchStateEvent: (apply: AgentTerminalLaunchStateApply) => void

@@ -12,7 +12,7 @@ export interface HostedModelFeedSliceState {
   hostedModelCatalogs: HostedCliModelCatalogs
 }
 
-export interface HostedModelFeedSliceActions {
+interface HostedModelFeedSliceActions {
   // Boot: what is on disk, no network. Never throws; a missing api is a no-op.
   loadHostedModelFeed: () => Promise<void>
   // "Check now" (force) or a scheduled tick from the renderer side. The main

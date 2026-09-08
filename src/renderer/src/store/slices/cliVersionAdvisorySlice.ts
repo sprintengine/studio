@@ -9,7 +9,7 @@ export interface CliVersionAdvisorySliceState {
   cliVersionAdvisoriesError: string | null
 }
 
-export interface CliVersionAdvisorySliceActions {
+interface CliVersionAdvisorySliceActions {
   refreshCliVersionAdvisories: (options?: {
     force?: boolean
     cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>

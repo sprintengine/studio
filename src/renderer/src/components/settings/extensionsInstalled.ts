@@ -24,7 +24,7 @@ export type ExtensionKind = 'mcp' | 'skill' | 'cli' | 'module'
 
 // Singular, sentence-case kind labels. Group order is the array order below:
 // the direct-install primitives in the order the surface presents them.
-export const EXTENSION_KIND_LABEL: Record<ExtensionKind, string> = {
+const EXTENSION_KIND_LABEL: Record<ExtensionKind, string> = {
   mcp: 'MCP server',
   skill: 'Skill',
   cli: 'Agent CLI',
@@ -74,7 +74,7 @@ export type InstalledExtension = {
   chips: string[]
 }
 
-export type InstalledExtensionGroup = {
+type InstalledExtensionGroup = {
   kind: ExtensionKind
   label: string
   items: InstalledExtension[]
@@ -211,7 +211,7 @@ export function skillsToInstalled(skills: WorkspaceSkill[]): InstalledExtension[
     }))
 }
 
-export function clisToInstalled(plugins: PluginRegistryListEntry[]): InstalledExtension[] {
+function clisToInstalled(plugins: PluginRegistryListEntry[]): InstalledExtension[] {
   return plugins.map((plugin) => ({
     key: `cli:${plugin.id}`,
     id: plugin.id,

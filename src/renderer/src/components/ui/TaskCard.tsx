@@ -29,7 +29,7 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
  *     `--text-strong`. No left bar, no border box, no accent.
  *   - Hover: `--bg-hover` only — no shadow, no scale, no glow.
  */
-export type TaskCardVariant = 'row' | 'card'
+type TaskCardVariant = 'row' | 'card'
 
 export type TaskCardProps = {
   tone: Tone

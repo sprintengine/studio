@@ -95,7 +95,7 @@ function HomeGlyph({ className }: { className?: string }) {
 
 // Four tiles identify additions to the product beyond chat, drawn in the
 // icon family's 16-box round-stroke idiom.
-export function ExtensionsGlyph({ className }: { className?: string }) {
+function ExtensionsGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
       <rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.1" stroke="currentColor" strokeWidth="1.4" />

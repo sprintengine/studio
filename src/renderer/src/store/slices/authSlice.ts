@@ -13,11 +13,11 @@ export const defaultAuthState = (): MulticodeAuthState => ({
   graceExpiresAt: null,
 })
 
-export interface AuthSliceState {
+interface AuthSliceState {
   authState: MulticodeAuthState
 }
 
-export interface AuthSliceActions {
+interface AuthSliceActions {
   setAuthState: (authState: MulticodeAuthState) => void
 }
 

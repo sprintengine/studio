@@ -21,17 +21,14 @@ import type { SprintEngineState, Workspace } from '../types/workspace'
 // existing renderer caller imports them from this module.
 export {
   SPRINT_ENGINE_MODULE_ID,
-  SPRINT_ENGINE_PR_LINK_ID,
   SPRINT_ENGINE_PR_TARGET_KIND,
   SPRINT_ENGINE_RUN_TARGET_KIND,
   buildSprintEnginePullRequestLink,
   buildSprintEngineRunLink,
   isSprintEngineChildRunLink,
   runRelativePathForStatePath,
-  sprintEnginePullRequestLinkId,
   sprintEnginePullRequestLinksOf,
   sprintEngineRepoDisplayName,
-  sprintEngineRunLinkId,
 } from '../../../shared/backlog/sprintengine-links'
 
 /**

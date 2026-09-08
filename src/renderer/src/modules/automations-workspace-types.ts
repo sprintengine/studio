@@ -12,7 +12,7 @@ import { AutomationsWorkspaceTypeIcon } from '../components/AppIcons'
 // terminals tabset, so the control panel keeps its real estate and the live
 // runs appear beside it. The layout lives in `shared` (MC-2158) so a host the
 // automation executor mints headlessly carries the same control centre.
-export function createAutomationsTemplate(): LayoutTemplate {
+function createAutomationsTemplate(): LayoutTemplate {
   return AUTOMATIONS_HOST_TEMPLATE
 }
 

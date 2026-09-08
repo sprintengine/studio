@@ -9,16 +9,6 @@ import { SPRINT_ENGINE_WORKSPACE_MODULE_ID } from '../../../../shared/sprintengi
 export const SPRINT_ENGINE_MODULE_ID = SPRINT_ENGINE_WORKSPACE_MODULE_ID
 
 /**
- * A workspace's state entry for one module, from the per-module bag.
- * `undefined` means the module has recorded no state on this workspace.
- */
-export function readWorkspaceModuleState(workspace: Workspace, moduleId: string): unknown {
-  const bag = workspace.moduleState
-  if (!isPlainBag(bag)) return undefined
-  return bag[moduleId]
-}
-
-/**
  * Pure update: a workspace whose bag entry for `moduleId` is `state`.
  * `undefined`/`null` removes the entry (absence and null both read back as "no
  * state"; storing them would only bloat the persisted registry). Returns the

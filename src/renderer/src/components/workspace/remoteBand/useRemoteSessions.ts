@@ -17,7 +17,7 @@ import { shouldBrowse, type RemoteBrowseEntry } from './remoteSessionsModel'
 // that remains is a slow fallback for a feed a machine could not open.
 
 /** The fallback re-read of awake machines while the band is open and focused; the change feed is the real beat. */
-export const REMOTE_BAND_CADENCE_MS = 180_000
+const REMOTE_BAND_CADENCE_MS = 180_000
 /** Attachment link changes arrive in bursts (connecting → live); one read per burst. */
 const ATTACHMENT_SETTLE_MS = 750
 /** A machine's change pushes arrive already throttled; a short settle folds the terminal and workspace pushes of one event into one read. */

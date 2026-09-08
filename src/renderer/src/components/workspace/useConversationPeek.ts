@@ -16,7 +16,7 @@ import type { ConversationPeek } from '../../../../shared/conversation-peek'
  * without a dwell it would fire forty cards. Focus skips it — a keyboard user
  * asked for this row explicitly and should not be made to wait.
  */
-export const PEEK_DWELL_MS = 220
+const PEEK_DWELL_MS = 220
 
 /**
  * Grace after the pointer leaves the anchor or the card. This is a POPOVER, not
@@ -24,7 +24,7 @@ export const PEEK_DWELL_MS = 220
  * pointer has to be able to cross the gap into it. Without this the gap closes
  * the card before it can be reached, which makes those controls unpressable.
  */
-export const PEEK_CLOSE_GRACE_MS = 140
+const PEEK_CLOSE_GRACE_MS = 140
 
 /**
  * The two calls the preload exposes for this feature, typed here as optional.

@@ -20,7 +20,7 @@ function prefersLight(): boolean {
   return window.matchMedia(LIGHT_MEDIA_QUERY).matches
 }
 
-export function resolveTheme(theme: AppTheme): ResolvedAppTheme {
+function resolveTheme(theme: AppTheme): ResolvedAppTheme {
   if (theme === 'system') return prefersLight() ? 'light' : 'dark'
   return theme
 }
@@ -34,7 +34,7 @@ export function resolveTheme(theme: AppTheme): ResolvedAppTheme {
 //
 // The boot script in src/renderer/index.html stamps the same pair before any
 // CSS evaluates; it cannot import this module, so it repeats the rule.
-export function applyThemeAttributes(resolved: ResolvedAppTheme): void {
+function applyThemeAttributes(resolved: ResolvedAppTheme): void {
   if (typeof document === 'undefined') return
   document.documentElement.setAttribute('data-theme', resolved)
   document.documentElement.setAttribute(

@@ -41,7 +41,7 @@ export type ExtensionsSurfaceTarget = {
   installed?: boolean
 }
 
-export const EXTENSIONS_SURFACE_TARGET_EVENT = 'multicode:extensions-surface-target'
+const EXTENSIONS_SURFACE_TARGET_EVENT = 'multicode:extensions-surface-target'
 
 const VIEWS: readonly string[] = Object.values(EXTENSIONS_DRAWER_VIEWS)
 

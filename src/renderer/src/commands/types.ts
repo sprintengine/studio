@@ -1,4 +1,4 @@
-import type { KeybindingPlatform } from './keybindings'
+
 
 export type CommandCategory =
   | 'settings'
@@ -64,7 +64,7 @@ export type CommandAvailability =
   // not new enum members.
   | (string & {})
 
-export type CommandHandlerPath =
+type CommandHandlerPath =
   | { kind: 'workspace-manager'; handler: string }
   | { kind: 'panel-event'; eventId: string }
   | { kind: 'app-menu'; command: string }
@@ -105,5 +105,3 @@ export type CommandDefinition = CommandContribution & {
   category: CommandCategory
   handlerPath: CommandHandlerPath
 }
-
-export type PlatformKeybindingMap = Partial<Record<KeybindingPlatform, readonly string[]>>

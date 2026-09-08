@@ -100,12 +100,3 @@ export const SPRINTS_DOOR: RunDoorDefinition = {
   selectPromptTitle: 'Select a sprint to see where it stands.',
   loadingLabel: 'Loading your sprints…',
 }
-
-const DOORS: Record<RunDoorId, RunDoorDefinition> = {
-  workflows: WORKFLOWS_DOOR,
-  sprints: SPRINTS_DOOR,
-}
-
-export function runDoorDefinition(door: RunDoorId): RunDoorDefinition {
-  return DOORS[door]
-}

@@ -19,11 +19,11 @@
 // 1s poll tick.
 
 // ~10s of 60fps frames. Bounds the ring so an open panel can't grow it forever.
-export const FRAME_HISTORY_LIMIT = 600
+const FRAME_HISTORY_LIMIT = 600
 
 // A frame slower than this is counted as a "long frame" (a clear stutter — at
 // 60Hz this is ≥3 missed vsyncs). Subtler stutter is still visible via p95/max.
-export const LONG_FRAME_THRESHOLD_MS = 50
+const LONG_FRAME_THRESHOLD_MS = 50
 
 // Frames longer than this are treated as the tab being backgrounded / throttled
 // (rAF is heavily clamped when hidden) and dropped rather than logged as jank.
@@ -54,7 +54,7 @@ const samples: FrameSample[] = []
 let running = false
 let rafHandle = 0
 
-export function recordFrame(durationMs: number, recordedAt = Date.now()): void {
+function recordFrame(durationMs: number, recordedAt = Date.now()): void {
   samples.push({ durationMs, recordedAt })
   if (samples.length > FRAME_HISTORY_LIMIT) {
     samples.splice(0, samples.length - FRAME_HISTORY_LIMIT)

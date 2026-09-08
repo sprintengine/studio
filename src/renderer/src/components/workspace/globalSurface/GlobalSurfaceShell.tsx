@@ -6,14 +6,6 @@ import { SIDEBAR_DEFAULT_WIDTH } from '../sidebarWidth'
 import { useContextRailSlot } from './contextRail'
 import { useGlobalSurfaceBarSlot } from './surfaceBarSlot'
 
-// A host that mounts a global surface as a full-page "door" lifts the surface bar
-// out of the surface body and into the app's top strip, collapsing what would
-// otherwise be two stacked bars (the empty workspace strip + the surface's own
-// bar) into one. The host supplies the destination element (surfaceBarSlot.ts);
-// the shell portals its bar there instead of rendering it inline. A surface with
-// no host in scope (tests, storybook) falls back to the inline bar unchanged.
-export { GlobalSurfaceBarSlotContext } from './surfaceBarSlot'
-
 // The shared frame for door-routed full-page surfaces (global-surfaces epic
 // 1704, mockup §1/§2 anatomy): a surface bar (title · status chip · context sub
 // · actions), an optional attention strip, and a body of an optional internal

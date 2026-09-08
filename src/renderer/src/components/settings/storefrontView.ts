@@ -21,7 +21,7 @@ import type {
 // Sentence-case labels for the component kinds a plugin bundles. Mirrors the
 // installed-inventory kind labels so the same primitive reads the same way on
 // both surfaces.
-export const COMPONENT_KIND_LABEL: Record<MarketplaceComponentKind, string> = {
+const COMPONENT_KIND_LABEL: Record<MarketplaceComponentKind, string> = {
   mcp: 'MCP server',
   skills: 'Skill pack',
   module: 'Module',

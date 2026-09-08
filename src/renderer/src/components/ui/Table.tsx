@@ -48,7 +48,7 @@ export function Table({ children, colgroup, fixed = false, ariaLabel, className,
   )
 }
 
-export type TableCellProps = {
+type TableCellProps = {
   children?: React.ReactNode
   /** Right-align and use tabular figures, so digits line up column-wise. */
   numeric?: boolean

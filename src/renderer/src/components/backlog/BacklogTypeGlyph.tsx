@@ -1,5 +1,4 @@
 import type { BacklogType } from '../../utils/backlog'
-import { TYPE_LABEL } from '../../utils/backlogTriage'
 import type { TooltipChildProps } from '../ui/Tooltip'
 
 // Shape-coded glyph for a Backlog item's *type*, the companion to the lifecycle
@@ -27,10 +26,6 @@ export function BacklogTypeGlyph({
       {TYPE_SHAPES[type]}
     </svg>
   )
-}
-
-export function backlogTypeLabel(type: BacklogType): string {
-  return TYPE_LABEL[type]
 }
 
 const TYPE_SHAPES: Record<BacklogType, JSX.Element> = {

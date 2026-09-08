@@ -13,7 +13,7 @@ import {
   taskBoardColumnToLifecycle,
 } from '../../../utils/sprintengine'
 
-export type SprintEngineTasksKanbanColumn = {
+type SprintEngineTasksKanbanColumn = {
   key: SprintEngineTaskBoardColumn
   label: string
   cards: SprintEngineState['tasks']

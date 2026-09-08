@@ -130,13 +130,9 @@ export function nextBacklogItemStatusFromLinks(
   return currentStatus
 }
 
-export function linkStatusChanged(link: BacklogItemLink, resolved: BacklogResolvedLink): boolean {
-  return link.status !== resolved.status
-}
-
 // Visible, non-color-only status word for a resolved Backlog link. The detail
 // pane shows this beside every link so status never depends on color alone.
-export const BACKLOG_LINK_STATUS_TEXT: Record<BacklogItemLinkStatus, string> = {
+const BACKLOG_LINK_STATUS_TEXT: Record<BacklogItemLinkStatus, string> = {
   pending: 'Not started',
   active: 'Active',
   completed: 'Completed',

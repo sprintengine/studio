@@ -153,7 +153,7 @@ export const CONVERSATION_SESSION_STATUS: Record<ConversationSessionStatus, Sess
 // Wizard's specialist sessions use stable agent ids, not workspace agents).
 // Shared with the wizard's session adapters so both transports label from
 // one map.
-export function conversationAgentFallbackLabel(agentId: string): string {
+function conversationAgentFallbackLabel(agentId: string): string {
   return GUIDED_BRIEF_AGENT_LABELS[agentId] ?? agentId
 }
 
@@ -175,7 +175,7 @@ export function sessionsAttentionTone(items: SessionItem[]): 'good' | 'warn' | '
   return 'good'
 }
 
-export function workspaceNeedsInput(workspace: Workspace): boolean {
+function workspaceNeedsInput(workspace: Workspace): boolean {
   return Object.values(workspace.sprintEngineState?.sprintEngineAgents ?? {}).some(
     (agent) => agent.status === 'needs_input',
   )
@@ -201,7 +201,7 @@ export function uniqueAgentName(baseName: string, agents: Workspace['agents']): 
   return `${baseName} ${suffix}`
 }
 
-export function terminalSessionLabel(terminalId: string): string {
+function terminalSessionLabel(terminalId: string): string {
   if (terminalId.startsWith('git-')) return 'Git terminal'
   if (terminalId.startsWith('worktree-')) return 'Worktree terminal'
   return 'Terminal'
@@ -209,7 +209,7 @@ export function terminalSessionLabel(terminalId: string): string {
 
 // Bucket label for a session whose workspaceId matches no workspace row and
 // whose caller offered no better name.
-export const DETACHED_SESSION_LABEL = 'Other sessions'
+const DETACHED_SESSION_LABEL = 'Other sessions'
 
 export type SessionItemOptions = {
   // Names the bucket a workspace-less session is listed under — the Reviews

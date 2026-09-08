@@ -6,7 +6,7 @@
 import type { GitHubRepoSummary } from '../../../../../shared/electron-api'
 import { validateCloneUrl } from '../../../../../shared/git-clone-url'
 
-export type CloneSource = { url: string; repoName: string; label: string }
+type CloneSource = { url: string; repoName: string; label: string }
 
 export type CloneSourceResolution =
   | { source: CloneSource; error: null }

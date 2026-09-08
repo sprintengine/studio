@@ -39,7 +39,7 @@ function hasCodeBearingKind(provides: MarketplaceComponentKind[]): boolean {
 
 // The blocked classifications: signature problems that offer no install path.
 // 'community' is NOT here — it is trust-grantable; 'verified' installs directly.
-export type BlockedClassification = 'unsigned' | 'invalid'
+type BlockedClassification = 'unsigned' | 'invalid'
 
 export type InstallFlowState =
   | { status: 'idle' }
@@ -142,8 +142,8 @@ export function summarizeInstallResult(result: MarketplacePluginRegistryInstallR
 
 // --- presentation ----------------------------------------------------------
 
-export type InstallActionKind = 'install' | 'trust-install' | 'retry'
-export type NoticeTone = 'good' | 'warn' | 'error'
+type InstallActionKind = 'install' | 'trust-install' | 'retry'
+type NoticeTone = 'good' | 'warn' | 'error'
 
 export type InstallFlowView = {
   // The primary action button, or null when no action is offered (verifying /

@@ -1,8 +1,6 @@
 import type {
   AgentCli,
   AgentId,
-  GuidedBriefHasUi,
-  GuidedBriefPreset,
   GuidedBriefRuntimeState,
   LayoutTemplate,
   SprintEngineAutoState,
@@ -16,14 +14,9 @@ import type {
   SprintEngineSourcePlanKind,
   SprintEngineState,
   SprintEngineWorkspaceContext,
-  WorkspaceId,
   WorkspaceWindowId,
   WorkspaceMode,
 } from '../../../../types/workspace'
-import type {
-  PlanSourcedSprintEngineWorkspaceArgs,
-  PlanSourcedSprintEngineWorkspaceResult,
-} from '../../../../utils/sprintengineWorkspaceCreation'
 import type { SprintEngineArtifactCommandResult, SprintEngineStateInitializeInput } from '../../../../../../shared/electron-api'
 import type { SprintEngineIntake } from '../../../../../../shared/sprintengine/run-types'
 
@@ -42,63 +35,7 @@ export type OnCreateArgs = {
   mode?: WorkspaceMode
 }
 
-/**
- * What each mode controller returns. `on-create` modes hand the args back to
- * the wizard so it can call `onCreate` (which the host uses to wire up the
- * workspace); `self-created` modes already wrote workspace state into the
- * store, and the wizard only needs to run the post-creation chrome.
- */
-export type CreationResult =
-  | { kind: 'on-create'; args: OnCreateArgs }
-  | { kind: 'self-created' }
-
-export type GuidedBriefFilesystemPort = {
-  ensureDir: (parent: string, name: string) => Promise<string>
-  readFile: (path: string) => Promise<string>
-  writeFile: (path: string, content: string) => Promise<void>
-}
-
-export type PathExists = (path: string) => Promise<boolean>
-
-export type AddWorkspacePort = (
-  template: LayoutTemplate,
-  options?: {
-    name?: string
-    folderPath?: string | null
-    sprintEngineState?: SprintEngineState | null
-    sprintEngineContext?: SprintEngineWorkspaceContext | null
-    sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
-    sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
-    sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
-    sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
-    sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
-    guidedBriefState?: GuidedBriefRuntimeState | null
-    mode?: WorkspaceMode
-    windowId?: WorkspaceWindowId | null
-  }
-) => WorkspaceId
-
-export type SprintEngineExistingTeamInput = {
-  folderPath: string | null
-  existingTeam: {
-    slug: string
-    displayName: string
-    context: SprintEngineWorkspaceContext
-    state: SprintEngineState
-  }
-  roleCliDefaults: Required<SprintEngineRoleCliDefaults>
-  agentCliOverrides: Record<AgentId, AgentCli>
-  roleModelOverrides?: SprintEngineRoleModelOverrides | null
-  // Per-role reasoning-effort level (MC-1885). Rides the same `roleRuntimes`
-  // entry as the CLI/model pick; an absent role means the CLI's own default
-  // effort, which passes no flag.
-  roleReasoningOverrides?: SprintEngineRoleReasoningOverrides | null
-  initialSpawnRoles?: SprintEngineRoleId[] | null
-  startRunner: boolean
-  autoApproveArtifacts: boolean
-  cliPermissionPreset: SprintEngineCliPermissionPreset
-  workspaceWindowId?: WorkspaceWindowId | null
-}
+type PathExists = (path: string) => Promise<boolean>
 
 export type SprintEngineNewTeamInput = {
   folderPath: string | null
@@ -212,103 +149,3 @@ export type SprintEnginePlanSourcedPorts = {
     childRelativePaths?: string[]
   }) => Promise<void>
 }
-
-export type GuidedBriefScaffoldInput = {
-  folderPath: string | null
-  workspaceName: string
-  idea: string
-  hasUi: GuidedBriefHasUi | null
-  // Absent is treated as `full-brief`. `frontend-design` forces the design-only
-  // path (UI implied, product/architecture skipped, start on the designer stage)
-  // regardless of the discussion flags passed alongside it.
-  preset?: GuidedBriefPreset
-  wantsProduct: boolean
-  wantsArchitecture: boolean
-  wantsFrontend: boolean
-  guidedRoleCliDefaults: import('../../../../types/workspace').GuidedBriefRoleCliDefaults
-  guidedRoleModelOverrides?: import('../../../../types/workspace').GuidedBriefRoleModelOverrides
-  buildRoleCounts: SprintEngineRoleCounts
-  buildRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
-  buildCliPermissionPreset: SprintEngineCliPermissionPreset
-  buildStartRunner: boolean
-  buildAutoApproveArtifacts: boolean
-}
-
-export type GuidedBriefScaffoldPorts = {
-  filesystem: GuidedBriefFilesystemPort
-  /**
-   * Read-only walker for the scaffold baseline (MC-1502): records every file
-   * already under the preset's shared roots (`mockups/**`,
-   * `product/ui-direction.md`) so run-scoped discovery can hide seed-repo
-   * files. Required — a scaffold that cannot enumerate pre-existing files
-   * would silently regress to leaking them into the studio index.
-   */
-  discovery: import('../../guidedBrief/designArtifacts').ScaffoldBaselinePort
-}
-
-export type GuidedBriefScaffoldResult = {
-  runtimeState: GuidedBriefRuntimeState
-}
-
-// The design-system preset forces the design-only path (UI implied,
-// product/architecture discussions off), so its scaffold input carries no
-// hasUi or discussion flags.
-export type DesignSystemScaffoldControllerInput = {
-  folderPath: string | null
-  workspaceName: string
-  idea: string
-  // Blank start when null/absent; otherwise the source the designer agent
-  // extracts the starter bundle from (see DesignSystemSeedSource).
-  seedSource?: import('../../../../types/workspace').DesignSystemSeedSource | null
-  guidedRoleCliDefaults: import('../../../../types/workspace').GuidedBriefRoleCliDefaults
-  guidedRoleModelOverrides?: import('../../../../types/workspace').GuidedBriefRoleModelOverrides
-  buildRoleCounts: SprintEngineRoleCounts
-  buildRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
-  buildCliPermissionPreset: SprintEngineCliPermissionPreset
-  buildStartRunner: boolean
-  buildAutoApproveArtifacts: boolean
-}
-
-export type DesignSystemScaffoldControllerPorts = {
-  filesystem: GuidedBriefFilesystemPort
-  /** Main-process bundle scaffold (design-system:scaffold-bundle IPC). */
-  scaffoldBundle: (
-    workspaceRoot: string,
-    name: string,
-    summary: string,
-  ) => Promise<import('../../../../../../shared/design-system/bundle-scaffold').DesignSystemScaffoldResult>
-}
-
-export type GuidedBriefStartBuildInput = {
-  runtimeState: GuidedBriefRuntimeState
-  runOptions: {
-    startRunner: boolean
-    autoApproveArtifacts: boolean
-    roleCounts: SprintEngineRoleCounts
-    roleCliDefaults: Required<SprintEngineRoleCliDefaults>
-    cliPermissionPreset: SprintEngineCliPermissionPreset
-  }
-  finalRoleCounts: SprintEngineRoleCounts
-  rosterSummary: string[]
-  planningDecisions: string[]
-  planningValidationNotes: string[]
-  buildHandoffRelativePath: string
-  workspaceWindowId?: WorkspaceWindowId | null
-}
-
-export type GuidedBriefStartBuildPorts = {
-  filesystem: GuidedBriefFilesystemPort
-  pathExists: PathExists
-  readArchitecturePlan: (workspaceRoot: string, path: string) => Promise<string>
-  readBuildHandoff: (workspaceRoot: string, relativePath: string) => Promise<string>
-  // Advanced-setup preflight (MCP sync + knowledge root). Runs before any
-  // handoff write or run/workspace creation so a failure fails closed: it
-  // returns the actionable error message, and the controller aborts before the
-  // first filesystem/run mutation. Returns null on success.
-  persistAdvancedSetup: (workspaceRoot: string) => Promise<string | null>
-  createPlanSourcedSprintEngineWorkspace?: (
-    args: PlanSourcedSprintEngineWorkspaceArgs
-  ) => Promise<PlanSourcedSprintEngineWorkspaceResult>
-}
-
-export type SprintEngineRoleLikeId = SprintEngineRoleId

@@ -12,7 +12,7 @@
 // lazy-loads TerminalView: a request sent the instant a workspace opens can
 // arrive before the chunk has resolved, and the caller needs to know to retry.
 
-export const TERMINAL_FOCUS_EVENT = 'multicode:focus-terminal'
+const TERMINAL_FOCUS_EVENT = 'multicode:focus-terminal'
 
 /** Who to focus. `agentId` addresses an agent pane, `terminalId` a plain terminal. */
 export type TerminalFocusTarget = {
@@ -21,7 +21,7 @@ export type TerminalFocusTarget = {
   terminalId?: string | null
 }
 
-export type TerminalFocusRequestDetail = TerminalFocusTarget & { handled: boolean }
+type TerminalFocusRequestDetail = TerminalFocusTarget & { handled: boolean }
 
 /** How a mounted pane identifies itself when deciding whether a request is for it. */
 export type TerminalFocusIdentity = {

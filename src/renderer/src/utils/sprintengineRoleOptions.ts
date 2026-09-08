@@ -3,7 +3,6 @@ import type {
   SprintEngineRoleId,
   SprintEngineRoleRegistry,
   SprintEngineTask,
-  SprintEngineTaskStatus,
 } from '../types/workspace'
 import {
   getSprintEngineRoleLabel,
@@ -222,13 +221,3 @@ function resolveRoleSummary(
 function isBundledBoardRole(role: SprintEngineRoleId): role is SprintEngineRole {
   return Object.prototype.hasOwnProperty.call(BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES, role)
 }
-
-// Exported for the board's "Ready" status / uncovered-role calculation when
-// it needs to consult a single task status value.
-export function isSprintEngineTaskOpenForRole(task: TaskLike, role: SprintEngineRoleId): boolean {
-  return task.role === role && task.status !== 'done'
-}
-
-// Re-exported for callers that just need the type and would otherwise pull
-// it in from the larger `sprintengine.ts` module.
-export type { SprintEngineTaskStatus }

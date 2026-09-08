@@ -9,7 +9,7 @@ import type { BacklogReader } from './renderer-host'
 // workspace store lazily (keeping it out of the eager module-registry graph)
 // and tests can drive the reader with a fake subscription layer.
 
-export type BacklogReaderSubscribeOptions = {
+type BacklogReaderSubscribeOptions = {
   /** Skip the filesystem watcher for one-shot reads (list) on cold folders. */
   startWatcher?: boolean
 }

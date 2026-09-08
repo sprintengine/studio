@@ -136,7 +136,7 @@ export function applyPostFailure(
   )
 }
 
-export type CommentSyncTone = 'neutral' | 'good' | 'error'
+type CommentSyncTone = 'neutral' | 'good' | 'error'
 
 export interface CommentSyncChip {
   label: string
