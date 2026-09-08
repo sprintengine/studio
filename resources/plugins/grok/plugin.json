@@ -36,6 +36,7 @@
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
+      { "spreadIf": "contextArgs" },
       "--session-id",
       "{{sessionId}}"
     ]
@@ -46,6 +47,7 @@
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
+      { "spreadIf": "contextArgs" },
       "--resume",
       "{{sessionId}}"
     ]
@@ -58,6 +60,11 @@
       "pattern": "(?!)",
       "timeoutMs": 8000
     }
+  },
+  "contextInjection": {
+    "$comment": "grok --append-system-prompt <text>, verified accepted by the installed Grok Build 1.0.13 as an undocumented compat alias of the documented --rules (\"Extra rules to append to the system prompt\"). Text rather than a file: grok documents no file-taking variant. Spread into launch AND resume argv, so a resumed session is re-told.",
+    "mode": "argv",
+    "args": ["--append-system-prompt", "{{contextText}}"]
   },
   "completion": {
     "mode": "process-exit"

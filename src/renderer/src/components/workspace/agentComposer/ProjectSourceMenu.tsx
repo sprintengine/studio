@@ -51,8 +51,12 @@ export function ProjectSourceMenu({
    * here: this popover can close mid-clone, and a success that arrived into
    * an unmounted menu used to be lost. The menu only reports progress and
    * git's error inline, and closes on success if it is still open.
+   *
+   * Absent hides the Import-from-Git source, symmetrically with `onBrowse` — a
+   * host that has nothing to clone into (the Design door, whose systems are
+   * folders that already exist) must not be offered a way in that leads nowhere.
    */
-  onClone: (request: ProjectCloneRequest) => Promise<ProjectCloneResult>
+  onClone?: (request: ProjectCloneRequest) => Promise<ProjectCloneResult>
   onClose: () => void
 }) {
   const [step, setStep] = React.useState<'projects' | 'git'>('projects')
@@ -100,7 +104,7 @@ export function ProjectSourceMenu({
 
   const runClone = async (): Promise<void> => {
     const source = resolution.source
-    if (!source || cloning) return
+    if (!source || cloning || !onClone) return
     if (!defaultParent) {
       // Only a true cold start with no default parent from the app lands here.
       setCloneError('Choose a folder with Browse… first, so there is somewhere to clone into.')
@@ -248,6 +252,7 @@ export function ProjectSourceMenu({
           </span>
         </button>
       ) : null}
+      {onClone ? (
       <button
         type="button"
         role="menuitem"
@@ -265,6 +270,7 @@ export function ProjectSourceMenu({
         </span>
         <span aria-hidden="true" className="mt-0.5 shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>
       </button>
+      ) : null}
       <div className={MENU_DIVIDER_CLASS} role="separator" />
       {visible.map(projectRow)}
       {visibleRecent.length > 0 ? (

@@ -1,3 +1,5 @@
+import type React from 'react'
+
 import type { FilterMenuGroup } from '../../../ui'
 import { SurfaceRail, type SurfaceRailGroup, type SurfaceRailRow } from '../surfaceSubstrate'
 import {
@@ -46,6 +48,7 @@ export function DesignRail({
   entries,
   selectedId,
   accentMode,
+  projectScope,
   search,
   onSearch,
   status,
@@ -59,6 +62,18 @@ export function DesignRail({
   selectedId: string | null
   /** Which of the bundle's two declared modes its accent is read for. */
   accentMode: 'light' | 'dark'
+  /**
+   * The project chip: which project's `design-system/` the door is showing.
+   *
+   * It rides the rail HEAD rather than the "In this project" group heading the
+   * mockup drew it on, and the reason is structural: `buildDesignRailGroups`
+   * drops a group with no rows, and a project with no design system attached is
+   * exactly when a person needs to change the project. A control that vanished
+   * at the only moment it was wanted would be worse than a control in a slightly
+   * different place. The head is also where it is always visible, above the
+   * search that narrows the rows beneath it.
+   */
+  projectScope?: React.ReactNode
   search: string
   onSearch: (next: string) => void
   status: DesignRailStatusFilter
@@ -109,6 +124,7 @@ export function DesignRail({
   return (
     <SurfaceRail
       label="Design systems"
+      intro={projectScope}
       rows={rows}
       groups={groups}
       // Exactly one focused selection across rail and canvas: while New holds

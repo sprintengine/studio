@@ -1,9 +1,13 @@
 import { app } from 'electron'
+import { createHash } from 'crypto'
 import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
+import type { PluginContextInjectionMode } from '../shared/plugin-manifest'
 import { applyDebugDirective } from '../shared/debug-directive'
+import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../shared/design-system/bundle-scaffold'
+import { buildHostContextDocument, wrapHostContextForPrompt } from '../shared/host-context/document'
 import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, renderCliLaunchEnv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
 import { resolveAgentStateSocketPath } from './agent-state-service'
 import { renderReasoningArgs, resolvePermissionArgs } from './plugin-render'
@@ -24,6 +28,12 @@ export type ShellLaunchConfig = {
   initialInput?: string
   env?: Record<string, string>
   startupScriptPath?: string
+  /**
+   * Where this launch's host-context document was written, when one was. The
+   * caller keeps it on the session so the file is reaped at teardown alongside
+   * the startup script; see `cleanupHostContextFile`.
+   */
+  hostContextPath?: string
 }
 
 export function getTerminalEnv(): Record<string, string> {
@@ -132,11 +142,18 @@ function redirectsAnthropicEndpoint(providerEnv: Record<string, string>): boolea
   return Boolean(providerEnv.ANTHROPIC_BASE_URL || providerEnv.ANTHROPIC_AUTH_TOKEN)
 }
 
-// Merge a CLI manifest's rendered `launch.env` onto a base session env. The
-// provider env wins on collision (it is the whole point — e.g. pointing
-// ANTHROPIC_BASE_URL at Z.AI) except for the protected identity keys above.
-// No-op (returns the base unchanged) for the common case of a manifest with no
-// `launch.env`.
+// Merge a CLI manifest's rendered `launch.env` (and its `contextInjection.env`,
+// which rides the same record) onto a base session env. The provider env wins on
+// collision (it is the whole point — e.g. pointing ANTHROPIC_BASE_URL at Z.AI)
+// except for the protected identity keys above. No-op (returns the base
+// unchanged) for the common case of a manifest with no env at all.
+//
+// ONE exception to "wins on collision": when both sides are JSON objects, they
+// are merged rather than replaced. This is the host-context env channel
+// (OpenCode's OPENCODE_CONFIG_CONTENT, a whole config document): a user who
+// exports their own config content must not lose it because we wanted to add one
+// `instructions` entry, and they must not lose our entry either. The rule is
+// stated in terms of JSON, not of any CLI — no manifest is named here.
 export function mergeProviderLaunchEnv(
   base: Record<string, string>,
   providerEnv: Record<string, string> | undefined
@@ -148,9 +165,41 @@ export function mergeProviderLaunchEnv(
   }
   for (const [key, value] of Object.entries(providerEnv)) {
     if (PROTECTED_LAUNCH_ENV_KEYS.has(key)) continue
-    next[key] = value
+    next[key] = mergeJsonEnvValue(next[key], value)
   }
   return next
+}
+
+/**
+ * `next` merged over `existing` when both are JSON objects, else `next`.
+ *
+ * Shallow on objects and concatenating on arrays, which is what "add my entry to
+ * your list" needs and all this channel is for. Anything that does not parse —
+ * the overwhelming majority of env values — takes the plain replacement path, so
+ * this is invisible to every other manifest.
+ */
+function mergeJsonEnvValue(existing: string | undefined, next: string): string {
+  if (!existing) return next
+  const left = parseJsonObject(existing)
+  const right = parseJsonObject(next)
+  if (!left || !right) return next
+  const merged: Record<string, unknown> = { ...left }
+  for (const [key, value] of Object.entries(right)) {
+    const previous = merged[key]
+    merged[key] = Array.isArray(previous) && Array.isArray(value) ? [...previous, ...value] : value
+  }
+  return JSON.stringify(merged)
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
 }
 
 // JSON for the dynamic plugin registry roots the souls CLI should also search
@@ -377,14 +426,21 @@ function replaceAllLiteral(value: string, search: string, replacement: string): 
   return search && search !== replacement ? value.split(search).join(replacement) : value
 }
 
-function normalizeInitialPromptPaths(
-  initialPrompt: string | undefined,
+/**
+ * Rewrite every absolute path this launch knows about into the path style the
+ * launched shell speaks. Applied to the initial prompt and to the host-context
+ * document alike — both name the workspace, the knowledge root and the context
+ * file itself, and a Windows path handed to a CLI running under WSL points at
+ * nothing.
+ */
+function normalizeTextPaths(
+  text: string | undefined,
   target: 'windows' | 'wsl',
   paths: Array<string | undefined>
 ): string | undefined {
-  if (!initialPrompt) return initialPrompt
+  if (!text) return text
 
-  let normalizedPrompt = initialPrompt
+  let normalizedPrompt = text
   for (const pathValue of paths) {
     if (!pathValue) continue
 
@@ -667,6 +723,161 @@ export function cleanupTerminalStartupScript(scriptPath: string | undefined): vo
   void unlink(scriptPath).catch(() => {})
 }
 
+// ── Host context ────────────────────────────────────────────────────────────
+//
+// Everything the host wants the agent to know that is NOT the user's request —
+// today: an attached design system, and the project's Knowledge Graph. It used
+// to be two sentences the RENDERER pasted after the user's prompt, which meant
+// the model could not tell host from user, a resumed session was never told at
+// all, and a headless launch got only half of it. It is built here instead,
+// because this is the one seam every launcher passes through: the interactive
+// spawn, the mobile spawn, and `AgentLaunchService` (gateway, automations,
+// Horizon) all reach the pty through `getShellLaunchConfig`.
+//
+// The manifest decides the channel (`contextInjection`), not this file.
+
+/** Where per-session context documents live, beside the startup scripts. */
+const HOST_CONTEXT_DIRECTORY = 'host-context'
+
+/**
+ * Exported for terminal-launch.test.ts: the delivery decision and the path
+ * normalisation over it are the rules this file owns, and driving them through
+ * `getShellLaunchConfig` would need a real Electron `userData` and a real
+ * workspace on disk. The manifest-by-manifest argv/env each mode actually
+ * produces is proved in agent-launch-render.test.ts, against the bundled
+ * manifests and through the same renderer every launch uses.
+ */
+export type HostContextDelivery = {
+  /** The manifest's declared channel. A CLI declaring none falls back to `prompt`. */
+  mode: PluginContextInjectionMode
+  /** The document, or null when the host has nothing to say about this launch. */
+  document: string | null
+  /** Where it was written, for the file/env channels. Null in `prompt` mode. */
+  filePath: string | null
+}
+
+/**
+ * Resolve, build and (for the out-of-band channels) write this launch's host
+ * context.
+ *
+ * The design-system predicate is unchanged from the renderer's: the document
+ * carries a design section when and only when `<executionRoot>/design-system/`
+ * exists — deliberately KG-independent, so a repo with a design system and no
+ * knowledge graph still gets told. A failed write degrades to no context rather
+ * than to an empty flag: `--append-system-prompt-file ""` is worse than silence.
+ */
+function resolveHostContextDelivery(input: {
+  cwd: string
+  sessionId: string
+  cli: AgentCli
+  memoryRootPath?: string
+  memoryRelativeRoot?: string
+}): HostContextDelivery {
+  const mode = getPluginManifest(input.cli)?.contextInjection?.mode ?? 'prompt'
+  const bundlePath = join(input.cwd, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)
+  const attached = designSystemAttached(bundlePath)
+  const document = buildHostContextDocument({
+    ...(attached ? { designSystem: { bundlePath } } : {}),
+    // `memoryRootPath` is set only when the configured root actually resolved,
+    // so its presence IS the ok/not-ok the shared builder asks for — the same
+    // pair the launch already carries into the session env.
+    ...(input.memoryRootPath || input.memoryRelativeRoot
+      ? {
+          knowledge: {
+            ok: Boolean(input.memoryRootPath),
+            ...(input.memoryRootPath ? { rootPath: input.memoryRootPath } : {}),
+            ...(input.memoryRelativeRoot ? { relativeRoot: input.memoryRelativeRoot } : {}),
+          },
+        }
+      : {}),
+  })
+  if (!document || mode === 'prompt') return { mode, document, filePath: null }
+  return { mode, document, filePath: writeHostContextFile(input.sessionId, input.cwd, document) }
+}
+
+/** Never let a probe failure (a permission error on the root) fail a launch. */
+function designSystemAttached(bundlePath: string): boolean {
+  try {
+    return existsSync(bundlePath)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Write the document under `<userData>/host-context/<sessionId>.md`, overwriting
+ * on every launch and resume. Returns null when it cannot be written (outside a
+ * real Electron app there is no `userData`), which the caller reads as "deliver
+ * nothing".
+ *
+ * A launch with no session id to name the file after is real: a bare
+ * `codex resume` passes an empty id. It falls back to a digest of the execution
+ * root, which is what the document is actually derived from anyway.
+ */
+function writeHostContextFile(sessionId: string, cwd: string, document: string): string | null {
+  try {
+    const directory = join(app.getPath('userData'), HOST_CONTEXT_DIRECTORY)
+    const safeSessionId =
+      sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
+      || `cwd-${createHash('sha1').update(cwd).digest('hex').slice(0, 12)}`
+    const filePath = join(directory, `${safeSessionId}.md`)
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(filePath, `${document}\n`, { encoding: 'utf8', mode: 0o600 })
+    return filePath
+  } catch {
+    return null
+  }
+}
+
+/** Reap a session's host-context document, mirroring the startup-script reap. */
+export function cleanupHostContextFile(contextPath: string | undefined): void {
+  if (!contextPath) return
+  void unlink(contextPath).catch(() => {})
+}
+
+/**
+ * The `contextFile` / `contextText` a manifest's templates render against, in
+ * the path style this launch's shell speaks.
+ *
+ * Both are withheld together when the document could not be written, so a
+ * manifest that spends `{{contextFile}}` never renders a flag with an empty
+ * value. `contextText` is path-normalized too: it names the design-system folder
+ * and the knowledge root absolutely, and a Windows path inside a document handed
+ * to a CLI running under WSL points at nothing.
+ */
+/** What a manifest's `contextInjection` templates render against. */
+export type HostContextRenderInputs = { contextFile?: string; contextText?: string }
+
+export function hostContextRenderInputs(
+  delivery: HostContextDelivery,
+  target: 'windows' | 'wsl' | null,
+  paths: Array<string | undefined>,
+): HostContextRenderInputs {
+  if (delivery.mode === 'prompt' || !delivery.document || !delivery.filePath) return {}
+  if (!target) return { contextFile: delivery.filePath, contextText: delivery.document }
+  const allPaths = [...paths, delivery.filePath]
+  return {
+    contextFile: target === 'wsl' ? toWslPath(delivery.filePath) : toWindowsPath(delivery.filePath),
+    contextText: normalizeTextPaths(delivery.document, target, allPaths) ?? delivery.document,
+  }
+}
+
+/**
+ * The initial prompt for a CLI with no out-of-band channel at all: the document
+ * wrapped in `<host-context>` tags, BEFORE the user's request.
+ *
+ * Only when there IS a request. A CLI launched with nothing typed is meant to
+ * sit at its prompt waiting for the user; handing it a host-context block as its
+ * first message would start it working on the host's words.
+ */
+export function applyHostContextToPrompt(
+  delivery: HostContextDelivery,
+  initialPrompt: string | undefined,
+): string | undefined {
+  if (delivery.mode !== 'prompt' || !delivery.document || !initialPrompt?.trim()) return initialPrompt
+  return wrapHostContextForPrompt(delivery.document, initialPrompt)
+}
+
 function buildWslShellScript(
   cwd: string,
   sessionId: string,
@@ -682,14 +893,15 @@ function buildWslShellScript(
   managedMcpEnv?: Record<string, string>,
   debugMode = false,
   providerLaunchEnv?: Record<string, string>,
-  cliReasoning?: string
+  cliReasoning?: string,
+  hostContext: HostContextRenderInputs = {}
 ): string {
-  const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'wsl', [cwd, sprintEngineStatePath, memoryRootPath])
+  const shellInitialPrompt = normalizeTextPaths(initialPrompt, 'wsl', [cwd, sprintEngineStatePath, memoryRootPath])
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv, providerLaunchEnv),
-    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning),
+    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning, undefined, hostContext),
     'exec bash -li',
   ].join('; ')
 }
@@ -719,15 +931,33 @@ export function getShellLaunchConfig(
 
   const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
 
+  // The host's own context for this launch (an attached design system, the
+  // project's Knowledge Graph), built here so EVERY launcher gets the same
+  // document — interactive, mobile, and the headless AgentLaunchService all
+  // arrive at this function. The manifest's `contextInjection` decides the
+  // channel; only the prompt fallback touches the user's message, and then only
+  // by putting the block in front of it.
+  const hostContext = resolveHostContextDelivery({
+    cwd,
+    sessionId,
+    cli,
+    ...(memoryRootPath ? { memoryRootPath } : {}),
+    ...(memoryRelativeRoot ? { memoryRelativeRoot } : {}),
+  })
+  const launchPrompt = applyHostContextToPrompt(hostContext, initialPrompt)
+  const hostContextPath = hostContext.filePath ?? undefined
+
   // CLI manifests may redirect the agent at an alternate API endpoint via
   // `launch.env` (e.g. the Z.AI runtime points the `claude` binary at Z.AI's
   // Anthropic-compatible endpoint). Render it once here with the resolved auth
   // token, then inject it into the spawned env (PTY env for native, bootstrap
   // exports for WSL). Empty for the ordinary CLIs, so their launch is unchanged.
+  // A manifest delivering host context through the environment (OpenCode) is
+  // rendered by the same call, so it rides the same injection.
   const providerLaunchEnv = renderCliLaunchEnv({
     cli,
     sessionId,
-    initialPrompt,
+    initialPrompt: launchPrompt,
     cliRuntime,
     cliPermissionPreset,
     cliModel,
@@ -735,13 +965,15 @@ export function getShellLaunchConfig(
     debugMode,
     colorScheme: getColorScheme(),
     secretToken: cliAuthToken,
+    ...hostContextRenderInputs(hostContext, process.platform === 'win32' ? (cliRuntime.useWsl ? 'wsl' : 'windows') : null, [cwd, sprintEngineStatePath, memoryRootPath]),
   })
 
   if (process.platform === 'win32' && !cliRuntime.useWsl) {
     const windowsCwd = toWindowsPath(cwd)
     const windowsStatePath = sprintEngineStatePath ? toWindowsPath(sprintEngineStatePath) : undefined
     const windowsMemoryRootPath = memoryRootPath ? toWindowsPath(memoryRootPath) : undefined
-    const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'windows', [cwd, sprintEngineStatePath, memoryRootPath])
+    const windowsHostContext = hostContextRenderInputs(hostContext, 'windows', [cwd, sprintEngineStatePath, memoryRootPath])
+    const shellInitialPrompt = normalizeTextPaths(launchPrompt, 'windows', [cwd, sprintEngineStatePath, memoryRootPath, hostContext.filePath ?? undefined])
     if (!isNativeWindowsPath(windowsCwd)) {
       throw new Error(
         `Workspace path "${cwd}" is not available as a Windows path. Turn on "Run through WSL" for ${cli}.`
@@ -760,7 +992,8 @@ export function getShellLaunchConfig(
         cliPermissionPreset,
         cliModel,
         debugMode,
-        cliReasoning
+        cliReasoning,
+        windowsHostContext
       )
     )
 
@@ -774,6 +1007,7 @@ export function getShellLaunchConfig(
       cwd: windowsCwd,
       pathStyle: 'windows',
       startupScriptPath,
+      ...(hostContextPath ? { hostContextPath } : {}),
     }
   }
 
@@ -787,7 +1021,7 @@ export function getShellLaunchConfig(
         resume,
         sprintEngineStatePath,
         cli,
-        initialPrompt,
+        launchPrompt,
         cliRuntime,
         cliPermissionPreset,
         cliModel,
@@ -796,7 +1030,8 @@ export function getShellLaunchConfig(
         managedMcpEnv,
         debugMode,
         providerLaunchEnv,
-        cliReasoning
+        cliReasoning,
+        hostContextRenderInputs(hostContext, 'wsl', [cwd, sprintEngineStatePath, memoryRootPath])
       )
     )
     return {
@@ -809,6 +1044,7 @@ export function getShellLaunchConfig(
       ],
       pathStyle: 'wsl',
       startupScriptPath,
+      ...(hostContextPath ? { hostContextPath } : {}),
     }
   }
 
@@ -816,7 +1052,19 @@ export function getShellLaunchConfig(
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
     buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv, providerLaunchEnv),
-    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning, resolvedBinaryPath),
+    buildAgentLaunchCommand(
+      cli,
+      sessionId,
+      resume,
+      launchPrompt,
+      cliRuntime,
+      cliPermissionPreset,
+      cliModel,
+      debugMode,
+      cliReasoning,
+      resolvedBinaryPath,
+      hostContextRenderInputs(hostContext, null, [])
+    ),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
   const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)
@@ -831,6 +1079,7 @@ export function getShellLaunchConfig(
     ),
     pathStyle: 'posix',
     startupScriptPath,
+    ...(hostContextPath ? { hostContextPath } : {}),
   }
 }
 
@@ -906,7 +1155,8 @@ function buildNativeAgentLaunchPowerShellScript(
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
   cliModel?: string,
   debugMode = false,
-  cliReasoning?: string
+  cliReasoning?: string,
+  hostContext: HostContextRenderInputs = {}
 ): string {
   // Codex keeps its legacy Windows path because of two plugin-specific
   // behaviours that do not generalise: a `-C cwd` flag the Windows codex CLI
@@ -939,6 +1189,7 @@ function buildNativeAgentLaunchPowerShellScript(
     cliReasoning,
     debugMode,
     colorScheme: getColorScheme(),
+    ...hostContext,
   })
   // argv[0] is the binary; the remainder are the arguments PowerShell needs
   // to base64-encode for round-trip safety through nested quoting layers.
@@ -1032,7 +1283,8 @@ function buildAgentLaunchCommand(
   cliModel?: string,
   debugMode = false,
   cliReasoning?: string,
-  resolvedBinaryPath?: string
+  resolvedBinaryPath?: string,
+  hostContext: HostContextRenderInputs = {}
 ): string {
   return buildAgentShellCommand({
     cli,
@@ -1046,5 +1298,6 @@ function buildAgentLaunchCommand(
     debugMode,
     colorScheme: getColorScheme(),
     resolvedBinaryPath,
+    ...hostContext,
   })
 }

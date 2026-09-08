@@ -53,6 +53,10 @@
   "promptInjection": {
     "mode": "positional-arg"
   },
+  "contextInjection": {
+    "$comment": "cursor-agent documents no system-prompt flag, no rules flag and no instructions env var (verified against the installed CLI: --help lists --model / --mode / --add-dir / --plugin-dir and nothing that sets a system prompt). Its only out-of-band channel is a rules FILE inside the user's repo, which the host must not write into. So the document is wrapped in <host-context> tags and placed BEFORE the user's prompt.",
+    "mode": "prompt"
+  },
   "completion": {
     "mode": "process-exit"
   },

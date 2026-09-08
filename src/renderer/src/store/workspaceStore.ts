@@ -268,6 +268,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
+  /** The Design door's viewing scope. Null returns it to following the active workspace. */
+  setDesignProjectScopePath: (path: string | null) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void

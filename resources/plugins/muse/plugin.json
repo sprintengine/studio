@@ -30,6 +30,10 @@
       "timeoutMs": 8000
     }
   },
+  "contextInjection": {
+    "$comment": "Muse documents no system-prompt flag and no instructions env var. Prompt fallback, same as cursor.",
+    "mode": "prompt"
+  },
   "completion": {
     "mode": "process-exit"
   },

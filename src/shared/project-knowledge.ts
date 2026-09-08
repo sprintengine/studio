@@ -14,8 +14,13 @@ import { basename } from './paths'
 
 /**
  * What a launch needs from the resolved Knowledge Graph root: the env vars that
- * tell the agent's tooling where the graph is, and the prompt line that tells
- * the AGENT it exists.
+ * tell the agent's tooling where the graph is, and the sentence that tells the
+ * AGENT it exists.
+ *
+ * That sentence is no longer appended to the user's prompt. It is the knowledge
+ * section of the host-context document (`src/shared/host-context/document.ts`),
+ * which main builds once per launch and the CLI manifest delivers out of band —
+ * the wording here is still the single source of it.
  */
 export type KnowledgeLaunchContext = {
   rootPath?: string
@@ -29,8 +34,8 @@ export type KnowledgeLaunchContext = {
  * main-process AgentLaunchService (MC-2159) for one launched with no window —
  * which must not silently drop the graph just because nobody is watching.
  *
- * An UNRESOLVABLE configured root still yields a prompt line. Saying nothing
- * would leave the agent to guess another knowledge folder, which is exactly the
+ * An UNRESOLVABLE configured root still yields a line. Saying nothing would
+ * leave the agent to guess another knowledge folder, which is exactly the
  * invention the line forbids.
  */
 export function knowledgeLaunchContext(status: MemoryRootStatus): KnowledgeLaunchContext {

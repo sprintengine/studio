@@ -17,9 +17,14 @@ import { DesignCanvas } from './DesignCanvas'
 import { NewDesignSystemScreen, type NewDesignSystemSource } from './NewDesignSystemScreen'
 import { DesignRail } from './DesignRail'
 import {
+  ProjectScopePicker,
+  type ProjectScopeOption,
+} from '../../agentComposer/ProjectScopePicker'
+import {
   designFailureLine,
   libraryRowId,
   projectRowId,
+  resolveDesignProjectPath,
   sourceStateFailure,
   type DesignRailEntry,
   type DesignRailStatusFilter,
@@ -59,17 +64,67 @@ export default function DesignGlobalSurface(): JSX.Element {
   const scheme = useResolvedColorScheme()
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const storedScopePath = useWorkspaceStore((s) => s.appSettings.designProjectScopePath)
+  const setDesignProjectScopePath = useWorkspaceStore((s) => s.setDesignProjectScopePath)
 
-  // "In this project" is the bundle attached at <active workspace>/design-system/.
-  // With no workspace open the group is simply absent — the door is global, and
-  // listing every open project's attached system would contradict the heading.
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
     [workspaces, activeWorkspaceId],
   )
-  const projectBundlePath = activeWorkspace?.folderPath
-    ? pathJoin(activeWorkspace.folderPath, ATTACHED_BUNDLE_DIRECTORY)
-    : null
+
+  // A stored folder can be gone by the time the door reopens (a project moved,
+  // an external drive unplugged). Probed once per stored path; while the answer
+  // is outstanding the stored path still stands, so the door does not flash onto
+  // the active workspace and back.
+  const [storedScopeExists, setStoredScopeExists] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!storedScopePath) {
+      setStoredScopeExists(null)
+      return
+    }
+    let cancelled = false
+    setStoredScopeExists(null)
+    void window.api
+      .pathExists(storedScopePath)
+      .then((exists) => {
+        if (!cancelled) setStoredScopeExists(exists)
+      })
+      .catch(() => {
+        if (!cancelled) setStoredScopeExists(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [storedScopePath])
+
+  // "In this project" is the bundle attached at <chosen project>/design-system/.
+  // The project is the user's pick, persisted, falling back to the active
+  // workspace — the door opens from a GLOBAL drawer, so binding it to whatever
+  // was focused last made it claim a project nobody chose (owner, 2026-09-07).
+  // With nothing to show, the group is simply absent, exactly as before.
+  const projectPath = resolveDesignProjectPath({
+    storedPath: storedScopePath,
+    storedPathExists: storedScopeExists,
+    activeWorkspaceFolderPath: activeWorkspace?.folderPath ?? null,
+  })
+  const projectBundlePath = projectPath ? pathJoin(projectPath, ATTACHED_BUNDLE_DIRECTORY) : null
+
+  // The projects on offer: every open workspace's folder, deduped. The picker
+  // adds the app's recent folders itself, and Browse… covers a system living in
+  // a project that is not open at all.
+  const projectOptions = useMemo<ProjectScopeOption[]>(() => {
+    const seen = new Set<string>()
+    const options: ProjectScopeOption[] = []
+    for (const workspace of workspaces) {
+      const path = workspace.folderPath?.trim()
+      if (!path) continue
+      const key = path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      options.push({ path, label: basenameOfPath(path) })
+    }
+    return options
+  }, [workspaces])
 
   // The persisted registry (item 2004): every folder the user has pointed at,
   // with the source state the main process probed for it. Ids are stable across
@@ -164,10 +219,10 @@ export default function DesignGlobalSurface(): JSX.Element {
 
   const entries = useMemo<DesignRailEntry[]>(() => {
     const rows: DesignRailEntry[] = []
-    if (projectBundlePath && activeWorkspace && projectHasBundle) {
+    if (projectBundlePath && projectHasBundle) {
       const read = reads[projectBundlePath]
       rows.push({
-        id: projectRowId(activeWorkspace.id),
+        id: projectRowId(projectBundlePath),
         group: 'project',
         path: projectBundlePath,
         identity: read?.identity ?? null,
@@ -192,7 +247,7 @@ export default function DesignGlobalSurface(): JSX.Element {
       })
     }
     return rows
-  }, [projectBundlePath, activeWorkspace, projectHasBundle, registered, reads])
+  }, [projectBundlePath, projectHasBundle, registered, reads])
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.id === selectedId) ?? null,
@@ -370,11 +425,35 @@ export default function DesignGlobalSurface(): JSX.Element {
     return cards
   }, [registered, reads])
 
+  // Point the door at a project that is not open in this window. A design system
+  // can live in a repo the user is not working in, which is the whole reason
+  // Browse… is offered here at all.
+  const browseForProject = useCallback(async () => {
+    const picked = await window.api.openDir()
+    if (!picked || !mounted.current) return
+    setDesignProjectScopePath(picked)
+  }, [setDesignProjectScopePath])
+
   const rail = (
     <DesignRail
       entries={entries}
       selectedId={selectedId}
       accentMode={scheme === 'light' ? 'light' : 'dark'}
+      projectScope={
+        <ProjectScopePicker
+          label={projectPath ? basenameOfPath(projectPath) : 'Choose a project'}
+          branch={null}
+          options={projectOptions}
+          selectedPath={projectPath}
+          onSelect={setDesignProjectScopePath}
+          onBrowse={() => void browseForProject()}
+          // The epic's product model is bring / render / point at: a system is a
+          // folder that already exists on this disk, and cloning one would be a
+          // second source the epic explicitly cut.
+          importFromGit={false}
+          ariaLabel="Project this door is showing"
+        />
+      }
       search={search}
       onSearch={setSearch}
       status={status}

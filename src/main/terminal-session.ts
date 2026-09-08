@@ -179,6 +179,12 @@ export type TerminalSession = {
   // toward lastOutputAt / "working". Set in safeResizeTerminal.
   repaintGraceUntil?: number
   startupScriptPath?: string
+  /**
+   * This session's host-context document, when the launch wrote one. Reaped
+   * with the startup script at teardown — the file is per-session and rewritten
+   * on every launch and resume, so nothing outlives the pty.
+   */
+  hostContextPath?: string
 }
 
 const TERMINAL_REPLAY_COMPACT_THRESHOLD = 1024

@@ -18,6 +18,7 @@ const CLI_ONLY_FIELDS = [
   'launch',
   'resume',
   'promptInjection',
+  'contextInjection',
   'completion',
   'mcpConfig',
   'capabilities',

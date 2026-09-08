@@ -2029,6 +2029,8 @@ export {
   type CliCapabilities,
   type CliCompletionMode,
   type CliCompletionSpec,
+  type CliContextInjection,
+  type CliContextInjectionMode,
   type CliLaunchSpec,
   type CliManifestIssue,
   type CliManifestResult,

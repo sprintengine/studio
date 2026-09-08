@@ -11,7 +11,6 @@ import { useSession } from '../../hooks/useTerminalSessions'
 import {
   buildSpecialistSoulStartupPrompt,
   getSpecialistAction,
-  resolveDesignSystemAttachedPromptLine,
 } from '../../specialists/specialistActions'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, getSprintEngineRoleLabel } from '../../utils/sprintengine'
 import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
@@ -131,26 +130,11 @@ async function resolveMemoryLaunchContext(
     message: error instanceof Error ? error.message : 'Unable to resolve workspace knowledge.',
   }))
 
-  // The env vars and the prompt line are composed in `shared/project-knowledge`
-  // since MC-2159, because the main-process AgentLaunchService composes exactly
-  // the same pair for an agent launched with no window.
+  // Resolved through `shared/project-knowledge` for the ENV VARS the spawn
+  // payload carries (`memoryRootPath` / `memoryRelativeRoot`). The sentence that
+  // tells the agent the graph exists is no longer read here: main builds it into
+  // the host-context document, from this same pair, for every launcher.
   return knowledgeLaunchContext(status)
-}
-
-function appendMemoryPrompt(prompt: string | undefined, memoryContext: MemoryLaunchContext): string | undefined {
-  if (!memoryContext.promptSuffix) return prompt
-  if (!prompt) return memoryContext.promptSuffix
-  return `${prompt}\n\n${memoryContext.promptSuffix}`
-}
-
-// Attached-design-system launch line, same shape as the knowledge suffix
-// above: resolved once per launch against the agent's execution root and
-// appended only when the predicate (design-system/ exists) holds. Deliberately
-// KG-independent — it must fire in repos with no knowledge graph configured.
-function appendDesignSystemPrompt(prompt: string | undefined, line: string | null): string | undefined {
-  if (!line) return prompt
-  if (!prompt) return line
-  return `${prompt}\n\n${line}`
 }
 
 function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
@@ -1034,17 +1018,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         launchContext.memoryConfig?.relativeRoot ?? null
       )
       if (disposed) return
-      const designSystemPromptLine = await resolveDesignSystemAttachedPromptLine(
-        executionRoot.cwd ?? folderReadyPath ?? null,
-        window.api.pathExists,
-      )
-      if (disposed) return
-      const launchInitialPrompt = shouldResumeCli
-        ? undefined
-        : appendDesignSystemPrompt(
-            appendMemoryPrompt(startupPromptRef.current ?? undefined, memoryContext),
-            designSystemPromptLine,
-          )
+      // The user's prompt, and only the user's prompt. Everything the HOST wants
+      // the agent to know — the attached design system, the Knowledge Graph — is
+      // built and delivered out of band by main (src/shared/host-context,
+      // src/main/terminal-launch), because appending it here told the model the
+      // user had said it, told a resumed session nothing at all, and never
+      // reached an agent launched with no window.
+      const launchInitialPrompt = shouldResumeCli ? undefined : (startupPromptRef.current ?? undefined)
       const finalContext = currentContext()
       const finalAgent = finalContext.agent
       const finalCli = finalContext.cli

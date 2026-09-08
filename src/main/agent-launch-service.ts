@@ -243,11 +243,17 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     // The project's Knowledge Graph, resolved the same way the interactive
     // launch resolves it: the per-project setting from the main-owned store,
     // falling back to the workspace's own override. Without this a
-    // headless-launched agent silently loses `MULTICODE_KNOWLEDGE_ROOT` and the
-    // line that tells it the graph exists — it would then either ignore the
-    // project's recorded context or guess at a folder.
+    // headless-launched agent silently loses `MULTICODE_KNOWLEDGE_ROOT`, and the
+    // spawn has nothing to build the host-context document's knowledge section
+    // from — it would then either ignore the project's recorded context or guess
+    // at a folder.
     const knowledge = await resolveKnowledgeLaunch(workspace, settings.projectKnowledgeRoots)
-    const initialPrompt = appendPromptLine(specialistPrompt, knowledge.promptSuffix)
+    // The prompt is the user's (or the specialist directive's) alone. The
+    // sentence about the graph, and the one about an attached design system, are
+    // built into the host-context document by `terminal-launch.ts` from the
+    // root/relativeRoot pair below — which is how a headless launch now receives
+    // exactly what an interactive one does.
+    const initialPrompt = specialistPrompt
 
     const record: AgentLaunchRecord = {
       agentId,
@@ -395,13 +401,6 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
   }
 
   return { launch, dispose }
-}
-
-/** Append a line to a startup prompt, tolerating either side being absent. */
-function appendPromptLine(prompt: string | undefined, line: string | null): string | undefined {
-  if (!line) return prompt
-  if (!prompt) return line
-  return `${prompt}\n\n${line}`
 }
 
 /**

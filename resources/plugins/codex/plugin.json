@@ -59,6 +59,7 @@
       { "spreadIf": "modelArgs" },
       { "spreadIf": "reasoningArgs" },
       { "spreadIf": "themeArgs" },
+      { "spreadIf": "contextArgs" },
       { "valueIf": "prompt", "value": "{{prompt}}" }
     ]
   },
@@ -74,6 +75,11 @@
   },
   "promptInjection": {
     "mode": "positional-arg"
+  },
+  "contextInjection": {
+    "$comment": "codex -c <key=value> overrides a config.toml value, and `developer_instructions` is a declared key of codex's own ConfigToml (verified against the installed binary: --help documents -c, and the key is present in the compiled ConfigToml field set). The value is parsed as TOML, so {{contextToml}} renders the document as a quoted, escaped basic string — a raw multi-line value would be a parse error. Deliberately NOT on the resume argv: codex persists a session's own config, exactly as the reasoning-effort override does here.",
+    "mode": "argv",
+    "args": ["-c", "developer_instructions={{contextToml}}"]
   },
   "completion": {
     "mode": "process-exit"

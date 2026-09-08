@@ -73,6 +73,14 @@ export type AgentLaunchRenderInput = {
   // not found at launch. Undefined when the probe could not decide, which leaves
   // the bare name below.
   resolvedBinaryPath?: string
+  // This launch's host-context document, in the two shapes a manifest's
+  // `contextInjection` templates can spend it: the absolute path main wrote it
+  // to (already in the launched shell's path style), and the document itself.
+  // Both absent — the ordinary case, a project with no design system and no
+  // knowledge graph — render no context args and no context env, so the launch
+  // is byte-identical to what it was.
+  contextFile?: string
+  contextText?: string
 }
 
 export type RenderedAgentLaunch = {
@@ -125,6 +133,8 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
     // without auth render no `{{secret}}` value (renderEnv drops empty results,
     // so an unconfigured endpoint injects no empty token).
     variables: input.secretToken ? { secret: input.secretToken } : undefined,
+    ...(input.contextFile ? { contextFile: input.contextFile } : {}),
+    ...(input.contextText ? { contextText: input.contextText } : {}),
   }
 
   const rendered = input.resume

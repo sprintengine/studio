@@ -540,6 +540,21 @@ export type AppSettings = {
   searchExcludes: string[]
   projectKnowledgeRoots: Record<string, string | null>
   recentWorkspaceFolders: string[]
+  /**
+   * The project the Design door is showing, chosen with its own project chip.
+   *
+   * The door opens from the Extensions drawer, which is global: without this it
+   * bound to whichever workspace happened to be focused last, so pointing the
+   * app at another folder made it claim knowledge of a project the user never
+   * chose (owner, 2026-09-07). It is a VIEWING scope and nothing else — what an
+   * agent is told about a design system still comes from the presence of
+   * `design-system/` in its own execution root, so browsing project B here can
+   * never change what an agent in project A is told.
+   *
+   * Null (the default) means "follow the active workspace", which is also where
+   * a stored folder that has since gone lands.
+   */
+  designProjectScopePath: string | null
   usageTelemetry: UsageTelemetrySettings
   learning: LearningSettings
   appearance: AppearanceSettings

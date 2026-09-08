@@ -309,12 +309,16 @@ run("the project's Knowledge Graph reaches a headless launch", async () => {
   const launched = await app.service.launch({ workspaceId: 'ws-1', prompt: 'Do the thing.' })
   assert.equal(launched.ok, true, JSON.stringify(launched))
   const spawn = app.spawns[0]!
-  // The env half: what actually sets MULTICODE_KNOWLEDGE_ROOT for the session.
+  // The resolved pair is what the spawn carries, and it is BOTH halves now: it
+  // sets MULTICODE_KNOWLEDGE_ROOT for the session AND it is what
+  // `terminal-launch.ts` builds the host-context document's knowledge section
+  // from. A headless launch therefore hands the spawn exactly what an
+  // interactive one does.
   assert.equal(spawn.memoryRootPath, '/repo/a/knowledge')
   assert.equal(spawn.memoryRelativeRoot, 'knowledge')
-  // And the prompt half, which is what tells the AGENT the graph is there.
-  assert.match(spawn.initialPrompt ?? '', /Do the thing\./)
-  assert.match(spawn.initialPrompt ?? '', /Knowledge Graph is configured at knowledge\./)
+  // And the prompt is the user's alone: the sentence about the graph is host
+  // context, delivered out of band, not something the user said.
+  assert.equal(spawn.initialPrompt, 'Do the thing.')
 })
 
 run('a configured-but-unreadable Knowledge Graph is said out loud, not dropped', async () => {
@@ -327,11 +331,14 @@ run('a configured-but-unreadable Knowledge Graph is said out loud, not dropped',
   })
 
   const launched = await app.service.launch({ workspaceId: 'ws-1' })
-  // A graph that cannot be read must not fail the launch, and the agent must be
-  // told rather than left to guess another folder.
+  // A graph that cannot be read must not fail the launch, and the fact that one
+  // is CONFIGURED still has to reach the spawn — an unresolved root with a known
+  // relative path is what makes the host-context document say "configured, but
+  // missing" instead of saying nothing and leaving the agent to guess a folder.
   assert.equal(launched.ok, true, JSON.stringify(launched))
   assert.equal(app.spawns[0]!.memoryRootPath, undefined)
-  assert.match(app.spawns[0]!.initialPrompt ?? '', /Do not guess another knowledge folder\./)
+  assert.equal(app.spawns[0]!.memoryRelativeRoot, 'knowledge')
+  assert.equal(app.spawns[0]!.initialPrompt, undefined)
 })
 
 run('a project with no Knowledge Graph launches with no graph and no line', async () => {
