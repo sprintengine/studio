@@ -29,7 +29,8 @@
       { "id": "fable", "label": "Fable (latest)" },
       { "id": "claude-opus-5", "label": "Opus 5" },
       { "id": "claude-opus-5[1m]", "label": "Opus 5 (1M context)" },
-      { "id": "opus[1m]", "label": "Opus (latest, 1M context)" }
+      { "id": "opus[1m]", "label": "Opus (latest, 1M context)" },
+      { "id": "claude-fable-5", "label": "Fable 5" }
     ],
     "allowCustomId": true
   },

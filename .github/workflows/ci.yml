@@ -47,24 +47,35 @@ jobs:
         run: npm run build
 
   # What the JS gate covers, and why: `verify:app` — the repo's OWN full-app
-  # verification chain, 422 &&-joined steps (lint plus every main/renderer/
-  # preload/shared/seam/sdk script package.json defines, ~4 min). Until MC-2070
-  # CI ran exactly one hand-picked script out of those 422, gating one file by
-  # accident rather than by decision. The chain is deliberately named whole
-  # rather than curated: a hand-maintained subset is how the gate got to one
-  # script in the first place.
+  # verification chain, seven &&-joined steps: typecheck, the six design lints,
+  # the whole unit suite, and the four SDK/feed guards (~4 min). Until MC-2070
+  # CI ran exactly one hand-picked script out of the 422 the chain then named,
+  # gating one file by accident rather than by decision. The chain is
+  # deliberately named whole rather than curated: a hand-maintained subset is
+  # how the gate got to one script in the first place. Those 422 one-off test
+  # scripts have since collapsed into `npm run test`, which DISCOVERS its ~590
+  # test files instead of listing them (scripts/testing/test-profiles.json), so
+  # a new test file is in the gate the moment it is written and the subset
+  # cannot silently shrink again.
   #
-  # HONEST STATE, measured 2026-08-06 at a80493711: this job is RED on arrival.
-  # Six scripts fail on untouched HEAD — test:renderer:global-doors-integration
-  # and the seams roster-effort, model-catalog-effort, skill-sources,
-  # premium-feel and combobox-keyboard. Steps 1-405 pass. Those six are real
-  # breakage in this repo's own code, not gate artifacts, and they are exactly
-  # what having no gate allowed to accumulate; each is tracked separately. Do
-  # not narrow this step to make the badge green.
+  # HONEST STATE, measured 2026-09-08 (MC-2146) on a clean `git archive` copy —
+  # `main` itself was mid-restructure that day, so the copy is where the whole
+  # chain could be run end to end: it exits 0 there. The six failures this job
+  # arrived red with in August are gone. Four of the six were retired with the
+  # surfaces they tested when the composer roster and the old doors went; the
+  # two real defects the chain still carried are fixed at their root —
+  #   * the module-SDK drift project could not see `src/shared/build-defines.d.ts`,
+  #     so the build-time `define` constants read as undeclared names;
+  #   * the bundled model feed listed a Fable 5 that the claude-code plugin
+  #     manifest had dropped while it was retired upstream;
+  # plus the tailnet upload ceiling, which answered 413 and only THEN drained
+  # the refused body — on a `Connection: close` request Node destroys the socket
+  # as that answer finishes, so the phone got a reset instead of the sentence.
+  # Do not narrow this step to make the badge green.
   #
   # Linux only: `verify:app` has never been measured on Windows, and an
-  # unmeasured 422-step chain would fail that leg for reasons unrelated to the
-  # change being merged.
+  # unmeasured chain of this size would fail that leg for reasons unrelated to
+  # the change being merged.
   js-tests:
     name: JS tests (ubuntu-latest)
     runs-on: ubuntu-latest
@@ -105,10 +116,9 @@ jobs:
 
   # The Python suite runs in its own job rather than inside the matrix above: it
   # needs no Node toolchain, so it starts without waiting on `npm ci`, and it
-  # runs on Linux only — the suite has only ever been measured on POSIX, and
-  # ptyprocess (a Switchboard runtime dependency) is not installed on Windows at
-  # all. Its own checkout also keeps pytest's bytecode caches away from the
-  # marketplace payloads the JS job digest-verifies.
+  # runs on Linux only — the suite has only ever been measured on POSIX. Its own
+  # checkout also keeps pytest's bytecode caches away from the marketplace
+  # payloads the JS job digest-verifies.
   python-tests:
     name: Python tests (ubuntu-latest)
     runs-on: ubuntu-latest

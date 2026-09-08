@@ -1,6 +1,11 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
-  "include": ["drift", "../../src/renderer/src/env.d.ts", "../../src/preload/index.d.ts"],
+  "include": [
+    "drift",
+    "../../src/renderer/src/env.d.ts",
+    "../../src/preload/index.d.ts",
+    "../../src/shared/build-defines.d.ts"
+  ],
   "compilerOptions": {
     "composite": false,
     "noEmit": true,

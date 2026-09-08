@@ -453,10 +453,12 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     // A declared length over the cap is refused before a byte is read.
     const declared = Number(request.headers['content-length'] ?? '')
     if (Number.isFinite(declared) && declared > UPLOAD_MAX_BYTES) {
-      writeJson(response, 413, {
-        error: { code: 'too_large', message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.` },
-      })
-      drainRefusedBody(request)
+      // Drained before the answer, not after: see `drainRefusedBody`.
+      if (await drainRefusedBody(request)) {
+        writeJson(response, 413, {
+          error: { code: 'too_large', message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.` },
+        })
+      }
       return
     }
     try {
@@ -465,10 +467,12 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       writeJson(response, 200, { path: destination.path, bytes: written })
     } catch (error) {
       if (error instanceof UploadTooLarge) {
-        writeJson(response, 413, {
-          error: { code: 'too_large', message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.` },
-        })
-        drainRefusedBody(request)
+        // Drained before the answer, not after: see `drainRefusedBody`.
+        if (await drainRefusedBody(request)) {
+          writeJson(response, 413, {
+            error: { code: 'too_large', message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.` },
+          })
+        }
         return
       }
       options.log?.(`tailnet upload failed: ${message(error)}`)
@@ -1192,23 +1196,80 @@ async function namesTakenIn(directory: string): Promise<ReadonlySet<string>> {
   }
 }
 
+// How much of an already-refused body is read and thrown away before the
+// connection is cut instead, and how long that is given. Generous enough that
+// an honest client which overshot the ceiling always gets its sentence (the
+// phone's own screenshot is megabytes, not gigabytes), small enough that a
+// client streaming without end is hung up on rather than served forever.
+const REFUSED_BODY_DRAIN_MAX_BYTES = 4 * UPLOAD_MAX_BYTES
+const REFUSED_BODY_DRAIN_MS = 15_000
+
 /**
- * Discard the rest of a body that has already been refused.
+ * Discard the rest of a body that has already been refused, and only then let
+ * the answer be written.
  *
- * The tempting move is to hang up — the answer is written, the sink is gone,
- * and the remaining megabytes have nowhere to land. But destroying the socket
- * races the response's own flush: the client's next write fails with EPIPE and
- * it never reads the 413, so "That file is over the 25MB limit." is replaced by
- * a connection reset and the phone can only say something went wrong. Losing
- * the sentence is worse than reading bytes we intend to throw away, because the
+ * The tempting move is to hang up — the decision is made, the sink is gone, and
+ * the remaining megabytes have nowhere to land. But destroying the socket races
+ * the response's own flush: the client's next write fails with EPIPE and it
+ * never reads the 413, so "That file is over the 25MB limit." is replaced by a
+ * connection reset and the phone can only say something went wrong. Losing the
+ * sentence is worse than reading bytes we intend to throw away, because the
  * sentence is the entire reason the limit is stated on the wire.
  *
- * So the body is drained instead. In practice almost nothing is read: the phone
- * checks the size before it starts, and a declared length over the ceiling is
- * refused before the first chunk arrives.
+ * Draining AFTER the answer is written is not enough, which is what this looked
+ * like until 2026-09-08. A client that asked for `Connection: close` — which is
+ * every request made without a keep-alive agent — makes the response the last
+ * one on that socket, and Node destroys the socket the moment that response
+ * finishes, whether or not the request body has been read. The drain never got
+ * a turn, and the client writing the tail of its file saw EPIPE instead of the
+ * 413. So the body is drained first and the answer written after: by then the
+ * request is complete, and the close that follows is orderly.
+ *
+ * In practice almost nothing is read: the phone checks the size before it
+ * starts. A client that keeps sending past the budget above is not one that is
+ * waiting to be told why, so it is cut off — and this answers `false`, because
+ * writing a sentence into a socket that has just been destroyed is not sending
+ * it, it is only pretending to.
+ *
+ * @returns whether the body ended, and so whether an answer can still be sent.
  */
-function drainRefusedBody(request: IncomingMessage): void {
-  request.resume()
+async function drainRefusedBody(request: IncomingMessage): Promise<boolean> {
+  if (request.readableEnded || request.complete) return true
+  return await new Promise<boolean>((resolve) => {
+    let discarded = 0
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const settle = (drained: boolean): void => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      request.off('data', onData)
+      request.off('end', onEnd)
+      request.off('close', onEnd)
+      request.off('error', onEnd)
+      resolve(drained)
+    }
+    // A client that hangs up mid-refusal has answered the question itself:
+    // there is no body left to read and nobody left to read the answer.
+    const onEnd = (): void => settle(request.readableEnded)
+    const giveUp = (): void => {
+      if (settled) return
+      settle(false)
+      request.destroy()
+    }
+    const onData = (chunk: Buffer): void => {
+      discarded += chunk.length
+      if (discarded > REFUSED_BODY_DRAIN_MAX_BYTES) giveUp()
+    }
+    timer = setTimeout(giveUp, REFUSED_BODY_DRAIN_MS)
+    // Never hold the process open for a body nobody is waiting on.
+    timer.unref?.()
+    request.on('data', onData)
+    request.on('end', onEnd)
+    request.on('close', onEnd)
+    request.on('error', onEnd)
+    request.resume()
+  })
 }
 
 /** Thrown when a body runs past the ceiling mid-flight. */
@@ -1241,18 +1302,30 @@ async function streamUploadToDisk(
   let written = 0
   try {
     await new Promise<void>((resolve, reject) => {
+      const count = (chunk: Buffer): void => {
+        written += chunk.length
+        if (written > UPLOAD_MAX_BYTES) fail(new UploadTooLarge('upload over the ceiling'))
+      }
+      // Every listener this put on the request comes off again, because the
+      // request outlives the sink: a refused body is drained afterwards, and a
+      // counter still attached would re-fire the failure on every drained chunk.
+      const detach = (): void => {
+        request.off('data', count)
+        request.off('error', fail)
+      }
       const fail = (error: Error) => {
+        detach()
         request.unpipe(sink)
         sink.destroy()
         reject(error)
       }
-      request.on('data', (chunk: Buffer) => {
-        written += chunk.length
-        if (written > UPLOAD_MAX_BYTES) fail(new UploadTooLarge('upload over the ceiling'))
-      })
+      request.on('data', count)
       request.on('error', fail)
       sink.on('error', fail)
-      sink.on('finish', () => resolve())
+      sink.on('finish', () => {
+        detach()
+        resolve()
+      })
       request.pipe(sink)
     })
   } catch (error) {
