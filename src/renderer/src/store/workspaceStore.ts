@@ -185,6 +185,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setWorkspacePaneMaximised: (maximised: boolean) => void
   openFilesInExternalWindow: boolean
   setOpenFilesInExternalWindow: (enabled: boolean) => void
+  diffOpensInWindow: boolean
+  setDiffOpensInWindow: (enabled: boolean) => void
   checkCliVersions: boolean
   setCheckCliVersions: (enabled: boolean) => void
   // The request that opened the Settings modal — not the modal's visibility;
@@ -562,6 +564,7 @@ type SettingsEnvelopeState = {
   sidebarWidth: unknown
   workspacePaneWidth: unknown
   openFilesInExternalWindow: unknown
+  diffOpensInWindow: unknown
   checkCliVersions: unknown
 }
 
@@ -642,6 +645,7 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
     sidebarWidth: state.sidebarWidth,
     workspacePaneWidth: state.workspacePaneWidth,
     openFilesInExternalWindow: state.openFilesInExternalWindow,
+    diffOpensInWindow: state.diffOpensInWindow,
     checkCliVersions: state.checkCliVersions,
   }
 }
@@ -678,6 +682,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
         sidebarWidth: s.sidebarWidth,
         workspacePaneWidth: s.workspacePaneWidth,
         openFilesInExternalWindow: s.openFilesInExternalWindow,
+        diffOpensInWindow: s.diffOpensInWindow,
         checkCliVersions: s.checkCliVersions,
         workspaces: retainedWorkspaces,
         activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
@@ -702,6 +707,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
     sidebarWidth: s.sidebarWidth,
     workspacePaneWidth: s.workspacePaneWidth,
     openFilesInExternalWindow: s.openFilesInExternalWindow,
+    diffOpensInWindow: s.diffOpensInWindow,
     checkCliVersions: s.checkCliVersions,
     ...partializeRegistryFields(s),
   }

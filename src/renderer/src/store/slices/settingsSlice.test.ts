@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '../workspaceStore'
 import type { ChatListView, SettingsOverlayState, SidebarSection } from './settingsSlice'
 import {
   createSettingsSlice,
+  DEFAULT_DIFF_OPENS_IN_WINDOW,
   defaultAppearanceSettings,
   defaultAppSettings,
   defaultKeybindingSettings,
@@ -422,6 +423,7 @@ const carrier = {
   workspacePaneWidth: 420,
   workspacePaneMaximised: false,
   openFilesInExternalWindow: true,
+  diffOpensInWindow: true,
   checkCliVersions: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,
@@ -439,6 +441,16 @@ assert.equal(typeof carrier.settingsOverlay.checkForUpdatesRequestId, 'number')
 slice.closeSettingsOverlay()
 assert.equal(carrier.activeModalSurface, null, 'closing settings closes the modal')
 assert.deepEqual(carrier.settingsOverlay, { initialTab: null, checkForUpdatesRequestId: null })
+
+// Where a diff opens (git-commit-window T3). The window is the out-of-the-box
+// answer, and the flip is a
+// plain setter, because the two band buttons that write it are the whole UI.
+assert.equal(DEFAULT_DIFF_OPENS_IN_WINDOW, true, 'a diff opens in its own window until the person says otherwise')
+assert.equal(slice.diffOpensInWindow, true, 'the slice starts on the default')
+slice.setDiffOpensInWindow(false)
+assert.equal(carrier.diffOpensInWindow, false, '"Show in the app" flips the diff home to the pane tab')
+slice.setDiffOpensInWindow(true)
+assert.equal(carrier.diffOpensInWindow, true, 'and "Open in separate window" flips it back')
 
 // Closing settings never clears somebody ELSE's modal — and never touches a
 // door: the two are independent layers.
@@ -620,6 +632,7 @@ const permissionCarrier = {
   workspacePaneWidth: 420,
   workspacePaneMaximised: false,
   openFilesInExternalWindow: true,
+  diffOpensInWindow: true,
   checkCliVersions: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,

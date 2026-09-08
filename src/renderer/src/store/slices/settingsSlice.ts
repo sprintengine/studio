@@ -1140,6 +1140,11 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
 // it is sticky thereafter (docking a file back flips it to workspace tabs).
 // Flip this one constant to make tabs the out-of-the-box default instead.
 export const DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW = true
+// Where a Git diff opens (git-commit-window T3). A separate OS window is
+// the default; the
+// pane's Diff tab is the in-app home the person can flip back to. Sticky, like
+// the file preference above: the band's two buttons are what write it.
+export const DEFAULT_DIFF_OPENS_IN_WINDOW = true
 export const DEFAULT_CHECK_CLI_VERSIONS = true
 
 export interface SettingsSliceState {
@@ -1203,6 +1208,12 @@ export interface SettingsSliceState {
   // Set by user action — popping a tab out turns it on, docking a file back
   // turns it off — and remembered so the next file reuses the last surface.
   openFilesInExternalWindow: boolean
+  // Sticky "where does a diff open" preference. True (the default) routes a
+  // Git row to the standalone diff window; false routes it to the workspace
+  // pane's Diff tab. Written by user action alone — the pane band's "Open in
+  // separate window" turns it on, the window's "Show in the app" turns it off
+  // — so the next diff opens where the last one was left.
+  diffOpensInWindow: boolean
   // Ask each CLI's package registry for its newest version (the Settings
   // switch "Check for CLI updates"). Mirrored into main, which runs the check.
   checkCliVersions: boolean
@@ -1231,6 +1242,7 @@ export interface SettingsSliceActions {
   setWorkspacePaneWidth: (width: number) => void
   setWorkspacePaneMaximised: (maximised: boolean) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
+  setDiffOpensInWindow: (enabled: boolean) => void
   setCheckCliVersions: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
@@ -1438,6 +1450,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     workspacePaneWidth: WORKSPACE_ASIDE_DEFAULT_WIDTH,
     workspacePaneMaximised: false,
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
+    diffOpensInWindow: DEFAULT_DIFF_OPENS_IN_WINDOW,
     checkCliVersions: DEFAULT_CHECK_CLI_VERSIONS,
     sprintEngineRoleRegistry: null,
     agentConfigAdoptionResult: null,
@@ -1480,6 +1493,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setOpenFilesInExternalWindow: (enabled) =>
       set((state) => {
         state.openFilesInExternalWindow = enabled
+      }),
+
+    setDiffOpensInWindow: (enabled) =>
+      set((state) => {
+        state.diffOpensInWindow = enabled
       }),
 
     setCheckCliVersions: (enabled) =>
