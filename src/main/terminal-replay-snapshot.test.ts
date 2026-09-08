@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { Terminal } from '@xterm/headless'
+import { TERMINAL_CELL_GEOMETRY_OPTIONS } from '../shared/terminal-options'
 import { buildReplaySnapshot } from './terminal-replay-snapshot'
 
 const ESC = '\x1b'
@@ -8,7 +9,15 @@ const ESC = '\x1b'
 // visible buffer lines — used to assert what a serialized snapshot reconstructs.
 function visibleLines(data: string, cols = 80, rows = 24): Promise<string[]> {
   return new Promise((resolve) => {
-    const term = new Terminal({ cols, rows, allowProposedApi: true, scrollback: 1000 })
+    // The same geometry block the snapshot renderer uses, or this verifier would
+    // measure a stream laid out one way against a snapshot laid out another.
+    const term = new Terminal({
+      ...TERMINAL_CELL_GEOMETRY_OPTIONS,
+      cols,
+      rows,
+      allowProposedApi: true,
+      scrollback: 1000,
+    })
     term.write(data, () => {
       const buffer = term.buffer.active
       const lines: string[] = []

@@ -1,6 +1,8 @@
 import { Terminal } from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
 
+import { TERMINAL_CELL_GEOMETRY_OPTIONS } from '../shared/terminal-options'
+
 // Blank-screen fix for suspended agent terminals.
 //
 // Agent CLIs (Claude, Codex) paint full-screen TUIs on the terminal ALTERNATE
@@ -75,9 +77,16 @@ function renderAndSerialize(data: string, cols: number, rows: number): Promise<s
     }
 
     const term = new Terminal({
+      // The same cell-geometry block the live panes are built with
+      // (`createStudioTerminal.ts`). Shared rather than copied because a
+      // divergence here reflows the replayed screen away from the one the user
+      // was looking at, silently — see `shared/terminal-options.ts`.
+      ...TERMINAL_CELL_GEOMETRY_OPTIONS,
       cols,
       rows,
       allowProposedApi: true,
+      // Deliberately NOT the panes' scrollback: this snapshot exists to repaint
+      // the last screen, and deep history is already covered by the raw replay.
       scrollback: SNAPSHOT_SCROLLBACK_ROWS,
     })
     const serializer = new SerializeAddon()

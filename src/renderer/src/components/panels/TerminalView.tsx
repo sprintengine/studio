@@ -1,8 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
-import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode, AgentKind } from '../../types/workspace'
@@ -20,12 +16,12 @@ import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
+import { createStudioTerminal } from '../../utils/createStudioTerminal'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
-import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import {
   hasCommitDropData,
   hasFileDropData,
@@ -35,7 +31,7 @@ import {
   pasteDroppedSkillIntoTerminal,
 } from '../../utils/terminalDrop'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
-import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
+import { waitForMonoFontReady } from '../../utils/fonts'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { knowledgeLaunchContext, type KnowledgeLaunchContext } from '../../../../shared/project-knowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
@@ -63,7 +59,6 @@ import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
-import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
 
 interface Props {
   workspaceId: string
@@ -424,15 +419,38 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       initialContext.cli === 'codex'
       && Boolean(initialContext.agent?.cliResumeAvailable)
       && (!isSprintEngineAgent || sprintResumeRequested)
-    const term = new Terminal({
-      theme: getTerminalTheme(),
-      fontFamily: MONO_FONT_STACK,
-      fontSize: 13,
-      cursorBlink: true,
-      scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
+    // The roots a relative path in this pane resolves against. Both are null
+    // exactly when the workspace has no configured folder — the launch effect
+    // deliberately runs for that case (see the `savedFolderPath` guard above) —
+    // and every relative match is then dropped, which is what `onDrop` below
+    // makes countable.
+    //
+    // Known and deliberate gap: the last argument is `null`, so a non-worktree
+    // agent in a worktree-backed workspace resolves links against the parent
+    // checkout while its process actually runs in the worktree. The launch path
+    // below resolves the real cwd, but only after an async `pathExists` that
+    // this synchronous registration cannot wait on. Reading the agent's cwd off
+    // the wire is [[terminal-osc7-cwd]]'s job; until then both trees hold the
+    // same relative paths, so the link opens the same file in the wrong copy
+    // rather than failing.
+    const linkExecutionRoot = resolveAgentExecutionRoot(
+      currentContext().agent?.execution,
+      currentContext().storedExecutionWorktreePath,
+      folderReadyPath,
+      null
+    )
+    const studioTerminal = createStudioTerminal({
+      surface: {
+        kind: 'agent',
+        workspaceRoot: folderReadyPath ?? currentContext().savedFolderPath ?? null,
+        executionRoot: linkExecutionRoot.cwd ?? null,
+      },
+      onWebLink: (event, uri) => {
+        setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
+      },
     })
-    const unbindTerminalTheme = bindTerminalTheme(term)
-    const fitAddon = new FitAddon()
+    const term = studioTerminal.terminal
+    const fitAddon = studioTerminal.fitAddon
     const terminalDiagnostics = createTerminalDiagnostics({
       scope: 'TerminalView',
       sessionId,
@@ -486,7 +504,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     applyCursorFrozenRef.current = setCursorFrozen
     setCursorFrozen(suspendedRef.current)
 
-    term.loadAddon(fitAddon)
     // Register for scrollback-footprint diagnostics; unregistered on dispose.
     registerTerminalInstance(sessionId, term)
     term.attachCustomKeyEventHandler((event) => {
@@ -511,31 +528,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const textarea = term.textarea
     textarea?.addEventListener('focus', reclaimPtySize)
 
-    // The roots a relative path in this pane resolves against. Both are null
-    // exactly when the workspace has no configured folder — the launch effect
-    // deliberately runs for that case (see the `savedFolderPath` guard above) —
-    // and every relative match is then dropped, which is what `onDrop` below
-    // makes countable.
-    //
-    // Known and deliberate gap: the last argument is `null`, so a non-worktree
-    // agent in a worktree-backed workspace resolves links against the parent
-    // checkout while its process actually runs in the worktree. The launch path
-    // below resolves the real cwd, but only after an async `pathExists` that
-    // this synchronous registration cannot wait on. Reading the agent's cwd off
-    // the wire is [[terminal-osc7-cwd]]'s job; until then both trees hold the
-    // same relative paths, so the link opens the same file in the wrong copy
-    // rather than failing.
-    const linkExecutionRoot = resolveAgentExecutionRoot(
-      currentContext().agent?.execution,
-      currentContext().storedExecutionWorktreePath,
-      folderReadyPath,
-      null
-    )
-    const linkWorkspaceRoot = folderReadyPath ?? currentContext().savedFolderPath ?? null
-    const fileLinkDisposable = term.registerLinkProvider(createTerminalFileLinkProvider({
+    // Non-null for every agent surface; the guard is what keeps a surface that
+    // must not resolve local paths (fleet) from ever registering this provider.
+    const linkRoots = studioTerminal.linkRoots
+    const fileLinkDisposable = linkRoots ? term.registerLinkProvider(createTerminalFileLinkProvider({
       terminal: term,
-      workspaceRoot: linkWorkspaceRoot,
-      executionRoot: linkExecutionRoot.cwd,
+      workspaceRoot: linkRoots.workspaceRoot,
+      executionRoot: linkRoots.executionRoot,
       // statPath rejects for a path that is gone or unreadable; that routes to
       // onOpenError below, so a dead link still shows the error popover rather
       // than a menu of actions that would all fail.
@@ -550,7 +549,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // The click no longer decides anything — it opens the chooser (MC-1899).
       onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
         setLinkMenu({
-          target: { kind: 'file', resolvedPath, isDirectory, workspaceRoot: linkWorkspaceRoot },
+          target: { kind: 'file', resolvedPath, isDirectory, workspaceRoot: linkRoots.workspaceRoot },
           x: anchor.x,
           y: anchor.y,
           line,
@@ -564,12 +563,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // in the pane is then dropped for `no-root`, which is the one shape of
       // "the terminal linkifies nothing" a user can actually report.
       onDrop: terminalDiagnostics.recordFileLinkDrop,
-    }))
+    })) : null
 
-    const webLinksAddon = new WebLinksAddon((event, uri) => {
-      setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
-    })
-    term.loadAddon(webLinksAddon)
+    // Loaded AFTER the file-link provider on purpose: xterm resolves link
+    // providers in registration order and the earlier one's links suppress the
+    // later one's on the same row, so a path that is also a valid URL fragment
+    // must reach the file provider first.
+    studioTerminal.loadWebLinks()
 
     let disposed = false
     void waitForMonoFontReady().then(() => {
@@ -1327,14 +1327,14 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       disposeFocusRequest()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
-      fileLinkDisposable.dispose()
-      webLinksAddon.dispose()
+      fileLinkDisposable?.dispose()
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()
-      unbindTerminalTheme()
       unregisterTerminalInstance(sessionId)
-      term.dispose()
+      // Last: it unbinds the theme, disposes the web-links addon and disposes
+      // the terminal itself, so nothing above may still be reading `term`.
+      studioTerminal.dispose()
       applyCursorFrozenRef.current = null
       focusTerminalRef.current = () => {
         containerRef.current?.focus()

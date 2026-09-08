@@ -1,13 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
+import { createStudioTerminal } from '../../utils/createStudioTerminal'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
@@ -15,7 +13,6 @@ import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
-import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import {
   hasCommitDropData,
   hasFileDropData,
@@ -23,10 +20,9 @@ import {
   pasteDroppedCommitIntoTerminal,
   pasteDroppedFilesIntoTerminal,
 } from '../../utils/terminalDrop'
-import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
+import { waitForMonoFontReady } from '../../utils/fonts'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
-import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
 
 interface Props {
   workspaceId: string
@@ -76,16 +72,16 @@ export default function PlainTerminalPanel({
     if (!cwdOverride && savedFolderPath && !folderReadyPath) return
 
     const sessionId = sessionIdRef.current
-    const term = new Terminal({
-      theme: getTerminalTheme(),
-      fontFamily: MONO_FONT_STACK,
-      fontSize: 13,
-      cursorBlink: true,
-      scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
+    // A shell pane carries its workspace root but no execution root: unlike an
+    // agent, nothing here resolves a cwd of its own. It registers no file-link
+    // provider today — see [[terminal-relative-links-dropped]] — so the roots
+    // are carried, not yet read.
+    const studioTerminal = createStudioTerminal({
+      surface: { kind: 'shell', workspaceRoot: folderReadyPath ?? savedFolderPath ?? null },
     })
-    const unbindTerminalTheme = bindTerminalTheme(term)
+    const term = studioTerminal.terminal
     registerTerminalInstance(sessionId, term)
-    const fitAddon = new FitAddon()
+    const fitAddon = studioTerminal.fitAddon
     const terminalDiagnostics = createTerminalDiagnostics({
       scope: 'PlainTerminalPanel',
       sessionId,
@@ -107,7 +103,6 @@ export default function PlainTerminalPanel({
       term.focus()
     }
 
-    term.loadAddon(fitAddon)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type === 'keydown') {
         terminalDiagnostics.recordKeydown(event)
@@ -328,9 +323,10 @@ export default function PlainTerminalPanel({
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()
-      unbindTerminalTheme()
       unregisterTerminalInstance(sessionId)
-      term.dispose()
+      // Last: it unbinds the theme and disposes the terminal itself, so nothing
+      // above may still be reading `term`.
+      studioTerminal.dispose()
       if (killOnUnmount || shouldKillOnUnmount?.(sessionId)) {
         void window.api.terminalKill(sessionId).catch(() => {})
       } else {

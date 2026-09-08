@@ -1,14 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import '@xterm/xterm/css/xterm.css'
 
 import type { FleetLinkState, FleetTerminalAccess } from '../../../../shared/tailnet-fleet'
-import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
-import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
+import { waitForMonoFontReady } from '../../utils/fonts'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
+import { createStudioTerminal } from '../../utils/createStudioTerminal'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
-import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { StatusDot } from '../ui'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
@@ -54,20 +50,20 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
     const container = containerRef.current
     if (!container) return
 
-    const term = new Terminal({
-      theme: getTerminalTheme(),
-      fontFamily: MONO_FONT_STACK,
-      fontSize: 13,
-      cursorBlink: true,
-      scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
+    // `kind: 'fleet'` carries no roots, and that is the point: this pane is
+    // attached to a terminal on another machine, so a path printed in it names
+    // a file over there. The surface type is what stops a later change from
+    // resolving it against this machine's filesystem and opening a same-named
+    // local file.
+    const studioTerminal = createStudioTerminal({
+      surface: { kind: 'fleet' },
       // Closed until the far end says this socket may type. Nothing is known
       // about the grant until the attach header arrives, and a cursor that
       // accepts keystrokes it will not send is a lie for that whole window.
       disableStdin: true,
     })
-    const unbindTerminalTheme = bindTerminalTheme(term)
-    const fitAddon = new FitAddon()
-    term.loadAddon(fitAddon)
+    const term = studioTerminal.terminal
+    const fitAddon = studioTerminal.fitAddon
     term.open(container)
 
     const fitTerminal = () => {
@@ -203,8 +199,9 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
       disposeEvents()
       replayGate.dispose()
       outputQueue.dispose()
-      unbindTerminalTheme()
-      term.dispose()
+      // Last: it unbinds the theme and disposes the terminal itself, so nothing
+      // above may still be reading `term`.
+      studioTerminal.dispose()
       // The socket is main's, and it is this pane's alone: closing the pane ends
       // the attachment rather than leaving a remote pty narrating to nobody.
       void window.api.fleetDetachTerminal(attachId).catch(() => {})
