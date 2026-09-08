@@ -4,9 +4,14 @@ Use this checklist for every preview or stable desktop release.
 
 ## Before Tagging
 
-- Confirm `npm run typecheck` passes.
+- Confirm `npm run typecheck:all` passes. That is what `release.yml`'s validate
+  job runs; plain `typecheck` skips the test projects, which is how 99 test
+  typecheck errors sat on `main` unnoticed before 0.4.0. Delete any stale
+  `tsconfig.*.tsbuildinfo` first, or an incremental build can report clean.
 - Confirm `node scripts/testing/run-tests.mjs src/main/mobile/sprintengine/command.test.ts` passes.
-- Confirm `npm run build` passes.
+- Confirm `npm run build` passes, including the bundle-budget ratchet it
+  chains. The ceiling only speaks during a build, so a breach can sit on
+  `main` for weeks and first surface in the release's package job.
 - Update `package.json` version.
 - Run `npm run sync:model-feed`, and commit the result if it moved. This pulls
   the live `model-feed.json` from `studio-releases` into
