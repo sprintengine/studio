@@ -2963,8 +2963,7 @@ export function SprintEngineInspectorPanel({
   return (
     // The anatomy rules for this pane (zero internal horizontal rules, one
     // stream, compose above the newest entry) are asserted on the RENDERED
-    // surface by scripts/testing/sprintengine-task-detail-pass.mjs, which finds
-    // the pane by this attribute.
+    // surface, which finds the pane by this attribute.
     <div data-sprintengine-task-detail className="flex h-full min-h-0 flex-col">
       {/* Who and what. No rule under it: the space between this group and the
           next is what separates them (item 2029 anatomy). */}

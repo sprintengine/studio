@@ -44,6 +44,47 @@ node scripts/build-catalog.mjs  # regenerate catalog/index.html after component/
   not already cover.
 - Do not invent styles this system already defines.
 
+### A new UI element goes into the system first
+
+In the consuming app this is not advice, it is the build. `npm run lint`
+fails on a raw `<button>`, `<input>` or `<textarea>` written in product code
+(`scripts/lint-primitive-duplication.mjs`, rule `no-raw-primitive`). Each of
+those tags already has a component here — `components/button/`,
+`components/input/`, `components/field/`, and `components/checkbox/` /
+`components/switch/` for the two input shapes that are their own control — and
+a primitive that implements it in `src/renderer/src/components/ui/`. Writing
+the bare element instead is how a focus ring, a control height, a disabled
+tone and a radius get decided one more time, privately.
+
+So the order is:
+
+1. **Use the primitive** the kit already exports (`ui/Buttons`, `ui/Input`,
+   `ui/Textarea`, `ui/Checkbox`, `ui/Switch`, `ui/Select`, …).
+2. If it does not do what you need, **change it** — add the variant or state to
+   the component spec under `components/<name>/` and to the primitive under
+   `src/renderer/src/components/ui/`, so the next surface inherits it.
+3. If the thing genuinely does not exist yet, **add it to the system**: a new
+   directory under `components/<name>/` following the per-component template in
+   *Contribute* below, plus the primitive under
+   `src/renderer/src/components/ui/` that consumes it.
+
+There is no fourth option. The rule has **no per-line marker and no allow-list
+entry to add**: the only tolerance is a per-area count in
+`scripts/design-system-conformance/raw-primitives.json`, holding the raw
+elements that predate the rule, and that file only ever gets smaller — its
+`--update-baseline` refuses to run when any area grew, and an area *under* its
+number fails too, so nothing that drains leaves headroom behind for the next
+regression. An area that is not in the file fails on its first raw element,
+which is what makes a brand-new surface the strictest place in the tree rather
+than the loosest.
+
+The same discipline governs the other gates' exemptions. Every per-file
+exemption in `scripts/lint-design-tokens.mjs` carries a measured `max`; the
+occurrence past it is an ordinary violation, and a `max` left above what the
+file actually spends is itself a violation. A file-level exemption with no
+number would admit not just what it was written for but everything that file
+ever gains afterwards, which is not an exception — it is an unmonitored region.
+
 ## Adapt to your framework
 
 Components here are framework-neutral **reference implementations**
@@ -130,6 +171,22 @@ connected-service row.
 Every other export from the app's `ui/index.ts` resolves to an entry here — as
 a component, a pattern, a glyph, or a named part of one (`CloseIconButton` under
 button, `TabPanel` under tabs, the `Menu*` vocabulary under menu, and so on).
+
+## Proving the gates still bite
+
+A lint that passes proves the guard found nothing. It does not prove the guard
+would find anything. `scripts/testing/design-system-guard-probes.mjs` proves the
+second thing: it builds an isolated copy of the tree, feeds the guards defects
+they are trusted to catch — one at a time, reverting between — and fails if a
+guard stays quiet. It runs as the last step of `npm run lint`, so the guards are
+re-proved on every run rather than the day someone remembers to check.
+
+Widening a rule means running the probes; a probe that no longer proves anything
+is a rule that quietly stopped being enforced. One had already gone stale that
+way: `sem.radius.pill` was added to the token file after the probe was written,
+and being the last key it silently became the one the probe mutated — a token
+the guard deliberately never reads, so the probe was pushing on nothing and
+reporting the guard as broken.
 
 ## Derived files — never hand-edit
 

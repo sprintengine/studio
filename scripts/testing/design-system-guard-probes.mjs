@@ -34,6 +34,19 @@
 //            guard refuse to run (exit 2) rather than silently disagree with the
 //            bundle it is supposed to enforce.
 //
+// P6 and P7 probe the OTHER half of the design-system gate — the raw-primitive
+// ratchet in `scripts/lint-primitive-duplication.mjs`, which is the rule that
+// answers "what stops a new raw UI element?". A rule whose whole job is to
+// refuse something new is worthless if nobody ever checks that it still
+// refuses, and it is the newest rule in the family:
+//
+//   P6       a raw `<button>` in a tree the ratchet has no number for must fail
+//            the guard. This is the gate's headline claim, stated as a defect.
+//   P7       `--update-baseline` must REFUSE (exit 2) while that button is
+//            there. The baseline drains; it never records a new element. An
+//            updater that would just write the bigger number turns the ratchet
+//            into a formality.
+//
 // Every probe runs against an isolated copy of the tree in a temp directory. The
 // guard resolves every path it reads from `process.cwd()`, so a directory
 // holding `scripts/`, `design-system/foundations/`, `index.css` and one `.tsx`
@@ -53,6 +66,8 @@ import { spawnSync } from 'node:child_process'
 const root = resolve(new URL('../..', import.meta.url).pathname)
 
 const GUARD = 'scripts/lint-design-system-conformance.mjs'
+const PRIMITIVE_GUARD = 'scripts/lint-primitive-duplication.mjs'
+const RAW_PRIMITIVE_BASELINE = 'scripts/design-system-conformance/raw-primitives.json'
 const APP_CSS = 'src/renderer/src/assets/index.css'
 const TOKENS_JSON = 'design-system/foundations/tokens.tokens.json'
 const BUNDLE_CSS = 'design-system/foundations/tokens.css'
@@ -72,7 +87,7 @@ function record(name, ok, detail) {
 
 function buildHarness() {
   const dir = mkdtempSync(join(tmpdir(), 'ds-guard-probes-'))
-  for (const rel of [GUARD, APP_CSS, TOKENS_JSON, BUNDLE_CSS, BASELINE]) {
+  for (const rel of [GUARD, PRIMITIVE_GUARD, APP_CSS, TOKENS_JSON, BUNDLE_CSS, BASELINE]) {
     const from = join(root, rel)
     let content
     try {
@@ -86,6 +101,12 @@ function buildHarness() {
     mkdirSync(dirname(to), { recursive: true })
     writeFileSync(to, content)
   }
+  // The raw-primitive ratchet refuses to run without a baseline (a missing file
+  // would mean every raw element in the tree passes unseen, which is the state
+  // the rule exists to end). The harness tree has no raw elements, so its
+  // baseline is empty — which is also the shape the real one is draining toward.
+  mkdirSync(join(dir, 'scripts/design-system-conformance'), { recursive: true })
+  writeFileSync(join(dir, RAW_PRIMITIVE_BASELINE), '{\n  "counts": {}\n}\n')
   // The component rules need a source tree to walk. One file whose type sits
   // ABOVE the shipped micro floor and BELOW a moved one: clean today, and the
   // thing P4 makes fire without touching the guard.
@@ -112,6 +133,14 @@ function runGuard(dir) {
       .filter(Boolean)
       .map((m) => ({ line: Number(m[1]), rule: m[3], message: m[4].trim() })),
   }
+}
+
+function runPrimitiveGuard(dir, extraArgs = []) {
+  const out = spawnSync(process.execPath, [PRIMITIVE_GUARD, ...extraArgs], {
+    cwd: dir,
+    encoding: 'utf8',
+  })
+  return { code: out.status, text: `${out.stdout || ''}${out.stderr || ''}` }
 }
 
 const read = (dir, rel) => readFileSync(join(dir, rel), 'utf8')
@@ -191,9 +220,26 @@ const probes = [
     file: TOKENS_JSON,
     mutate: (json) => {
       const parsed = JSON.parse(json)
-      const steps = Object.keys(parsed?.sem?.radius ?? {}).filter((k) => !k.startsWith('$'))
-      if (!steps.length) throw new Error('the bundle declares no sem.radius.* steps')
-      return setTokenValue(json, ['sem', 'radius', steps[steps.length - 1]], '20px')
+      // `pill` is excluded for the same reason the guard excludes it: 999px
+      // fully-rounded ends are an IDIOM, not a rung of the shape ramp, and the
+      // token says so itself (`doNotUse`: "a tool reading sem.radius.* as a ramp
+      // must exclude it"). Mutating it proves nothing — the guard never reads
+      // it, so the probe passed a 20px pill through and called the silence a
+      // failure of the guard. It went stale exactly this way: `pill` was added
+      // to the bundle AFTER this probe was written, and being the last key it
+      // quietly became the thing the probe mutated.
+      const steps = Object.keys(parsed?.sem?.radius ?? {}).filter(
+        (k) => !k.startsWith('$') && k !== 'pill',
+      )
+      if (!steps.length) throw new Error('the bundle declares no sem.radius.* ramp steps')
+      // The ramp step the guard's `largestRadiusPx` actually reads: the biggest
+      // one. Pushing a smaller step to 20px would also trip the assertion, but
+      // through a number the guard would not otherwise be looking at.
+      const largest = steps.reduce((a, b) => {
+        const px = (k) => Number.parseFloat(parsed.sem.radius[k]?.$value ?? '0') || 0
+        return px(b) > px(a) ? b : a
+      })
+      return setTokenValue(json, ['sem', 'radius', largest], '20px')
     },
     // Not a violation — a refusal. The floor is a literal 16 the guard asserts
     // against the bundle, so the honest failure is "revisit the rule", exit 2.
@@ -331,6 +377,63 @@ function main() {
       // makes every later probe meaningless.
       const after = runGuard(dir)
       record(`${probe.id} — the guard returns to green on revert`, after.code === 0, `exit=${after.code}`)
+    }
+
+    /* -------------------------------------------------------------- *
+     * P6 / P7 — the raw-primitive ratchet
+     * -------------------------------------------------------------- */
+
+    const primitiveClean = runPrimitiveGuard(dir)
+    record(
+      'the primitive guard is clean before the raw-element probe',
+      primitiveClean.code === 0,
+      `exit=${primitiveClean.code}` +
+        (primitiveClean.code === 0 ? '' : `\n        ${primitiveClean.text.trim().split('\n').slice(-4).join('\n        ')}`),
+    )
+
+    if (primitiveClean.code === 0) {
+      // A brand-new surface with one hand-rolled button on it — token-correct,
+      // focus-ring-correct, and still a second Button. Nothing in the tree gives
+      // `components/probe` an allowance, so the ratchet has to refuse it.
+      const probeFile = 'src/renderer/src/components/probe/RawElement.tsx'
+      mkdirSync(dirname(join(dir, probeFile)), { recursive: true })
+      writeFileSync(
+        join(dir, probeFile),
+        'export function RawElement() {\n' +
+          '  return (\n' +
+          '    <button type="button" className="focus-visible:focus-ring rounded-sm px-2 py-1">\n' +
+          '      Do the thing\n' +
+          '    </button>\n' +
+          '  )\n' +
+          '}\n',
+      )
+
+      const withRaw = runPrimitiveGuard(dir)
+      record(
+        'P6 — a raw `<button>` on a surface with no allowance fails the guard',
+        withRaw.code === 1 && /no-raw-primitive/.test(withRaw.text),
+        `exit=${withRaw.code} (want 1); no-raw-primitive named: ${/no-raw-primitive\] \d/.test(withRaw.text)}`,
+      )
+
+      const raised = runPrimitiveGuard(dir, ['--update-baseline'])
+      record(
+        'P7 — `--update-baseline` refuses to record the new element',
+        raised.code === 2 && /does not raise it/.test(raised.text),
+        `exit=${raised.code} (want 2)\n        ${raised.text.trim().split('\n')[0]}`,
+      )
+      record(
+        'P7 — the refusal left the baseline untouched',
+        read(dir, RAW_PRIMITIVE_BASELINE).includes('"counts": {}'),
+        read(dir, RAW_PRIMITIVE_BASELINE).replace(/\s+/g, ' ').trim(),
+      )
+
+      rmSync(join(dir, probeFile), { force: true })
+      const afterRaw = runPrimitiveGuard(dir)
+      record(
+        'P6 — the primitive guard returns to green on revert',
+        afterRaw.code === 0,
+        `exit=${afterRaw.code}`,
+      )
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })

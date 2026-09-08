@@ -19,31 +19,28 @@ the same relative paths.
 
 ## Seed Plugins
 
-Two populations ship a committed `plugins/<id>/` bundle.
+One population ships a committed `plugins/<id>/` bundle.
 
-**Signed MCP seeds.** Each wraps one MCP server. The plugin manifests are signed
-with ed25519 detached signatures over the normalized `plugin.json`, including
-per-component file digests. The private signing key is not stored in this
-repository.
+**The signed MCP seeds are gone** (MC-2519, owner ruling 2026-09-08).
+`browser-automation-mcp` (Playwright), `repository-workflows-mcp` (GitHub),
+`current-docs-mcp` (Context7) and `api-reference-mcp` (openai-docs) each wrapped
+one MCP server that somebody else wrote and published it under our name. Being
+signed made them ours to vouch for, not ours to ship. Their four rows, their
+four `plugins/<id>/` directories and their four `icons/*.svg` are removed; the
+index is 18 rows and carries **no signed component at all**.
 
-- `browser-automation-mcp` wraps the `playwright` MCP server.
-- `repository-workflows-mcp` wraps the `github` MCP server.
-- `current-docs-mcp` wraps the `context7` MCP server.
-- `api-reference-mcp` wraps the `openai-docs` MCP server.
+Nothing was re-signed and nothing needed to be. There is no index-wide
+signature: each signed entry carried its own `signature` over its own bytes, so
+removing four left the other eighteen byte-identical.
 
-Only the last of those four is still a `resources/mcps/catalog.json` row. The
-frozen-snapshots retirement (2026-09-06) cut that catalogue to the 16 servers no
-plugin carries, and Playwright, GitHub and Context7 are all plugins in
-`anthropics/claude-plugins-official`. The three signed bundles that wrap them are
-therefore a second route to a server the Anthropic tab already offers — recorded
-here rather than removed, because the change that cut the catalogue was scoped
-to the registry's data and these are signed entries, and unpicking a signed
-bundle is its own change.
-
-These use `publisher.verified: true` for `Multicode Labs`. First-party
-verification is represented by the publisher fingerprint in
-`trusted-publishers.json`; the app trust path classifies the signed manifests as
-trusted when that fingerprint is accepted.
+`trusted-publishers.json` stays, and not out of caution. All 13 agent-CLI rows
+set `publisher.verified: true`, and `validateInlineCliEntry` allows that claim
+only under a name listed there as verified — identity proven by the signed app
+bundle instead of by a detached signature. Deleting the file would fail all 13.
+The Multicode Labs key is a trust anchor for those rows now rather than for any
+signature, and the signature path itself is still exercised: the publish test
+signs a probe bundle with a throwaway key it generates and trusts for the length
+of the run.
 
 **Unsigned automation starters** (`*-automation`). Each is a definition — a
 schedule trigger, a `spawn-agent` action and a prompt — interpreted by the app's
@@ -58,8 +55,10 @@ remote registry.
 Every entry in `marketplace.json` is now hand-authored. The generator that used
 to project most of it from `@hotstack/catalogue-snapshot`
 (`scripts/generate-connector-catalogue.mjs`) went with the 256 snapshotted
-plugin entries it produced; `npm run sync:catalogue` refreshes this seed from
-`sprintengine/studio-releases`, which is where the entries are edited.
+plugin entries it produced, and `scripts/sync-catalogue.mjs`, which pulled this
+seed back from `sprintengine/studio-releases`, went with the MCP catalogue it
+also fetched (MC-2519). This directory is the source of truth; it is published
+to `studio-releases`, not read back from it.
 
 ## Source policy and widened schema
 

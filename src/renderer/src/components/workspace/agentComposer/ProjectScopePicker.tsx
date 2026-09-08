@@ -136,8 +136,8 @@ export function ProjectScopePicker({
           ref={ref}
           type="button"
           onClick={togglePopover}
-          // A stable hook for the Playwright passes (scripts/testing/
-          // newChatWorkspace.mjs), which reach the folder through this control.
+          // A stable hook for the passes that reach the folder through this
+          // control.
           data-project-trigger="true"
           // Exactly the machine trigger's box: the scope line is one row of
           // sibling chips, so a `mt-1` left over from when this was the only

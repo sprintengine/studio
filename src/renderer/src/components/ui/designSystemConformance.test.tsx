@@ -18,8 +18,8 @@ import { JSDOM } from 'jsdom'
 //   T18  the ink lift is a real step: an unselected title sits at
 //        `--text-default`. The resting tier itself is a cascade behaviour
 //        (`data-selection-pane` + `:focus-within`) and is measured in the built
-//        app by `scripts/testing/selection-tier-pass.mjs`, not here — jsdom
-//        loads no stylesheet, so it can only read class names.
+//        app, not here — jsdom loads no stylesheet, so it can only read class
+//        names.
 //   T5   every tab carries the shared `:focus-visible` indicator;
 //        `focus:outline-none` is never left undischarged, and a bare `:focus`
 //        ring does not count. T18 made that indicator an offset outline behind

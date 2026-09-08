@@ -34,16 +34,14 @@
     "test:sdk:pack": "node scripts/verify-module-sdk-pack.mjs",
     "test:model-feed": "node scripts/check-model-feed-seed.mjs",
     "test:card-feed": "node scripts/check-card-feed-seed.mjs",
+    "test:sources": "node scripts/check-sources-seed.mjs",
     "typecheck": "npm run typecheck:app",
     "typecheck:app": "tsc -b --noEmit --verbose",
     "typecheck:tests": "tsc -b tsconfig.tests.json --noEmit --verbose",
     "typecheck:all": "npm run typecheck:app && npm run typecheck:tests",
-    "verify:app": "npm run typecheck && npm run lint && npm run test && npm run test:sdk:drift && npm run test:sdk:pack && npm run test:model-feed && npm run test:card-feed",
+    "verify:app": "npm run typecheck && npm run lint && npm run test && npm run test:sdk:drift && npm run test:sdk:pack && npm run test:model-feed && npm run test:card-feed && npm run test:sources",
     "verify:marketplace-registry": "esbuild resources/marketplace/verify-marketplace.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/marketplace-registry-verify.cjs && node node_modules/.cache/multicode/marketplace-registry-verify.cjs",
-    "verify:third-party-modules-e2e": "node scripts/testing/third-party-module-e2e.mjs",
-    "verify:native-menu-conformance": "node scripts/testing/native-menu-conformance-pass.mjs",
-    "verify:file-tree-cues": "node scripts/testing/file-tree-cues-pass.mjs",
-    "lint": "node scripts/lint-design-tokens.mjs && node scripts/lint-panel-composition.mjs && node scripts/lint-palette-contract.mjs && node scripts/lint-primitive-duplication.mjs && node scripts/lint-door-surfaces.mjs && node scripts/lint-design-system-conformance.mjs",
+    "lint": "node scripts/lint-design-tokens.mjs && node scripts/lint-panel-composition.mjs && node scripts/lint-palette-contract.mjs && node scripts/lint-primitive-duplication.mjs && node scripts/lint-door-surfaces.mjs && node scripts/lint-design-system-conformance.mjs && node scripts/testing/design-system-guard-probes.mjs",
     "lint:design-tokens": "node scripts/lint-design-tokens.mjs",
     "lint:design-tokens:report": "node scripts/lint-design-tokens.mjs --report",
     "lint:panel-composition": "node scripts/lint-panel-composition.mjs",
@@ -53,8 +51,9 @@
     "lint:primitive-duplication": "node scripts/lint-primitive-duplication.mjs",
     "lint:primitive-duplication:report": "node scripts/lint-primitive-duplication.mjs --report",
     "lint:door-surfaces": "node scripts/lint-door-surfaces.mjs",
+    "lint:design-system-conformance": "node scripts/lint-design-system-conformance.mjs",
+    "lint:guard-probes": "node scripts/testing/design-system-guard-probes.mjs",
     "catalogue:cli-entries": "esbuild resources/marketplace/generate-cli-entries.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/marketplace-cli-entries-generate.cjs && node node_modules/.cache/multicode/marketplace-cli-entries-generate.cjs",
-    "sync:catalogue": "node scripts/sync-catalogue.mjs",
     "sync:model-feed": "node scripts/sync-model-feed.mjs",
     "measure:startup": "node scripts/measure-startup.mjs",
     "report:source-size": "node scripts/report-source-size.mjs",
@@ -155,17 +154,14 @@
         "to": "cards-feed.json"
       },
       {
+        "from": "resources/sources.json",
+        "to": "sources.json"
+      },
+      {
         "from": "resources/hooks",
         "to": "hooks",
         "filter": [
           "**/*.mjs"
-        ]
-      },
-      {
-        "from": "resources/mcps",
-        "to": "mcps",
-        "filter": [
-          "**/*"
         ]
       },
       {

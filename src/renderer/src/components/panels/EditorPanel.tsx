@@ -345,9 +345,9 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   // do. Those two run `document.execCommand` over a selection the renderer
   // already owns; paste asks for content the page has no permission to read, so
   // Chromium refuses a programmatic one and the action silently no-ops. (It did
-  // under the native menu too — the row has never worked. Verified by
-  // `scripts/testing/native-menu-conformance-pass.mjs`, which cuts the buffer
-  // and pastes it back.) ⌘V still works because a real key press hands Monaco a
+  // under the native menu too — the row has never worked, verified by cutting
+  // the buffer and pasting it back.) ⌘V still works because a real key press
+  // hands Monaco a
   // genuine paste event the OS filled in.
   //
   // So this reads the clipboard through the app's own IPC — the same route

@@ -40,7 +40,14 @@
 //   * Per-line: a `// design-tokens-allow: <reason>` marker on the same line
 //     or one of the two preceding lines.
 //   * Per-file: an entry in `PATH_EXEMPTIONS` below that lists which rules
-//     are exempt for the path. Each entry MUST carry an inline comment that
+//     are exempt for the path AND, for each, the measured `max` number of
+//     occurrences it pays for. The count is the whole point: a blanket
+//     per-file exemption hides not just the literals it was written for but
+//     every literal added to that file afterwards, so it is an unmonitored
+//     region rather than an exception. Occurrence `max`+1 is an ordinary
+//     violation; a `max` left ABOVE what the file spends is a violation too,
+//     naming the number to write; and an entry whose file no longer exists
+//     stops the guard (exit 2). Each entry MUST carry an inline comment that
 //     names the exception category (terminal ANSI / memory graph atmosphere
 //     / brand SVG) and the file's role. Per the T12 implementation note, if
 //     this list grows beyond `ALLOW_LIST_CEILING` entries, the script emits
@@ -66,54 +73,48 @@ const EXCLUDED_DIRS = new Set(['__preview__'])
 // Per-file rule exemptions. Each entry MUST cite the exception category
 // (a) terminal ANSI output, (b) memory graph atmosphere, or (c) brand SVG
 // asset — and explain why the rule cannot apply.
+//
+// Each entry is COUNTED, not blanket. `max` says how many occurrences of each
+// listed rule the file is allowed; occurrence N+1 is a violation like any other,
+// and a file UNDER its number is a violation too, naming the number to write.
+//
+// It used to be blanket — name the file, name the rule, and every present and
+// FUTURE occurrence in it was invisible. Measuring it found the two failure
+// modes that shape predicts: five of the eight entries were at zero (the debt
+// they described had been drained, and the exemption was left behind as an open
+// door), and one named a file that no longer exists. A blanket per-file
+// exemption is not an exception, it is an unmonitored region.
 const PATH_EXEMPTIONS = [
   {
-    // (a) ANSI output path: xterm host. Hex literals are the xterm-256
-    // palette and terminal cursor/selection colors, not Shared chrome.
-    path: 'src/renderer/src/components/panels/PlainTerminalPanel.tsx',
-    rules: ['no-inline-hex'],
-  },
-  {
-    // (a) ANSI output path: xterm host. Hex literals are the xterm-256
-    // palette and terminal cursor/selection colors, not Shared chrome.
-    path: 'src/renderer/src/components/panels/TerminalView.tsx',
-    rules: ['no-inline-hex'],
-  },
-  {
     // (b) Memory graph atmosphere: graph node-type palette plus direct canvas
-    // paint colors, and the single canvas-scoped radial background var. Pinned
-    // to this one canvas file: the graph is an atmospheric surface, not chrome.
+    // paint colors. Pinned to this one canvas file: the graph is an atmospheric
+    // surface, not chrome.
     path: 'src/renderer/src/components/memory/MemoryGraphCanvas.tsx',
-    rules: ['no-inline-hex', 'no-radial-gradient'],
-  },
-  {
-    // (b) Memory graph atmosphere: GRAPH_PALETTE constant — paint colors for
-    // node types, not chrome tokens.
-    path: 'src/renderer/src/components/memory/memoryGraphTypes.ts',
     rules: ['no-inline-hex'],
-  },
-  {
-    // (c) Brand SVG asset: identity colors live on the SVG path attributes.
-    path: 'src/renderer/src/components/brand/MulticodeMark.tsx',
-    rules: ['no-inline-hex'],
-  },
-  {
-    // (c) Brand SVG asset: identity colors live on the SVG path attributes.
-    path: 'src/renderer/src/components/brand/MulticodeWordmark.tsx',
-    rules: ['no-inline-hex'],
+    max: { 'no-inline-hex': 19 },
   },
   {
     // (c) Brand SVG asset: per-CLI badge identity colour.
     path: 'src/renderer/src/components/CliIcon.tsx',
     rules: ['no-inline-hex'],
+    max: { 'no-inline-hex': 1 },
   },
   {
     // (c) Brand SVG asset: the external editors' marks (VS Code, IntelliJ) in
     // the colours their vendors publish, for the open-in-editor control.
     path: 'src/renderer/src/components/brand/EditorMarks.tsx',
     rules: ['no-inline-hex'],
+    max: { 'no-inline-hex': 5 },
   },
 ]
+
+// Five entries were retired when the list was measured, 2026-09-08. Three
+// (`panels/PlainTerminalPanel.tsx`, `panels/TerminalView.tsx`,
+// `memory/memoryGraphTypes.ts`) had drained to zero hex literals and were
+// standing open over nothing; two (`brand/MulticodeMark.tsx`,
+// `brand/MulticodeWordmark.tsx`) named files that no longer exist. None of that
+// was visible while the exemption was blanket, which is the argument for the
+// counts above and for the two checks below.
 
 // Implementation-note guardrail: when the file-level allow-list exceeds this
 // ceiling we emit a meta-finding so the architect sees the catalogue growth
@@ -432,9 +433,33 @@ const RULES = {
   glowShadow: { regex: GLOW_SHADOW, name: 'no-glow-shadow' },
 }
 
+// path -> rule name -> how many occurrences the entry pays for.
 const exemptionByPath = new Map()
 for (const entry of PATH_EXEMPTIONS) {
-  exemptionByPath.set(entry.path, new Set(entry.rules))
+  // An entry naming a file that is gone is how the list rots: it reads as
+  // considered, and it protects nothing. It is also the state two of these
+  // entries were found in.
+  if (!existsSync(resolve(process.cwd(), entry.path))) {
+    process.stderr.write(
+      `PATH_EXEMPTIONS names ${entry.path}, which does not exist. Delete the entry.\n`,
+    )
+    process.exit(2)
+  }
+  const caps = new Map()
+  for (const rule of entry.rules) {
+    const declared = entry.max?.[rule]
+    if (typeof declared !== 'number' || !Number.isInteger(declared) || declared < 0) {
+      process.stderr.write(
+        `PATH_EXEMPTIONS entry for ${entry.path} exempts \`${rule}\` without declaring ` +
+          '`max` for it. An exemption with no number is a blanket one: it hides every future ' +
+          'occurrence in that file as well as the ones it was written for. Declare the measured ' +
+          'count.\n',
+      )
+      process.exit(2)
+    }
+    caps.set(rule, declared)
+  }
+  exemptionByPath.set(entry.path, caps)
 }
 
 const args = new Set(process.argv.slice(2))
@@ -542,7 +567,17 @@ for (const relativePath of TARGET_FILES) {
   // allow-marker scan (markers live in comments); the RULES regexes run over
   // this so prose about a pattern is not counted as the pattern.
   const codeLines = maskComments(source).split('\n')
-  const fileExemptRules = exemptionByPath.get(relativePath) ?? new Set()
+  const fileExemptCaps = exemptionByPath.get(relativePath) ?? new Map()
+  // How many occurrences of each exempted rule this file has actually spent.
+  // Occurrences up to the cap are suppressed; the rest are ordinary violations,
+  // and a cap left above what the file spends is itself a finding.
+  const exemptSpend = new Map()
+  function exemptAbsorbs(ruleName) {
+    if (!fileExemptCaps.has(ruleName)) return false
+    const spent = (exemptSpend.get(ruleName) ?? 0) + 1
+    exemptSpend.set(ruleName, spent)
+    return spent <= fileExemptCaps.get(ruleName)
+  }
   const counts = {
     hex: 0,
     tracking: 0,
@@ -598,7 +633,7 @@ for (const relativePath of TARGET_FILES) {
   // `design-tokens-allow:` markers honour the exemption when an SVG truly
   // needs a non-canonical size (rare). The baseline is tallied per file; any
   // count above baseline is a violation.
-  if (!fileExemptRules.has('no-ad-hoc-icon-size')) {
+  {
     SVG_TAG.lastIndex = 0
     let svgMatch
     while ((svgMatch = SVG_TAG.exec(source))) {
@@ -618,6 +653,7 @@ for (const relativePath of TARGET_FILES) {
       ) {
         continue
       }
+      if (exemptAbsorbs('no-ad-hoc-icon-size')) continue
       counts.adHocIconSize += 1
       findings.push({
         rule: 'no-ad-hoc-icon-size',
@@ -634,7 +670,7 @@ for (const relativePath of TARGET_FILES) {
   // (not the tag opening) so the developer lands on the violation. Per-line
   // `design-tokens-allow:` markers and `PATH_EXEMPTIONS` honour the
   // exemption.
-  if (!fileExemptRules.has('no-native-tooltip-on-control')) {
+  {
     for (const titleMatch of nativeTitleOnInteractive(source)) {
       const titleIndex = titleMatch.titleIndex
       const upTo = source.slice(0, titleIndex)
@@ -651,6 +687,7 @@ for (const relativePath of TARGET_FILES) {
       ) {
         continue
       }
+      if (exemptAbsorbs('no-native-tooltip-on-control')) continue
       counts.nativeTitleOnInteractive += 1
       findings.push({
         rule: 'no-native-tooltip-on-control',
@@ -689,10 +726,10 @@ for (const relativePath of TARGET_FILES) {
     const lineNumber = index + 1
 
     for (const [key, rule] of Object.entries(RULES)) {
-      if (fileExemptRules.has(rule.name)) continue
       rule.regex.lastIndex = 0
       let match
       while ((match = rule.regex.exec(codeLines[index] ?? ''))) {
+        if (exemptAbsorbs(rule.name)) continue
         counts[key] += 1
         findings.push({
           rule: rule.name,
@@ -703,6 +740,24 @@ for (const relativePath of TARGET_FILES) {
       }
     }
   })
+
+  // A cap left above what the file actually spends is the blanket exemption
+  // growing back: the unspent headroom is where the next literal lands unseen.
+  // Report it, and name the number to write.
+  let staleCaps = 0
+  for (const [ruleName, cap] of fileExemptCaps) {
+    const spent = exemptSpend.get(ruleName) ?? 0
+    if (spent >= cap) continue
+    staleCaps += 1
+    findings.push({
+      rule: 'exemption-cap-stale',
+      line: 1,
+      column: 1,
+      text:
+        `PATH_EXEMPTIONS max['${ruleName}'] is ${cap}, the file has ${spent} — write ${spent}` +
+        (spent === 0 ? ` (or drop '${ruleName}' from the entry, and the entry with its last rule)` : ''),
+    })
+  }
 
   const nativeDialogAllowed = NATIVE_DIALOG_BASELINE.get(relativePath) ?? 0
   const nativeDialogViolations = Math.max(0, counts.nativeDialog - nativeDialogAllowed)
@@ -718,7 +773,8 @@ for (const relativePath of TARGET_FILES) {
     counts.statusdotFromAppIcons +
     counts.nativeTitleOnInteractive +
     nativeDialogViolations +
-    adHocIconSizeViolations
+    adHocIconSizeViolations +
+    staleCaps
   perFile.push({
     path: relativePath,
     counts,
@@ -911,7 +967,9 @@ if (totalViolations > 0) {
       'controls (button, a, IconButton, PrimaryButton, GhostButton) with the\n' +
       'ui/Tooltip primitive instead of relying on the native title attribute.\n' +
       'Document intentional exceptions with `// design-tokens-allow: <reason>`\n' +
-      'on the same line or in PATH_EXEMPTIONS with a category-naming comment.\n',
+      'on the same line, or in PATH_EXEMPTIONS with a category-naming comment\n' +
+      'AND a measured `max` count — an exemption with no number admits every\n' +
+      'literal that file ever gains.\n',
   )
 }
 

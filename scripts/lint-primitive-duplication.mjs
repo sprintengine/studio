@@ -47,12 +47,46 @@
 //       (e.g. nested chip-listbox inside a Popover-managed parent that
 //       handles outside-click upstream).
 //
+//   (h) no-raw-primitive — a raw `<button>`, `<input>` or `<textarea>` in
+//       product code. Each of those tags has a design-system component
+//       (`design-system/components/button`, `/input`, `/field`) and a kit
+//       primitive that implements it (`ui/Buttons`, `ui/Input`, `ui/Textarea`,
+//       `ui/Checkbox`, `ui/Switch`). Writing the bare element instead is how a
+//       focus ring, a control height, a disabled tone and a radius get decided
+//       one more time, privately, in a file nobody will look at again.
+//
+//       This is the rule that answers "what stops a NEW raw UI element?".
+//       Every other rule in this file names a shape someone already
+//       hand-rolled; this one names the shapes the system ships and refuses a
+//       new hand-rolled instance of any of them.
+//
+//       It is a RATCHET, not a sweep: `scripts/design-system-conformance/`
+//       `raw-primitives.json` carries the measured per-area count of the raw
+//       elements that predate the rule, in the same per-directory shape (and
+//       for the same reason) as the `designSystemAxes` ratchet. An area over
+//       its number fails; an AREA THAT IS NOT IN THE FILE AT ALL fails on its
+//       first raw element, so no new surface gets in. An area UNDER its number
+//       fails too, naming the number to write instead — a baseline left high
+//       after a drain is a parking space for the next regression, which is the
+//       one thing a ratchet must not become.
+//
+//       There is deliberately NO per-line marker for this rule. A marker would
+//       be exactly the escape hatch the gate exists to close: the route for a
+//       new UI element is the design system — a spec under
+//       `design-system/components/<name>/` plus the primitive under
+//       `src/renderer/src/components/ui/` — or a change to one that is already
+//       there. `--update-baseline` rewrites the file, but only ever downward:
+//       it refuses to run when any area grew.
+//
 // Usage:
 //   node scripts/lint-primitive-duplication.mjs            # fails on any violation
 //   node scripts/lint-primitive-duplication.mjs --report   # never fails; report only
 //   node scripts/lint-primitive-duplication.mjs --quiet    # summary lines only
+//   node scripts/lint-primitive-duplication.mjs --update-baseline
+//                                       # rewrite the raw-primitive ratchet
+//                                       # DOWNWARD; refuses if anything grew
 
-import { readFileSync, existsSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { resolve, join, sep } from 'node:path'
 
 const SCAN_ROOT = 'src/renderer/src'
@@ -79,29 +113,18 @@ const DRAWER_PATH = 'src/renderer/src/components/ui/Drawer.tsx'
 // graph is an atmospheric surface, not chrome.
 const MEMORY_CANVAS_PATH = 'src/renderer/src/components/memory/MemoryGraphCanvas.tsx'
 
-// Native <select> allow-list. Each entry MUST carry a comment pointing to
-// the migration owner (this audit run or a companion follow-up plan) that
-// will retire the native control. Adding an entry without a migration owner
-// is a code review reject.
+// Native <select> allow-list — EMPTY, and it stays empty.
 //
-// Entries fall into two groups:
-//   AUDIT-PENDING: scheduled to migrate to ui/Select inside this Shared
-//     audit run. T31 triages whether the consumer recomposition still lands
-//     before signoff.
-//   COMPANION-PLAN-OWNED: target panels handled outside this run by a
-//     companion follow-up. This audit's panel migrations stop short of these
-//     surfaces by design.
-// Migration complete: the board panels' native
-// <select> sites are now routed through ui/Select (see T8 of the Linear App
-// UI Upgrade — Phase 4 plan). SettingsPanel remains companion-plan-owned; keep
-// this allow-list scoped to that existing settings control until the Settings
-// surface migration lands.
-const NATIVE_SELECT_ALLOW = [
-  {
-    path: 'src/renderer/src/components/settings/SettingsPanel.tsx',
-    owner: 'COMPANION-PLAN-OWNED: settings surface migration to ui/Select',
-  },
-]
+// It used to hold `settings/SettingsPanel.tsx`, pending a Settings migration to
+// `ui/Select`. That migration landed: the file carries no `<select>` today. The
+// entry outliving the debt it described is the failure mode this whole file is
+// about — a per-FILE allow-list admits not just the control it was written for
+// but every control added to that file afterwards, silently, forever. So the
+// entry is gone rather than left at zero.
+//
+// If a native `<select>` is ever genuinely unavoidable, the answer is a change
+// to `ui/Select`, not a name added back here.
+const NATIVE_SELECT_ALLOW = []
 
 const nativeSelectAllow = new Set(NATIVE_SELECT_ALLOW.map((entry) => entry.path))
 
@@ -116,9 +139,62 @@ const BESPOKE_POPOVER_BASELINE = new Map([])
 // like the design-token lint does: same-line or up to two preceding lines.
 const PRIMITIVE_DUP_ALLOW_MARKER = 'primitive-duplication-allow:'
 
+// (h) The kit is where a primitive is BUILT, so the raw tag is the point of it
+// there. Everywhere else in the renderer the raw tag is a second button.
+const KIT_DIR = 'src/renderer/src/components/ui/'
+const RAW_PRIMITIVE_BASELINE_PATH = 'scripts/design-system-conformance/raw-primitives.json'
+
+// Tag → the spec that already describes it, and the export that already
+// implements it. Both halves are named in the finding on purpose: "use
+// ui/Buttons" alone tells someone what to type, not what the system is.
+const RAW_PRIMITIVES = [
+  {
+    tag: 'button',
+    pattern: /<button\b/g,
+    spec: 'design-system/components/button/',
+    canonical: 'ui/Buttons — PrimaryButton | GhostButton | OutlineButton | IconButton | CloseIconButton',
+  },
+  {
+    tag: 'input',
+    pattern: /<input\b/g,
+    spec: 'design-system/components/input/ (also checkbox/, switch/)',
+    canonical: 'ui/Input, ui/Checkbox or ui/Switch',
+  },
+  {
+    tag: 'textarea',
+    pattern: /<textarea\b/g,
+    spec: 'design-system/components/field/',
+    canonical: 'ui/Textarea',
+  },
+]
+
 const args = new Set(process.argv.slice(2))
 const REPORT_ONLY = args.has('--report')
 const QUIET = args.has('--quiet')
+const UPDATE_BASELINE = args.has('--update-baseline')
+
+// Comments are blanked before the raw-primitive scan. Without this, prose
+// describing the rule counts as a violation of it — this file's own header
+// would score three — so documenting a shape would make the shape look present
+// and deleting the documentation would "fix" it. Same reason as the
+// `designSystemAxes` ratchet, but LENGTH-PRESERVING: that one only counts,
+// while this one reports a line and column, and collapsing a comment to one
+// space shifts every offset after it.
+function maskComments(source) {
+  const blank = (text) => text.replace(/[^\n]/g, ' ')
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, blank)
+    .replace(/(^|[^:])(\/\/[^\n]*)/g, (whole, before, comment) => before + blank(comment))
+}
+
+// The directory a count is attributed to: `components/<area>`, else the top
+// segment. Per-area rather than per-file so that moving a file inside a surface
+// is not a ratchet event; the axes ratchet attributes the same way.
+function areaOf(path) {
+  const parts = path.slice('src/renderer/src/'.length).split('/')
+  if (parts[0] !== 'components') return parts[0]
+  return parts.length > 1 ? `components/${parts[1]}` : 'components'
+}
 
 // --- Patterns ---
 
@@ -212,6 +288,11 @@ function locationOf(source, offset) {
 
 // Track files that export StatusDot for rule (a).
 const statusdotExporters = []
+
+// (h) Every raw primitive occurrence in the tree, in walk order, so the ratchet
+// can compare per-area totals AND still point at the specific tags that put an
+// area over its number.
+const rawPrimitiveHits = []
 
 for (const path of FILES) {
   const full = resolve(repoRoot, path)
@@ -380,6 +461,151 @@ for (const path of FILES) {
       })
     }
   }
+
+  // (h) Raw design-system primitives in product code. Collected here, judged
+  // per area once the whole tree is counted.
+  if (!path.startsWith(KIT_DIR)) {
+    const code = maskComments(source)
+    for (const primitive of RAW_PRIMITIVES) {
+      primitive.pattern.lastIndex = 0
+      let rawMatch
+      while ((rawMatch = primitive.pattern.exec(code))) {
+        const { line, column } = locationOf(source, rawMatch.index)
+        rawPrimitiveHits.push({
+          area: areaOf(path),
+          path,
+          line,
+          column,
+          tag: primitive.tag,
+          spec: primitive.spec,
+          canonical: primitive.canonical,
+        })
+      }
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * (h) The raw-primitive ratchet
+ * ------------------------------------------------------------------ */
+
+const rawByArea = new Map()
+for (const hit of rawPrimitiveHits) {
+  if (!rawByArea.has(hit.area)) rawByArea.set(hit.area, [])
+  rawByArea.get(hit.area).push(hit)
+}
+// Collection is per tag within a file, so sort back into reading order: the
+// findings past the allowance are otherwise "all the buttons, then all the
+// inputs", which reads as arbitrary.
+for (const hits of rawByArea.values()) {
+  hits.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line || a.column - b.column)
+}
+
+function readRawBaseline() {
+  const abs = resolve(repoRoot, RAW_PRIMITIVE_BASELINE_PATH)
+  if (!existsSync(abs)) {
+    process.stderr.write(
+      `Missing ${RAW_PRIMITIVE_BASELINE_PATH}.\n` +
+        'The no-raw-primitive ratchet has no numbers to hold, so every raw\n' +
+        '<button>/<input>/<textarea> in the renderer would pass unnoticed. That is\n' +
+        'the state this rule exists to end, so the guard refuses to run rather than\n' +
+        'reporting a green it cannot stand behind. Restore the file from git, or\n' +
+        'seed it with `--update-baseline` from a tree you have read.\n',
+    )
+    process.exit(2)
+  }
+  let parsed
+  try {
+    parsed = JSON.parse(readFileSync(abs, 'utf8'))
+  } catch {
+    process.stderr.write(`${RAW_PRIMITIVE_BASELINE_PATH} is not valid JSON.\n`)
+    process.exit(2)
+  }
+  const counts = parsed?.counts
+  if (counts === null || typeof counts !== 'object' || Array.isArray(counts)) {
+    process.stderr.write(`${RAW_PRIMITIVE_BASELINE_PATH} must declare an object under "counts".\n`)
+    process.exit(2)
+  }
+  return counts
+}
+
+function writeRawBaseline(counts, previous) {
+  const areas = [...new Set([...Object.keys(counts), ...Object.keys(previous)])].sort()
+  const grew = areas.filter((area) => (counts[area] ?? 0) > (previous[area] ?? 0))
+  if (grew.length > 0) {
+    process.stderr.write(
+      '--update-baseline drains the ratchet; it does not raise it. These areas grew:\n' +
+        grew.map((area) => `  ${area}: ${previous[area] ?? 0} -> ${counts[area] ?? 0}\n`).join('') +
+        '\nA new raw <button>/<input>/<textarea> is not a number to record. Add the\n' +
+        'element to the design system (a spec under design-system/components/<name>/\n' +
+        'plus the primitive under src/renderer/src/components/ui/) or change one that\n' +
+        'is already there, and use it.\n',
+    )
+    process.exit(2)
+  }
+  const ordered = {}
+  for (const area of areas) {
+    if ((counts[area] ?? 0) === 0) continue
+    ordered[area] = counts[area]
+  }
+  const body = {
+    $comment:
+      'Raw <button>/<input>/<textarea> that predate the no-raw-primitive rule, per renderer ' +
+      'area. ONLY EVER EDIT DOWNWARD — an area over its number fails the lint, an area under ' +
+      'it fails too (write the smaller number), and an area absent here fails on its first ' +
+      'raw element. The exit condition is an empty object. See the rule (h) header in ' +
+      'scripts/lint-primitive-duplication.mjs.',
+    counts: ordered,
+  }
+  writeFileSync(resolve(repoRoot, RAW_PRIMITIVE_BASELINE_PATH), `${JSON.stringify(body, null, 2)}\n`)
+  process.stdout.write(`Wrote ${RAW_PRIMITIVE_BASELINE_PATH} (${Object.keys(ordered).length} area(s)).\n`)
+}
+
+const rawBaseline = readRawBaseline()
+const actualByArea = {}
+for (const [area, hits] of rawByArea) actualByArea[area] = hits.length
+
+if (UPDATE_BASELINE) {
+  writeRawBaseline(actualByArea, rawBaseline)
+  process.exit(0)
+}
+
+for (const area of [...new Set([...Object.keys(rawBaseline), ...Object.keys(actualByArea)])].sort()) {
+  const allowed = rawBaseline[area] ?? 0
+  const hits = rawByArea.get(area) ?? []
+  if (hits.length > allowed) {
+    // The ratchet counts an AREA, so it can say how many are owed but not which
+    // one is new — walk order is not edit order. It reports the tags past the
+    // allowance and says so, rather than pointing confidently at the wrong line.
+    for (const hit of hits.slice(allowed)) {
+      recordFinding({
+        rule: 'no-raw-primitive',
+        path: hit.path,
+        line: hit.line,
+        column: hit.column,
+        match: `<${hit.tag}>`,
+        canonical:
+          `${hit.canonical} — spec: ${hit.spec}. ` +
+          `\`${area}\` is allowed ${allowed} raw element(s) and has ${hits.length}. ` +
+          'The count is per area, so this line is one of the area\'s raw elements ' +
+          'rather than necessarily the one just added — the area owes ' +
+          `${hits.length - allowed}. A new UI element goes into the design system ` +
+          'first; the baseline never goes up.',
+      })
+    }
+  } else if (hits.length < allowed) {
+    recordFinding({
+      rule: 'no-raw-primitive',
+      path: RAW_PRIMITIVE_BASELINE_PATH,
+      line: 1,
+      column: 1,
+      match: `${area}: ${allowed} allowed, ${hits.length} found`,
+      canonical:
+        `write ${hits.length} for \`${area}\`` +
+        (hits.length === 0 ? ' (or delete the entry)' : '') +
+        ' — a baseline left above the real count is a parking space for the next regression',
+    })
+  }
 }
 
 // (a) Rule check after walking the tree.
@@ -437,7 +663,12 @@ if (!QUIET && findings.length > 0) {
 process.stdout.write('\nPrimitive-duplication guard summary\n')
 process.stdout.write(`  scope: ${SCAN_ROOT} (recursive, .tsx/.ts, ${FILES.length} files)\n`)
 process.stdout.write(
-  `  no-native-select allow-list: ${NATIVE_SELECT_ALLOW.length} consumer file(s) pending Phase D migration\n`,
+  `  no-native-select allow-list: ${NATIVE_SELECT_ALLOW.length} consumer file(s) (the list is retired; it stays empty)\n`,
+)
+process.stdout.write(
+  `  no-raw-primitive ratchet: ${rawPrimitiveHits.length} raw element(s) across ` +
+    `${rawByArea.size} area(s), allowance ${Object.values(rawBaseline).reduce((sum, n) => sum + n, 0)} ` +
+    `(${RAW_PRIMITIVE_BASELINE_PATH}, drains only)\n`,
 )
 process.stdout.write(
   `  no-bespoke-popover-shell baseline: ${[...BESPOKE_POPOVER_BASELINE.values()].reduce((sum, count) => sum + count, 0)} legacy shell(s)\n`,
@@ -450,6 +681,7 @@ const ruleOrder = [
   'no-hand-rolled-task-card',
   'no-bespoke-popover-shell',
   'no-bespoke-absolute-popover-role',
+  'no-raw-primitive',
 ]
 for (const rule of ruleOrder) {
   const count = findingsByRule.get(rule)?.length ?? 0
@@ -464,9 +696,17 @@ if (findings.length > 0) {
       '  - ui/Select for tone-correct picker controls\n' +
       '  - ui/TaskCard (variant="row" | "card") for task list/board items\n' +
       '  - ui/Popover for anchored menus, listboxes, and dialog popovers\n' +
+      '  - ui/Buttons, ui/Input, ui/Textarea, ui/Checkbox, ui/Switch instead of a\n' +
+      '    raw <button>, <input> or <textarea>\n' +
       'Confine radial-gradient to the memory graph canvas. Delete any\n' +
       'AppIcons.StatusDot re-export; it was removed in T9 and should never\n' +
-      'come back.\n',
+      'come back.\n' +
+      '\n' +
+      'For no-raw-primitive there is no marker and no allow-list entry to add. A\n' +
+      'UI element that the kit does not already have is a change to the design\n' +
+      'system: a component spec under design-system/components/<name>/ (anatomy,\n' +
+      'variants, states, usage, accessibility) plus the primitive under\n' +
+      'src/renderer/src/components/ui/ — or a variant added to one that exists.\n',
   )
 }
 

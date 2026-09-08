@@ -38,7 +38,6 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { inferSourcePlanKind } from '../workspace/newWorkspace/helpers'
 import type { FuturePlanWorkspaceSource, SprintEngineSourceBundleItem, SprintEngineSourcePlanKind } from '../../types/workspace'
 
-const EMPTY_SEARCH_EXCLUDES: string[] = []
 const EMPTY_EXPANDED_PATHS: string[] = []
 const EMPTY_TREE_ROWS: TreeRow[] = []
 
@@ -583,13 +582,12 @@ async function searchFiles(
   rootPath: string,
   query: string,
   gitStatus: GitStatusSnapshot | null,
-  searchExcludes: string[],
   limit = 200
 ): Promise<FileSearchResponse> {
   const lowerQuery = query.toLowerCase().trim()
   if (!lowerQuery) return { entries: [], diagnostics: null }
 
-  const result = await window.api.searchFiles(rootPath, query, { limit, excludes: searchExcludes })
+  const result = await window.api.searchFiles(rootPath, query, { limit })
   if (!result.ok) throw new Error(result.message)
 
   const matches: Entry[] = result.results.map((entry) => ({ ...entry }))
@@ -663,7 +661,6 @@ interface ExplorerTreeProps {
   workspaceId: string
   rootPath: string
   query: string
-  searchExcludes: string[]
   refreshToken: number
   revealPath: string | null
   revealToken: number
@@ -679,7 +676,6 @@ function ExplorerTree({
   workspaceId,
   rootPath,
   query,
-  searchExcludes,
   refreshToken,
   revealPath,
   revealToken,
@@ -739,7 +735,6 @@ function ExplorerTree({
   const latestExpandedPathsRef = useRef<Record<string, boolean>>(initialExpandedPaths)
   const hasRestoredSelectionRef = useRef(false)
   const latestSearchQueryRef = useRef('')
-  const latestSearchExcludesRef = useRef(searchExcludes)
   const latestGitStatusRef = useRef<GitStatusSnapshot | null>(gitStatus)
   const lastManualRefreshRef = useRef(refreshToken)
   const lastCreateRequestTokenRef = useRef(0)
@@ -786,10 +781,6 @@ function ExplorerTree({
   useEffect(() => {
     latestSearchQueryRef.current = query
   }, [query])
-
-  useEffect(() => {
-    latestSearchExcludesRef.current = searchExcludes
-  }, [searchExcludes])
 
   useEffect(() => {
     latestGitStatusRef.current = gitStatus
@@ -1153,8 +1144,7 @@ function ExplorerTree({
         applySearchResponse(await searchFiles(
           rootPath,
           latestSearchQueryRef.current,
-          latestGitStatusRef.current,
-          latestSearchExcludesRef.current
+          latestGitStatusRef.current
         ))
       }
       selectionAnchorPathRef.current = nextPath
@@ -1421,8 +1411,7 @@ function ExplorerTree({
         applySearchResponse(await searchFiles(
           rootPath,
           latestSearchQueryRef.current,
-          latestGitStatusRef.current,
-          latestSearchExcludesRef.current
+          latestGitStatusRef.current
         ))
       }
 
@@ -1437,8 +1426,7 @@ function ExplorerTree({
           applySearchResponse(await searchFiles(
             rootPath,
             latestSearchQueryRef.current,
-            latestGitStatusRef.current,
-            latestSearchExcludesRef.current
+            latestGitStatusRef.current
           ))
         }
         selectMovedEntries()
@@ -1476,8 +1464,7 @@ function ExplorerTree({
       applySearchResponse(await searchFiles(
         rootPath,
         latestSearchQueryRef.current,
-        latestGitStatusRef.current,
-        latestSearchExcludesRef.current
+        latestGitStatusRef.current
       ))
     }
 
@@ -1868,7 +1855,7 @@ function ExplorerTree({
 
     searchTimeoutRef.current = window.setTimeout(() => {
       searchTimeoutRef.current = null
-      searchFiles(rootPath, query, latestGitStatusRef.current, latestSearchExcludesRef.current)
+      searchFiles(rootPath, query, latestGitStatusRef.current)
         .then((response) => {
           if (requestSeq !== searchRequestSeqRef.current) return
           applySearchResponse(response)
@@ -1894,7 +1881,7 @@ function ExplorerTree({
         searchTimeoutRef.current = null
       }
     }
-  }, [applySearchResponse, rootPath, query, isSearching, searchExcludes])
+  }, [applySearchResponse, rootPath, query, isSearching])
 
   useEffect(() => {
     let disposed = false
@@ -2193,9 +2180,9 @@ function ExplorerTree({
               }}
               role="treeitem"
               data-file-explorer-row="true"
-              // Read by scripts/testing/file-tree-cues-pass.mjs. The cues are
-              // colour and a screenshot cannot assert on colour, so the row
-              // states what it decided.
+              // Read by the file-tree cue checks. The cues are colour and a
+              // screenshot cannot assert on colour, so the row states what it
+              // decided.
               data-row-wash={wash ?? undefined}
               data-row-ignored={ignored ? 'true' : undefined}
               aria-selected={isSelected}
@@ -2453,7 +2440,6 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
     recheckFolder,
   } = useWorkspaceFolderStatus(workspaceId)
   const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
-  const searchExcludes = useWorkspaceStore((s) => s.appSettings.searchExcludes ?? EMPTY_SEARCH_EXCLUDES)
   const activeFilePath = useWorkspaceStore(
     (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.editorState?.activeFilePath ?? null
   )
@@ -2609,7 +2595,6 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
             workspaceId={workspaceId}
             rootPath={folderReadyPath}
             query={query}
-            searchExcludes={searchExcludes}
             refreshToken={refreshToken}
             revealPath={externalRevealPath ?? (canRevealActiveFile ? activeFilePath : null)}
             revealToken={revealToken}

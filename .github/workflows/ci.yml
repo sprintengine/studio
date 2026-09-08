@@ -47,8 +47,9 @@ jobs:
         run: npm run build
 
   # What the JS gate covers, and why: `verify:app` — the repo's OWN full-app
-  # verification chain, seven &&-joined steps: typecheck, the six design lints,
-  # the whole unit suite, and the four SDK/feed guards (~4 min). Until MC-2070
+  # verification chain, seven &&-joined steps: typecheck, the six design lints
+  # plus the guard probes that prove those lints still bite, the whole unit
+  # suite, and the four SDK/feed guards (~4 min). Until MC-2070
   # CI ran exactly one hand-picked script out of the 422 the chain then named,
   # gating one file by accident rather than by decision. The chain is
   # deliberately named whole rather than curated: a hand-maintained subset is

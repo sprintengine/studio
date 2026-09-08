@@ -978,9 +978,8 @@ run('a row with no dangling mockups renders no Missing-mockup badge — the warn
 
 // T25 / review I1 + R3: selection on a Backlog row is two channels, fill and
 // ink, and both have to rest together when the row's pane is not the one
-// holding focus. The fill is measured live on the door by
-// scripts/testing/design-system-integration-pass.mjs; these pin the ink and the
-// wiring the two surfaces share, which is the half a live pass on one door
+// holding focus. The fill is measured live on the door; these pin the ink and
+// the wiring the two surfaces share, which is the half a live pass on one door
 // cannot prove for the other.
 run('an unselected Backlog row title sits at --text-default, and selection lifts it to --text-strong', () => {
   for (const plain of [true, false]) {

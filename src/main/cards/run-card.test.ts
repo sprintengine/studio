@@ -30,7 +30,6 @@
 import assert from 'node:assert/strict'
 
 import type {
-  McpCatalogResult,
   McpServerConfig,
   SkillInstalledPluginsOutcome,
   SkillScanOutcome,
@@ -42,7 +41,11 @@ import { refuseCard, runCard, type CardRunDeps } from './run-card'
 const WORKSPACE = '/tmp/workspace'
 const PARENT = '/tmp/projects'
 
-const CATALOG_SERVER = {
+// `install.mcp` no longer installs: the bundled catalogue it resolved ids
+// against was retired with the third-party ruling (MC-2519, 2026-09-08), so the
+// verb can only honour a server this workspace's settings already hold. These
+// two are the same server, installed and not.
+const MCP_SERVER = {
   id: 'io-github-playwright-mcp',
   name: 'Playwright',
   transport: 'stdio' as const,
@@ -51,6 +54,12 @@ const CATALOG_SERVER = {
   clients: ['claude-code'],
   riskLevel: 'local-command' as const,
 }
+const INSTALLED_SERVER = {
+  ...MCP_SERVER,
+  enabled: true,
+  scope: 'workspace',
+  source: 'custom',
+} as McpServerConfig
 
 const SKILL: ScannedSkill = {
   id: 'studio-skills/skills/browser',
@@ -104,10 +113,6 @@ type Recorder = { calls: string[]; deps: CardRunDeps }
 function recorder(overrides: Partial<CardRunDeps> = {}): Recorder {
   const calls: string[] = []
   const deps: CardRunDeps = {
-    listMcpCatalog: (): McpCatalogResult => {
-      calls.push('listMcpCatalog')
-      return { ok: true, servers: [CATALOG_SERVER] }
-    },
     syncMcp: (input) => {
       calls.push(`syncMcp ${Object.keys(input.settings.servers).join(',')}`)
       return { ok: true, targets: [], issues: [] }
@@ -172,7 +177,7 @@ function run(actions: CardAction[], deps: CardRunDeps, mcpServers: McpServerConf
 
 const HAPPY: CardAction[] = [
   { verb: 'require.cli', cli: 'claude-code' },
-  { verb: 'install.mcp', id: CATALOG_SERVER.id },
+  { verb: 'install.mcp', id: MCP_SERVER.id },
   { verb: 'install.skill', source: SOURCE.id, id: SKILL.id },
   { verb: 'open.chat', prompt: 'Open example.com and read the headline.', skills: ['browser'], send: true },
 ]
@@ -182,19 +187,18 @@ async function main(): Promise<void> {
   // ── 1. The happy path, in the card's own order ───────────────────────────────
   {
     const { calls, deps } = recorder()
-    const result = await run(HAPPY, deps)
+    const result = await run(HAPPY, deps, [INSTALLED_SERVER], true)
     assert.equal(result.ok, true, 'a card whose every action succeeds is a run that succeeded')
     assert.deepEqual(
       result.outcomes.map((outcome) => `${outcome.verb}:${outcome.status}`),
-      ['require.cli:already', 'install.mcp:done', 'install.skill:done', 'open.chat:done'],
-      'one outcome per action, in the card’s order, with the CLI that was already there reported as a no-op',
+      ['require.cli:already', 'install.mcp:already', 'install.skill:done', 'open.chat:done'],
+      'one outcome per action, in the card’s order, with what was already there reported as a no-op',
     )
     assert.deepEqual(
       calls,
       [
         'detectCli claude-code',
-        'listMcpCatalog',
-        `syncMcp ${CATALOG_SERVER.id}`,
+        `syncMcp ${MCP_SERVER.id}`,
         `getSkillScan ${SOURCE.id}`,
         'installedSkillCopies',
         `installSkill ${SKILL.id}`,
@@ -221,24 +225,23 @@ async function main(): Promise<void> {
     )
     assert.equal(result.surface, null, 'a card that named no door hands back no door')
     assert.deepEqual(
-      result.mcpServers.map((server) => server.id),
-      [CATALOG_SERVER.id],
-      'the servers as they now stand go back to the store, because MCP settings live in the renderer',
+      result.mcpServers,
+      [],
+      'and nothing goes back to the store, because this run added no server — it could not',
     )
     assert.equal(result.workspaceRoot, WORKSPACE, 'nothing cloned, so the workspace is the one it started in')
   }
 
   // ── 2. The first failure stops the rest, and names what did not run ──────────
   {
-    const { calls, deps } = recorder({
-      listMcpCatalog: (): McpCatalogResult => {
-        calls.push('listMcpCatalog')
-        return { ok: false, message: 'Bundled MCP catalog was not found.' }
-      },
-    })
+    const { calls, deps } = recorder()
     const result = await run(HAPPY, deps)
     assert.equal(result.ok, false)
-    assert.equal(result.message, 'Bundled MCP catalog was not found.', 'the toast leads with what actually broke')
+    assert.match(
+      result.message ?? '',
+      /is not a server this build can install/,
+      'the toast leads with what actually broke — and says where MCP servers come from now',
+    )
     assert.deepEqual(
       result.outcomes.map((outcome) => `${outcome.verb}:${outcome.status}`),
       ['require.cli:already', 'install.mcp:failed', 'install.skill:skipped', 'open.chat:skipped'],
@@ -253,14 +256,13 @@ async function main(): Promise<void> {
 
   // ── 3. A second press installs nothing ───────────────────────────────────────
   {
-    const installedServer = { ...CATALOG_SERVER, enabled: true, scope: 'workspace', source: 'bundled' } as McpServerConfig
     const { calls, deps } = recorder({
       installedSkillCopies: async () => {
         calls.push('installedSkillCopies')
         return new Map<string, readonly { sourceId: string }[]>([['browser', [{ sourceId: SOURCE.id }]]])
       },
     })
-    const result = await run(HAPPY, deps, [installedServer], true)
+    const result = await run(HAPPY, deps, [INSTALLED_SERVER], true)
     assert.equal(result.ok, true, 'pressing Go a second time succeeds — already satisfied is a no-op, not an error')
     assert.deepEqual(
       result.outcomes.map((outcome) => `${outcome.verb}:${outcome.status}`),
@@ -276,7 +278,7 @@ async function main(): Promise<void> {
     // tools and nothing said. Right after a `clone.repo` it was guaranteed —
     // a fresh clone has never been synced to anything.
     assert.ok(
-      calls.includes(`syncMcp ${CATALOG_SERVER.id}`),
+      calls.includes(`syncMcp ${MCP_SERVER.id}`),
       'a second press still syncs, because THIS workspace is the thing that may not have it yet',
     )
     assert.deepEqual(result.mcpServers, [], 'and the store is asked to write nothing, because nothing was added')
@@ -285,35 +287,27 @@ async function main(): Promise<void> {
 
   // ── The server the person already edited is not overwritten by the catalogue ─
   {
-    const edited = {
-      ...CATALOG_SERVER,
-      enabled: true,
-      scope: 'workspace',
-      source: 'bundled',
-      env: { PLAYWRIGHT_BROWSERS_PATH: '/opt/browsers' },
-    } as McpServerConfig
+    const edited = { ...INSTALLED_SERVER, env: { PLAYWRIGHT_BROWSERS_PATH: '/opt/browsers' } } as McpServerConfig
     let synced: McpServerConfig | undefined
     const { deps } = recorder({
       syncMcp: (input) => {
-        synced = input.settings.servers[CATALOG_SERVER.id]
+        synced = input.settings.servers[MCP_SERVER.id]
         return { ok: true, targets: [], issues: [] }
       },
     })
-    await run([{ verb: 'install.mcp', id: CATALOG_SERVER.id }], deps, [edited], true)
+    await run([{ verb: 'install.mcp', id: MCP_SERVER.id }], deps, [edited], true)
     assert.deepEqual(
       synced?.env,
       { PLAYWRIGHT_BROWSERS_PATH: '/opt/browsers' },
-      'a second Go syncs the config the person has, not the catalogue default that would erase their edits',
+      'a second Go syncs the config the person has, and nothing else can overwrite their edits',
     )
   }
 
   // ── The app's MCP sync switch is carried, not assumed ────────────────────────
   {
     // The executor synced with `syncEnabled: true` hardcoded, which turned a
-    // setting back on for somebody who had turned it off. It may only flip when
-    // the run ADDS a server, because that is what `upsertMcpServer` does with
-    // that same server a moment later.
-    const installed = { ...CATALOG_SERVER, enabled: true, scope: 'workspace', source: 'bundled' } as McpServerConfig
+    // setting back on for somebody who had turned it off. Since `install.mcp`
+    // can no longer add a server, it may never flip the switch at all.
     const flags: boolean[] = []
     const { deps } = recorder({
       syncMcp: (input) => {
@@ -321,13 +315,15 @@ async function main(): Promise<void> {
         return { ok: true, targets: [], issues: [] }
       },
     })
-    await run([{ verb: 'install.mcp', id: CATALOG_SERVER.id }], deps, [installed], false)
+    await run([{ verb: 'install.mcp', id: MCP_SERVER.id }], deps, [INSTALLED_SERVER], false)
     assert.deepEqual(flags, [false], 'a run that adds nothing syncs under the setting as the person left it')
-    await run([{ verb: 'install.mcp', id: CATALOG_SERVER.id }], deps, [], false)
-    assert.deepEqual(flags, [false, true], 'and a run that adds a server turns sync on, exactly as the store will')
   }
 
-  // ── Only the servers this run ADDED go back to the store ─────────────────────
+  // ── An id nothing installed is refused by name ───────────────────────────────
+  // The one thing `install.mcp` can still do wrong is pretend. A card naming a
+  // server this workspace does not hold must say so — and say where servers
+  // come from now — rather than silently syncing nothing and opening a chat
+  // with no tools in it.
   {
     const other = {
       id: 'io-github-other',
@@ -341,13 +337,12 @@ async function main(): Promise<void> {
       source: 'custom',
       riskLevel: 'local-command',
     } as McpServerConfig
-    const { deps } = recorder()
-    const result = await run([{ verb: 'install.mcp', id: CATALOG_SERVER.id }], deps, [other], true)
-    assert.deepEqual(
-      result.mcpServers.map((server) => server.id),
-      [CATALOG_SERVER.id],
-      'the server the card installed, and not the one the person already had — `upsertMcpServer` flips MCP sync on for everything it is handed',
-    )
+    const { calls, deps } = recorder()
+    const result = await run([{ verb: 'install.mcp', id: MCP_SERVER.id }], deps, [other], true)
+    assert.equal(result.ok, false)
+    assert.match(result.message ?? '', /MCP servers arrive inside plugins now/)
+    assert.deepEqual(result.mcpServers, [], 'nothing goes back to the store')
+    assert.deepEqual(calls, [], 'and nothing was written for a server this build cannot produce')
   }
 
   // ── 4. `open.chat` is last, or the card is refused before anything runs ──────
@@ -355,7 +350,7 @@ async function main(): Promise<void> {
     assert.equal(refuseCard(HAPPY), null, 'a chat in last place is the shape a card is allowed to have')
     const outOfOrder: CardAction[] = [
       { verb: 'open.chat', prompt: 'Go on then.', send: true },
-      { verb: 'install.mcp', id: CATALOG_SERVER.id },
+      { verb: 'install.mcp', id: MCP_SERVER.id },
     ]
     assert.ok(refuseCard(outOfOrder), 'a chat before an install is refused')
     assert.ok(
@@ -396,7 +391,7 @@ async function main(): Promise<void> {
     // workspace the person was in and then opened the chat in the clone: an
     // install nobody asked for, in a project nobody was looking at.
     const badOrder: CardAction[] = [
-      { verb: 'install.mcp', id: CATALOG_SERVER.id },
+      { verb: 'install.mcp', id: MCP_SERVER.id },
       { verb: 'clone.repo', repo: 'sprintengine/example' },
       { verb: 'open.chat', prompt: 'Read the README.', send: true },
     ]
@@ -404,7 +399,7 @@ async function main(): Promise<void> {
     assert.equal(
       refuseCard([
         { verb: 'clone.repo', repo: 'sprintengine/example' },
-        { verb: 'install.mcp', id: CATALOG_SERVER.id },
+        { verb: 'install.mcp', id: MCP_SERVER.id },
       ]),
       null,
       'and a clone in front of one is the shape a card is allowed to have',
@@ -422,13 +417,13 @@ async function main(): Promise<void> {
     // tools. The hand-off used to carry the list and nothing read it; the list
     // is a claim now, and this is where it is checked.
     assert.ok(
-      refuseCard([{ verb: 'open.chat', prompt: 'Drive it.', mcpServers: [CATALOG_SERVER.id], send: true }]),
+      refuseCard([{ verb: 'open.chat', prompt: 'Drive it.', mcpServers: [MCP_SERVER.id], send: true }]),
       'a chat naming a server the card never installs is refused',
     )
     assert.equal(
       refuseCard([
-        { verb: 'install.mcp', id: CATALOG_SERVER.id },
-        { verb: 'open.chat', prompt: 'Drive it.', mcpServers: [CATALOG_SERVER.id], send: true },
+        { verb: 'install.mcp', id: MCP_SERVER.id },
+        { verb: 'open.chat', prompt: 'Drive it.', mcpServers: [MCP_SERVER.id], send: true },
       ]),
       null,
       'and one naming a server it installs first is fine',
@@ -611,7 +606,7 @@ async function main(): Promise<void> {
     const result = await runCard(
       {
         slug: 'browser',
-        actions: [{ verb: 'install.mcp', id: CATALOG_SERVER.id }],
+        actions: [{ verb: 'install.mcp', id: MCP_SERVER.id }],
         workspaceRoot: null,
         cloneParentDir: PARENT,
         mcpServers: [],
@@ -638,8 +633,8 @@ async function main(): Promise<void> {
         actions: HAPPY,
         workspaceRoot: WORKSPACE,
         cloneParentDir: PARENT,
-        mcpServers: [],
-        mcpSyncEnabled: false,
+        mcpServers: [INSTALLED_SERVER],
+        mcpSyncEnabled: true,
         model: 'claude-opus-5',
         reasoning: 'high',
         permissionPreset: 'auto',

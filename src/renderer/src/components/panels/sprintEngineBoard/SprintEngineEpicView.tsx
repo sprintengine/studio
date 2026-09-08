@@ -142,9 +142,8 @@ export function SprintEngineEpicView({
 
             Completion is the header's `count`, and NOT its `progress`: that prop
             draws a 2px hairline across the header's bottom edge, which is the
-            exact seam this tab's acceptance keeps clear, and
-            `scripts/testing/sprintengine-epic-tab-pass.mjs` measures it on the
-            rendered surface. A fraction says the same thing without putting a
+            exact seam this tab's acceptance keeps clear, and it is measured on
+            the rendered surface. A fraction says the same thing without putting a
             line where the design says there is none. */}
         <PanelHeader
           title={epicTitle}

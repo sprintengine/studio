@@ -25,7 +25,6 @@ __pycache__/
 .tmp-recovery/
 .codex-tmp/
 .codex/
-.playwright-mcp/
 pytest-run-*/
 tmp/
 
@@ -93,10 +92,9 @@ electron.vite.config.*.mjs
 # Vendored third-party skill packs (Cloudflare, WorkOS, agents-sdk, wrangler…).
 # Installed into the harness skill dirs by their own publishers and re-installable
 # from them, so the checkout is a cache, not a source. Two skills beside them ARE
-# authored here and stay tracked — `multicode-electron-playwright` and
-# `sprintengine`, neither of which exists anywhere else in the tree — which is why
-# these are named one by one rather than the whole `.agents/skills/` tree being
-# ignored. `prototype` is a third-party skill too (its marker records
+# authored here and stay tracked — `sprintengine`, which does not exist anywhere
+# else in the tree — which is why these are named one by one rather than the
+# whole `.agents/skills/` tree being ignored. `prototype` is a third-party skill too (its marker records
 # `github:mattpocock/skills`) but stays tracked pending a decision on where it
 # should live.
 .agents/skills/agents-sdk/
@@ -157,3 +155,8 @@ electron.vite.config.*.mjs
 # files on an existing workspace are deliberately left alone, so the ignore
 # stays until those workspaces are gone.
 .guided-brief/
+
+# Scratch output of the Playwright MCP server an agent session may run against
+# this checkout (screenshots, console logs). Not the retired Playwright test
+# harnesses, which are gone; this is another tool's cache.
+.playwright-mcp/

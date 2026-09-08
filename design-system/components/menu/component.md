@@ -275,10 +275,8 @@ window.**
 
 Held by `ui/accessibility-contracts.test.ts`, which fails on any
 `window.api.showContextMenu` call under `src/renderer/src`, and exercised
-against the running app by
-`scripts/testing/native-menu-conformance-pass.mjs` — a native menu has no DOM,
-so a pass that finds `role="menu"` at each of these four places is proof the
-conversion is real.
+against the running app — a native menu has no DOM, so a pass that finds
+`role="menu"` at each of these four places is proof the conversion is real.
 
 ## Retired — reject these on sight
 
