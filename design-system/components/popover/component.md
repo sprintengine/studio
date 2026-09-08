@@ -68,9 +68,45 @@ their own floor.
   toast spec for the blur ruling this opts into; nothing outside the kit may
   borrow the utility.
 
-There is no arrow variant. A caret pointing at the trigger is decoration the
-4px gap already does the work of, and it forces the surface to track the
-trigger horizontally instead of clamping freely.
+- `.ds-popover--cursor-error` — the pointer-anchored surface carrying the
+  *report* of a failed click rather than a menu: a missing file link, a
+  rejected drop. It is the pointer-scoped member of the `status.danger`
+  family (`banner`, `inline-notice`, `toast`) — the soft tone tint, one
+  hairline, the shape-coded `failed` lifecycle glyph, never a saturated fill.
+  Three things separate it from every other member of the family: it opens at
+  the click that failed rather than at a trigger or a corner; it opens
+  **collapsed** to one clipped line and expands to the full message on a
+  click; and it auto-dismisses on a timer that pauses on hover, on focus, and
+  for as long as it stays expanded — so the surface can never vanish out from
+  under someone reading it. It announces itself as `role="alert"` /
+  `aria-live="assertive"`, which is what earns it the right to interrupt at
+  all: it is reporting a failure, and the failure has no other home. In the
+  shipped kit this is `CursorErrorPopover`
+  (`src/renderer/src/components/ui/CursorErrorPopover.tsx`).
+
+  Its parts, all optional to the rest of the family:
+  `.ds-popover-cursor-error-body` (the collapsed/expanded height clamp),
+  `.ds-popover-cursor-error-row` (glyph, message, actions on one line),
+  `.ds-popover-cursor-error-message`, `.ds-popover-caret` and
+  `.ds-popover-caret-seam` (the `--up` / `--down` pair, aimed by
+  `--ds-popover-caret-left`). The copy and dismiss affordances are the kit's
+  icon buttons at the `xs` control step — the copy one is revealed on hover
+  **and on keyboard focus**, never hover-only.
+
+There is no arrow variant — with one ruled exception, below. A caret pointing
+at the trigger is decoration the 4px gap already does the work of, and it
+forces the surface to track the trigger horizontally instead of clamping
+freely.
+
+**The exception is the cursor-error surface, and it is about anchoring, not
+decoration.** A trigger-anchored popover is *beside a thing the person can
+see*; a cursor-anchored error box has no visible anchor at all, because the
+click that raised it left nothing on screen. The caret is what ties the report
+back to the pixel that failed — it aims at the click even when the box is
+clamped sideways against the viewport, and the entrance scales from it so the
+surface visibly emanates from the click. Nothing else in the family may grow
+one: a caret on a surface whose anchor is already visible is the decoration
+this rule was written against.
 
 ## States
 
@@ -137,8 +173,35 @@ stacked-above outside-press guard, and focus returning to the trigger on close.
 
 ## Known drift
 
-None. Both entries that stood here were spent by **MC-2110** and verified gone
-on 2026-09-02:
+**`CursorErrorPopover` does not compose this shell** (recorded 2026-09-08 with
+the entry above). It portals itself, measures and clamps itself, and keys its
+own Escape and outside-press — the four things the Usage section says are
+solved here once. Two consequences are already visible in the source:
+
+- Its Escape listener is registered on `window` in the **capture** phase and
+  calls `stopPropagation()`, which is the opposite of the topmost-only rule.
+  A surface opened over it does not get first refusal on the key; the error box
+  takes it from underneath.
+- Its geometry constants — the cursor gap, the viewport inset, the collapsed
+  and expanded height caps, the caret's corner margin — are private numbers
+  rather than the shell's clamp. Two surfaces in the same family will drift
+  apart on the first window that is short.
+- Its fill is mixed at runtime — `color-mix(in oklab, bg.surface-raised 88%,
+  tone.error)` — where `status.danger-soft` is the token that already means
+  "the soft tone tint for a danger surface". The CSS here spends the token; the
+  mix is a fourth spelling of a value the ramp holds.
+- Its entrance and its expand both name **their own** curve and duration
+  (`140ms` and `200ms` on a literal cubic-bezier), where the motion ramp has
+  one easing and three durations. `motion.duration.normal` +
+  `motion.ease.standard` is the pair, and it is what this CSS composes.
+
+Folding it into the shell means teaching the shell the caret and the
+collapsed/expanded height pair, which is the work this entry now names. What is
+**not** drift is the caret itself or the `status.danger` tone: both are ruled
+above.
+
+The two entries that stood here before were spent by **MC-2110** and verified
+gone on 2026-09-02:
 
 - ~~Six shipped files hardcode the dark-only shadow
   `0 8px 24px -12px rgba(0,0,0,0.6)`, so light-mode overlays cast a dark-tuned

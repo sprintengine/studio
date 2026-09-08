@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Micro chip</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-md);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* A menu the chip actually rides, so the hairline and the ink can be read
+     against rest, hover and selected rather than against a blank page. */
+  .demo-menu {
+    width: 280px;
+    padding: var(--sem-space-2xs) 0;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-xs) var(--sem-space-lg);
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row--hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-row--selected {
+    background: var(--sem-color-bg-selected);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-row span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — rest, hover, selected. The chip does not react; the row does.</p>
+  <div class="demo-menu">
+    <div class="demo-row">
+      <span>Medium</span>
+      <span class="ds-micro-chip">Default</span>
+    </div>
+    <div class="demo-row demo-row--hover">
+      <span>High</span>
+    </div>
+    <div class="demo-row demo-row--selected">
+      <span>Minimal</span>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — same hairline, same ink step, no tone in either mode.</p>
+  <div class="demo-menu">
+    <div class="demo-row">
+      <span>Medium</span>
+      <span class="ds-micro-chip">Default</span>
+    </div>
+    <div class="demo-row demo-row--hover">
+      <span>High</span>
+    </div>
+    <div class="demo-row demo-row--selected">
+      <span>Minimal</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

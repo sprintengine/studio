@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Workspace panel</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../panel-header/component.css" />
+<link rel="stylesheet" href="../button/component.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-md);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* A region for the panel to fill, so the full-height contract is visible. */
+  .demo-region {
+    height: 320px;
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    overflow: hidden;
+    margin: 0 0 var(--sem-space-xl);
+  }
+  .demo-region:last-child {
+    margin-bottom: 0;
+  }
+  .demo-rail-row {
+    display: block;
+    padding: var(--sem-space-xs) var(--sem-space-sm);
+    border-radius: var(--sem-radius-control);
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-rail-row[aria-current='page'] {
+    background: var(--sem-color-bg-selected);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-heading {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-copy {
+    margin: 0 0 var(--sem-space-xl);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-relaxed);
+    color: var(--sem-color-text-default);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light &#8212; with a rail. One header band, one hairline on the rail, one scroll container, the measure centred inside it.</p>
+  <div class="demo-region">
+    <section class="ds-workspace-panel ds-workspace-panel--railed" aria-labelledby="demo-panel-title" tabindex="-1">
+      <header class="ds-panel-header">
+        <div class="ds-panel-header-lead">
+          <h2 class="ds-panel-header-title" id="demo-panel-title">Settings</h2>
+        </div>
+        <div class="ds-panel-header-actions">
+          <button type="button" class="ds-button ds-button--icon" aria-label="Close settings">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </header>
+      <div class="ds-workspace-panel-body">
+        <aside class="ds-workspace-panel-rail" aria-label="Settings categories">
+          <span class="demo-rail-row" aria-current="page">General</span>
+          <span class="demo-rail-row">Modules</span>
+          <span class="demo-rail-row">Agent CLIs</span>
+          <span class="demo-rail-row">Keyboard</span>
+        </aside>
+        <div class="ds-workspace-panel-scroll">
+          <div class="ds-workspace-panel-measure">
+            <h3 class="demo-heading">Startup</h3>
+            <p class="demo-copy">Reopen the workspaces that were open when the window last closed.</p>
+            <h3 class="demo-heading">Updates</h3>
+            <p class="demo-copy">Check for agent CLI updates in the background and report them once.</p>
+            <h3 class="demo-heading">Telemetry</h3>
+            <p class="demo-copy">Crash reports are written to disk and never sent anywhere.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <p class="demo-label">Without a rail, and without a close affordance &#8212; no actions slot rather than a dead target.</p>
+  <div class="demo-region">
+    <section class="ds-workspace-panel" aria-labelledby="demo-panel-title-2" tabindex="-1">
+      <header class="ds-panel-header">
+        <div class="ds-panel-header-lead">
+          <h2 class="ds-panel-header-title" id="demo-panel-title-2">New workspace</h2>
+          <span class="ds-panel-header-scope">Step 2 of 3</span>
+        </div>
+      </header>
+      <div class="ds-workspace-panel-body">
+        <div class="ds-workspace-panel-scroll">
+          <div class="ds-workspace-panel-measure">
+            <h3 class="demo-heading">Where the work lives</h3>
+            <p class="demo-copy">The folder this workspace adopts as its home. Everything the agents read and write stays inside it.</p>
+            <button type="button" class="ds-button ds-button--primary">Choose folder</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark &#8212; the rail's tone step does the separating that light mode gets from the hairline alone.</p>
+  <div class="demo-region">
+    <section class="ds-workspace-panel ds-workspace-panel--railed" aria-labelledby="demo-panel-title-3" tabindex="-1">
+      <header class="ds-panel-header">
+        <div class="ds-panel-header-lead">
+          <h2 class="ds-panel-header-title" id="demo-panel-title-3">Settings</h2>
+        </div>
+        <div class="ds-panel-header-actions">
+          <button type="button" class="ds-button ds-button--icon" aria-label="Close settings">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </header>
+      <div class="ds-workspace-panel-body">
+        <aside class="ds-workspace-panel-rail" aria-label="Settings categories">
+          <span class="demo-rail-row">General</span>
+          <span class="demo-rail-row" aria-current="page">Modules</span>
+          <span class="demo-rail-row">Agent CLIs</span>
+          <span class="demo-rail-row">Keyboard</span>
+        </aside>
+        <div class="ds-workspace-panel-scroll">
+          <div class="ds-workspace-panel-measure">
+            <h3 class="demo-heading">Sprint Engine</h3>
+            <p class="demo-copy">Plans, claims and publishes work across a run. Contributes the Sprints door and its rail.</p>
+            <h3 class="demo-heading">Automations</h3>
+            <p class="demo-copy">Scheduled and triggered runs. Contributes the rail's standing tool.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

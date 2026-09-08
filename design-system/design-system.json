@@ -24,9 +24,11 @@
       "board-lane",
       "button",
       "checkbox",
+      "command-palette",
       "definition-list",
       "drawer",
       "empty-state",
+      "extension-icon",
       "field",
       "glyphs",
       "inbox-row",
@@ -36,6 +38,7 @@
       "list-row",
       "liveness",
       "menu",
+      "micro-chip",
       "modal",
       "pager",
       "panel-header",
@@ -56,7 +59,8 @@
       "task-card",
       "toast",
       "tooltip",
-      "truncated-text"
+      "truncated-text",
+      "workspace-panel"
     ],
     "patterns": [
       "patterns/context-rail.html",

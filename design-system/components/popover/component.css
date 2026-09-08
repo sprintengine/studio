@@ -56,6 +56,138 @@
   z-index: var(--sem-z-menu);
 }
 
+/* Cursor-error: the pointer-anchored REPORT of a failed click. Same family,
+ * different job — it carries a status.danger message rather than a menu, so it
+ * takes the soft tone tint and the tone hairline in place of the raised
+ * surface and the neutral edge. Everything else (portal, fixed coordinates,
+ * viewport clamp, elevation, radius) is the shell's, unchanged.
+ *
+ * The one exception to "there is no arrow variant": the click that raised this
+ * left nothing on screen to anchor to, so the caret is the anchor. */
+.ds-popover--cursor-error {
+  z-index: var(--sem-z-popover);
+  /* The caret hangs past the surface edge, so this level cannot clip. */
+  overflow: visible;
+  border-color: var(--sem-color-status-danger);
+  background: var(--sem-color-status-danger-soft);
+  /* The entrance scales from the caret so the box visibly emanates from the
+   * click; the pair is the sanctioned popover motion, not a fourth one. */
+  transform-origin: var(--ds-popover-caret-left, 50%) var(--ds-popover-caret-origin, 100%);
+  animation: ds-popover-cursor-error-enter var(--sem-motion-duration-normal)
+    var(--sem-motion-ease-standard);
+}
+
+/* Collapsed shows one clipped line; expanded grows to the message and scrolls.
+ * The heights are layout measures — the reading limits of a transient report,
+ * not steps on the control ramp. */
+.ds-popover-cursor-error-body {
+  max-height: 36px;
+  overflow: hidden;
+  transition: max-height var(--sem-motion-duration-normal) var(--sem-motion-ease-standard);
+}
+
+.ds-popover--cursor-error[data-expanded] .ds-popover-cursor-error-body {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+/* The message row: the shape-coded failed glyph at the leading edge, the text,
+ * and the reveal actions. Tone by glyph plus tint, never by a coloured edge. */
+.ds-popover-cursor-error-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-xs);
+  padding: var(--sem-space-xs) var(--sem-space-md);
+}
+
+.ds-popover-cursor-error-message {
+  min-width: 0;
+  flex: 1;
+  font-size: var(--sem-font-size-micro);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Expanded, the message is the full text of an error — an identifier, not
+ * prose, so it reads in mono and keeps its own line breaks. */
+.ds-popover--cursor-error[data-expanded] .ds-popover-cursor-error-message {
+  font-family: var(--sem-font-family-mono);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* A 1px-calibrated triangle from a rotated square, so the fill and both outer
+ * hairlines continue cleanly off the box edge. It is aimed at the click even
+ * when the box is clamped sideways. */
+.ds-popover-caret {
+  position: absolute;
+  left: var(--ds-popover-caret-left, 50%);
+  width: 9px;
+  height: 9px;
+  pointer-events: none;
+}
+
+.ds-popover-caret::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--sem-color-status-danger);
+  background: var(--sem-color-status-danger-soft);
+  transform: rotate(45deg);
+}
+
+/* Box above the click: the caret hangs below it, pointing down. */
+.ds-popover-caret--down {
+  bottom: -5px;
+}
+
+.ds-popover-caret--down::before {
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+/* Box below the click: the caret sits above it, pointing up. */
+.ds-popover-caret--up {
+  top: -5px;
+}
+
+.ds-popover-caret--up::before {
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+/* Masks the 1px join where the rotated square meets the surface border. */
+.ds-popover-caret-seam {
+  position: absolute;
+  left: var(--ds-popover-caret-left, 50%);
+  width: 11px;
+  height: 1px;
+  background: var(--sem-color-status-danger-soft);
+  pointer-events: none;
+}
+
+.ds-popover-caret-seam--down {
+  bottom: 0;
+}
+
+.ds-popover-caret-seam--up {
+  top: 0;
+}
+
+@keyframes ds-popover-cursor-error-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @keyframes ds-popover-enter {
   from {
     opacity: 0;
@@ -70,5 +202,8 @@
 @media (prefers-reduced-motion: reduce) {
   .ds-popover {
     animation: none;
+  }
+  .ds-popover-cursor-error-body {
+    transition: none;
   }
 }

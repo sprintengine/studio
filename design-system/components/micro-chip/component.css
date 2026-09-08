@@ -1,0 +1,29 @@
+/* Micro chip — the hairline rectangle that carries one fact about the thing
+ * beside it ("Default"). Extracted from the shipped MicroChip / DefaultChip
+ * primitive (src/renderer/src/components/ui/DefaultChip.tsx).
+ *
+ * Not a badge: no tone, no fill, no pill. The badge entry hands the
+ * rectangular radius.chip step back to exactly this shape, and the absence of
+ * a tone is the whole point — a fact that was true before the person arrived
+ * is not a status. Display-only, so there is no hover, focus or disabled rule
+ * anywhere below; the row underneath owns every state. */
+
+.ds-micro-chip {
+  display: inline-flex;
+  align-items: center;
+  /* The row truncates its title, never the fact trailing it. */
+  flex: none;
+  /* Inline inset only: the line box is the height, so the chip rides a row's
+   * baseline without adding to its height. */
+  padding: 0 var(--sem-space-2xs);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-regular);
+  line-height: var(--sem-font-line-default);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+  white-space: nowrap;
+}

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Extension icon</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-md);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-2xl);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-xl);
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  /* An entry row, so the mark can be read beside the name it never repeats. */
+  .demo-entry {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-lg);
+  }
+  .demo-entry-name {
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-entry-detail {
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-small {
+    --ds-extension-icon-size: 20px;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a shipped mark (72%), a flat brand glyph (62%), the monogram fallback (42%), and plated artwork with no chip.</p>
+  <div class="demo-row">
+    <div class="demo-entry">
+      <span class="ds-extension-icon" aria-hidden="true">
+        <span class="ds-extension-icon-art">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 3.5c3 2.6 4.6 6 4.6 9.4a4.6 4.6 0 0 1-9.2 0c0-3.4 1.6-6.8 4.6-9.4Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+            <path d="M12 8.5v12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        </span>
+      </span>
+      <span>
+        <span class="demo-entry-name">Sprint Engine</span><br />
+        <span class="demo-entry-detail">A mark we ship — it outranks every URL</span>
+      </span>
+    </div>
+    <div class="demo-entry">
+      <span class="ds-extension-icon" aria-hidden="true">
+        <span class="ds-extension-icon-art ds-extension-icon-art--fetched">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2.6a9.4 9.4 0 0 0-3 18.3c.5.1.6-.2.6-.5v-1.7c-2.6.6-3.2-1.2-3.2-1.2-.4-1.1-1-1.4-1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.8.8.1-.6.3-1.1.6-1.3-2.1-.2-4.3-1-4.3-4.6 0-1 .4-1.9 1-2.5-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.6 1a9 9 0 0 1 4.8 0c1.8-1.3 2.6-1 2.6-1 .5 1.3.2 2.3.1 2.6.6.6 1 1.5 1 2.5 0 3.6-2.2 4.4-4.3 4.6.3.3.6.9.6 1.8v2.7c0 .3.2.6.7.5A9.4 9.4 0 0 0 12 2.6Z"/>
+          </svg>
+        </span>
+      </span>
+      <span>
+        <span class="demo-entry-name">GitHub</span><br />
+        <span class="demo-entry-detail">A flat mark keeps the chip — it needs a ground</span>
+      </span>
+    </div>
+  </div>
+  <div class="demo-row">
+    <div class="demo-entry">
+      <span class="ds-extension-icon" aria-hidden="true">
+        <span class="ds-extension-icon-monogram">PS</span>
+      </span>
+      <span>
+        <span class="demo-entry-name">Postgres server</span><br />
+        <span class="demo-entry-detail">No artwork — the name's letters, in mono</span>
+      </span>
+    </div>
+    <div class="demo-entry">
+      <span class="ds-extension-icon ds-extension-icon--plated" aria-hidden="true">
+        <span class="ds-extension-icon-art">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="0" y="0" width="24" height="24" rx="6" fill="currentColor" opacity="0.14"/>
+            <path d="M8 15.5 12 7l4 8.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </span>
+      <span>
+        <span class="demo-entry-name">Codex</span><br />
+        <span class="demo-entry-detail">Artwork with its own plate — no second frame</span>
+      </span>
+    </div>
+  </div>
+  <p class="demo-label">One size per surface. The same slot at 20px for a dense row.</p>
+  <div class="demo-row">
+    <span class="ds-extension-icon demo-small" aria-hidden="true">
+      <span class="ds-extension-icon-monogram">PS</span>
+    </span>
+    <span class="ds-extension-icon demo-small" aria-hidden="true">
+      <span class="ds-extension-icon-art ds-extension-icon-art--fetched">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 2.6a9.4 9.4 0 0 0-3 18.3c.5.1.6-.2.6-.5v-1.7c-2.6.6-3.2-1.2-3.2-1.2-.4-1.1-1-1.4-1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.8.8.1-.6.3-1.1.6-1.3-2.1-.2-4.3-1-4.3-4.6 0-1 .4-1.9 1-2.5-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.6 1a9 9 0 0 1 4.8 0c1.8-1.3 2.6-1 2.6-1 .5 1.3.2 2.3.1 2.6.6.6 1 1.5 1 2.5 0 3.6-2.2 4.4-4.3 4.6.3.3.6.9.6 1.8v2.7c0 .3.2.6.7.5A9.4 9.4 0 0 0 12 2.6Z"/>
+        </svg>
+      </span>
+    </span>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the chip is the ground that keeps a near-black mark visible; the plated one still wears no chip.</p>
+  <div class="demo-row">
+    <div class="demo-entry">
+      <span class="ds-extension-icon" aria-hidden="true">
+        <span class="ds-extension-icon-art ds-extension-icon-art--fetched">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2.6a9.4 9.4 0 0 0-3 18.3c.5.1.6-.2.6-.5v-1.7c-2.6.6-3.2-1.2-3.2-1.2-.4-1.1-1-1.4-1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.8.8.1-.6.3-1.1.6-1.3-2.1-.2-4.3-1-4.3-4.6 0-1 .4-1.9 1-2.5-.1-.3-.4-1.3.1-2.6 0 0 .8-.3 2.6 1a9 9 0 0 1 4.8 0c1.8-1.3 2.6-1 2.6-1 .5 1.3.2 2.3.1 2.6.6.6 1 1.5 1 2.5 0 3.6-2.2 4.4-4.3 4.6.3.3.6.9.6 1.8v2.7c0 .3.2.6.7.5A9.4 9.4 0 0 0 12 2.6Z"/>
+          </svg>
+        </span>
+      </span>
+      <span>
+        <span class="demo-entry-name">GitHub</span><br />
+        <span class="demo-entry-detail">Same chip, same ratio, both modes</span>
+      </span>
+    </div>
+    <div class="demo-entry">
+      <span class="ds-extension-icon" aria-hidden="true">
+        <span class="ds-extension-icon-monogram">PS</span>
+      </span>
+      <span>
+        <span class="demo-entry-name">Postgres server</span><br />
+        <span class="demo-entry-detail">The fallback is real text, not a drawing</span>
+      </span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

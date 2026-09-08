@@ -109,6 +109,22 @@ would have chosen. A second consumer, or a second field, is a modal.
 announcing at once is two voices; route every producer through the one
 region.
 
+The region is shipped as **`ToastRegion`**
+(`src/renderer/src/components/ui/ToastRegion.tsx`) — mounted once per document,
+reading the toast store every producer writes to, and rendering nothing at all
+when the store is empty. Three properties are the component rather than the
+consumer's business, and a rebuild keeps all three:
+
+- **It draws nothing.** No surface, no ground, no border, no elevation. The
+  card is the glass; the region is a `role="presentation"` stack.
+- **It swallows no clicks.** The stack is `pointer-events: none` and each toast
+  surface reclaims its own, so an empty or animating region never blocks the
+  pane under that corner — a fixed transparent box over the app is a dead zone
+  nobody can see.
+- **It is fixed width.** Every card is the same measure (340px) regardless of
+  its content, so a stack of three reads as one column rather than as a ragged
+  edge.
+
 **Report the result, not the inventory.** "Sprint archived" — not the branch,
 the commit count, and the layout the archiver chose. The description line is
 for the one fact the person cannot see from where they are (where a file was

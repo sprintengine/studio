@@ -147,8 +147,13 @@ Ruled 2026-08-05 (MC-2118). The consuming app exports a handful of primitives
 from its kit that have **no entry here, on purpose**:
 
 `CliModelPickerButton`, `CliModelPopoverSurface`, `ReasoningSelector`,
-`CliProviderStateLine`, `InlineSkillPicker`, `FilePreviewPane`,
-`HtmlPreviewCard`.
+`CliProviderStateLine`, `InlineSkillPicker`, `SkillPickerPopover`,
+`FilePreviewPane`, `HtmlPreviewCard`.
+
+*(`SkillPickerPopover` joined the list on 2026-09-08. It is the popover-hosted
+twin of `InlineSkillPicker` — same inventory, same install-on-pick behaviour,
+same domain — and the ruling above always covered it; the list simply named
+one of the module's two exports.)*
 
 Each encodes a **product** decision rather than a reusable pattern — which
 agent CLIs exist and how their models are grouped, what a reasoning axis means,
@@ -171,6 +176,35 @@ connected-service row.
 Every other export from the app's `ui/index.ts` resolves to an entry here — as
 a component, a pattern, a glyph, or a named part of one (`CloseIconButton` under
 button, `TabPanel` under tabs, the `Menu*` vocabulary under menu, and so on).
+
+### Primitives that live outside the barrel
+
+`ui/index.ts` is not the whole kit. A handful of files under
+`src/renderer/src/components/ui/` are imported directly — because a caller must
+stay clear of the kit's component graph (`DefaultChip`), because the file is a
+document-scoped singleton (`ToastRegion`), or simply because the export was
+never added. The clause above only ever covered the barrel, so those files went
+unspecified by construction rather than by ruling. Closed 2026-09-08:
+
+| Primitive | Entry |
+|---|---|
+| `CommandPalette` | [command-palette](components/command-palette/component.md) |
+| `WorkspacePanel` | [workspace-panel](components/workspace-panel/component.md) |
+| `DefaultChip` (over `MicroChip`) | [micro-chip](components/micro-chip/component.md) |
+| `ExtensionIcon` | [extension-icon](components/extension-icon/component.md) |
+| `ToastRegion` | [toast](components/toast/component.md), under Usage |
+| `CursorErrorPopover` | [popover](components/popover/component.md), the `--cursor-error` variant |
+| `TerminalReplaySkeleton` | [skeleton](components/skeleton/component.md) |
+| `LoadingOverlay` | [spinner](components/spinner/component.md) |
+| `CapabilityGlyphs` | [glyphs](components/glyphs/component.md) |
+
+**Two files are non-visual plumbing and get no entry, which is not the same as
+being undocumented.** `FocusTrap` renders two `sr-only` sentinels and nothing
+else — it is the *mechanism* behind the modal spec's focus-trap clause, and it
+is named there. `SuspenseFallback` renders `LoadingOverlay` inside a fade
+delay; the spinner entry owns the mark, and the delay is a chunk-loading
+detail, not a design decision. Specifying either would be specifying an
+implementation, and this system specifies surfaces.
 
 ## Proving the gates still bite
 

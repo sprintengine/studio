@@ -1,0 +1,72 @@
+/* Extension icon — the identity mark a third-party thing wears everywhere it
+ * appears. Extracted from the shipped ExtensionIcon primitive
+ * (src/renderer/src/components/ui/ExtensionIcon.tsx).
+ *
+ * An identity slot, not an iconography slot: it holds artwork this system did
+ * not draw and must not restyle. The principles' "Identity colour" clause is
+ * what lets that artwork keep its own hue, so nothing below sets a colour on
+ * the mark — only on the ground behind it and on the letter fallback.
+ *
+ * Everything scales from one number. The caller sets
+ * --ds-extension-icon-size; the 72 / 62 / 42 percent ratios below are the
+ * component's, not the caller's. */
+
+.ds-extension-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  box-sizing: border-box;
+  width: var(--ds-extension-icon-size, 36px);
+  height: var(--ds-extension-icon-size, 36px);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-shell);
+  /* The ground a flat brand mark needs: ~110 catalogue marks are near-black
+   * and vanish bare on a dark theme. */
+  background: var(--sem-color-bg-surface-raised);
+  overflow: hidden;
+}
+
+/* Artwork that is already a plate wears no chip: a white ground behind a
+ * framed thing is a second frame (owner ruling 2026-09-01). */
+.ds-extension-icon--plated {
+  border: 0;
+  background: transparent;
+}
+
+/* A mark this system ships, drawn rather than fetched — 72% of the box. */
+.ds-extension-icon-art {
+  display: grid;
+  place-items: center;
+  width: 72%;
+  height: 72%;
+}
+
+/* A fetched brand glyph arrives with no padding of its own, so it sits a
+ * step smaller than a mark drawn to fill its frame. */
+.ds-extension-icon-art--fetched {
+  width: 62%;
+  height: 62%;
+}
+
+.ds-extension-icon-art > svg,
+.ds-extension-icon-art > img {
+  width: 100%;
+  height: 100%;
+  /* Never re-tinted: a baked tint is invisible on the opposite theme. */
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The fallback: one or two letters from the name. Mono because it is an
+ * identifier, not prose. 42% of the box, so it reads at the same optical
+ * weight as the marks it stands in for. */
+.ds-extension-icon-monogram {
+  font-family: var(--sem-font-family-mono);
+  font-size: 42%;
+  font-weight: var(--sem-font-weight-emphasis);
+  line-height: var(--sem-font-line-tight);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-muted);
+  user-select: none;
+}

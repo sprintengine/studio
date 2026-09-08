@@ -1,0 +1,251 @@
+/* Command palette — one field over a grouped result list: the keyboard route
+ * to everything the product can do or open. Extracted from the shipped
+ * CommandPalette primitive (src/renderer/src/components/ui/CommandPalette.tsx).
+ *
+ * The shell is the MODAL's — radius, border, ground, elevation and width all
+ * come from the overlay scale (components/modal). What is specified here is
+ * the part above the shell: the combobox-over-listbox anatomy, the grouped
+ * rows, and the cursor that marks the row Enter would act on.
+ *
+ * The rows are a CURSOR, not focus: focus never leaves the input, so nothing
+ * below draws a focus ring on a row. `aria-activedescendant` says which row is
+ * marked; `.ds-command-palette-option[aria-selected="true"]` paints it. */
+
+/* Full-viewport scrim. Never a backdrop-filter — a blur here re-samples every
+ * pane under it every frame (principles, "Motion"). */
+.ds-command-palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--sem-z-modal);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  /* 15vh, not centred: a launcher belongs under the person's hands. This is
+   * also the one reason the palette keeps a scrim of its own rather than
+   * reusing the dialog's centring shell. */
+  padding-top: 15vh;
+  background: var(--sem-color-overlay-scrim);
+}
+
+.ds-command-palette {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  /* The `palette` step of the overlay width scale (components/modal). */
+  width: 600px;
+  max-width: 95vw;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface);
+  box-shadow: var(--sem-shadow-modal);
+  font-family: var(--sem-font-family-ui);
+  /* The one local addition to the shell: the query row's hairline has to be
+   * clipped by the shell's corners. */
+  overflow: hidden;
+  outline: none;
+}
+
+/* The one band of chrome. Narrowing is a token INSIDE the field; there is no
+ * second row of tabs, filters or tools above the list. */
+.ds-command-palette-query {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-lg) var(--sem-space-xl);
+  border-bottom: 1px solid var(--sem-color-border-default);
+}
+
+/* The leading mark. Decoration, and it says so — disabled ink, aria-hidden. */
+.ds-command-palette-hint {
+  flex: none;
+  font-size: var(--sem-font-size-heading);
+  color: var(--sem-color-text-disabled);
+}
+
+/* The scope token: a removable chip, not a tab. Clicking it — or Backspace at
+ * an empty query — widens back to the full launcher without reopening. */
+.ds-command-palette-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-2xs);
+  flex: none;
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  border: none;
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-surface-raised);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-muted);
+  cursor: pointer;
+  transition: color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-command-palette-scope:hover {
+  color: var(--sem-color-text-primary);
+}
+
+.ds-command-palette-scope:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-command-palette-scope svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* The field carries no chrome of its own: the query row IS the field's box,
+ * and a border inside a bordered band is the doubled hairline the structure
+ * rules forbid. */
+.ds-command-palette-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-heading);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-command-palette-input::placeholder {
+  color: var(--sem-color-text-disabled);
+}
+
+.ds-command-palette-input:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* Disk search is the one part of the palette that is not instant, so it is
+ * the one part that says it is working. */
+.ds-command-palette-status {
+  flex: none;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-disabled);
+}
+
+/* Height cap plus scroll, so the shell never grows past the viewport and the
+ * arrow keys always have somewhere to go. A layout measure, like the side
+ * pane's rails. */
+.ds-command-palette-results {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: var(--sem-space-2xs) 0;
+}
+
+/* Name, a rule filling the line, and the group's count. Hidden from assistive
+ * tech because the group element carries the same name as its label. */
+.ds-command-palette-group-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-lg);
+  padding: var(--sem-space-xs) var(--sem-space-xl) var(--sem-space-2xs);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-disabled);
+}
+
+.ds-command-palette-group-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--sem-color-border-subtle);
+}
+
+.ds-command-palette-group-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A row IS the action: one label, one optional locator, one optional chord,
+ * and no second target inside it. */
+.ds-command-palette-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-lg);
+  padding: var(--sem-space-sm) var(--sem-space-xl);
+  color: var(--sem-color-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-command-palette-option:hover {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* The cursor: neutral selection ink and fill, never the accent. It marks the
+ * row Enter would act on, and the pointer entering a row moves it too. */
+.ds-command-palette-option[aria-selected='true'] {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-command-palette-option-text {
+  min-width: 0;
+}
+
+.ds-command-palette-option-label {
+  font-size: var(--sem-font-size-heading);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-command-palette-option-detail {
+  margin-top: var(--sem-space-3xs);
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-disabled);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A content hit inverts the pair: the matched line is the row's identity and
+ * the file:line beneath it is the locator. Mono, because it is source. */
+.ds-command-palette-option--source .ds-command-palette-option-label {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-meta);
+}
+
+.ds-command-palette-option--source .ds-command-palette-option-detail {
+  font-family: var(--sem-font-family-mono);
+}
+
+/* The chord, spelled the kbd-chord way (components/kbd-chord) rather than as
+ * a private capsule — see Known drift. */
+.ds-command-palette-shortcut {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 16px;
+  min-width: 16px;
+  padding: 0 var(--sem-space-2xs);
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-surface-raised);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  letter-spacing: var(--sem-font-tracking-wide);
+  line-height: 1;
+}
+
+/* One sentence, and which sentence is the point: searching, nothing matched,
+ * nothing to search, or the search failed. */
+.ds-command-palette-empty {
+  margin: 0;
+  padding: var(--sem-space-lg) var(--sem-space-xl);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-command-palette-option,
+  .ds-command-palette-scope {
+    transition: none;
+  }
+}

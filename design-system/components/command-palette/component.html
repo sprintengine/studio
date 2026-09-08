@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Command palette</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-md);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* The demo shows the shell in flow: a live fixed scrim would cover the
+     catalog. The scrim's own rules are in component.css and specified in
+     component.md. */
+  .demo-scrim {
+    display: flex;
+    justify-content: center;
+    padding: var(--sem-space-2xl);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-overlay-scrim);
+    margin: 0 0 var(--sem-space-xl);
+  }
+  .demo-scrim:last-child {
+    margin-bottom: 0;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — resting scope, a capped preview per group, and the cursor on the second row.</p>
+  <div class="demo-scrim">
+    <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-query">
+        <span class="ds-command-palette-hint" aria-hidden="true">&#8984;</span>
+        <input
+          class="ds-command-palette-input"
+          type="text"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="demo-palette-results"
+          aria-activedescendant="demo-option-review"
+          aria-label="Search agents, skills, commands, files, and text in files"
+          placeholder="Search agents, skills, commands, files, text&#8230;"
+        />
+      </div>
+      <div class="ds-command-palette-results" id="demo-palette-results" role="listbox" aria-label="Search results">
+        <div class="ds-command-palette-group" role="group" aria-label="Agents &amp; workspaces">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">
+            <span>Agents &amp; workspaces</span>
+            <span class="ds-command-palette-group-rule"></span>
+            <span class="ds-command-palette-group-count">2</span>
+          </div>
+          <div class="ds-command-palette-option" id="demo-option-tokens" role="option" aria-selected="false">
+            <span class="ds-command-palette-option-text">
+              <span class="ds-command-palette-option-label">Token ramp audit</span>
+              <span class="ds-command-palette-option-detail">Workspace &#183; running</span>
+            </span>
+          </div>
+          <div class="ds-command-palette-option" id="demo-option-review" role="option" aria-selected="true">
+            <span class="ds-command-palette-option-text">
+              <span class="ds-command-palette-option-label">Review guide</span>
+              <span class="ds-command-palette-option-detail">Workspace &#183; waiting on you</span>
+            </span>
+          </div>
+        </div>
+        <div class="ds-command-palette-group" role="group" aria-label="Commands">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">
+            <span>Commands</span>
+            <span class="ds-command-palette-group-rule"></span>
+            <span class="ds-command-palette-group-count">2</span>
+          </div>
+          <div class="ds-command-palette-option" id="demo-option-newchat" role="option" aria-selected="false">
+            <span class="ds-command-palette-option-text">
+              <span class="ds-command-palette-option-label">New chat</span>
+            </span>
+            <kbd class="ds-command-palette-shortcut">&#8984;N</kbd>
+          </div>
+          <div class="ds-command-palette-option" id="demo-option-settings" role="option" aria-selected="false">
+            <span class="ds-command-palette-option-text">
+              <span class="ds-command-palette-option-label">Open settings</span>
+            </span>
+            <kbd class="ds-command-palette-shortcut">&#8984;,</kbd>
+          </div>
+        </div>
+        <div class="ds-command-palette-group" role="group" aria-label="Text in files">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">
+            <span>Text in files</span>
+            <span class="ds-command-palette-group-rule"></span>
+            <span class="ds-command-palette-group-count">1</span>
+          </div>
+          <div
+            class="ds-command-palette-option ds-command-palette-option--source"
+            id="demo-option-source"
+            role="option"
+            aria-selected="false"
+          >
+            <span class="ds-command-palette-option-text">
+              <span class="ds-command-palette-option-label">const OVERLAY_WIDTH_PX = {</span>
+              <span class="ds-command-palette-option-detail">src/renderer/src/components/ui/tokens.ts:246</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="demo-label">Narrowed to a scope, and the working note &#8212; the one part of the search that is not instant.</p>
+  <div class="demo-scrim">
+    <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-query">
+        <button type="button" class="ds-command-palette-scope" aria-label="Search everything instead of files">
+          Files
+          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </button>
+        <input
+          class="ds-command-palette-input"
+          type="text"
+          role="combobox"
+          aria-expanded="false"
+          aria-controls="demo-palette-scoped"
+          aria-label="Search file names and text in files"
+          placeholder="Search file names and text in files&#8230;"
+          value="tokens"
+        />
+        <span class="ds-command-palette-status" role="status">Searching&#8230;</span>
+      </div>
+      <div class="ds-command-palette-results" id="demo-palette-scoped" role="listbox" aria-label="Search results">
+        <p class="ds-command-palette-empty">Searching&#8230;</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark &#8212; and the fourth empty sentence: nothing to search, which is not the same as nothing found.</p>
+  <div class="demo-scrim">
+    <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-query">
+        <span class="ds-command-palette-hint" aria-hidden="true">&#8984;</span>
+        <input
+          class="ds-command-palette-input"
+          type="text"
+          role="combobox"
+          aria-expanded="false"
+          aria-controls="demo-palette-empty"
+          aria-label="Search agents, skills, commands, files, and text in files"
+          placeholder="Search agents, skills, commands, files, text&#8230;"
+          value="ramp"
+        />
+      </div>
+      <div class="ds-command-palette-results" id="demo-palette-empty" role="listbox" aria-label="Search results">
+        <p class="ds-command-palette-empty">Open a folder to search files and their contents.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-scrim">
+    <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-query">
+        <span class="ds-command-palette-hint" aria-hidden="true">&#8984;</span>
+        <input
+          class="ds-command-palette-input"
+          type="text"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="demo-palette-dark-results"
+          aria-activedescendant="demo-dark-option-skill"
+          aria-label="Search agents, skills, commands, files, and text in files"
+          placeholder="Search agents, skills, commands, files, text&#8230;"
+          value="skill"
+        />
+      </div>
+      <div class="ds-command-palette-results" id="demo-palette-dark-results" role="listbox" aria-label="Search results">
+        <div class="ds-command-palette-group" role="group" aria-label="Skills">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">
+            <span>Skills</span>
+            <span class="ds-command-palette-group-rule"></span>
+            <span class="ds-command-palette-group-count">2</span>
+          </div>
+          <div class="ds-command-palette-option" id="demo-dark-option-skill" role="option" aria-selected="true">
+            <span class="ds-command-palette-option-text">
+              <span class="ds-command-palette-option-label">Review guide</span>
+              <span class="ds-command-palette-option-detail">Installed in this workspace</span>
+            </span>
+          </div>
+          <div class="ds-command-palette-option" id="demo-dark-option-skill-2" role="option" aria-selected="false">
+            <span class="ds-command-palette-option-text">
+              <span class="ds-command-palette-option-label">Debug</span>
+              <span class="ds-command-palette-option-detail">Available &#183; installs on pick</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

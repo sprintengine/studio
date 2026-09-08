@@ -1,0 +1,76 @@
+/* Workspace panel — the full-height content frame: one panel-header band, an
+ * optional category rail, and a scrolling body whose text is capped to a
+ * reading measure and centred. Extracted from the shipped WorkspacePanel
+ * primitive (src/renderer/src/components/ui/WorkspacePanel.tsx).
+ *
+ * NOT an overlay: no scrim, no shadow, no z layer, no focus trap. It fills
+ * whatever region it is given, and whether that region floats is the host's
+ * question. It composes components/panel-header rather than drawing a title
+ * row of its own — that composition is what makes "one header" true of the
+ * kit and not only of the kit's consumers. */
+
+.ds-workspace-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* min-height:0 on every flex ancestor of the scroller, or the scroll
+   * container grows instead of scrolling. */
+  min-height: 0;
+  background: var(--sem-color-bg-app);
+  font-family: var(--sem-font-family-ui);
+  color: var(--sem-color-text-default);
+  /* Focused programmatically on mount so the keyboard starts inside the
+   * surface; never a tab stop, so it draws no ring. */
+  outline: none;
+}
+
+.ds-workspace-panel-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Categories, not items. It stacks ABOVE the body on a narrow window rather
+ * than shrinking: a rail thinner than its longest label is unreadable. */
+.ds-workspace-panel-rail {
+  flex: none;
+  overflow-y: auto;
+  padding: var(--sem-space-xs);
+  /* One hairline, and it moves with the layout — bottom while stacked,
+   * inline-end once the two sit side by side. Never both. */
+  border-bottom: 1px solid var(--sem-color-border-subtle);
+  background: var(--sem-color-bg-surface-raised);
+}
+
+/* The one scroll container. The header band and the rail stay put. */
+.ds-workspace-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* A capped column that IS the page's content centres, and its inset comes off
+ * the scale. 760px is a reading measure, not a token — the same class of
+ * value as the side pane's width rails. */
+.ds-workspace-panel-measure {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+  padding: var(--sem-space-2xl) var(--sem-space-xl);
+}
+
+/* Panel width and up: the rail takes its column and hands its hairline to the
+ * inline edge. 192px is the width at which the category labels read. */
+@media (min-width: 768px) {
+  .ds-workspace-panel--railed .ds-workspace-panel-body {
+    flex-direction: row;
+  }
+
+  .ds-workspace-panel--railed .ds-workspace-panel-rail {
+    width: 192px;
+    border-bottom: 0;
+    border-right: 1px solid var(--sem-color-border-subtle);
+  }
+}
