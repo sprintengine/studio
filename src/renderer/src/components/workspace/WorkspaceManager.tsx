@@ -4787,7 +4787,8 @@ export default function WorkspaceManager() {
             — in the shipped Modal shell: workbench width, panel layout, the
             flat darkening scrim (NEVER backdrop-filter — terminals render at
             60fps behind it), FocusTrap, Escape/scrim close, focus restored to
-            the element that opened it. Settings and Reviews live here — pick-and-close tasks over work that stays put; every
+            the element that opened it. Settings and Reviews live here —
+            pick-and-close tasks over work that stays put; every
             destination the shell's own chrome offers is a door in the mount
             above (Extensions drawer ruling, 2026-09-05). With no bar/rail slot providers
             in scope, GlobalSurfaceShell renders its documented inline fallback
