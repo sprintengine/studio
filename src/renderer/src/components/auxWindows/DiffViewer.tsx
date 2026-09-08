@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DiffEditor, type DiffOnMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
-import { useGitStatus, type GitRepoState } from '../../hooks/useGitStatus'
+import { useGitStatus, useGitTreeRevision, type GitRepoState } from '../../hooks/useGitStatus'
 import { detectLanguage, isImageFile } from '../../utils/files'
 import { joinFilePath } from '../../utils/paths'
 import { BranchStepStrip, BRANCH_STEP_PANEL_ID } from './BranchStepStrip'
@@ -68,6 +68,18 @@ type DiffContent =
   | { state: 'ready'; original: string; modified: string; language: string }
 
 const NUL = '\u0000'
+
+// Two reads of the same file that say the same thing. The live re-read below
+// drops a result that matches what is on screen, so an unchanged file costs two
+// file reads and no render — no model reset, no scroll jump, no diff recompute.
+function sameDiffContent(a: DiffContent, b: DiffContent): boolean {
+  if (a.state !== b.state) return false
+  if (a.state === 'ready' && b.state === 'ready') {
+    return a.original === b.original && a.modified === b.modified && a.language === b.language
+  }
+  if (a.state === 'error' && b.state === 'error') return a.message === b.message
+  return true
+}
 
 const STATUS_LABEL: Record<DiffFileItem['status'], string> = {
   new: 'Added',
@@ -302,7 +314,11 @@ export function DiffViewer({
   onItemCountChange,
   branchSteps = false,
 }: Props) {
-  const { status, repoState } = useGitStatus(repoRoot)
+  const { status, repoState, repoRoot: gitRoot } = useGitStatus(repoRoot)
+  // Ticks once per completed status read of this repository — the cue that the
+  // working tree moved under the open file. Given the RESOLVED root so it joins
+  // the subscription the line above already opened.
+  const treeRevision = useGitTreeRevision(gitRoot)
   const isMac = window.api.platform === 'darwin'
   const monacoTheme = useMonacoBaseTheme()
 
@@ -387,21 +403,28 @@ export function DiffViewer({
     setCurrentIndex(index)
   }, [focusPath, focusKind, items])
 
+  // One token for every read in flight, target change and live re-read alike:
+  // whoever started last is the only one allowed to land.
+  const loadSeqRef = useRef(0)
+  // The item the live re-read should read, without making that effect depend on
+  // the item (it must fire on the tree moving, and on nothing else).
+  const currentItemRef = useRef<DiffFileItem | null>(null)
+  currentItemRef.current = currentItem
+
   useEffect(() => {
     if (!currentItem) {
+      loadSeqRef.current += 1
       setContent({ state: 'loading' })
       return
     }
-    let cancelled = false
+    loadSeqRef.current += 1
+    const token = loadSeqRef.current
     setContent({ state: 'loading' })
     hunksRef.current = []
     hunkIndexRef.current = 0
     void loadDiffContent(repoRoot, currentItem).then((next) => {
-      if (!cancelled) setContent(next)
+      if (loadSeqRef.current === token) setContent(next)
     })
-    return () => {
-      cancelled = true
-    }
   }, [
     repoRoot,
     currentItem?.path,
@@ -411,6 +434,31 @@ export function DiffViewer({
     (currentItem as BranchDiffItem | null)?.originalRev,
     (currentItem as BranchDiffItem | null)?.modifiedRev,
   ])
+
+  // Live content. The file LIST re-read when the working tree moved; the open
+  // file's content never did, so a save behind the window (an agent's edit, a
+  // commit, a stash) left yesterday's text on screen until the person clicked
+  // another row and back. This re-reads the same two sides on the status hook's
+  // own debounced tick, WITHOUT going through the loading state: the editor
+  // stays mounted, and the diff-update callback re-reveals the hunk the cursor
+  // was on, so the position survives as well as it can.
+  const appliedRevisionRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (appliedRevisionRef.current === treeRevision) return
+    // The first tick is the read this viewer opened on — the target effect
+    // above is already loading it.
+    const first = appliedRevisionRef.current === null
+    appliedRevisionRef.current = treeRevision
+    if (first) return
+    const item = currentItemRef.current
+    if (!item) return
+    const token = loadSeqRef.current
+    void loadDiffContent(repoRoot, item).then((next) => {
+      // A file switch during the read supersedes it: its own load is authoritative.
+      if (loadSeqRef.current !== token) return
+      setContent((previous) => (sameDiffContent(previous, next) ? previous : next))
+    })
+  }, [treeRevision, repoRoot])
 
   const revealHunk = useCallback((index: number) => {
     const editor = diffEditorRef.current
