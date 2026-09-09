@@ -37,12 +37,27 @@ export interface GhResult {
   code: number
   stdout: string
   stderr: string
+  /**
+   * The child was killed because it outlived {@link GhRunOptions.timeoutMs}.
+   * A caller that records answers must read this as "I could not ask" and never
+   * as an empty result — it is the offline/hung case, not a fact about GitHub.
+   */
+  timedOut?: boolean
 }
 
 /** Per-call options. `cwd` is what lets a repository-scoped read (`gh pr list`
  *  in a checkout) share the runner with the repo-argument reads. */
 export interface GhRunOptions {
   cwd?: string
+  /**
+   * How long the child may run before it is KILLED. Without it a caller that
+   * merely stops waiting (a `Promise.race` against a timer) leaves a `gh` — and,
+   * on the login-shell fallback, a whole `$SHELL -ilc` — running behind every
+   * abandoned read, so a hover on an unreachable host leaks one process per
+   * probe. Passed straight to `execFile`'s own `timeout`/`killSignal`, so the
+   * process table is what enforces it.
+   */
+  timeoutMs?: number
 }
 
 export interface GhRunner {
@@ -54,7 +69,14 @@ export interface GhRunner {
 export type GhSpawn = (
   file: string,
   args: string[],
-  options: { cwd?: string; maxBuffer: number; windowsHide: boolean }
+  options: {
+    cwd?: string
+    maxBuffer: number
+    windowsHide: boolean
+    /** `execFile`'s own timeout: the child is signalled, not merely abandoned. */
+    timeout?: number
+    killSignal?: NodeJS.Signals
+  }
 ) => Promise<{ stdout: string; stderr: string }>
 
 export type GhRunnerEnvironment = {
@@ -80,6 +102,7 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
     try {
       const { stdout, stderr } = await spawn('gh', args, {
         ...(options.cwd ? { cwd: options.cwd } : {}),
+        ...spawnTimeout(options),
         maxBuffer: GH_MAX_BUFFER_BYTES,
         windowsHide: true,
       })
@@ -94,6 +117,7 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
     try {
       const { stdout, stderr } = await spawn(descriptor.file, descriptor.args, {
         ...(options.cwd ? { cwd: options.cwd } : {}),
+        ...spawnTimeout(options),
         maxBuffer: GH_MAX_BUFFER_BYTES,
         windowsHide: true,
       })
@@ -116,14 +140,26 @@ export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): Gh
   }
 }
 
+/** The kill terms for one call, or nothing at all when the caller set no bound. */
+function spawnTimeout(options: GhRunOptions): { timeout?: number; killSignal?: NodeJS.Signals } {
+  const timeoutMs = options.timeoutMs
+  if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) return {}
+  return { timeout: Math.round(timeoutMs), killSignal: 'SIGTERM' }
+}
+
 function resultFromSpawnError(error: unknown): GhResult {
-  const err = error as { code?: string | number; stdout?: string; stderr?: string }
+  const err = error as { code?: string | number; killed?: boolean; signal?: string; stdout?: string; stderr?: string }
   if (err.code === 'ENOENT') return { found: false, code: -1, stdout: '', stderr: '' }
+  // `execFile` reports its own timeout as a killed child (`killed: true`, and a
+  // signal rather than an exit code). The binary was found and run, so this is
+  // never `found: false`; it is a read that did not happen.
+  const timedOut = err.killed === true || (typeof err.signal === 'string' && err.signal.length > 0)
   return {
     found: true,
     code: typeof err.code === 'number' ? err.code : 1,
     stdout: err.stdout ?? '',
     stderr: err.stderr ?? '',
+    ...(timedOut ? { timedOut: true } : {}),
   }
 }
 

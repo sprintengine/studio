@@ -12,14 +12,26 @@ import { createDefaultGhRunner as createFromReviewProvider } from '../review/pro
 // Nothing here spawns a real `gh`: every case injects the spawn seam, so the
 // tests describe the runner's decisions rather than the machine they run on.
 
-type Call = { file: string; args: string[]; cwd?: string }
+type Call = {
+  file: string
+  args: string[]
+  cwd?: string
+  timeout?: number
+  killSignal?: NodeJS.Signals
+}
 
 function spawnStub(
   respond: (call: Call) => Promise<{ stdout: string; stderr: string }>,
 ): { spawn: GhSpawn; calls: Call[] } {
   const calls: Call[] = []
   const spawn: GhSpawn = (file, args, options) => {
-    const call: Call = { file, args, ...(options.cwd ? { cwd: options.cwd } : {}) }
+    const call: Call = {
+      file,
+      args,
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+      ...(options.killSignal === undefined ? {} : { killSignal: options.killSignal }),
+    }
     calls.push(call)
     return respond(call)
   }
@@ -131,6 +143,51 @@ async function main(): Promise<void> {
       stdout: '',
       stderr: 'gh command failed',
     })
+  }
+
+  // ---------------------------------------------------------------------------
+  // REVIEW FIX (finding 6). A read's bound has to KILL the child, not merely
+  // stop waiting on it: a caller that races a timer leaves a `gh` — and on the
+  // login-shell fallback a whole `$SHELL -ilc` — running behind every abandoned
+  // probe, which on a hover-driven surface is one leaked process per probe.
+  // ---------------------------------------------------------------------------
+  {
+    const { spawn, calls } = spawnStub(() => Promise.resolve({ stdout: '[]', stderr: '' }))
+    const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin' })
+    await gh.run(['pr', 'list'], { cwd: '/repo', timeoutMs: 15_000 })
+    assert.equal(calls[0].timeout, 15_000, 'the bound is the process table`s to enforce')
+    assert.equal(calls[0].killSignal, 'SIGTERM')
+
+    // No bound asked for, no kill terms invented.
+    await gh.run(['pr', 'list'], { cwd: '/repo' })
+    assert.equal(calls[1].timeout, undefined)
+    assert.equal(calls[1].killSignal, undefined)
+
+    // The fallback carries it too — that is the spawn that costs the most.
+    const viaShell = spawnStub((call) =>
+      call.file === 'gh' ? enoent() : Promise.resolve({ stdout: '[]', stderr: '' }),
+    )
+    const shellGh = createDefaultGhRunner({ spawn: viaShell.spawn, shell: '/bin/zsh', platform: 'darwin' })
+    await shellGh.run(['pr', 'list'], { timeoutMs: 5_000 })
+    assert.equal(viaShell.calls[1].timeout, 5_000, 'the login shell is killed on the same bound')
+  }
+  {
+    // `execFile` reports its own timeout as a killed child: a signal, no exit
+    // code. The binary was found and ran, so this is never `found: false` — it
+    // is a read that did not happen, and the caller must not write anything down.
+    const { spawn } = spawnStub(() =>
+      Promise.reject(Object.assign(new Error('Command failed: gh pr list'), {
+        killed: true,
+        signal: 'SIGTERM',
+        code: null,
+        stdout: '',
+        stderr: '',
+      })),
+    )
+    const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin' })
+    const killed = await gh.run(['pr', 'list'], { timeoutMs: 1 })
+    assert.equal(killed.found, true, 'the binary was there; it just did not finish')
+    assert.equal(killed.timedOut, true, 'and the caller can tell that from an ordinary failure')
   }
 }
 

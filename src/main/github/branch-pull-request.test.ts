@@ -9,20 +9,32 @@ import type { GhResult, GhRunner } from './gh'
 
 const NOW = Date.parse('2026-09-09T12:00:00.000Z')
 
-type Call = { args: string[]; cwd?: string }
+type Call = { args: string[]; cwd?: string; timeoutMs?: number }
 
 function ghStub(reply: (call: Call) => GhResult): { gh: GhRunner; calls: Call[] } {
   const calls: Call[] = []
   const gh: GhRunner = {
     available: async () => true,
     run: async (args, options) => {
-      const call: Call = { args, ...(options?.cwd ? { cwd: options.cwd } : {}) }
+      const call: Call = {
+        args,
+        ...(options?.cwd ? { cwd: options.cwd } : {}),
+        ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      }
       calls.push(call)
       return reply(call)
     },
   }
   return { gh, calls }
 }
+
+function timeoutOf(call: Call | undefined): number | undefined {
+  return call?.timeoutMs
+}
+
+// Nothing below runs unless main() reaches its last line; see the resolve
+// handler at the foot of the file.
+process.exitCode = 1
 
 function ok(stdout: string): GhResult {
   return { found: true, code: 0, stdout, stderr: '' }
@@ -149,11 +161,17 @@ async function main(): Promise<void> {
     )
 
     const hangs: GhRunner = { available: async () => true, run: () => new Promise<GhResult>(() => {}) }
+    // The race's timer is deliberately unref'd (a pending read must never hold
+    // the app open at quit), so THIS process has to hold the loop itself while
+    // it waits — without it node simply exited here, silently, taking every
+    // assertion below with it and still reporting success.
+    const holdLoopOpen = setInterval(() => {}, 1_000)
     assert.deepEqual(
       await listBranchPullRequests({ gitRoot: '/repo', branch: 'feature' }, { gh: hangs, now: () => NOW, timeoutMs: 1 }),
       { settled: false, reason: 'timeout' },
       'a hover never waits behind an offline laptop',
     )
+    clearInterval(holdLoopOpen)
   }
 
   // A question we cannot ask never reaches `gh` at all.
@@ -216,10 +234,23 @@ async function main(): Promise<void> {
       'view',
       'https://github.com/acme/app/pull/12',
       '--json',
-      'state,isDraft,mergedAt,closedAt,headRefName',
+      'number,title,state,isDraft,createdAt,mergedAt,closedAt,headRefName',
     ])
     assert.equal(calls[0].cwd, undefined, 'a URL read needs no checkout')
-    assert.deepEqual(read, { settled: true, state: 'open', isDraft: true, stateAt: NOW, headRefName: 'feature/marks' }, 'the head branch comes back too: it is how a captured pull request learns which branch it is on')
+    assert.deepEqual(
+      read,
+      {
+        settled: true,
+        state: 'open',
+        isDraft: true,
+        stateAt: NOW,
+        headRefName: 'feature/marks',
+        title: null,
+        openedAt: null,
+        number: null,
+      },
+      'the head branch comes back too: it is how a captured pull request learns which branch it is on',
+    )
   }
   {
     const { gh } = ghStub(() => ok(JSON.stringify({ state: 'MERGED', isDraft: false, mergedAt: '2026-09-09T09:00:00.000Z', closedAt: '2026-09-09T09:00:00.000Z' })))
@@ -229,6 +260,9 @@ async function main(): Promise<void> {
       isDraft: false,
       stateAt: NOW,
       headRefName: null,
+      title: null,
+      openedAt: null,
+      number: null,
     })
   }
   {
@@ -239,6 +273,9 @@ async function main(): Promise<void> {
       isDraft: false,
       stateAt: NOW,
       headRefName: null,
+      title: null,
+      openedAt: null,
+      number: null,
     })
   }
   {
@@ -264,10 +301,111 @@ async function main(): Promise<void> {
       reason: 'bad-output',
     })
   }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 2). A CAPTURED pull request is filed from a URL alone,
+  // and in another repository no branch lookup will ever name it. So the state
+  // read asks for the title and the opening date too — without them every menu
+  // row, the peek's title line and the spoken label read empty for ever.
+  // -------------------------------------------------------------------------
+  {
+    const { gh } = ghStub(() =>
+      ok(
+        JSON.stringify({
+          number: 9,
+          title: 'Refresh the banner',
+          state: 'OPEN',
+          isDraft: false,
+          createdAt: '2026-09-05T09:00:00.000Z',
+          mergedAt: null,
+          closedAt: null,
+          headRefName: 'site/banner',
+        }),
+      ),
+    )
+    assert.deepEqual(await readPullRequestState('https://github.com/acme/website/pull/9', { gh, now: () => NOW }), {
+      settled: true,
+      state: 'open',
+      isDraft: false,
+      stateAt: NOW,
+      headRefName: 'site/banner',
+      title: 'Refresh the banner',
+      openedAt: Date.parse('2026-09-05T09:00:00.000Z'),
+      number: 9,
+    })
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 7). The runner's PATH fallback is `$SHELL -ilc 'gh …'`,
+  // and on a GUI-launched macOS app with a Homebrew gh that is the NORMAL path.
+  // An interactive login shell prints whatever the user's rc files print on the
+  // same stdout, so the JSON arrives with a banner in front of it — which used
+  // to make every read permanently 'bad-output'.
+  // -------------------------------------------------------------------------
+  {
+    const banner = 'Now using node v22.4.0 (npm v10.13.0)\nnvm: setting up\n'
+    const { gh } = ghStub(() => ok(`${banner}${JSON.stringify([row()])}\n`))
+    const read = await listBranchPullRequests({ gitRoot: '/repo', branch: 'feature' }, { gh, now: () => NOW })
+    assert.equal(read.settled, true, 'a login-shell banner is not a bad answer')
+    assert.deepEqual(read.settled && read.pullRequests.map((pr) => pr.number), [12])
+
+    // The same, for the state read — and with a brace inside a string, which a
+    // naive "find the last }" would cut in the wrong place.
+    const state = ghStub(() =>
+      ok(`${banner}${JSON.stringify({ state: 'OPEN', isDraft: false, title: 'a } brace', headRefName: 'feature' })}`),
+    )
+    assert.deepEqual(await readPullRequestState('https://github.com/acme/app/pull/12', { gh: state.gh, now: () => NOW }), {
+      settled: true,
+      state: 'open',
+      isDraft: false,
+      stateAt: NOW,
+      headRefName: 'feature',
+      title: 'a } brace',
+      openedAt: null,
+      number: null,
+    })
+
+    // A banner and nothing else is still 'bad-output': there is no answer in it.
+    const empty = ghStub(() => ok(banner))
+    assert.deepEqual(await listBranchPullRequests({ gitRoot: '/repo', branch: 'feature' }, { gh: empty.gh }), {
+      settled: false,
+      reason: 'bad-output',
+    })
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 6). The read's bound is handed to the RUNNER, which
+  // kills the child with it. Racing a timer only stops us waiting: the `gh` —
+  // and, on the login-shell fallback, a whole `$SHELL -ilc` — kept running.
+  // -------------------------------------------------------------------------
+  {
+    const { gh, calls } = ghStub(() => ok('[]'))
+    await listBranchPullRequests({ gitRoot: '/repo', branch: 'feature' }, { gh, now: () => NOW, timeoutMs: 1_234 })
+    assert.equal(timeoutOf(calls[0]), 1_234, 'the bound reaches the runner, not just our own timer')
+
+    // And a child the runner killed is a read that did not happen.
+    const killed: GhRunner = {
+      available: async () => true,
+      run: async () => ({ found: true, code: 1, stdout: '', stderr: '', timedOut: true }),
+    }
+    assert.deepEqual(await listBranchPullRequests({ gitRoot: '/repo', branch: 'feature' }, { gh: killed }), {
+      settled: false,
+      reason: 'timeout',
+    })
+    assert.deepEqual(await readPullRequestState('https://github.com/acme/app/pull/12', { gh: killed }), {
+      settled: false,
+      reason: 'timeout',
+    })
+  }
 }
 
 main().then(
-  () => console.log('github/branch-pull-request: all assertions passed'),
+  () => {
+    // A silent early exit — an unref'd timer with nothing else on the loop —
+    // used to read as success. Nothing but this line clears the failure.
+    process.exitCode = 0
+    console.log('github/branch-pull-request: all assertions passed')
+  },
   (error) => {
     console.error(error)
     process.exitCode = 1

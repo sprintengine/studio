@@ -57,15 +57,32 @@ export type BranchPullRequestsRead =
  * which branch it belongs to (decision 10). Null when GitHub did not say.
  */
 export type PullRequestStateRead =
-  | { settled: true; state: PullRequestState; isDraft: boolean; stateAt: number; headRefName: string | null }
+  | {
+      settled: true
+      state: PullRequestState
+      isDraft: boolean
+      stateAt: number
+      headRefName: string | null
+      /**
+       * The pull request's title and the moment GitHub says it was opened. A
+       * pull request CAPTURED from a hook knows neither — the hook saw a URL —
+       * and for one opened in another repository this read is the only thing
+       * that ever will, because no branch lookup runs there (decision 10). Null
+       * when GitHub did not say.
+       */
+      title?: string | null
+      openedAt?: number | null
+      number?: number | null
+    }
   | { settled: false; reason: PullRequestReadFailure }
 
 /**
- * How long one `gh` call may take before the read is "could not ask". The
- * subprocess is not killed — we simply stop waiting on it, so a hover never
- * hangs behind a laptop that is off the network. Generous, because a cold `gh`
- * on a large repository is genuinely slow and a needless unsettled answer costs
- * a retry.
+ * How long one `gh` call may take before the read is "could not ask". The child
+ * is KILLED at the bound (the runner passes it to `execFile`'s own
+ * timeout/killSignal), so a hover behind a laptop that is off the network
+ * neither hangs nor leaves a `gh` — or a whole `$SHELL -ilc` — running behind
+ * it. Generous, because a cold `gh` on a large repository is genuinely slow and
+ * a needless unsettled answer costs a retry.
  */
 export const GH_READ_TIMEOUT_MS = 15_000
 
@@ -77,7 +94,11 @@ export type BranchPullRequestDeps = {
 
 /** The fields the list read asks `gh` for — one place, so the parser cannot drift from the query. */
 const LIST_FIELDS = 'number,url,title,state,isDraft,createdAt,mergedAt,closedAt'
-const VIEW_FIELDS = 'state,isDraft,mergedAt,closedAt,headRefName'
+// `title` and `createdAt` are here for the CAPTURED pull request: it is filed
+// from a URL alone, and in another repository nothing else ever names it — every
+// menu row, the peek's bold title line and the spoken label would read empty
+// without them (decision 10).
+const VIEW_FIELDS = 'number,title,state,isDraft,createdAt,mergedAt,closedAt,headRefName'
 
 /**
  * Every pull request whose head is `branch`, as GitHub knows them — open, merged
@@ -102,7 +123,7 @@ export async function listBranchPullRequests(
   )
   if (!result.ok) return { settled: false, reason: result.reason }
 
-  const rows = parseJson(result.stdout)
+  const rows = parseJsonDocument(result.stdout)
   if (!Array.isArray(rows)) return { settled: false, reason: 'bad-output' }
 
   const now = (deps.now ?? Date.now)()
@@ -135,16 +156,20 @@ export async function readPullRequestState(
   const result = await runGh(['pr', 'view', canonicalPullRequestUrl(parsed), '--json', VIEW_FIELDS], {}, deps)
   if (!result.ok) return { settled: false, reason: result.reason }
 
-  const json = parseJson(result.stdout)
+  const json = parseJsonDocument(result.stdout)
   if (!isRecord(json)) return { settled: false, reason: 'bad-output' }
   const state = readState(json)
   if (!state) return { settled: false, reason: 'bad-output' }
+  const title = typeof json.title === 'string' && json.title.length > 0 ? json.title : null
   return {
     settled: true,
     state,
     isDraft: json.isDraft === true && state === 'open',
     stateAt: (deps.now ?? Date.now)(),
     headRefName: typeof json.headRefName === 'string' && json.headRefName.length > 0 ? json.headRefName : null,
+    title,
+    openedAt: parseTimestamp(json.createdAt),
+    number: typeof json.number === 'number' && Number.isInteger(json.number) && json.number > 0 ? json.number : null,
   }
 }
 
@@ -156,8 +181,11 @@ async function runGh(args: string[], options: { cwd?: string }, deps: BranchPull
   let timer: ReturnType<typeof setTimeout> | null = null
   const TIMED_OUT = Symbol('timed-out')
   try {
+    // The bound is handed to the runner, which kills the child with it. The race
+    // below stays as the backstop for a runner that ignores it (a test's fake,
+    // an injected one) — stopping waiting is the weaker half of the guarantee.
     const raced = await Promise.race([
-      gh.run(args, options),
+      gh.run(args, { ...options, timeoutMs }),
       new Promise<typeof TIMED_OUT>((resolve) => {
         timer = setTimeout(() => resolve(TIMED_OUT), timeoutMs)
         timer.unref?.()
@@ -165,6 +193,8 @@ async function runGh(args: string[], options: { cwd?: string }, deps: BranchPull
     ])
     if (raced === TIMED_OUT) return { ok: false, reason: 'timeout' }
     if (!raced.found) return { ok: false, reason: 'gh-missing' }
+    // A killed child is a read that did not happen, never an empty answer.
+    if (raced.timedOut) return { ok: false, reason: 'timeout' }
     // `gh pr list` exits 0 with `[]` for a branch with no pull requests, so a
     // non-zero exit is always a failure to ask — never "there are none".
     if (raced.code !== 0) return { ok: false, reason: 'gh-failed' }
@@ -178,12 +208,74 @@ async function runGh(args: string[], options: { cwd?: string }, deps: BranchPull
   }
 }
 
-function parseJson(stdout: string): unknown {
+/**
+ * The JSON document in `gh`'s stdout — which is not always ALL of it. The
+ * runner's PATH fallback runs `$SHELL -ilc 'gh …'`, and that is the NORMAL path
+ * for a GUI-launched macOS app with a Homebrew or nvm `gh`: an interactive login
+ * shell prints whatever the user's rc files print ("Now using node v22.…") on
+ * the same stdout, and feeding that to `JSON.parse` made every read permanently
+ * 'bad-output'.
+ *
+ * So: the whole output first (the direct-spawn case, unchanged), then the first
+ * `[`- or `{`-anchored document that parses, matched to its own closing bracket
+ * with strings and escapes respected, and finally the last line that parses on
+ * its own. Only an array or an object is ever returned — a banner line that
+ * happens to be a bare number is not the answer we asked for.
+ */
+function parseJsonDocument(stdout: string): unknown {
+  const whole = parseJsonValue(stdout)
+  if (whole !== undefined) return whole
+  for (let index = 0; index < stdout.length; index += 1) {
+    const char = stdout[index]
+    if (char !== '[' && char !== '{') continue
+    const end = matchingBracket(stdout, index)
+    if (end === -1) continue
+    const parsed = parseJsonValue(stdout.slice(index, end + 1))
+    if (parsed !== undefined) return parsed
+  }
+  const lines = stdout.split(/\r?\n/)
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const parsed = parseJsonValue(lines[index])
+    if (parsed !== undefined) return parsed
+  }
+  return undefined
+}
+
+function parseJsonValue(raw: string): unknown {
+  const trimmed = raw.trim()
+  if (!trimmed) return undefined
   try {
-    return JSON.parse(stdout)
+    const parsed: unknown = JSON.parse(trimmed)
+    // `gh --json` answers with an array or an object and nothing else.
+    return Array.isArray(parsed) || isRecord(parsed) ? parsed : undefined
   } catch {
     return undefined
   }
+}
+
+/** The index of the bracket closing the one at `start`, or -1. Strings and their escapes are skipped. */
+function matchingBracket(text: string, start: number): number {
+  const open = text[start]
+  const close = open === '[' ? ']' : '}'
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') inString = false
+      continue
+    }
+    if (char === '"') inString = true
+    else if (char === open) depth += 1
+    else if (char === close) {
+      depth -= 1
+      if (depth === 0) return index
+    }
+  }
+  return -1
 }
 
 /**
