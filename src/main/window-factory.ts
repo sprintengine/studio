@@ -305,6 +305,13 @@ const AUX_WINDOW_TITLES: Record<AuxWindowKind, string> = {
   file: 'Editor',
 }
 
+// The renderer shell's own `<title>`. One index.html serves every window, so
+// loading it announces this name to the OS and overwrites whatever the window
+// was constructed with — which is how a diff window came to read "Multicode"
+// until its React tree got around to naming itself. This is the one title an
+// aux window refuses; every other one is the page naming itself.
+const RENDERER_SHELL_TITLE = 'Multicode'
+
 type CreateAuxWindowOptions = {
   kind: AuxWindowKind
   singletonKey: string
@@ -366,6 +373,23 @@ export function openAuxWindow({
   })
   win.on('closed', () => {
     if (auxWindows.get(registryKey) === win) auxWindows.delete(registryKey)
+  })
+
+  // Keep the constructed name against the shell's. `preventDefault` stops the
+  // shell's title from reaching the window at all; a title the aux page sets
+  // for itself (`Commit: <file>`) is not this string and still wins, so the
+  // page keeps ownership the moment it takes it.
+  win.webContents.on('page-title-updated', (event, title) => {
+    if (title.trim() !== RENDERER_SHELL_TITLE) return
+    event.preventDefault()
+    if (!win.isDestroyed()) win.setTitle(AUX_WINDOW_TITLES[kind])
+  })
+  // The net under it, for a load that hands the window the shell's name
+  // without an event we saw (a restored title, a reload): once the page is up,
+  // if the window is still wearing the shell's name, take it back.
+  win.webContents.on('did-finish-load', () => {
+    if (win.isDestroyed()) return
+    if (win.getTitle().trim() === RENDERER_SHELL_TITLE) win.setTitle(AUX_WINDOW_TITLES[kind])
   })
 
   const schedulePlacementUpdate = createPlacementUpdateScheduler(win)
