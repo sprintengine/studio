@@ -1145,6 +1145,14 @@ export const DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW = true
 // pane's Diff tab is the in-app home the person can flip back to. Sticky, like
 // the file preference above: the band's two buttons are what write it.
 export const DEFAULT_DIFF_OPENS_IN_WINDOW = true
+/**
+ * How a diff is drawn (git-commit-window T4): two panes or one. The
+ * default is side by side; the diff window's icon-only toggle is
+ * the only thing that writes it, and it is app-wide rather than per window
+ * because it is how this person reads a diff, not a property of one file.
+ */
+export type DiffViewMode = 'side-by-side' | 'unified'
+export const DEFAULT_DIFF_VIEW: DiffViewMode = 'side-by-side'
 export const DEFAULT_CHECK_CLI_VERSIONS = true
 
 export interface SettingsSliceState {
@@ -1214,6 +1222,10 @@ export interface SettingsSliceState {
   // separate window" turns it on, the window's "Show in the app" turns it off
   // — so the next diff opens where the last one was left.
   diffOpensInWindow: boolean
+  // How a diff is DRAWN, once it is open: side by side or unified. Persisted in
+  // the settings envelope beside the preference above, applied to Monaco with
+  // `updateOptions` so the toggle never remounts the editor.
+  diffView: DiffViewMode
   // Ask each CLI's package registry for its newest version (the Settings
   // switch "Check for CLI updates"). Mirrored into main, which runs the check.
   checkCliVersions: boolean
@@ -1243,6 +1255,7 @@ export interface SettingsSliceActions {
   setWorkspacePaneMaximised: (maximised: boolean) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   setDiffOpensInWindow: (enabled: boolean) => void
+  setDiffView: (view: DiffViewMode) => void
   setCheckCliVersions: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
@@ -1451,6 +1464,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     workspacePaneMaximised: false,
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
     diffOpensInWindow: DEFAULT_DIFF_OPENS_IN_WINDOW,
+    diffView: DEFAULT_DIFF_VIEW,
     checkCliVersions: DEFAULT_CHECK_CLI_VERSIONS,
     sprintEngineRoleRegistry: null,
     agentConfigAdoptionResult: null,
@@ -1498,6 +1512,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setDiffOpensInWindow: (enabled) =>
       set((state) => {
         state.diffOpensInWindow = enabled
+      }),
+
+    setDiffView: (view) =>
+      set((state) => {
+        state.diffView = view
       }),
 
     setCheckCliVersions: (enabled) =>

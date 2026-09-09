@@ -2,10 +2,11 @@ import assert from 'node:assert/strict'
 
 import type { Workspace } from '../../types/workspace'
 import { useWorkspaceStore } from '../workspaceStore'
-import type { ChatListView, SettingsOverlayState, SidebarSection } from './settingsSlice'
+import type { ChatListView, DiffViewMode, SettingsOverlayState, SidebarSection } from './settingsSlice'
 import {
   createSettingsSlice,
   DEFAULT_DIFF_OPENS_IN_WINDOW,
+  DEFAULT_DIFF_VIEW,
   defaultAppearanceSettings,
   defaultAppSettings,
   defaultKeybindingSettings,
@@ -424,6 +425,7 @@ const carrier = {
   workspacePaneMaximised: false,
   openFilesInExternalWindow: true,
   diffOpensInWindow: true,
+  diffView: 'side-by-side' as DiffViewMode,
   checkCliVersions: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,
@@ -451,6 +453,16 @@ slice.setDiffOpensInWindow(false)
 assert.equal(carrier.diffOpensInWindow, false, '"Show in the app" flips the diff home to the pane tab')
 slice.setDiffOpensInWindow(true)
 assert.equal(carrier.diffOpensInWindow, true, 'and "Open in separate window" flips it back')
+
+// How a diff is DRAWN (git-commit-window T4). Two panes is the default; the diff window's icon-only toggle is the only writer, and it is
+// app-wide because it is how this person reads a diff rather than a property of
+// one file.
+assert.equal(DEFAULT_DIFF_VIEW, 'side-by-side', 'a diff opens side by side until the person says otherwise')
+assert.equal(slice.diffView, 'side-by-side', 'the slice starts on the default')
+slice.setDiffView('unified')
+assert.equal(carrier.diffView, 'unified', 'the toggle persists the unified reading')
+slice.setDiffView('side-by-side')
+assert.equal(carrier.diffView, 'side-by-side', 'and back')
 
 // Closing settings never clears somebody ELSE's modal — and never touches a
 // door: the two are independent layers.
@@ -633,6 +645,7 @@ const permissionCarrier = {
   workspacePaneMaximised: false,
   openFilesInExternalWindow: true,
   diffOpensInWindow: true,
+  diffView: 'side-by-side' as DiffViewMode,
   checkCliVersions: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,

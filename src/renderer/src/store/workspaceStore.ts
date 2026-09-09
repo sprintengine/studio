@@ -47,7 +47,13 @@ import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
 import type { CommandId } from '../commands/commandRegistry'
 import type { ExtensionsDrawerView } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { createAuthSlice } from './slices/authSlice'
-import { createSettingsSlice, normalizeAppSettings, type ChatListView, type SidebarSection } from './slices/settingsSlice'
+import {
+  createSettingsSlice,
+  normalizeAppSettings,
+  type ChatListView,
+  type DiffViewMode,
+  type SidebarSection,
+} from './slices/settingsSlice'
 import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
 import { clampWorkspaceAsideWidth } from '../components/workspace/workspaceAsideWidth'
 import {
@@ -187,6 +193,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   diffOpensInWindow: boolean
   setDiffOpensInWindow: (enabled: boolean) => void
+  diffView: DiffViewMode
+  setDiffView: (view: DiffViewMode) => void
   checkCliVersions: boolean
   setCheckCliVersions: (enabled: boolean) => void
   // The request that opened the Settings modal — not the modal's visibility;
@@ -565,6 +573,7 @@ type SettingsEnvelopeState = {
   workspacePaneWidth: unknown
   openFilesInExternalWindow: unknown
   diffOpensInWindow: unknown
+  diffView: unknown
   checkCliVersions: unknown
 }
 
@@ -646,6 +655,7 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
     workspacePaneWidth: state.workspacePaneWidth,
     openFilesInExternalWindow: state.openFilesInExternalWindow,
     diffOpensInWindow: state.diffOpensInWindow,
+    diffView: state.diffView,
     checkCliVersions: state.checkCliVersions,
   }
 }
@@ -683,6 +693,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
         workspacePaneWidth: s.workspacePaneWidth,
         openFilesInExternalWindow: s.openFilesInExternalWindow,
         diffOpensInWindow: s.diffOpensInWindow,
+        diffView: s.diffView,
         checkCliVersions: s.checkCliVersions,
         workspaces: retainedWorkspaces,
         activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
@@ -708,6 +719,7 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
     workspacePaneWidth: s.workspacePaneWidth,
     openFilesInExternalWindow: s.openFilesInExternalWindow,
     diffOpensInWindow: s.diffOpensInWindow,
+    diffView: s.diffView,
     checkCliVersions: s.checkCliVersions,
     ...partializeRegistryFields(s),
   }

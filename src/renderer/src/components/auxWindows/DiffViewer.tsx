@@ -14,12 +14,52 @@ import {
   findDiffFocusIndex,
   type DiffFileItem,
 } from './diffFileList'
-import { nextDiffPosition, resolveEdgeHunkIndex } from './diffNavigation'
-import { EmptyState, IconButton, InlineNotice, NextDifferenceGlyph, PreviousDifferenceGlyph, Tooltip } from '../ui'
+import { navigateFile, nextDiffPosition, resolveEdgeHunkIndex } from './diffNavigation'
+import {
+  Checkbox,
+  CollapseAllGlyph,
+  EmptyState,
+  FileTypeGlyph,
+  GearGlyph,
+  InlineNotice,
+  MenuItem,
+  NextDifferenceGlyph,
+  OpenInEditorGlyph,
+  Pager,
+  Popover,
+  PreviousDifferenceGlyph,
+  SegmentedControl,
+  SideBySideGlyph,
+  Toolbar,
+  ToolbarButton,
+  ToolbarDivider,
+  ToolbarSpacer,
+  Tooltip,
+  UnifiedGlyph,
+  roveMenuFocus,
+} from '../ui'
+import { MENU_LIST_CLASS } from '../ui/menuClasses'
 import { FOCUS_RING_INSET_CLASS } from '../ui/tokens'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
 import { openDiffWindow } from './openDiffWindow'
+import { openExternalFileWindow } from './openFileWindow'
+import { openFileSurface } from '../../utils/openFileSurface'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { writeAuxWindowSetting } from './auxSettingsWrite'
+import { getGitEntry } from '../../hooks/useGitStatus'
+import type { DiffViewMode } from '../../store/slices/settingsSlice'
+import {
+  DEFAULT_DIFF_EDITOR_PREFS,
+  diffEditorOptions,
+  differenceCounterLabel,
+  headerStripModel,
+  includeAction,
+  includeBoxState,
+  isIncludable,
+  liveDiffEditorOptions,
+  type DiffEditorPrefs,
+  type IncludeBoxState,
+} from './diffToolbarModel'
 
 // The diff viewer: the changed-file list, a read-only Monaco DiffEditor, and
 // hunk navigation that flows across files. Two hosts render it — the
@@ -174,39 +214,20 @@ async function loadDiffContent(repoRoot: string, item: DiffFileItem): Promise<Di
   return { state: 'ready', original: index.content, modified: worktree.content, language }
 }
 
-function ChevronButton({
-  direction,
-  disabled,
-  onClick,
-}: {
-  direction: 'up' | 'down'
-  disabled: boolean
-  onClick: () => void
-}) {
-  return (
-    <IconButton
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={direction === 'down' ? 'Next change' : 'Previous change'}
-      className="app-no-drag"
-    >
-      {/* The kit's hunk-stepping mark, not a bare chevron: a chevron says
-          disclosure, and stepping to the next difference is travel, so the
-          arrow lands on the rule it stops at (ui/GitActionGlyphs). */}
-      {direction === 'down' ? <NextDifferenceGlyph /> : <PreviousDifferenceGlyph />}
-    </IconButton>
-  )
-}
-
+// The two buttons that write the sticky `diffOpensInWindow` preference
+// (git-commit-window T3). They moved into the toolbar band in T4 and kept
+// everything else: the same handlers, the same tooltips, the same rule that
+// each one is the whole gesture for "diffs belong here now". Losing either
+// would leave the preference with no writer at all.
 function OpenInWindowButton({ onClick }: { onClick: () => void }) {
   return (
     <Tooltip content="Open in separate window" placement="bottom">
-      <IconButton onClick={onClick} aria-label="Open in separate window" className="app-no-drag">
+      <ToolbarButton ariaLabel="Open in separate window" onClick={onClick}>
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path d="M6.5 3H3v10h10V9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           <path d="M9.5 3H13v3.5M13 3 7.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-      </IconButton>
+      </ToolbarButton>
     </Tooltip>
   )
 }
@@ -218,13 +239,66 @@ function OpenInWindowButton({ onClick }: { onClick: () => void }) {
 function ShowInAppButton({ onClick }: { onClick: () => void }) {
   return (
     <Tooltip content="Show in the app (Esc just closes this window)" placement="bottom">
-      <IconButton onClick={onClick} aria-label="Show in the app" className="app-no-drag">
+      <ToolbarButton ariaLabel="Show in the app" onClick={onClick}>
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
           <path d="M10 3v10" stroke="currentColor" strokeWidth="1.5" />
         </svg>
-      </IconButton>
+      </ToolbarButton>
     </Tooltip>
+  )
+}
+
+/**
+ * The gear: the two reading options that are not worth a band item each — word
+ * wrap and whether whitespace-only changes count. Grouping them keeps the
+ * reading controls together. `ToolbarButton menu` draws the corner triangle and says
+ * `aria-haspopup`; the rows are the kit's `menuitemcheckbox`, because each one
+ * is a state and not an action.
+ */
+function DiffSettingsMenu({
+  prefs,
+  onChange,
+}: {
+  prefs: DiffEditorPrefs
+  onChange: (patch: Partial<DiffEditorPrefs>) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const surfaceRef = React.useRef<HTMLElement | null>(null)
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel="Diff settings"
+      popupRole="menu"
+      placement="bottom-end"
+      onOpenAutoFocus={(surface) => {
+        surfaceRef.current = surface
+        surface.querySelector<HTMLButtonElement>('[data-menu-item="true"]')?.focus()
+      }}
+      renderTrigger={({ ref, togglePopover }) => (
+        <Tooltip content="Diff settings" placement="bottom">
+          <ToolbarButton ref={ref} ariaLabel="Diff settings" menu expanded={open} onClick={togglePopover}>
+            <GearGlyph />
+          </ToolbarButton>
+        </Tooltip>
+      )}
+    >
+      <div
+        className={MENU_LIST_CLASS}
+        onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}
+      >
+        <MenuItem checked={prefs.wordWrap} onClick={() => onChange({ wordWrap: !prefs.wordWrap })}>
+          Word wrap
+        </MenuItem>
+        <MenuItem
+          checked={prefs.ignoreTrimWhitespace}
+          onClick={() => onChange({ ignoreTrimWhitespace: !prefs.ignoreTrimWhitespace })}
+        >
+          Ignore whitespace
+        </MenuItem>
+      </div>
+    </Popover>
   )
 }
 
@@ -246,12 +320,20 @@ function CenteredError({ message }: { message: string }) {
   )
 }
 
-function DiffBody({
+/**
+ * Exported for `DiffViewer.remount.test.tsx`, which calls it as a plain
+ * function (it holds no hooks, deliberately) and reads the element it returns.
+ * Two calls whose only difference is a view preference must return an element
+ * of the same `type` and the same `key` — that, and nothing else, is what
+ * decides whether React remounts Monaco.
+ */
+export function DiffBody({
   content,
   repoState,
   currentItem,
   onMount,
   monacoTheme,
+  options,
   stepLoading,
 }: {
   content: DiffContent
@@ -259,6 +341,8 @@ function DiffBody({
   currentItem: DiffFileItem | null
   onMount: DiffOnMount
   monacoTheme: 'vs' | 'vs-dark'
+  /** The construction options, already carrying the current preferences. */
+  options: Monaco.editor.IStandaloneDiffEditorConstructionOptions
   /** A branch step's file list is still being read. */
   stepLoading?: boolean
 }) {
@@ -289,17 +373,12 @@ function DiffBody({
       // Keep them, and dispose them after the editor is gone (see onMount).
       keepCurrentOriginalModel
       keepCurrentModifiedModel
-      options={{
-        readOnly: true,
-        renderSideBySide: true,
-        fontSize: 13,
-        fontFamily: MONO_FONT_STACK,
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        automaticLayout: true,
-        contextmenu: false,
-        renderOverviewRuler: true,
-      }}
+      // NO `key` here, and none above: the view preferences reach Monaco
+      // through `options` at construction and through `editor.updateOptions`
+      // afterwards (diffToolbarModel), never through a new element. A key that
+      // moved with the toggle would dispose the models under the diff widget
+      // mid-reset — the exact failure the workaround above exists for.
+      options={options}
       onMount={onMount}
     />
   )
@@ -314,7 +393,7 @@ export function DiffViewer({
   onItemCountChange,
   branchSteps = false,
 }: Props) {
-  const { status, repoState, repoRoot: gitRoot } = useGitStatus(repoRoot)
+  const { status, repoState, repoRoot: gitRoot, refresh: refreshGitStatus } = useGitStatus(repoRoot)
   // Ticks once per completed status read of this repository — the cue that the
   // working tree moved under the open file. Given the RESOLVED root so it joins
   // the subscription the line above already opened.
@@ -344,6 +423,12 @@ export function DiffViewer({
   const [currentIndex, setCurrentIndex] = useState(-1)
   const initializedRef = useRef(false)
   const currentPathKeyRef = useRef<string | null>(null)
+  // The PATH alone, without the kind. Including a file moves it between the
+  // staged and unstaged groups — the entry the key names disappears and a new
+  // one for the same file appears — so this is what the anchor falls back to
+  // before it gives up and clamps to a neighbour (T4: the include box must not
+  // walk the person off the file they just included).
+  const currentPathRef = useRef<string | null>(null)
 
   // Initialise focus once the first status snapshot arrives, then keep the cursor
   // anchored to the same (path, kind) as the list changes underneath us (file
@@ -352,6 +437,7 @@ export function DiffViewer({
     if (items.length === 0) {
       setCurrentIndex(-1)
       currentPathKeyRef.current = null
+      currentPathRef.current = null
       return
     }
     if (!initializedRef.current) {
@@ -360,17 +446,30 @@ export function DiffViewer({
       initializedRef.current = true
       setCurrentIndex(resolved)
       currentPathKeyRef.current = keyFor(items[resolved])
+      currentPathRef.current = items[resolved]?.path ?? null
       return
     }
     const previousKey = currentPathKeyRef.current
     const keptIndex = previousKey ? items.findIndex((item) => keyFor(item) === previousKey) : -1
     if (keptIndex >= 0) {
       if (keptIndex !== currentIndex) setCurrentIndex(keptIndex)
+      currentPathRef.current = items[keptIndex]?.path ?? null
+      return
+    }
+    // Same file, other group: including or excluding the open file is the one
+    // thing that reliably does this, and following it is what makes the header
+    // strip's checkbox feel like a checkbox rather than a jump.
+    const previousPath = currentPathRef.current
+    const samePathIndex = previousPath ? items.findIndex((item) => item.path === previousPath) : -1
+    if (samePathIndex >= 0) {
+      if (samePathIndex !== currentIndex) setCurrentIndex(samePathIndex)
+      currentPathKeyRef.current = keyFor(items[samePathIndex])
       return
     }
     const clamped = Math.min(Math.max(currentIndex, 0), items.length - 1)
     setCurrentIndex(clamped)
     currentPathKeyRef.current = keyFor(items[clamped])
+    currentPathRef.current = items[clamped]?.path ?? null
   }, [items, focusPath, focusKind, currentIndex])
 
   const currentItem = currentIndex >= 0 ? items[currentIndex] ?? null : null
@@ -400,6 +499,7 @@ export function DiffViewer({
     hunkIndexRef.current = 0
     pendingEdgeRef.current = null
     currentPathKeyRef.current = keyFor(items[index])
+    currentPathRef.current = items[index]?.path ?? null
     setCurrentIndex(index)
   }, [focusPath, focusKind, items])
 
@@ -421,6 +521,7 @@ export function DiffViewer({
     const token = loadSeqRef.current
     setContent({ state: 'loading' })
     hunksRef.current = []
+    setDifferenceCount(0)
     hunkIndexRef.current = 0
     void loadDiffContent(repoRoot, currentItem).then((next) => {
       if (loadSeqRef.current === token) setContent(next)
@@ -495,6 +596,8 @@ export function DiffViewer({
       editor.onDidUpdateDiff(() => {
         const changes = editor.getLineChanges() ?? []
         hunksRef.current = changes
+        // The toolbar's counter reads this; the ref alone cannot re-render it.
+        setDifferenceCount(changes.length)
         const pending = pendingEdgeRef.current
         if (pending) {
           pendingEdgeRef.current = null
@@ -525,15 +628,58 @@ export function DiffViewer({
       pendingEdgeRef.current = move.edge
       hunkIndexRef.current = 0
       currentPathKeyRef.current = keyFor(items[move.fileIndex])
+      currentPathRef.current = items[move.fileIndex]?.path ?? null
       setCurrentIndex(move.fileIndex)
     },
     [items, currentIndex, revealHunk]
   )
 
-  // The viewer is read-only, so arrows always navigate hunks. F7 / Shift+F7
-  // mirror the usual IDE/Monaco idiom. Returns whether the key was taken.
+  // Land on a file by index — the toolbar's `‹ 2/27 files ›` stepper and
+  // ⌘↑ / ⌘↓. It goes through the SAME pendingEdgeRef the hunk walk uses when it
+  // crosses a boundary, so a file with no hunks at all (binary, mode-only) is
+  // arrived at and shown rather than stepped over.
+  const goToFileIndex = useCallback(
+    (fileIndex: number) => {
+      if (fileIndex < 0 || fileIndex >= items.length || fileIndex === currentIndex) return
+      pendingEdgeRef.current = 'first'
+      hunkIndexRef.current = 0
+      currentPathKeyRef.current = keyFor(items[fileIndex])
+      currentPathRef.current = items[fileIndex]?.path ?? null
+      setCurrentIndex(fileIndex)
+    },
+    [items, currentIndex]
+  )
+
+  const navigateWholeFile = useCallback(
+    (direction: 'next' | 'prev') => {
+      const move = navigateFile(currentIndex, direction, items.length)
+      if (move.type !== 'file') return
+      goToFileIndex(move.fileIndex)
+    },
+    [currentIndex, items.length, goToFileIndex]
+  )
+
+  // The viewer is read-only, so arrows always navigate hunks — except with the
+  // platform's command modifier held, which steps a whole FILE (⌘↑ / ⌘↓ on
+  // macOS, Ctrl elsewhere). The modifier is tested first: a plain ArrowDown
+  // must never also fire while ⌘ is down, or one press would move twice.
+  // F7 / Shift+F7 mirror the usual IDE/Monaco idiom for hunks. Returns whether
+  // the key was taken.
   const handleNavigationKey = useCallback(
-    (event: { key: string; shiftKey: boolean; preventDefault: () => void }): boolean => {
+    (event: {
+      key: string
+      shiftKey: boolean
+      metaKey?: boolean
+      ctrlKey?: boolean
+      preventDefault: () => void
+    }): boolean => {
+      const fileStep = isMac ? event.metaKey === true : event.ctrlKey === true
+      if (fileStep && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        event.preventDefault()
+        navigateWholeFile(event.key === 'ArrowDown' ? 'next' : 'prev')
+        return true
+      }
+      if (fileStep) return false
       if (event.key === 'ArrowDown' || (event.key === 'F7' && !event.shiftKey)) {
         event.preventDefault()
         navigate('next')
@@ -546,17 +692,23 @@ export function DiffViewer({
       }
       return false
     },
-    [navigate],
+    [navigate, navigateWholeFile, isMac],
   )
 
   // The window owns its whole keyboard, so the keys are window-wide there and
   // Escape closes it. In the pane the same keys are scoped to the viewer's own
-  // focus (a window-wide ArrowDown would hijack every list in the app).
+  // focus (a window-wide ArrowDown would hijack every list in the app). Neither
+  // scope changed in T4; what changed is that the band now contains controls
+  // that own the arrow keys themselves, so `takesNavigationKey` keeps a hunk
+  // step from firing on top of a view change or a menu walk.
   useEffect(() => {
     if (variant !== 'window') return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (handleNavigationKey(event)) return
-      if (event.key === 'Escape') void window.api.windowClose()
+      const target = event.target as HTMLElement | null
+      if (takesNavigationKey(target) && handleNavigationKey(event)) return
+      // Escape inside the gear menu closes the MENU (the popover's own handler);
+      // it must not also take the window down with it.
+      if (event.key === 'Escape' && !target?.closest?.('[role="menu"]')) void window.api.windowClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -604,23 +756,160 @@ export function DiffViewer({
     })()
   }, [currentItem, focusKind, focusPath, items, repoRoot, workspaceId])
 
-  // The OS window's name follows the file, editor-style: `Commit: <file>` in
-  // the window switcher while the band keeps the path. The pane host never
-  // touches the document title — it does not own the window.
+  // ── How the diff is drawn ───────────────────────────────────────────────
+  // `diffView` is the persisted app setting (settingsSlice); the other three
+  // are this window's own session state. All four reach Monaco through
+  // `liveDiffEditorOptions`, so changing any of them is an `updateOptions`
+  // call and never a remount.
+  const diffView = useWorkspaceStore((state) => state.diffView)
+  const [sessionPrefs, setSessionPrefs] = useState(DEFAULT_DIFF_EDITOR_PREFS)
+  const editorPrefs = useMemo<DiffEditorPrefs>(
+    () => ({ diffView, ...sessionPrefs }),
+    [diffView, sessionPrefs]
+  )
+  const editorOptions = useMemo(
+    () => diffEditorOptions(editorPrefs, MONO_FONT_STACK),
+    [editorPrefs]
+  )
+
+  useEffect(() => {
+    // No editor yet is not a missed update: the construction options above
+    // carry the same values, so a mount that happens later starts correct.
+    // `onDidUpdateDiff` fires after this and re-reveals the hunk the cursor was
+    // on, so toggling the view keeps the person's place.
+    diffEditorRef.current?.updateOptions(liveDiffEditorOptions(editorPrefs))
+  }, [editorPrefs])
+
+  const setDiffView = useCallback((next: DiffViewMode) => {
+    // See auxSettingsWrite: an aux window may only write a setting after
+    // re-reading what the workspace window has persisted since it opened.
+    writeAuxWindowSetting(() => useWorkspaceStore.getState().setDiffView(next))
+  }, [])
+
+  // ── The file include box ────────────────────────────────────────────────
+  // Whole-file stage / unstage of the file on screen, through the same
+  // `git:stage` / `git:unstage` IPC the Git panel's rows use.
+  const gitEntry = getGitEntry(status, currentItem?.path ?? null)
+  const observedInclude = useMemo(
+    () => includeBoxState(gitEntry ? { staged: gitEntry.staged, unstaged: gitEntry.unstaged } : null),
+    [gitEntry?.staged, gitEntry?.unstaged]
+  )
+  // `git status` is debounced by a second under the watcher, so between the
+  // click and the next read the box would still show the old state — and a
+  // second click would compute the OPPOSITE action from it and undo the first.
+  // The optimistic value is what the box shows and what `includeAction` reads
+  // until git agrees; the busy latch refuses a second write while one is in
+  // flight. Keyed on the PATH, not the (kind, path) key, because including a
+  // file is exactly what moves it between the two kinds.
+  const [includeOverride, setIncludeOverride] = useState<
+    { path: string; state: IncludeBoxState } | null
+  >(null)
+  const [includeError, setIncludeError] = useState<string | null>(null)
+  const includeBusyRef = useRef(false)
+
+  const fileInclude =
+    includeOverride && includeOverride.path === currentItem?.path
+      ? includeOverride.state
+      : observedInclude
+
+  useEffect(() => {
+    if (!includeOverride) return
+    if (includeOverride.path !== currentItem?.path) {
+      setIncludeOverride(null)
+      return
+    }
+    if (
+      observedInclude.checked === includeOverride.state.checked
+      && observedInclude.indeterminate === includeOverride.state.indeterminate
+    ) {
+      setIncludeOverride(null)
+    }
+  }, [includeOverride, observedInclude, currentItem?.path])
+
+  const toggleInclude = useCallback(() => {
+    const item = currentItem
+    if (!item || !isIncludable(item) || includeBusyRef.current) return
+    const action = includeAction(fileInclude)
+    includeBusyRef.current = true
+    setIncludeOverride({
+      path: item.path,
+      state: { checked: action === 'stage', indeterminate: false },
+    })
+    void (async () => {
+      try {
+        const result =
+          action === 'stage'
+            ? await window.api.stageGitPaths(repoRoot, [item.relativePath])
+            : await window.api.unstageGitPaths(repoRoot, [item.relativePath])
+        if (!result.ok) {
+          // Let the real state win rather than leaving a box that lies.
+          setIncludeOverride(null)
+          setIncludeError(result.message ?? result.stderr ?? 'Could not change what is included.')
+        } else {
+          setIncludeError(null)
+        }
+        await refreshGitStatus()
+      } catch (error) {
+        setIncludeOverride(null)
+        setIncludeError(error instanceof Error ? error.message : 'Could not change what is included.')
+      } finally {
+        includeBusyRef.current = false
+      }
+    })()
+  }, [currentItem, fileInclude, refreshGitStatus, repoRoot])
+
+  // ── Open in editor ──────────────────────────────────────────────────────
+  // The pane routes through `openFileSurface`, which honours the person's
+  // "where do files open" preference. The WINDOW cannot: it has no pane to add
+  // a tab to and writing that preference from here is the hazard T3 named, so
+  // it opens the external editor window — the aux window's own sibling.
+  const openInEditor = useCallback(() => {
+    const item = currentItem
+    if (!item) return
+    const name = item.relativePath.split('/').filter(Boolean).pop() ?? item.relativePath
+    if (variant === 'window') {
+      void openExternalFileWindow({ workspaceId: workspaceId ?? '', path: item.path, name })
+      return
+    }
+    if (!workspaceId) return
+    openFileSurface({ workspaceId, path: item.path, name })
+  }, [currentItem, variant, workspaceId])
+
+  // ── The counter ─────────────────────────────────────────────────────────
+  // `hunksRef` is a ref (Monaco writes it from a callback), so the count is
+  // mirrored into state on every diff update to give the sentence something to
+  // re-render on.
+  const [differenceCount, setDifferenceCount] = useState(0)
+  const counterLabel = differenceCounterLabel({
+    item: currentItem,
+    differenceCount,
+    fileInclude,
+  })
+
+  const header = headerStripModel(currentItem)
+
+  // The window's name, editor-style: `Commit: <file>`. ONE string, used by
+  // both the OS title (the window switcher, which T3 set) and the title bar the
+  // person is looking at — they cannot drift apart if there is only one of
+  // them. The pane host never touches the document title: it does not own the
+  // window.
+  const relativePath = currentItem?.relativePath ?? null
+  const fileName = relativePath ? relativePath.split('/').filter(Boolean).pop() ?? relativePath : null
+  const windowTitle = fileName ? `Commit: ${fileName}` : 'Diff'
   useEffect(() => {
     if (variant !== 'window') return
-    const relative = currentItem?.relativePath
-    const fileName = relative ? relative.split('/').filter(Boolean).pop() ?? relative : null
-    document.title = fileName ? `Commit: ${fileName}` : 'Diff'
-  }, [currentItem?.relativePath, variant])
+    document.title = windowTitle
+  }, [windowTitle, variant])
 
-  const bandClass =
-    variant === 'window'
-      ? `app-drag relative flex ${TITLE_BAR_HEIGHT} shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pr-2 ${
-          isMac ? TRAFFIC_LIGHT_INSET : 'pl-3'
-        }`
-      // The pane's one band: panel-header geometry (34px, space.lg inset).
-      : 'flex h-control-md shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pl-3 pr-2'
+  // The window's title bar: the traffic-light inset, the drag region, and the
+  // name — nothing else. Every ACTION lives in the toolbar below it, so the two
+  // hosts differ only by whether this row is there at all.
+  const titleBarClass = `app-drag relative flex ${TITLE_BAR_HEIGHT} shrink-0 items-center justify-center border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-2 ${
+    isMac ? TRAFFIC_LIGHT_INSET : ''
+  }`
+
+  const noFiles = items.length === 0 || currentIndex < 0
+  const fileCount = Math.max(1, items.length)
 
   return (
     <div
@@ -630,7 +919,14 @@ export function DiffViewer({
           : `flex h-full w-full flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)] ${FOCUS_RING_INSET_CLASS}`
       }
       tabIndex={variant === 'pane' ? 0 : undefined}
-      onKeyDown={variant === 'pane' ? (event) => { handleNavigationKey(event) } : undefined}
+      onKeyDown={
+        variant === 'pane'
+          ? (event) => {
+              if (!takesNavigationKey(event.target as HTMLElement | null)) return
+              handleNavigationKey(event)
+            }
+          : undefined
+      }
     >
       {branchSteps ? (
         <BranchStepStrip
@@ -640,23 +936,150 @@ export function DiffViewer({
           note={stepNote}
         />
       ) : null}
-      <div className={bandClass}>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span
-            className="truncate text-meta font-medium text-[color:var(--text-default)]"
-            title={currentItem?.relativePath}
+
+      {variant === 'window' ? (
+        <div className={titleBarClass}>
+          <span className="truncate text-body font-semibold text-[color:var(--text-strong)]">
+            {windowTitle}
+          </span>
+        </div>
+      ) : null}
+
+      {/* The band belongs to the diff beneath it and would be meaningless
+          without it, which is what lets it hold more than the pane-chrome
+          ceiling of five (design-system/components/toolbar). Grouped, not
+          enumerated: the hunk arrows, the file's editor, the file stepper and
+          the collapse toggle are four things about WHAT you are reading; the
+          counter, the layout toggle and the gear are about HOW. */}
+      <Toolbar ariaLabel="Diff">
+        <Tooltip content={`Previous change (${isMac ? '⇧F7' : 'Shift+F7'})`} placement="bottom">
+          <ToolbarButton
+            ariaLabel="Previous change"
+            disabled={noFiles}
+            onClick={() => navigate('prev')}
           >
-            {currentItem?.relativePath ?? 'Git Diff'}
+            <PreviousDifferenceGlyph />
+          </ToolbarButton>
+        </Tooltip>
+        <Tooltip content="Next change (F7)" placement="bottom">
+          <ToolbarButton ariaLabel="Next change" disabled={noFiles} onClick={() => navigate('next')}>
+            <NextDifferenceGlyph />
+          </ToolbarButton>
+        </Tooltip>
+
+        <ToolbarDivider />
+
+        <Tooltip content="Open in editor" placement="bottom">
+          <ToolbarButton
+            ariaLabel="Open in editor"
+            disabled={!currentItem || (variant === 'pane' && !workspaceId)}
+            onClick={openInEditor}
+          >
+            <OpenInEditorGlyph />
+          </ToolbarButton>
+        </Tooltip>
+
+        <ToolbarDivider />
+
+        {/* The FILE stepper, as opposed to the change stepper on the left.
+            `pager --inline`: the drawn "2/27 files" and the announced sentence
+            are one element, and the chevrons disable at the ends rather than
+            disappearing. */}
+        <Pager
+          inline
+          inlineNoun={items.length === 1 ? 'file' : 'files'}
+          page={noFiles ? 1 : currentIndex + 1}
+          pageCount={fileCount}
+          rangeLabel={`${positionLabel} (${isMac ? '⌘↑ / ⌘↓' : 'Ctrl+↑ / Ctrl+↓'})`}
+          ariaLabel="Changed files in this diff"
+          onPageChange={(page) => goToFileIndex(page - 1)}
+        />
+
+        <ToolbarDivider />
+
+        {/* A toggle with no `aria-pressed` to spend: the NAME changes with the
+            state instead, which is what a screen reader reads out either way
+            and what the tooltip already had to say. */}
+        <Tooltip
+          content={sessionPrefs.hideUnchanged ? 'Show unchanged regions' : 'Collapse unchanged regions'}
+          placement="bottom"
+        >
+          <ToolbarButton
+            ariaLabel={sessionPrefs.hideUnchanged ? 'Show unchanged regions' : 'Collapse unchanged regions'}
+            onClick={() => setSessionPrefs((prefs) => ({ ...prefs, hideUnchanged: !prefs.hideUnchanged }))}
+          >
+            <CollapseAllGlyph />
+          </ToolbarButton>
+        </Tooltip>
+
+        <ToolbarSpacer />
+
+        {/* Not a live region: the file stepper beside it already announces every
+            move, and two polite regions in one 30px band means every file change
+            is read out twice. */}
+        {currentItem ? (
+          <span className="shrink-0 whitespace-nowrap px-1 text-meta tabular-nums text-[color:var(--text-muted)]">
+            {counterLabel}
+          </span>
+        ) : null}
+
+        <SegmentedControl<DiffViewMode>
+          iconOnly
+          ariaLabel="Diff view"
+          value={diffView}
+          onChange={setDiffView}
+          items={[
+            {
+              value: 'side-by-side',
+              label: 'Side by side',
+              icon: <SideBySideGlyph />,
+              tooltip: 'Side by side',
+            },
+            { value: 'unified', label: 'Unified', icon: <UnifiedGlyph />, tooltip: 'Unified' },
+          ]}
+          className="mx-1 shrink-0"
+        />
+
+        <DiffSettingsMenu
+          prefs={editorPrefs}
+          onChange={(patch) => setSessionPrefs((prefs) => ({ ...prefs, ...patch }))}
+        />
+
+        {/* The sticky preference's two writers, absorbed from T3's band. */}
+        {variant === 'pane' ? <OpenInWindowButton onClick={openInWindow} /> : null}
+        {variant === 'window' && workspaceId ? <ShowInAppButton onClick={showInApp} /> : null}
+      </Toolbar>
+
+      {/* THE FIRST CONTENT ROW, not a second chrome band. It names the two
+          things being compared and carries this file's include box; hide the
+          diff and it has nothing to say, which is the test. It scrolls with
+          nothing — the code under it does. Left is what the file is compared
+          AGAINST, right is what you are looking at, and both come from the
+          revisions `loadDiffContent` actually read (diffToolbarModel). */}
+      <div className="flex h-7 shrink-0 items-stretch border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] text-meta">
+        <div className="flex min-w-0 flex-1 items-center gap-2 px-3">
+          {/* The padlock: this side is not yours to edit. Reused from
+              FileTypeGlyph rather than redrawn (glyphs/component.md). */}
+          <FileTypeGlyph kind="lock" className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
+          {header ? (
+            <span
+              className={
+                header.base.mono
+                  ? 'shrink-0 font-mono text-[color:var(--text-default)]'
+                  : 'shrink-0 text-[color:var(--text-default)]'
+              }
+            >
+              {header.base.text}
+            </span>
+          ) : null}
+          <span className="truncate text-[color:var(--text-muted)]" title={relativePath ?? undefined}>
+            {relativePath ?? 'Git Diff'}
           </span>
           {currentItem ? (
             <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">
               {STATUS_LABEL[currentItem.status]}
               {currentItem.kind === 'branch'
-                ? ''
-                : currentItem.kind === 'staged'
-                  ? ' · staged'
-                  : ' · unstaged'}
-              {currentItem.kind === 'branch' && (currentItem as BranchDiffItem).additions + (currentItem as BranchDiffItem).deletions > 0 ? (
+              && (currentItem as BranchDiffItem).additions + (currentItem as BranchDiffItem).deletions > 0 ? (
                 <span className="ml-1 font-mono tabular-nums">
                   <span className="text-[color:var(--tone-good)]">
                     +{(currentItem as BranchDiffItem).additions}
@@ -669,19 +1092,34 @@ export function DiffViewer({
             </span>
           ) : null}
         </div>
-        <span
-          className="app-no-drag shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
-          aria-live="polite"
-        >
-          {positionLabel}
-        </span>
-        <div className="app-no-drag flex shrink-0 items-center">
-          <ChevronButton direction="up" disabled={items.length === 0} onClick={() => navigate('prev')} />
-          <ChevronButton direction="down" disabled={items.length === 0} onClick={() => navigate('next')} />
-          {variant === 'pane' ? <OpenInWindowButton onClick={openInWindow} /> : null}
-          {variant === 'window' && workspaceId ? <ShowInAppButton onClick={showInApp} /> : null}
+        <div className="flex min-w-0 flex-1 items-center gap-2 border-l border-[color:var(--border-subtle)] px-3">
+          {header?.includable && currentItem ? (
+            <Checkbox
+              checked={fileInclude.checked}
+              indeterminate={fileInclude.indeterminate}
+              onChange={toggleInclude}
+              ariaLabel={`Include ${currentItem.relativePath} in the commit`}
+            />
+          ) : null}
+          {header ? (
+            <span
+              className={
+                header.current.mono
+                  ? 'truncate font-mono text-[color:var(--text-default)]'
+                  : 'truncate text-[color:var(--text-default)]'
+              }
+            >
+              {header.current.text}
+            </span>
+          ) : null}
         </div>
       </div>
+
+      {includeError ? (
+        <InlineNotice tone="error" className="mx-3 mt-2 shrink-0">
+          {includeError}
+        </InlineNotice>
+      ) : null}
 
       <div
         className="relative min-h-0 flex-1"
@@ -696,6 +1134,7 @@ export function DiffViewer({
           currentItem={currentItem}
           onMount={handleDiffMount}
           monacoTheme={monacoTheme}
+          options={editorOptions}
           stepLoading={branchSteps && steps.loading}
         />
       </div>
@@ -705,4 +1144,18 @@ export function DiffViewer({
 
 function keyFor(item: DiffFileItem | undefined): string | null {
   return item ? `${item.kind}:${item.path}` : null
+}
+
+/**
+ * Whether an arrow key that landed on `target` is the viewer's to take.
+ *
+ * It is not, when the key landed inside a control that owns the arrow keys
+ * itself: the view toggle is a radiogroup (arrows move the selection), the gear
+ * menu is a menu (arrows walk the rows), and a text field is a text field.
+ * Without this, one ArrowDown on the toggle would both switch to unified AND
+ * step a hunk — the band's own controls fighting the surface they sit on.
+ */
+function takesNavigationKey(target: HTMLElement | null): boolean {
+  if (!target?.closest) return true
+  return !target.closest('[role="radiogroup"], [role="menu"], input, textarea, [contenteditable="true"]')
 }
