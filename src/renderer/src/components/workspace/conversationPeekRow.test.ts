@@ -300,4 +300,36 @@ run('an agent the renderer has no record for still runs something', () => {
   assert.equal(identities[0]?.agent.model, null, 'and claims no model it was never told')
 })
 
+run('a live session hands over its pull requests; a parked record claims none', () => {
+  const opened = {
+    url: 'https://github.com/acme/multicode/pull/418',
+    repoKey: 'github.com/acme/multicode',
+    repoName: 'multicode',
+    number: 418,
+    title: 'Extensions icon carries its unread count',
+    state: 'open' as const,
+    isDraft: false,
+    openedAt: NOW - 3_600_000,
+    stateAt: NOW,
+  }
+  const identities = rowConversationPeekIdentities({
+    workspace: {
+      name: 'Studio',
+      agents: {
+        live: { id: 'live', name: 'Live', cliSessionId: 'sess-live', cliHasLaunched: true } as never,
+        parked: { id: 'parked', name: 'Parked', cliSessionId: 'sess-parked', cliHasLaunched: true } as never,
+      },
+    },
+    sessions: [session({ sessionId: 'sess-live', agentId: 'live', pullRequests: [opened] })],
+    status: peekStatusOf('idle', ''),
+    now: NOW,
+  })
+  const byId = new Map(identities.map((entry) => [entry.agent.sessionId, entry.agent.pullRequests]))
+  assert.deepEqual(byId.get('sess-live'), [opened], 'the card shows what the conversation produced')
+  // A parked record is not a session: main's record is keyed by repo and branch
+  // and there is nothing here to ask about, so an empty list is the honest
+  // answer rather than a stale one.
+  assert.deepEqual(byId.get('sess-parked'), [])
+})
+
 process.exit(failures === 0 ? 0 : 1)

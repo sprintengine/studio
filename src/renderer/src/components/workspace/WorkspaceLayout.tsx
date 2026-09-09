@@ -1471,6 +1471,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           cli: agent?.cli ?? null,
           model: agent?.cliModel ?? null,
           fileChanges: agentSnapshot?.fileChanges ?? [],
+          // The tab anchor shows the same head as the sidebar anchor because
+          // both feed one card: the pull requests are this agent's session's,
+          // exactly as its ledger and its context reading are.
+          pullRequests: agentSnapshot?.pullRequests ?? [],
           activeSubagents: agentSnapshot?.activeSubagents ?? 0,
           contextUsage: agentSnapshot?.contextUsage ?? null,
         },

@@ -472,6 +472,33 @@ async function main(): Promise<void> {
             sessionId: '309703f3-0000-1756',
             cli: 'claude-code',
             model: 'claude-fable-5-1',
+            // Two, so the head's pull request mark renders its SPLIT shape —
+            // the one with a menu behind it — under the same rules as the rest
+            // of the card (epic pull-request-marks).
+            pullRequests: [
+              {
+                url: 'https://github.com/acme/multicode/pull/418',
+                repoKey: 'github.com/acme/multicode',
+                repoName: 'multicode',
+                number: 418,
+                title: 'Extensions icon carries its unread count',
+                state: 'open' as const,
+                isDraft: false,
+                openedAt: peekNow - 720_000,
+                stateAt: peekNow,
+              },
+              {
+                url: 'https://github.com/acme/multicode/pull/411',
+                repoKey: 'github.com/acme/multicode',
+                repoName: 'multicode',
+                number: 411,
+                title: 'Split the review provider',
+                state: 'merged' as const,
+                isDraft: false,
+                openedAt: peekNow - 86_400_000,
+                stateAt: peekNow,
+              },
+            ],
             activeSubagents: 2,
             contextUsage: { usedPercentage: 38, at: peekNow },
             fileChanges: [

@@ -50,6 +50,7 @@ const identities = [
       cli: null,
       model: 'claude-opus-5',
       fileChanges: [],
+      pullRequests: [],
       activeSubagents: 0,
       contextUsage: null,
     },

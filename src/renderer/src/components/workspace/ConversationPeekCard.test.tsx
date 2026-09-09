@@ -10,6 +10,7 @@ import {
   type ConversationPeekIdentity,
 } from './ConversationPeekCard'
 import type { SessionFileChange } from '../../../../shared/electron-api'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import type { ConversationPeek, ConversationPeekMessage } from '../../../../shared/conversation-peek'
 
 // QA for the conversation peek's card — the presentational half of the hover
@@ -48,6 +49,7 @@ const AGENT: ConversationPeekIdentity['agent'] = {
   cli: 'claude-code',
   model: 'claude-opus-5',
   fileChanges: [],
+  pullRequests: [],
   activeSubagents: 0,
   contextUsage: null,
 }
@@ -225,6 +227,78 @@ run('past eighty per cent the fill turns the sidebar’s attention gold', () => 
 run('nothing reported means no ring — not a ring at zero', () => {
   const markup = card()
   assert.equal(markup.includes('Context '), false, 'a ring at 0% and a ring for "unknown" are the same picture')
+})
+
+// --- The pull request on the head line (pull-request-marks, frame 3) -------
+//
+// A git fact is admitted to this card because it is an OUTCOME of the
+// conversation — like the changed files below, and unlike the branch and the
+// checkout, which say where the agent is standing and were cut for repeating
+// the window. What the words say is held in `PullRequestMark.test.tsx`; what is
+// held here is that the head carries it, in the right place, in the right shape.
+const pullRequest = (over: Partial<BranchPullRequest> & { number: number }): BranchPullRequest => ({
+  url: `https://github.com/acme/multicode/pull/${over.number}`,
+  repoKey: 'github.com/acme/multicode',
+  repoName: 'multicode',
+  title: `Pull request ${over.number}`,
+  state: 'open',
+  isDraft: false,
+  openedAt: NOW - 12 * MINUTE,
+  stateAt: NOW,
+  ...over,
+})
+
+run('the head reads CLI mark · title · ring · pull request · live corner, in that order', () => {
+  const markup = card({
+    agent: {
+      contextUsage: { usedPercentage: 38, at: NOW },
+      pullRequests: [pullRequest({ number: 418, title: 'Extensions icon carries its unread count' })],
+    },
+  })
+  const at = (needle: string) => {
+    const index = markup.indexOf(needle)
+    assert.ok(index >= 0, `${needle} is on the card`)
+    return index
+  }
+  assert.ok(at('Deara Shea') < at('Context 38% used'), 'the title comes before the ring')
+  assert.ok(at('Context 38% used') < at('data-pull-request-mark'), 'the ring before the pull request')
+  assert.ok(at('data-pull-request-mark') < at('Working'), 'and the live corner last')
+  assert.match(
+    markup,
+    /aria-label="Pull request 418, open: Extensions icon carries its unread count\. Open it on GitHub"/,
+  )
+})
+
+run('the title is still the only thing on the head that yields width', () => {
+  const markup = card({ agent: { pullRequests: [pullRequest({ number: 418 })] } })
+  assert.match(markup, /min-w-0 flex-1 truncate/, 'the title keeps its ellipsis and its flex')
+  const markIndex = markup.indexOf('data-pull-request-mark')
+  const markTag = markup.slice(markup.lastIndexOf('<', markIndex), markup.indexOf('>', markIndex) + 1)
+  assert.match(markTag, /shrink-0/, 'the mark itself never shrinks')
+})
+
+run('a conversation that opened nothing draws no mark at all', () => {
+  const markup = card()
+  assert.equal(markup.includes('data-pull-request-mark'), false)
+  assert.equal(markup.includes('Pull request'), false)
+})
+
+run('one pull request is a plain link; a second grows the chevron beside it', () => {
+  const one = card({ agent: { pullRequests: [pullRequest({ number: 418 })] } })
+  assert.equal(one.includes('aria-haspopup="menu"'), false, 'a one-row menu says nothing')
+
+  const two = card({
+    agent: {
+      pullRequests: [
+        pullRequest({ number: 421 }),
+        pullRequest({ number: 411, state: 'merged', openedAt: NOW - 2 * HOUR }),
+      ],
+    },
+  })
+  assert.match(two, /aria-haspopup="menu"/, 'the split control appears at two')
+  assert.match(two, /aria-expanded="false"/, 'and says whether its menu is up')
+  assert.match(two, /aria-label="All pull requests from this conversation, 2"/)
+  assert.match(two, /Pull request 421, open/, 'the primary is still the most recent open one')
 })
 
 // --- Files this agent changed (mockup frames 1 and 4) ----------------------

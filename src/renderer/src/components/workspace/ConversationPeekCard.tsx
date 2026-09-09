@@ -16,6 +16,8 @@ import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { formatRelativeMs } from '../../utils/relativeTime'
 import type { AgentCli } from '../../types/workspace'
 import type { SessionContextUsage, SessionFileChange } from '../../../../shared/electron-api'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
+import { PullRequestPeekMark } from './PullRequestMark'
 import type {
   ConversationPeek,
   ConversationPeekAttachment,
@@ -98,6 +100,21 @@ export type ConversationPeekAgent = {
   fileChanges: SessionFileChange[]
   /** Subagents out right now. Replaces the corner's word while it is above zero. */
   activeSubagents: number
+  /**
+   * The pull requests this conversation has opened, newest first — main's own
+   * union of the ones on its branch and the ones it opened itself in any
+   * repository (epic `pull-request-marks`, decision 10). Empty draws nothing.
+   *
+   * A git fact is admitted here, and it is the only kind that ever will be. The
+   * card carries no branch and no checkout (`AgentTabIdentityPopover` — Role,
+   * Runtime and Checkout were cut because they repeated what the window was
+   * already showing), and a pull request is not a repetition of any of them: it
+   * is an OUTCOME of the conversation, the same species of fact as the
+   * changed-files list below — what this chat produced, not where its agent is
+   * standing. A branch says where the work is being done; a pull request says
+   * where it went, and only this card knows which conversation sent it there.
+   */
+  pullRequests: BranchPullRequest[]
   /** Context-window usage, or null when nothing has reported any. Null draws no ring. */
   contextUsage: SessionContextUsage | null
 }
@@ -694,6 +711,10 @@ export function ConversationPeekCard({
         {agent.contextUsage ? (
           <ContextRing usedPercentage={agent.contextUsage.usedPercentage} layer="menu" />
         ) : null}
+        {/* Right of the ring and left of the corner (mockup frame 3). Like the
+            ring it never yields width — the title is the only thing on this
+            line that does, and it already has an ellipsis. */}
+        <PullRequestPeekMark pullRequests={agent.pullRequests} now={now} />
         {identity.status ? (
           <LiveCorner status={identity.status} activeSubagents={agent.activeSubagents} />
         ) : null}

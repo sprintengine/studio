@@ -39,6 +39,7 @@ const SELF: AgentTabIdentity['agent'] = {
   cli: 'claude-code',
   model: 'claude-opus-4-8',
   fileChanges: [],
+  pullRequests: [],
   activeSubagents: 0,
   contextUsage: null,
 }
@@ -87,6 +88,40 @@ function tabCard(identity: AgentTabIdentity = TAB, peek: ConversationPeek | null
     />,
   )
 }
+
+// Both anchors show the same head, because both are this one card (epic
+// pull-request-marks): a pull request opened by the agent behind THIS tab is on
+// the tab's card exactly as it is on the sidebar row's.
+run('the tab’s card wears the same pull request mark the sidebar row does', () => {
+  const markup = tabCard({
+    ...TAB,
+    agent: {
+      ...SELF,
+      pullRequests: [
+        {
+          url: 'https://github.com/acme/multicode/pull/418',
+          repoKey: 'github.com/acme/multicode',
+          repoName: 'multicode',
+          number: 418,
+          title: 'Extensions icon carries its unread count',
+          state: 'open',
+          isDraft: false,
+          openedAt: NOW - 12 * 60_000,
+          stateAt: NOW,
+        },
+      ],
+    },
+  })
+  assert.match(
+    markup,
+    /aria-label="Pull request 418, open: Extensions icon carries its unread count\. Open it on GitHub"/,
+  )
+  assert.match(markup, /data-pull-request-mark/)
+})
+
+run('a tab whose agent opened nothing draws no mark', () => {
+  assert.equal(tabCard().includes('data-pull-request-mark'), false)
+})
 
 run('the tab card keeps the two facts that earned their place', () => {
   const markup = tabCard()

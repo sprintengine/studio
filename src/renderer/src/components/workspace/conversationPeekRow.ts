@@ -141,6 +141,11 @@ export function rowConversationPeekIdentities(input: {
           cli: record?.cli ?? session.cli ?? null,
           model: record?.cliModel ?? null,
           fileChanges: session.fileChanges ?? [],
+          // What this conversation produced (epic pull-request-marks): main's
+          // own union of the branch's pull requests and the ones this session
+          // opened itself in any repository. Absent on an older snapshot, and
+          // an absent answer draws exactly what an empty one draws.
+          pullRequests: session.pullRequests ?? [],
           activeSubagents: session.activeSubagents ?? 0,
           contextUsage: session.contextUsage ?? null,
         },
@@ -170,7 +175,11 @@ export function rowConversationPeekIdentities(input: {
             model: record.cliModel ?? null,
             // A parked record is not a session: main holds no ledger for it,
             // and an empty list is the honest answer rather than a stale one.
+            // Its pull requests are the same story — the record is keyed by
+            // repo and branch on main's side, and this row has no session to
+            // ask about.
             fileChanges: [],
+            pullRequests: [],
             activeSubagents: 0,
             contextUsage: null,
           },
