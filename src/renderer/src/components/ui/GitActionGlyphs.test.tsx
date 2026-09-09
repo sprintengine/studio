@@ -7,6 +7,7 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import * as glyphs from './GitActionGlyphs'
+import { KebabGlyph } from './KebabGlyph'
 
 // The Commit-window action glyphs (epic `git-commit-window`, T2). Three
 // contracts the family cannot be trusted without, all read off the RENDERED
@@ -24,12 +25,30 @@ import * as glyphs from './GitActionGlyphs'
 //      `design-system/glyphs/` draws. The asset is the contract a non-React
 //      consumer takes, and letting the two copies diverge is exactly how the
 //      title-bar chrome ended up with two versions of one mark (Known drift).
+//
+// The list below is the FAMILY, and it is the whole of it. T6 shipped four
+// changelist glyphs with assets and left them out of this list, so four marks
+// had a framework-neutral twin that nothing held them to — which is the same
+// defect as not shipping one. `ShowDiffGlyph` and `KebabGlyph` joined on
+// 2026-09-09. The kebab lives in its own module rather than in
+// `GitActionGlyphs.tsx` (it is the app-wide overflow trigger, not a git
+// action), so the registry below takes it by name: a family check that covered
+// only what sat in one file would be a check that stops at a filename.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>')
 const glyphsDir = join(process.cwd(), 'design-system', 'glyphs')
 
+type Glyph = (props: { className?: string }) => JSX.Element
+
+// Every 16-grid action mark in the product, wherever its module lives. The
+// kebab is not a git action — it is the app-wide overflow trigger — but it is
+// one of these drawings, with an asset to stay in step with, and a family
+// check that covered only the ones that happened to sit in one file would be a
+// check that stops at a filename.
+const REGISTRY: Record<string, Glyph> = { ...(glyphs as unknown as Record<string, Glyph>), KebabGlyph }
+
 /** Component export → the framework-neutral asset it mirrors. */
-const FAMILY: Array<[keyof typeof glyphs, string]> = [
+const FAMILY: Array<[string, string]> = [
   ['RollbackGlyph', 'rollback.svg'],
   ['MoveToChangelistGlyph', 'move-to-changelist.svg'],
   ['StashGlyph', 'stash.svg'],
@@ -43,10 +62,18 @@ const FAMILY: Array<[keyof typeof glyphs, string]> = [
   ['GearGlyph', 'gear.svg'],
   ['OpenInEditorGlyph', 'open-in-editor.svg'],
   ['WriteCommitMessageGlyph', 'write-commit-message.svg'],
+  // T6's four, added to this list on 2026-09-09: they shipped with assets and
+  // with nothing asserting the twin still matched them.
+  ['NewChangelistGlyph', 'new-changelist.svg'],
+  ['DeleteChangelistGlyph', 'delete-changelist.svg'],
+  ['EditChangelistGlyph', 'edit-changelist.svg'],
+  ['CreatePatchGlyph', 'create-patch.svg'],
+  ['KebabGlyph', 'kebab.svg'],
 ]
 
-function render(name: keyof typeof glyphs): Element {
-  const Glyph = glyphs[name] as (props: { className?: string }) => JSX.Element
+function render(name: string): Element {
+  const Glyph = REGISTRY[name]
+  assert.ok(Glyph, `${name} is not exported`)
   const host = dom.window.document.createElement('div')
   host.innerHTML = renderToStaticMarkup(React.createElement(Glyph))
   const svg = host.firstElementChild
@@ -168,12 +195,25 @@ for (const [name] of FAMILY) {
   assert.equal(svg.getAttribute('viewBox'), '0 0 16 16', `${name}: not drawn on the 16-grid`)
   assert.equal(svg.getAttribute('fill'), 'none', `${name}: line work is fill="none"`)
   assert.equal(svg.getAttribute('aria-hidden'), 'true', `${name}: decorative is the default`)
-  assert.equal(svg.getAttribute('class'), 'icon-sm', `${name}: sizes from the icon ramp, nothing else`)
+  assert.match(
+    svg.getAttribute('class') ?? '',
+    /^icon-(?:xs|sm|md|lg)$/,
+    `${name}: sizes from the icon ramp, nothing else`,
+  )
 
+  // ONE INK, and it is the text's. Stated over every stroke AND every fill
+  // rather than "there must be a stroke": the kebab is three dots, a dot has no
+  // line work, and a stroked dot is a circle pretending to be a point. What the
+  // rule is actually about is that no glyph carries a colour of its own.
   const markup = svg.outerHTML
-  assert.match(markup, /stroke="currentColor"/, `${name}: inks with currentColor`)
-  assert.ok(!/stroke="(?!currentColor)/.test(markup), `${name}: a stroke carries its own colour`)
-  assert.ok(!/fill="(?!none")/.test(markup), `${name}: a fill carries its own colour`)
+  const inks = Array.from(markup.matchAll(/(?:stroke|fill)="([^"]*)"/g)).map((match) => match[1])
+  assert.ok(inks.includes('currentColor'), `${name}: inks with currentColor`)
+  for (const ink of inks) {
+    assert.ok(
+      ink === 'currentColor' || ink === 'none',
+      `${name}: "${ink}" is a colour of the glyph's own — every mark inherits the ink beside it`,
+    )
+  }
 
   for (const width of markup.matchAll(/stroke-width="([\d.]+)"/g)) {
     const value = Number(width[1])
@@ -217,4 +257,4 @@ for (const [name, asset] of FAMILY) {
   assert.equal(componentShapes, assetShapes, `${name} and ${asset} disagree on their non-path shapes`)
 }
 
-console.log(`ok - ${FAMILY.length} Commit-window action glyphs hold the 16-grid and match their assets`)
+console.log(`ok - ${FAMILY.length} action glyphs hold the 16-grid and match their assets`)
