@@ -3,7 +3,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FleetLinkState, FleetTerminalAccess } from '../../../../shared/tailnet-fleet'
 import { waitForMonoFontReady } from '../../utils/fonts'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
-import { createStudioTerminal } from '../../utils/createStudioTerminal'
+import { createStudioTerminal, type StudioTerminal } from '../../utils/createStudioTerminal'
+import { useTerminalFind } from '../../hooks/useTerminalFind'
+import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
+import { TerminalFindBar } from '../terminal/TerminalFindBar'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { StatusDot } from '../ui'
@@ -37,6 +40,13 @@ interface Props {
 
 export default function FleetTerminalPanel({ attachId, connectionId, machineName, sessionId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // The live terminal, for anything outside the mount effect that needs it —
+  // today `useTerminalFind`, which loads the search addon on the first find.
+  const studioTerminalRef = useRef<StudioTerminal | null>(null)
+  // No workspace id: this pane is attached to a MACHINE, not to a folder. It
+  // answers Find only while it holds focus, never through the active-workspace
+  // fallback, which would be answering for a workspace it is not part of.
+  const find = useTerminalFind({ workspaceId: null, containerRef, terminalRef: studioTerminalRef })
   const [link, setLink] = useState<FleetLinkState>('connecting')
   const [linkDetail, setLinkDetail] = useState<string | null>(null)
   const [access, setAccess] = useState<FleetTerminalAccess>('none')
@@ -62,6 +72,7 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
       // accepts keystrokes it will not send is a lie for that whole window.
       disableStdin: true,
     })
+    studioTerminalRef.current = studioTerminal
     const term = studioTerminal.terminal
     const fitAddon = studioTerminal.fitAddon
     term.open(container)
@@ -176,8 +187,15 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
     const fitScheduler = createTerminalFitScheduler(fitTerminal, container)
     const resizeObserver = new ResizeObserver(() => fitScheduler.requestFit())
     resizeObserver.observe(container)
-    container.addEventListener('mousedown', focusTerminal)
-    container.addEventListener('click', focusTerminal)
+    // A pointer landing on the pane's own chrome (the find bar) is not a click
+    // on the terminal: focusing here would take the keyboard straight back out
+    // of the find field.
+    const focusTerminalFromPointer = (event: Event) => {
+      if (isTerminalChromeTarget(event.target)) return
+      focusTerminal()
+    }
+    container.addEventListener('mousedown', focusTerminalFromPointer)
+    container.addEventListener('click', focusTerminalFromPointer)
     const disposeClipboardHandlers = bindTerminalClipboardHandlers({
       container,
       term,
@@ -194,14 +212,15 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
       disposed = true
       resizeObserver.disconnect()
       fitScheduler.dispose()
-      container.removeEventListener('mousedown', focusTerminal)
-      container.removeEventListener('click', focusTerminal)
+      container.removeEventListener('mousedown', focusTerminalFromPointer)
+      container.removeEventListener('click', focusTerminalFromPointer)
       disposeClipboardHandlers()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
       disposeEvents()
       replayGate.dispose()
       outputQueue.dispose()
+      studioTerminalRef.current = null
       // Last: it unbinds the theme and disposes the terminal itself, so nothing
       // above may still be reading `term`.
       studioTerminal.dispose()
@@ -237,7 +256,12 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
           ref={containerRef}
           tabIndex={0}
           className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 cursor-text overflow-hidden p-2 pb-4`}
-        />
+          // Marks this as a terminal surface, so a ⌘F pressed anywhere in it —
+          // including in the find bar — activates the `terminal` command scope.
+          {...{ [TERMINAL_SURFACE_ATTRIBUTE]: '' }}
+        >
+          <TerminalFindBar find={find} />
+        </div>
       </div>
     </div>
   )

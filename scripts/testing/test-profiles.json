@@ -579,6 +579,7 @@
     "src/renderer/src/utils/sprintengineRunTeardown.test.ts": "esm-bundled",
     "src/renderer/src/utils/sprintengineRuntimeBridge.test.ts": "cjs-bundled",
     "src/renderer/src/utils/sprintengineWorkspaceCreation.test.ts": "cjs-bundled-4",
+    "src/renderer/src/utils/terminalFind.test.ts": "cjs-bundled",
     "src/renderer/src/utils/terminalFocusRequest.test.ts": "cjs-bundled",
     "src/renderer/src/utils/workspaceRunGlyph.test.ts": "cjs-bundled",
     "src/renderer/src/utils/workspaceSettle.test.ts": "cjs-bundled",

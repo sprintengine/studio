@@ -1,5 +1,7 @@
 import type { Terminal } from '@xterm/xterm'
 
+import { isTerminalChromeTarget } from './keyboard'
+
 type TerminalClipboardHandlersOptions = {
   container: HTMLElement
   term: Terminal
@@ -95,6 +97,7 @@ export function bindTerminalClipboardHandlers({
   }
 
   const handleCopy = (event: ClipboardEvent) => {
+    if (isTerminalChromeTarget(event.target)) return
     const selection = getCopySelection()
     if (!selection) return
     event.preventDefault()
@@ -104,6 +107,7 @@ export function bindTerminalClipboardHandlers({
   }
 
   const handlePaste = (event: ClipboardEvent) => {
+    if (isTerminalChromeTarget(event.target)) return
     const text = event.clipboardData?.getData('text/plain') ?? ''
     if (!text) return
     event.preventDefault()
@@ -111,6 +115,7 @@ export function bindTerminalClipboardHandlers({
   }
 
   const handleKeyDown = (event: KeyboardEvent) => {
+    if (isTerminalChromeTarget(event.target)) return
     recordKeydown?.(event)
     pasteOnNextContextMenu = false
     const mod = event.ctrlKey || event.metaKey
@@ -129,6 +134,7 @@ export function bindTerminalClipboardHandlers({
   }
 
   const handleMouseDown = (event: MouseEvent) => {
+    if (isTerminalChromeTarget(event.target)) return
     const isSecondaryClick = event.button === 2 || (event.ctrlKey && event.button === 0)
     if (!isSecondaryClick) pasteOnNextContextMenu = false
     secondaryClickSelection = isSecondaryClick ? getCopySelection() : ''
@@ -136,6 +142,10 @@ export function bindTerminalClipboardHandlers({
   }
 
   const handleContextMenu = (event: MouseEvent) => {
+    // A right-click in the pane's own chrome (the find field) is that control's
+    // to answer — this handler would otherwise turn it into a terminal
+    // copy-or-paste on a selection the user is not looking at.
+    if (isTerminalChromeTarget(event.target)) return
     event.preventDefault()
     event.stopPropagation()
 

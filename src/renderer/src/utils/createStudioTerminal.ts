@@ -1,6 +1,7 @@
 import { Terminal } from '@xterm/xterm'
 import type { IDisposable, ILinkHandler } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -14,6 +15,7 @@ import {
 import { MONO_FONT_STACK } from './fonts'
 import { logPerfEvent } from './perfDiagnostics'
 import { attachTerminalOsc52Clipboard } from './terminalOsc52Clipboard'
+import { createTerminalSearchHandle, type TerminalSearchHandle } from './terminalSearch'
 import { bindTerminalTheme, getTerminalTheme } from './terminalTheme'
 import {
   attachWebglRenderer,
@@ -31,7 +33,7 @@ import {
  *
  * What this owns: the option block, the Unicode width table, the theme (and
  * its live re-tint binding), the font, the scrollback, the fit addon, the
- * web-links addon, the write-only OSC 52 clipboard, the WebGL
+ * web-links addon, the write-only OSC 52 clipboard, the search addon, the WebGL
  * renderer and its context-loss fallback, the `linkHandler` slot that OSC 8
  * hyperlinks will fill, and OSC handler registration.
  *
@@ -132,6 +134,16 @@ export type StudioTerminal = {
    */
   loadWebLinks: () => void
   /**
+   * Loads the search addon and returns the pane's find handle.
+   *
+   * Lazy and idempotent: a pane that is never searched never pays for the
+   * addon, its decoration bookkeeping or its line cache, and the panes that
+   * matter most here are the ones a user leaves open all day. Repeated calls
+   * hand back a handle onto the same addon — the highlights of an open find
+   * must not be split across two of them.
+   */
+  loadSearch: () => TerminalSearchHandle
+  /**
    * Loads the WebGL renderer, and arms the fallback that keeps a lost GPU
    * context from blanking the pane.
    *
@@ -224,6 +236,17 @@ export function createStudioTerminal({
     })
   }
 
+  let searchAddon: SearchAddon | null = null
+  let searchHandle: TerminalSearchHandle | null = null
+  const loadSearch = (): TerminalSearchHandle => {
+    if (!searchHandle) {
+      searchAddon = new SearchAddon()
+      terminal.loadAddon(searchAddon)
+      searchHandle = createTerminalSearchHandle(searchAddon)
+    }
+    return searchHandle
+  }
+
   let webLinksAddon: WebLinksAddon | null = null
   const loadWebLinks = (): void => {
     if (!onWebLink || webLinksAddon) return
@@ -236,6 +259,7 @@ export function createStudioTerminal({
     fitAddon,
     linkRoots: terminalSurfaceLinkRoots(surface),
     loadWebLinks,
+    loadSearch,
     loadWebglRenderer,
     webglRendererState: () => webglRenderer?.state() ?? 'not-loaded',
     dispose: () => {
@@ -243,6 +267,7 @@ export function createStudioTerminal({
       // terminal's render service to put the DOM renderer back.
       webglRenderer?.dispose()
       webLinksAddon?.dispose()
+      searchAddon?.dispose()
       for (const disposable of oscDisposables) disposable.dispose()
       unbindTerminalTheme()
       terminal.dispose()

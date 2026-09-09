@@ -16,7 +16,10 @@ import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
-import { createStudioTerminal, terminalSurfaceLinkRoots, type TerminalSurface } from '../../utils/createStudioTerminal'
+import { createStudioTerminal, terminalSurfaceLinkRoots, type StudioTerminal, type TerminalSurface } from '../../utils/createStudioTerminal'
+import { useTerminalFind } from '../../hooks/useTerminalFind'
+import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
+import { TerminalFindBar } from '../terminal/TerminalFindBar'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
 import { createTerminalOscLinkHandler } from '../../utils/terminalOscLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
@@ -143,6 +146,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const focusTerminalRef = useRef<() => void>(() => {
     containerRef.current?.focus()
   })
+  // The live terminal, for anything outside the mount effect that needs it —
+  // today `useTerminalFind`, which loads the search addon on the first find.
+  const studioTerminalRef = useRef<StudioTerminal | null>(null)
+  const find = useTerminalFind({ workspaceId, containerRef, terminalRef: studioTerminalRef })
   const [isFileDragOver, setIsFileDragOver] = useState(false)
   // A failed file-link click or file drop, anchored to the pointer that raised
   // it so the error surfaces next to the cursor instead of a corner toast.
@@ -493,6 +500,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
       },
     })
+    studioTerminalRef.current = studioTerminal
     const term = studioTerminal.terminal
     const fitAddon = studioTerminal.fitAddon
     const terminalDiagnostics = createTerminalDiagnostics({
@@ -817,7 +825,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     // intentional tap, whereas `focus` can fire when the pane mounts/auto-focuses,
     // which must NOT auto-resume a just-revealed workspace. No-op unless suspended;
     // `resumeFromSuspend` is idempotent via `resumingRef`.
-    const onPaneClick = () => {
+    const onPaneClick = (event: Event) => {
+      // The pane's own chrome (the find bar) is not the pane: clicking into the
+      // find field must not start an inert agent or resume a suspended one.
+      if (isTerminalChromeTarget(event.target)) return
       if (inertRef.current) {
         startInertAgent()
         return
@@ -856,9 +867,17 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       fitScheduler.requestFit()
     })
     resizeObserver.observe(container)
-    container.addEventListener('mousedown', focusTerminal)
-    container.addEventListener('mouseup', focusTerminal)
-    container.addEventListener('click', focusTerminal)
+    // A pointer landing on the pane's own chrome (the find bar) is not a click
+    // on the terminal: focusing here would take the keyboard back out of the
+    // find field on the mouseup of the click that just entered it.
+    const focusTerminalFromPointer = (event: Event) => {
+      if (isTerminalChromeTarget(event.target)) return
+      focusTerminal()
+    }
+    container.addEventListener('mousedown', focusTerminalFromPointer)
+    container.addEventListener('mouseup', focusTerminalFromPointer)
+    container.addEventListener('click', focusTerminalFromPointer)
+    // `focus` does not bubble, so this only ever fires for the container itself.
     container.addEventListener('focus', focusTerminal)
     const disposeClipboardHandlers = bindTerminalClipboardHandlers({
       container,
@@ -1358,9 +1377,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
       fitScheduler.dispose()
-      container.removeEventListener('mousedown', focusTerminal)
-      container.removeEventListener('mouseup', focusTerminal)
-      container.removeEventListener('click', focusTerminal)
+      container.removeEventListener('mousedown', focusTerminalFromPointer)
+      container.removeEventListener('mouseup', focusTerminalFromPointer)
+      container.removeEventListener('click', focusTerminalFromPointer)
       container.removeEventListener('focus', focusTerminal)
       container.removeEventListener('click', onPaneClick)
       disposeClipboardHandlers()
@@ -1377,6 +1396,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       replayGate.dispose()
       outputQueue.dispose()
       unregisterTerminalInstance(sessionId)
+      studioTerminalRef.current = null
       // Last: it unbinds the theme, disposes the web-links addon and disposes
       // the terminal itself, so nothing above may still be reading `term`.
       studioTerminal.dispose()
@@ -1512,7 +1532,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       onDragLeave={handleDragLeave}
       onDrop={(event) => void handleDrop(event)}
       className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 overflow-hidden bg-[color:var(--terminal-bg)] p-2 pb-4 cursor-text`}
+      // Marks this as a terminal surface, so a ⌘F pressed anywhere in it —
+      // including in the find bar — activates the `terminal` command scope.
+      {...{ [TERMINAL_SURFACE_ATTRIBUTE]: '' }}
     >
+      <TerminalFindBar find={find} />
       {/* No replay skeleton on terminals: an xterm renders its own content
           progressively (and a revealed cold terminal resyncs in place), so a
           skeleton there just reads as a flash. Keep it only for the genuine

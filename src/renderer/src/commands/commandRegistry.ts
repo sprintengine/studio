@@ -301,6 +301,27 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace', 'terminalActive'],
     handlerPath: { kind: 'workspace-manager', handler: 'focusActiveTerminal()' },
   }),
+  // Find in the pane you are looking at — the scrollback of one terminal.
+  //
+  // The sibling of `search.files.open` (⌘⇧F, the workspace's files through
+  // ripgrep), not a rival to it: same registry, same Shortcuts tab (where it
+  // sits with the other Terminal commands and can be rebound), one key
+  // narrower for one pane. It is the only command on the
+  // `terminal` scope, which WorkspaceManager activates for exactly the
+  // keystrokes that came from inside a terminal surface — so ⌘F anywhere else
+  // (Monaco's own find, a text field) is untouched. `allowInEditableTarget`
+  // because the keystroke arrives at xterm's hidden textarea, which
+  // `isGlobalShortcutSuppressedTarget` treats as editable.
+  command({
+    id: 'terminal.find',
+    title: 'Find in Terminal',
+    category: 'terminal',
+    scopes: ['terminal'],
+    defaultKeybindings: ['Primary+F'],
+    availability: ['activeWorkspace'],
+    allowInEditableTarget: true,
+    handlerPath: { kind: 'panel-event', eventId: 'terminal.find' },
+  }),
   command({
     id: 'terminal.stop',
     title: 'Stop Active Terminal',

@@ -265,6 +265,7 @@
     "@vscode/ripgrep": "^1.17.1",
     "@xterm/addon-clipboard": "0.3.0-beta.302",
     "@xterm/addon-fit": "0.12.0-beta.300",
+    "@xterm/addon-search": "0.17.0-beta.300",
     "@xterm/addon-serialize": "0.15.0-beta.300",
     "@xterm/addon-unicode11": "0.10.0-beta.300",
     "@xterm/addon-web-links": "0.13.0-beta.300",
