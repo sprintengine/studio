@@ -48,9 +48,9 @@ export type { LinkButtonProps, LinkInk, LinkUnderline } from './LinkButton'
 export { RefreshIcon } from './RefreshIcon'
 export { FileTypeGlyph } from './FileTypeGlyph'
 // The Commit window's and diff window's action vocabulary (git-commit-window
-// T2). Thirteen concepts, mirrored in design-system/glyphs/ — import them,
+// T2). Fourteen concepts, mirrored in design-system/glyphs/ — import them,
 // never paste a path into a toolbar. The changelist four follow in their own
-// block below, for seventeen in all.
+// block below, for eighteen in all.
 export {
   CollapseAllGlyph,
   ExpandAllGlyph,
@@ -61,6 +61,7 @@ export {
   OpenInEditorGlyph,
   PreviousDifferenceGlyph,
   RollbackGlyph,
+  ShowDiffGlyph,
   SideBySideGlyph,
   StashGlyph,
   UnifiedGlyph,

@@ -39,10 +39,10 @@ import {
   EditChangelistGlyph,
   MoveToChangelistGlyph,
   NewChangelistGlyph,
-  NextDifferenceGlyph,
   OpenInEditorGlyph,
   RefreshIcon,
   RollbackGlyph,
+  ShowDiffGlyph,
   StashGlyph,
 } from '../../ui'
 import {
@@ -304,7 +304,7 @@ export function buildChangeRowMenu(context: ChangeRowMenuContext): ChangeRowMenu
       kind: 'item',
       id: 'show-diff',
       label: 'Show diff',
-      icon: <NextDifferenceGlyph className="icon-xs" />,
+      icon: <ShowDiffGlyph className="icon-xs" />,
       shortcut: '⌘D',
       onSelect: context.onShowDiff,
     },

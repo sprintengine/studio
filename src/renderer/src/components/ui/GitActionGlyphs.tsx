@@ -1,11 +1,11 @@
 // The Commit window's and the diff window's action vocabulary: *what will this
-// toolbar button do*. Seventeen concepts, drawn once here and mirrored
+// toolbar button do*. Eighteen concepts, drawn once here and mirrored
 // framework-neutral in `design-system/glyphs/` (rollback, move-to-changelist,
 // stash, group-by, expand-all, collapse-all, next-difference,
-// previous-difference, side-by-side, unified, gear, open-in-editor,
+// previous-difference, show-diff, side-by-side, unified, gear, open-in-editor,
 // write-commit-message, new-changelist, delete-changelist, edit-changelist,
 // create-patch) — see design-system/components/glyphs/component.md → "Git and
-// diff actions". Seventeen concepts, sixteen drawings: the two difference
+// diff actions". Eighteen concepts, seventeen drawings: the two difference
 // steps are one shape mirrored.
 //
 // 16-grid, `currentColor`, `fill="none"`, frame 1.3 / line work 1.4, legible at
@@ -30,6 +30,10 @@
 //                  boundary it stops at. One drawing, mirrored for the other
 //                  direction, the way the chevron is rotated rather than
 //                  twinned.
+//   ShowDiffGlyph  vs `NextDifferenceGlyph` — OPEN the comparison, not move
+//                  within it. Both surfaces of the Commit window reached for the
+//                  hunk-stepper until 2026-09-09, which put one mark on two
+//                  verbs across two windows.
 //
 // `StashGlyph` is the opposite move: the drawer was already drawn inline in
 // `GitPanel.tsx` for the Stashes view, and putting changes away is one concept
@@ -180,6 +184,31 @@ export function NextDifferenceGlyph({ className = 'icon-sm' }: GlyphProps): JSX.
 /** Step to the previous hunk — the same drawing, mirrored. */
 export function PreviousDifferenceGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
   return <DifferenceStep className={className} flipped />
+}
+
+/**
+ * Show the diff of this file — the Commit window's toolbar item and its row
+ * menu's.
+ *
+ * Two opposed arrows, one running right over a rule and one running left under
+ * it: two versions, read against each other. It exists because both surfaces
+ * were reaching for `NextDifferenceGlyph`, which the DIFF WINDOW spends on
+ * "step to the next hunk" — one shape answering "open the comparison" in one
+ * window and "move within the comparison" in the other, which is how a person
+ * learns that a mark means nothing in particular.
+ */
+export function ShowDiffGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M2.25 5.25h8.5M8 2.75l2.75 2.5L8 7.75M13.75 10.75h-8.5M8 8.25l-2.75 2.5L8 13.25"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
 }
 
 /** Diff layout: two panes. A frame split by one vertical line. */

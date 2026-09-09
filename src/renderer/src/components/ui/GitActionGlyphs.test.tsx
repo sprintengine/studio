@@ -37,6 +37,7 @@ const FAMILY: Array<[keyof typeof glyphs, string]> = [
   ['ExpandAllGlyph', 'expand-all.svg'],
   ['CollapseAllGlyph', 'collapse-all.svg'],
   ['NextDifferenceGlyph', 'next-difference.svg'],
+  ['ShowDiffGlyph', 'show-diff.svg'],
   ['SideBySideGlyph', 'side-by-side.svg'],
   ['UnifiedGlyph', 'unified.svg'],
   ['GearGlyph', 'gear.svg'],

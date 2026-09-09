@@ -35,9 +35,9 @@ import {
   MenuItem,
   MoveToChangelistGlyph,
   NewChangelistGlyph,
-  NextDifferenceGlyph,
   RefreshIcon,
   RollbackGlyph,
+  ShowDiffGlyph,
   StashGlyph,
   Toolbar,
   ToolbarButton,
@@ -186,7 +186,7 @@ export function GitChangesToolbar({
             setDiffMenu({ x: rect.left, y: rect.bottom })
           }}
         >
-          <NextDifferenceGlyph />
+          <ShowDiffGlyph />
         </ToolbarButton>
       </Tooltip>
       <ToolbarDivider />

@@ -6,7 +6,7 @@ line work, sized only by the `--sem-icon-size-*` ramp. The twenty-nine SVGs in
 commit, worktree, history, folder, file-typescript, file-generic, and the
 seventeen Commit-window action marks — rollback, move-to-changelist, stash,
 group-by, expand-all, collapse-all, next-difference, previous-difference,
-side-by-side, unified, gear, open-in-editor, write-commit-message,
+show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message,
 new-changelist, delete-changelist, edit-changelist, create-patch) are
 the framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
@@ -281,6 +281,7 @@ because putting changes away is one concept whether it is a view or a verb.
 | `ExpandAllGlyph` | Expand every group | Two chevrons apart | `glyphs/expand-all.svg` |
 | `CollapseAllGlyph` | Collapse every group | The same two chevrons, together | `glyphs/collapse-all.svg` |
 | `NextDifferenceGlyph` · `PreviousDifferenceGlyph` | Step to the next / previous hunk | An arrow travelling to a rule — the hunk boundary it lands on. ONE drawing, mirrored about y = 8 for the other direction, the way `ChevronDownIcon` is rotated rather than twinned; a bare chevron would say *disclosure*, which stepping is not. React applies the mirror as a transform; the folder ships both, because a framework-neutral asset a consumer has to transform is not a framework-neutral asset | `glyphs/next-difference.svg` · `glyphs/previous-difference.svg` |
+| `ShowDiffGlyph` | Open this file's diff | Two opposed arrows about a centre line: one running right over it, one running left under it — two versions read against each other. **Not** `NextDifferenceGlyph`, which the diff window spends on *step to the next hunk*: one mark answering "open the comparison" in one window and "move within the comparison" in the other teaches that the mark means nothing in particular (added 2026-09-09, review of T5/T6) | `glyphs/show-diff.svg` |
 | `SideBySideGlyph` | Diff layout: two panes | A frame split by one vertical line | `glyphs/side-by-side.svg` |
 | `UnifiedGlyph` | Diff layout: one pane | The same frame, unsplit. The pair is a two-state toggle, and the presence or absence of the divider *is* the difference | `glyphs/unified.svg` |
 | `GearGlyph` | Settings on a toolbar | A real toothed gear. `GeneralSettingsIcon` is sliders on the 24-grid rail and the `config` file kind is an identity mark, so neither serves an action toolbar | `glyphs/gear.svg` |
