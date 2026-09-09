@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { FolderTypeIcon, GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
@@ -897,6 +897,42 @@ export function AttentionPulse({
  * tick relaxes to 30s once the turn is past a minute and the seconds stop
  * mattering.
  */
+// Two hover surfaces over one row is one too many (owner, 2026-09-09).
+//
+// A chat row already opens the conversation peek from a hover anywhere on it,
+// and the card says what the row's own tooltips were saying: how much changed,
+// how long it has been idle, what the agent is doing. Dwelling on the row while
+// scrolling past it fired BOTH, and the tooltip — wider than the row and
+// positioned over its neighbours — landed on top of the card that was arriving
+// to answer the same question.
+//
+// So the row's readings carry `RowTooltip`, which is the kit's Tooltip
+// everywhere except inside a row that opens a card, where it is the trigger's
+// own wrapper and nothing else. This is the 2026-09-07 title ruling continued:
+// where there IS a card, the card is the surface; where there is not, every one
+// of these tooltips still opens exactly as it did.
+//
+// Not everything on the row is in here. A glyph whose ONLY meaning is its label
+// — the machine mark, the provider mark, "Directory removed" — keeps the kit's
+// Tooltip outright, because suppressing it would leave a drawing that says
+// nothing and a card that never mentions it.
+// Exported for `WorkspaceSidebar.rowTooltips.test.tsx`, as the row's other
+// pieces are: the rule is one line of behaviour and it is tested directly.
+export const RowTooltipsSuppressed = createContext(false)
+
+export function RowTooltip({ children, ...props }: React.ComponentProps<typeof Tooltip>) {
+  const suppressed = useContext(RowTooltipsSuppressed)
+  if (!suppressed) return <Tooltip {...props}>{children}</Tooltip>
+  // The same wrapper the kit renders, so suppressing a tooltip never moves the
+  // thing it was wrapping: Tooltip's own span is `relative` plus the caller's
+  // wrapperClassName, defaulting to `inline-flex`.
+  return (
+    <span role={props.wrapperRole} className={`relative ${props.wrapperClassName ?? 'inline-flex'}`}>
+      {children}
+    </span>
+  )
+}
+
 /**
  * The mark a band row leads with (owner ruling 2026-09-05): the machine
  * glyph, and the machine's name only on hover. The band has no machine lines,
@@ -957,7 +993,7 @@ function BranchChip({
   dim?: boolean
 }) {
   return (
-    <Tooltip
+    <RowTooltip
       content={cwd ? (worktree ? `Worktree · ${cwd}` : cwd) : worktree ? 'A worktree of its own' : `On ${branch}`}
       wrapperClassName="flex min-w-[4ch] shrink-[3] items-center"
     >
@@ -976,7 +1012,7 @@ function BranchChip({
         <TruncatedText as="span" text={branch} className="min-w-0" />
         {worktree ? <span className="sr-only"> (worktree)</span> : null}
       </span>
-    </Tooltip>
+    </RowTooltip>
   )
 }
 
@@ -1136,7 +1172,7 @@ export function TerminalLineView({
         // carries once that branch has landed. The words on hover and the
         // spoken label are what say which of those you are reading, and the
         // kit's Tooltip, not a native title, carries them.
-        <Tooltip content={diffCopy.tooltip} wrapperClassName="inline-flex shrink-0">
+        <RowTooltip content={diffCopy.tooltip} wrapperClassName="inline-flex shrink-0">
           {/* Only a folder reading dims (see diffScopeCopy): a `branch` or
               `worktree` reading IS attributable work — to the branch rather
               than to this terminal alone — and a `landed` reading is what this
@@ -1173,7 +1209,7 @@ export function TerminalLineView({
               <span className="sr-only">{diffCopy.srText}</span>
             </span>
           )}
-        </Tooltip>
+        </RowTooltip>
       ) : null}
       {/* The line's own seat: working dots + how long, the failure dot, a
           waiting mark when the row needs to say which line, else how long it
@@ -1212,12 +1248,12 @@ export function TerminalLineView({
               <span className="sr-only">Needs your input</span>
             )
           ) : idleText ? (
-            <Tooltip content={`${line.idleLabel} ${formatRelativeMsAgo(line.idleSince!, now)} (${new Date(line.idleSince!).toLocaleString()})`}>
+            <RowTooltip content={`${line.idleLabel} ${formatRelativeMsAgo(line.idleSince!, now)} (${new Date(line.idleSince!).toLocaleString()})`}>
               <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
                 <span aria-hidden="true">{idleText}</span>
                 <span className="sr-only">{line.idleLabel} {formatRelativeMsAgo(line.idleSince!, now)}</span>
               </span>
-            </Tooltip>
+            </RowTooltip>
           ) : null}
         </span>
         {seatOverlay}
@@ -2544,9 +2580,9 @@ export default function WorkspaceSidebar({
       <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
         <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
           {runGlyph && runGlyphLabel ? (
-            <Tooltip content={runGlyphLabel}>
+            <RowTooltip content={runGlyphLabel}>
               <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
-            </Tooltip>
+            </RowTooltip>
           ) : null}
           {/* Active work earns the three-dot working marker; the other
               attention states keep the tone dot. */}
@@ -2572,7 +2608,7 @@ export default function WorkspaceSidebar({
             )
           ) : null}
           {showRecencyText ? (
-            <Tooltip content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}>
+            <RowTooltip content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}>
               <span
                 className={`text-meta tabular-nums ${
                   emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
@@ -2581,7 +2617,7 @@ export default function WorkspaceSidebar({
                 <span aria-hidden="true">{idleRecencyText}</span>
                 <span className="sr-only">Idle {formatRelativeMsAgo(recency!.idleSince!, now)}</span>
               </span>
-            </Tooltip>
+            </RowTooltip>
           ) : null}
         </span>
         {rowActionsOverlay}
@@ -2690,9 +2726,8 @@ export default function WorkspaceSidebar({
       <span className={titleClusterClass}>{titleClusterContent}</span>
     )
 
-    return (
+    const rowElement = (
       <div
-        key={rowKey}
         data-row-key={rowKey}
         // Roving tabindex: exactly one treeitem is in the tab order at a time,
         // and Arrow/Home/End move focus between rows (handleTreeRowKeyDown).
@@ -2865,9 +2900,9 @@ export default function WorkspaceSidebar({
             and asking the wrong one drew the glyph twice on any row whose
             module hands it one. */}
         {rowLines.lines.length > 0 && runGlyph && runGlyphLabel ? (
-          <Tooltip content={runGlyphLabel}>
+          <RowTooltip content={runGlyphLabel}>
             <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
-          </Tooltip>
+          </RowTooltip>
         ) : null}
         {/* A lineless row has no line to carry the seat, so it keeps it
             here — the one-liner it always was. Never in the flat stream,
@@ -2938,6 +2973,13 @@ export default function WorkspaceSidebar({
           </div>
         ) : null}
       </div>
+    )
+    // The card is this row's hover surface where it has one, so the row's own
+    // readings stop opening tooltips underneath it (`RowTooltip`).
+    return (
+      <RowTooltipsSuppressed.Provider key={rowKey} value={hasPeek}>
+        {rowElement}
+      </RowTooltipsSuppressed.Provider>
     )
   }
 
