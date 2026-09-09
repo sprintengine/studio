@@ -57,6 +57,7 @@ export {
   GroupByGlyph,
   MoveToChangelistGlyph,
   NextDifferenceGlyph,
+  OpenInEditorGlyph,
   PreviousDifferenceGlyph,
   RollbackGlyph,
   SideBySideGlyph,

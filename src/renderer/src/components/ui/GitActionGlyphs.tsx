@@ -1,8 +1,9 @@
 // The Commit window's and the diff window's action vocabulary: *what will this
-// toolbar button do*. Ten concepts, drawn once here and mirrored
+// toolbar button do*. Eleven concepts, drawn once here and mirrored
 // framework-neutral in `design-system/glyphs/` (rollback, move-to-changelist,
 // stash, group-by, expand-all, collapse-all, next-difference, side-by-side,
-// unified, gear) — see design-system/components/glyphs/component.md → "Git and
+// unified, gear, open-in-editor) — see design-system/components/glyphs/component.md
+// → "Git and
 // diff actions".
 //
 // 16-grid, `currentColor`, `fill="none"`, frame 1.3 / line work 1.4, legible at
@@ -199,6 +200,27 @@ export function UnifiedGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element
   )
 }
 
+/**
+ * Open the file this diff is about in an editor. The pencil on the page — the
+ * one mark in this family that leaves the diff rather than acting on it, which
+ * is why it is a pencil and not another frame: every other glyph here rearranges
+ * what you are looking at, and this one hands the file to something that can
+ * change it.
+ */
+export function OpenInEditorGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M2.75 13.25 3.5 10 11 2.5l2.5 2.5L6 12.5l-3.25.75Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M9.5 4 12 6.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 /** Settings on a toolbar: a real toothed gear, six teeth so it still reads at
  *  16 px. Not the sliders of `GeneralSettingsIcon`, not the `config` file kind. */
 export function GearGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
@@ -211,6 +233,24 @@ export function GearGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
         strokeLinejoin="round"
       />
       <circle cx="8" cy="8" r="2.1" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  )
+}
+
+/**
+ * Write the commit message. Three lines of a message with a spark beside them:
+ * the mark says *text, composed for you*, which is what the action does once
+ * the composer can do it. Not `OpenInEditorGlyph`'s pencil — a pencil says a
+ * person will type it — and not `GearGlyph`, which is a setting rather than a
+ * verb. Drawn with line work only, like the rest of the family: the sparkle is
+ * a crossed star, not a filled shape.
+ */
+export function WriteCommitMessageGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path d="M2.25 4.25h7.5M2.25 7.5h5.5M2.25 10.75h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M12.4 7.9v5.2M9.8 10.5h5.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M10.9 9 13.9 12M13.9 9 10.9 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   )
 }
