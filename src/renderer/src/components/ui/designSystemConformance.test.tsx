@@ -1258,11 +1258,27 @@ async function main(): Promise<void> {
     // multi-line field is not a step on a ramp whose steps are 26/30/34, and
     // widening this to every height would make the rule a repo-wide field sweep
     // wearing a button rule's name.
+    //
+    // `components/panels/git/**` joined the family on 2026-09-09. T5 and T6
+    // moved the Changes view out of `GitPanel.tsx` into six files in that
+    // directory, and the rule they were written under stopped covering them the
+    // moment they were extracted — a named-file rule that a refactor can walk
+    // out of polices the past. A DIRECTORY, not three more file names, so the
+    // next file added there is policed on the day it lands.
+    const GIT_SURFACE_DIR = 'components/panels/git/'
     const GIT_SURFACES = [
       'components/panels/GitPanel.tsx',
       'components/panels/GitConflictResolverPanel.tsx',
       'components/panels/GitGraphView.tsx',
+      ...rendererSources()
+        .map((path) => relative(join(process.cwd(), 'src/renderer/src'), path))
+        .filter((file) => file.startsWith(GIT_SURFACE_DIR))
+        .sort(),
     ]
+    assert.ok(
+      GIT_SURFACES.some((file) => file.startsWith(GIT_SURFACE_DIR)),
+      'the Changes view still lives in components/panels/git — if it moved, move this rule with it',
+    )
     const OFF_RAMP_HEIGHT = /(?:^|\s)h-(?:\d+(?:\.\d+)?|\[\d+(?:\.\d+)?px\])(?=\s|$)/
     const HOVER_FILL = /(?:^|\s)hover:bg-\S+(?=\s|$)/
 

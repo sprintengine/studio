@@ -64,7 +64,17 @@ function code(file: string): string {
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
 }
 
-/** The directory a count is attributed to: `components/<area>`, else top level. */
+/**
+ * The directory a count is attributed to: `components/<area>`, else top level.
+ *
+ * One level deep on purpose, so a subdirectory cannot be a hiding place. Every
+ * file under `components/panels/git/` is counted against `components/panels`,
+ * which is what keeps a ratchet honest when a panel is broken up: the Changes
+ * view moved into six new files there in T5/T6 and stayed policed at its old
+ * baseline without a line changing here. (The named-file rules in
+ * `designSystemConformance.test.tsx` had to be widened by hand — that is the
+ * cost of naming files rather than walking a tree, and why this one walks.)
+ */
 function area(file: string): string {
   const parts = relative(RENDERER, file).split('/')
   if (parts[0] !== 'components') return parts[0]
