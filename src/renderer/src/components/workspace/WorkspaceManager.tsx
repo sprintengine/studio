@@ -583,6 +583,11 @@ export default function WorkspaceManager() {
   // its registered id, or null. A float, not a mount kind — the card region
   // keeps whatever owns it underneath.
   const activeModalSurface = useWorkspaceStore((s) => s.activeModalSurface)
+  // The workspace the open modal was opened from (the pane strip passes its
+  // own). Handed to the surface body below — a modal floats over the window
+  // rather than inside a workspace card, so this is the only thing that tells
+  // it which workspace it is acting on.
+  const activeModalSurfaceWorkspaceId = useWorkspaceStore((s) => s.activeModalSurfaceWorkspaceId)
   const closeModalSurface = useWorkspaceStore((s) => s.closeModalSurface)
   // The door-routed full-page surface for this window (global-surfaces epic 1704):
   // its registered id, or null when a workspace owns the card region.
@@ -4825,7 +4830,9 @@ export default function WorkspaceManager() {
                 onClose={closeModalSurface}
               >
                 <React.Suspense fallback={<SuspenseFallback label="Loading surface" />}>
-                  <activeModalSurfaceEntry.Component />
+                  <activeModalSurfaceEntry.Component
+                    workspaceId={activeModalSurfaceWorkspaceId ?? undefined}
+                  />
                 </React.Suspense>
               </GlobalSurfaceErrorBoundary>
             </SurfaceExitContext.Provider>

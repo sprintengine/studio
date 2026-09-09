@@ -346,16 +346,29 @@ async function main(): Promise<void> {
       [['reviews', 'Reviews']],
       'the modal registry holds only Reviews (Settings is core and never registered; the diff has no modal at all)',
     )
-    // And it carries no glyph, because nothing draws one for a modal surface.
+    // And it carries no `Icon`, because nothing draws one for a modal surface.
     // The doors→modals ruling (2026-09-01) put a trigger per modal in the
     // sidebar footer's settings cluster; the Extensions drawer ruling took the
-    // cluster back four days later, and Reviews is opened from the workspace
-    // pane strip, whose launcher holds its own glyph (paneKinds.tsx). A second
-    // copy in the registry would be a field nothing reads posing as the source.
+    // cluster back four days later. The one trigger Reviews has is the
+    // workspace pane row — and since D7 (2026-09-10) that row is CONTRIBUTED,
+    // on the surface's own `launcher`, rather than hard-coded in paneKinds.tsx.
+    // So the glyph is here after all; what would be a second copy is `Icon`.
     assert.equal(
       host.getModalSurface('reviews')?.Icon,
       undefined,
-      'the reviews surface declares no glyph — the pane launcher that opens it carries the one glyph there is',
+      'the reviews surface declares no chrome glyph — no chrome names a modal',
+    )
+    const reviewsLauncher = host.getModalSurfaceLaunchers().find((launcher) => launcher.surfaceId === 'reviews')
+    assert.deepEqual(
+      { label: reviewsLauncher?.label, letter: reviewsLauncher?.letter, moduleId: reviewsLauncher?.moduleId },
+      { label: 'Reviews', letter: 'R', moduleId: 'review' },
+      'it contributes the pane row that opens it, with the glyph the pane draws',
+    )
+    assert.ok(reviewsLauncher?.Glyph, 'and that row carries the module\'s own mark')
+    assert.deepEqual(
+      host.getModalSurfaceLaunchers((moduleId) => moduleId !== 'review'),
+      [],
+      'turning the module off takes the pane row with it, as it takes the surface',
     )
     // A door is only as present as its module: turning the module off must take
     // BOTH the row and the page, or the row routes to a page that cannot mount.

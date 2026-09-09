@@ -407,6 +407,7 @@ const carrier = {
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   activeGlobalSurface: null as string | null,
   activeModalSurface: null as string | null,
+  activeModalSurfaceWorkspaceId: null as string | null,
   sidebarSection: 'home' as SidebarSection,
   chatListView: 'projects' as ChatListView,
   sidebarCollapsed: false,
@@ -493,6 +494,32 @@ assert.equal(carrier.activeModalSurface, 'reviews')
 assert.equal(carrier.activeGlobalSurface, 'sprints', 'the door under the modal stays put')
 slice.closeModalSurface()
 assert.equal(carrier.activeGlobalSurface, 'sprints', 'closing the modal lands back on the door')
+
+// The opener's workspace rides with the modal (D5/WP-C): the pane strip passes
+// the workspace it was picked in, and the shell hands it to the surface body —
+// a modal floats over the window, so this is the only thing that says which
+// workspace it acts on. It is set, replaced and cleared with the modal itself,
+// never left behind for the next one to inherit.
+slice.openModalSurface('reviews', { workspaceId: 'ws-7' })
+assert.equal(carrier.activeModalSurfaceWorkspaceId, 'ws-7', 'the opener records its workspace')
+slice.closeModalSurface()
+assert.equal(carrier.activeModalSurfaceWorkspaceId, null, 'and closing the modal takes it')
+slice.openModalSurface('reviews', { workspaceId: 'ws-7' })
+slice.openModalSurface('reviews')
+assert.equal(
+  carrier.activeModalSurfaceWorkspaceId,
+  null,
+  'an opener with no workspace clears the last one — a stale id would act on a workspace nobody named',
+)
+slice.openModalSurface('reviews', { workspaceId: 'ws-7' })
+slice.openSettingsOverlay()
+assert.equal(carrier.activeModalSurfaceWorkspaceId, null, 'Settings is the app\'s, not a workspace\'s')
+slice.closeSettingsOverlay()
+slice.openModalSurface('reviews', { workspaceId: 'ws-7' })
+slice.openGlobalSurface('backlog')
+assert.equal(carrier.activeModalSurfaceWorkspaceId, null, 'and a door open clears it with the modal it closes')
+slice.closeGlobalSurface()
+carrier.activeGlobalSurface = null
 
 // The reverse is NOT symmetric: opening a door closes the modal, or a history
 // step to a door would mount it invisibly behind the modal's scrim.

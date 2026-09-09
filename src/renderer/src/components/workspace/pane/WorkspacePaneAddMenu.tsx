@@ -55,7 +55,9 @@ export function WorkspacePaneAddMenu({ kinds, onPick }: WorkspacePaneAddMenuProp
     }
     if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
       const letter = event.key.toUpperCase()
-      const match = kinds.find((definition) => definition.letter === letter)
+      // A contributed row that lost a letter collision has none
+      // (composePaneKinds), so the empty string must never match a keypress.
+      const match = kinds.find((definition) => definition.letter !== '' && definition.letter === letter)
       if (match) {
         event.preventDefault()
         pick(match.kind)
@@ -100,9 +102,13 @@ export function WorkspacePaneAddMenu({ kinds, onPick }: WorkspacePaneAddMenuProp
             onClick={() => pick(kind)}
             icon={<Glyph className="icon-sm shrink-0 text-[color:var(--text-subtle)]" />}
             trailing={
-              <span aria-hidden="true" className="font-mono text-micro text-[color:var(--text-disabled)]">
-                {letter}
-              </span>
+              // Omitted entirely for a row with no shortcut, rather than an
+              // empty slot pretending there is a key to press.
+              letter ? (
+                <span aria-hidden="true" className="font-mono text-micro text-[color:var(--text-disabled)]">
+                  {letter}
+                </span>
+              ) : undefined
             }
           >
             {label}

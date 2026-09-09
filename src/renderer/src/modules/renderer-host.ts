@@ -18,6 +18,8 @@ import type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view
 import { AGENT_RUNTIME_MODULE_ID } from '../../../shared/backlog/agent-links'
 import type { WorkspaceFileWatcher, WorkspaceFileWatchEvent } from './workspace-file-watch'
 import type { AgentSessionWatcher, ModuleAgentSessionView } from './agent-session-watch'
+import type { ColorSchemeWatcher, ModuleColorScheme } from './color-scheme-watch'
+import type { WorkspaceListSource } from './workspace-list-watch'
 import type {
   ModuleAgentRuntimeOption,
   ModuleAgentSpawner,
@@ -534,6 +536,42 @@ export type RegisteredGlobalSurface = GlobalSurfaceDefinition & {
 // drawer, and the drawer is made of doors: a modal floats over the card region
 // without routing it, so a drawer row that opened one would leave the drawer
 // pointing at a surface the region does not hold.
+// What a modal body is handed (2026-09-10). A modal floats over work that
+// stays put, so "which work?" is the one piece of context the shell knows and
+// the body cannot derive: `openModalSurface(id, { workspaceId })` records the
+// workspace the opener acted from — the pane strip passes its own — and the
+// mount forwards it here. Optional, because an opener that is not a
+// workspace's (a command, a notification) records none; a zero-prop component
+// still satisfies this type, so a body that does not care ignores it.
+export type ModalSurfaceComponentProps = {
+  workspaceId?: string
+}
+
+export type ModalSurfaceComponent =
+  | ComponentType<ModalSurfaceComponentProps>
+  | LazyExoticComponent<ComponentType<ModalSurfaceComponentProps>>
+
+// The pane-strip row a modal surface contributes (D7, 2026-09-10). A modal is
+// opened from inside the content it floats over, and for a workspace-scoped
+// task that content is the workspace pane: its "+" menu and its empty-state
+// launcher list the kinds this workspace can open. Reviews was a hard-coded
+// row there; this is the seam that replaces it, so an installed module puts
+// its own row in the same list without editing the shell.
+export type ModalSurfaceLauncher = {
+  /** The row's name, e.g. "Reviews". Non-empty; sentence case. */
+  label: string
+  /**
+   * The key that opens the row while the menu or the launcher has focus.
+   * Exactly one character; uppercased by the host. A letter a static row (or
+   * an earlier contributed one) already owns is dropped — the row keeps its
+   * label and glyph and simply has no shortcut, because the shell's own kinds
+   * must not lose their keys to an installed module.
+   */
+  letter: string
+  /** The row's mark, in both the menu and the launcher card. */
+  Glyph: SurfaceIconComponent
+}
+
 export type ModalSurfaceDefinition = {
   /** Matches the id opened via `openModalSurface`. Non-empty; unique. */
   id: string
@@ -555,18 +593,32 @@ export type ModalSurfaceDefinition = {
    * title, decoupled from the id. Non-empty; sentence case.
    */
   label: string
-  /** A glyph for chrome that names this surface. Optional for the same reason `order` is: the pane launcher that opens Reviews carries its own. */
+  /** A glyph for chrome that names this surface. Optional for the same reason `order` is: the pane launcher below carries its own. */
   Icon?: SurfaceIconComponent
+  /**
+   * Contribute this surface's row to the workspace pane's kind list (the "+"
+   * menu and the empty-state launcher). Absent means the module opens the
+   * modal from somewhere of its own instead.
+   */
+  launcher?: ModalSurfaceLauncher
   /**
    * Called just before the shell opens this modal from a plain opener. Discard
    * stale deep-link latches here, exactly as a door's `onOpen` does.
    */
   onOpen?: () => void
   /** The modal body. Eager or React.lazy(), mirroring GlobalSurfaceComponent. */
-  Component: GlobalSurfaceComponent
+  Component: ModalSurfaceComponent
 }
 
 export type RegisteredModalSurface = ModalSurfaceDefinition & {
+  moduleId: string
+}
+
+// One contributed pane row, resolved: the launcher plus the surface it opens
+// and the module that owns it, so the pane can gate the row on enablement and
+// route the pick back to `openModalSurface`.
+export type RegisteredModalSurfaceLauncher = ModalSurfaceLauncher & {
+  surfaceId: string
   moduleId: string
 }
 
@@ -693,6 +745,11 @@ export type RendererHost = {
    * Reviews has; the product's own destinations are doors (Extensions drawer
    * ruling, 2026-09-05). Registered unconditionally at boot; the mount gates on
    * this module's enablement. Duplicate and reserved ids throw.
+   *
+   * `launcher` contributes the surface's row to the workspace pane's kind
+   * list (the "+" menu and the empty-state launcher) — the trigger Reviews
+   * had hard-coded there. A malformed launcher (empty label, a `letter` that
+   * is not exactly one character, a missing Glyph) throws at registration.
    */
   registerModalSurface(definition: ModalSurfaceDefinition): void
   /**
@@ -725,6 +782,32 @@ export type RendererHost = {
    * Disclosure permission: `ipc:workspace-read`.
    */
   getWorkspace(workspaceId: string): Promise<ModuleWorkspaceView | null>
+  /**
+   * Every open workspace as a read-only view, in the order the shell lists
+   * them. For a surface that is not mounted inside one workspace — a modal
+   * floating over the window, a settings section — and so has no id to
+   * resolve. Empty before the shell wires workspace state (early boot,
+   * tests); never a throw.
+   * Disclosure permission: `ipc:workspace-read`.
+   */
+  listWorkspaces(): Promise<ModuleWorkspaceView[]>
+  /**
+   * Observe the open workspaces: `cb` fires once with the current list, then
+   * on every change (deduped by value, so an unrelated store write does not
+   * wake it). Returns the unsubscriber — call it on unmount. Before the shell
+   * wires workspace state the first call reports an empty list.
+   * Disclosure permission: `ipc:workspace-read`.
+   */
+  watchWorkspaces(cb: (workspaces: ModuleWorkspaceView[]) => void): () => void
+  /**
+   * Observe the app's resolved light/dark surface: `cb` fires immediately
+   * with the current scheme, then whenever it changes — an explicit theme
+   * switch, or an OS switch while the preference is `system`. Returns the
+   * unsubscriber; call it on unmount. This is how a themed third-party
+   * runtime a module hosts (Monaco, a chart library) stays in step with the
+   * app; ordinary module UI should read the theme CSS variables instead.
+   */
+  watchColorScheme(cb: (scheme: ModuleColorScheme) => void): () => void
   /**
    * Your module's entry in the workspace's per-module state bag (MC-1573).
    * Scoped to the calling module — one module can never read another's entry
@@ -818,13 +901,22 @@ export type RendererHost = {
     cb: (event: WorkspaceFileWatchEvent) => void
   ): Promise<() => void>
   /**
-   * Observe the workspace's live agent sessions: `cb` fires once with the
-   * current read-only views, then on every change (deduped). Returns the
-   * unsubscriber — call it on unmount. Throws with a named cause before the
-   * shell wires the session source or while the Agent Runtime module is
-   * disabled. Disclosure permission: `ipc:agents`.
+   * Observe live agent sessions: `cb` fires once with the current read-only
+   * views, then on every change (deduped). Returns the unsubscriber — call it
+   * on unmount. Throws with a named cause before the shell wires the session
+   * source or while the Agent Runtime module is disabled.
+   *
+   * A workspace id watches that workspace's sessions, whoever spawned them.
+   * `undefined` watches every workspace, narrowed to sessions whose agent id
+   * falls in a namespace this module claimed with `registerAgentIdNamespace`
+   * — that is what makes an all-workspaces watch answerable at all. A module
+   * that claimed no namespace sees an empty list.
+   * Disclosure permission: `ipc:agents`.
    */
-  watchAgentSessions(workspaceId: string, cb: (sessions: ModuleAgentSessionView[]) => void): () => void
+  watchAgentSessions(
+    workspaceId: string | undefined,
+    cb: (sessions: ModuleAgentSessionView[]) => void
+  ): () => void
   /**
    * Spawn an agent session through the SHARED session runtime (the same path
    * every shell surface uses) and add its tab to the workspace layout.
@@ -841,10 +933,11 @@ export type RendererHost = {
    */
   focusTab(input: ModuleFocusTabInput): boolean
   /**
-   * The agent runtimes currently available to spawn: ids + display labels
-   * only (installed CLIs, from the same availability-filtered catalog the
-   * shell's pickers use) — plugin internals stay unexposed. Throws with a
-   * named cause when agent runtime is unavailable.
+   * The agent runtimes available to spawn, from the same
+   * availability-filtered catalog the shell's own pickers read: id, display
+   * label, whether the binary is on this machine, the runtime's model rows,
+   * and which one the user last chose. Plugin internals stay unexposed.
+   * Throws with a named cause when agent runtime is unavailable.
    */
   listAgentRuntimes(): ModuleAgentRuntimeOption[]
 }
@@ -922,6 +1015,16 @@ export type RendererKernel = {
    */
   getModalSurfaces(moduleEnabled?: (moduleId: string) => boolean): RegisteredModalSurface[]
   /**
+   * The pane rows contributed by modal surfaces that declare a `launcher`, in
+   * the same stable order as `getModalSurfaces`. The workspace pane composes
+   * these after its own static kinds (composePaneKinds), so a module's row
+   * lands in the "+" menu and the empty-state launcher without the shell
+   * knowing what it is.
+   */
+  getModalSurfaceLaunchers(
+    moduleEnabled?: (moduleId: string) => boolean
+  ): RegisteredModalSurfaceLauncher[]
+  /**
    * The module claiming the workspace aside column, with its owning module so
    * the mount can gate on enablement. Undefined while the column is unclaimed —
    * the mount then renders nothing at all, never an empty column.
@@ -992,6 +1095,19 @@ export type RendererKernel = {
    * boot by modules/index.ts over the shell's terminal-sessions store.
    */
   setAgentSessionWatcher(watcher: AgentSessionWatcher): void
+  /**
+   * Workspace-list source for `RendererHost.listWorkspaces` /
+   * `watchWorkspaces`. Wired once at boot by modules/index.ts over the
+   * workspace store; absent (early boot, tests) the list reads empty.
+   */
+  setWorkspaceListSource(source: WorkspaceListSource): void
+  /**
+   * Colour-scheme source for `RendererHost.watchColorScheme`. Wired once at
+   * boot by modules/index.ts over the same appearance preference +
+   * media-query pair `useResolvedColorScheme` reads; absent (early boot,
+   * tests) a watch reports 'dark' once and never fires again.
+   */
+  setColorSchemeWatcher(watcher: ColorSchemeWatcher): void
   /**
    * Spawn/focus/runtimes backend for the module agent surface. Wired once at
    * boot by modules/index.ts over the shared session runtime + layout
@@ -1094,6 +1210,8 @@ export function createRendererHost(): RendererKernel {
   let workspaceFileWatcher: WorkspaceFileWatcher | null = null
   let agentSessionWatcher: AgentSessionWatcher | null = null
   let agentSpawner: ModuleAgentSpawner | null = null
+  let workspaceListSource: WorkspaceListSource | null = null
+  let colorSchemeWatcher: ColorSchemeWatcher | null = null
   const agentRuntimeDisabled = (): boolean =>
     moduleEnabledResolver !== null && !moduleEnabledResolver(AGENT_RUNTIME_MODULE_ID)
   // Shared gate for the live-runtime methods (MC-1535): the error names the
@@ -1126,6 +1244,15 @@ export function createRendererHost(): RendererKernel {
     [...moduleCommands.values()]
       .filter((command) => !moduleEnabled || moduleEnabled(command.moduleId))
       .sort((a, b) => a.id.localeCompare(b.id))
+  const enabledModalSurfaces = (moduleEnabled?: (moduleId: string) => boolean): RegisteredModalSurface[] =>
+    [...modalSurfaces.values()]
+      .filter((surface) => !moduleEnabled || moduleEnabled(surface.moduleId))
+      .sort((a, b) => {
+        // `order` is optional now that nothing lists these (see the type); an
+        // omitted one sorts as 0, so a declared order still leads.
+        const order = (a.order ?? 0) - (b.order ?? 0)
+        return order === 0 ? a.id.localeCompare(b.id) : order
+      })
   return {
     hostFor(moduleId) {
       return {
@@ -1329,7 +1456,31 @@ export function createRendererHost(): RendererKernel {
               `Modal surface "${definition.id}" is already registered by module "${existing.moduleId}".`
             )
           }
-          modalSurfaces.set(definition.id, { ...definition, moduleId })
+          // The pane row, normalised at the door rather than at the pane: the
+          // letter is a keyboard accelerator the "+" menu compares against an
+          // uppercased key, so a lowercase or multi-character one is a row
+          // whose shortcut silently never fires. Say so here instead.
+          const launcher = definition.launcher
+          if (launcher) {
+            if (launcher.label.trim().length === 0) {
+              throw new Error(`Modal surface "${definition.id}" has a launcher with an empty label.`)
+            }
+            if ([...launcher.letter].length !== 1) {
+              throw new Error(
+                `Modal surface "${definition.id}" has a launcher letter "${launcher.letter}"; it must be exactly one character.`
+              )
+            }
+            if (typeof launcher.Glyph !== 'function') {
+              throw new Error(`Modal surface "${definition.id}" has a launcher without a Glyph component.`)
+            }
+          }
+          modalSurfaces.set(definition.id, {
+            ...definition,
+            ...(launcher
+              ? { launcher: { ...launcher, label: launcher.label.trim(), letter: launcher.letter.toUpperCase() } }
+              : {}),
+            moduleId,
+          })
         },
         registerAgentIdNamespace(definition) {
           const prefix = definition.prefix.trim()
@@ -1402,6 +1553,28 @@ export function createRendererHost(): RendererKernel {
         async getWorkspace(workspaceId) {
           return workspaceResolver ? workspaceResolver(workspaceId) : null
         },
+        async listWorkspaces() {
+          return workspaceListSource ? workspaceListSource.list() : []
+        },
+        watchWorkspaces(cb) {
+          // Unwired (early boot, windowless bundles) still honours the
+          // fires-once contract: a module renders its empty state rather than
+          // waiting forever for a first delivery that cannot come.
+          if (!workspaceListSource) {
+            cb([])
+            return () => {}
+          }
+          return workspaceListSource.watch(cb)
+        },
+        watchColorScheme(cb) {
+          if (!colorSchemeWatcher) {
+            // Same reasoning as above: answer once with the app's default
+            // surface so a themed runtime boots rather than hanging.
+            cb('dark')
+            return () => {}
+          }
+          return colorSchemeWatcher(cb)
+        },
         getWorkspaceModuleState<T = unknown>(workspaceId: string): T | undefined {
           return workspaceModuleStateStore
             ? (workspaceModuleStateStore.get(workspaceId, moduleId) as T | undefined)
@@ -1455,10 +1628,22 @@ export function createRendererHost(): RendererKernel {
         },
         watchAgentSessions(workspaceId, cb) {
           const watcher = requireAgentRuntime(agentSessionWatcher, 'Agent session observation')
+          // An unscoped watch is narrowed to the module's own agent-id
+          // namespaces, resolved at subscribe time from the registry — the
+          // module cannot name someone else's prefix, so this is also what
+          // keeps the all-workspaces mode from being a window onto every
+          // session in the app.
+          const scope = workspaceId === undefined
+            ? {
+              agentIdPrefixes: [...agentIdNamespaces.values()]
+                .filter((namespace) => namespace.moduleId === moduleId)
+                .map((namespace) => namespace.prefix),
+            }
+            : undefined
           return watcher(workspaceId, (sessions) => {
             if (agentRuntimeDisabled()) return
             cb(sessions)
-          })
+          }, scope)
         },
         async spawnAgent(input) {
           return requireAgentRuntime(agentSpawner, 'Agent spawn').spawnAgent(input)
@@ -1580,14 +1765,15 @@ export function createRendererHost(): RendererKernel {
       return modalSurfaces.get(id)
     },
     getModalSurfaces(moduleEnabled) {
-      return [...modalSurfaces.values()]
-        .filter((surface) => !moduleEnabled || moduleEnabled(surface.moduleId))
-        .sort((a, b) => {
-          // `order` is optional now that nothing lists these (see the type); an
-          // omitted one sorts as 0, so a declared order still leads.
-          const order = (a.order ?? 0) - (b.order ?? 0)
-          return order === 0 ? a.id.localeCompare(b.id) : order
-        })
+      return enabledModalSurfaces(moduleEnabled)
+    },
+    getModalSurfaceLaunchers(moduleEnabled) {
+      const launchers: RegisteredModalSurfaceLauncher[] = []
+      for (const surface of enabledModalSurfaces(moduleEnabled)) {
+        if (!surface.launcher) continue
+        launchers.push({ ...surface.launcher, surfaceId: surface.id, moduleId: surface.moduleId })
+      }
+      return launchers
     },
     getWorkspaceAside() {
       return workspaceAside ?? undefined
@@ -1637,6 +1823,12 @@ export function createRendererHost(): RendererKernel {
     },
     setAgentSpawner(spawner) {
       agentSpawner = spawner
+    },
+    setWorkspaceListSource(source) {
+      workspaceListSource = source
+    },
+    setColorSchemeWatcher(watcher) {
+      colorSchemeWatcher = watcher
     },
   }
 }

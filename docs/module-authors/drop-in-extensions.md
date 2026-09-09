@@ -22,8 +22,9 @@ environment variable (used by the dev harness); plugins always resolve under
 A capability module extends the app itself — main-process services and IPC,
 renderer panels, workspace types, commands, Backlog actions, settings
 sections, sidebar nav doors, and modal surfaces (`registerModalSurface`: a
-body mounted in the shell's modal shell plus a trigger glyph in the sidebar
-footer's settings cluster) — through the `MainHost` / `RendererHost`
+body mounted in the shell's modal shell, floated over whatever the window is
+showing, optionally with a `launcher` row in the workspace pane's kind list)
+— through the `MainHost` / `RendererHost`
 contracts. Modules are trust-gated: only modules the user has trusted execute
 code.
 

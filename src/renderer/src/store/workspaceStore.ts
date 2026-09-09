@@ -228,7 +228,9 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   // kind — closing it lands where the user was. One at a time; activating a
   // workspace clears it.
   activeModalSurface: string | null
-  openModalSurface: (surfaceId: string) => void
+  // The workspace the open modal was opened from, when its opener had one.
+  activeModalSurfaceWorkspaceId: string | null
+  openModalSurface: (surfaceId: string, options?: { workspaceId?: string }) => void
   closeModalSurface: () => void
   // The app rail's active section (Home / Extensions), deciding what the
   // sidebar column shows. Transient like activeGlobalSurface.

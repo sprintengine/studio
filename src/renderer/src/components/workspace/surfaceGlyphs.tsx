@@ -1,6 +1,8 @@
 // The glyphs modules hand to the shell's chrome to name a surface: an app-rail
-// square (Automations), an Extensions drawer row (Design, Plugins), a pane
-// launcher (Reviews). "Modal" left the name with the Extensions drawer ruling
+// square (Automations), an Extensions drawer row (Design, Plugins). A module
+// that contributes a pane row now carries its own glyph with it
+// (ModalSurfaceDefinition.launcher), so those live in the module's own tree.
+// "Modal" left the name with the Extensions drawer ruling
 // (2026-09-05) — most of these name doors now, and the glyph never cared which
 // mount kind was behind it.
 //
@@ -121,14 +123,3 @@ export function DesignGlyph({ className }: { className?: string }) {
   )
 }
 
-// Reviews: an eye — the guided walkthrough of a change. Moved verbatim from the
-// retired ReviewsNavEntry (the Reviews door's row icon) when Reviews became a
-// modal surface opened from the workspace pane (2026-09-05).
-export function ReviewsGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M2 8s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4Z" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="8" cy="8" r="1.8" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  )
-}

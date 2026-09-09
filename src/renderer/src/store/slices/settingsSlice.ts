@@ -1168,6 +1168,13 @@ export interface SettingsSliceState {
   // replaces another. Activating a workspace clears it (workspacesSlice), so
   // a reveal always lands on a visible workspace.
   activeModalSurface: string | null
+  // The workspace the open modal was opened FROM, when its opener had one (the
+  // pane strip passes its own; a command or a notification passes none). A
+  // sibling field rather than a shape change on `activeModalSurface`, so every
+  // existing reader of "which modal is open?" keeps reading one string. It is
+  // set, cleared and survived exactly as that field is — the two are only ever
+  // written together.
+  activeModalSurfaceWorkspaceId: string | null
   // Which of the app rail's sections the sidebar column is showing (the
   // app shell, 2026-09-05): `home` is the workspaces tree, `extensions`
   // the Extensions drawer — Sprints, Design, Plugins, Skills, Agent CLIs
@@ -1266,7 +1273,10 @@ export interface SettingsSliceActions {
   // modal at a time — opening one replaces another — and opening a DOOR closes
   // the modal (see openGlobalSurface), so a routed destination is never hidden
   // behind the scrim.
-  openModalSurface: (surfaceId: string) => void
+  // `options.workspaceId` records the workspace the opener acted from; the
+  // shell hands it to the surface's body, which is how a modal that acts on a
+  // workspace knows which one without guessing at the active row.
+  openModalSurface: (surfaceId: string, options?: { workspaceId?: string }) => void
   closeModalSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   // Record (or clear) what one CLI reported about its own models. Replaces that
@@ -1449,6 +1459,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       // routes the card region, and leaving it under the modal's scrim made
       // history back/forward look dead — the destination mounted invisibly.
       state.activeModalSurface = null
+      state.activeModalSurfaceWorkspaceId = null
       // Only a door that BELONGS to the Extensions drawer moves the section
       // (Extensions drawer ruling, 2026-09-05). This used to flip
       // unconditionally, on the reasoning that every door lived under the
@@ -1465,6 +1476,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     settingsOverlay: { initialTab: null, checkForUpdatesRequestId: null },
     activeGlobalSurface: null,
     activeModalSurface: null,
+    activeModalSurfaceWorkspaceId: null,
     sidebarSection: 'home',
     chatListView: 'projects',
     sidebarCollapsed: false,
@@ -1558,6 +1570,9 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       }
       set((state) => {
         state.activeModalSurface = 'settings'
+        // Settings is the app's, not a workspace's: it replaces whatever modal
+        // was open, and the opener workspace goes with that modal.
+        state.activeModalSurfaceWorkspaceId = null
         state.settingsOverlay.initialTab = opts?.initialTab ?? null
         state.settingsOverlay.checkForUpdatesRequestId = opts?.checkForUpdates ? Date.now() : null
       })
@@ -1567,7 +1582,10 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         // Only ever closes SETTINGS: a caller that means "leave settings" must
         // not clear another modal someone opened in the meantime.
-        if (state.activeModalSurface === 'settings') state.activeModalSurface = null
+        if (state.activeModalSurface === 'settings') {
+          state.activeModalSurface = null
+          state.activeModalSurfaceWorkspaceId = null
+        }
         clearSettingsRequest(state)
       }),
 
@@ -1599,14 +1617,16 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.activeGlobalSurface = null
       }),
 
-    openModalSurface: (surfaceId) =>
+    openModalSurface: (surfaceId, options) =>
       set((state) => {
         state.activeModalSurface = surfaceId
+        state.activeModalSurfaceWorkspaceId = options?.workspaceId ?? null
       }),
 
     closeModalSurface: () =>
       set((state) => {
         state.activeModalSurface = null
+        state.activeModalSurfaceWorkspaceId = null
         // A modal that closes takes any settings request with it, so a later
         // plain open starts clean rather than on a stale tab.
         clearSettingsRequest(state)
