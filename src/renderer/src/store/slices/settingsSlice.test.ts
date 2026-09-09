@@ -1519,53 +1519,6 @@ assert.equal(
   'its one-time reset stamp is dropped with it',
 )
 
-// The two review keys that used to live here moved onto review's own app-level
-// module state (MC-2090); their behavior is pinned in reviewAppState.test.ts.
-// What stays core's job is the one-time lift of a profile that still carries
-// them — core's own persisted rows, which only core can read once the field is
-// gone from AppSettings. Same shape as the MC-1708 review-workspace retirement.
-const liftedFromLegacy = normalizeAppSettings(
-  {
-    reviewGuideDefaults: { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
-    lastSelectedReview: { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
-  } as never,
-  [],
-).moduleSettings
-assert.deepEqual(
-  liftedFromLegacy['module:review'],
-  {
-    'guide-defaults': { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
-    'last-selected-review': { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
-  },
-  'a profile predating the move keeps both values, in the module namespace',
-)
-// Values pass through untouched: the owning module normalizes what it reads, so
-// core keeps no knowledge of their shape.
-assert.deepEqual(
-  normalizeAppSettings({ reviewGuideDefaults: { depth: 'exhaustive' } } as never, [])
-    .moduleSettings['module:review'],
-  { 'guide-defaults': { depth: 'exhaustive' } },
-  'the lift copies verbatim — validation belongs to the module that reads it',
-)
-// A value the module has already written wins: the lift must never clobber a
-// newer choice with the legacy one it superseded.
-assert.deepEqual(
-  normalizeAppSettings(
-    {
-      reviewGuideDefaults: { depth: 'brief', cli: null, model: null },
-      moduleSettings: { 'module:review': { 'guide-defaults': { depth: 'thorough', cli: null, model: null } } },
-    } as never,
-    [],
-  ).moduleSettings['module:review'],
-  { 'guide-defaults': { depth: 'thorough', cli: null, model: null } },
-  'an already-migrated value is not overwritten by the legacy key',
-)
-assert.equal(
-  normalizeAppSettings({} as never, []).moduleSettings['module:review'],
-  undefined,
-  'a profile with neither key gains no namespace at all',
-)
-
 // Appearance: windowMaterial is a second axis beside theme (MC-1907).
 assert.deepEqual(defaultAppearanceSettings(), { theme: 'system', windowMaterial: 'solid' })
 assert.deepEqual(normalizeAppearanceSettings(undefined), defaultAppearanceSettings())

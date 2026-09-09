@@ -706,17 +706,15 @@ export function normalizeModuleSettings(value: unknown): Record<string, Record<s
 }
 
 // Settings keys that were core's before their owning module had a place to keep
-// them, mapped to where they live now (MC-2090). The same one-time-retirement
-// shape as `collectReviewStateMigrations`, and core's job for the same reason:
-// these are core's OWN persisted rows, and only core can read them once the
-// field is gone from `AppSettings`. Values pass through untouched — the owning
-// module normalizes what it reads, so core keeps no knowledge of their shape.
+// them, mapped to where they live now (MC-2090). These are core's OWN persisted
+// rows, and only core can read them once the field is gone from `AppSettings`.
+// Values pass through untouched — the owning module normalizes what it reads,
+// so core keeps no knowledge of their shape.
 //
 // Each entry dies when a profile that predates the move can no longer exist.
-const RETIRED_MODULE_SETTINGS: ReadonlyArray<{ from: string; moduleId: string; key: string }> = [
-  { from: 'reviewGuideDefaults', moduleId: 'review', key: 'guide-defaults' },
-  { from: 'lastSelectedReview', moduleId: 'review', key: 'last-selected-review' },
-]
+// Empty today: the review rows retired with the review surfaces themselves. The
+// mechanism stays because the next key that moves out of core needs it.
+const RETIRED_MODULE_SETTINGS: ReadonlyArray<{ from: string; moduleId: string; key: string }> = []
 
 // Lift any retired key still on a persisted settings blob into its module's
 // namespace, without overwriting a value the module has already written there.

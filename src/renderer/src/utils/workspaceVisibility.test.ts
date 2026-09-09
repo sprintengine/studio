@@ -3,7 +3,6 @@ import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
   SPRINT_ENGINE_WORKSPACE_MODE,
   STANDARD_WORKSPACE_MODE,
-  REVIEW_WORKSPACE_MODE,
   REVIEWS_HOST_WORKSPACE_MODE,
   type BundledWorkspaceMode,
 } from '../types/workspace'
@@ -34,10 +33,8 @@ const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
   // host workspaces are rail-hidden background runtime containers — never a
   // Projects-list row, switch target, or palette result.
   [AUTOMATIONS_HOST_WORKSPACE_MODE]: true,
-  // A review workspace is a real project-scoped workspace, so it stays a rail
-  // row — unlike the Reviews *host* below, which is the door's background
-  // container in the same sense as the automations host.
-  [REVIEW_WORKSPACE_MODE]: false,
+  // The Reviews *host* is the door's background container, in the same sense as
+  // the automations host.
   [REVIEWS_HOST_WORKSPACE_MODE]: true,
 }
 
