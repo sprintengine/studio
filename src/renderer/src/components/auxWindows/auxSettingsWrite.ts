@@ -1,4 +1,4 @@
-import { useWorkspaceStore } from '../../store/workspaceStore'
+import { SETTINGS_ENVELOPE_FIELDS, useWorkspaceStore } from '../../store/workspaceStore'
 import { APP_SETTINGS_STORAGE_KEY } from '../../store/slices/persistenceSlice'
 
 // Writing an app setting from an AUXILIARY window, safely.
@@ -28,10 +28,20 @@ export function writeAuxWindowSetting(mutate: () => void): void {
     const raw = window.localStorage.getItem(APP_SETTINGS_STORAGE_KEY)
     const envelope = raw ? (JSON.parse(raw) as { state?: Record<string, unknown> } | null) : null
     const state = envelope?.state
-    // The key holds settings fields and nothing else (the registry is a
-    // separate, frozen key), so merging it wholesale cannot reach a workspace.
+    // The ALLOWLIST, not the whole object. "The key holds settings fields and
+    // nothing else" is an assumption about a file on disk — one this process
+    // did not necessarily write, and cannot check — and `setState` with a cast
+    // to `never` would have let anything in that file reach the store,
+    // workspaces and all. Only the fields the envelope is defined to carry are
+    // merged, and only the ones actually present.
     if (state && typeof state === 'object') {
-      useWorkspaceStore.setState(state as never)
+      const settings: Record<string, unknown> = {}
+      for (const key of SETTINGS_ENVELOPE_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(state, key)) settings[key] = state[key]
+      }
+      if (Object.keys(settings).length > 0) {
+        useWorkspaceStore.setState(settings as Partial<ReturnType<typeof useWorkspaceStore.getState>>)
+      }
     }
   } catch {
     // An unreadable or malformed settings key is one we do not merge. The write
