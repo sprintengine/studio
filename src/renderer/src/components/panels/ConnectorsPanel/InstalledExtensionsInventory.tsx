@@ -34,6 +34,7 @@ import {
   Spinner,
   StatusDot,
   Tooltip,
+  UseSkillInAgentMenu,
 } from '../../ui'
 import {
   NO_WORKSPACE_FOLDER_MESSAGE,
@@ -41,7 +42,6 @@ import {
   skillRestartToast,
   useSkillInAgent,
 } from '../../../utils/useSkillInAgent'
-import { UseSkillInAgentMenu } from '../../ui/UseSkillInAgentMenu'
 import { showToast } from '../../../store/toastStore'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'

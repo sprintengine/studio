@@ -86,7 +86,6 @@ export function UseSkillInAgentMenu({
     }
     let cancelled = false
     setSessions(null)
-    setError(null)
     void listLiveAgentSessions({ workspaceId }).then((live) => {
       if (!cancelled) setSessions(live)
     })
@@ -126,39 +125,63 @@ export function UseSkillInAgentMenu({
     return () => cancelAnimationFrame(frame)
   }, [open, sessions, focusMenu])
 
-  const run = async (
-    action: () => Promise<string | null | void> | string | null | void,
-  ): Promise<void> => {
-    if (busy) return
+  // `busy` the state drives the disabled attributes; `busyRef` is the guard.
+  // A second click can land before React has re-rendered the trigger disabled
+  // — the direct path awaits the session list before it sets any state — and
+  // a guard read from the render closure would let both through: two
+  // installs, two invocations at the prompt. The ref is written synchronously
+  // on the click, so the second one finds it set.
+  const busyRef = useRef(false)
+  const guarded = async (work: () => Promise<void>): Promise<void> => {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
-    setError(null)
     try {
-      const message = await action()
-      if (typeof message === 'string' && message) setError(message)
-      else setOpen(false)
+      await work()
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
 
+  type Outcome = Promise<string | null | void> | string | null | void
+
+  // A returned message stays in the menu, open; anything else closes it.
+  const finish = (message: Awaited<Outcome>): void => {
+    if (typeof message === 'string' && message) {
+      setError(message)
+      setOpen(true)
+    } else {
+      setOpen(false)
+    }
+  }
+
+  const run = (action: () => Outcome): Promise<void> =>
+    guarded(async () => {
+      setError(null)
+      finish(await action())
+    })
+
   // One live agent is not a question. Where the caller asks for it, the trigger
   // answers it itself and the menu never appears; everywhere else the click
-  // opens the menu, synchronously, before anything is listed.
-  const openOrUse = async (togglePopover: () => void): Promise<void> => {
-    if (busy || disabled) return
-    if (!directWhenSingle || unavailableReason) {
-      if (unavailableReason) setError(unavailableReason)
-      togglePopover()
-      return
-    }
-    const live = await listLiveAgentSessions({ workspaceId })
-    const target = pickTargetSession(live, preferred)
-    if (target) {
-      await run(() => onUse(target))
-      return
-    }
-    togglePopover()
-  }
+  // opens the menu, synchronously, before anything is listed. A direct use that
+  // fails has no open menu to speak in, so `finish` opens it around the message
+  // — which is why the open effect above leaves `error` alone.
+  const openOrUse = (togglePopover: () => void): Promise<void> =>
+    guarded(async () => {
+      if (disabled) return
+      setError(unavailableReason)
+      if (!directWhenSingle || unavailableReason) {
+        togglePopover()
+        return
+      }
+      const target = pickTargetSession(await listLiveAgentSessions({ workspaceId }), preferred)
+      if (!target) {
+        togglePopover()
+        return
+      }
+      finish(await onUse(target))
+    })
 
   const Trigger = emphasis === 'primary' ? PrimaryButton : OutlineButton
 

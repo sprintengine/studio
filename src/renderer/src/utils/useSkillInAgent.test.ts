@@ -8,6 +8,7 @@ import type {
 } from '../../../shared/electron-api'
 import type { SkillIntegrationLike } from './skillInvocation'
 import {
+  AGENT_NO_LONGER_RUNNING_MESSAGE,
   describeHarnessWrites,
   listLiveAgentSessions,
   NO_WORKSPACE_FOLDER_MESSAGE,
@@ -89,12 +90,20 @@ function bracketedPaste(text: string): string {
 
 type WriteCall = { sessionId: string; data: string }
 
+// The sessions the flow tests paste into, all live: the flow asks the list
+// again right before the write, so a target that is absent from it is refused.
+const LIVE_TARGETS = [
+  session({ sessionId: 'alive', cli: 'claude-code', workspaceId: 'w1' }),
+  session({ sessionId: 's', cli: 'claude-code', workspaceId: 'w1' }),
+]
+
 function installWindowApiStub(input: {
   sessions?: TerminalSessionSnapshot[]
   attach?: AgentSkillWriteResult
   skills?: WorkspaceSkill[]
   skillsResult?: { ok: false; message: string }
   terminalWriteThrows?: string
+  terminalListThrows?: string
 }): { writes: WriteCall[]; attachCalls: unknown[] } {
   const writes: WriteCall[] = []
   const attachCalls: unknown[] = []
@@ -102,7 +111,10 @@ function installWindowApiStub(input: {
     configurable: true,
     value: {
       api: {
-        terminalList: async () => input.sessions ?? [],
+        terminalList: async () => {
+          if (input.terminalListThrows) throw new Error(input.terminalListThrows)
+          return input.sessions ?? LIVE_TARGETS
+        },
         terminalWrite: async (sessionId: string, data: string) => {
           if (input.terminalWriteThrows) throw new Error(input.terminalWriteThrows)
           writes.push({ sessionId, data })
@@ -369,6 +381,48 @@ async function main(): Promise<void> {
     })
     assert.equal(refused.ok, false)
     assert.equal(!refused.ok && refused.message, 'session is gone')
+  }
+  {
+    // The agent died between the menu listing it and the paste. Main's write
+    // handler drops input to an exited session without a word, so the flow
+    // asks the list again first — and the install still happened, because the
+    // skill is wanted in the workspace whichever agent ends up using it.
+    const gone = installWindowApiStub({ sessions: [] })
+    const refused = await useSkillInAgent({
+      workspaceRoot: '/repo',
+      skill: SKILL,
+      session: { sessionId: 's', cli: 'claude-code' },
+      clis: CLIS,
+    })
+    assert.deepEqual(refused, { ok: false, message: AGENT_NO_LONGER_RUNNING_MESSAGE })
+    assert.deepEqual(gone.writes, [], 'nothing is written to a session that is no longer there')
+    assert.equal(gone.attachCalls.length, 1)
+
+    // Still listed, but exited (or paused, or moved into a worktree): the same
+    // rule that admitted it to the menu refuses it here.
+    const dead = installWindowApiStub({
+      sessions: [session({ sessionId: 's', cli: 'claude-code', processAlive: false })],
+    })
+    const refusedDead = await useSkillInAgent({
+      workspaceRoot: '/repo',
+      skill: SKILL,
+      session: { sessionId: 's', cli: 'claude-code' },
+      clis: CLIS,
+    })
+    assert.equal(refusedDead.ok, false)
+    assert.deepEqual(dead.writes, [])
+
+    // A list that cannot be read is not evidence the agent is gone: the write
+    // goes ahead, as it always did, and its own outcome is the answer.
+    const unknown = installWindowApiStub({ terminalListThrows: 'ipc down' })
+    const wrote = await useSkillInAgent({
+      workspaceRoot: '/repo',
+      skill: SKILL,
+      session: { sessionId: 's', cli: 'claude-code' },
+      clis: CLIS,
+    })
+    assert.equal(wrote.ok, true)
+    assert.equal(unknown.writes.length, 1)
   }
 
   // ── Resolving the record a row only names ────────────────────────────────

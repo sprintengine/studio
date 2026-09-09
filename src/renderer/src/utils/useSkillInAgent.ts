@@ -51,6 +51,9 @@ export const SKILL_NOT_IN_WORKSPACE_MESSAGE =
 /** No live agent to paste into. */
 export const NO_LIVE_AGENT_MESSAGE = 'No running agents'
 
+/** The chosen agent exited, or was paused, between the menu and the paste. */
+export const AGENT_NO_LONGER_RUNNING_MESSAGE = 'That agent is no longer running. Pick another.'
+
 // ── Which agents can take a skill ────────────────────────────────────────────
 
 /**
@@ -237,6 +240,16 @@ export async function useSkillInAgent(input: UseSkillInAgentInput): Promise<UseS
   }
 
   const invocation = renderSkillInvocation({ skill, integration, nativeInstalled })
+
+  // The paste is a plain `terminalWrite`, and main's handler for it drops input
+  // to a session that has exited instead of saying so (`writeTerminalInput`,
+  // src/main/terminal-runtime.ts). The attach above took a moment; an agent
+  // that died in it would otherwise be reported as used, with the menu closed
+  // over a paste that reached nothing. So the session is asked about again,
+  // by the same rule that listed it, right before the write.
+  if (!(await sessionStillUsable(session.sessionId))) {
+    return { ok: false, message: AGENT_NO_LONGER_RUNNING_MESSAGE }
+  }
   try {
     await window.api.terminalWrite(session.sessionId, bracketedPaste(`${invocation} `))
   } catch (error) {
@@ -254,6 +267,22 @@ export async function useSkillInAgent(input: UseSkillInAgentInput): Promise<UseS
     restartRequired: harnesses.some((harness) => harness.restartRequired),
     harnesses,
   }
+}
+
+/**
+ * Whether the session is still one this flow may write into. A list that
+ * cannot be read is not evidence the agent is gone, so the write goes ahead on
+ * that failure alone — which is all any caller could do before.
+ */
+async function sessionStillUsable(sessionId: string): Promise<boolean> {
+  let sessions: readonly TerminalSessionSnapshot[]
+  try {
+    sessions = await window.api.terminalList()
+  } catch {
+    return true
+  }
+  const current = sessions.find((candidate) => candidate.sessionId === sessionId)
+  return current ? isUsableAgentSession(current) : false
 }
 
 /**
