@@ -107,7 +107,11 @@ async function isUntracked(repoRoot: string, relativePath: string): Promise<bool
 
 function toHunkViews(hunks: DiffHunk[], scope: GitHunkScope): GitHunkView[] {
   return hunks.map((hunk, index) => ({
+    // Position in THIS diff. `locateHunk` is given it as a hint and checks the
+    // fingerprint before believing it, so the union interleaving two diffs'
+    // indices costs nothing.
     index,
+    scope,
     oldStart: hunk.oldStart,
     oldLines: hunk.oldLines,
     newStart: hunk.newStart,
@@ -122,12 +126,38 @@ function toHunkViews(hunks: DiffHunk[], scope: GitHunkScope): GitHunkView[] {
 }
 
 /**
- * The hunks of the diff the viewer is showing, and the whole file's counter.
+ * Both diffs' hunks as one list, in the order they read down the file.
  *
- * Both diffs are read every time, because the counter is about the file and the
- * boxes are about one side of it: `staged` (HEAD→index) is the included half,
- * `unstaged` (index→worktree) is the rest, and they partition the file's
- * differences between them (see `summariseInclusion`).
+ * The two diffs are measured from different sides of the index, so a staged
+ * hunk's `newStart` counts lines of the INDEX version and an unstaged hunk's
+ * counts lines of the WORKTREE version. They are not the same coordinate
+ * system, and this does not pretend they are: it sorts by the number each hunk
+ * has, which puts the boxes in file order to within the lines the other side
+ * has added or removed above them. Every hunk being present at all is what
+ * matters — a hunk whose box vanished when it was ticked could never be
+ * unticked, which is the bug this ordering is the cheap half of.
+ */
+function unionHunkViews(staged: DiffHunk[], unstaged: DiffHunk[]): GitHunkView[] {
+  return [...toHunkViews(staged, 'staged'), ...toHunkViews(unstaged, 'unstaged')].sort(
+    (a, b) =>
+      a.newStart - b.newStart
+      || a.oldStart - b.oldStart
+      // A tie is two hunks at the same line on opposite sides of the index. The
+      // included one is drawn first, so the order is at least deterministic.
+      || Number(b.included) - Number(a.included)
+  )
+}
+
+/**
+ * EVERY hunk of the file — both sides of the index — and the whole file's
+ * counter.
+ *
+ * `staged` (HEAD→index) is the included half, `unstaged` (index→worktree) is
+ * the rest, and they partition the file's differences between them (see
+ * `summariseInclusion`). Both halves come back, each carrying the `included`
+ * flag its own diff implies, because a box that disappeared the moment it was
+ * ticked left no way to take that hunk back out again. `scope` says only which
+ * of the two texts the viewer is showing.
  */
 export async function readFileHunks(
   repoRoot: string,
@@ -159,7 +189,7 @@ export async function readFileHunks(
   return {
     ok: true,
     scope,
-    hunks: toHunkViews(scope === 'staged' ? stagedHunks : unstagedHunks, scope),
+    hunks: unionHunkViews(stagedHunks, unstagedHunks),
     summary: summariseInclusion(stagedHunks, unstagedHunks),
     unsupported: null,
   }

@@ -55,14 +55,17 @@ export function HunkGutter({
   editor: GlyphMarginHost | null
   boxes: HunkBox[]
   lane?: number
-  onToggle: (index: number) => void
+  /** Called with the box's `key` — `hunkKey`, the one name that survives the
+   *  re-read a toggle causes. */
+  onToggle: (key: string) => void
 }): JSX.Element | null {
-  const [nodes, setNodes] = useState<Map<number, HTMLElement>>(() => new Map())
+  const [nodes, setNodes] = useState<Map<string, HTMLElement>>(() => new Map())
 
   // Where every box is, as one string. The widgets are rebuilt when a hunk
   // moves — staging one hunk shifts every hunk under it — and never when only
-  // its state changed, which is the portal's job.
-  const layout = boxes.map((box) => `${box.index}@${box.line}`).join(',')
+  // its state changed, which is the portal's job. `widgetId` rather than `key`:
+  // a key is a hunk's whole body, and this string is rebuilt on every render.
+  const layout = boxes.map((box) => `${box.widgetId}@${box.line}`).join(',')
 
   useEffect(() => {
     if (!editor) {
@@ -73,7 +76,7 @@ export function HunkGutter({
       const domNode = document.createElement('div')
       domNode.className = 'flex h-full w-full items-center justify-center'
       const widget: GlyphMarginWidget = {
-        getId: () => `multicode.hunk-include.${box.index}`,
+        getId: () => `multicode.hunk-include.${box.widgetId}`,
         getDomNode: () => domNode,
         getPosition: () => ({
           lane,
@@ -87,9 +90,9 @@ export function HunkGutter({
         }),
       }
       editor.addGlyphMarginWidget(widget)
-      return { index: box.index, domNode, widget }
+      return { key: box.key, domNode, widget }
     })
-    setNodes(new Map(created.map((entry) => [entry.index, entry.domNode])))
+    setNodes(new Map(created.map((entry) => [entry.key, entry.domNode])))
     return () => {
       for (const entry of created) {
         // The editor may already be gone — a file switch that disposed it, the
@@ -112,9 +115,9 @@ export function HunkGutter({
   return (
     <>
       {boxes.map((box) => {
-        const node = nodes.get(box.index)
+        const node = nodes.get(box.key)
         if (!node) return null
-        return createPortal(<HunkIncludeBox box={box} onToggle={onToggle} />, node, `hunk-${box.index}`)
+        return createPortal(<HunkIncludeBox box={box} onToggle={onToggle} />, node, `hunk-${box.key}`)
       })}
     </>
   )
@@ -135,9 +138,9 @@ export function HunkGutter({
  * own arrow keys are untouched — a box in the margin must not become a second
  * hunk stepper.
  */
-function HunkIncludeBox({ box, onToggle }: { box: HunkBox; onToggle: (index: number) => void }): JSX.Element {
+function HunkIncludeBox({ box, onToggle }: { box: HunkBox; onToggle: (key: string) => void }): JSX.Element {
   const toggle = (): void => {
-    if (!box.busy) onToggle(box.index)
+    if (!box.busy) onToggle(box.key)
   }
   return (
     <span
@@ -146,7 +149,7 @@ function HunkIncludeBox({ box, onToggle }: { box: HunkBox; onToggle: (index: num
       aria-checked={box.checked}
       aria-label={box.label}
       aria-disabled={box.busy || undefined}
-      data-hunk-index={box.index}
+      data-hunk-key={box.key}
       className={`flex size-icon-xs cursor-pointer items-center justify-center ${FOCUS_RING_CLASS} aria-disabled:cursor-progress`}
       // Monaco reads mousedown in the margin as "select this line"; the box is
       // a control sitting on top of the gutter, not a place in the text.

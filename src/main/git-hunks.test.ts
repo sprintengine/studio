@@ -58,10 +58,19 @@ function refFor(repo: string, path: string, file: GitFileHunks, index: number): 
   return {
     repoRoot: repo,
     filePath: join(repo, path),
-    scope: file.scope,
+    // The hunk's OWN diff, not the one the viewer asked for: the result is the
+    // UNION of both, and a toggle is defined by the side the hunk is on.
+    scope: hunk.scope,
     index: hunk.index,
     fingerprint: hunk.fingerprint,
   }
+}
+
+/** The one hunk on the given side of the index. */
+function only(file: GitFileHunks, included: boolean): number {
+  const matches = file.hunks.map((hunk, at) => ({ hunk, at })).filter((entry) => entry.hunk.included === included)
+  assert.equal(matches.length, 1, `exactly one ${included ? 'included' : 'excluded'} hunk`)
+  return matches[0].at
 }
 
 /* ── the acceptance case ──────────────────────────────────────────────────── */
@@ -99,22 +108,37 @@ async function assertTwoHunksStageIndependently(): Promise<void> {
     // indeterminate on their own, with no wiring from here to either of them.
     assert.equal(status(repo, 'f.txt'), 'MM f.txt')
 
-    // And the counter now says one of two, from both sides of the file.
+    // And the counter now says one of two, from both sides of the file — while
+    // BOTH boxes stay on screen, whichever text the viewer is showing. This is
+    // the whole of the union: a box that vanished when it was ticked left the
+    // person no way to take that hunk back out again.
     const afterUnstaged = await hunksOf(repo, 'f.txt', 'unstaged')
     assert.deepEqual(afterUnstaged.summary, { total: 2, included: 1 })
-    assert.equal(afterUnstaged.hunks.length, 1)
-    assert.equal(afterUnstaged.hunks[0].included, false)
+    assert.equal(afterUnstaged.hunks.length, 2)
+    // In file order by their new-side line: the line-1 rewrite is still in the
+    // working tree, the line-3 deletion is now in the index.
+    assert.deepEqual(afterUnstaged.hunks.map((hunk) => hunk.included), [false, true])
+    assert.deepEqual(afterUnstaged.hunks.map((hunk) => hunk.scope), ['unstaged', 'staged'])
     const afterStaged = await hunksOf(repo, 'f.txt', 'staged')
     assert.deepEqual(afterStaged.summary, { total: 2, included: 1 })
-    assert.equal(afterStaged.hunks.length, 1)
-    assert.equal(afterStaged.hunks[0].included, true)
+    assert.equal(afterStaged.hunks.length, 2, 'the same two boxes, from the other text')
+    assert.deepEqual(
+      afterStaged.hunks.map((hunk) => hunk.fingerprint),
+      afterUnstaged.hunks.map((hunk) => hunk.fingerprint),
+      'and they are the same two hunks either way',
+    )
 
-    // Toggling it back restores the index exactly.
-    const undone = await unstageGitHunk(refFor(repo, 'f.txt', afterStaged, 0))
+    // Toggling it back restores the index exactly — from the UNSTAGED view,
+    // which is where the person is standing and where the old code offered no
+    // box for this hunk at all.
+    const undone = await unstageGitHunk(refFor(repo, 'f.txt', afterUnstaged, only(afterUnstaged, true)))
     assert.equal(undone.ok, true, undone.message ?? undone.stderr)
     assert.equal(git(repo, ['show', ':f.txt']), 'a\nb\nc\nd\ne\n')
     assert.equal(status(repo, 'f.txt'), ' M f.txt')
-    assert.deepEqual((await hunksOf(repo, 'f.txt', 'unstaged')).summary, { total: 2, included: 0 })
+    const restored = await hunksOf(repo, 'f.txt', 'unstaged')
+    assert.deepEqual(restored.summary, { total: 2, included: 0 })
+    assert.equal(restored.hunks.length, 2)
+    assert.equal(restored.hunks.every((hunk) => hunk.included === false), true)
     console.log('ok - one hunk of two goes into the index, and comes back out')
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -138,13 +162,14 @@ async function assertOffsetsAreRecomputedEveryTime(): Promise<void> {
 
     assert.equal((await stageGitHunk(refFor(repo, 'f.txt', before, 0))).ok, true)
     const after = await hunksOf(repo, 'f.txt', 'unstaged')
-    assert.equal(after.hunks.length, 1)
+    assert.equal(after.hunks.length, 2, 'both sides of the index are drawn')
+    const survivor = after.hunks[only(after, false)]
     assert.notEqual(
-      after.hunks[0].oldStart,
+      survivor.oldStart,
       secondOldStart,
       'the surviving hunk must have moved, or this test is not testing anything'
     )
-    assert.equal(after.hunks[0].fingerprint, secondFingerprint, 'and its identity must not have')
+    assert.equal(survivor.fingerprint, secondFingerprint, 'and its identity must not have')
 
     // A caller holding the ORIGINAL ref — stale index, stale offsets, right
     // body — still stages the right lines, because the body is the identity.

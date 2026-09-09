@@ -34,6 +34,7 @@ function run(name: string, fn: () => void): void {
 function hunk(patch: Partial<GitHunkView> = {}): GitHunkView {
   return {
     index: 0,
+    scope: patch.included ? 'staged' : 'unstaged',
     oldStart: 4,
     oldLines: 1,
     newStart: 4,
@@ -77,17 +78,45 @@ run('a branch step carries no boxes: there is no index between two commits', () 
 
 run('a box is drawn per hunk, on the modified side, named by its line', () => {
   const boxes = hunkBoxes({
-    hunks: [hunk({ index: 0, newStart: 4 }), hunk({ index: 1, newStart: 12, newLines: 0 })],
+    hunks: [
+      hunk({ index: 0, newStart: 4, fingerprint: 'one' }),
+      hunk({ index: 1, newStart: 12, newLines: 0, fingerprint: 'two' }),
+    ],
     key: 'unstaged:/repo/src/a.ts',
     override: null,
     relativePath: 'src/a.ts',
   })
   assert.equal(boxes.length, 2)
   assert.deepEqual(
-    boxes.map((box) => [box.index, box.line, box.checked, box.busy]),
-    [[0, 4, false, false], [1, 12, false, false]],
+    boxes.map((box) => [box.line, box.checked, box.busy]),
+    [[4, false, false], [12, false, false]],
   )
   assert.equal(boxes[0].label, 'Include the change at line 4 of src/a.ts')
+  // Two names per box: the identity that survives a re-read, and the short one
+  // Monaco's widget map and the layout signature use.
+  assert.deepEqual(boxes.map((box) => box.key), ['unstaged\none', 'unstaged\ntwo'])
+  assert.deepEqual(boxes.map((box) => box.widgetId), ['unstaged.0', 'unstaged.1'])
+})
+
+run('both sides of the index are drawn, and each box knows which side it is on', () => {
+  // The union (src/main/git-hunks.ts). Two hunks of one file, one of them
+  // already included: the ticked box must STAY, or there is no way to untick it.
+  const boxes = hunkBoxes({
+    hunks: [
+      hunk({ index: 0, newStart: 4, fingerprint: 'still-out' }),
+      hunk({ index: 0, newStart: 9, fingerprint: 'now-in', included: true, scope: 'staged' }),
+    ],
+    key: 'unstaged:/repo/src/a.ts',
+    override: null,
+    relativePath: 'src/a.ts',
+  })
+  assert.equal(boxes.length, 2)
+  assert.deepEqual(boxes.map((box) => box.checked), [false, true])
+  // The two hunks share an index — they come from different diffs — so nothing
+  // may key on it.
+  assert.deepEqual(boxes.map((box) => box.key), ['unstaged\nstill-out', 'staged\nnow-in'])
+  assert.deepEqual(boxes.map((box) => box.widgetId), ['unstaged.0', 'staged.0'])
+  assert.equal(hunkAction(boxes[1]), 'unstage')
 })
 
 run('a staged hunk is drawn included, and its box says how to take it out', () => {
@@ -106,12 +135,21 @@ run('a staged hunk is drawn included, and its box says how to take it out', () =
 /* ── The optimistic value ─────────────────────────────────────────────────── */
 
 function override(patch: Partial<HunkOverride> = {}): HunkOverride {
-  return { key: 'unstaged:/repo/src/a.ts', index: 1, checked: true, afterRevision: 3, ...patch }
+  return {
+    fileKey: 'unstaged:/repo/src/a.ts',
+    hunkKey: 'unstaged\ntwo',
+    checked: true,
+    afterRevision: 3,
+    ...patch,
+  }
 }
 
 run('the pending click is shown as though it had happened, and refuses a second', () => {
   const boxes = hunkBoxes({
-    hunks: [hunk({ index: 0 }), hunk({ index: 1, newStart: 9 })],
+    hunks: [
+      hunk({ index: 0, fingerprint: 'one' }),
+      hunk({ index: 1, newStart: 9, fingerprint: 'two' }),
+    ],
     key: 'unstaged:/repo/src/a.ts',
     override: override(),
     relativePath: 'src/a.ts',
@@ -125,13 +163,26 @@ run('the pending click is shown as though it had happened, and refuses a second'
 
 run('a prediction about another file is never shown on this one', () => {
   const boxes = hunkBoxes({
-    hunks: [hunk({ index: 0 }), hunk({ index: 1 })],
+    hunks: [hunk({ index: 0, fingerprint: 'one' }), hunk({ index: 1, fingerprint: 'two' })],
     key: 'staged:/repo/src/a.ts',
     override: override(),
     relativePath: 'src/a.ts',
   })
   assert.deepEqual(boxes.map((box) => box.checked), [false, false])
   assert.deepEqual(boxes.map((box) => box.busy), [false, false])
+})
+
+run('a prediction follows the hunk, not the slot it was read in', () => {
+  // Including the hunk above renumbers this one. Keyed on the index, the tick
+  // would jump to whichever hunk inherited the number; keyed on the body, it
+  // stays where it was put.
+  const renumbered = hunkBoxes({
+    hunks: [hunk({ index: 0, newStart: 9, fingerprint: 'two' })],
+    key: 'unstaged:/repo/src/a.ts',
+    override: override(),
+    relativePath: 'src/a.ts',
+  })
+  assert.deepEqual(renumbered.map((box) => [box.checked, box.busy]), [[true, true]])
 })
 
 run('a prediction dies with the read that supersedes it, right or wrong', () => {

@@ -90,6 +90,7 @@ async function main(): Promise<void> {
     return hunkBoxes({
       hunks: lines.map((line, index) => ({
         index,
+        scope: included ? ('staged' as const) : ('unstaged' as const),
         oldStart: line,
         oldLines: 1,
         newStart: line,
@@ -99,7 +100,15 @@ async function main(): Promise<void> {
       })),
       key: 'unstaged:/repo/a.ts',
       override: override
-        ? { key: 'unstaged:/repo/a.ts', index: override.index, checked: override.checked, afterRevision: 0 }
+        ? {
+            fileKey: 'unstaged:/repo/a.ts',
+            // A box is named by its hunk's body, never by the slot it was read
+            // in — the gutter draws the union of two diffs, and including one
+            // hunk renumbers the rest.
+            hunkKey: `${included ? 'staged' : 'unstaged'}\nh${override.index}`,
+            checked: override.checked,
+            afterRevision: 0,
+          }
         : null,
       relativePath: 'a.ts',
     })
@@ -124,8 +133,8 @@ async function main(): Promise<void> {
     const editor = fakeEditor()
     const view = mount(<HunkGutter editor={editor.host} boxes={boxesFor([4, 19])} onToggle={() => {}} />)
     assert.equal(editor.widgets.size, 2)
-    assert.equal(editor.lineOf('multicode.hunk-include.0'), 4)
-    assert.equal(editor.lineOf('multicode.hunk-include.1'), 19)
+    assert.equal(editor.lineOf('multicode.hunk-include.unstaged.0'), 4)
+    assert.equal(editor.lineOf('multicode.hunk-include.unstaged.1'), 19)
     // The lane is the centre one, and every widget asks for the same one.
     assert.deepEqual(
       [...editor.widgets.values()].map((widget) => widget.getPosition().lane),
@@ -150,9 +159,9 @@ async function main(): Promise<void> {
 
   run('a click and a Space both toggle, and each names one hunk', () => {
     const editor = fakeEditor()
-    const toggled: number[] = []
+    const toggled: string[] = []
     const view = mount(
-      <HunkGutter editor={editor.host} boxes={boxesFor([4, 19])} onToggle={(index) => toggled.push(index)} />,
+      <HunkGutter editor={editor.host} boxes={boxesFor([4, 19])} onToggle={(key) => toggled.push(key)} />,
     )
     const boxes = editor.margin.querySelectorAll('[role="checkbox"]')
     act(() => {
@@ -161,18 +170,18 @@ async function main(): Promise<void> {
     act(() => {
       boxes[0].dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: ' ', bubbles: true }))
     })
-    assert.deepEqual(toggled, [1, 0])
+    assert.deepEqual(toggled, ['unstaged\nh1', 'unstaged\nh0'])
     view.unmount()
   })
 
   run('a busy box refuses a second click while the first is in flight', () => {
     const editor = fakeEditor()
-    const toggled: number[] = []
+    const toggled: string[] = []
     const view = mount(
       <HunkGutter
         editor={editor.host}
         boxes={boxesFor([4], false, { index: 0, checked: true })}
-        onToggle={(index) => toggled.push(index)}
+        onToggle={(key) => toggled.push(key)}
       />,
     )
     const box = editor.margin.querySelector('[role="checkbox"]') as HTMLElement
@@ -189,9 +198,16 @@ async function main(): Promise<void> {
     const editor = fakeEditor()
     const view = mount(<HunkGutter editor={editor.host} boxes={boxesFor([4, 19])} onToggle={() => {}} />)
     const created = editor.adds
-    // Same lines, different state: Monaco must not be touched, or the box would
-    // flicker every time a read landed.
-    view.render(<HunkGutter editor={editor.host} boxes={boxesFor([4, 19], true)} onToggle={() => {}} />)
+    // Same lines, different state — the optimistic tick a click leaves behind,
+    // which is the state change that happens BEFORE git has answered. Monaco
+    // must not be touched, or the box would flicker on every click.
+    view.render(
+      <HunkGutter
+        editor={editor.host}
+        boxes={boxesFor([4, 19], false, { index: 0, checked: true })}
+        onToggle={() => {}}
+      />,
+    )
     assert.equal(editor.adds, created, 'the widgets are the same widgets')
     assert.equal(
       (editor.margin.querySelector('[role="checkbox"]') as HTMLElement).getAttribute('aria-checked'),
@@ -207,7 +223,7 @@ async function main(): Promise<void> {
     // Staging the first hunk shortens the file above the second one. Nothing
     // here caches an offset: new lines, new widgets.
     view.render(<HunkGutter editor={editor.host} boxes={boxesFor([4, 16])} onToggle={() => {}} />)
-    assert.equal(editor.lineOf('multicode.hunk-include.1'), 16)
+    assert.equal(editor.lineOf('multicode.hunk-include.unstaged.1'), 16)
     assert.equal(editor.widgets.size, 2, 'and the old widget did not stay behind')
     view.unmount()
   })

@@ -213,25 +213,51 @@ export function summariseInclusion(
  * ------------------------------------------------------------------ */
 
 /**
- * Which diff the viewer is showing, and therefore which diff's hunks carry the
- * boxes: `staged` is HEAD↔index (every hunk is included), `unstaged` is
- * index↔worktree (no hunk is). A hunk's include state is its scope — there is
- * no third answer for a hunk, only for the file.
+ * Which diff the viewer is showing, and therefore which TEXT is under the
+ * boxes: `staged` is HEAD↔index, `unstaged` is index↔worktree.
+ *
+ * It is no longer which hunks are drawn. A hunk's scope IS its include state —
+ * a hunk of the staged diff is in the index, a hunk of the unstaged diff is not
+ * — so drawing only the scope's own hunks made the box vanish the moment it was
+ * ticked, and a hunk you had just included could never be taken back out from
+ * this window. The boxes are the UNION of both diffs (`readFileHunks`); the
+ * scope only chooses which of the two texts Monaco is showing.
  */
 export type GitHunkScope = 'staged' | 'unstaged'
 
 /** One hunk as the renderer sees it: where to draw the box, and what to say. */
 export type GitHunkView = {
-  /** Position in the scope's diff, as read. A hint for `locateHunk`, not an id. */
+  /** Position in ITS OWN diff, as read. A hint for `locateHunk`, not an id —
+   *  the union interleaves two diffs, so two hunks can share an index. */
   index: number
+  /** The diff this hunk came from, which is the diff a toggle must name. */
+  scope: GitHunkScope
   oldStart: number
   oldLines: number
   newStart: number
   newLines: number
   /** `hunkFingerprint` of the hunk — what actually names it across a re-read. */
   fingerprint: string
-  /** Whether this hunk is in the index. Follows the scope, always. */
+  /** Whether this hunk is in the index. Follows its own scope, always. */
   included: boolean
+}
+
+/**
+ * What names one box across a re-read.
+ *
+ * Not the index: staging one hunk renumbers every later hunk of both diffs, and
+ * the union interleaves them, so index 1 a second ago is not index 1 now. The
+ * body is the identity (`hunkFingerprint`) and the scope is what tells the two
+ * halves of the union apart when a file has the same change on both sides.
+ */
+export function hunkKey(hunk: Pick<GitHunkView, 'scope' | 'fingerprint'>): string {
+  return `${hunk.scope}\n${hunk.fingerprint}`
+}
+
+/** Which way a click on this hunk's box goes. There is no third case: a hunk is
+ *  in the index or it is not. */
+export function hunkToggleScope(hunk: Pick<GitHunkView, 'included'>): GitHunkScope {
+  return hunk.included ? 'staged' : 'unstaged'
 }
 
 /** Why a file has no per-hunk boxes, when it has none. */
@@ -239,8 +265,14 @@ export type GitHunkUnsupported = 'binary' | 'untracked'
 
 export type GitFileHunks = {
   ok: true
+  /** Which of the two texts Monaco is showing. Not a filter on `hunks`. */
   scope: GitHunkScope
-  /** The hunks of the diff on screen, in file order. */
+  /**
+   * EVERY hunk of the file, both sides of the index, ordered by their new-side
+   * line so the boxes read down the gutter in file order. The staged ones carry
+   * `included: true` and the unstaged ones `included: false`, which is the
+   * whole of what a box shows and the whole of what a click has to decide.
+   */
   hunks: GitHunkView[]
   /**
    * The whole file's counter. Null when the file's differences could not be

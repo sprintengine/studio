@@ -8,12 +8,26 @@
 // box that lies about the index for good.
 
 import type { GitHunkView, HunkInclusionSummary } from '../../../../shared/git/hunks'
-import { hunkGutterLine } from '../../../../shared/git/hunks'
+import { hunkGutterLine, hunkKey } from '../../../../shared/git/hunks'
 import type { DiffFileItem } from './diffFileList'
 
 /** One drawn box: where it goes, what it shows, and what it is called. */
 export type HunkBox = {
-  index: number
+  /**
+   * What this box IS, across a re-read: `hunkKey` — the hunk's side of the
+   * index and its body. Not the index it was read at. The gutter draws the
+   * UNION of both diffs, so two hunks share an index routinely, and including
+   * one renumbers the rest; a prediction pinned to a number would land on
+   * whichever hunk inherited it.
+   */
+  key: string
+  /**
+   * Unique within ONE read, and short: Monaco's widget id, and the signature
+   * the gutter re-lays-out on. `key` cannot serve — a fingerprint is the hunk's
+   * whole body, and joining a file's worth of them on every render to compare
+   * layouts is a string nobody needs to build.
+   */
+  widgetId: string
   /** A line number in the MODIFIED editor — the one editor both views draw. */
   line: number
   checked: boolean
@@ -41,8 +55,9 @@ export type HunkBox = {
  */
 export type HunkOverride = {
   /** `<kind>:<path>` — the file this prediction is about. */
-  key: string
-  index: number
+  fileKey: string
+  /** `hunkKey` — which box, said in the one way that survives a re-read. */
+  hunkKey: string
   checked: boolean
   afterRevision: number
 }
@@ -77,11 +92,11 @@ export function hasHunkGutter(item: DiffFileItem | null): boolean {
  */
 export function settleOverride(
   override: HunkOverride | null,
-  key: string | null,
+  fileKey: string | null,
   revision: number
 ): HunkOverride | null {
   if (!override) return null
-  if (override.key !== key) return null
+  if (override.fileKey !== fileKey) return null
   if (revision > override.afterRevision) return null
   return override
 }
@@ -92,6 +107,7 @@ export function settleOverride(
  * already happened.
  */
 export function hunkBoxes(input: {
+  /** BOTH diffs' hunks, as `readFileHunks` returns them. */
   hunks: GitHunkView[]
   key: string | null
   override: HunkOverride | null
@@ -99,10 +115,12 @@ export function hunkBoxes(input: {
 }): HunkBox[] {
   const override = settleOverrideKey(input.override, input.key)
   return input.hunks.map((hunk) => {
-    const pending = override?.index === hunk.index
+    const key = hunkKey(hunk)
+    const pending = override?.hunkKey === key
     const checked = pending ? (override as HunkOverride).checked : hunk.included
     return {
-      index: hunk.index,
+      key,
+      widgetId: `${hunk.scope}.${hunk.index}`,
       line: hunkGutterLine(hunk),
       checked,
       busy: Boolean(pending),
@@ -113,8 +131,8 @@ export function hunkBoxes(input: {
   })
 }
 
-function settleOverrideKey(override: HunkOverride | null, key: string | null): HunkOverride | null {
-  return override && override.key === key ? override : null
+function settleOverrideKey(override: HunkOverride | null, fileKey: string | null): HunkOverride | null {
+  return override && override.fileKey === fileKey ? override : null
 }
 
 /**
@@ -129,9 +147,9 @@ function settleOverrideKey(override: HunkOverride | null, key: string | null): H
 export function predictedSummary(
   summary: HunkInclusionSummary | null,
   override: HunkOverride | null,
-  key: string | null
+  fileKey: string | null
 ): HunkInclusionSummary | null {
-  if (!summary || !override || override.key !== key) return summary
+  if (!summary || !override || override.fileKey !== fileKey) return summary
   const included = summary.included + (override.checked ? 1 : -1)
   return { total: summary.total, included: Math.max(0, Math.min(included, summary.total)) }
 }
