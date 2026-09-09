@@ -302,13 +302,15 @@ export function refreshPullRequestsForLine(
   // synchronous and would otherwise fire an IPC per event while the first
   // promise was still in flight.
   askedAt.set(key, now)
-  const answer = window.api?.refreshPullRequestsForSession?.(sessionId) as unknown
+  const answer = window.api?.refreshPullRequestsForSession?.(sessionId)
   void Promise.resolve(answer).then(
     (accepted) => {
-      // Main may answer whether it actually took the ask (it can hold one back
-      // while the observed checkout is unresolved). A refusal is not an ask, so
-      // it must not spend the minute — anything else, including today's
-      // `Promise<void>`, is one that was taken.
+      // Main answers whether there was anything to ask about — false for a
+      // session it cannot name, or one whose observed checkout has not resolved
+      // yet. A question that was never put is not an ask, so it does not spend
+      // the minute; the next hover, by which time the checkout may have
+      // resolved, puts it again. (`undefined` is an older preload that answered
+      // nothing, and is read as an ask that was taken.)
       if (accepted === false) askedAt.delete(key)
     },
     // A rejected call reached nobody. Forget it, or a main process that was
