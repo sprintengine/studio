@@ -16,6 +16,10 @@ import { createBuiltInAutomationProviderRegistry } from '../automations/provider
 import { AutomationsStore } from '../automations/store'
 import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import { createMcpConfigService, type PluginLookup } from '../mcp-config-service'
+import {
+  canonicalManifestPayload as moduleCanonicalPayload,
+  validateThirdPartyModuleManifest,
+} from '../../shared/modules/third-party-manifest'
 import { installMarketplacePlugin, type MarketplaceAutomationInstaller } from './plugin-bundle-installer'
 
 type RuntimeModule = typeof import('../terminal-runtime')
@@ -27,7 +31,10 @@ type BundleComponents = {
   // `permissions` is the MODULE manifest's own declaration; the bundle
   // plugin.json always discloses ['network'], so overriding this is how the
   // bundle/module permission cross-check gets exercised.
-  module?: { path: string; permissions?: string[] }
+  // `signer` signs the MODULE manifest itself (the identity `classifyModuleTrust`
+  // reads), which is a different signature from the bundle's — G1 is about the
+  // inner one.
+  module?: { path: string; permissions?: string[]; signer?: ModuleSigner }
   cli?: { path: string }
   automation?: { path: string; source?: string }
 }
@@ -184,6 +191,38 @@ function mcpPluginManifest(id: string, format: PluginMcpConfigFormat): PluginMan
   }
 }
 
+/**
+ * A signer for the INNER module manifest. `fingerprint` is what goes into a
+ * trust context's `trustedKeyFingerprints` to make `classifyModuleTrust` say
+ * 'trusted' rather than 'signed'.
+ */
+type ModuleSigner = {
+  fingerprint: string
+  sign: (manifest: Record<string, unknown>) => { algorithm: 'ed25519'; publicKey: string; signature: string }
+}
+
+function moduleSigner(): ModuleSigner {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519')
+  const publicKeyDer = publicKey.export({ type: 'spki', format: 'der' }) as Buffer
+  return {
+    fingerprint: createHash('sha256').update(publicKeyDer).digest('hex'),
+    sign: (manifest) => {
+      const parsed = validateThirdPartyModuleManifest({
+        ...manifest,
+        signature: { algorithm: 'ed25519', publicKey: publicKeyDer.toString('base64'), signature: 'ZGVm' },
+      })
+      assert.equal(parsed.ok, true)
+      if (!parsed.ok) throw new Error('test module manifest did not validate')
+      const payload = Buffer.from(moduleCanonicalPayload(parsed.manifest), 'utf8')
+      return {
+        algorithm: 'ed25519',
+        publicKey: publicKeyDer.toString('base64'),
+        signature: sign(null, payload, privateKey).toString('base64'),
+      }
+    },
+  }
+}
+
 async function createBundle(
   root: string,
   components: BundleComponents,
@@ -215,12 +254,16 @@ async function createBundle(
     )
   }
   if (components.module) {
-    files.set(`${components.module.path}/manifest.json`, `${JSON.stringify({
+    const moduleManifest: Record<string, unknown> = {
       id: 'bundle-module',
       displayName: 'Bundle Module',
       version: 1,
       permissions: components.module.permissions ?? ['network'],
-    }, null, 2)}\n`)
+    }
+    const signed = components.module.signer
+      ? { ...moduleManifest, signature: components.module.signer.sign(moduleManifest) }
+      : moduleManifest
+    files.set(`${components.module.path}/manifest.json`, `${JSON.stringify(signed, null, 2)}\n`)
   }
   if (components.cli) {
     files.set(`${components.cli.path}/plugin.json`, `${JSON.stringify({
@@ -806,8 +849,67 @@ async function testModuleComponentSurfacesTrustIdentity(): Promise<void> {
   })
 }
 
+// G1. A `verified` first-party bundle installs with no trust prompt, so a
+// module inside it must be signed by a trusted publisher in its own manifest.
+// An unsigned inner manifest is refused in preflight, before any file is
+// written — and the SAME bundle still installs when the caller has not claimed
+// it is verified.
+async function testVerifiedBundleRefusesUntrustedModuleManifestBeforeWrites(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const components: BundleComponents = { module: { path: 'module' } }
+    const bundle = await createBundle(temp, components)
+    const { input, services, moduleRoot } = await installInput(temp, bundle)
+
+    const refused = await installMarketplacePlugin(input, services, { requireTrustedModuleComponents: true })
+    assert.equal(refused.ok, false)
+    if (refused.ok) return
+    assert.equal(refused.component, 'module')
+    assert.match(refused.message, /must be signed by a trusted publisher/)
+    assert.match(refused.message, /unsigned/)
+    assert.deepEqual(refused.installed ?? [], [], 'nothing was written before the refusal')
+    assert.equal(existsSync(join(moduleRoot, 'bundle-module')), false)
+
+    // Not a blanket ban on the bundle: without the verified claim it installs.
+    const installed = await installMarketplacePlugin(input, services)
+    assert.equal(installed.ok, true)
+  })
+}
+
+// The other half of G1: a module manifest signed by a publisher the trust
+// context lists installs through the verified path untouched.
+async function testVerifiedBundleAcceptsTrustedPublisherModuleManifest(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = moduleSigner()
+    const bundle = await createBundle(temp, { module: { path: 'module', signer } })
+    const { input, services, moduleRoot } = await installInput(temp, bundle)
+    const trusted = {
+      ...services,
+      trustContext: () => ({ trustedModules: new Map(), trustedKeyFingerprints: new Set([signer.fingerprint]) }),
+    }
+
+    const result = await installMarketplacePlugin(input, trusted, { requireTrustedModuleComponents: true })
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+    const module = result.installed.find((component) => component.kind === 'module')
+    assert.equal(module?.trustStatus, 'trusted')
+    assert.equal(existsSync(join(moduleRoot, 'bundle-module', 'manifest.json')), true)
+
+    // A module signed by SOMEBODY — but not a trusted publisher — is 'signed',
+    // which the verified path still refuses: the standing has to be earned by
+    // the key, not by carrying a signature at all.
+    const strangerBundle = await createBundle(temp, { module: { path: 'module', signer: moduleSigner() } })
+    const stranger = await installInput(temp, strangerBundle)
+    const refused = await installMarketplacePlugin(stranger.input, trusted, { requireTrustedModuleComponents: true })
+    assert.equal(refused.ok, false)
+    if (refused.ok) return
+    assert.match(refused.message, /is signed/)
+  })
+}
+
 async function main(): Promise<void> {
   await testInstallsEveryComponentThroughRealPaths()
+  await testVerifiedBundleRefusesUntrustedModuleManifestBeforeWrites()
+  await testVerifiedBundleAcceptsTrustedPublisherModuleManifest()
   await testRejectsModuleDeclaringUndisclosedPermissionsBeforeWrites()
   await testModuleComponentSurfacesTrustIdentity()
   await testInstallsUnsignedMcpSkillsBundle()

@@ -86,12 +86,38 @@ type ResolvedInstallPlan = {
   trust: ModuleTrust
 }
 
+/**
+ * Install-time facts the CALLER knows and the bundle cannot state about itself.
+ * Not part of `MarketplacePluginInstallInput`, deliberately: that type crosses
+ * IPC from the renderer, and `requireTrustedModuleComponents` is derived in main
+ * from the download's own classification — a renderer that could set it could
+ * also clear it.
+ */
+export type MarketplacePluginInstallOptions = {
+  /**
+   * G1. The bundle verified as `verified` — signed by a publisher listed in
+   * `trusted-publishers.json` — so any module it carries must ALSO be signed by
+   * one, and the install refuses the bundle outright otherwise.
+   *
+   * Why the inner manifest and not just the bundle: `verified` installs skip
+   * the trust prompt entirely (see installFlow.ts), and the thing that decides
+   * whether a module's code loads at launch is `classifyModuleTrust` on the
+   * MODULE manifest, not on the bundle. A first-party bundle wrapping a module
+   * signed by somebody else — or by nobody — would install silently and then
+   * either sit awaiting a trust toggle nobody was told about, or, for a
+   * reserved id, be rejected by the module registry after the fact. Both are a
+   * first-party install that quietly did not do what it said.
+   */
+  requireTrustedModuleComponents?: boolean
+}
+
 export async function installMarketplacePlugin(
   input: MarketplacePluginInstallInput,
-  services: MarketplacePluginInstallerServices
+  services: MarketplacePluginInstallerServices,
+  options: MarketplacePluginInstallOptions = {}
 ): Promise<MarketplacePluginInstallResult> {
   const installed: MarketplacePluginInstalledComponent[] = []
-  const preflight = await buildInstallPlan(input, services.trustContext())
+  const preflight = await buildInstallPlan(input, services.trustContext(), options)
   if (!preflight.ok) return preflight.result
 
   const { manifest, plan } = preflight
@@ -118,7 +144,8 @@ export async function installMarketplacePlugin(
 
 async function buildInstallPlan(
   input: MarketplacePluginInstallInput,
-  trustContext: ModuleTrustContext
+  trustContext: ModuleTrustContext,
+  options: MarketplacePluginInstallOptions
 ): Promise<
   | { ok: true; manifest: MarketplacePluginAuthoringManifest; plan: ResolvedInstallPlan }
   | { ok: false; result: MarketplacePluginInstallResult }
@@ -186,7 +213,7 @@ async function buildInstallPlan(
     const resolved = await resolveComponent(bundleRoot.path, component)
     if (!resolved.ok) return failure(resolved.message, component.kind)
 
-    const prepared = await prepareComponent(resolved.path, component.kind, input, manifest, trustContext)
+    const prepared = await prepareComponent(resolved.path, component.kind, input, manifest, trustContext, options)
     if (!prepared.ok) return failure(prepared.message, component.kind, prepared.issues)
     resolvedComponents.push(prepared.component)
   }
@@ -424,7 +451,8 @@ async function prepareComponent(
   kind: MarketplaceComponentKind,
   input: MarketplacePluginInstallInput,
   manifest: MarketplacePluginAuthoringManifest,
-  trustContext: ModuleTrustContext
+  trustContext: ModuleTrustContext,
+  options: MarketplacePluginInstallOptions
 ): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
   switch (kind) {
     case 'mcp':
@@ -432,7 +460,7 @@ async function prepareComponent(
     case 'skills':
       return prepareSkillComponent(path)
     case 'module':
-      return prepareModuleComponent(path, trustContext, manifest)
+      return prepareModuleComponent(path, trustContext, manifest, options)
     case 'cli':
       return prepareCliComponent(path)
     case 'automation':
@@ -540,7 +568,8 @@ async function prepareSkillComponent(path: string): Promise<{ ok: true; componen
 async function prepareModuleComponent(
   path: string,
   trustContext: ModuleTrustContext,
-  bundleManifest: MarketplacePluginAuthoringManifest
+  bundleManifest: MarketplacePluginAuthoringManifest,
+  options: MarketplacePluginInstallOptions
 ): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
   const manifest = await readText(join(path, 'manifest.json'), 'module manifest')
   if (!manifest.ok) return { ok: false, message: 'No manifest.json found in module component.', issues: manifest.issues }
@@ -554,6 +583,27 @@ async function prepareModuleComponent(
       ok: false,
       message: `Module "${parsed.manifest.id}" has an invalid signature and cannot be installed.`,
       issues: [{ path: 'signature', message: 'Invalid signature.' }],
+    }
+  }
+  // G1. A first-party (verified) bundle installs with no trust prompt at all,
+  // so the module inside it has to earn the same standing on its own: signed by
+  // a publisher in trusted-publishers.json, which is what makes
+  // `classifyModuleTrust` say 'trusted' rather than 'signed' or 'unsigned'.
+  // Refused here, in preflight, so nothing has been written yet and the caller
+  // rolls back exactly as it does for any other preflight failure.
+  if (options.requireTrustedModuleComponents && trust.status !== 'trusted') {
+    return {
+      ok: false,
+      message:
+        `Module "${parsed.manifest.id}" is inside a verified first-party plugin, so its own manifest must be `
+        + `signed by a trusted publisher; this one is ${trust.status}. `
+        + 'A first-party module manifest must be signed by a trusted publisher.',
+      issues: [
+        {
+          path: 'signature',
+          message: `module manifest trust is "${trust.status}"; a verified bundle requires "trusted".`,
+        },
+      ],
     }
   }
   // The trust prompt discloses the BUNDLE manifest's permissions (see the

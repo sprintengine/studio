@@ -213,7 +213,13 @@ async function installOrUpdateMarketplacePlugin(
       skillHarnesses: input.skillHarnesses,
       ...(input.automationDefaultCli ? { automationDefaultCli: input.automationDefaultCli } : {}),
     }
-    const installed = await installMarketplacePlugin(installInput, services)
+    // G1: a `verified` bundle installs with no trust prompt, so a module inside
+    // it must be signed by a trusted publisher in its OWN manifest — the
+    // preflight refuses the bundle otherwise, before anything is written, and
+    // the failure rolls back through the same path as any other.
+    const installed = await installMarketplacePlugin(installInput, services, {
+      requireTrustedModuleComponents: installClassification === 'verified',
+    })
     if (!installed.ok) {
       const rollback = await rollbackInstalledComponents(
         entry.entry.id,
