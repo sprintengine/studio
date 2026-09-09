@@ -591,6 +591,14 @@ export type MarketplacePluginInstallResult =
       // entry lists that shipped without bundled content and so were not
       // installed. Surfaced to the user; never hidden behind ok:true.
       notices?: string[]
+      /**
+       * The install landed a module whose code only loads at app launch, so
+       * nothing it contributes is there yet (D13). Derived in main from
+       * `LIVE_ENABLED_MODULE_IDS` — the renderer is told the answer rather than
+       * keeping its own copy of which modules are live-enabled. Absent or false
+       * means the install is fully in effect.
+       */
+      restartRequired?: boolean
     }
   | {
       ok: false

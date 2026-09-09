@@ -409,6 +409,9 @@ async function testInstallsEveryComponentThroughRealPaths(): Promise<void> {
     assert.equal(result.trust, 'signed')
     assert.equal(result.loadEligible, false, 'signed but untrusted bundle is not auto-trusted')
     assert.deepEqual(result.installed.map((component) => component.kind), ['mcp', 'skills', 'module', 'cli'])
+    // G7: the bundle landed a module, and no module outside
+    // LIVE_ENABLED_MODULE_IDS loads until the app is launched again.
+    assert.equal(result.restartRequired, true)
     assert.equal(result.mcpSettings?.servers['bundle-mcp']?.enabled, true)
 
     const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
@@ -605,6 +608,8 @@ async function testInstallsUnsignedMcpSkillsBundle(): Promise<void> {
     assert.equal(result.trust, 'unsigned')
     assert.equal(result.loadEligible, false, 'unsigned bundle is never load-eligible')
     assert.deepEqual(result.installed.map((component) => component.kind), ['mcp', 'skills'])
+    // An mcp/skills bundle is in effect the moment it lands: nothing to relaunch.
+    assert.equal(result.restartRequired, false)
 
     const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
     assert.match(codexConfig, /\[mcp_servers\.bundle-mcp\]/)

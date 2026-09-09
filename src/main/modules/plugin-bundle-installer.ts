@@ -25,6 +25,7 @@ import {
 } from '../../shared/marketplace'
 import type { AutomationDefinition, AutomationsResult } from '../../shared/automations/contracts'
 import { AGENT_BACKED_ACTION_KINDS } from '../../shared/automations/contracts'
+import { LIVE_ENABLED_MODULE_IDS } from '../../shared/modules/manifest'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
 import {
   marketplaceAutomationPayloadIssuesSync,
@@ -138,8 +139,24 @@ export async function installMarketplacePlugin(
     trust: plan.trust.status,
     loadEligible: isLoadEligible(plan.trust.status),
     installed,
+    restartRequired: installRequiresRestart(installed),
     ...(nextMcpSettings ? { mcpSettings: nextMcpSettings } : {}),
   }
+}
+
+/**
+ * G7. A module's `entry.main` is loaded once, at app launch, for every module
+ * outside `LIVE_ENABLED_MODULE_IDS` — so an install that landed one has not
+ * actually put it in the app yet, and saying a flat "Installed." sends the
+ * person looking for a door that is not there until they relaunch. Computed
+ * here, from the components that were really written, so the answer travels
+ * with the result rather than being guessed at by the surface.
+ *
+ * Only module components: an MCP server, a skill, a CLI plugin and an
+ * automation all take effect immediately.
+ */
+function installRequiresRestart(installed: MarketplacePluginInstalledComponent[]): boolean {
+  return installed.some((component) => component.kind === 'module' && !LIVE_ENABLED_MODULE_IDS.includes(component.id))
 }
 
 async function buildInstallPlan(

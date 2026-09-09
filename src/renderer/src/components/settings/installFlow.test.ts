@@ -127,6 +127,49 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
     updated: false,
     notices: ['1 skill (capped) ships without bundled content and was not installed.'],
   })
+
+  // G7. A bundle that landed a module the app only loads at launch is on disk
+  // and not yet in the app; main says so and the flow carries it.
+  const needsRestart: MarketplacePluginRegistryInstallResult = { ...ok, restartRequired: true }
+  assert.deepEqual(summarizeInstallResult(needsRestart), {
+    status: 'installed',
+    updated: false,
+    restartRequired: true,
+  })
+  // An explicit false is the ordinary case and is not carried as a flag.
+  assert.deepEqual(summarizeInstallResult({ ...ok, restartRequired: false }), { status: 'installed', updated: false })
+}
+
+// G7: the sentence a restart-required install shows says what happened AND what
+// is left to do, on both the fresh and the update path, and it survives the
+// warn tone a partial skill install puts on the same notice.
+{
+  const fresh = deriveInstallView({ status: 'installed', updated: false, restartRequired: true })
+  assert.deepEqual(fresh.notice, { tone: 'good', message: 'Installed. Restart SprintEngine Studio to use it.' })
+  assert.equal(fresh.action, null)
+  assert.equal(fresh.busy, false)
+
+  const updated = deriveInstallView({ status: 'installed', updated: true, restartRequired: true })
+  assert.deepEqual(updated.notice, {
+    tone: 'good',
+    message: 'Updated to the latest version. Restart SprintEngine Studio to use it.',
+  })
+
+  const partial = deriveInstallView({
+    status: 'installed',
+    updated: false,
+    restartRequired: true,
+    notices: ['skill X was not installed.'],
+  })
+  assert.equal(partial.notice?.tone, 'warn')
+  assert.equal(partial.notice?.message, 'Installed. Restart SprintEngine Studio to use it.')
+  assert.deepEqual(partial.notice?.issues, ['skill X was not installed.'])
+
+  // An mcp/skills-only install still reads as done, with nothing to relaunch.
+  assert.equal(
+    deriveInstallView({ status: 'installed', updated: false }).notice?.message,
+    'Installed.',
+  )
 }
 
 {
