@@ -10,13 +10,14 @@
 //      hold it: every preference is in the live half, so switching one is
 //      always an `updateOptions` call and never a new editor.
 //   2. The file include box's tri-state and what a click on it does.
-//   3. The difference counter's sentence, with the `includedHunkCount` seam
-//      T7 (include-a-hunk) fills in.
+//   3. The difference counter's sentence, and how many of the file's
+//      differences are in the index (T7, include-a-hunk).
 //   4. The header strip's two rev labels — which are just the revisions the
 //      loader already chose, said out loud.
 
 import type * as Monaco from 'monaco-editor'
 
+import type { HunkInclusionSummary } from '../../../../shared/git/hunks'
 import type { DiffViewMode } from '../../store/slices/settingsSlice'
 import type { DiffFileItem } from './diffFileList'
 import type { BranchDiffItem } from './branchSteps'
@@ -82,6 +83,18 @@ export function diffEditorOptions(
     automaticLayout: true,
     contextmenu: false,
     renderOverviewRuler: true,
+    // The lane the per-hunk include boxes hang in (T7). Always on rather than
+    // conditional: the gutter holds the include boxes, and a margin that
+    // appeared and vanished with the file would shift the code sideways every
+    // time the stepper crossed a binary file. It is a fixed option because it
+    // does not move with any preference — see the test above this file's split.
+    glyphMargin: true,
+    // Monaco's own diff gutter — its revert arrows and their menu — is off:
+    // this diff is read-only, and the ONE control between the two panes is the
+    // include box (T7). Two gutters offering two different verbs on the same
+    // hunk is the confusion the mockup's single box was drawn to avoid.
+    renderGutterMenu: false,
+    renderMarginRevertIcon: false,
     ...liveDiffEditorOptions(prefs),
   }
 }
@@ -140,43 +153,69 @@ export type IncludedHunkCountInput = {
   /** Monaco's line-change count for the file on screen. */
   differenceCount: number
   fileInclude: IncludeBoxState
+  /**
+   * What the MAIN process counted for this file: every difference between HEAD
+   * and the working tree, and how many of them are in the index
+   * (`src/main/git-hunks.ts`). Null until that read lands, and null for a file
+   * whose differences cannot be counted as hunks at all — a binary file, an
+   * untracked one — where a zero would be a lie rather than an answer.
+   */
+  hunkSummary?: HunkInclusionSummary | null
 }
 
 /**
- * ── THE SEAM T7 FILLS ──────────────────────────────────────────────────────
+ * How many of this file's differences are in the index, or `null` for "nobody
+ * can answer that yet" — in which case the counter says the honest, shorter
+ * thing instead of inventing a zero.
  *
- * How many of this file's hunks are in the index. `null` means "nobody can
- * answer that yet", and the counter says the honest, shorter thing instead of
- * inventing a zero.
+ * The count comes from git and never from Monaco. Monaco's line-change count is
+ * a different number computed by a different algorithm (it merges what
+ * `ignoreTrimWhitespace` lets it merge, and groups changes its own way), and
+ * mixing the two would put a total from one beside an included count from the
+ * other. So when the summary is here, BOTH halves of the sentence come from it,
+ * and the gutter boxes — drawn from the same git hunks — cannot disagree with
+ * the words above them.
  *
- * `2026-09-09-include-a-hunk` (T7) is the item that replaces this body: once a
- * hunk can be staged on its own (`git apply --cached` of one hunk) the count
- * exists, and returning it here is the whole wiring — `differenceCounterLabel`
- * already prints "N differences, M included" the moment this stops returning
- * null, and `DiffViewer` already calls it on every render with the file, the
- * hunk count and the whole-file state.
- *
- * Deliberately a plain function and not a prop: the count is derived from the
- * same three facts everywhere it is needed, and threading it through the
- * component tree would give T7 a second decision to make about where it lives.
+ * `total <= 0` is treated as no answer: a rename with no content change, or a
+ * file whose only change is its mode, has no hunks while Monaco still has two
+ * texts to compare, and "No differences" over a full screen of diff is the one
+ * thing worse than saying nothing.
  */
-export function includedHunkCount(_input: IncludedHunkCountInput): number | null {
-  return null
+export function includedHunkCount(input: IncludedHunkCountInput): number | null {
+  const summary = input.hunkSummary
+  if (!summary || summary.total <= 0) return null
+  // A branch step is two commits, not an index: there is nothing for the word
+  // "included" to mean, whatever the working tree happens to hold right now.
+  if (!isIncludable(input.item)) return null
+  return Math.max(0, Math.min(summary.included, summary.total))
+}
+
+/**
+ * The number of differences the counter is counting: git's, whenever git has
+ * answered, and Monaco's otherwise. Exported so the two callers of the sentence
+ * — the label below and its test — read the same number.
+ */
+export function differenceTotal(input: IncludedHunkCountInput): number {
+  return includedHunkCount(input) !== null && input.hunkSummary
+    ? input.hunkSummary.total
+    : input.differenceCount
 }
 
 /** "2 differences, 1 included" — the mockup's counter, in the three states it
- *  can honestly be in before and after T7. */
+ *  can honestly be in. */
 export function differenceCounterLabel(input: IncludedHunkCountInput): string {
-  const { differenceCount, fileInclude } = input
-  if (differenceCount <= 0) return 'No differences'
-  const noun = differenceCount === 1 ? '1 difference' : `${differenceCount} differences`
+  const { fileInclude } = input
   const included = includedHunkCount(input)
+  const total = differenceTotal(input)
+  if (total <= 0) return 'No differences'
+  const noun = total === 1 ? '1 difference' : `${total} differences`
   if (included !== null) return `${noun}, ${included} included`
   // A branch step has no index behind it, so the working tree's stage flags say
   // nothing about it: a historical diff of a file that happens to be staged
   // right now must not claim its own differences are "included".
   if (!isIncludable(input.item)) return noun
-  // Before T7 the only "included" fact in the building is the whole file's, so
+  // No hunk count for this file — binary, untracked, or the read has not landed
+  // yet. The only "included" fact in the building is then the whole file's, so
   // that is the only claim the counter makes.
   if (fileInclude.checked && !fileInclude.indeterminate) return `${noun}, all included`
   return noun

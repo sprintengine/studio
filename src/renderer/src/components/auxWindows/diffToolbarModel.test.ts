@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   DEFAULT_DIFF_EDITOR_PREFS,
   differenceCounterLabel,
+  differenceTotal,
   diffEditorOptions,
   headerStripModel,
   includeAction,
@@ -157,15 +158,91 @@ run('the counter claims only what it knows', () => {
   )
 })
 
-run('includedHunkCount is the T7 seam and answers null until T7 fills it', () => {
+run('the counter fills in once git has counted the file\'s hunks', () => {
+  const item = working()
+  const empty = { checked: false, indeterminate: false }
+  const mixed = { checked: false, indeterminate: true }
+  // Both halves of the sentence come from git's summary — never git's included
+  // count beside Monaco's total, which are two different numbers.
+  assert.equal(
+    differenceCounterLabel({ item, differenceCount: 1, fileInclude: mixed, hunkSummary: { total: 2, included: 1 } }),
+    '2 differences, 1 included',
+  )
+  assert.equal(
+    differenceCounterLabel({ item, differenceCount: 2, fileInclude: empty, hunkSummary: { total: 2, included: 0 } }),
+    '2 differences, 0 included',
+  )
+  assert.equal(
+    differenceCounterLabel({ item, differenceCount: 1, fileInclude: empty, hunkSummary: { total: 1, included: 1 } }),
+    '1 difference, 1 included',
+  )
+  assert.equal(differenceTotal({ item, differenceCount: 9, fileInclude: empty, hunkSummary: { total: 2, included: 1 } }), 2)
+})
+
+run('the mixed box and the counter can never contradict each other', () => {
+  // The state the whole feature is judged on: half a file staged. The summary
+  // is the two diffs added up, so a mixed box always lands strictly between
+  // "none included" and "all included".
+  const label = differenceCounterLabel({
+    item: working(),
+    differenceCount: 1,
+    fileInclude: { checked: false, indeterminate: true },
+    hunkSummary: { total: 2, included: 1 },
+  })
+  assert.equal(label, '2 differences, 1 included')
+  assert.equal(/all included/.test(label), false)
+  assert.equal(/, 0 included/.test(label), false)
+})
+
+run('includedHunkCount answers null until somebody has actually counted', () => {
+  const item = working()
+  const full = { checked: true, indeterminate: false }
+  assert.equal(includedHunkCount({ item, differenceCount: 4, fileInclude: full }), null)
+  assert.equal(includedHunkCount({ item, differenceCount: 4, fileInclude: full, hunkSummary: null }), null)
+  // Before the read lands, the only "included" fact in the building is the
+  // whole file's — the pre-T7 sentence, unchanged.
+  assert.equal(differenceCounterLabel({ item, differenceCount: 4, fileInclude: full }), '4 differences, all included')
+})
+
+run('a summary of zero is no answer, not an answer of nothing', () => {
+  // A rename with no content change, or a mode-only change: git has no hunks
+  // while Monaco still has two texts to compare. "No differences" over a full
+  // screen of diff is worse than saying nothing, so the summary is ignored.
+  const item = working()
+  const empty = { checked: false, indeterminate: false }
+  assert.equal(includedHunkCount({ item, differenceCount: 3, fileInclude: empty, hunkSummary: { total: 0, included: 0 } }), null)
+  assert.equal(
+    differenceCounterLabel({ item, differenceCount: 3, fileInclude: empty, hunkSummary: { total: 0, included: 0 } }),
+    '3 differences',
+  )
+})
+
+run('a branch step is never told how much of it is included', () => {
+  // Two commits with no index between them: the summary would be about the
+  // working tree, which is a different thing entirely.
   assert.equal(
     includedHunkCount({
-      item: working(),
-      differenceCount: 4,
+      item: branch(),
+      differenceCount: 2,
       fileInclude: { checked: true, indeterminate: false },
+      hunkSummary: { total: 2, included: 2 },
     }),
     null,
   )
+  assert.equal(
+    differenceCounterLabel({
+      item: branch(),
+      differenceCount: 2,
+      fileInclude: { checked: true, indeterminate: false },
+      hunkSummary: { total: 2, included: 2 },
+    }),
+    '2 differences',
+  )
+})
+
+run('the glyph margin is on, because that is where the hunk boxes hang', () => {
+  assert.equal(diffEditorOptions(prefs(), 'mono').glyphMargin, true)
+  assert.equal(diffEditorOptions(prefs({ diffView: 'unified' }), 'mono').glyphMargin, true, 'both views draw the margin')
 })
 
 /* ── The header strip ─────────────────────────────────────────────────────── */

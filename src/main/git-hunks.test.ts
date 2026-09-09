@@ -91,6 +91,11 @@ async function assertTwoHunksStageIndependently(): Promise<void> {
 
     // The index has exactly that change and nothing else.
     assert.equal(git(repo, ['show', ':f.txt']), 'a\nb\nd\ne\n')
+    // `MM` is the whole of T7's fourth part. `git status` now reports the file
+    // as both staged and unstaged, which is what `entryCheckedState` in the Git
+    // panel's model already turns into `'mixed'` and `includeBoxState` in the
+    // diff window's already turns into the dash — so both checkboxes go
+    // indeterminate on their own, with no wiring from here to either of them.
     assert.equal(status(repo, 'f.txt'), 'MM f.txt')
 
     // And the counter now says one of two, from both sides of the file.
