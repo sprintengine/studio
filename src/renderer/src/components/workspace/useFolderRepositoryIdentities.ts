@@ -12,8 +12,15 @@ import type { RepositoryIdentity } from '../../../../shared/repository-identity'
 //
 // Keys are the folder path normalised the way the sidebar keys its groups, so
 // two spellings of one folder are one entry. A folder whose identity is not
-// yet read is simply absent from the map — callers treat absent and null the
-// same: "no identity", group by path.
+// yet read is absent from the map, and a folder that was asked and is not a
+// repository is present with `null`. Grouping treats the two the same — "no
+// identity", group by path — but one caller does not: the project-colour
+// allocator (2026-09-09) waits for the ANSWER before giving a project a hue,
+// because a folder coloured under its path key and then re-keyed to its
+// repository would spend two of the six hues on one project and visibly change
+// colour a moment after the window opened. Which is why a window with no reader
+// at all answers `null` for every folder rather than leaving them absent: an
+// open question that can never be answered would hold every project colourless.
 
 export type FolderIdentityMap = ReadonlyMap<string, RepositoryIdentity | null>
 
@@ -28,13 +35,21 @@ export function useFolderRepositoryIdentities(folderPaths: ReadonlyArray<string 
   const wanted = [...new Set(folderPaths.flatMap((path) => (path?.trim() ? [path.trim()] : [])))].sort()
   const wantedKey = wanted.join('\n')
   useEffect(() => {
-    // A window whose preload predates the reader (or a test harness that stubs
-    // a narrower api) simply has no identities: every folder groups by path.
     const read = window.api?.getGitRepositoryIdentity
-    if (typeof read !== 'function') return
     let cancelled = false
     const missing = wanted.filter((path) => !identities.has(folderIdentityKey(path)))
     if (missing.length === 0) return
+    // A window whose preload predates the reader (or a test harness that stubs
+    // a narrower api) simply has no identities: every folder groups by path.
+    // Recorded as a null ANSWER, not left unasked — see the note above.
+    if (typeof read !== 'function') {
+      setIdentities((current) => {
+        const next = new Map(current)
+        for (const path of missing) next.set(folderIdentityKey(path), null)
+        return next
+      })
+      return
+    }
     void Promise.all(
       missing.map(async (path) => {
         // A read that threw is not an answer: the folder stays unasked, so

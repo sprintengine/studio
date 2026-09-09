@@ -32,6 +32,7 @@ import {
   AgentWorkingDots,
   MenuItem,
   MenuSwatchRow,
+  ProjectColorSwatchRow,
   RowButton,
   StarGlyph,
   StatusDot,
@@ -49,6 +50,13 @@ import {
   type WorkspaceId,
 } from '../../types/workspace'
 import { getHighlightSwatch, hasHighlightOverride, isStarred } from '../../utils/highlight'
+import {
+  projectColorKey,
+  resolveProjectColor,
+  type ProjectColor,
+  type ProjectColorSetting,
+} from '../../utils/projectColor'
+import { useAssignProjectColors, useProjectColors } from '../../hooks/useProjectColors'
 import {
   addTabAsNewColumn,
   appendTabAsNewColumnInJson,
@@ -903,6 +911,37 @@ function RemoteRowGlyph({ machineName }: { machineName: string }) {
   )
 }
 
+/**
+ * The project a band row belongs to, said in one glyph (one-colour-per-project,
+ * owner 2026-09-09).
+ *
+ * The Starred and Remote bands mix projects with no folder header above them,
+ * which is precisely the "which repo is this row?" confusion the colour exists
+ * to answer — so those rows wear the project's folder glyph in the project's
+ * hue. The name goes in the tooltip and the accessible name, not on the row: a
+ * 276px rail cannot afford the project spelled out on every line, and the hue
+ * is the half that is read without reading.
+ *
+ * The colour is on this glyph and on nothing else the row draws — not the
+ * title, not the machine glyph beside it, not the surface. That is the design
+ * system's identity-colour clause, and it is what keeps the gold and green a
+ * row wears for STATE from having to compete with a hue that means identity.
+ */
+function RowProjectGlyph({
+  mark,
+}: {
+  mark: { color: ProjectColor | null; unfiled: boolean; name: string }
+}) {
+  const label = mark.unfiled ? 'No folder' : `In ${mark.name}`
+  return (
+    <Tooltip content={label} placement="bottom" wrapperClassName="flex shrink-0 items-center">
+      <span role="img" aria-label={label} className="flex shrink-0 items-center" data-project-glyph={mark.name}>
+        <FolderTypeIcon className="icon-xs shrink-0" color={mark.color} unfiled={mark.unfiled} />
+      </span>
+    </Tooltip>
+  )
+}
+
 export function WorkingElapsed({ since }: { since: number }) {
   const [now, setNow] = useState(() => Date.now())
   const withinFirstMinute = now - since < 60_000
@@ -1205,6 +1244,9 @@ export default function WorkspaceSidebar({
   const setWorkspaceHighlight = useWorkspaceStore((s) => s.setWorkspaceHighlight)
   const setWorkspaceSettled = useWorkspaceStore((s) => s.setWorkspaceSettled)
   const clearWorkspaceHighlight = useWorkspaceStore((s) => s.clearWorkspaceHighlight)
+  // The person changing a project's colour from its header menu; the only
+  // writer besides the first-sight allocation (one-colour-per-project, 2026-09-09).
+  const setProjectColor = useWorkspaceStore((s) => s.setProjectColor)
   const addWorkspaceFromStore = useWorkspaceStore((s) => s.addWorkspace)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
@@ -1615,8 +1657,17 @@ export default function WorkspaceSidebar({
   // read once per folder. It no longer moves rows between headers — the band
   // holds every remote row — but the reads stay: New chat's "Run on" is what
   // still keys on which repository a local folder is.
+  //
+  // Asked for the row's own folder AND the project it files under: a worktree row's
+  // header is its parent checkout, which may have no row of its own, and the
+  // project colour keyed on that header has to be able to ask which repository
+  // it is (one-colour-per-project, 2026-09-09). Duplicates and nulls are the
+  // hook's to drop.
   const folderIdentities = useFolderRepositoryIdentities(
-    useMemo(() => localRailWorkspaces.map((workspace) => workspace.folderPath), [localRailWorkspaces])
+    useMemo(
+      () => localRailWorkspaces.flatMap((workspace) => [workspace.folderPath, workspaceProjectRoot(workspace)]),
+      [localRailWorkspaces]
+    )
   )
   // Resolved over the rail's rows, not every workspace: a local folder whose
   // rows are all hidden or archived is not a header a remote row can join.
@@ -1641,23 +1692,106 @@ export default function WorkspaceSidebar({
   // and the rail's one control at the top is New chat.
   const chatListView = useWorkspaceStore((s) => s.chatListView)
 
-  // A stream row's project line. The same header the tree would have filed the
-  // row under, so switching views never renames anything: one resolver, two
-  // shapes.
   const groupByKey = useMemo(() => {
     const map = new Map<string, FolderGroup>()
     for (const group of groups) map.set(group.key, group)
     return map
   }, [groups])
-  const flatProjectOf = useCallback(
-    (workspace: Workspace) => {
-      const group = groupByKey.get(keyOf(workspace))
+  // ─── One colour per project, worn on the folder glyph ──────────────────
+  //
+  // Owner review 2026-09-09 (backlog/unfiled/2026-09-09-one-colour-per-project
+  // -on-the-folder-glyph.md): "it's easy to get confused and mixed up ... make
+  // that folder icon a different colour". With a dozen chats open, "which repo
+  // is this row?" is answered by reading the folder name every time; a hue on
+  // the glyph answers it before the name is read.
+  //
+  // THE GLYPH AND NOTHING ELSE ON THE ROW. Not a tinted pill, not a dot, not
+  // the project's name in colour — the design system's "identity colour"
+  // clause: a glyph may wear an identity hue only where nothing else on the row
+  // is coloured, and the hue identifies, it never grades. This rail already
+  // spends colour on state — gold for a turn waiting on the person, green for
+  // one that finished, the selection edge — and a second coloured thing on the
+  // same row would make the person read which of the two a colour meant. It is
+  // also why the palette is SIX hues and not eight: gold and green are spoken
+  // for (utils/projectColor.ts).
+  //
+  // KEYED BY REPOSITORY, not by folder. A project is a repository, so this
+  // disk's clone and a paired machine's copy of it are one project and wear one
+  // hue — the machine is a glyph on the row, never a second colour, which keeps
+  // the one-project-across-machines ruling intact. `folderIdentities` is
+  // already read for every open folder, so the key costs nothing new; a folder
+  // with no remote falls back to its normalised path.
+  const projectColors = useProjectColors()
+
+  // The key a folder group's header and rows colour by, or null when the group
+  // is not a project at all: the "No folder" bucket, and a legacy remote group
+  // whose root lives on another machine and has no local identity to read.
+  //
+  // `settled` is whether the repository question has been ANSWERED for this
+  // folder. A hue is handed out only then: a project coloured under its path
+  // key and re-keyed to its repository a moment later would spend two of the
+  // six hues on one project and change colour just after the window opened,
+  // which is the one thing decision 4 forbids. Until the answer lands the glyph
+  // is simply the plain folder outline — one beat, once per project.
+  const projectKeyOfGroup = useCallback(
+    (group: FolderGroup): { key: string | null; settled: boolean } => {
+      if (group.remote || !group.fullPath) return { key: null, settled: true }
+      const identityKey = folderIdentityKey(group.fullPath)
       return {
-        name: group?.displayName ?? 'No folder',
-        folderPath: group?.fullPath ?? workspace.folderPath ?? null,
+        key: projectColorKey({
+          folderPath: group.fullPath,
+          repository: folderIdentities.get(identityKey) ?? null,
+        }),
+        settled: folderIdentities.has(identityKey),
       }
     },
-    [groupByKey, keyOf]
+    [folderIdentities]
+  )
+  const projectKeyByGroupKey = useMemo(() => {
+    const map = new Map<string, { key: string | null; settled: boolean }>()
+    for (const group of groups) map.set(group.key, projectKeyOfGroup(group))
+    return map
+  }, [groups, projectKeyOfGroup])
+  const projectKeyOf = useCallback(
+    (groupKey: string): string | null => projectKeyByGroupKey.get(groupKey)?.key ?? null,
+    [projectKeyByGroupKey]
+  )
+
+  // A remote row's project is its REPOSITORY and only its repository. The
+  // remote's folder path is a path on another disk: keying by it would let a
+  // path that happens to exist here too collide with a local project, and would
+  // invent a project for a remote folder that is not a checkout of anything.
+  // No repository means no colour — the machine glyph already says where the
+  // row lives.
+  const remoteProjectKeyOf = useCallback(
+    (source: { repository?: { canonicalKey: string } | null } | null | undefined): string | null =>
+      projectColorKey({ folderPath: null, repository: source?.repository ?? null }),
+    []
+  )
+
+  // A stream row's project line. The same header the tree would have filed the
+  // row under, so switching views never renames anything: one resolver, two
+  // shapes. It carries the colour too, since the line IS the glyph's only
+  // caller in the flat stream.
+  const flatProjectOf = useCallback(
+    (workspace: Workspace) => {
+      const groupKey = keyOf(workspace)
+      const group = groupByKey.get(groupKey)
+      const folderPath = group?.fullPath ?? workspace.folderPath ?? null
+      return {
+        name: group?.displayName ?? 'No folder',
+        folderPath,
+        color: resolveProjectColor(projectColors, projectKeyOf(groupKey)),
+        // No folder is not a project (decision 6): the dashed grey outline, so
+        // "unfiled" reads as its own thing rather than as a seventh project.
+        // Narrower than "has no colour" on purpose — a project whose read has
+        // not landed, whose person chose "No colour", or that lives on another
+        // machine has a folder and is NOT unfiled; it keeps the solid glyph in
+        // the row's own ink.
+        unfiled: !group?.remote && !folderPath,
+      }
+    },
+    [groupByKey, keyOf, projectKeyOf, projectColors]
   )
 
   // The row you are in always has a row: a settled chat you selected (or
@@ -1706,6 +1840,61 @@ export default function WorkspaceSidebar({
   const remoteItems = useMemo(
     () => remoteBandItems(remoteGroups, remoteListening, railWorkspaces),
     [remoteGroups, remoteListening, railWorkspaces]
+  )
+
+  // Every project this rail is about to draw, given a hue the first time it is
+  // seen and never again (decision 4). Called ONCE here rather than per row:
+  // the allocator hands out the first hue nobody is using, so it has to see the
+  // whole list at once or two projects that arrived in the same paint would
+  // both be given blue. The action writes nothing when no key is missing, which
+  // is what makes this safe on every render.
+  //
+  // The remote band's keys are in the list too, so a repository that is open
+  // ONLY on a paired machine still gets a colour of its own rather than
+  // borrowing one when a local clone appears later.
+  const projectColorKeys = useMemo(() => {
+    const keys: Array<string | null> = []
+    for (const group of groups) {
+      const project = projectKeyByGroupKey.get(group.key)
+      if (project?.settled) keys.push(project.key)
+    }
+    for (const item of remoteItems) {
+      keys.push(
+        item.kind === 'workspace'
+          ? remoteProjectKeyOf(item.workspace.remoteOrigin)
+          : remoteProjectKeyOf(item.row)
+      )
+    }
+    return keys
+  }, [groups, projectKeyByGroupKey, remoteItems, remoteProjectKeyOf])
+  useAssignProjectColors(projectColorKeys)
+
+  // The mark a band row wears: the project's folder glyph, in the project's
+  // hue, beside the title. The Starred and Remote bands are the two lists that
+  // mix projects with no header above them to say which is which — exactly the
+  // confusion the colour exists to answer — so they are where the glyph earns
+  // its place. The name rides the tooltip and the accessible name rather than
+  // the row's width: a 276px rail has no room to repeat the project on every
+  // line, and the hue is the part that is read without reading.
+  const projectMarkOf = useCallback(
+    (workspace: Workspace): { color: ProjectColor | null; unfiled: boolean; name: string } | null => {
+      const origin = workspace.remoteOrigin
+      if (origin) {
+        const key = remoteProjectKeyOf(origin)
+        // No repository, no project: the machine glyph already says where this
+        // row lives, and a dashed folder would claim it is unfiled when the
+        // truth is that the machine did not say.
+        if (!key) return null
+        return {
+          color: resolveProjectColor(projectColors, key),
+          unfiled: false,
+          name: origin.workspaceName || folderDisplayName(origin.workspaceRoot),
+        }
+      }
+      const project = flatProjectOf(workspace)
+      return { color: project.color, unfiled: project.unfiled, name: project.name }
+    },
+    [flatProjectOf, projectColors, remoteProjectKeyOf]
   )
 
   // Starred workspaces order the same way the folders do: by the person's last
@@ -2123,7 +2312,15 @@ export default function WorkspaceSidebar({
        * and that line takes the row's clock and its hover actions. Null in the
        * tree, where the header says the project once for all its chats.
        */
-      flatProject?: { name: string; folderPath: string | null }
+      flatProject?: { name: string; folderPath: string | null; color: ProjectColor | null; unfiled: boolean }
+      /**
+       * The project's folder glyph, in the project's colour, for a row in a
+       * band that has no folder header above it (Starred, Remote). Null in the
+       * tree and in the flat stream — the header and the project line already
+       * carry the glyph there, and a second one on the same row would be the
+       * same fact said twice.
+       */
+      projectMark?: { color: ProjectColor | null; unfiled: boolean; name: string } | null
     }
   ) => {
     // When a door-routed full-page surface owns the card region (epic 1704), no
@@ -2460,6 +2657,7 @@ export default function WorkspaceSidebar({
     const titleClusterContent = (
       <>
         {options?.remoteMachine ? <RemoteRowGlyph machineName={options.remoteMachine} /> : null}
+        {options?.projectMark ? <RowProjectGlyph mark={options.projectMark} /> : null}
         {starred ? (
           <StarGlyph
             filled
@@ -2582,7 +2780,15 @@ export default function WorkspaceSidebar({
               emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
             }`}
           >
-            <FolderTypeIcon className="icon-xs shrink-0" />
+            {/* THE glyph the project's colour lives on in the flat stream
+                (one-colour-per-project, 2026-09-09). The name beside it stays
+                in the row's own ink: the hue identifies the project, and a
+                coloured word would be a second, louder saying of it. */}
+            <FolderTypeIcon
+              className="icon-xs shrink-0"
+              color={flatProject.color}
+              unfiled={flatProject.unfiled}
+            />
             <span className="min-w-0 truncate">{flatProject.name}</span>
             {statusSeat}
           </div>
@@ -2721,6 +2927,14 @@ export default function WorkspaceSidebar({
   // last worked. No status dot — that vocabulary was already spoken for.
   const renderRemoteSessionRow = (row: RemoteSessionRow, machineName: string) => {
     const rowKey = `remote-session-${row.key}`
+    const remoteProjectKey = remoteProjectKeyOf(row)
+    const remoteProjectMark = remoteProjectKey
+      ? {
+          color: resolveProjectColor(projectColors, remoteProjectKey),
+          unfiled: false,
+          name: row.workspaceName || folderDisplayName(row.workspaceRoot),
+        }
+      : null
     const open = () => onOpenRemoteSession?.(openSpecOf(row))
     const needsAttention = row.activity === 'needs-input'
     const surface = needsAttention
@@ -2745,6 +2959,11 @@ export default function WorkspaceSidebar({
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
             <RemoteRowGlyph machineName={machineName} />
+            {/* The project's hue, when the machine said which repository the
+                session sits in. A remote clone of a repository open here wears
+                the SAME hue as this disk's copy: one project, one colour, the
+                machine is a glyph and never a second colour. */}
+            {remoteProjectMark ? <RowProjectGlyph mark={remoteProjectMark} /> : null}
             {/* Weight marks a running turn, the way residency bolds a local row. */}
             <TruncatedText as="span" text={row.title} className={`min-w-0 flex-1 ${row.activity === 'working' ? 'font-semibold' : ''}`} />
             <span className="sr-only"> (on {machineName}, not open here)</span>
@@ -2961,10 +3180,18 @@ export default function WorkspaceSidebar({
                   it up on THIS disk would present an unrelated local
                   folder's logo (or stat a path that does not exist), so
                   the header wears the neutral mark until the gateway
-                  serves project identity. */}
+                  serves project identity.
+
+                  The project's colour rides the same slot, and the logo still
+                  wins inside FolderIdentityIcon: a detected logo already
+                  answers "which project is this", and a hue behind it would
+                  answer it twice. The "No folder" bucket is not a project at
+                  all, so it gets the dashed outline instead of a hue. */}
               <FolderIdentityIcon
                 folderPath={group.remote ? null : group.fullPath}
                 className="icon-sm shrink-0 transition-opacity group-hover/folder:opacity-0"
+                color={resolveProjectColor(projectColors, projectKeyOf(group.key))}
+                unfiled={!group.remote && !group.fullPath}
               />
               <svg
                 viewBox="0 0 16 16"
@@ -3236,7 +3463,10 @@ export default function WorkspaceSidebar({
             <div id="ws-starred-body" hidden={starredCollapsed}>
               {!starredCollapsed
                 ? starredWorkspaces.map((workspace) =>
-                    renderWorkspaceRow(workspace, keyOf(workspace), { keyPrefix: 'starred-' })
+                    renderWorkspaceRow(workspace, keyOf(workspace), {
+                      keyPrefix: 'starred-',
+                      projectMark: projectMarkOf(workspace),
+                    })
                   )
                 : null}
             </div>
@@ -3290,6 +3520,7 @@ export default function WorkspaceSidebar({
                         ? renderWorkspaceRow(item.workspace, `remote:${item.machineName}`, {
                             keyPrefix: 'remote-',
                             remoteMachine: item.machineName,
+                            projectMark: projectMarkOf(item.workspace),
                           })
                         : renderRemoteSessionRow(item.row, item.machineName)
                     return item.stale ? (
@@ -3409,6 +3640,13 @@ export default function WorkspaceSidebar({
           x={folderMenu.x}
           y={folderMenu.y}
           group={groups.find((g) => g.key === folderMenu.folderKey) ?? null}
+          projectColorKey={projectKeyOf(folderMenu.folderKey)}
+          projectColor={projectColors[projectKeyOf(folderMenu.folderKey) ?? ''] ?? null}
+          onPickProjectColor={(color) => {
+            const key = projectKeyOf(folderMenu.folderKey)
+            if (key) setProjectColor(key, color)
+            setFolderMenu(null)
+          }}
           onClose={() => setFolderMenu(null)}
           onSelect={(action) => {
             const group = groups.find((g) => g.key === folderMenu.folderKey)
@@ -3721,19 +3959,32 @@ function FolderContextMenu({
   x,
   y,
   group,
+  projectColorKey: colorKey,
+  projectColor,
   onClose,
   onSelect,
+  onPickProjectColor,
 }: {
   x: number
   y: number
   group: FolderGroup | null
+  /** The project this header names, or null when it is not a project. */
+  projectColorKey: string | null
+  /** What is stored for that project: a hue, `'none'`, or null for unseen. */
+  projectColor: ProjectColorSetting | null
   onClose: () => void
   onSelect: (action: FolderMenuAction) => void
+  onPickProjectColor: (color: ProjectColorSetting) => void
 }) {
   if (!group) return null
   const canReveal = Boolean(group.fullPath) && !group.missing
   const canForget = Boolean(group.fullPath)
   const canCreateWorkspace = Boolean(group.fullPath) && !group.missing
+  // "Changed by you" (decision 5) — but only where there is a project to
+  // change. The "No folder" bucket is not a project, and a remote group's root
+  // lives on another machine with no identity to key by; offering the row there
+  // would write a colour nothing could ever read back.
+  const canPickColor = Boolean(colorKey)
 
   return (
     <ContextMenu
@@ -3747,6 +3998,18 @@ function FolderContextMenu({
         <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem>
       ) : null}
       {canReveal ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
+      {/* The same swatch control the row menu spends on "Highlight color", one
+          menu up: a highlight is a tint a person puts ON a chat, a project
+          colour is what the project IS, and the header is the one line that
+          names the project. Six hues plus "No colour" — the last for a project
+          whose own logo already identifies it. */}
+      {canPickColor ? (
+        <ProjectColorSwatchRow
+          label="Project colour"
+          value={projectColor}
+          onPick={onPickProjectColor}
+        />
+      ) : null}
       {canCreateWorkspace && canForget ? <MenuDivider /> : null}
       {canForget ? (
         <MenuItem variant="danger" onClick={() => onSelect('forget')}>
