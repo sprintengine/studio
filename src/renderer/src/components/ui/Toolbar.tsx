@@ -16,6 +16,14 @@
 // separate tab stops between the pane's tabs and the first file is the cost the
 // role exists to remove. Arrow keys walk the band, Home/End jump to its ends,
 // and Tab leaves it.
+//
+// TWO KINDS OF UNAVAILABLE. `disabled` is the hard one: the control is out of
+// the walk because the DOM will not focus it. `ariaDisabled` is the soft one —
+// the item cannot act, but it stays walkable, focusable and hoverable, which is
+// the only way a glyph-only control can ever say WHY. In a band where every
+// word rides the tooltip, a hard-disabled item is a mute square: the tooltip
+// cannot open on a control that receives no events, so the one explanation the
+// design gives the person is unreachable exactly when they need it.
 
 import React from 'react'
 
@@ -77,11 +85,17 @@ export function Toolbar({
 
   const walkable = React.useCallback((): HTMLElement[] => {
     const all = Array.from(ref.current?.querySelectorAll<HTMLElement>(`[${ITEM_ATTR}]`) ?? [])
-    // A disabled item keeps its PLACE in the band (which actions exist is
-    // information) but not its place in the walk.
-    return all.filter(
-      (item) => !item.hasAttribute('disabled') && item.getAttribute('aria-disabled') !== 'true',
-    )
+    // A HARD-disabled item keeps its PLACE in the band (which actions exist is
+    // information) but not its place in the walk: the DOM will not focus it, so
+    // a walk that stepped onto it would strand the person.
+    //
+    // A SOFT-disabled one — `aria-disabled="true"`, no `disabled` attribute —
+    // stays in the walk on purpose. It is reachable, focusable and hoverable,
+    // which is the only way the tooltip that says WHY it is unavailable can
+    // ever open. This filter used to drop those too, which made
+    // `aria-disabled` a strictly worse `disabled` and left the band with no
+    // way to explain itself.
+    return all.filter((item) => !item.hasAttribute('disabled'))
   }, [])
 
   // The remembered tab stop. A REF, not a re-derivation: `document.activeElement`
@@ -193,14 +207,32 @@ export type ToolbarButtonProps = {
    *  glyph off centre. */
   menu?: boolean
   expanded?: boolean
+  /** HARD-disabled: out of the walk, out of the tab order, and unable to
+   *  receive a pointer event — so nothing it is wrapped in can explain it.
+   *  Right for an item that is momentarily busy, wrong for one that is
+   *  unavailable for a REASON. */
   disabled?: boolean
+  /** SOFT-disabled: the item does nothing when pressed, but stays in the band's
+   *  walk, takes focus, and receives hover — so its Tooltip opens and the
+   *  reason is reachable by pointer and by keyboard. */
+  ariaDisabled?: boolean
+  /** Why it is unavailable, in words, folded into the accessible name. A
+   *  tooltip is a visual affordance; a screen-reader user meets the name. */
+  disabledReason?: string
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void
   children: React.ReactNode
   className?: string
 }
 
 export const ToolbarButton = React.forwardRef<HTMLButtonElement, ToolbarButtonProps>(
-  function ToolbarButton({ ariaLabel, menu = false, expanded, disabled = false, onClick, children, className }, ref) {
+  function ToolbarButton(
+    { ariaLabel, menu = false, expanded, disabled = false, ariaDisabled = false, disabledReason, onClick, children, className },
+    ref,
+  ) {
+    // `disabled` wins if a caller passes both: the attribute is the stronger
+    // claim, and an element that is both would be soft-disabled in ARIA and
+    // hard-disabled in the DOM — two answers to one question.
+    const soft = ariaDisabled && !disabled
     return (
       // The item IS `button --icon` — `IconButton` at `sm`, which is the 26px
       // square, the ghost tone and the shared ring. The band composes rather
@@ -210,11 +242,14 @@ export const ToolbarButton = React.forwardRef<HTMLButtonElement, ToolbarButtonPr
         {...{ [ITEM_ATTR]: '' }}
         ref={ref}
         size="sm"
-        aria-label={ariaLabel}
+        aria-label={soft && disabledReason ? `${ariaLabel} — ${disabledReason}` : ariaLabel}
         aria-haspopup={menu ? 'menu' : undefined}
         aria-expanded={menu ? expanded ?? false : undefined}
+        aria-disabled={soft || undefined}
         disabled={disabled}
-        onClick={onClick}
+        // A soft-disabled item is a real, pressable button as far as the DOM is
+        // concerned, so refusing the press is this component's job.
+        onClick={soft ? undefined : onClick}
         // The band owns the tab order; the effect in Toolbar sets this. -1 is
         // the safe default for an item rendered outside a Toolbar.
         tabIndex={-1}
@@ -226,6 +261,9 @@ export const ToolbarButton = React.forwardRef<HTMLButtonElement, ToolbarButtonPr
           menu
             ? 'relative after:pointer-events-none after:absolute after:right-0.5 after:bottom-0.5 after:border-2 after:border-transparent after:border-r-current after:border-b-current after:content-[""]'
             : '',
+          // The dim is `IconButton`'s own `aria-disabled:opacity-45`; only the
+          // cursor has to be said here.
+          soft ? 'cursor-not-allowed' : '',
           className ?? '',
         ].join(' ')}
       >

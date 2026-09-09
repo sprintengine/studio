@@ -14,10 +14,15 @@
 // T5 shipped two of the nine disabled, with tooltips saying they arrive with
 // changelists. T6 is that arrival: "move to another changelist" now opens the
 // list of lists, and "group by" opens Changelist / Directory / None as a radio
-// group. The one still disabled is "write commit message", which waits on the
-// composer — kept in the band because which actions EXIST is information, and a
-// control that appears later moves everything beside it (`Toolbar` keeps a
-// disabled item's place but takes it out of the arrow walk).
+// group. The one still unavailable is "write commit message", which waits on
+// the composer — kept in the band because which actions EXIST is information,
+// and a control that appears later moves everything beside it.
+//
+// It is `ariaDisabled`, not `disabled`. In a glyph-only band the tooltip IS the
+// explanation, and a `disabled` button receives no pointer events — so the one
+// sentence saying why the square does nothing could never be read. Soft-disabled
+// it stays walkable, focusable and hoverable, and the reason rides its
+// accessible name as well as the tooltip.
 
 import React from 'react'
 
@@ -136,8 +141,17 @@ export function GitChangesToolbar({
           <StashGlyph />
         </ToolbarButton>
       </Tooltip>
+      {/* SOFT-disabled, and that is the whole point: this tooltip is the only
+          place the person is told why the button does nothing, and a `disabled`
+          button receives no pointer events, so the tooltip never opened. It
+          stays in the band's walk, takes focus, and carries the reason in its
+          accessible name for a reader who never sees a tooltip at all. */}
       <Tooltip content="Write commit message — coming with the composer" placement="bottom">
-        <ToolbarButton ariaLabel="Write commit message" disabled>
+        <ToolbarButton
+          ariaLabel="Write commit message"
+          ariaDisabled
+          disabledReason="coming with the composer"
+        >
           <WriteCommitMessageGlyph />
         </ToolbarButton>
       </Tooltip>

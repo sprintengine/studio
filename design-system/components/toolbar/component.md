@@ -109,6 +109,18 @@ that hovered differently from a button would be a second button.
 even when one is unavailable, and removing it reflows the band under the
 pointer that is reaching for its neighbour.
 
+**Two kinds of unavailable, and the band's default is the soft one.**
+`aria-disabled` is the item that cannot act but stays walkable, focusable and
+hoverable; the `disabled` attribute is the item the DOM will not focus at all,
+which necessarily takes it out of the walk. In a glyph-only band the tooltip is
+the *only* place a reason can be written, and a control that receives no
+pointer events can never open one — so a hard-disabled item here is a mute
+square, unavailable for a reason the person cannot read. Reach for `disabled`
+only when the reason needs no explanation (an action that is momentarily busy);
+everywhere else use `aria-disabled`, and put the reason in the tooltip **and**
+in the accessible name, because a tooltip is a visual affordance and a screen
+reader meets the name.
+
 ## Usage
 
 - **The band's `aria-label` names the region, not the band**: "Changed files",

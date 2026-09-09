@@ -10,7 +10,10 @@ import { JSDOM } from 'jsdom'
 //   1. ONE tab stop, with arrow keys walking the items — nine separate tab
 //      stops between the pane's tabs and the first file is the cost the role
 //      exists to remove;
-//   2. a disabled item keeps its place in the BAND but not in the WALK;
+//   2. a disabled item keeps its place in the BAND but not in the WALK, while a
+//      SOFT-disabled one (`aria-disabled`, no attribute) keeps both — it has to
+//      be focusable and hoverable, or the tooltip that is the only explanation
+//      for a glyph-only control can never open;
 //   3. an item that opens a menu says so in ARIA, not only with a corner mark;
 //   4. the divider is decoration, not a structural separator;
 //   5. a MIXED band — one holding a segmented control and an inline pager — is
@@ -206,6 +209,54 @@ async function main(): Promise<void> {
       'Collapse all',
       'the walk steps over the disabled item',
     )
+    view.unmount()
+  })
+
+  run('a soft-disabled item stays in the walk, so its tooltip can explain it', () => {
+    let pressed = 0
+    const view = mount(
+      <Toolbar ariaLabel="Changed files">
+        <ToolbarButton ariaLabel="Refresh">{glyph}</ToolbarButton>
+        <ToolbarButton
+          ariaLabel="Write commit message"
+          ariaDisabled
+          disabledReason="coming with the composer"
+          onClick={() => {
+            pressed += 1
+          }}
+        >
+          {glyph}
+        </ToolbarButton>
+        <ToolbarButton ariaLabel="Collapse all">{glyph}</ToolbarButton>
+      </Toolbar>,
+    )
+    const items = Array.from(view.band.querySelectorAll('button')) as HTMLElement[]
+    const soft = items[1]
+
+    assert.equal(soft.getAttribute('aria-disabled'), 'true', 'it says it is unavailable')
+    assert.equal(soft.hasAttribute('disabled'), false, 'without the attribute that makes it inert')
+    assert.equal(
+      soft.getAttribute('aria-label'),
+      'Write commit message — coming with the composer',
+      'the reason rides the name, for a reader who never sees a tooltip',
+    )
+
+    act(() => {
+      items[0].focus()
+      ;(document.activeElement as HTMLElement).dispatchEvent(
+        new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+      )
+    })
+    assert.equal(
+      (document.activeElement as HTMLElement).getAttribute('aria-disabled'),
+      'true',
+      'the walk lands ON it — a tooltip on a control the keyboard cannot reach explains nothing',
+    )
+
+    act(() => {
+      soft.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    assert.equal(pressed, 0, 'and pressing it does nothing, which is what unavailable means')
     view.unmount()
   })
 
