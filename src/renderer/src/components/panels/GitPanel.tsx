@@ -980,6 +980,15 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     ?? visibleRows.find((row) => selectedPaths.has(row.path))
     ?? null
 
+  // Every file the band's actions would touch is untracked. Only "move to
+  // another changelist" cares: an untracked file renders in the untracked group
+  // whatever list it is filed in, so the move changes nothing on screen.
+  const toolbarTargetUntrackedOnly = ((): boolean => {
+    if (!toolbarTargetRow) return false
+    const rows = changeActionRows(toolbarTargetRow)
+    return rows.length > 0 && rows.every((row) => untrackedPaths.has(row.relativePath))
+  })()
+
   const handleChangeRowsRevert = async (rows: GitChangeRow[]) => {
     if (rows.length === 0) return null
     const batching = rows.length > 1
@@ -2200,6 +2209,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               currentChangelistId={
                 toolbarTargetRow ? changelistIdForRows(changeActionRows(toolbarTargetRow)) : null
               }
+              untrackedOnly={toolbarTargetUntrackedOnly}
               grouping={grouping}
               onRefresh={() => void refreshAll()}
               onDiscard={() => void handleChangeRowsRevert(changeActionRows(toolbarTargetRow ?? undefined))}
@@ -2269,6 +2279,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                         selectedCount: rows.length,
                         busy: Boolean(busy),
                         untracked: untrackedPaths.has(row.relativePath),
+                        untrackedOnly: rows.every((entry) => untrackedPaths.has(entry.relativePath)),
                         onCommitFiles: () => void handleCommitFiles(rows),
                         onDiscard: () => void handleChangeRowsRevert(rows),
                         onShowDiff: () => openChangeDiff(row),

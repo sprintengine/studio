@@ -112,6 +112,10 @@ export type ChangeRowMenuContext = ChangelistActions & {
   /** Git has never heard of this file, so "Add to git" is real and "Discard"
    *  means delete rather than revert. */
   untracked: boolean
+  /** EVERY row the actions will touch is untracked — so a move to a changelist
+   *  would file paths that are drawn in the untracked group whatever list they
+   *  are in, and nothing would appear to happen. */
+  untrackedOnly: boolean
   onCommitFiles: () => void
   onDiscard: () => void
   onShowDiff: () => void
@@ -205,12 +209,41 @@ function changelistEntries(
   ]
 }
 
+/**
+ * The one sentence both controls that offer the move spend on why it is
+ * unavailable. Short enough to sit in a menu label and in a tooltip.
+ */
+export const UNTRACKED_MOVE_REASON = 'tracked files only'
+
 /** "Move to another changelist…" and its list of destinations. The list the
  *  files are already in is present and disabled — moving a file to where it
  *  already is is not an error, it is a no-op, and hiding the row would make the
- *  submenu a different shape for every row. */
-function moveEntry(context: ChangelistActions, busy: boolean, label: string): ChangeRowMenuEntry {
+ *  submenu a different shape for every row.
+ *
+ *  `unavailable` is the harder no-op: an UNTRACKED file is drawn in its own
+ *  group under every grouping, so filing it in a changelist changes nothing a
+ *  person can see. The store accepted the move and the panel announced it, and
+ *  the file stayed exactly where it was. The item is kept and disabled rather
+ *  than hidden (menu spec → Disabled), and the reason is in the LABEL rather
+ *  than in a tooltip: a `disabled` control receives no pointer events, so a
+ *  tooltip on one is a sentence nobody can read. */
+function moveEntry(
+  context: ChangelistActions,
+  busy: boolean,
+  label: string,
+  unavailable = false,
+): ChangeRowMenuEntry {
   const lists = orderedChangelists(context.changelists)
+  if (unavailable) {
+    return {
+      kind: 'item',
+      id: 'move-to-changelist',
+      label: `${label.replace(/…$/, '')} — ${UNTRACKED_MOVE_REASON}`,
+      icon: <MoveToChangelistGlyph className="icon-xs" />,
+      disabled: true,
+      onSelect: () => {},
+    }
+  }
   return {
     kind: 'submenu',
     id: 'move-to-changelist',
@@ -261,7 +294,12 @@ export function buildChangeRowMenu(context: ChangeRowMenuContext): ChangeRowMenu
       disabled: context.busy,
       onSelect: context.onDiscard,
     },
-    moveEntry(context, context.busy, many ? `Move ${scope} to another changelist…` : 'Move to another changelist…'),
+    moveEntry(
+      context,
+      context.busy,
+      many ? `Move ${scope} to another changelist…` : 'Move to another changelist…',
+      context.untrackedOnly,
+    ),
     {
       kind: 'item',
       id: 'show-diff',

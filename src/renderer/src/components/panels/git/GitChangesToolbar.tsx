@@ -46,7 +46,7 @@ import {
   WriteCommitMessageGlyph,
 } from '../../ui'
 import { orderedChangelists, type Changelist } from '../../../../../shared/git/changelists'
-import { menuIconSlot } from './changeRowMenu'
+import { menuIconSlot, UNTRACKED_MOVE_REASON } from './changeRowMenu'
 import type { GitChangesGrouping } from './gitChangesModel'
 
 const GROUPING_LABELS: Record<GitChangesGrouping, string> = {
@@ -69,6 +69,10 @@ export type GitChangesToolbarProps = {
   /** The list the picked files are already in, so the menu can grey it out
    *  instead of offering a move to where they already are. */
   currentChangelistId: string | null
+  /** Every picked file is untracked, so a move would file paths that are drawn
+   *  in the untracked group whatever list holds them — a no-op the panel used
+   *  to report as a success. */
+  untrackedOnly: boolean
   grouping: GitChangesGrouping
   onRefresh: () => void
   onDiscard: () => void
@@ -86,6 +90,7 @@ export function GitChangesToolbar({
   hasTarget,
   changelists,
   currentChangelistId,
+  untrackedOnly,
   grouping,
   onRefresh,
   onDiscard,
@@ -122,12 +127,24 @@ export function GitChangesToolbar({
       </Tooltip>
       {/* Live since T6. It opens a menu rather than acting, because "move" has
           no single destination — the destination IS the question. */}
-      <Tooltip content="Move to another changelist" placement="bottom">
+      <Tooltip
+        content={
+          untrackedOnly
+            ? `Move to another changelist — ${UNTRACKED_MOVE_REASON}`
+            : 'Move to another changelist'
+        }
+        placement="bottom"
+      >
         <ToolbarButton
           ariaLabel="Move to another changelist"
           menu
           expanded={Boolean(moveMenu)}
           disabled={busy || !hasTarget}
+          // Soft, so the tooltip above can actually open and say why: an
+          // untracked file is drawn in the untracked group whatever list it is
+          // filed in, so the move is a no-op the person cannot see.
+          ariaDisabled={untrackedOnly}
+          disabledReason={UNTRACKED_MOVE_REASON}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect()
             setMoveMenu({ x: rect.left, y: rect.bottom })
