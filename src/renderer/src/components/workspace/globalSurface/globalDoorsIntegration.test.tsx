@@ -344,7 +344,7 @@ async function main(): Promise<void> {
     assert.deepEqual(
       modalOrder,
       [['reviews', 'Reviews']],
-      'the modal registry holds only Reviews (Settings and the Diff popout are core, never registered)',
+      'the modal registry holds only Reviews (Settings is core and never registered; the diff has no modal at all)',
     )
     // And it carries no glyph, because nothing draws one for a modal surface.
     // The doors→modals ruling (2026-09-01) put a trigger per modal in the

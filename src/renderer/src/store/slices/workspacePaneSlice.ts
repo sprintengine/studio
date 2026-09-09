@@ -76,7 +76,8 @@ function normalizeTab(input: unknown): WorkspacePaneTab | null {
     const focusPath = typeof raw.diff.focusPath === 'string' && raw.diff.focusPath ? raw.diff.focusPath : null
     const focusKind =
       raw.diff.focusKind === 'staged' || raw.diff.focusKind === 'unstaged' ? raw.diff.focusKind : null
-    tab.diff = { focusPath, focusKind }
+    const repoRoot = typeof raw.diff.repoRoot === 'string' && raw.diff.repoRoot ? raw.diff.repoRoot : undefined
+    tab.diff = { ...(repoRoot ? { repoRoot } : {}), focusPath, focusKind }
   }
   return tab
 }

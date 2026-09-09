@@ -231,18 +231,10 @@ const CORE_SETTINGS_MODAL_SURFACE = {
   label: 'Settings',
   Component: SettingsModalSurface,
 } as const
-// The Diff popout (the pane-to-popup mechanism, 2026-09-05): the pane's Diff
-// tab floated at workbench width. Core like Settings — it is the shell's own
-// pane growing a bigger view of itself, not a module's surface — and never
-// listed as a trigger: the pane strip's "Open in a popup" is its one way in,
-// after latching the target (pane/diffPopoutTarget.ts).
-const DiffPopoutSurface = React.lazy(() => import('./pane/DiffPopoutSurface'))
-const CORE_DIFF_MODAL_SURFACE = {
-  id: 'diff',
-  moduleId: 'core',
-  label: 'Diff',
-  Component: DiffPopoutSurface,
-} as const
+// The Diff popout — the pane's Diff tab floated in a workbench modal — was a
+// third host for one viewer and is gone (git-commit-window T3, 2026-09-09). A
+// diff opens in its own OS window or in the pane's tab; the `diff` modal
+// surface id is unclaimed again.
 // The Extensions home (the app rail's Extensions glyph, 2026-09-05): the page
 // the glyph opens in the card region, with the Extensions drawer standing
 // beside it. A DOOR, shaped like a registered global surface so the mount path
@@ -502,6 +494,37 @@ export default function WorkspaceManager() {
       }
     })
   }, [])
+  // The same hand-off for a diff (git-commit-window T3): the diff window's
+  // "Show in the app" closes itself and broadcasts this. The window that holds
+  // the workspace opens the pane's Diff tab on the repository the window was
+  // reading — never a root re-derived from the workspace — brings that
+  // workspace forward so the tab is actually on screen, and flips the sticky
+  // preference home. The preference is written HERE rather than in the diff
+  // window because this window's store is the one that owns the settings
+  // envelope; the aux window's copy is as old as the window.
+  useEffect(() => {
+    if (typeof window.api.onDockDiffToWorkspace !== 'function') return
+    return window.api.onDockDiffToWorkspace(({ requestId, workspaceId, repoRoot, focusPath, focusKind }) => {
+      const state = useWorkspaceStore.getState()
+      if (!state.workspaces.some((workspace) => workspace.id === workspaceId)) return
+      // Windows that do not hold this workspace no-op, exactly as the docked
+      // file does. An unregistered window list (the single-window default)
+      // holds everything.
+      const held = state.workspaceWindows.find((entry) => entry.id === workspaceWindowId)?.workspaceIds
+      if (held && !held.includes(workspaceId)) return
+      const opened = state.openPaneTab(workspaceId, {
+        kind: 'diff',
+        diff: { repoRoot, focusPath, focusKind },
+      })
+      if (!opened) return
+      state.setActiveWorkspaceForWindow(workspaceWindowId, workspaceId)
+      state.setDiffOpensInWindow(false)
+      // The ack is the last thing, and only on the path that actually opened
+      // the tab: it is what lets the diff window close itself, so every early
+      // return above has to leave it unsaid.
+      window.api.ackDockDiffToWorkspace?.(requestId)
+    })
+  }, [workspaceWindowId])
   // Main-owned automation mode intent (MC-1567): subscribe to authoritative
   // broadcasts and run the one-time per-run hydration sweep. Idempotent across
   // windows (main accepts the first hydration only).
@@ -1023,7 +1046,6 @@ export default function WorkspaceManager() {
   const activeModalSurfaceEntry = useMemo(() => {
     if (!activeModalSurface) return null
     if (activeModalSurface === 'settings') return CORE_SETTINGS_MODAL_SURFACE
-    if (activeModalSurface === 'diff') return CORE_DIFF_MODAL_SURFACE
     return resolveActiveModalSurface(
       activeModalSurface,
       (id) => getRendererHost().getModalSurface(id),
@@ -4714,8 +4736,10 @@ export default function WorkspaceManager() {
             project; all of them clear activeGlobalSurface. Gated on the surface's
             owning module: a stale flag after a module toggle resolves to null and
             the workspace shows through. Automations, Design and Plugins are
-            doors again (Extensions drawer ruling, 2026-09-05); Settings, the
-            Diff popout and Reviews stay modals in the mount below. */}
+            doors again (Extensions drawer ruling, 2026-09-05); Settings and
+            Reviews stay modals in the mount below. The Diff popout is not on
+            that list any more: the diff opens in its own OS window or in the
+            pane's Diff tab, and the in-app modal went with the epic (T3). */}
         {/* Surface, not canvas (MC-1844): a door is a working page, so it paints
             the neutral surface ground — the themed canvas (sage in the green
             themes) stays the sidebar/chrome's identity only. */}
@@ -4769,8 +4793,8 @@ export default function WorkspaceManager() {
             — in the shipped Modal shell: workbench width, panel layout, the
             flat darkening scrim (NEVER backdrop-filter — terminals render at
             60fps behind it), FocusTrap, Escape/scrim close, focus restored to
-            the element that opened it. Settings, the Diff popout and Reviews
-            live here — pick-and-close tasks over work that stays put; every
+            the element that opened it. Settings and Reviews live here —
+            pick-and-close tasks over work that stays put; every
             destination the shell's own chrome offers is a door in the mount
             above (Extensions drawer ruling, 2026-09-05). With no bar/rail slot providers
             in scope, GlobalSurfaceShell renders its documented inline fallback

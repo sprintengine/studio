@@ -1,6 +1,12 @@
-import { BrowserWindow, screen, shell, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+import { isAbsolute } from 'node:path'
+import { BrowserWindow, screen, shell, type IpcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
+import { offerDockDiff, type DockDiffRequest } from './dock-diff'
 import { safeExternalUrl } from './external-url'
-import type { AuxWindowKind, OpenAuxWindowResult } from '../../shared/electron-api'
+import type {
+  AuxWindowKind,
+  DockDiffToWorkspaceResult,
+  OpenAuxWindowResult,
+} from '../../shared/electron-api'
 
 const AUX_WINDOW_KINDS: readonly AuxWindowKind[] = ['diff', 'file']
 
@@ -67,6 +73,9 @@ type RegisterWindowIpcOptions = {
     params: Record<string, string>
     bounds?: WindowBounds | null
   }): { retargeted: boolean }
+  /** Membership of the aux-window registry. Only an aux window hands a diff
+   *  back to the app, and the registry already knows which windows those are. */
+  isAuxWindow(win: BrowserWindow): boolean
 }
 
 export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOptions): void {
@@ -137,6 +146,62 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
     }
   })
 
+  // The diff window's "Show in the app". Shaped like a docked file, but it is a
+  // HAND-OFF rather than a broadcast, and the difference is the whole point:
+  // the diff window closes itself on the strength of this call, so a broadcast
+  // that reached nobody left the person with neither the window nor the tab.
+  //
+  // Main still tracks no window ownership — the receiving renderer is the only
+  // thing that knows which workspaces its model holds — so it ASKS, one window
+  // at a time, most likely holder first, and stops at the first that says it
+  // took the diff (`offerDockDiff`). Asking them all at once was the original
+  // bug: acting on the request is what a window acks, so two windows holding
+  // the same workspace both opened a Diff tab and both flipped the sticky
+  // preference before either answer came back. Silence from all of them is
+  // `accepted: false`, and the diff window stays up and says so.
+  ipcMain.handle('window:dock-diff', async (event, input: {
+    workspaceId?: unknown
+    repoRoot?: unknown
+    focusPath?: unknown
+    focusKind?: unknown
+  }): Promise<DockDiffToWorkspaceResult> => {
+    const workspaceId = typeof input?.workspaceId === 'string' ? input.workspaceId : ''
+    const repoRoot = typeof input?.repoRoot === 'string' ? input.repoRoot : ''
+    // A repo root is an absolute path or it is not a repo root. The receiving
+    // window opens a Diff tab on this string and reads git through it, so a
+    // relative one would resolve against whatever that process's cwd happens
+    // to be.
+    if (!workspaceId || !repoRoot || !isAbsolute(repoRoot)) return { accepted: false }
+    const focusPath = typeof input?.focusPath === 'string' && input.focusPath ? input.focusPath : null
+    const focusKind = input?.focusKind === 'staged' || input?.focusKind === 'unstaged' ? input.focusKind : null
+    const sender = BrowserWindow.fromWebContents(event.sender)
+    // Only an aux window hands a diff back; the registry already knows which
+    // those are, so the check costs a Map scan.
+    if (!sender || !options.isAuxWindow(sender)) return { accepted: false }
+    const windows = dockDiffCandidates(sender, options.isAuxWindow)
+    if (windows.length === 0) return { accepted: false }
+
+    const accepted = await offerDockDiff({
+      targets: windows.map((win) => ({
+        id: win,
+        isDestroyed: () => win.isDestroyed(),
+        send: (request: DockDiffRequest) => win.webContents.send('workspace:dock-diff', request),
+      })),
+      payload: { workspaceId, repoRoot, focusPath, focusKind },
+      subscribe: (listener) => {
+        // The ack's SENDER, resolved here rather than trusted from the message:
+        // `offerDockDiff` compares it with the window it asked, so a window
+        // acking a hand-off it was never sent is ignored.
+        const onAck = (ackEvent: IpcMainEvent, id: unknown): void => {
+          listener(BrowserWindow.fromWebContents(ackEvent.sender), id)
+        }
+        ipcMain.on('window:dock-diff-ack', onAck)
+        return () => ipcMain.removeListener('window:dock-diff-ack', onAck)
+      },
+    })
+    return { accepted }
+  })
+
   ipcMain.handle('window:open-aux-window', (_event, input: {
     kind?: unknown
     singletonKey?: unknown
@@ -185,6 +250,28 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
       }
     }
   })
+}
+
+/**
+ * The windows a diff can be handed to, in the order to ask them.
+ *
+ * Aux windows are out: only a workspace window has a pane to put a Diff tab in,
+ * and the diff window asking its own siblings is asking nobody. Of the rest the
+ * FOCUSED one goes first — it is the window the person is looking at, and the
+ * one they meant by "the app" — and the others follow newest first, which is
+ * the closest thing to "most recently used" that `getAllWindows` (creation
+ * order) can be turned into without main tracking focus itself.
+ */
+function dockDiffCandidates(
+  sender: BrowserWindow,
+  isAuxWindow: (win: BrowserWindow) => boolean
+): BrowserWindow[] {
+  const candidates = BrowserWindow.getAllWindows().filter(
+    (win) => win !== sender && !win.isDestroyed() && !isAuxWindow(win)
+  )
+  const focused = BrowserWindow.getFocusedWindow()
+  const rest = candidates.filter((win) => win !== focused).reverse()
+  return focused && candidates.includes(focused) ? [focused, ...rest] : rest
 }
 
 function normalizeStringParams(input: unknown): Record<string, string> {

@@ -704,26 +704,33 @@ async function main(): Promise<void> {
       React.createElement(DesignCanvas, {
         view: designView as never,
         mode: 'dark',
-        // The tab and the page are the DOOR's state (`DesignGlobalSurface`), so
-        // the canvas takes them; null means "not chosen yet" and opens on the
-        // components, which is what the door is for.
+        // No `onReload` / `reloading`: Reveal and Reload moved to the door bar
+        // when the canvas gave up its second chrome band (audit 2026-09-02),
+        // and the canvas no longer takes them.
+        //
+        // No `openComponent` / `onOpenComponent` / `onCloseComponent` either:
+        // the canvas stopped being a grid you click into on 2026-09-08
+        // (c375c687a) and became six tabs of live demos. Its view state is now
+        // the tab and the per-tab page, both held by the door — which is what
+        // this fixture hands it. (Repaired 2026-09-09: the rewrite left this
+        // suite mounting the canvas with the old props, so `pages[active]`
+        // threw and every assertion below it went unrun.)
         tab: null,
         onTabChange: () => {},
         pages: {},
         onPageChange: () => {},
-        // No `onReload` / `reloading`: Reveal and Reload moved to the door bar
-        // when the canvas gave up its second chrome band (audit 2026-09-02),
-        // and the canvas no longer takes them.
       }),
     )
   })
 
-  await run('2003 no specimen carries a border — spacing does the grouping', () => {
-    // The tile grid is gone (v2, 2026-09-08): a specimen is a heading and a
-    // live stage, stacked. The rule it was holding survives the shape change —
-    // a box around a component is chrome competing with the thing it frames.
+  // Re-pointed 2026-09-09 at the canvas the Design-door rewrite left (c375c687a,
+  // "six tabs, live demos, nothing to click into"). The rule is unchanged —
+  // spacing does the grouping, a specimen draws no box — but the thing it reads
+  // is no longer a clickable tile: a specimen is now a `Section` holding one
+  // live demo, so that is what gets read.
+  await run('2003 no component specimen carries a border — spacing does the grouping', () => {
     const specimens = Array.from(designContainer.querySelectorAll('section')) as Element[]
-    assert.ok(specimens.length > 0, 'the fixture renders a specimen')
+    assert.ok(specimens.length > 0, 'the fixture renders a component specimen')
     for (const specimen of specimens) {
       for (const element of [specimen, ...subtree(specimen)]) {
         for (const token of classesOf(element)) {
@@ -847,18 +854,35 @@ async function main(): Promise<void> {
     assert.ok(/'Reload'/.test(actions), 'Reload is offered, in the door bar')
   })
 
-  await run('2003 the canvas never repeats the name the door bar already carries', () => {
-    // The identity band went with the tile grid: the door bar states the
-    // system's name, and a canvas that stated it again was the same fact twice
-    // on one screen. The FOLDER is still visible — that is provenance, not a
-    // second title — and it rides the tab band's trailing edge.
-    const occurrences = (designContainer.textContent ?? '').split('multicode').length - 1
-    assert.equal(occurrences, 0, 'the name is the door bar\u2019s, and only the door bar\u2019s')
-    assert.match(
-      designContainer.textContent ?? '',
-      /\/work\/brand\/design-system/,
-      'the folder this system lives in is still on screen',
+  // Also re-pointed 2026-09-09. The old canvas carried an identity block — the
+  // system's name over a ramp — and the rule was "shown once, and in no box of
+  // its own". The rewrite deleted that block: the door bar names the system, and
+  // the canvas is only its contents. So the rule tightens rather than relaxes —
+  // the name is shown ZERO times in the canvas's own copy — and the one thing
+  // the band still says about the bundle, its folder, is said once.
+  await run('2003 the canvas names no system in its own copy, and its folder once', () => {
+    const copy = designContainer.textContent ?? ''
+    assert.equal(
+      copy.split('multicode').length - 1,
+      0,
+      'the door bar names the system; the canvas repeating it is the second name',
     )
+    assert.equal(
+      copy.split('/work/brand/design-system').length - 1,
+      1,
+      'the folder is said once, in the band, and nowhere else',
+    )
+    // Still no surface of its own around the contents: the panel is padding.
+    const panel = designContainer.querySelector('[role="tabpanel"]')
+    assert.ok(panel, 'the contents live in a labelled tab panel')
+    for (const token of classesOf(panel)) {
+      // `border` on its own is a container too — a 1px rule on all four sides.
+      // The hyphen was added while re-pointing this at the rewritten canvas and
+      // it opened exactly the hole the rule exists to close, so the prefix is
+      // back to `border`.
+      assert.ok(!token.startsWith('border'), 'the panel draws no container')
+      assert.ok(!token.startsWith('bg-'), 'and no surface of its own')
+    }
   })
 
   act(() => {
@@ -1369,10 +1393,11 @@ async function main(): Promise<void> {
       'components/workspace/newSprint/NewSprintDialog.tsx': /<Modal\b/,
       // RosterManagerModal left with its door (2026-09-05); nothing replaced it.
       'components/diagnostics/DiagnosticsOverlay.tsx': /<Modal\b/,
-      // The modal-surface host: Settings and the Diff popout mount through this
-      // one Modal. Plugins, Automations and Design were modals here from
+      // The modal-surface host: Settings and Reviews mount through this one
+      // Modal. Plugins, Automations and Design were modals here from
       // 2026-09-01 until the Extensions drawer ruling (2026-09-05) made them
-      // card-region surfaces again.
+      // card-region surfaces again; the Diff popout was here too until the
+      // diff got its own OS window (git-commit-window T3, 2026-09-09).
       'components/workspace/WorkspaceManager.tsx': /<Modal\b/,
     }
     for (const [file, pattern] of Object.entries(shells)) {
@@ -1467,11 +1492,27 @@ async function main(): Promise<void> {
     // multi-line field is not a step on a ramp whose steps are 26/30/34, and
     // widening this to every height would make the rule a repo-wide field sweep
     // wearing a button rule's name.
+    //
+    // `components/panels/git/**` joined the family on 2026-09-09. T5 and T6
+    // moved the Changes view out of `GitPanel.tsx` into six files in that
+    // directory, and the rule they were written under stopped covering them the
+    // moment they were extracted — a named-file rule that a refactor can walk
+    // out of polices the past. A DIRECTORY, not three more file names, so the
+    // next file added there is policed on the day it lands.
+    const GIT_SURFACE_DIR = 'components/panels/git/'
     const GIT_SURFACES = [
       'components/panels/GitPanel.tsx',
       'components/panels/GitConflictResolverPanel.tsx',
       'components/panels/GitGraphView.tsx',
+      ...rendererSources()
+        .map((path) => relative(join(process.cwd(), 'src/renderer/src'), path))
+        .filter((file) => file.startsWith(GIT_SURFACE_DIR))
+        .sort(),
     ]
+    assert.ok(
+      GIT_SURFACES.some((file) => file.startsWith(GIT_SURFACE_DIR)),
+      'the Changes view still lives in components/panels/git — if it moved, move this rule with it',
+    )
     const OFF_RAMP_HEIGHT = /(?:^|\s)h-(?:\d+(?:\.\d+)?|\[\d+(?:\.\d+)?px\])(?=\s|$)/
     const HOVER_FILL = /(?:^|\s)hover:bg-\S+(?=\s|$)/
 

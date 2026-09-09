@@ -89,3 +89,47 @@
     transition: none;
   }
 }
+
+/* ── Inline (2026-09-09) ─────────────────────────────────────────────────
+ * The pager as a STEPPER inside a band: `n/m` between two chevrons, sitting in
+ * a toolbar beside other controls rather than under a list.
+ *
+ * The diff window's file stepper is what it was drawn for — "2/27" between the
+ * hunk arrows and the view toggle — where the foot of a list does not exist and
+ * there is no room for a sentence.
+ *
+ * Three things go, and each for the same reason (the band has no width to spend
+ * on them): the numbered strip, the words sentence, and the foot padding. What
+ * does NOT go is the rule that makes a pager a pager — the ends stay reachable
+ * and the chevrons are DISABLED there, never absent, because removing them
+ * reflows the band under the pointer that is clicking them.
+ *
+ * The sentence does not disappear either; it moves to the position's accessible
+ * name, so the announcement is unchanged while the drawing shrinks to "2/27". */
+.ds-pager--inline {
+  display: inline-flex;
+  justify-content: flex-start;
+  gap: var(--sem-space-3xs);
+  padding-top: 0;
+}
+
+/* Square chevrons at the band's own control step, so the stepper sits level
+ * with the `button --icon` items beside it instead of standing a step taller. */
+.ds-pager--inline .ds-pager-step {
+  height: var(--sem-size-control-xs);
+  min-width: var(--sem-size-control-xs);
+  padding: 0;
+}
+
+/* The position itself. Tabular so the band does not twitch as the number grows
+ * a digit, and muted because "where am I" is a state display — the same reason
+ * the numbered strip never takes the accent. */
+.ds-pager-position {
+  flex: none;
+  padding-inline: var(--sem-space-2xs);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+}

@@ -48,6 +48,42 @@ export { LinkButton } from './LinkButton'
 export type { LinkButtonProps, LinkInk, LinkLayout, LinkUnderline } from './LinkButton'
 export { RefreshIcon } from './RefreshIcon'
 export { FileTypeGlyph } from './FileTypeGlyph'
+// The Commit window's and diff window's action vocabulary (git-commit-window
+// T2). Fourteen concepts, mirrored in design-system/glyphs/ — import them,
+// never paste a path into a toolbar. The changelist four follow in their own
+// block below, for eighteen in all.
+export {
+  CollapseAllGlyph,
+  ExpandAllGlyph,
+  GearGlyph,
+  GroupByGlyph,
+  MoveToChangelistGlyph,
+  NextDifferenceGlyph,
+  OpenInEditorGlyph,
+  PreviousDifferenceGlyph,
+  RollbackGlyph,
+  ShowDiffGlyph,
+  SideBySideGlyph,
+  StashGlyph,
+  UnifiedGlyph,
+  WriteCommitMessageGlyph,
+} from './GitActionGlyphs'
+// The changelist quartet (git-commit-window T6): new, delete, edit, and the
+// patch a selection is written out as.
+export {
+  CreatePatchGlyph,
+  DeleteChangelistGlyph,
+  EditChangelistGlyph,
+  NewChangelistGlyph,
+} from './GitActionGlyphs'
+// The overflow mark, one drawing. Two surfaces drew it privately at two
+// pitches until 2026-09-09 — `OverflowMenu`'s own trigger and the Git panel's
+// group band — which is exactly the drift `design-system/glyphs/` exists to
+// stop.
+export { KebabGlyph } from './KebabGlyph'
+// The one micro chip, for the "active" mark on a changelist's band
+// (design-system/components/micro-chip).
+export { MicroChip } from './DefaultChip'
 export { ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export { CliModelPickerButton, CliModelPopoverSurface } from './CliModelPicker'
 export type { CliRuntimeOption } from './cliRuntimeCatalog'
@@ -109,6 +145,15 @@ export type { InputSize, InputVariant } from './Input'
 export { Select } from './Select'
 export type { SelectItem } from './Select'
 export { Checkbox } from './Checkbox'
+// The Commit-window kit (2026-09-09): the rows, band and variants the Git
+// panel and the diff window compose from, so T4/T5 build from the system
+// rather than hand-rolling at 24px.
+export { CheckRow } from './CheckRow'
+export type { CheckRowCheckedState, CheckRowProps } from './CheckRow'
+export { GroupHeader, GroupHeaderAction } from './GroupHeader'
+export type { GroupHeaderProps } from './GroupHeader'
+export { Toolbar, ToolbarButton, ToolbarDivider, ToolbarSpacer } from './Toolbar'
+export type { ToolbarButtonProps } from './Toolbar'
 export { Badge } from './Badge'
 export { NewChip } from './NewChip'
 export { Table } from './Table'

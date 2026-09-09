@@ -265,4 +265,39 @@ run('updatePaneTab patches a tab and re-normalizes it', () => {
   assert.equal(pane().tabs[0].faviconUrl, undefined, 'a non-data favicon is refused')
 })
 
+// The Diff tab carries the repository the row came from (git-commit-window
+// T3). A Git panel showing a worktree scope is not showing the workspace's own
+// checkout, and the pane used to re-derive a root from the workspace — so the
+// tab opened on a different repository than the row that asked for it.
+run('a Diff tab remembers the repository it was opened for', () => {
+  const { slice, pane } = carrierWith()
+  const id = slice.openPaneTab(WS, {
+    kind: 'diff',
+    diff: { repoRoot: '/repos/app-worktree', focusPath: '/repos/app-worktree/src/a.ts', focusKind: 'unstaged' },
+  })!
+  assert.deepEqual(pane().tabs[0].diff, {
+    repoRoot: '/repos/app-worktree',
+    focusPath: '/repos/app-worktree/src/a.ts',
+    focusKind: 'unstaged',
+  })
+  // Retargeting the singleton to another repository replaces the root rather
+  // than leaving the first one's beside the second one's path.
+  slice.openPaneTab(WS, {
+    kind: 'diff',
+    diff: { repoRoot: '/repos/other', focusPath: '/repos/other/b.ts', focusKind: 'staged' },
+  })
+  assert.equal(pane().tabs.length, 1)
+  assert.equal(pane().tabs[0].id, id)
+  assert.equal(pane().tabs[0].diff?.repoRoot, '/repos/other')
+  // And it survives a persist round trip: a restart reopens the tab on the
+  // repository it was reading, not on the workspace's.
+  const restored = normalizeWorkspacePaneState(partializeWorkspacePaneState(pane()))
+  assert.equal(restored?.tabs[0].diff?.repoRoot, '/repos/other')
+  // A Diff tab opened from the pane's own + menu names no repository; absent
+  // is absent, and the pane falls back to the workspace's worktree.
+  const bare = carrierWith()
+  bare.slice.openPaneTab(WS, { kind: 'diff' })
+  assert.deepEqual(bare.pane().tabs[0].diff, { focusPath: null, focusKind: null })
+})
+
 console.log('workspacePaneSlice tests passed')

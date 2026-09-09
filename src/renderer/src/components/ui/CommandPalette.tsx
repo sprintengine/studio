@@ -352,6 +352,9 @@ export default function CommandPalette({
       { id: 'git.refresh', label: 'Git: Refresh status', shortcut: shortcutFor('git.refresh'), run: runGitPanel('git.refresh') },
       { id: 'git.fetch', label: 'Git: Fetch remotes', shortcut: shortcutFor('git.fetch'), run: runGitPanel('git.fetch') },
       { id: 'git.commit', label: 'Git: Commit staged changes', shortcut: shortcutFor('git.commit'), run: runGitPanel('git.commit') },
+      { id: 'git.changes.showDiff', label: 'Git: Show diff for the selected file', shortcut: shortcutFor('git.changes.showDiff'), run: runGitPanel('git.changes.showDiff') },
+      { id: 'git.changes.discard', label: 'Git: Discard changes in the selected files', shortcut: shortcutFor('git.changes.discard'), run: runGitPanel('git.changes.discard') },
+      { id: 'git.changes.moveToChangelist', label: 'Git: Move the selected files to another changelist', shortcut: shortcutFor('git.changes.moveToChangelist'), run: runGitPanel('git.changes.moveToChangelist') },
     ].filter((command) => panelCommandEnabled(command.id))
     const panelToggleCommands: UngroupedCommand[] = activeWorkspace
       ? [

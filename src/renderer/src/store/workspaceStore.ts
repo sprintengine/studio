@@ -47,7 +47,13 @@ import type { FolderOpenTargetId } from '../../../shared/folder-open-targets'
 import type { CommandId } from '../commands/commandRegistry'
 import type { ExtensionsDrawerView } from '../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { createAuthSlice } from './slices/authSlice'
-import { createSettingsSlice, normalizeAppSettings, type ChatListView, type SidebarSection } from './slices/settingsSlice'
+import {
+  createSettingsSlice,
+  normalizeAppSettings,
+  type ChatListView,
+  type DiffViewMode,
+  type SidebarSection,
+} from './slices/settingsSlice'
 import { clampSidebarWidth } from '../components/workspace/sidebarWidth'
 import { clampWorkspaceAsideWidth } from '../components/workspace/workspaceAsideWidth'
 import {
@@ -190,6 +196,10 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setWorkspacePaneMaximised: (maximised: boolean) => void
   openFilesInExternalWindow: boolean
   setOpenFilesInExternalWindow: (enabled: boolean) => void
+  diffOpensInWindow: boolean
+  setDiffOpensInWindow: (enabled: boolean) => void
+  diffView: DiffViewMode
+  setDiffView: (view: DiffViewMode) => void
   checkCliVersions: boolean
   setCheckCliVersions: (enabled: boolean) => void
   // The request that opened the Settings modal — not the modal's visibility;
@@ -581,6 +591,8 @@ type SettingsEnvelopeState = {
   sidebarWidth: unknown
   workspacePaneWidth: unknown
   openFilesInExternalWindow: unknown
+  diffOpensInWindow: unknown
+  diffView: unknown
   checkCliVersions: unknown
 }
 
@@ -653,16 +665,31 @@ function partializeRegistryFields(state: RegistryFields): RegistryFields {
   }
 }
 
+/**
+ * Every field the settings envelope carries, and therefore the ONLY keys a
+ * settings blob read back off disk may put into the store.
+ *
+ * Exported because an aux window merges that blob before writing its own field
+ * (`auxWindows/auxSettingsWrite.ts`), and "the key holds settings and nothing
+ * else" is an assumption about a file on disk rather than a fact about this
+ * process. Named here so the allowlist and the writer cannot drift apart.
+ */
+export const SETTINGS_ENVELOPE_FIELDS = [
+  'appSettings',
+  'sidebarCollapsed',
+  'chatListView',
+  'sidebarWidth',
+  'workspacePaneWidth',
+  'openFilesInExternalWindow',
+  'diffOpensInWindow',
+  'diffView',
+  'checkCliVersions',
+] as const
+
 function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelopeState {
-  return {
-    appSettings: state.appSettings,
-    sidebarCollapsed: state.sidebarCollapsed,
-    chatListView: state.chatListView,
-    sidebarWidth: state.sidebarWidth,
-    workspacePaneWidth: state.workspacePaneWidth,
-    openFilesInExternalWindow: state.openFilesInExternalWindow,
-    checkCliVersions: state.checkCliVersions,
-  }
+  const fields: Record<string, unknown> = {}
+  for (const key of SETTINGS_ENVELOPE_FIELDS) fields[key] = state[key]
+  return fields as SettingsEnvelopeState
 }
 
 function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof partializeRegistryFields> & SettingsEnvelopeState {
@@ -697,6 +724,8 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
         sidebarWidth: s.sidebarWidth,
         workspacePaneWidth: s.workspacePaneWidth,
         openFilesInExternalWindow: s.openFilesInExternalWindow,
+        diffOpensInWindow: s.diffOpensInWindow,
+        diffView: s.diffView,
         checkCliVersions: s.checkCliVersions,
         workspaces: retainedWorkspaces,
         activeWorkspaceId: retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
@@ -721,6 +750,8 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
     sidebarWidth: s.sidebarWidth,
     workspacePaneWidth: s.workspacePaneWidth,
     openFilesInExternalWindow: s.openFilesInExternalWindow,
+    diffOpensInWindow: s.diffOpensInWindow,
+    diffView: s.diffView,
     checkCliVersions: s.checkCliVersions,
     ...partializeRegistryFields(s),
   }

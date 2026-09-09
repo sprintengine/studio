@@ -2197,6 +2197,34 @@ export type GitFileBaseResult =
 // version (`git show HEAD:<p>`); `index` is the staged version (`git show :0:<p>`).
 export type GitFileStage = 'head' | 'index'
 
+// Per-hunk staging (git-commit-window T7). The shapes live beside the parser
+// that produces them; they are re-exported here because they are part of this
+// IPC contract like everything else in this file.
+import type { GitFileHunksResult, GitHunkRef, GitHunkScope } from './git/hunks'
+export type {
+  GitFileHunks,
+  GitFileHunksResult,
+  GitHunkRef,
+  GitHunkScope,
+  GitHunkUnsupported,
+  GitHunkView,
+  HunkInclusionSummary,
+} from './git/hunks'
+
+// Changelists (git-commit-window T6): the app's own named sets of paths, one
+// file per repository under the user-data dir. Re-exported here because they
+// cross this boundary, like the hunk shapes above.
+import type { Changelist } from './git/changelists'
+export type { Changelist } from './git/changelists'
+
+/** `git diff` of a selection, as text. `patch` is empty when there was nothing
+ *  to diff, and `message` says which of the two sides was empty. */
+export type GitPatchResult = { ok: boolean; patch: string; message: string | null }
+
+/** Where a patch was written, or `null` when the person dismissed the dialog —
+ *  a cancel is not a failure, so `ok` stays true. */
+export type GitPatchSaveResult = { ok: boolean; path: string | null; message: string | null }
+
 export type GitFileStageResult =
   | { ok: true; exists: boolean; content: string; binary: boolean; tooLarge: boolean }
   | { ok: false; message: string }
@@ -2512,6 +2540,26 @@ export type DockFileToWorkspaceInput = {
   path: string
   name: string
 }
+
+// The diff window handing its diff back to the app (git-commit-window T3).
+// Broadcast like a docked file: the window that owns the workspace opens the
+// pane's Diff tab on this repository and flips the sticky preference home.
+export type DockDiffToWorkspaceInput = {
+  workspaceId: string
+  repoRoot: string
+  focusPath: string | null
+  focusKind: 'staged' | 'unstaged' | null
+}
+
+// What the receiving window is handed, and what it acks with. The diff window
+// closes itself on the strength of this hand-off, so the hand-off has to be
+// acknowledged: `requestId` is what the workspace window sends back once it has
+// actually opened the tab.
+export type DockDiffToWorkspacePayload = DockDiffToWorkspaceInput & { requestId: string }
+
+/** `accepted: false` means no open window took the diff — the caller keeps its
+ *  own window up and says so, rather than closing into nothing. */
+export type DockDiffToWorkspaceResult = { accepted: boolean }
 
 export type OpenExternalResult =
   | { ok: true }
@@ -3557,6 +3605,10 @@ export type ElectronApi = {
   onAuxWindowRetarget: (cb: (payload: AuxWindowRetargetPayload) => void) => () => void
   dockFileToWorkspace: (input: DockFileToWorkspaceInput) => Promise<void>
   onDockFileToWorkspace: (cb: (input: DockFileToWorkspaceInput) => void) => () => void
+  dockDiffToWorkspace: (input: DockDiffToWorkspaceInput) => Promise<DockDiffToWorkspaceResult>
+  onDockDiffToWorkspace: (cb: (input: DockDiffToWorkspacePayload) => void) => () => void
+  /** The receiving window's half of the hand-off: "I opened the tab." */
+  ackDockDiffToWorkspace: (requestId: string) => void
   confirmWindowClose: () => Promise<void>
   openExternal: (url: string) => Promise<OpenExternalResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
@@ -3990,6 +4042,15 @@ export type ElectronApi = {
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
   getGitConflictFile: (repoRoot: string, filePath: string) => Promise<GitConflictFileContent | null>
   resolveGitConflict: (repoRoot: string, filePath: string, content: string) => Promise<GitCommandResult>
+  /**
+   * The hunks of the diff the viewer is showing for one file, plus the whole
+   * file's "N differences, M included" counter (git-commit-window T7).
+   */
+  getGitFileHunks: (repoRoot: string, filePath: string, scope: GitHunkScope) => Promise<GitFileHunksResult>
+  /** Put one hunk of the working tree into the index — `git apply --cached`. */
+  stageGitHunk: (ref: GitHunkRef) => Promise<GitCommandResult>
+  /** Take one hunk back out of the index — the same patch, reversed. */
+  unstageGitHunk: (ref: GitHunkRef) => Promise<GitCommandResult>
   stageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   unstageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   revertGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
@@ -4019,6 +4080,30 @@ export type ElectronApi = {
   createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>
   removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   pruneGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitCommandResult>>
+  /**
+   * This repository's changelists, pruned against `git status` before they are
+   * answered (git-commit-window T6). Every call below answers with the whole
+   * reconciled set for the same reason.
+   */
+  getGitChangelists: (repoRoot: string) => Promise<Changelist[]>
+  /** Which list new changes land in. Exactly one is active, always. */
+  setActiveGitChangelist: (repoRoot: string, id: string) => Promise<Changelist[]>
+  createGitChangelist: (
+    repoRoot: string,
+    input: { name: string; comment?: string; activate?: boolean; paths?: string[] }
+  ) => Promise<Changelist[]>
+  renameGitChangelist: (
+    repoRoot: string,
+    id: string,
+    input: { name: string; comment?: string }
+  ) => Promise<Changelist[]>
+  /** Delete a list; its paths return to the default, which cannot be deleted. */
+  deleteGitChangelist: (repoRoot: string, id: string) => Promise<Changelist[]>
+  moveGitChangelistPaths: (repoRoot: string, id: string, paths: string[]) => Promise<Changelist[]>
+  /** `git diff` (or `--cached`) of the named paths, as patch text. */
+  createGitPatch: (repoRoot: string, paths: string[], cached?: boolean) => Promise<GitPatchResult>
+  /** The same text, through the OS save dialog. */
+  saveGitPatch: (repoRoot: string, patch: string, defaultFileName?: string) => Promise<GitPatchSaveResult>
   getGitHubTokenStatus: () => Promise<GitHubTokenStatus>
   setGitHubToken: (token: string) => Promise<GitHubTokenStatus>
   clearGitHubToken: () => Promise<GitHubTokenStatus>

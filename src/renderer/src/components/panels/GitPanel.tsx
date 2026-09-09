@@ -5,6 +5,8 @@ import { getGitScopeStatusAppearance, getGitStatusAppearance } from '../../utils
 import { focusOrAddGitConflictTab, focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { isImageFile } from '../../utils/files'
 import { openFileSurface } from '../../utils/openFileSurface'
+import { openGitDiff } from '../../utils/openGitDiff'
+import { openDiffWindow } from '../auxWindows/openDiffWindow'
 import { basename, samePath, trimPath } from '../../utils/paths'
 import {
   fileExplorerSelectionFromVerticalRange,
@@ -13,66 +15,44 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees, workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { ContextMenu, EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PrimaryButton, RefreshIcon, Select, Skeleton, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type OverflowMenuItem, type TabItem } from '../ui'
+import { EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, PrimaryButton, RefreshIcon, Select, Skeleton, StashGlyph, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type TabItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
+import { MODAL_SURFACE_SELECTOR } from '../ui/Modal'
+import { buildChangeGroupMenu, buildChangeRowMenu, type ChangelistActions, type CopyPathKind } from './git/changeRowMenu'
+import { ChangelistDialog, type ChangelistDialogValue } from './git/ChangelistDialog'
+import { GitChangesList } from './git/GitChangesList'
+import { GitChangesToolbar, type ShowDiffPlacement } from './git/GitChangesToolbar'
+import {
+  buildGitChangeGroups,
+  commitCounts,
+  formatCommitCounts,
+  groupToggleAction,
+  isUntrackedEntry,
+  nextCheckIntent,
+  nextCursorPath,
+  splitGitPath,
+  visibleChangeRows,
+  type GitChangeGroup,
+  type GitChangeRow,
+  type GitChangesGrouping,
+} from './git/gitChangesModel'
+import {
+  createChangelistFor,
+  deleteChangelistFor,
+  moveChangelistPathsFor,
+  refreshChangelists,
+  renameChangelistFor,
+  setActiveChangelistFor,
+  useChangelists,
+  type ChangelistCallResult,
+} from '../../hooks/useChangelists'
+import { DEFAULT_CHANGELIST_ID, normalizeChangelistPath } from '../../../../shared/git/changelists'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
-
-// Status is conveyed by colour-coded filename text (see getGitStatusAppearance);
-// this supplies the non-visual equivalent for the row's accessible name, since
-// colour alone is not an accessible signal.
-function gitStatusWord(status: GitFileStatus | null): string | null {
-  switch (status) {
-    case 'new':
-      return 'added'
-    case 'modified':
-      return 'modified'
-    case 'renamed':
-      return 'renamed'
-    case 'deleted':
-      return 'deleted'
-    case 'conflicted':
-      return 'conflicted'
-    default:
-      return null
-  }
-}
 
 type GitPanelMessage = {
   tone: 'neutral' | 'error' | 'success'
   text: string
-}
-
-type GitChangeGroup = {
-  title: string
-  // Which diff the viewer shows for rows in this group: the Staged group shows
-  // HEAD↔index, the Unstaged group index↔worktree. A partially-staged file
-  // appears in both groups, so the group — not the entry — decides the scope.
-  scope: 'staged' | 'unstaged'
-  empty: string
-  // The verb a row's right-click menu leads with: Stage on unstaged rows,
-  // Unstage on staged rows. Discard is the same on both.
-  primaryVerb: 'Stage' | 'Unstage'
-  // Whole-group actions (stage all, stash, discard all). They sit behind the
-  // heading's one overflow control and at the foot of every row's menu — never
-  // as a button strip beside the title, which squeezed the heading to a wrap at
-  // sidebar widths and left the file paths truncated to nothing.
-  groupActions: GitGroupAction[]
-  entries: GitStatusEntry[]
-  omittedCount: number
-}
-
-// Selection key for a change row. A partially-staged file shows in both the
-// Staged and Unstaged groups, so path alone is ambiguous; the scope keeps the
-// two rows independently selectable. The NUL separator can't collide with a path.
-function changeSelectionKey(scope: 'staged' | 'unstaged', path: string): string {
-  return `${scope}\u0000${path}`
-}
-
-type GitGroupAction = {
-  label: string
-  danger?: boolean
-  action: () => Promise<unknown>
 }
 
 type GitScopeKind = 'main' | 'worktree'
@@ -101,7 +81,6 @@ const OPERATION_LABELS: Record<GitRepoOperation, string> = {
   revert: 'Revert',
 }
 
-const MAX_RENDERED_GIT_CHANGES_PER_GROUP = 500
 const GIT_PANEL_AUTO_REFRESH_MS = 10_000
 const GIT_GRAPH_PAGE_SIZE = 200
 const STANDARD_BASE_BRANCHES = ['main', 'master', 'develop', 'trunk']
@@ -173,25 +152,10 @@ function LogViewGlyph({ className }: { className?: string }) {
   )
 }
 
-function StashesViewGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
-      <path
-        d="M1.9 5.6h12.2v6.4a1.1 1.1 0 0 1-1.1 1.1H3a1.1 1.1 0 0 1-1.1-1.1z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M2.6 2.9h10.8a.7.7 0 0 1 .7.7v2H1.9v-2a.7.7 0 0 1 .7-.7z"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-      <path d="M6.5 8.75h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  )
-}
+// `StashesViewGlyph` used to be drawn here, with no asset behind it. Stashes is
+// the one view mark that is also an ACTION — the Commit toolbar's "Stash
+// changes…" is the same concept — so the drawer moved to the kit as
+// `StashGlyph` (design-system/glyphs/stash.svg) and both hosts import it.
 
 function TerminalViewGlyph({ className }: { className?: string }) {
   return (
@@ -282,18 +246,6 @@ function scopeHealthGlyph(label: string): { state: LifecycleState; label: string
   if (label === 'Prunable') return { state: 'archived', label: 'Prunable' }
   if (label === 'Locked') return { state: 'paused', label: 'Locked' }
   return null
-}
-
-function splitGitPath(relativePath: string): { directory: string; filename: string } {
-  const lastSlashIndex = relativePath.lastIndexOf('/')
-  if (lastSlashIndex === -1) {
-    return { directory: '', filename: relativePath }
-  }
-
-  return {
-    directory: relativePath.slice(0, lastSlashIndex),
-    filename: relativePath.slice(lastSlashIndex + 1),
-  }
 }
 
 function resultMessage(result: GitCommandResult, fallback: string): GitPanelMessage {
@@ -708,19 +660,41 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     () => sortedEntries(statusEntries.filter((entry) => entry.status === 'conflicted')),
     [statusEntries]
   )
-  const nonConflictEntries = useMemo(
-    () => statusEntries.filter((entry) => entry.status !== 'conflicted'),
+  const allEntries = useMemo(() => sortedEntries(statusEntries), [statusEntries])
+  // The changelists: the app's own division of this repository's changes, read
+  // through one shared subscription per repo root (the same shape `useGitStatus`
+  // uses) so a rename made here is seen by anything else looking at the same
+  // checkout. Main prunes them against `git status` on every read, so the counts
+  // on the bands can never describe files that are no longer changed.
+  const { changelists, activeChangelist } = useChangelists(repoRoot)
+  // How the checklist is carved up. Not persisted: it is a way of looking at
+  // the pane for a minute, like a sort order, and a person who grouped by
+  // directory once should not find the panel that way a week later.
+  const [grouping, setGrouping] = useState<GitChangesGrouping>('changelist')
+  // The checklist. `buildGitChangeGroups` returns the conflicts group too; the
+  // panel renders those through `ConflictGroup` above the list, because a
+  // conflicted file is resolved rather than ticked. Everything else is the
+  // checklist — one group per changelist, per directory, or one flat list, plus
+  // the untracked files at the bottom — and nothing below this line knows which.
+  const changeGroups = useMemo(
+    () => buildGitChangeGroups(statusEntries, { changelists, grouping }),
+    [statusEntries, changelists, grouping]
+  )
+  const checklistGroups = useMemo(
+    () => changeGroups.filter((group) => group.checked !== null),
+    [changeGroups]
+  )
+  // The files git has never heard of, by repo-relative path. "Add to git" is
+  // offered on exactly these and on nothing else — a staged addition is already
+  // added, and offering it there would be a control that cannot act.
+  const untrackedPaths = useMemo(
+    () => new Set(statusEntries.filter(isUntrackedEntry).map((entry) => entry.relativePath)),
     [statusEntries]
   )
-  const stagedEntries = useMemo(
-    () => sortedEntries(nonConflictEntries.filter((entry) => entry.staged)),
-    [nonConflictEntries]
-  )
-  const unstagedEntries = useMemo(
-    () => sortedEntries(nonConflictEntries.filter((entry) => entry.unstaged)),
-    [nonConflictEntries]
-  )
-  const allEntries = useMemo(() => sortedEntries(statusEntries), [statusEntries])
+  // The commit message box, so "Commit files…" can hand it the caret after it
+  // stages what was named.
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const changeCounts = useMemo(() => commitCounts(statusEntries), [statusEntries])
   const branchOptions = branches?.branches ?? []
   const worktreeCount = scopeOptions.filter((scope) => scope.kind === 'worktree').length
   const totalCommitCount = graph.status === 'ready' ? graph.snapshot.totalCount : 0
@@ -730,7 +704,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     const standard = named.find((branch) => STANDARD_BASE_BRANCHES.includes(branch.name))
     return standard?.name ?? named[0]?.name ?? null
   }, [branchOptions])
-  const readyToCommit = stagedEntries.length > 0 && Boolean(commitMessage.trim())
+  // "Checked" is exactly "in the index", and commit is index-only — so the
+  // button is live when the line above it reads more than zero.
+  const readyToCommit = changeCounts.checked > 0 && Boolean(commitMessage.trim())
   const activeScopeLabel = activeScope?.label ?? 'Current checkout'
   const activeScopePath = repoRoot ?? activeRootPath ?? ''
   const activeScopeAppearance = getGitScopeStatusAppearance(activeScope)
@@ -781,9 +757,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       () => window.api.unstageGitPaths(repoRoot!, paths),
       paths.length > 1 ? `Unstaged ${paths.length} files.` : 'Unstaged file.'
     )
-  const revertEntries = async (entries: GitStatusEntry[]) => {
-    // A partially-staged file appears in both change groups, so the same path can
-    // arrive twice from a cross-group selection; revert each path once.
+  // Discard. Takes rows rather than status entries because the checklist is what
+  // asks for it now, and a row already carries both spellings of the path.
+  const revertEntries = async (entries: Array<{ path: string; relativePath: string }>) => {
     const seen = new Set<string>()
     const unique = entries.filter((entry) => {
       if (seen.has(entry.path)) return false
@@ -813,117 +789,66 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       many ? `Discarded changes in ${unique.length} files.` : 'Discarded changes.'
     )
   }
-  const discardUnstagedChanges = async () => {
-    const confirmed = await dialog.confirm({
-      title: 'Discard unstaged changes?',
-      body: (
-        <>
-          This rolls back every unstaged edit in {activeScopeLabel} and removes untracked files. The action cannot be undone from here.
-          <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
-        </>
-      ),
-      confirmLabel: 'Discard changes',
-      tone: 'danger',
-    })
-    if (!confirmed) return null
 
-    return runAction(
-      'Rolling back unstaged changes',
-      () => window.api.discardUnstagedGitChanges(repoRoot!, []),
-      'Rolled back unstaged changes.'
-    )
-  }
-
-  const groups: GitChangeGroup[] = [
-    {
-      title: `Staged (${stagedEntries.length})`,
-      scope: 'staged',
-      empty: 'No staged changes',
-      primaryVerb: 'Unstage',
-      groupActions: [
-        {
-          label: 'Unstage all',
-          action: () => runAction('Unstaging all', () => window.api.unstageGitPaths(repoRoot!, []), 'Unstaged all files.'),
-        },
-      ],
-      entries: stagedEntries.slice(0, MAX_RENDERED_GIT_CHANGES_PER_GROUP),
-      omittedCount: Math.max(0, stagedEntries.length - MAX_RENDERED_GIT_CHANGES_PER_GROUP),
-    },
-    {
-      title: `Unstaged (${unstagedEntries.length})`,
-      scope: 'unstaged',
-      empty: 'No unstaged changes',
-      primaryVerb: 'Stage',
-      groupActions: [
-        {
-          label: 'Stage all',
-          action: () => runAction('Staging all', () => window.api.stageGitPaths(repoRoot!, []), 'Staged all changes.'),
-        },
-        {
-          // Stashes everything: staged, unstaged, and untracked.
-          label: 'Stash all changes',
-          action: () => handleStashPush(),
-        },
-        {
-          label: 'Discard all unstaged changes',
-          danger: true,
-          action: discardUnstagedChanges,
-        },
-      ],
-      entries: unstagedEntries.slice(0, MAX_RENDERED_GIT_CHANGES_PER_GROUP),
-      omittedCount: Math.max(0, unstagedEntries.length - MAX_RENDERED_GIT_CHANGES_PER_GROUP),
-    },
-  ]
-
-  // --- Change-row selection (multi-select + drag marquee) --------------------
-  // Mirrors the FileExplorer selection model so batch stage/unstage/revert works
-  // the same way. A partially-staged file appears in both groups, so selection is
-  // keyed by scope+path (not path alone) to keep the two rows independent.
-  const selectableRows = useMemo<Array<{ key: string; scope: 'staged' | 'unstaged'; entry: GitStatusEntry }>>(
-    () => [
-      ...stagedEntries
-        .slice(0, MAX_RENDERED_GIT_CHANGES_PER_GROUP)
-        .map((entry) => ({ key: changeSelectionKey('staged', entry.path), scope: 'staged' as const, entry })),
-      ...unstagedEntries
-        .slice(0, MAX_RENDERED_GIT_CHANGES_PER_GROUP)
-        .map((entry) => ({ key: changeSelectionKey('unstaged', entry.path), scope: 'unstaged' as const, entry })),
-    ],
-    [stagedEntries, unstagedEntries]
+  // --- The checklist: groups, cursor, selection ------------------------------
+  // Collapsed rather than expanded is what is remembered, so a group that
+  // appears later (T6's changelists) arrives OPEN — the alternative is a new
+  // changelist that silently starts folded because nobody had expanded it yet.
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set())
+  const expandedGroupIds = useMemo(
+    () => new Set(checklistGroups.filter((group) => !collapsedGroupIds.has(group.id)).map((group) => group.id)),
+    [checklistGroups, collapsedGroupIds]
   )
-  const selectableRowsRef = useRef(selectableRows)
+  // Every row on screen, in visual order: the keyboard walk, the marquee's
+  // geometry and the shift range are all this one list.
+  const visibleRows = useMemo(
+    () => visibleChangeRows(checklistGroups, (id) => expandedGroupIds.has(id)),
+    [checklistGroups, expandedGroupIds]
+  )
+  const visibleRowsRef = useRef(visibleRows)
   const changeRowNodesRef = useRef<Record<string, HTMLElement | null>>({})
-  const selectionAnchorKeyRef = useRef<string | null>(null)
+  const selectionAnchorPathRef = useRef<string | null>(null)
   const changeDragRef = useRef<{ startY: number } | null>(null)
   const changeDragCompletedRef = useRef(false)
-  const [selectedChangeKeys, setSelectedChangeKeys] = useState<Set<string>>(() => new Set())
+  // Keyed by PATH alone. The old key was `scope\0path`, because a partially
+  // staged file had a row in the Staged section and another in the Unstaged one;
+  // it is one row with a dashed box now, so the path is the whole identity.
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set())
+  const [cursorPath, setCursorPath] = useState<string | null>(null)
 
-  // Keep the geometry snapshot fresh and drop selection for rows that vanished
-  // (committed, staged away, refreshed) so stale keys never drive a batch action.
+  // Keep the geometry snapshot fresh, drop selection for rows that vanished
+  // (committed, discarded, refreshed away) so a stale path never drives a batch
+  // action, and hand the cursor to whatever took the row's place rather than
+  // dropping it — the list is the tab stop, and a cursor that evaporates on
+  // every stage is a keyboard user starting from the top each time.
   useEffect(() => {
-    selectableRowsRef.current = selectableRows
-    setSelectedChangeKeys((current) => {
+    const previousOrder = visibleRowsRef.current.map((row) => row.path)
+    const nextOrder = visibleRows.map((row) => row.path)
+    visibleRowsRef.current = visibleRows
+    setSelectedPaths((current) => {
       if (current.size === 0) return current
-      const valid = new Set(selectableRows.map((row) => row.key))
+      const valid = new Set(nextOrder)
       const next = new Set<string>()
-      for (const key of current) if (valid.has(key)) next.add(key)
+      for (const path of current) if (valid.has(path)) next.add(path)
       return next.size === current.size ? current : next
     })
-  }, [selectableRows])
+    setCursorPath((current) => nextCursorPath(previousOrder, nextOrder, current))
+  }, [visibleRows])
 
   useEffect(() => {
     const updateDragSelection = (clientY: number) => {
       if (!changeDragRef.current) return
-      const bounds = selectableRowsRef.current
+      const bounds = visibleRowsRef.current
         .map((row) => {
-          const node = changeRowNodesRef.current[row.key]
+          const node = changeRowNodesRef.current[row.path]
           if (!node) return null
           const rect = node.getBoundingClientRect()
-          return { path: row.key, top: rect.top, bottom: rect.bottom }
+          return { path: row.path, top: rect.top, bottom: rect.bottom }
         })
         .filter((row): row is { path: string; top: number; bottom: number } => Boolean(row))
       const keys = fileExplorerSelectionFromVerticalRange(bounds, changeDragRef.current.startY, clientY)
       changeDragCompletedRef.current = keys.length > 0
-      setSelectedChangeKeys(new Set(keys))
+      setSelectedPaths(new Set(keys))
     }
     const handleMouseMove = (event: MouseEvent) => updateDragSelection(event.clientY)
     const handleMouseUp = () => {
@@ -944,102 +869,452 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const beginChangeMarquee = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
-    if (event.target instanceof Element && event.target.closest('[data-git-change-row="true"]')) return
+    // A drag that starts on a row or on a group's band is that control's, not
+    // the marquee's — a band click that cleared the selection would make the
+    // group checkbox unusable with a selection in hand.
+    if (
+      event.target instanceof Element
+      && event.target.closest('[data-git-change-row="true"], [data-git-group-header="true"]')
+    ) {
+      return
+    }
     event.preventDefault()
     changeDragRef.current = { startY: event.clientY }
     changeDragCompletedRef.current = false
-    selectionAnchorKeyRef.current = null
-    setSelectedChangeKeys(new Set())
+    selectionAnchorPathRef.current = null
+    setSelectedPaths(new Set())
+  }
+
+  const registerChangeRowNode = (path: string, node: HTMLElement | null) => {
+    if (node) changeRowNodesRef.current[path] = node
+    else delete changeRowNodesRef.current[path]
   }
 
   // Returns true when the click was consumed as a selection gesture (marquee
-  // suppression, shift-range, or meta-toggle) and must not also open the diff.
-  const handleChangeRowSelect = (
-    entry: GitStatusEntry,
-    scope: 'staged' | 'unstaged',
-    event: React.MouseEvent
-  ): boolean => {
+  // suppression, shift-range, or cmd-toggle) and must not also open the diff.
+  const handleChangeRowClick = (row: GitChangeRow, event: React.MouseEvent): boolean => {
     if (changeDragCompletedRef.current) return true
-    const key = changeSelectionKey(scope, entry.path)
-    if (event.shiftKey && selectionAnchorKeyRef.current) {
+    const anchor = selectionAnchorPathRef.current
+    if (event.shiftKey && anchor) {
       const keys = fileExplorerSelectionRange(
-        selectableRowsRef.current.map((row) => row.key),
-        selectionAnchorKeyRef.current,
-        key
+        visibleRowsRef.current.map((visible) => visible.path),
+        anchor,
+        row.path
       )
-      if (keys.length) setSelectedChangeKeys(new Set(keys))
+      if (keys.length) setSelectedPaths(new Set(keys))
+      setCursorPath(row.path)
       return true
     }
     if (event.metaKey || event.ctrlKey) {
-      selectionAnchorKeyRef.current = key
-      setSelectedChangeKeys((current) => {
+      selectionAnchorPathRef.current = row.path
+      setSelectedPaths((current) => {
         const next = new Set(current)
-        if (next.has(key) && next.size > 1) next.delete(key)
-        else next.add(key)
+        if (next.has(row.path) && next.size > 1) next.delete(row.path)
+        else next.add(row.path)
         return next
       })
+      setCursorPath(row.path)
       return true
     }
-    selectionAnchorKeyRef.current = key
-    setSelectedChangeKeys(new Set([key]))
+    selectionAnchorPathRef.current = row.path
+    setSelectedPaths(new Set([row.path]))
+    setCursorPath(row.path)
     return false
   }
 
-  const registerChangeRowNode = (key: string, node: HTMLElement | null) => {
-    if (node) changeRowNodesRef.current[key] = node
-    else delete changeRowNodesRef.current[key]
+  const handleMoveCursor = (path: string, mode: 'replace' | 'extend') => {
+    const anchor = selectionAnchorPathRef.current
+    if (mode === 'extend' && anchor) {
+      const keys = fileExplorerSelectionRange(
+        visibleRowsRef.current.map((visible) => visible.path),
+        anchor,
+        path
+      )
+      setSelectedPaths(new Set(keys.length ? keys : [path]))
+    } else {
+      selectionAnchorPathRef.current = path
+      setSelectedPaths(new Set([path]))
+    }
+    setCursorPath(path)
+    changeRowNodesRef.current[path]?.scrollIntoView?.({ block: 'nearest' })
   }
 
   // A right-click on a row outside the current selection makes that row the
   // selection first, so the menu's batch labels describe exactly the rows the
   // actions will touch. A right-click inside the selection leaves it alone.
-  const handleChangeRowContextSelect = (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
-    const key = changeSelectionKey(scope, entry.path)
-    if (selectedChangeKeys.has(key)) return
-    selectionAnchorKeyRef.current = key
-    setSelectedChangeKeys(new Set([key]))
+  const handleChangeRowContextSelect = (row: GitChangeRow) => {
+    if (selectedPaths.has(row.path)) return
+    selectionAnchorPathRef.current = row.path
+    setSelectedPaths(new Set([row.path]))
+    setCursorPath(row.path)
   }
 
-  // Primary action (stage on unstaged rows, unstage on staged rows). Batches
-  // across the selection only when the clicked row is part of a multi-selection.
-  const handleChangeRowPrimary = (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
-    const key = changeSelectionKey(scope, entry.path)
-    const batching = selectedChangeKeys.has(key) && selectedChangeKeys.size > 1
-    const paths = batching
-      ? selectableRows.filter((row) => row.scope === scope && selectedChangeKeys.has(row.key)).map((row) => row.entry.path)
-      : [entry.path]
+  // The tick IS the index: unchecked and mixed both stage (mixed stages the
+  // rest, never unstages the part already in), checked unstages.
+  const handleToggleChangeRow = (row: GitChangeRow) => {
+    const paths = [row.path]
+    void (nextCheckIntent(row.checked) === 'stage' ? stagePaths(paths) : unstagePaths(paths))
+  }
+
+  const handleToggleChangeGroup = (group: GitChangeGroup, next: boolean) => {
+    // Every row the group holds, not the five hundred on screen: the box
+    // governs the group.
+    const { action, paths } = groupToggleAction(group.allRows, next)
     if (paths.length === 0) return
-    const result = scope === 'staged' ? unstagePaths(paths) : stagePaths(paths)
-    if (batching) setSelectedChangeKeys(new Set())
+    void (action === 'stage' ? stagePaths(paths) : unstagePaths(paths))
+  }
+
+  // The rows an action acts on: the selection when the row is part of it (a
+  // right-click has already made it so), otherwise the row alone.
+  const changeActionRows = (row?: GitChangeRow): GitChangeRow[] => {
+    if (row && !selectedPaths.has(row.path)) return [row]
+    const selected = visibleRows.filter((visible) => selectedPaths.has(visible.path))
+    if (selected.length > 0) return selected
+    return row ? [row] : []
+  }
+
+  // The row the toolbar's single-file actions mean: the cursor, or the first
+  // row of the selection when the cursor is off the list.
+  const toolbarTargetRow =
+    (cursorPath ? visibleRows.find((row) => row.path === cursorPath) : undefined)
+    ?? visibleRows.find((row) => selectedPaths.has(row.path))
+    ?? null
+
+  // Every file the band's actions would touch is untracked. Only "move to
+  // another changelist" cares: an untracked file renders in the untracked group
+  // whatever list it is filed in, so the move changes nothing on screen.
+  const toolbarTargetUntrackedOnly = ((): boolean => {
+    if (!toolbarTargetRow) return false
+    const rows = changeActionRows(toolbarTargetRow)
+    return rows.length > 0 && rows.every((row) => untrackedPaths.has(row.relativePath))
+  })()
+
+  const handleChangeRowsRevert = async (rows: GitChangeRow[]) => {
+    if (rows.length === 0) return null
+    const batching = rows.length > 1
+    const result = await revertEntries(rows)
+    if (batching && result !== null) setSelectedPaths(new Set())
     return result
   }
 
-  const handleChangeRowRevert = async (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
-    const key = changeSelectionKey(scope, entry.path)
-    const batching = selectedChangeKeys.has(key) && selectedChangeKeys.size > 1
-    const entries = batching
-      ? selectableRows.filter((row) => selectedChangeKeys.has(row.key)).map((row) => row.entry)
-      : [entry]
-    const result = await revertEntries(entries)
-    if (batching && result !== null) setSelectedChangeKeys(new Set())
-    return result
+  // --- Changelists: the actions behind the menu and the band ----------------
+  // Every one of these ends by refreshing BOTH the status and the lists: the
+  // store reconciles against status on read, so a move that is not followed by
+  // a re-read would leave the panel drawing the arrangement it asked for rather
+  // than the one main persisted.
+
+  // Which list a row's file is in. The store speaks repo-relative paths and the
+  // rows carry git's absolute ones, so the lookup goes through the store's
+  // spelling — a mixed comparison would answer "the default" for every row and
+  // put "Delete changelist" on the wrong list.
+  const changelistIdForRow = useCallback(
+    (row: Pick<GitChangeRow, 'relativePath'>): string => {
+      const relative = normalizeChangelistPath(row.relativePath)
+      return changelists.find((list) => list.paths.includes(relative))?.id
+        ?? activeChangelist?.id
+        ?? DEFAULT_CHANGELIST_ID
+    },
+    [changelists, activeChangelist]
+  )
+
+  // The list an action on a SET of rows means: the one they share, or the
+  // active one when they are spread across several. A menu that named one of
+  // three lists because it happened to be first would delete the wrong one.
+  const changelistIdForRows = (rows: GitChangeRow[]): string => {
+    const ids = new Set(rows.map(changelistIdForRow))
+    if (ids.size === 1) return [...ids][0]
+    return activeChangelist?.id ?? DEFAULT_CHANGELIST_ID
   }
 
-  const handleCommit = async () => {
+  const [changelistDialog, setChangelistDialog] = useState<{
+    mode: 'new' | 'edit'
+    changelistId?: string
+    initial: ChangelistDialogValue
+    /** Absolute paths that move into the list the dialog creates. */
+    paths: string[]
+  } | null>(null)
+
+  const changelistName = (id: string): string =>
+    changelists.find((list) => list.id === id)?.name ?? 'this changelist'
+
+  /**
+   * Say what happened, and only if it happened. `runChangelistCall` swallows the
+   * store's rejection so the last good lists stay on screen — which is right —
+   * and hands back `ok`, which is the half that must be read. This panel used to
+   * announce "Moved 3 files to Spike" off the fact that a promise had settled.
+   */
+  const reportChangelistResult = async (
+    result: ChangelistCallResult,
+    success: string,
+    failure: string,
+  ): Promise<boolean> => {
+    if (!result.ok) {
+      setMessage({ tone: 'error', text: result.error ? `${failure} ${result.error}` : failure })
+      return false
+    }
+    setMessage({ tone: 'success', text: success })
+    await refreshChangelists(repoRoot)
+    return true
+  }
+
+  const handleMoveToChangelist = async (changelistId: string, rows: GitChangeRow[]): Promise<void> => {
+    if (!repoRoot || rows.length === 0) return
+    const result = await moveChangelistPathsFor(repoRoot, changelistId, rows.map((row) => row.path))
+    const files = rows.length === 1 ? '1 file' : `${rows.length} files`
+    await reportChangelistResult(
+      result,
+      `Moved ${files} to ${changelistName(changelistId)}.`,
+      `Could not move ${files} to ${changelistName(changelistId)}.`,
+    )
+  }
+
+  const openNewChangelistDialog = (paths: string[]): void => {
+    setChangelistDialog({
+      mode: 'new',
+      initial: { name: '', comment: '', activate: paths.length > 0 },
+      paths,
+    })
+  }
+
+  const openEditChangelistDialog = (changelistId: string): void => {
+    const list = changelists.find((entry) => entry.id === changelistId)
+    if (!list) return
+    setChangelistDialog({
+      mode: 'edit',
+      changelistId,
+      initial: { name: list.name, comment: list.comment ?? '', activate: list.active },
+      paths: [],
+    })
+  }
+
+  const submitChangelistDialog = async (value: ChangelistDialogValue): Promise<void> => {
+    const request = changelistDialog
+    setChangelistDialog(null)
+    if (!request || !repoRoot) return
+    if (request.mode === 'new') {
+      const created = await createChangelistFor(repoRoot, {
+        name: value.name,
+        comment: value.comment,
+        activate: value.activate,
+        paths: request.paths,
+      })
+      await reportChangelistResult(created, `Created ${value.name}.`, `Could not create ${value.name}.`)
+      return
+    }
+    if (!request.changelistId) return
+    const renamed = await renameChangelistFor(repoRoot, request.changelistId, {
+      name: value.name,
+      comment: value.comment,
+    })
+    await reportChangelistResult(renamed, `Renamed to ${value.name}.`, `Could not rename to ${value.name}.`)
+  }
+
+  const handleDeleteChangelist = async (changelistId: string): Promise<void> => {
     if (!repoRoot) return
+    // The default holds every path nobody assigned, so there is nowhere for its
+    // own files to go. The model refuses it too — this is the half that says so.
+    if (changelistId === DEFAULT_CHANGELIST_ID) {
+      setMessage({ tone: 'error', text: 'The default changelist cannot be deleted.' })
+      return
+    }
+    const list = changelists.find((entry) => entry.id === changelistId)
+    if (!list) return
+    // Count what the PANEL shows for this list, not what the store holds: an
+    // untracked file is filed in a changelist but drawn in the untracked group,
+    // so `list.paths.length` would name files the person cannot see there.
+    const shownCount =
+      changeGroups.find((group) => group.changelistId === changelistId)?.totalCount ?? list.paths.length
+    const confirmed = await dialog.confirm({
+      title: `Delete the changelist “${list.name}”?`,
+      body: (
+        <>
+          The list goes; the {shownCount === 1 ? 'file' : `${shownCount} files`} in it{' '}
+          {shownCount === 1 ? 'returns' : 'return'} to Changes. Nothing on disk is touched and nothing
+          is unstaged.
+        </>
+      ),
+      confirmLabel: 'Delete changelist',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    const result = await deleteChangelistFor(repoRoot, changelistId)
+    await reportChangelistResult(result, `Deleted ${list.name}.`, `Could not delete ${list.name}.`)
+  }
+
+  const handleSetActiveChangelist = async (changelistId: string): Promise<void> => {
+    if (!repoRoot) return
+    const result = await setActiveChangelistFor(repoRoot, changelistId)
+    await reportChangelistResult(
+      result,
+      `New changes now land in ${changelistName(changelistId)}.`,
+      `Could not make ${changelistName(changelistId)} the active changelist.`,
+    )
+  }
+
+  // --- The rest of the row menu ---------------------------------------------
+
+  // "Commit files…" stages exactly what was named and puts the cursor in the
+  // composer. It does NOT commit: the message is still unwritten, and a menu
+  // item that committed on the strength of a right-click would be the one
+  // irreversible thing in this menu.
+  const handleCommitFiles = async (rows: GitChangeRow[]): Promise<void> => {
+    if (rows.length === 0) return
+    const unstaged = rows.filter((row) => row.checked !== true)
+    if (unstaged.length > 0) await stagePaths(unstaged.map((row) => row.path))
+    composerRef.current?.focus()
+  }
+
+  // Copies every row the menu named, one per line — not just the row under the
+  // pointer. A menu whose labels say "3 selected files" and whose clipboard
+  // holds one of them is the worst kind of wrong: it looks like it worked.
+  const handleCopyPath = async (rows: GitChangeRow[], kind: CopyPathKind): Promise<void> => {
+    if (rows.length === 0) return
+    const spell = (row: GitChangeRow): string =>
+      kind === 'absolute' ? row.path : kind === 'relative' ? row.relativePath : row.filename
+    const text = rows.map(spell).join('\n')
+    try {
+      await window.api.clipboardWriteText(text)
+      setMessage({
+        tone: 'success',
+        text: rows.length === 1 ? `Copied ${text}` : `Copied ${rows.length} paths.`,
+      })
+    } catch (error) {
+      // A clipboard write that fails silently is a person pasting the last
+      // thing they copied and not noticing for ten minutes.
+      setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Could not copy to the clipboard.' })
+    }
+  }
+
+  const handleAddToGit = async (rows: GitChangeRow[]): Promise<void> => {
+    // `git:stage` runs `git add -- <paths>`, which is exactly what adding an
+    // untracked file is; there is no second channel to reach for.
+    const additions = rows.filter((row) => untrackedPaths.has(row.relativePath))
+    if (additions.length === 0) {
+      // Reachable by ⌥⌘A on a tracked row, where the menu item is not offered.
+      // Saying so beats a key that appears to do nothing.
+      setMessage({ tone: 'neutral', text: 'Only untracked files can be added to git.' })
+      return
+    }
+    await stagePaths(additions.map((row) => row.path))
+  }
+
+  const handleDeleteFiles = async (rows: GitChangeRow[]): Promise<void> => {
+    if (rows.length === 0 || typeof window.api.deletePath !== 'function') return
+    const many = rows.length > 1
+    const confirmed = await dialog.confirm({
+      title: many ? `Delete ${rows.length} files?` : `Delete ${rows[0].relativePath}?`,
+      body: (
+        <>
+          This removes {many ? `these ${rows.length} files` : 'the file'} from disk in {activeScopeLabel}. It is
+          not a git operation and it cannot be undone from here.
+          <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+        </>
+      ),
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    await runAction(
+      'Deleting files',
+      async () => {
+        const failures: string[] = []
+        for (const row of rows) {
+          try {
+            await window.api.deletePath(row.path)
+          } catch (error) {
+            failures.push(`${row.relativePath}: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
+        return failures.length > 0
+          ? { ok: false, stdout: '', stderr: failures.join('\n'), message: failures[0] }
+          : { ok: true, stdout: '', stderr: '', message: null }
+      },
+      many ? `Deleted ${rows.length} files.` : 'Deleted file.'
+    )
+    setSelectedPaths(new Set())
+  }
+
+  // The patch text is git's, always: the panel sends paths and main runs
+  // `git diff`. Assembling one from the rows would produce something no
+  // `git apply` would take.
+  const buildPatchFor = async (rows: GitChangeRow[]): Promise<string | null> => {
+    if (!repoRoot || rows.length === 0 || typeof window.api.createGitPatch !== 'function') return null
+    // Wholly staged rows have nothing outside the index, so their patch is the
+    // cached one; the mixed and unstaged rows are the worktree side. Asking for
+    // the side the rows are actually on is what keeps "create patch" from
+    // handing back an empty file for a fully staged selection.
+    const cached = rows.every((row) => row.checked === true)
+    const result = await window.api.createGitPatch(repoRoot, rows.map((row) => row.path), cached)
+    if (!result.ok) {
+      setMessage({ tone: 'error', text: result.message ?? 'Could not build the patch.' })
+      return null
+    }
+    if (!result.patch) {
+      setMessage({ tone: 'neutral', text: result.message ?? 'Nothing to put in a patch.' })
+      return null
+    }
+    return result.patch
+  }
+
+  const handleCopyAsPatch = async (rows: GitChangeRow[]): Promise<void> => {
+    const patch = await buildPatchFor(rows)
+    if (patch === null) return
+    try {
+      await window.api.clipboardWriteText(patch)
+      setMessage({ tone: 'success', text: `Copied a patch of ${rows.length === 1 ? '1 file' : `${rows.length} files`}.` })
+    } catch (error) {
+      setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Could not copy to the clipboard.' })
+    }
+  }
+
+  const handleCreatePatch = async (rows: GitChangeRow[]): Promise<void> => {
+    const patch = await buildPatchFor(rows)
+    if (patch === null || !repoRoot || typeof window.api.saveGitPatch !== 'function') return
+    const saved = await window.api.saveGitPatch(repoRoot, patch)
+    if (!saved.ok) {
+      setMessage({ tone: 'error', text: saved.message ?? 'Could not write the patch.' })
+      return
+    }
+    // A dismissed save dialog is not a failure and does not deserve an error.
+    if (saved.path) setMessage({ tone: 'success', text: `Wrote ${saved.path}` })
+  }
+
+  // The changelist half of both menus, built once: the row menu and the band
+  // menu offer the same list actions, and two spellings is how they drift.
+  const changelistActionsFor = (changelistId: string, rows: GitChangeRow[]): ChangelistActions => ({
+    changelists,
+    currentChangelistId: changelistId,
+    onMoveToChangelist: (targetId) => void handleMoveToChangelist(targetId, rows),
+    onMoveToNewChangelist: () => openNewChangelistDialog(rows.map((row) => row.path)),
+    onNewChangelist: () => openNewChangelistDialog([]),
+    onEditChangelist: (id) => openEditChangelistDialog(id),
+    onDeleteChangelist: (id) => void handleDeleteChangelist(id),
+    onSetActiveChangelist: (id) => void handleSetActiveChangelist(id),
+  })
+
+  // Returns whether the commit actually landed, which is what `Commit & Push…`
+  // needs: a push after a refused commit pushes whatever was already there and
+  // reports success for a commit that never happened.
+  const handleCommit = async (): Promise<boolean> => {
+    if (!repoRoot) return false
     const result = await runAction(
       'Committing',
       () => window.api.commitGitChanges(repoRoot, commitMessage),
       'Committed changes.'
     )
-    if (result?.ok) {
-      if (commitDraftTimerRef.current) {
-        window.clearTimeout(commitDraftTimerRef.current)
-        commitDraftTimerRef.current = null
-      }
-      setCommitMessage('')
-      clearGitCommitDraft(workspaceId, activeScopeId)
+    if (!result?.ok) return false
+    if (commitDraftTimerRef.current) {
+      window.clearTimeout(commitDraftTimerRef.current)
+      commitDraftTimerRef.current = null
     }
+    setCommitMessage('')
+    clearGitCommitDraft(workspaceId, activeScopeId)
+    return true
+  }
+
+  const handleCommitAndPush = async () => {
+    if (!(await handleCommit())) return
+    await handlePush()
   }
 
   const handlePush = async () => {
@@ -1081,6 +1356,19 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     // Targeted dispatch: ignore commands meant for another workspace's Git panel
     // so a commit/fetch only runs in the workspace the user acted from.
     if (typeof detail.workspaceId === 'string' && detail.workspaceId !== workspaceId) return
+    // Commit and the three row commands are refused while a dialog of ours is
+    // up: the changelist dialog and the confirm dialog both trap focus, and a
+    // chord that reached past a modal scrim to discard files or write a commit
+    // would be a change nobody could see themselves make. Refresh and fetch are
+    // not gated — they read, they touch nothing the person is looking at, and
+    // a status re-read behind a dialog is harmless.
+    // (The composer needs no guard — the shell already suppresses global
+    // shortcuts inside an editable target.)
+    // Read off the DOM alone. This used to also consult a ref assigned DURING
+    // RENDER, which is a write to shared state in the render phase — and it
+    // said nothing the query does not: `ChangelistDialog` is a kit `Modal`, and
+    // every kit Modal declares `aria-modal="true"` while it is mounted.
+    const dialogOpen = Boolean(document.querySelector(MODAL_SURFACE_SELECTOR))
     switch (detail.id) {
       case 'git.refresh':
         void refreshAll()
@@ -1089,8 +1377,31 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         void handleFetch()
         break
       case 'git.commit':
+        // Gated like the row commands, and for a stronger reason than any of
+        // them: a chord that reached past a modal scrim to WRITE A COMMIT is
+        // the one irreversible thing on this list.
+        if (dialogOpen) break
         void handleCommit()
         break
+      case 'git.changes.showDiff': {
+        if (dialogOpen) break
+        const row = toolbarTargetRow
+        if (row) openChangeDiff(row)
+        break
+      }
+      case 'git.changes.discard': {
+        if (dialogOpen) break
+        void handleChangeRowsRevert(changeActionRows(toolbarTargetRow ?? undefined))
+        break
+      }
+      case 'git.changes.moveToChangelist': {
+        if (dialogOpen) break
+        const rows = changeActionRows(toolbarTargetRow ?? undefined)
+        // No destination to pick from a keyboard chord, so it opens the one
+        // dialog that asks for one — a new list with these files in it.
+        if (rows.length > 0) openNewChangelistDialog(rows.map((row) => row.path))
+        break
+      }
     }
   }
   useEffect(() => {
@@ -1575,19 +1886,38 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }
 
-  // Activating a changed row opens the diff viewer in the workspace pane's Diff
-  // tab (browser-pane epic): old content left, new content right, arrow-key
-  // hunk navigation that flows across files. The scope picks which diff to show
-  // first — a staged row shows HEAD↔index, an unstaged row index↔worktree. The
-  // separate window (the IDE idiom) stays one click away from the tab's band;
-  // tab-opening stays available via the row's "Open file in editor" entry.
-  const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
-  const handleOpenFile = async (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
+  // Activating a changed row shows that file's diff: old content left, new
+  // content right, arrow-key hunk navigation that flows across files. WHERE it
+  // shows is `openGitDiff`'s to decide — the standalone window by default, the
+  // pane's Diff tab once the person has flipped the preference (T3). The scope
+  // picks which diff to show first: a staged row shows HEAD↔index, an unstaged
+  // row index↔worktree. Tab-opening stays available via the row's "Open file in
+  // editor" entry.
+  //
+  // `repoRoot` is THIS panel's repository — the active scope's, resolved by the
+  // panel's own status hook — and it travels with the request. The pane used to
+  // re-derive one from the workspace, which is a different repository whenever
+  // the panel is showing a worktree scope.
+  const openChangeDiff = (row: GitChangeRow, placement: ShowDiffPlacement = 'default') => {
     if (!repoRoot) return
-    openPaneTab(workspaceId, { kind: 'diff', diff: { focusPath: entry.path, focusKind: scope } })
+    const request = { workspaceId, repoRoot, focusPath: row.path, scope: row.diffScope }
+    if (placement === 'app') {
+      // The two explicit placements bypass the preference rather than flipping
+      // it: "show it there this once" is not "show it there from now on".
+      useWorkspaceStore.getState().openPaneTab(workspaceId, {
+        kind: 'diff',
+        diff: { repoRoot, focusPath: row.path, focusKind: row.diffScope },
+      })
+      return
+    }
+    if (placement === 'window') {
+      void openDiffWindow(request)
+      return
+    }
+    openGitDiff(request)
   }
 
-  const handleOpenFileInEditor = async (entry: GitStatusEntry) => {
+  const handleOpenFileInEditor = async (entry: { path: string; relativePath: string }) => {
     const name = entry.relativePath.split('/').filter(Boolean).pop() ?? entry.relativePath
     let content = ''
 
@@ -1664,7 +1994,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     {
       id: 'stashes',
       label: 'Stashes',
-      icon: StashesViewGlyph,
+      icon: StashGlyph,
       tooltip: stashes.length === 1 ? 'Stashes \u00b7 1' : `Stashes \u00b7 ${stashes.length}`,
     },
     { id: 'terminal', label: 'Terminal', icon: TerminalViewGlyph },
@@ -1876,32 +2206,118 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           top; only the bodies live here. */}
       <div className="flex min-h-0 flex-1 flex-col">
         <TabPanel idPrefix={gitTabsIdPrefix} tabId="changes" active={activeView === 'changes'} className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" onMouseDown={beginChangeMarquee}>
+            {/* This band belongs to the list beneath it rather
+                than to the pane — which is why it is borderless under the view
+                strip's own hairline. */}
+            <GitChangesToolbar
+              busy={Boolean(busy)}
+              hasTarget={Boolean(toolbarTargetRow)}
+              changelists={changelists}
+              currentChangelistId={
+                toolbarTargetRow ? changelistIdForRows(changeActionRows(toolbarTargetRow)) : null
+              }
+              untrackedOnly={toolbarTargetUntrackedOnly}
+              grouping={grouping}
+              onRefresh={() => void refreshAll()}
+              onDiscard={() => void handleChangeRowsRevert(changeActionRows(toolbarTargetRow ?? undefined))}
+              onStash={() => void handleStashPush()}
+              onShowDiff={(placement) => {
+                if (toolbarTargetRow) openChangeDiff(toolbarTargetRow, placement)
+              }}
+              onMoveToChangelist={(changelistId) =>
+                void handleMoveToChangelist(changelistId, changeActionRows(toolbarTargetRow ?? undefined))
+              }
+              onMoveToNewChangelist={() =>
+                openNewChangelistDialog(changeActionRows(toolbarTargetRow ?? undefined).map((row) => row.path))
+              }
+              onGroupingChange={setGrouping}
+              onExpandAll={() => setCollapsedGroupIds(new Set())}
+              onCollapseAll={() => setCollapsedGroupIds(new Set(checklistGroups.map((group) => group.id)))}
+            />
+            {/* Full-bleed: the rows carry their own 8px inset and their fill
+                runs to the pane's edges, the way a file list's does. */}
+            <div className="min-h-0 flex-1 overflow-y-auto py-1" onMouseDown={beginChangeMarquee}>
               {allEntries.length === 0 ? (
-                <div className="py-2 text-meta text-[color:var(--text-subtle)]">Working tree clean</div>
+                <div className="px-3 py-2 text-meta text-[color:var(--text-subtle)]">Working tree clean</div>
               ) : (
                 <>
-                  <ConflictGroup
-                    entries={conflictEntries}
-                    busy={busy}
-                    onOpenFile={handleOpenFileInEditor}
-                    onResolve={handleResolveConflict}
+                  {conflictEntries.length > 0 ? (
+                    <div className="px-3 pt-1">
+                      <ConflictGroup
+                        entries={conflictEntries}
+                        busy={busy}
+                        onOpenFile={handleOpenFileInEditor}
+                        onResolve={handleResolveConflict}
+                      />
+                    </div>
+                  ) : null}
+                  <GitChangesList
+                    listId={`git-changes-${workspaceId}`}
+                    groups={checklistGroups}
+                    visibleRows={visibleRows}
+                    expandedGroupIds={expandedGroupIds}
+                    onExpandedChange={(groupId, next) =>
+                      setCollapsedGroupIds((current) => {
+                        const updated = new Set(current)
+                        if (next) updated.delete(groupId)
+                        else updated.add(groupId)
+                        return updated
+                      })
+                    }
+                    selectedPaths={selectedPaths}
+                    cursorPath={cursorPath}
+                    onToggleRow={handleToggleChangeRow}
+                    onToggleGroup={handleToggleChangeGroup}
+                    onRowClick={handleChangeRowClick}
+                    onActivateRow={(row) => openChangeDiff(row)}
+                    onMoveCursor={handleMoveCursor}
+                    onSelectAll={() => setSelectedPaths(new Set(visibleRows.map((row) => row.path)))}
+                    onContextSelect={handleChangeRowContextSelect}
+                    registerRowNode={registerChangeRowNode}
+                    onOpenInEditor={(row) => void handleOpenFileInEditor(row)}
+                    onDeleteFiles={(row) => void handleDeleteFiles(changeActionRows(row))}
+                    onAddToGit={(row) => void handleAddToGit(changeActionRows(row))}
+                    onEditChangelist={(row) => openEditChangelistDialog(changelistIdForRow(row))}
+                    buildMenu={(row) => {
+                      const rows = changeActionRows(row)
+                      return buildChangeRowMenu({
+                        ...changelistActionsFor(changelistIdForRows(rows), rows),
+                        row,
+                        selectedCount: rows.length,
+                        busy: Boolean(busy),
+                        untracked: untrackedPaths.has(row.relativePath),
+                        untrackedOnly: rows.every((entry) => untrackedPaths.has(entry.relativePath)),
+                        onCommitFiles: () => void handleCommitFiles(rows),
+                        onDiscard: () => void handleChangeRowsRevert(rows),
+                        onShowDiff: () => openChangeDiff(row),
+                        onOpenInEditor: () => void handleOpenFileInEditor(row),
+                        onCopyPath: (kind) => void handleCopyPath(rows, kind),
+                        onDeleteFiles: () => void handleDeleteFiles(rows),
+                        onAddToGit: () => void handleAddToGit(rows),
+                        onCreatePatch: () => void handleCreatePatch(rows),
+                        onCopyAsPatch: () => void handleCopyAsPatch(rows),
+                        onStash: () => void handleStashPush(),
+                        onRefresh: () => void refreshAll(),
+                      })
+                    }}
+                    buildGroupMenu={(group) =>
+                      buildChangeGroupMenu({
+                        // The band's actions act on every row the group holds —
+                        // the ones past the render cap included, exactly as its
+                        // checkbox does.
+                        ...changelistActionsFor(
+                          group.changelistId ?? activeChangelist?.id ?? DEFAULT_CHANGELIST_ID,
+                          group.allRows
+                        ),
+                        group,
+                        busy: Boolean(busy),
+                        onStageAll: () => handleToggleChangeGroup(group, true),
+                        onUnstageAll: () => handleToggleChangeGroup(group, false),
+                        onDiscardAll: () => void handleChangeRowsRevert(group.allRows),
+                        onRefresh: () => void refreshAll(),
+                      })
+                    }
                   />
-                  {groups.map((group) => (
-                    <ChangeGroup
-                      key={group.title}
-                      group={group}
-                      busy={busy}
-                      onOpenFile={handleOpenFile}
-                      onOpenFileInEditor={handleOpenFileInEditor}
-                      selectedKeys={selectedChangeKeys}
-                      onRowSelect={handleChangeRowSelect}
-                      onRowContextSelect={handleChangeRowContextSelect}
-                      onRowPrimaryAction={handleChangeRowPrimary}
-                      onRowRevert={handleChangeRowRevert}
-                      registerRowNode={registerChangeRowNode}
-                    />
-                  ))}
                 </>
               )}
             </div>
@@ -1910,15 +2326,29 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               busy={busy}
               commitMessage={commitMessage}
               readyToCommit={readyToCommit}
-              stagedCount={stagedEntries.length}
+              countsLabel={formatCommitCounts(changeCounts)}
               onCommit={handleCommit}
+              onCommitAndPush={handleCommitAndPush}
               onCommitMessageChange={handleCommitMessageChange}
-              onFetch={handleFetch}
-              onPull={handlePull}
-              onPush={handlePush}
               scopeLabel={activeScopeLabel}
               scopePath={activeScopePath}
+              inputRef={composerRef}
+              // A changelist comment can supply a useful commit message: the active list's comment is the sentence this commit is
+              // probably about, offered as the placeholder rather than typed in
+              // — a prefilled message would be one nobody wrote.
+              placeholder={activeChangelist?.comment || undefined}
             />
+            {changelistDialog ? (
+              <ChangelistDialog
+                open
+                mode={changelistDialog.mode}
+                initial={changelistDialog.initial}
+                fileCount={changelistDialog.paths.length}
+                busy={Boolean(busy)}
+                onCancel={() => setChangelistDialog(null)}
+                onSubmit={(value) => void submitChangelistDialog(value)}
+              />
+            ) : null}
         </TabPanel>
         <TabPanel idPrefix={gitTabsIdPrefix} tabId="worktrees" active={activeView === 'worktrees'} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           <WorktreeManager
@@ -2188,252 +2618,34 @@ function StashList({
   )
 }
 
-// The change row's right-click menu (MC-2104). It used to be a native Electron
-// popup, which put two menu systems inside one panel: change rows opened an
-// OS-drawn, Title-Cased menu while the log rows next door opened the in-app
-// `OverflowMenu`. Same panel, same kind of row, two registers.
-//
-// It is also where stage and discard live now. They used to be a strip of
-// three ghost buttons beside the group title plus a pair of hover icons on
-// every row — at sidebar width the strip wrapped the heading and the icons ate
-// the path column, so every file read as `…l/ConnectorRow.tsx`. A row is a
-// file; what you can do to it is asked for, not paraded (design-system menu).
-type ChangeRowMenuState = { x: number; y: number; entry: GitStatusEntry; scope: 'staged' | 'unstaged' }
-
-function ChangeGroup({
-  group,
-  busy,
-  onOpenFile,
-  onOpenFileInEditor,
-  selectedKeys,
-  onRowSelect,
-  onRowContextSelect,
-  onRowPrimaryAction,
-  onRowRevert,
-  registerRowNode,
-}: {
-  group: GitChangeGroup
-  busy: string | null
-  onOpenFile: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => Promise<void>
-  onOpenFileInEditor: (entry: GitStatusEntry) => Promise<void>
-  selectedKeys: Set<string>
-  onRowSelect: (entry: GitStatusEntry, scope: 'staged' | 'unstaged', event: React.MouseEvent) => boolean
-  onRowContextSelect: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
-  onRowPrimaryAction: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
-  onRowRevert: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
-  registerRowNode: (key: string, node: HTMLElement | null) => void
-}) {
-  const [rowMenu, setRowMenu] = useState<ChangeRowMenuState | null>(null)
-  const selectedInGroup = group.entries.reduce(
-    (count, entry) => (selectedKeys.has(changeSelectionKey(group.scope, entry.path)) ? count + 1 : count),
-    0
-  )
-  const selectedTotal = selectedKeys.size
-  const disabled = Boolean(busy)
-
-  // The heading's one trailing control (design-system section: a ceiling of
-  // one). The same actions close every row menu, so a reader who only ever
-  // right-clicks still finds them.
-  const headingMenuItems: OverflowMenuItem[] = group.groupActions.map((action) => ({
-    id: action.label,
-    label: action.label,
-    destructive: action.danger,
-    disabled,
-    onSelect: () => void action.action(),
-  }))
-
-  // Batch labels describe the rows the menu will act on. The primary verb
-  // batches within this group; discard batches across both groups, because a
-  // partially-staged file is one file however many rows it occupies.
-  const menuRowSelected = rowMenu ? selectedKeys.has(changeSelectionKey(group.scope, rowMenu.entry.path)) : false
-  const primaryCount = menuRowSelected && selectedInGroup > 1 ? selectedInGroup : 1
-  const discardCount = menuRowSelected && selectedTotal > 1 ? selectedTotal : 1
-  const primaryLabel = primaryCount > 1 ? `${group.primaryVerb} ${primaryCount} selected files` : `${group.primaryVerb} file`
-  const discardLabel = discardCount > 1 ? `Discard changes in ${discardCount} selected files` : 'Discard changes'
-
-  return (
-    <section className="mb-4">
-      <div className="mb-1 flex h-6 items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-meta font-semibold text-[color:var(--text-strong)]">{group.title}</div>
-        {group.entries.length > 0 ? (
-          <OverflowMenu
-            ariaLabel={`${group.scope === 'staged' ? 'Staged' : 'Unstaged'} changes actions`}
-            triggerTooltip="More actions"
-            items={headingMenuItems}
-          />
-        ) : null}
-      </div>
-      {group.entries.length === 0 ? (
-        <div className="py-1.5 text-micro text-[color:var(--text-muted)]">{group.empty}</div>
-      ) : (
-        <>
-          <div className="space-y-1">
-            {group.entries.map((entry) => {
-              const appearance = getGitStatusAppearance(entry.status)
-              const pathParts = splitGitPath(entry.relativePath)
-              const statusWord = gitStatusWord(entry.status)
-              // Status reads from the colour-coded filename (green added / amber
-              // modified / red + strikethrough deleted) rather than a leading
-              // dot, so the row stays a single status idiom. The leading slot
-              // is the file-type glyph — identity, not status — and the name
-              // comes first with its directory after it in muted ink (the editor's
-              // Commit list, owner 2026-09-05): the eye lands on the thing that
-              // changed, and the path is there to disambiguate, not to lead.
-              const title = (
-                <span className="flex min-w-0 items-baseline gap-2 font-mono">
-                  <span className={`min-w-0 max-w-full shrink-0 truncate ${appearance.textClass}`}>
-                    {pathParts.filename}
-                  </span>
-                  {pathParts.directory ? (
-                    <span className="min-w-0 shrink truncate text-micro font-normal text-[color:var(--text-muted)]">
-                      {pathParts.directory}
-                    </span>
-                  ) : null}
-                </span>
-              )
-              const leading = <FileTypeGlyph name={pathParts.filename} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-              const trailing = appearance.badge ? (
-                <span className="font-mono text-micro font-semibold opacity-80">{appearance.badge}</span>
-              ) : null
-              const rowKey = changeSelectionKey(group.scope, entry.path)
-              const rowSelected = selectedKeys.has(rowKey)
-              return (
-                <div
-                  key={`${group.title}:${entry.path}`}
-                  ref={(node) => registerRowNode(rowKey, node)}
-                  data-git-change-row="true"
-                  onContextMenu={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onRowContextSelect(entry, group.scope)
-                    // A keyboard-summoned menu (Shift+F10, the Menu key) carries
-                    // no pointer; open it on the row rather than at the viewport
-                    // corner.
-                    const rect = event.currentTarget.getBoundingClientRect()
-                    setRowMenu({
-                      x: event.clientX || rect.left,
-                      y: event.clientY || rect.bottom,
-                      entry,
-                      scope: group.scope,
-                    })
-                  }}
-                >
-                  <InboxRow
-                    leading={leading}
-                    title={title}
-                    trailing={trailing}
-                    selected={rowSelected}
-                    onSelect={(event) => {
-                      // Modifier/marquee clicks are consumed for selection; a
-                      // plain click selects the single row and opens its diff.
-                      if (onRowSelect(entry, group.scope, event)) return
-                      void onOpenFile(entry, group.scope)
-                    }}
-                    ariaLabel={statusWord ? `Open ${entry.relativePath}, ${statusWord}` : `Open ${entry.relativePath}`}
-                  />
-                </div>
-              )
-            })}
-          </div>
-          {group.omittedCount > 0 ? (
-            <div className="mt-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2 py-1.5 text-micro text-[color:var(--text-subtle)]">
-              {group.omittedCount} more changes hidden to keep the panel responsive. Use the heading menu or the Git CLI for bulk actions.
-            </div>
-          ) : null}
-        </>
-      )}
-      {rowMenu ? (
-        <ContextMenu
-          x={rowMenu.x}
-          y={rowMenu.y}
-          ariaLabel={`Actions for ${rowMenu.entry.relativePath}`}
-          onClose={() => setRowMenu(null)}
-          surfaceClassName="min-w-[220px]"
-        >
-          <MenuItem
-            disabled={disabled}
-            onClick={() => {
-              const { entry, scope } = rowMenu
-              setRowMenu(null)
-              void onRowPrimaryAction(entry, scope)
-            }}
-          >
-            {primaryLabel}
-          </MenuItem>
-          <MenuItem
-            variant="danger"
-            disabled={disabled}
-            onClick={() => {
-              const { entry, scope } = rowMenu
-              setRowMenu(null)
-              void onRowRevert(entry, scope)
-            }}
-          >
-            {discardLabel}
-          </MenuItem>
-          <MenuDivider />
-          <MenuItem
-            onClick={() => {
-              const { entry, scope } = rowMenu
-              setRowMenu(null)
-              void onOpenFile(entry, scope)
-            }}
-          >
-            View Git diff
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              const { entry } = rowMenu
-              setRowMenu(null)
-              void onOpenFileInEditor(entry)
-            }}
-          >
-            Open file in editor
-          </MenuItem>
-          <MenuDivider />
-          {group.groupActions.map((action) => (
-            <MenuItem
-              key={action.label}
-              variant={action.danger ? 'danger' : undefined}
-              disabled={disabled}
-              onClick={() => {
-                setRowMenu(null)
-                void action.action()
-              }}
-            >
-              {action.label}
-            </MenuItem>
-          ))}
-        </ContextMenu>
-      ) : null}
-    </section>
-  )
-}
-
 function CommitComposer({
   busy,
   commitMessage,
   readyToCommit,
-  stagedCount,
+  countsLabel,
   onCommit,
+  onCommitAndPush,
   onCommitMessageChange,
-  onFetch,
-  onPull,
-  onPush,
   scopeLabel,
   scopePath,
+  inputRef,
+  placeholder,
 }: {
   busy: string | null
   commitMessage: string
   readyToCommit: boolean
-  stagedCount: number
-  onCommit: () => Promise<void>
+  /** `N of M files` — checked of total. The line the mockup's foot carries. */
+  countsLabel: string
+  onCommit: () => Promise<boolean>
+  onCommitAndPush: () => Promise<void>
   onCommitMessageChange: (value: string) => void
-  onFetch: () => Promise<void>
-  onPull: () => Promise<void>
-  onPush: () => Promise<void>
   scopeLabel: string
   scopePath: string
+  /** So "Commit files…" can hand the caret over after it stages. */
+  inputRef?: React.Ref<HTMLTextAreaElement>
+  /** The active changelist's comment, when it has one. The accessible name
+   *  stays "Commit message" — a placeholder is a suggestion, not a label. */
+  placeholder?: string
 }) {
   return (
     <section className="shrink-0 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3">
@@ -2449,36 +2661,39 @@ function CommitComposer({
         </Tooltip>
       </div>
       <Textarea
+        ref={inputRef}
         size="sm"
         resize="none"
         value={commitMessage}
         onChange={(event) => onCommitMessageChange(event.target.value)}
-        placeholder="Commit message"
+        placeholder={placeholder ?? 'Commit message'}
         aria-label="Commit message"
         className="h-16"
       />
       <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]">
-          {stagedCount > 0 ? `${stagedCount} staged` : 'Nothing staged'}
-        </div>
+        {/*
+         * `11 of 26 files` — what the index holds, of what the list shows. It
+         * replaces "3 staged", and the difference is not wording: the checkbox
+         * IS the index now, so the line states the same fact the boxes do and
+         * the Commit button beside it turns on at exactly the same moment.
+         *
+         * Fetch / Pull / Push left with it. Both counts already ride the panel's
+         * chrome row as the arrow buttons that appear when there is anything to
+         * pull or push, and a foot with five controls in a 340px pane had none
+         * of them readable. What a commit needs is here: commit, or commit and
+         * send it.
+         */}
+        <div className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]">{countsLabel}</div>
         <div className="flex shrink-0 items-center gap-2">
-          <GhostButton size="md" onClick={() => void onFetch()} disabled={Boolean(busy)}>
-            Fetch
-          </GhostButton>
-          <GhostButton size="md" onClick={() => void onPull()} disabled={Boolean(busy)}>
-            Pull
-          </GhostButton>
-          <GhostButton size="md" onClick={() => void onPush()} disabled={Boolean(busy)}>
-            Push
-          </GhostButton>
-          {/* The panel's most important action, and until MC-2113 the one place
-              in the product that painted a primary as an INVERTED fill — the ink
-              colour used as a background, hovering toward a per-theme hex the
-              design system never published. It is the accent fill now, like
-              every other primary. */}
           <PrimaryButton size="md" onClick={() => void onCommit()} disabled={Boolean(busy) || !readyToCommit}>
             Commit
           </PrimaryButton>
+          {/* The ellipsis is honest: the push half can still ask (an upstream
+              to set, a confirmation), and the commit half runs first — a push
+              never follows a commit git refused. */}
+          <GhostButton size="md" onClick={() => void onCommitAndPush()} disabled={Boolean(busy) || !readyToCommit}>
+            Commit &amp; Push…
+          </GhostButton>
         </div>
       </div>
     </section>

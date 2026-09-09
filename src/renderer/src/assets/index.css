@@ -290,12 +290,40 @@
   --annotate-pin-bg: #fcc030;
   --annotate-pin-ink: #1c1408;
 
-  /* Diff palette — file-status badges in Git surfaces and (future) diff-hunk
-     line backgrounds. Aliased to the canonical tone tokens so chrome stays
-     visually aligned with the rest of the design system. */
-  --diff-added: var(--tone-good);
-  --diff-removed: var(--tone-error);
+  /* Diff palette — file-status marks in Git surfaces, the +N/-N counts, and
+     the diff window's line and word washes.
+
+     Moved into the design system on 2026-09-09 (the Commit-window epic):
+     `sem.color.diff.*` is now where these four values live, so Monaco's theme,
+     a gutter and any future unified renderer read one set rather than three.
+     added and removed carry the same values status.good / status.danger do —
+     the bundle says so in their metadata — because that is what the app has
+     drawn since before the system existed; what changed is that they are a
+     diff channel with their own meaning rather than a borrowed status.
+
+     What that costs, and how it is paid: a theme that retunes --tone-good no
+     longer moves the diff palette with it. That is right for a theme with no
+     opinion about diffs, and wrong for one that hand-tunes its greens and reds
+     to its own paper — because the wash behind diff ink is still
+     --tone-good-soft / --tone-error-soft, so ink and wash would arrive from
+     two different palettes and disagree in hue. So every theme that overrides
+     --tone-good / --tone-error with its own literals (vellum, herbarium,
+     paper, sage, herbarium-dark) re-points --sem-color-diff-added /
+     --sem-color-diff-removed at those same two values, and its diff reads in
+     one palette. A theme with no such override inherits the bundle's, which is
+     the default this paragraph describes.
+
+     --diff-context has no bundle counterpart and wants none: "unchanged" is
+     not a diff colour, it is the row's ordinary muted ink, and it must follow
+     the theme's ink ramp. */
+  --diff-added: var(--sem-color-diff-added);
+  --diff-removed: var(--sem-color-diff-removed);
   --diff-context: var(--text-muted);
+  /* The two washes the diff window draws (mockup 2522): a changed line, and
+     the changed words inside it. Identity blue at 14% and 34% — neither added
+     nor removed, so neither green nor red. Consumed by T4/T7. */
+  --diff-changed: var(--sem-color-diff-changed);
+  --diff-changed-strong: var(--sem-color-diff-changed-strong);
 
   /* Tool identity dots only — header chrome, never row chrome. */
   --tool-sprintengine: #fcc030;
@@ -799,6 +827,13 @@
   --tone-warn-soft: rgba(152, 100, 0, 0.18);
   --tone-error-soft: rgba(196, 36, 36, 0.14);
 
+  /* Diff ink follows this theme's own good/error, so it agrees with the
+     --tone-*-soft washes drawn behind it. Without this the ink came from
+     the bundle's default palette and the wash from here, two hues for one
+     idea. */
+  --sem-color-diff-added: #2c6c54;
+  --sem-color-diff-removed: #c42424;
+
   --scrollbar-thumb: #d4ccb8;
   --scrollbar-thumb-hover: #c0b49c;
   --skeleton-shimmer-low: rgba(44, 36, 24, 0.04);
@@ -884,6 +919,13 @@
   --tone-warn-soft: rgba(152, 100, 0, 0.18);
   --tone-error-soft: rgba(196, 36, 36, 0.14);
 
+  /* Diff ink follows this theme's own good/error, so it agrees with the
+     --tone-*-soft washes drawn behind it. Without this the ink came from
+     the bundle's default palette and the wash from here, two hues for one
+     idea. */
+  --sem-color-diff-added: #2c7c5c;
+  --sem-color-diff-removed: #c42424;
+
   --scrollbar-thumb: #d0c8b4;
   --scrollbar-thumb-hover: #bcb4a0;
   --skeleton-shimmer-low: rgba(36, 40, 24, 0.04);
@@ -961,6 +1003,13 @@
   --tone-warn-soft: rgba(154, 96, 0, 0.18);
   --tone-error-soft: rgba(196, 36, 36, 0.14);
 
+  /* Diff ink follows this theme's own good/error, so it agrees with the
+     --tone-*-soft washes drawn behind it. Without this the ink came from
+     the bundle's default palette and the wash from here, two hues for one
+     idea. */
+  --sem-color-diff-added: #157f37;
+  --sem-color-diff-removed: #c42424;
+
   --scrollbar-thumb: #d2d6c4;
   --scrollbar-thumb-hover: #bcc0ae;
   --skeleton-shimmer-low: rgba(28, 32, 22, 0.04);
@@ -1024,6 +1073,13 @@
   --tone-good-soft: rgba(68, 168, 124, 0.18);
   --tone-warn-soft: rgba(204, 156, 64, 0.18);
   --tone-error-soft: rgba(216, 88, 80, 0.16);
+
+  /* Diff ink follows this theme's own good/error, so it agrees with the
+     --tone-*-soft washes drawn behind it. Without this the ink came from
+     the bundle's default palette and the wash from here, two hues for one
+     idea. */
+  --sem-color-diff-added: #44a87c;
+  --sem-color-diff-removed: #d85850;
 
   --scrollbar-thumb: #3c4030;
   --scrollbar-thumb-hover: #484c3c;
@@ -1095,6 +1151,13 @@
   --tone-good-soft: rgba(52, 180, 140, 0.18);
   --tone-warn-soft: rgba(216, 176, 72, 0.18);
   --tone-error-soft: rgba(228, 96, 88, 0.18);
+
+  /* Diff ink follows this theme's own good/error, so it agrees with the
+     --tone-*-soft washes drawn behind it. Without this the ink came from
+     the bundle's default palette and the wash from here, two hues for one
+     idea. */
+  --sem-color-diff-added: #34b48c;
+  --sem-color-diff-removed: #e46058;
 
   --scrollbar-thumb: #30342c;
   --scrollbar-thumb-hover: #3c4034;

@@ -53,10 +53,24 @@ names something.
   assets with hex of their own, exempted by file from the token guard.
 - **A file-type glyph may wear its language's hue** — the `color.mark.*`
   tokens (blue for TypeScript, yellow for JavaScript, orange for HTML …), so a tree of forty files scans by colour before it is read. This
-  is opt-in per surface (`FileTypeGlyph tone="kind"`) and the condition is
-  load-bearing: **only where nothing else in the row is coloured.** The File
-  Explorer qualifies. The Git changes list does not — there the filename's
-  status tint is the row's one colour, and the glyph stays in ink.
+  is opt-in per surface (`FileTypeGlyph tone="kind"`).
+
+  **Amended 2026-09-09 (owner's ruling, the Commit-window epic).** The
+  condition used to be **"only where nothing else in the row is coloured"**,
+  and it named the Git changes list as the surface that did not qualify. It
+  qualifies now. A file row may carry **both** the kind hue on its glyph and a
+  status tint on its name, because the two answer different questions in
+  different channels: **the hue identifies and the tint grades.** A `.ts`
+  glyph is the same blue on the modified row, the added row and the deleted
+  row — it never moves with state, so it cannot be read as a grade — and the
+  name's tint is the only thing in the row that does move. Those two channels
+  remain distinct; the old condition made readers give one of them up.
+
+  What the amendment does **not** license: a second *grading* hue in one row
+  (two channels, never three), a kind hue on any glyph that names no language
+  (`config`, `text`, `generic` stay in the row's ink), or a row wash stacked
+  under the two — the file-tree clause below still caps the washes at two, and
+  interaction state still outranks every one of them.
 
 What does not change: the hue identifies, it never grades. `color.mark.*` is
 not a status ramp and not an accent. A gear or a plain document — glyphs that
@@ -122,10 +136,70 @@ exceeds one, model the domain again rather than adding chrome.
 | Font weights per view | 3 |
 | Font sizes per view | 3, repeating title / body / meta |
 | Border radii per view | 2 |
-| Controls above the first content row of a panel | 5 |
-| Visual elements per repeated row at rest | 4 |
+| Controls above the first content row of a panel | 5 — but see the amendment below |
+| Visual elements per repeated row at rest | 4 — but see the amendment below |
 | Trailing actions a row may reveal on hover | 2 |
 | Motion treatments animating at any moment | 1 |
+
+**The four-element ceiling counts what a row SAYS, not what it lets you do**
+(amended 2026-09-09, the Commit-window epic). `components/check-row` carries
+five at rest: the checkbox, the file glyph, the name, the directory, and the
+trailing status mark.
+
+The ceiling exists because a row with five things to *read* is a row carrying
+work that belongs in the detail pane — `list-row`'s entry says exactly that.
+That is a statement about how much a person has to take in before they can
+choose. A checkbox is not something taken in; it is the row's one control, and
+it answers in 16px a question the row would otherwise need a whole second
+surface to answer — the Staged / Unstaged split the Commit window deletes, or a
+right-click menu. A control is not work carried, it is work saved.
+
+Two conditions, both load-bearing:
+
+1. **The fifth element is a CONTROL, and there is exactly one of it.** The
+   things a row is *read* for still cap at four: glyph, name, supporting line,
+   trailing mark. A row with five facts on it is over the ceiling as before, and
+   a second control on a repeated row is over it too.
+2. **The row reveals nothing on hover.** The ceiling and the two-trailing-actions
+   allowance are not additive — a row already spending its fifth slot on a
+   control has none left to reveal into. At the 24px floor there is no room
+   anyway, which is the honest version of the same rule.
+
+A group header is not a repeated row and the ceiling does not reach it; it
+holds itself to one chip and one revealed control for its own reasons
+(`components/group-header`).
+
+**The five-controls ceiling counts PANE CHROME, not a region's own header**
+(amended 2026-09-09, owner's ruling, mockup 2522). The Git panel's glyph band
+carries nine: refresh, discard, move to changelist, stash, write commit
+message, show diff | group by, expand all, collapse all. The owner accepted
+this arrangement because the band belongs to one region rather than the pane.
+
+The ceiling exists because chrome stacked above a region pushes the content
+down and makes a person read a row of unrelated affordances before reaching
+what they came for. That is a statement about **pane** chrome — a strip that
+belongs to the window, sits above everything in it, and would be there whatever
+the pane were showing. A band that belongs to ONE region, acts only on that
+region, and would disappear with it is that region's own header, and it counts
+against the region rather than against the pane. The nine here are nine verbs
+about the changes list and nothing else: hide the list and every one of them is
+meaningless.
+
+Two conditions, and both are load-bearing:
+
+1. **Every control acts on the region beneath it.** One item that opens a
+   pane-level or app-level surface makes the band pane chrome again, and the
+   ceiling of five applies to the whole thing.
+2. **The band is grouped, not enumerated.** Nine identical squares in a row is
+   a search problem; the divider (`components/toolbar`) is what turns it into
+   "six about the files, three about the view", and a band that needs a third
+   group probably needs an overflow menu instead.
+
+What is unchanged: **two stacked bands of chrome above one region is still a
+reject on sight.** The Git panel draws the pane's tabs and then this band, and
+the ruling is that the second of the two is not chrome — not that a pane may
+have two chrome strips. The conformant fallback, if that argument is ever
+rejected, is five glyphs plus one overflow kebab.
 
 ## Selection and focus
 
