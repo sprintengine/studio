@@ -208,6 +208,26 @@ import type {
 } from '../src/index'
 import { BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS, KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS, MULTICODE_FILE_DROP_MIME as SDK_FILE_DROP_MIME } from '../src/index'
 
+// The bridged UI kit and door shell (D6). The SDK restates these shapes by
+// hand — it cannot import app source — so both halves are imported here as
+// namespaces: the TYPES pin every prop shape, and the VALUES pin the export
+// lists, which is the half a hand-written mirror actually loses.
+import type * as React from 'react'
+// Type-only on BOTH sides. The app halves are renderer modules whose graph
+// reaches the workspace store (and, through it, the whole app); evaluating
+// them inside this Node guard is not on. `keyof typeof` sees exactly the VALUE
+// exports of a namespace — which is precisely what the import map bridges —
+// so the export lists are pinned by `tsc -p tsconfig.drift.json`, the first
+// step of test:sdk:drift, and the SDK's own list is re-checked against the
+// emitted declarations at runtime below.
+import type * as appSdkUi from '../../../src/renderer/src/modules/sdk-ui'
+import type * as appSdkSurface from '../../../src/renderer/src/modules/sdk-surface'
+// The SDK halves are TYPE-only imports on purpose: evaluating the published
+// stub throws (that is its whole runtime job), so its export list is checked
+// against the emitted declarations below instead of against a namespace.
+import type * as sdkUi from '../src/ui'
+import type * as sdkSurface from '../src/surface'
+
 type Extends<A, B> = [A] extends [B] ? true : false
 // Type identity via the generic-function-identity trick: detects added/removed
 // optional properties, which mutual assignability cannot.
@@ -436,5 +456,148 @@ assert.equal(
   false,
   'SDK public surface must not expose the raw storage registry token'
 )
+
+// ── Bridged UI kit and door shell (D6) ───────────────────────────────────────
+//
+// Every bridged component is asserted twice over:
+//   - `Extends<SdkProps, AppProps>` — soundness. Anything a module can write
+//     against the published types is accepted by the component the host will
+//     actually render. This is the assertion that must never be weakened.
+//   - `IsExact` where the SDK restates the app's props verbatim, which is all
+//     of them today. It catches the drift `Extends` cannot: a prop ADDED on
+//     the app side, which a module would never be able to reach.
+//
+// The two runtime `Object.keys` checks below are the other half: a component
+// added to (or dropped from) either side without the other fails here rather
+// than at a module author's first `import`.
+
+expectType<Extends<React.ComponentProps<typeof sdkUi.PrimaryButton>, React.ComponentProps<typeof appSdkUi.PrimaryButton>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.PrimaryButton>, React.ComponentProps<typeof appSdkUi.PrimaryButton>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.GhostButton>, React.ComponentProps<typeof appSdkUi.GhostButton>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.GhostButton>, React.ComponentProps<typeof appSdkUi.GhostButton>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.OutlineButton>, React.ComponentProps<typeof appSdkUi.OutlineButton>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.OutlineButton>, React.ComponentProps<typeof appSdkUi.OutlineButton>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.LinkButton>, React.ComponentProps<typeof appSdkUi.LinkButton>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.LinkButton>, React.ComponentProps<typeof appSdkUi.LinkButton>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.RowButton>, React.ComponentProps<typeof appSdkUi.RowButton>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.RowButton>, React.ComponentProps<typeof appSdkUi.RowButton>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.Input>, React.ComponentProps<typeof appSdkUi.Input>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Input>, React.ComponentProps<typeof appSdkUi.Input>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.Textarea>, React.ComponentProps<typeof appSdkUi.Textarea>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Textarea>, React.ComponentProps<typeof appSdkUi.Textarea>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.Field>, React.ComponentProps<typeof appSdkUi.Field>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Field>, React.ComponentProps<typeof appSdkUi.Field>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.Select>, React.ComponentProps<typeof appSdkUi.Select>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Select>, React.ComponentProps<typeof appSdkUi.Select>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.SegmentedControl>, React.ComponentProps<typeof appSdkUi.SegmentedControl>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.SegmentedControl>, React.ComponentProps<typeof appSdkUi.SegmentedControl>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.Banner>, React.ComponentProps<typeof appSdkUi.Banner>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Banner>, React.ComponentProps<typeof appSdkUi.Banner>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.InlineNotice>, React.ComponentProps<typeof appSdkUi.InlineNotice>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.InlineNotice>, React.ComponentProps<typeof appSdkUi.InlineNotice>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.EmptyState>, React.ComponentProps<typeof appSdkUi.EmptyState>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.EmptyState>, React.ComponentProps<typeof appSdkUi.EmptyState>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.Spinner>, React.ComponentProps<typeof appSdkUi.Spinner>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Spinner>, React.ComponentProps<typeof appSdkUi.Spinner>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.StatusDot>, React.ComponentProps<typeof appSdkUi.StatusDot>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.StatusDot>, React.ComponentProps<typeof appSdkUi.StatusDot>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.LifecycleGlyph>, React.ComponentProps<typeof appSdkUi.LifecycleGlyph>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.LifecycleGlyph>, React.ComponentProps<typeof appSdkUi.LifecycleGlyph>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.Section>, React.ComponentProps<typeof appSdkUi.Section>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Section>, React.ComponentProps<typeof appSdkUi.Section>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.Drawer>, React.ComponentProps<typeof appSdkUi.Drawer>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.Drawer>, React.ComponentProps<typeof appSdkUi.Drawer>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.Drawer.Body>, React.ComponentProps<typeof appSdkUi.Drawer.Body>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.TruncatedText>, React.ComponentProps<typeof appSdkUi.TruncatedText>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.TruncatedText>, React.ComponentProps<typeof appSdkUi.TruncatedText>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.KbdChord>, React.ComponentProps<typeof appSdkUi.KbdChord>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.KbdChord>, React.ComponentProps<typeof appSdkUi.KbdChord>>>()
+expectType<Extends<React.ComponentProps<typeof sdkUi.CliModelPickerButton>, React.ComponentProps<typeof appSdkUi.CliModelPickerButton>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkUi.CliModelPickerButton>, React.ComponentProps<typeof appSdkUi.CliModelPickerButton>>>()
+
+// Shared vocabulary the kit's props are written in.
+expectType<IsExact<typeof sdkUi.FOCUS_RING_CLASS, string>>()
+expectType<IsExact<sdkUi.Tone, appSdkUi.Tone>>()
+expectType<IsExact<sdkUi.LifecycleState, appSdkUi.LifecycleState>>()
+expectType<IsExact<sdkUi.FilterMenuGroup, appSdkUi.FilterMenuGroup>>()
+expectType<IsExact<sdkUi.SegmentedControlItem, appSdkUi.SegmentedControlItem>>()
+expectType<IsExact<sdkUi.SelectItem, appSdkUi.SelectItem>>()
+
+// The door shell.
+expectType<Extends<React.ComponentProps<typeof sdkSurface.GlobalSurfaceShell>, React.ComponentProps<typeof appSdkSurface.GlobalSurfaceShell>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkSurface.GlobalSurfaceShell>, React.ComponentProps<typeof appSdkSurface.GlobalSurfaceShell>>>()
+expectType<Extends<React.ComponentProps<typeof sdkSurface.SurfaceCanvasState>, React.ComponentProps<typeof appSdkSurface.SurfaceCanvasState>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkSurface.SurfaceCanvasState>, React.ComponentProps<typeof appSdkSurface.SurfaceCanvasState>>>()
+expectType<Extends<React.ComponentProps<typeof sdkSurface.SurfaceRail>, React.ComponentProps<typeof appSdkSurface.SurfaceRail>>>()
+expectType<IsExact<React.ComponentProps<typeof sdkSurface.SurfaceRail>, React.ComponentProps<typeof appSdkSurface.SurfaceRail>>>()
+expectType<IsExact<typeof sdkSurface.useSurfaceBackNav, typeof appSdkSurface.useSurfaceBackNav>>()
+expectType<IsExact<sdkSurface.GlobalSurfaceBar, appSdkSurface.GlobalSurfaceBar>>()
+expectType<IsExact<sdkSurface.SurfaceRailRow, appSdkSurface.SurfaceRailRow>>()
+expectType<IsExact<sdkSurface.SurfaceRailSearch, appSdkSurface.SurfaceRailSearch>>()
+expectType<IsExact<sdkSurface.SurfaceRailFilter, appSdkSurface.SurfaceRailFilter>>()
+expectType<IsExact<sdkSurface.SurfaceRailScope, appSdkSurface.SurfaceRailScope>>()
+expectType<IsExact<sdkSurface.SurfaceRailGroup, appSdkSurface.SurfaceRailGroup>>()
+expectType<IsExact<sdkSurface.SurfaceRailNewAffordance, appSdkSurface.SurfaceRailNewAffordance>>()
+
+// The published export lists. Only VALUE exports count: a type-only export
+// costs a module nothing at runtime, a missing component costs it everything.
+const SDK_UI_EXPORT_NAMES = [
+  'GhostButton', 'OutlineButton', 'PrimaryButton',
+  'Banner', 'Drawer', 'EmptyState', 'Field', 'Input', 'Textarea', 'InlineNotice',
+  'KbdChord', 'LifecycleGlyph', 'LinkButton', 'RowButton', 'Section',
+  'SegmentedControl', 'Select', 'Spinner', 'StatusDot', 'TruncatedText',
+  'FOCUS_RING_CLASS', 'CliModelPickerButton',
+] as const
+const SDK_SURFACE_EXPORT_NAMES = [
+  'GlobalSurfaceShell', 'useSurfaceBackNav', 'SurfaceCanvasState', 'SurfaceRail',
+] as const
+
+// Both bridges must export exactly this list — no more, no less, on either
+// side. Adding a component to the host without publishing it leaves a name no
+// module can import; publishing one the host does not bridge leaves an import
+// that resolves to the throwing stub.
+expectType<IsExact<keyof typeof appSdkUi, (typeof SDK_UI_EXPORT_NAMES)[number]>>()
+expectType<IsExact<keyof typeof sdkUi, (typeof SDK_UI_EXPORT_NAMES)[number]>>()
+expectType<IsExact<keyof typeof appSdkSurface, (typeof SDK_SURFACE_EXPORT_NAMES)[number]>>()
+expectType<IsExact<keyof typeof sdkSurface, (typeof SDK_SURFACE_EXPORT_NAMES)[number]>>()
+
+// The same two lists read off the EMITTED declarations, so the tarball a
+// module author actually installs is checked, not just the source it was
+// compiled from.
+const declaredExports = (file: string): string[] => {
+  const source = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', file), 'utf8')
+  return [...source.matchAll(/^export declare const ([A-Za-z_$][\w$]*)/gm)].map((match) => match[1]!)
+}
+assert.deepEqual(
+  declaredExports('ui.d.ts').sort(),
+  [...SDK_UI_EXPORT_NAMES].sort(),
+  '@multicode/module-sdk/ui declares a different set of components than the host bridges'
+)
+assert.deepEqual(
+  declaredExports('surface.d.ts').sort(),
+  [...SDK_SURFACE_EXPORT_NAMES].sort(),
+  '@multicode/module-sdk/surface declares a different set of exports than the host bridges'
+)
+
+// The subpaths must be reachable as published entry points, not just as files.
+const sdkPackageJson = JSON.parse(
+  readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'package.json'), 'utf8')
+) as { exports: Record<string, { types: string; default: string } | undefined> }
+for (const subpath of ['./ui', './surface']) {
+  assert.ok(sdkPackageJson.exports[subpath], `@multicode/module-sdk is missing the "${subpath}" export`)
+}
+
+// And the runtime stub must refuse loudly, so an author who forgot to mark the
+// specifier external learns it at the first import rather than from a blank
+// door. Asserted against the EMITTED module, because that is what ships.
+for (const subpath of ['ui', 'surface'] as const) {
+  const runtime = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', `${subpath}.js`), 'utf8')
+  assert.ok(
+    runtime.includes(
+      `const HOST_PROVIDED_MESSAGE = '@multicode/module-sdk/${subpath} is provided by the host at runtime; mark it external in your bundler'`
+    ) && runtime.includes('throw new Error(HOST_PROVIDED_MESSAGE)'),
+    `@multicode/module-sdk/${subpath} must throw its host-provided message when it is bundled instead of externalised`
+  )
+}
 
 console.log('module-sdk drift guard passed')

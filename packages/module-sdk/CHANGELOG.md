@@ -9,6 +9,37 @@
   entry. Declare `mutates: true` and the gateway requires `<family>:operate`
   from a tailnet caller and records every call, refusals included. Omitted means
   a read, as before.
+- **The host's UI kit, door shell and Monaco are bridged to modules**
+  (Reviews-extraction ruling D6, 2026-09-10). A module that wanted to look like
+  the app had two options, both bad: re-implement the chrome a shade off, or
+  bundle a second copy of React-dependent components and break hooks. Two new
+  subpath entry points now publish the app's own pieces —
+  `@multicode/module-sdk/ui` (`GhostButton`, `OutlineButton`, `PrimaryButton`,
+  `Banner`, `Drawer`, `EmptyState`, `Field`, `Input`, `Textarea`,
+  `InlineNotice`, `KbdChord`, `LifecycleGlyph`, `LinkButton`, `RowButton`,
+  `Section`, `SegmentedControl`, `Select`, `Spinner`, `StatusDot`,
+  `TruncatedText`, `CliModelPickerButton`, `FOCUS_RING_CLASS`) and
+  `@multicode/module-sdk/surface` (`GlobalSurfaceShell`, `useSurfaceBackNav`,
+  `SurfaceRail`, `SurfaceCanvasState`) — alongside `@monaco-editor/react`,
+  which the host has always shipped and now answers for modules too. All three
+  join `react` and friends in the import map the host installs before it
+  evaluates an `entry.renderer` bundle, so there is one React, one Monaco and
+  one kit in the process.
+
+  Both subpaths ship TYPES ONLY: their runtime is a stub that throws
+  `"@multicode/module-sdk/ui is provided by the host at runtime; mark it
+  external in your bundler"`, so forgetting the external is a loud failure at
+  load rather than a silent second React. Add
+  `--external:@monaco-editor/react --external:@multicode/module-sdk/ui
+  --external:@multicode/module-sdk/surface` to your bundle.
+
+  Two things this does NOT give you. Tailwind utility classes written inside a
+  module compile to nothing — the app's Tailwind build scans app source only —
+  so a module that writes its own classes must ship a utilities-only stylesheet
+  (README shows the four-line entry). And the published list is short on
+  purpose: it is a versioned contract pinned in both directions by the drift
+  guard, so a component that is not on it is cheaper copied into your module
+  than frozen here forever.
 
 - **A door surface names and places itself** (Extensions drawer ruling,
   2026-09-05). `GlobalSurfaceDefinition` was `{ id, Component }` while the host
