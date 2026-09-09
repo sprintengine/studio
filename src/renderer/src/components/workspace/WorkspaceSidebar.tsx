@@ -4,7 +4,7 @@ import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
-import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
+import { checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import { peekStatusOf, rowConversationPeekIdentity } from './conversationPeekRow'
@@ -1027,6 +1027,10 @@ export function TerminalLineView({
   // title already implies. A shell, whose name IS its runtime, says it once.
   const markLabel = line.name && line.name !== runtimeLabel ? `${line.name} · ${runtimeLabel}` : runtimeLabel
   const hasDiff = line.additions > 0 || line.deletions > 0
+  // What the ±lines may claim, from the line's scope: the words on hover, the
+  // words for a screen reader, and whether they step back. The sentences live
+  // beside the scope they belong to (terminalLines), not in this render.
+  const diffCopy = diffScopeCopy(line)
   const idleText = line.idleSince !== null ? formatRelativeMs(line.idleSince, now) : ''
   return (
     <div
@@ -1080,39 +1084,25 @@ export function TerminalLineView({
         </Tooltip>
       ) : null}
       {hasDiff ? (
-        // Beside the branch, not at the far edge: the two are one fact —
-        // "this branch, this much changed" — and the trailing seat is spoken
-        // for by the status. The kit's Tooltip, not a native title, says
-        // whose changes they are on hover.
-        <Tooltip
-          content={
-            line.diffScope === 'worktree'
-              ? 'Changed by this terminal — it has its own worktree'
-              : line.diffScope === 'branch'
-                ? `Changed on ${line.branch ?? 'this branch'} — this terminal shares the checkout, so a person or another terminal may have made some of it`
-                : 'Uncommitted changes in this folder — this terminal has no branch of its own'
-          }
-          wrapperClassName="inline-flex shrink-0"
-        >
+        // Beside the branch, not at the far edge: for a git reading the two
+        // are one fact — "this branch, this much changed" — and the trailing
+        // seat is spoken for by the status. A `session` reading is a fact
+        // about the AGENT rather than about the branch beside it, and keeps
+        // the seat by layout convention alone; the words on hover and the
+        // spoken label are what say which of the two you are reading. The
+        // kit's Tooltip, not a native title, carries them.
+        <Tooltip content={diffCopy.tooltip} wrapperClassName="inline-flex shrink-0">
           <span
-            className={`shrink-0 font-mono text-micro tabular-nums ${
-              // A folder-scoped reading is the repo's state, not this
-              // terminal's work, so it is drawn quieter and says which it is
-              // on hover. A `branch` reading IS attributable work — to the
-              // branch rather than to this terminal alone — so it draws at
-              // full strength and carries the qualification in its words.
-              line.diffScope === 'folder' ? 'opacity-60' : ''
-            }`}
+            // Only a folder reading dims (see diffScopeCopy): a `branch`
+            // reading IS attributable work — to the branch rather than to this
+            // terminal alone — and a `session` reading is the most
+            // attributable of the four, this agent's own edits and nobody
+            // else's, so both draw at full strength.
+            className={`shrink-0 font-mono text-micro tabular-nums ${diffCopy.dim ? 'opacity-60' : ''}`}
           >
             <span className="text-[color:var(--tone-good)]">+{line.additions}</span>
             <span className="ml-1 text-[color:var(--tone-error)]">−{line.deletions}</span>
-            <span className="sr-only">
-              {line.diffScope === 'worktree'
-                ? `${line.additions} added, ${line.deletions} removed by this terminal`
-                : line.diffScope === 'branch'
-                  ? `${line.additions} added, ${line.deletions} removed on ${line.branch ?? 'this branch'}`
-                  : `${line.additions} added, ${line.deletions} removed in this folder`}
-            </span>
+            <span className="sr-only">{diffCopy.srText}</span>
           </span>
         </Tooltip>
       ) : null}
@@ -2210,7 +2200,7 @@ export default function WorkspaceSidebar({
           fleetPanes: fleetPanesOf(workspace),
           summaries: gitSummaries,
         })
-      : { lines: [], overflow: 0 }
+      : { lines: [], overflow: 0, rowDiff: null }
     // A band row names its machine on the title glyph, so its lines do not
     // say it again; a local row that holds a remote pane still marks it there.
     if (options?.remoteMachine) for (const line of rowLines.lines) line.machineName = null
