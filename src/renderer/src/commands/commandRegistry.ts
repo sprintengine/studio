@@ -322,6 +322,36 @@ export const COMMAND_REGISTRY = [
     allowInEditableTarget: true,
     handlerPath: { kind: 'panel-event', eventId: 'terminal.find' },
   }),
+  // Jump between the prompts OSC 133 marks. Same registry, same Shortcuts tab
+  // and the same `terminal` scope as Find in Terminal — the scope
+  // WorkspaceManager activates for exactly the keystrokes that came from inside
+  // a terminal surface, so these keys are free everywhere else.
+  //
+  // Only a plain terminal answers. Agent panes are never sent the shell
+  // integration that emits the marks, and this is shell ergonomics, not a
+  // status feed: agent phase comes from `agent-state.ts` over the state socket.
+  // `allowInEditableTarget` because the keystroke arrives at xterm's hidden
+  // textarea, which `isGlobalShortcutSuppressedTarget` treats as editable.
+  command({
+    id: 'terminal.promptPrevious',
+    title: 'Jump to Previous Prompt',
+    category: 'terminal',
+    scopes: ['terminal'],
+    defaultKeybindings: ['Primary+Shift+ArrowUp'],
+    availability: ['activeWorkspace'],
+    allowInEditableTarget: true,
+    handlerPath: { kind: 'panel-event', eventId: 'terminal.promptPrevious' },
+  }),
+  command({
+    id: 'terminal.promptNext',
+    title: 'Jump to Next Prompt',
+    category: 'terminal',
+    scopes: ['terminal'],
+    defaultKeybindings: ['Primary+Shift+ArrowDown'],
+    availability: ['activeWorkspace'],
+    allowInEditableTarget: true,
+    handlerPath: { kind: 'panel-event', eventId: 'terminal.promptNext' },
+  }),
   command({
     id: 'terminal.stop',
     title: 'Stop Active Terminal',

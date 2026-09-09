@@ -11,6 +11,12 @@ import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
 import { createTerminalOscLinkHandler, parseTerminalOscCwd } from '../../utils/terminalOscLinks'
+import { registerMountedTerminalPromptNavigation } from '../../utils/terminalPromptNavigation'
+import {
+  createTerminalShellMarkTracker,
+  terminalPromptSearchAnchor,
+  type TerminalShellMarkTracker,
+} from '../../utils/terminalShellMarks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
@@ -149,6 +155,22 @@ export default function PlainTerminalPanel({
         column,
       })
     }
+    // OSC 133 — the shell's own prompt/command marks, emitted by the same
+    // generated shell integration that emits OSC 7 (`terminal-launch.ts`), for
+    // `shell` panes only. What they buy is shell ergonomics: prompt boundaries
+    // to jump between and a per-command exit status.
+    //
+    // They are NOT an agent status source and must never become one. Agent
+    // phase comes from `agent-state.ts` over the state socket (decision of
+    // record 2026-08-31, hooks only); an agent pane is `TerminalView`, which
+    // constructs no tracker and registers no 133 handler.
+    //
+    // The handler is a CONSTRUCTION option and the tracker needs the terminal it
+    // marks, so the two are tied together through this binding rather than one
+    // waiting on the other. Nothing can be written to a terminal that does not
+    // exist yet, so `?? true` is a guard against a future reordering, not a
+    // live case.
+    let markTracker: TerminalShellMarkTracker | null = null
     const studioTerminal = createStudioTerminal({
       surface: terminalSurface,
       linkHandler: createTerminalOscLinkHandler({
@@ -179,10 +201,47 @@ export default function PlainTerminalPanel({
           // reporting it unhandled would only put it back on xterm's floor.
           return true
         },
+        // OSC 133 — prompt start/end, pre-execution, command finished. xterm
+        // registers no handler for it either. Registered here through the
+        // factory's slot rather than on the terminal by hand, so it is torn
+        // down with everything else the factory owns.
+        133: (data) => markTracker?.handleOsc133(data) ?? true,
       },
     })
     studioTerminalRef.current = studioTerminal
     const term = studioTerminal.terminal
+    markTracker = createTerminalShellMarkTracker(term)
+    // Jump to the previous or next prompt — `terminal.promptPrevious` and
+    // `terminal.promptNext`. The viewport's top line is the cursor for this,
+    // not the text cursor: the user is navigating what they are LOOKING at.
+    //
+    // `lastPromptJump` is what the last jump AIMED at, which is not always where
+    // the viewport ended up: `scrollToLine` clamps at the bottom of the buffer,
+    // so without it a second Next inside the last screenful finds the same
+    // prompt again and nothing moves. `terminalPromptSearchAnchor` drops it
+    // again as soon as the user scrolls the target off screen.
+    let lastPromptJump: number | null = null
+    const disposePromptNavigation = registerMountedTerminalPromptNavigation({
+      workspaceId,
+      isFocused: () => {
+        const active = document.activeElement
+        return Boolean(active && container.contains(active))
+      },
+      scrollToPrompt: (direction) => {
+        const from = terminalPromptSearchAnchor({
+          viewportY: term.buffer.active.viewportY,
+          rows: term.rows,
+          lastJumpLine: lastPromptJump,
+        })
+        const line = direction === 'previous'
+          ? markTracker?.previousPromptLine(from) ?? null
+          : markTracker?.nextPromptLine(from) ?? null
+        if (line === null) return false
+        term.scrollToLine(line)
+        lastPromptJump = line
+        return true
+      },
+    })
     registerTerminalInstance(sessionId, term)
     const fitAddon = studioTerminal.fitAddon
     const terminalDiagnostics = createTerminalDiagnostics({
@@ -464,6 +523,8 @@ export default function PlainTerminalPanel({
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
       fileLinkDisposable?.dispose()
+      disposePromptNavigation()
+      markTracker?.dispose()
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()

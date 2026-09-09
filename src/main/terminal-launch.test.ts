@@ -4,8 +4,10 @@ import { buildHostContextDocument } from '../shared/host-context/document'
 import {
   OSC7_BASH_PROMPT_COMMAND,
   applyAgentIdentityEnv,
-  buildOsc7ShellSetup,
-  buildOsc7ZshShim,
+  OSC133_BASH_PROMPT_COMMAND,
+  SHELL_INTEGRATION_BASH_PROMPT_COMMAND,
+  buildShellIntegrationSetup,
+  buildShellIntegrationZshShim,
   applyHostContextToPrompt,
   hostContextRenderInputs,
   mergeProviderLaunchEnv,
@@ -30,6 +32,9 @@ async function main(): Promise<void> {
   testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning()
   testTheZshShimHandsEveryStageBackToTheUsersOwnFiles()
   testOnlyTheShellsWeCanReachThroughEnvAreArmed()
+  testOsc133RidesTheSamePromptCommandAndCapturesTheStatusFirst()
+  testOsc133ZshHooksRunFirstAndHandTheStatusBack()
+  testTheMarksAreArmedForShellsOnly()
   console.log('terminal-launch tests passed')
 }
 
@@ -263,7 +268,7 @@ function testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning(): void {
     '% is escaped FIRST — every later replacement introduces one, and a second pass would turn %5C into %255C',
   )
 
-  const zshrc = buildOsc7ZshShim('.zshrc')
+  const zshrc = buildShellIntegrationZshShim('.zshrc')
   const zshEscapes = [...zshrc.matchAll(/%([0-9A-F]{2})\}/gu)].map((match) => match[1])
   assert.deepEqual(zshEscapes, ['25', '23', '3F', '5C'], 'both shells escape the same set in the same order')
   assert.match(zshrc, /printf '\\033\]7;file:\/\/%s\\033\\\\' \$d/u)
@@ -273,7 +278,7 @@ function testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning(): void {
 // never do is cost them a startup file or leave $ZDOTDIR pointing at us.
 function testTheZshShimHandsEveryStageBackToTheUsersOwnFiles(): void {
   for (const fileName of ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const) {
-    const shim = buildOsc7ZshShim(fileName)
+    const shim = buildShellIntegrationZshShim(fileName)
     assert.ok(
       shim.includes(`if [[ -f $ZDOTDIR/${fileName} ]]; then source $ZDOTDIR/${fileName}; fi`),
       `${fileName} sources the user's own copy — zsh takes the WHOLE set from $ZDOTDIR, so a missing shim silently drops that file`,
@@ -287,17 +292,20 @@ function testTheZshShimHandsEveryStageBackToTheUsersOwnFiles(): void {
 
   // Only the interactive stage installs the hook, and it is the stage that
   // hands $ZDOTDIR back for good.
-  const zshrc = buildOsc7ZshShim('.zshrc')
+  const zshrc = buildShellIntegrationZshShim('.zshrc')
   assert.ok(zshrc.includes('precmd_functions+=(__multicode_osc7_cwd)'))
   assert.ok(
     zshrc.includes('if (( ! ${precmd_functions[(I)__multicode_osc7_cwd]} )); then'),
     'a nested zsh reads this file again and must not stack a second hook',
   )
-  assert.ok(zshrc.trimEnd().endsWith('__multicode_osc7_cwd'), 'the launch directory is reported before the first prompt')
+  assert.ok(
+    zshrc.includes('  precmd_functions+=(__multicode_osc7_cwd)\nfi\n__multicode_osc7_cwd\n'),
+    'the launch directory is reported before the first prompt — the call still follows its own registration',
+  )
   assert.ok(zshrc.includes('ZDOTDIR=$MULTICODE_USER_ZDOTDIR'), 'the shell is left holding its own $ZDOTDIR')
   for (const fileName of ['.zshenv', '.zprofile', '.zlogin'] as const) {
     assert.ok(
-      !buildOsc7ZshShim(fileName).includes('precmd_functions'),
+      !buildShellIntegrationZshShim(fileName).includes('precmd_functions'),
       `${fileName} installs no hook — the interactive stage owns it`,
     )
   }
@@ -306,19 +314,138 @@ function testTheZshShimHandsEveryStageBackToTheUsersOwnFiles(): void {
 // Only the environment survives the `exec` into the user's real shell, so a
 // shell with no env-only hook gets nothing rather than a broken approximation.
 function testOnlyTheShellsWeCanReachThroughEnvAreArmed(): void {
-  const bash = buildOsc7ShellSetup('bash', null)
+  const bash = buildShellIntegrationSetup('bash', null)
   assert.ok(bash?.startsWith('export PROMPT_COMMAND='), 'bash imports PROMPT_COMMAND from env')
   assert.ok(bash.includes(`'"'"'`), 'the emitter is quoted for the startup script, not pasted raw')
 
-  const zsh = buildOsc7ShellSetup('zsh', '/profile/shell-integration/zsh')
+  const zsh = buildShellIntegrationSetup('zsh', '/profile/shell-integration/zsh')
   assert.equal(
     zsh,
     'if [ "${ZDOTDIR:-}" != \'/profile/shell-integration/zsh\' ]; then export MULTICODE_USER_ZDOTDIR="${ZDOTDIR:-$HOME}"; fi; '
     + "export ZDOTDIR='/profile/shell-integration/zsh'",
   )
 
-  assert.equal(buildOsc7ShellSetup('zsh', null), null, 'no shim directory (unwritable profile) means no OSC 7, not a broken $ZDOTDIR')
-  assert.equal(buildOsc7ShellSetup('sh', '/profile/shell-integration/zsh'), null)
-  assert.equal(buildOsc7ShellSetup('fish', '/profile/shell-integration/zsh'), null)
-  assert.equal(buildOsc7ShellSetup(undefined, '/profile/shell-integration/zsh'), null)
+  assert.equal(buildShellIntegrationSetup('zsh', null), null, 'no shim directory (unwritable profile) means no OSC 7, not a broken $ZDOTDIR')
+  assert.equal(buildShellIntegrationSetup('sh', '/profile/shell-integration/zsh'), null)
+  assert.equal(buildShellIntegrationSetup('fish', '/profile/shell-integration/zsh'), null)
+  assert.equal(buildShellIntegrationSetup(undefined, '/profile/shell-integration/zsh'), null)
+}
+
+// ── OSC 133 ─────────────────────────────────────────────────────────────────
+
+// The marks ride the SAME exported PROMPT_COMMAND as OSC 7 — a second
+// injection would be a second thing to keep working — and the whole reason the
+// order inside it matters is `$?`: it is the status of the command the user just
+// ran, and any command at all replaces it.
+function testOsc133RidesTheSamePromptCommandAndCapturesTheStatusFirst(): void {
+  assert.ok(
+    SHELL_INTEGRATION_BASH_PROMPT_COMMAND.startsWith('__multicode_status=$?; '),
+    'the status capture leads; the OSC 7 emitter opens with an assignment, which would already have reset $?',
+  )
+  assert.ok(
+    SHELL_INTEGRATION_BASH_PROMPT_COMMAND.includes(OSC7_BASH_PROMPT_COMMAND),
+    'OSC 7 still travels in this variable, byte for byte',
+  )
+  assert.ok(
+    SHELL_INTEGRATION_BASH_PROMPT_COMMAND.endsWith(OSC133_BASH_PROMPT_COMMAND),
+    'the marks come last, so the $? restore is the final thing that runs',
+  )
+
+  assert.ok(
+    OSC133_BASH_PROMPT_COMMAND.startsWith(
+      'printf \'\\033]133;D;%s\\033\\\\\\033]133;A\\033\\\\\' "$__multicode_status"',
+    ),
+    'D for the command that finished and A for the prompt about to be drawn, in one write',
+  )
+  assert.ok(
+    OSC133_BASH_PROMPT_COMMAND.includes(
+      "case ${PS1-} in *'\\033]133;B\\033\\\\'*) ;; *) PS1=${PS1-}'\\[\\033]133;B\\033\\\\\\]' ;; esac",
+    ),
+    'B is appended to PS1 once, inside \\[…\\] so readline does not count the escape as columns',
+  )
+  assert.ok(
+    OSC133_BASH_PROMPT_COMMAND.includes(
+      "case ${PS0-} in *'\\033]133;C\\033\\\\'*) ;; *) PS0=${PS0-}'\\033]133;C\\033\\\\' ;; esac",
+    ),
+    'C rides PS0 — no DEBUG trap, which would clobber the user\'s own',
+  )
+  assert.ok(
+    OSC133_BASH_PROMPT_COMMAND.endsWith('case $__multicode_status in 0) ;; *) ( exit $__multicode_status ) ;; esac'),
+    'the status is put back for anything appended behind us, and the subshell is skipped on success',
+  )
+  assert.ok(
+    !OSC133_BASH_PROMPT_COMMAND.includes('trap '),
+    'no DEBUG trap: bash has exactly one, and taking it would silently break a user who set theirs',
+  )
+}
+
+// zsh's half. The precmd hook goes to the FRONT of precmd_functions because
+// only the first hook sees the real `$?` — and having taken that position it
+// owes the hooks behind it the status it found.
+function testOsc133ZshHooksRunFirstAndHandTheStatusBack(): void {
+  const zshrc = buildShellIntegrationZshShim('.zshrc')
+
+  assert.ok(
+    zshrc.includes('precmd_functions=(__multicode_osc133_precmd "${(@)precmd_functions:#__multicode_osc133_precmd}")'),
+    'prepended, not appended — a hook behind another one sees that one\'s status, not the command\'s',
+  )
+  assert.ok(
+    zshrc.includes('__multicode_osc133_precmd() {\n  local __multicode_ret=$?\n  emulate -L zsh'),
+    'the capture is the first line of the function; even `emulate` would be a command in front of it',
+  )
+  assert.ok(
+    zshrc.includes('  return $__multicode_ret\n}'),
+    'the status is handed on, so a prompt theme behind us still shows the real one',
+  )
+  assert.ok(
+    zshrc.includes('if (( ! ${preexec_functions[(I)__multicode_osc133_preexec]} )); then'),
+    'a nested zsh reads this file again and must not stack a second preexec',
+  )
+  assert.ok(
+    zshrc.includes('  if (( __multicode_osc133_active )); then'),
+    'D is emitted only for a command a C opened — a bare Enter fires precmd too',
+  )
+  assert.ok(
+    zshrc.includes("PS1=$PS1$'%{\\e]133;B\\e\\\\%}'"),
+    'B is zero-width inside %{…%}; without it zsh mis-measures the prompt',
+  )
+  assert.ok(
+    zshrc.includes('if [[ -o promptpercent ]]; then __multicode_osc133_prompt_percent=1; fi'),
+    'and the option is read at file scope — `emulate -L zsh` inside the hook would report zsh\'s defaults, not the user\'s',
+  )
+  assert.ok(
+    zshrc.includes('if (( __multicode_osc133_prompt_percent )) && [[ $PS1 != '),
+    'a shell with PROMPT_PERCENT off gets no B rather than a literal %{ in its prompt',
+  )
+
+  // OSC 7 is unchanged by all of the above: same hook, same registration, and
+  // it is still the interactive stage alone that installs anything.
+  assert.ok(zshrc.includes('precmd_functions+=(__multicode_osc7_cwd)'), 'OSC 7 still registers its own hook')
+  assert.ok(zshrc.includes("printf '\\033]7;file://%s\\033\\\\' $d"), 'OSC 7 still emits')
+  for (const fileName of ['.zshenv', '.zprofile', '.zlogin'] as const) {
+    const shim = buildShellIntegrationZshShim(fileName)
+    assert.ok(!shim.includes('__multicode_osc133'), `${fileName} installs no mark hook — the interactive stage owns it`)
+    assert.ok(!shim.includes('precmd_functions'), `${fileName} installs no hook at all`)
+  }
+}
+
+// The scope rule of the epic, asserted on the only two shells that can be
+// reached through env: a shell we cannot reach gets nothing rather than a
+// half-armed approximation, and an agent pane never runs this path at all.
+function testTheMarksAreArmedForShellsOnly(): void {
+  const bash = buildShellIntegrationSetup('bash', null)
+  assert.ok(bash?.includes('133;A'), 'bash carries the marks in the same variable as OSC 7')
+  assert.ok(bash.startsWith('export PROMPT_COMMAND='), 'and in exactly one variable')
+
+  const zsh = buildShellIntegrationSetup('zsh', '/profile/shell-integration/zsh')
+  assert.ok(zsh?.includes('ZDOTDIR'), 'zsh is reached through the same generated $ZDOTDIR, not a second one')
+  assert.ok(!zsh.includes('133'), 'the marks live in the generated files, not in the startup script')
+
+  for (const shellName of ['sh', 'fish', 'nu', undefined]) {
+    assert.equal(
+      buildShellIntegrationSetup(shellName, '/profile/shell-integration/zsh'),
+      null,
+      `${String(shellName)} gets no shell integration at all`,
+    )
+  }
 }
