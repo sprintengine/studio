@@ -263,7 +263,7 @@ export function SidebarChrome<MenuItem extends string>({
     // (owner, 2026-07-30: at narrow widths the mark is the thing to lose, not a
     // control). The four icon buttons are the row's floor — they are the
     // functional controls and never drop.
-    <div className="@container app-drag flex h-[36px] shrink-0 items-center">
+    <div className="chrome-bar @container app-drag flex h-[36px] shrink-0 items-center">
       {trafficLightInset > 0 ? <div aria-hidden="true" className="shrink-0" style={{ width: trafficLightInset }} /> : null}
       {!isMac ? (
         <div className="flex shrink-0 items-center pl-1">

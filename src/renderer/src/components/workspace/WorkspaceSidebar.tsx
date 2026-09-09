@@ -3332,7 +3332,10 @@ export default function WorkspaceSidebar({
       >
         <span
           aria-hidden="true"
-          className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] transition-opacity ${
+          // Starts BELOW the 36px band, exactly like the app rail's hairline
+          // (AppRail.tsx): nothing draws a vertical line through the top bar,
+          // and this indicator used to run the window's full height.
+          className={`absolute bottom-0 top-[36px] left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] transition-opacity ${
             isResizingSidebar ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
           }`}
         />
@@ -3345,6 +3348,24 @@ export default function WorkspaceSidebar({
        * header over the content, not here.
        */}
       {chromeSlot}
+      {/* Everything below the chrome strip is ONE card (owner, 2026-09-09): the
+          sidebar reads like the pane column on the other side of the workspace —
+          a rounded opaque surface with a thin frost gap beside it — so the shell
+          is rail · card · card · card and the glass shows as the frame around
+          them rather than as the ground three different columns happen to sit
+          on. The strip above stays in the frosted band with the rest of the
+          window's top 36px, exactly as the pane's tab strip does, and the app
+          rail to the left stays frost. The DOOR rail lands in here too: while a
+          door owns this column it is what the column shows, so it wears the same
+          card rather than reverting the column to bare canvas for one state.
+          `overflow-hidden` clips the tree's rows to the corners (every menu,
+          modal and tooltip in this file is a portal or a later sibling, so
+          nothing that must escape is inside). `min-h-0 flex-1` keeps the tree
+          the scrolling child it was. The gap toward the workspace card is this
+          card's own margin and reads --shell-card-gap, the same token the pane
+          card uses on its other side, so the shell's two gaps measure the
+          same. */}
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--shell-card-radius)] bg-[color:var(--bg-surface)] mr-[var(--shell-card-gap)] mb-[var(--shell-card-gap)]">
       {/* Drill-in REPLACES the rail (item 1993,
        * `design-system/patterns/context-rail.html`): while a surface is open its
        * rail renders here, in this column, at this width — never as a second
@@ -3551,6 +3572,7 @@ export default function WorkspaceSidebar({
         ) : null}
         {chatListView === 'all' ? renderChatStream() : activeGroups.map((group) => renderFolderSection(group))}
       </nav>
+      </div>
       {/* The account + Settings cluster that used to pin to this column's foot
           lives at the foot of the app rail now (AppRail's accountSlot): it belongs to the window, not to whichever
           section this column happens to be showing. */}

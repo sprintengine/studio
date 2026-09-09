@@ -156,9 +156,12 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
     >
       {/* The strip: the pane's one band of chrome, on the header's 36px
           baseline. Its empty run drags the window; the tabs and the controls
-          opt out. Tabs sit on the strip's bottom edge so the active underline
-          draws ON the hairline, as the tabs component specifies. */}
-      <div className="app-drag flex h-[36px] shrink-0 items-end border-b border-[color:var(--border-default)] pl-1.5 pr-1">
+          opt out. `chrome-bar` joins it to the window's top band, and the band
+          draws no bottom hairline any more (owner, 2026-09-09: no divider under
+          the bar) — the rounded card below is the edge. The active tab's
+          underline still sits on the strip's bottom edge; it now draws on the
+          gap between the strip and the card rather than on a rule. */}
+      <div className="chrome-bar app-drag flex h-[36px] shrink-0 items-end pl-1.5 pr-1">
         {/* Scrolls sideways with no scrollbar and a fade at each overflowing
             edge (TabsScroller): a 10px bar under a 36px strip is a second line
             in a band that already has one, and a plain vertical wheel is the
@@ -210,7 +213,18 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
             Close-pane hides under Close-window. */}
         <WindowCaptionReserve width={windowCaptionReserve(window.api.platform === 'darwin')} />
       </div>
-      <div className="relative min-h-0 flex-1">
+      {/* The pane's body is its own card: the 36px strip above it belongs to
+          the window's frosted band, not to this column, so the body starts at
+          the same y as the workspace card beside it and rounds the same way.
+          `overflow-hidden` is what clips a terminal or a browser to the
+          corners. The gap toward the workspace card is this card's own margin
+          and reads --shell-card-gap, the same token the sidebar card uses on
+          its other side, so the two gaps in the shell cannot drift apart. It
+          takes the same gap on its RIGHT, against the window edge, so the frost
+          frames the card on all four sides rather than three. The 36px strip
+          above is deliberately not inset: it belongs to the band, and the band
+          runs to the window edge. */}
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-[var(--shell-card-radius)] bg-[color:var(--bg-surface)] ml-[var(--shell-card-gap)] mr-[var(--shell-card-gap)] mb-[var(--shell-card-gap)]">
         {tabs.length === 0 ? (
           <WorkspacePaneLauncher kinds={kinds} onPick={openKind} />
         ) : (

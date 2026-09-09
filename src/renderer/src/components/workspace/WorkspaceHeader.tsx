@@ -8,6 +8,15 @@
 // The strip is an `app-drag` region; interactive controls opt out. Non-mac window
 // controls are NOT here — they pin to the window's absolute top-right corner
 // (WorkspaceManager), since the Sprint Engines aside can own that corner.
+//
+// Its ground is --bg-chrome-bar, the token the whole 36px band shares (rail
+// reserve, sidebar chrome, this header, the pane's tab strip). On a solid
+// window that token is --bg-surface — exactly what this strip painted before —
+// so the split-chrome ruling above is untouched there. Under glass it goes
+// transparent, and this strip stops being the one opaque tile in a band that is
+// otherwise OS frost. Nothing scrolls under this row (it is a flex sibling
+// above the card, not an overlay), which is the precondition for a strip to
+// paint nothing and inherit its column's material.
 
 import React from 'react'
 import { IconButton, Tooltip } from '../ui'
@@ -144,7 +153,7 @@ export function WorkspaceHeader<MenuItem extends string>({
   // identity cluster is the only thing in the strip that can give.
   const [fold, foldRef] = useMeasuredTitleBarFold()
   return (
-    <div className="app-drag flex h-[36px] shrink-0 items-center border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
+    <div className="chrome-bar app-drag flex h-[36px] shrink-0 items-center bg-[color:var(--bg-chrome-bar)]">
       {/* Left: (collapsed) window launcher, then panel switches + identity. */}
       <div ref={foldRef} className="flex min-w-0 flex-1 items-center">
         {sidebarCollapsed ? (

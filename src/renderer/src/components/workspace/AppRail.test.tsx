@@ -140,23 +140,23 @@ dom.window.document.body.innerHTML = ''
 render('home', null, undefined, { home: { count: 0, tone: 'good', label: 'nothing' } })
 assert.equal(buttons()[0]?.querySelector('[role="status"]'), null, 'a zero is never drawn')
 
-// ── The divider clears the title strip ───────────────────────────────────────
-// The macOS traffic lights are pinned at x:12 and run past this 56px column, so
-// a full-height `border-r` cut through the green light. The rule is a hairline
-// that starts at the title reserve instead.
+// ── The rail's trailing edge draws nothing ───────────────────────────────────
+// It used to draw a positioned hairline starting at the title reserve — offset
+// so it did not cut through the green traffic light, which a full-height
+// `border-r` did. Both are gone (owner, 2026-09-09): the column beside the rail
+// is a rounded card standing on the same frost the rail is made of, so a rule
+// here would separate frost from frost. The card's own edge is the boundary.
 assert.ok(!(nav().getAttribute('class') ?? '').includes('border-r'), 'the rail draws no full-height right border')
 {
   const strips = [...nav().querySelectorAll(':scope > div[aria-hidden="true"]')] as HTMLElement[]
   const divider = strips.find((strip) => (strip.getAttribute('class') ?? '').includes('w-px'))
-  assert.ok(divider, 'the rail draws its divider as a positioned hairline')
+  assert.equal(divider, undefined, 'and no positioned hairline on that edge either')
   // Read the reserve out of the CLASS the title strip actually renders, not out
   // of the constant this file also passes to the rail: comparing the constant
   // with itself proved only that one number equals itself, and would have gone
   // on passing if the class and the number ever drifted apart.
   const reserveFromClass = Number(/^h-\[(\d+)px\]$/.exec(TITLE_BAR_HEIGHT)?.[1])
   assert.equal(reserveFromClass, TITLE_BAR_HEIGHT_PX, 'the title strip’s class and its px constant are one height')
-  assert.equal(divider?.style.top, `${reserveFromClass}px`, 'the divider starts below the title strip’s reserve')
-  assert.ok((divider?.getAttribute('class') ?? '').includes('bottom-0'), 'and runs to the foot of the column')
 }
 
 dom.window.document.body.innerHTML = ''

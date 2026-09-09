@@ -6,7 +6,7 @@ import { Badge } from '../ui/Badge'
 import { IconButton } from '../ui/Buttons'
 import { type Tone } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
-import { TITLE_BAR_HEIGHT, TITLE_BAR_HEIGHT_PX } from './AppTitleBar'
+import { TITLE_BAR_HEIGHT } from './AppTitleBar'
 
 // The app rail (app shell, 2026-09-05): the narrow column of glyphs at
 // the window's far left that decides what the sidebar column beside it shows,
@@ -218,20 +218,20 @@ export function AppRail({
       className="app-drag relative flex shrink-0 flex-col items-stretch bg-[color:var(--bg-canvas)]"
     >
       {/* The title strip's height, reserved: the first glyph sits below the
-          chrome row beside it, and on macOS the native traffic lights start here. */}
-      <div aria-hidden="true" className={`${TITLE_BAR_HEIGHT} shrink-0`} />
-      {/* The divider starts BELOW that reserve (owner, 2026-09-05), which is why
-          it is a positioned hairline and not the nav's `border-r`. The macOS
-          traffic lights are pinned at x:12 by the hiddenInset frame and their
-          78px span runs past this 56px column, so a full-height edge drew a line
-          straight through the green light. Below the title row the rail and the
-          sidebar's chrome share one unbroken band, and the rule picks up where
-          the window controls end. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute bottom-0 right-0 w-px bg-[color:var(--border-subtle)]"
-        style={{ top: TITLE_BAR_HEIGHT_PX }}
-      />
+          chrome row beside it, and on macOS the native traffic lights start here.
+          `chrome-bar` enrols it in the window's top band: it paints nothing on a
+          solid window (it keeps inheriting the nav's canvas), and under glass it
+          takes --bg-chrome-bar so this square carries the same material as the
+          three strips to its right instead of becoming a seam in the band. */}
+      <div aria-hidden="true" className={`chrome-bar ${TITLE_BAR_HEIGHT} shrink-0`} />
+      {/* No divider on this edge any more (owner, 2026-09-09). It used to be an
+          absolutely-positioned hairline starting at TITLE_BAR_HEIGHT_PX — the
+          offset was there so the rule did not draw through the green traffic
+          light — but the column beside the rail is now a rounded card standing
+          on the same frost the rail is made of. The card's own edge is the
+          boundary, and a rule in the gap between them separates frost from
+          frost. Removing it is also what makes the window read as ONE piece of
+          glass with cards floating on it rather than a set of ruled columns. */}
       <div className="flex flex-col items-center gap-1.5 px-2 pt-1">
         <RailGlyph
           label="Home"

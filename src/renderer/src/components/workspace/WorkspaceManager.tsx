@@ -702,10 +702,11 @@ export default function WorkspaceManager() {
   const paneOwnsRightEdge = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState?.open ?? false,
   )
-  // The workspace pane column (browser-pane epic) is open when the ACTIVE
-  // workspace's pane record says so; the card rounds its right edge to match.
-  // Render-time only — the command handler reads the store live instead.
-  const activePaneOpen = activeWorkspace?.paneState?.open ?? false
+  // (Was `activePaneOpen`, derived from `activeWorkspace`. Removed: the card's
+  // right-edge radius is its only consumer and it now reads `paneOwnsRightEdge`
+  // above, which selects `paneState.open` off the live store. The projection
+  // `activeWorkspace` comes from does not compare `paneState`, so the old flag
+  // never changed after first render.)
   // Load the Sprint Engine role registry for the active workspace so the spawn
   // dropdown and Modules settings tab can surface registry-discovered
   // specialist packs (workspace / user / plugin layers) alongside the bundled
@@ -4586,11 +4587,43 @@ export default function WorkspaceManager() {
       {/* The workspace card: everything inside the rounded surface belongs to
           the active workspace. With the pane column open the card also rounds
           its right edge, reading as a card floating between two pieces of
-          app-level chrome (sidebar left, pane right); the column's own inner
-          hairline does the separating, so the card draws no border of its own. */}
+          app-level chrome (sidebar left, pane right). The pane column's inner
+          hairline is gone (workspaceAsideColumn): the 4px gap between the two
+          cards does the separating now, so the card still draws no border.
+          The TOP corners round too: the header above no longer paints the card's
+          colour under glass, so the card's top edge is real geometry rather than
+          a seam inside one slab, and a square corner there reads as a slab
+          jammed under the bar. `overflow-hidden` stays — it is what clips the
+          door surface to the card.
+
+          It paints NO ground of its own any more. Inside it every FlexLayout
+          tabset is its own --bg-surface card, so with one terminal the region
+          looks exactly as it did, and with a split the frost shows down the
+          splitter between them instead of a dark rule. A ground here would sit
+          in that gap and there would be nothing to see through.
+
+          `mb-[--shell-card-gap]` is the bottom inset: the card's bottom corners
+          have been rounded for a long time with nothing to show against,
+          because the card sat flush on the window's edge. 4px — the same token
+          as every other gap in the shell, deliberately NOT an oversized
+          band, which is mostly that app's status bar.
+
+          All four corners round unconditionally now. What `paneOwnsRightEdge`
+          still decides is the right-edge GAP: with the pane open the pane card
+          brings its own left margin, so a margin here too would double it to
+          8px beside 4px everywhere else; with the pane closed this card owns
+          the window's right edge and takes the gap itself.
+
+          It reads `paneOwnsRightEdge`, NOT `activePaneOpen`: both mean "the
+          pane column stands beside this card", but the latter comes off the
+          WorkspaceManager workspace projection, whose equality check
+          (workspaceManagerWorkspaceFieldsEqual) does not compare `paneState` —
+          so opening the pane returns the cached workspace and the flag never
+          flips. `paneOwnsRightEdge` selects the same field straight off the
+          live store, which is why the caption-reserve logic already uses it. */}
       <div
-        className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-bl-lg bg-[color:var(--bg-surface)] ${
-          activePaneOpen ? 'rounded-br-lg' : ''
+        className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--shell-card-radius)] mb-[var(--shell-card-gap)] ${
+          paneOwnsRightEdge ? '' : 'mr-[var(--shell-card-gap)]'
         }`}
       >
       {/* The workspace identity + control groups live in the WorkspaceHeader

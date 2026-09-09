@@ -1423,6 +1423,19 @@
           }
         }
       },
+      "shell-lg": {
+        "$type": "dimension",
+        "$value": "12px",
+        "$description": "The window shell's own inset cards.",
+        "$extensions": {
+          "com.multicode": {
+            "seeded": false,
+            "role": "shape",
+            "use": "The window shell's inset cards only \u2014 the conversations sidebar, the workspace card, the side pane, and each terminal tabset inside the workspace card. One step above `shell` because these are the largest surfaces the product has and they read as objects floating on the window material rather than as overlays over a page.",
+            "doNotUse": "Anything inside a card. A panel, a control, a chip or an overlay stays on `shell` or below. Still under the 16px marketing floor, so it is operational chrome, not a marketing shape."
+          }
+        }
+      },
       "pill": {
         "$type": "dimension",
         "$value": "999px",

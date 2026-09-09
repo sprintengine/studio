@@ -443,7 +443,19 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
   if (!layoutModel) return null
   if (!modelRef.current) {
     modelRef.current = Model.fromJson(layoutModel)
-    modelRef.current.doAction(Actions.updateModelAttributes({ tabEnableRename: false }))
+    // Applied to EVERY model, not just newly-built ones: a persisted layout
+    // carries its own `global` block and would otherwise keep flexlayout's
+    // 8px default splitter.
+    //
+    // `splitterSize` is the visible gap between two terminal cards and has to
+    // equal --shell-card-gap (4px), the gap between the sidebar, workspace and
+    // pane cards — the splitter paints nothing now, so its width IS the gap,
+    // and an 8px one here beside 4px ones everywhere else reads as a mistake.
+    // `splitterExtra` gives the handle back the hit area the narrower splitter
+    // costs: 4 + 2x4 = 12px of grab, up from the 8px it had.
+    modelRef.current.doAction(
+      Actions.updateModelAttributes({ tabEnableRename: false, splitterSize: 4, splitterExtra: 4 })
+    )
   }
 
   useEffect(() => {

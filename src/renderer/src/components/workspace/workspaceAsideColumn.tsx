@@ -136,9 +136,11 @@ export function WorkspaceAsideColumn({
         // and the terminals underneath keep their size — nothing reflows on
         // maximise.
         fill ? 'absolute inset-x-0 bottom-0 top-[36px] z-[var(--z-pane)]' : 'relative h-full',
-        // The side-pane's one hairline, on the inner edge. Dropped when the
-        // column fills the row: there is nothing left to separate from.
-        resizable ? 'border-l border-[color:var(--border-default)]' : '',
+        // Inset-card layout (the IDE convention): no hairline on the inner edge.
+        // The gap IS the separator and it is the CARD's margin, not this
+        // column's padding (WorkspacePane) — padding here would inset the
+        // pane's 36px tab strip too, and that strip belongs to the window's
+        // top band, which runs full width.
       ].join(' ')}
       // No entrance animation on purpose: animating the width reflows the whole
       // workspace card (terminals included) every frame and reads as lag. The
@@ -160,7 +162,9 @@ export function WorkspaceAsideColumn({
         >
           <span
             aria-hidden="true"
-            className={`absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] transition-opacity ${
+            // Starts BELOW the 36px band, exactly like the app rail's hairline
+            // (AppRail.tsx): nothing draws a vertical line through the top bar.
+            className={`absolute bottom-0 top-[36px] left-1/2 w-px -translate-x-1/2 bg-[color:var(--accent-primary)] transition-opacity ${
               isResizing ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
             }`}
           />

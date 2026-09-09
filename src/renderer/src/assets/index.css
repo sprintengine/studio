@@ -185,6 +185,36 @@
      chrome while every other --bg-app consumer stays opaque. Panels inside
      the workspace card must never paint these tokens. */
   --bg-canvas: var(--bg-app);
+  /* Ground for the window's top 36px band — the app rail's traffic-light
+     reserve, the sidebar chrome row, the workspace header and the pane's tab
+     strip. One token for all four so the band is one continuous piece of
+     chrome and never goes stripy: a strip that forgets it is a visible seam.
+     The base value is --bg-surface, exactly what the workspace header painted
+     before this token existed, so solid windows and every non-mac window are
+     pixel-identical. The glass block below re-points it, and that one line is
+     the whole switch between the top band's looks. */
+  --bg-chrome-bar: var(--bg-surface);
+  /* The one gap between the shell's three cards — sidebar | workspace | pane.
+     ONE token because the two gaps have to measure the same: the eye reads an
+     uneven frame as a mistake long before it reads it as a gap. It lives on the
+     CARDS (a margin on each card's inner edge), never on the columns' padding,
+     so a column's own chrome strip stays full-width in the top band and only
+     the card is inset. --sem-space-2xs is 4px, the smallest step the system
+     has, which is all this needs: the frost showing through is the separator,
+     not the distance. */
+  --shell-card-gap: var(--sem-space-2xs);
+  /* And the one radius those cards share — including the per-tabset terminal
+     cards inside the workspace card, which are cards of the same family and
+     must not round by a different amount. It reads --sem-radius-shell-lg, a
+     step ADDED to the bundle for this (design-system/foundations/
+     tokens.tokens.json, sem.radius.shell-lg = 12px): the scale stopped at
+     `shell` (9px) and then jumped to `pill`, and `shell`'s own doNotUse says
+     larger radii are marketing-only — which was written when nothing in the
+     product was a floating card. These are, and 12px still sits under the
+     system's 16px marketing floor, so it is operational chrome. Writing a raw
+     12px here instead would have been the thing USAGE.md forbids: a value the
+     scale does not have is a MISSING STEP, not a local override. */
+  --shell-card-radius: var(--sem-radius-shell-lg);
   /* Fill for a text field that sits IN the chrome (the rails' search box). The
      raised tone is right on an opaque window, where the field reads as a step
      above the panel behind it. Under glass it is not: the chrome around it goes
@@ -2444,7 +2474,14 @@ body:has([data-selection-pane]:focus-within)
  * supply theme-appropriate values where they would otherwise look wrong. */
 .flexlayout__layout {
   --color-text: var(--text-strong);
-  --color-background: var(--bg-app);
+  /* The layout root paints NOTHING (combined.css: `.flexlayout__layout {
+     background-color: var(--color-background) }`). It is the inside of the
+     workspace card, and every splitter gap is a hole through it: a ground here
+     is what the eye would see in the gap instead of the frost. Every token
+     combined.css derives from this one — tabset, tabset header, border, tab
+     content, popup — is re-declared explicitly below, so nothing else inherits
+     the transparency. */
+  --color-background: transparent;
   --color-base: var(--bg-app);
   --color-1: var(--bg-surface);
   --color-2: var(--bg-surface-raised);
@@ -2483,7 +2520,7 @@ body:has([data-selection-pane]:focus-within)
   --color-border-tab-unselected: var(--border-default);
   --color-border-tab-unselected-background: var(--bg-surface);
 
-  --color-splitter: var(--bg-app);
+  --color-splitter: transparent;
   --color-splitter-hover: var(--bg-selected);
   --color-splitter-drag: var(--scrollbar-thumb-hover);
 
@@ -2819,11 +2856,32 @@ body:has([data-selection-pane]:focus-within)
   border-top: none;
 }
 
+/* A tabset is a CARD, the same card the sidebar and the pane are (owner,
+   2026-09-09). It used to carry `border: 1px solid var(--border-default)` plus
+   an inset `--border-subtle` rule; with one tabset filling the region that
+   border was the thin light line down the workspace card's left and right
+   edges, and with two it was the divider between two terminals. Both are gone:
+   the separator is now the frost showing through the splitter, and the card's
+   own silhouette is its edge. `overflow: hidden` is what keeps an xterm canvas
+   inside the corners. */
 .flexlayout__tabset {
-  border: 1px solid var(--border-default);
+  border: none;
+  border-radius: var(--shell-card-radius);
+  overflow: hidden;
   background-color: var(--bg-surface) !important;
   background-image: none !important;
-  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  box-shadow: none;
+}
+
+/* The tab CONTENT is clipped by the tabset above, so it needs no radius of its
+   own — and must not have one. Rounding all four corners here drew a second
+   curve UNDER the tab strip, in the middle of the card, which read as a card
+   inside a card. Only the two corners that coincide with the tabset's bottom
+   edge round, and only so an xterm canvas cannot square them off from inside. */
+.flexlayout__layout .flexlayout__tab {
+  border-bottom-left-radius: var(--shell-card-radius);
+  border-bottom-right-radius: var(--shell-card-radius);
+  overflow: hidden;
 }
 
 /* Focused strip stays flat and identical to an unfocused one — focus is
@@ -2850,11 +2908,19 @@ body:has([data-selection-pane]:focus-within)
    a second SHAPE, never a second treatment: move the indicator and this moves
    with it. */
 .terminal-focus-ring::after {
+  /* The ring is CONCENTRIC with the tabset card it sits inside: an inner
+     rounded rect whose corners run parallel to the card's at a constant
+     distance needs `inner radius = outer radius - inset`, not a radius of its
+     own. It used to be a flat 6px, which was close enough against the old 9px
+     card and visibly wrong the moment the cards went to --sem-radius-shell-lg:
+     the two curves crossed at the corners instead of nesting. Deriving it means
+     the ring follows the card wherever the radius goes next. */
+  --terminal-ring-inset: 3px;
   content: '';
   position: absolute;
-  inset: 3px;
+  inset: var(--terminal-ring-inset);
   border: var(--focus-ring);
-  border-radius: 6px;
+  border-radius: calc(var(--shell-card-radius) - var(--terminal-ring-inset));
   opacity: 0;
   pointer-events: none;
 }
@@ -2863,8 +2929,17 @@ body:has([data-selection-pane]:focus-within)
   opacity: 1;
 }
 
+/* The splitter is a GAP, not a rule: at rest it paints nothing, so between two
+   terminal cards you see the same material you see between the sidebar, the
+   workspace and the pane — the OS frost under glass, --bg-app on a solid
+   window. Painting nothing rather than a translucent tint is the layering rule
+   (index.css glass block): the body tint is the only tint in the window, and a
+   second one here would compound alpha and grey the frost. Its WIDTH is
+   --shell-card-gap, set on the model as `splitterSize` in WorkspaceLayout, so
+   the gap between two terminals measures exactly the gap between two cards.
+   Hover and drag still light it up — the handle has to be findable. */
 .flexlayout__splitter {
-  background: var(--bg-app);
+  background: transparent;
   transition: background-color var(--motion-fast) var(--motion-ease);
 }
 
@@ -2879,7 +2954,7 @@ body:has([data-selection-pane]:focus-within)
    divided by each panel's own border, not a loud green lattice. Hover still lifts
    to a neutral tone so the divider stays discoverable. */
 :root[data-theme="herbarium"] .flexlayout__splitter {
-  background: var(--bg-surface);
+  background: transparent;
 }
 
 :root[data-theme="herbarium"] .flexlayout__splitter:hover,
@@ -3097,6 +3172,12 @@ body:has([data-selection-pane]:focus-within)
  * so glass works over every theme with no per-theme block. */
 :root[data-window-material="glass"] {
   --bg-canvas: transparent;
+  /* The top band is a canvas layer, not a stacking one: nothing scrolls under
+     it, so it paints nothing and inherits the OS frost, and the frost runs
+     unbroken from the traffic lights to the window's right edge. Keeping it a
+     canvas layer is also what keeps the layering rule above true — the body
+     tint stays the only tint in the band. */
+  --bg-chrome-bar: transparent;
   /* A field in the chrome tints the frost instead of replacing it, so it stays
      the same material as the bar it sits in and reads as a field by its border
      and its depth rather than by being a different colour. Mixed from --bg-app,
@@ -3109,4 +3190,17 @@ body:has([data-selection-pane]:focus-within)
 }
 :root[data-window-material="glass"] body {
   background-color: color-mix(in srgb, var(--bg-app) 52%, transparent);
+}
+/* The window's top 36px band, as one piece. Four strips sit on that line — the
+ * app rail's traffic-light reserve, the sidebar chrome row, the workspace
+ * header, the pane's tab strip — and `chrome-bar` is how they agree on a
+ * material. The rule is scoped to glass ON PURPOSE: on a solid or non-mac
+ * window three of the four paint nothing and inherit their column's canvas,
+ * and re-grounding them would put a 36px block of a different tone over the
+ * top of the rail and the sidebar. Under glass they all resolve to the same
+ * --bg-chrome-bar, so whatever that token is set to above, the band is one
+ * continuous thing rather than four tiles — and at `transparent` it is exactly
+ * one layer (body's tint) over the OS frost, with nothing stacked on it. */
+:root[data-window-material="glass"] .chrome-bar {
+  background-color: var(--bg-chrome-bar);
 }
