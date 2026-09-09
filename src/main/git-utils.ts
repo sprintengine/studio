@@ -94,6 +94,20 @@ export function getRelativeGitPath(repoRoot: string, filePath: string): string {
   return toPosixPath(relative(repoRoot, absolutePath))
 }
 
+/**
+ * A path, said to git as a path.
+ *
+ * Every argument after `--` is a PATHSPEC, not a filename: `src/[id].tsx` is a
+ * character class that matches `src/i.tsx`, `a?b.ts` matches `axb.ts`, and a
+ * leading `:` is magic of its own. The renderer only ever names files that
+ * exist, so `:(literal)` is what says "this string, exactly" — and it matters
+ * most on the destructive side, where a glob would restore or clean a file
+ * nobody selected.
+ */
+export function toPathspec(relativePath: string): string {
+  return `:(literal)${relativePath}`
+}
+
 export function isInsideRepo(repoRoot: string, filePath: string): boolean {
   const relativePath = relative(repoRoot, filePath)
   return Boolean(relativePath) && !relativePath.startsWith('..') && !isAbsolute(relativePath)

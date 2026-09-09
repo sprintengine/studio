@@ -156,10 +156,11 @@ async function main(): Promise<void> {
 }
 
 async function assertPatches(repo: string): Promise<void> {
-  // The argv is the contract: `--` guards a path that looks like a flag, and
-  // `--cached` is the only difference between the two sides of the index.
-  assert.deepEqual(gitPatchArgs(['a.ts'], false), ['diff', '--no-color', '--binary', '--', 'a.ts'])
-  assert.deepEqual(gitPatchArgs(['a.ts'], true), ['diff', '--cached', '--no-color', '--binary', '--', 'a.ts'])
+  // The argv is the contract: `--` guards a path that looks like a flag,
+  // `:(literal)` guards a path that looks like a glob, and `--cached` is the
+  // only difference between the two sides of the index.
+  assert.deepEqual(gitPatchArgs(['a.ts'], false), ['diff', '--no-color', '--binary', '--', ':(literal)a.ts'])
+  assert.deepEqual(gitPatchArgs(['a.ts'], true), ['diff', '--cached', '--no-color', '--binary', '--', ':(literal)a.ts'])
   assert.deepEqual(gitUntrackedPatchArgs('new.ts'), [
     'diff',
     '--no-index',

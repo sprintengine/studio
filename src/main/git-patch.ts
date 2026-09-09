@@ -20,7 +20,7 @@
 // finds a difference, so its stdout is taken on the failure path as well.
 
 import { getGitStatus } from './git-status'
-import { getRelativeGitPath, runGitCommand } from './git-utils'
+import { getRelativeGitPath, runGitCommand, toPathspec } from './git-utils'
 
 export type GitPatchResult = {
   ok: boolean
@@ -33,14 +33,22 @@ export type GitPatchResult = {
 /**
  * The argv for the tracked half. Exported so the test can assert the command
  * rather than the output: `--` before the paths is what keeps a file named
- * `--cached` a file, and `--no-color` is what keeps ANSI escapes out of a patch
- * that has to survive `git apply`.
+ * `--cached` a file, `:(literal)` is what keeps a file named `[id].tsx` from
+ * being read as a character class, and `--no-color` is what keeps ANSI escapes
+ * out of a patch that has to survive `git apply`.
  */
 export function gitPatchArgs(relativePaths: string[], cached: boolean): string[] {
-  return ['diff', ...(cached ? ['--cached'] : []), '--no-color', '--binary', '--', ...relativePaths]
+  return ['diff', ...(cached ? ['--cached'] : []), '--no-color', '--binary', '--', ...relativePaths.map(toPathspec)]
 }
 
-/** The argv for one untracked file — a creation diff against nothing. */
+/**
+ * The argv for one untracked file — a creation diff against nothing.
+ *
+ * No `:(literal)` here, and that is not an oversight: `--no-index` takes two
+ * FILESYSTEM paths rather than pathspecs, and git answers a `:(literal)…`
+ * argument with "Could not access". Being outside the pathspec world is also
+ * what makes it safe — the name is opened, not matched.
+ */
 export function gitUntrackedPatchArgs(relativePath: string): string[] {
   return ['diff', '--no-index', '--no-color', '--binary', '--', '/dev/null', relativePath]
 }

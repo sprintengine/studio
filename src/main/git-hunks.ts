@@ -17,7 +17,7 @@ import { execFile } from 'child_process'
 import { isAbsolute } from 'path'
 
 import type { GitCommandResult } from './git'
-import { getRelativeGitPath, runGitCommand, toPosixPath } from './git-utils'
+import { getRelativeGitPath, runGitCommand, toPathspec, toPosixPath } from './git-utils'
 import {
   formatHunkHeader,
   hunkFingerprint,
@@ -61,10 +61,10 @@ function diffArgs(scope: GitHunkScope, relativePath: string): string[] {
     '--dst-prefix=b/',
     '-U0',
     '--',
-    // `:(literal)` because a path IS a pathspec to git: a file called
+    // `toPathspec` because a path IS a pathspec to git: a file called
     // `[id].tsx` is a character class, and `a?b.ts` would match `axb.ts`. The
     // renderer hands over the name of a real file, and this says so.
-    `:(literal)${relativePath}`,
+    toPathspec(relativePath),
   ]
 }
 
@@ -100,7 +100,7 @@ async function readFileDiff(
 }
 
 async function isUntracked(repoRoot: string, relativePath: string): Promise<boolean> {
-  const result = await runGitCommand(repoRoot, ['ls-files', '--cached', '--', `:(literal)${relativePath}`])
+  const result = await runGitCommand(repoRoot, ['ls-files', '--cached', '--', toPathspec(relativePath)])
   if (!result.ok) return false
   return result.stdout.trim() === ''
 }

@@ -8,18 +8,27 @@ import {
   getRelativeGitPath,
   runGitCommand,
   toAbsolutePath,
+  toPathspec,
   toPosixPath,
 } from './git-utils'
 import { isAbsolute } from 'path'
 
+// Everything after `--` is a pathspec, so every renderer-supplied path goes
+// through `toPathspec`: a file really called `src/[id].tsx` is a character
+// class otherwise, and `restore`/`clean` below would then act on whatever else
+// it happened to match rather than on the file the person selected.
+function pathspecsFor(repoRoot: string, paths: string[]): string[] {
+  return paths.map((path) => toPathspec(getRelativeGitPath(repoRoot, path)))
+}
+
 export async function stageGitPaths(repoRoot: string, paths: string[]): Promise<GitCommandResult> {
   if (!paths.length) return runGitCommand(repoRoot, ['add', '-A'])
-  return runGitCommand(repoRoot, ['add', '--', ...paths.map((path) => getRelativeGitPath(repoRoot, path))])
+  return runGitCommand(repoRoot, ['add', '--', ...pathspecsFor(repoRoot, paths)])
 }
 
 export async function unstageGitPaths(repoRoot: string, paths: string[]): Promise<GitCommandResult> {
   if (!paths.length) return runGitCommand(repoRoot, ['restore', '--staged', '.'])
-  return runGitCommand(repoRoot, ['restore', '--staged', '--', ...paths.map((path) => getRelativeGitPath(repoRoot, path))])
+  return runGitCommand(repoRoot, ['restore', '--staged', '--', ...pathspecsFor(repoRoot, paths)])
 }
 
 function uniqueEntries(entries: GitStatusEntry[]): GitStatusEntry[] {
@@ -47,8 +56,9 @@ function isStagedAddition(entry: GitStatusEntry): boolean {
   return entry.status === 'new' && entry.staged
 }
 
-function relativePaths(repoRoot: string, entries: GitStatusEntry[]): string[] {
-  return entries.map((entry) => getRelativeGitPath(repoRoot, entry.path))
+/** The selected entries as pathspecs — literal, for the reason above. */
+function entryPathspecs(repoRoot: string, entries: GitStatusEntry[]): string[] {
+  return pathspecsFor(repoRoot, entries.map((entry) => entry.path))
 }
 
 function combineCommandResults(results: GitCommandResult[], emptyMessage: string): GitCommandResult {
@@ -76,16 +86,16 @@ export async function revertGitPaths(repoRoot: string, paths: string[]): Promise
   const results: GitCommandResult[] = []
 
   if (trackedEntries.length) {
-    results.push(await runGitCommand(repoRoot, ['restore', '--staged', '--worktree', '--', ...relativePaths(repoRoot, trackedEntries)]))
+    results.push(await runGitCommand(repoRoot, ['restore', '--staged', '--worktree', '--', ...entryPathspecs(repoRoot, trackedEntries)]))
   }
 
   if (stagedAdditions.length) {
-    results.push(await runGitCommand(repoRoot, ['restore', '--staged', '--', ...relativePaths(repoRoot, stagedAdditions)]))
+    results.push(await runGitCommand(repoRoot, ['restore', '--staged', '--', ...entryPathspecs(repoRoot, stagedAdditions)]))
   }
 
   const cleanEntries = uniqueEntries([...untrackedEntries, ...stagedAdditions])
   if (cleanEntries.length) {
-    results.push(await runGitCommand(repoRoot, ['clean', '-f', '--', ...relativePaths(repoRoot, cleanEntries)]))
+    results.push(await runGitCommand(repoRoot, ['clean', '-f', '--', ...entryPathspecs(repoRoot, cleanEntries)]))
   }
 
   return combineCommandResults(results, 'No file changes to revert.')
@@ -99,11 +109,11 @@ export async function discardUnstagedGitChanges(repoRoot: string, paths: string[
   const results: GitCommandResult[] = []
 
   if (trackedEntries.length) {
-    results.push(await runGitCommand(repoRoot, ['restore', '--worktree', '--', ...relativePaths(repoRoot, trackedEntries)]))
+    results.push(await runGitCommand(repoRoot, ['restore', '--worktree', '--', ...entryPathspecs(repoRoot, trackedEntries)]))
   }
 
   if (untrackedEntries.length) {
-    results.push(await runGitCommand(repoRoot, ['clean', '-f', '--', ...relativePaths(repoRoot, untrackedEntries)]))
+    results.push(await runGitCommand(repoRoot, ['clean', '-f', '--', ...entryPathspecs(repoRoot, untrackedEntries)]))
   }
 
   return combineCommandResults(results, 'No unstaged changes to roll back.')
