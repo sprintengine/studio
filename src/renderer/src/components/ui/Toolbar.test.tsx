@@ -80,7 +80,12 @@ async function main(): Promise<void> {
   const document = dom.window.document
   const glyph = <svg viewBox="0 0 16 16" aria-hidden="true" />
 
-  function mount(node: React.ReactNode): { band: HTMLElement; container: HTMLElement; unmount: () => void } {
+  function mount(node: React.ReactNode): {
+    band: HTMLElement
+    container: HTMLElement
+    rerender: (next: React.ReactNode) => void
+    unmount: () => void
+  } {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)

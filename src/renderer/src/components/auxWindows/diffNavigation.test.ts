@@ -86,7 +86,10 @@ function testFileStepperWalksWholeFiles(): void {
   assert.deepEqual(navigateFile(0, 'next', 27), { type: 'file', fileIndex: 1, edge: 'first' })
   assert.deepEqual(navigateFile(26, 'prev', 27), { type: 'file', fileIndex: 25, edge: 'first' })
   // Backwards lands on the TOP of the previous file, not its last hunk.
-  assert.equal(navigateFile(5, 'prev', 27).type === 'file' && navigateFile(5, 'prev', 27).edge, 'first')
+  // One call, held in a name: the union narrows on the value that was tested,
+  // and a second call would be a fresh unnarrowed move.
+  const back = navigateFile(5, 'prev', 27)
+  assert.equal(back.type === 'file' && back.edge, 'first')
 }
 
 function testFileStepperDoesNotWrap(): void {
