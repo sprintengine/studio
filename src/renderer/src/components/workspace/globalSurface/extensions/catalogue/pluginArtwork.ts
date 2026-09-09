@@ -19,7 +19,13 @@
 // Pure, and component-free: the palette (a different component graph) and the
 // door render the same answer, and the ladder is testable without a DOM.
 
-import type { ScannedPlugin, ScannedSkill, SkillSource } from '../../../../../../../shared/skills'
+import {
+  pluginIconGlyph,
+  pluginLogoUrl,
+  type ScannedPlugin,
+  type ScannedSkill,
+  type SkillSource,
+} from '../../../../../../../shared/skills'
 import { mcpMonogram } from '../../../../ui/mcpMonogram'
 import { sourceAvatarUrl } from './SourceAvatar'
 
@@ -56,9 +62,13 @@ export function pluginArtwork(
   source: ArtworkSource | undefined,
   size: number,
 ): ExtensionArtwork {
-  const glyph = (plugin.icon ?? '').trim()
+  // Validated AGAIN here, not only in the scanner: a scan is cached to disk
+  // and read back for as long as the source is not rescanned, so a glyph a
+  // stricter scanner would refuse today can still arrive from a cache an older
+  // one wrote. The rules are one function, so re-asking costs nothing to keep.
+  const glyph = pluginIconGlyph(plugin.icon)
   if (glyph !== '') return { kind: 'glyph', glyph }
-  const logo = (plugin.logo ?? '').trim()
+  const logo = pluginLogoUrl(plugin.logo)
   if (logo !== '') return { kind: 'image', url: logo }
   const owner =
     plugin.origin.kind === 'linked' && plugin.origin.repo !== ''

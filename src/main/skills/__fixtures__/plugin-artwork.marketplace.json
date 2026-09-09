@@ -77,6 +77,24 @@
       "logo": { "url": "https://cdn.example.com/logo.png" }
     },
     {
+      "name": "bidi-icon",
+      "description": "A right-to-left override, a format character like the joiner: printed beside the name, it would reverse the name.",
+      "source": "./plugins/bidi-icon",
+      "icon": "‮da"
+    },
+    {
+      "name": "invisible-icon",
+      "description": "A lone zero-width joiner: legal by every count, and nothing to draw.",
+      "source": "./plugins/invisible-icon",
+      "icon": "‍"
+    },
+    {
+      "name": "crowded-icon",
+      "description": "Three emoji: inside the code-point cap, and wider than the chip at any size an emoji reads at.",
+      "source": "./plugins/crowded-icon",
+      "icon": "🚀✨🦀"
+    },
+    {
       "name": "plain",
       "description": "No artwork at all, which is what almost every entry says.",
       "source": "./plugins/plain"

@@ -329,22 +329,54 @@ export type ScannedPlugin = {
  * anything in.
  *
  * A glyph is text this app prints inside a 36px chip: at most
- * `MAX_PLUGIN_ICON_CODE_POINTS` code points (a family emoji is seven), no
- * control characters, and nothing that is really a path or a URL — `./icon.png`
- * is the picture the open request proposes, and printing it as text would put
- * a filename in the slot.
+ * `MAX_PLUGIN_ICON_CODE_POINTS` code points (a family emoji is seven) making
+ * at most `MAX_PLUGIN_ICON_GRAPHEMES` things the eye sees, at least one of
+ * them visible, no control or bidi characters, and nothing that is really a
+ * path or a URL — `./icon.png` is the picture the open request proposes, and
+ * printing it as text would put a filename in the slot.
  */
 export const MAX_PLUGIN_ICON_CODE_POINTS = 8
+
+/**
+ * The most grapheme clusters a glyph may hold. Two: "an emoji, or a character
+ * or two of text" is what the slot draws, and eight code points of plain
+ * letters — inside the code-point cap — would spill past a 36px chip at any
+ * size an emoji reads at.
+ */
+export const MAX_PLUGIN_ICON_GRAPHEMES = 2
+
+/**
+ * How many things the eye sees in a glyph: 👨‍👩‍👧‍👦 is one, `AI` is two. What the
+ * chip must size its text by, since code points say nothing about width. Falls
+ * back to code points where `Intl.Segmenter` is missing, which over-counts and
+ * so only ever draws smaller.
+ */
+export function glyphGraphemeCount(text: string): number {
+  if (typeof Intl.Segmenter === 'function') {
+    let count = 0
+    for (const _ of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)) count += 1
+    return count
+  }
+  return [...text].length
+}
 
 /** The entry's `icon` as a glyph this app may print, or '' when it is not one. */
 export function pluginIconGlyph(value: unknown): string {
   const text = typeof value === 'string' ? value.trim() : ''
   if (text === '') return ''
   if ([...text].length > MAX_PLUGIN_ICON_CODE_POINTS) return ''
-  // Control characters and line breaks only, not every `\p{C}`: the zero-width
+  if (glyphGraphemeCount(text) > MAX_PLUGIN_ICON_GRAPHEMES) return ''
+  // Control characters and line breaks, not every `\p{C}`: the zero-width
   // joiner is a format character, and rejecting it would reject 👩‍💻 and every
-  // other emoji built by joining two.
-  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(text)) return ''
+  // other emoji built by joining two. The bidi controls ARE rejected by name,
+  // though they are format characters too: a right-to-left override in the
+  // glyph slot reverses the plugin's name printed beside it, and nothing an
+  // emoji is built from is one of them.
+  if (/[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]/u.test(text)) return ''
+  // At least one character that draws. A lone joiner or variation selector
+  // passes every test above and renders as an empty chip, which is the one
+  // thing the slot must never show.
+  if (!/[^\p{C}\p{M}\p{Z}]/u.test(text)) return ''
   if (/[/\\]/.test(text) || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(text)) return ''
   return text
 }

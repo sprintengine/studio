@@ -50,7 +50,12 @@ async function main(): Promise<void> {
 
   const document = dom.window.document
 
-  function mount(node: React.ReactNode): { root: HTMLElement; container: HTMLElement; unmount: () => void } {
+  function mount(node: React.ReactNode): {
+    root: HTMLElement
+    container: HTMLElement
+    rerender: (next: React.ReactNode) => void
+    unmount: () => void
+  } {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const reactRoot = createRoot(container)
@@ -60,6 +65,13 @@ async function main(): Promise<void> {
     return {
       root: container.firstElementChild as HTMLElement,
       container: container as unknown as HTMLElement,
+      // The same instance with new props — not a fresh mount — which is what a
+      // row whose plugin changed under it does.
+      rerender: (next) => {
+        act(() => {
+          reactRoot.render(next)
+        })
+      },
       unmount: () => {
         act(() => reactRoot.unmount())
         container.remove()
@@ -134,6 +146,40 @@ async function main(): Promise<void> {
       )
       view.unmount()
     }
+  })
+
+  run('a failure is forgotten when the picture changes, so the monogram does not stick to the next plugin', () => {
+    const gone = 'https://cdn.example.com/gone.png'
+    const here = 'https://cdn.example.com/here.png'
+    const view = mount(<ExtensionIcon name="access" icon={gone} iconPlated size={36} />)
+    act(() => {
+      ;(view.container.querySelector('img') as HTMLImageElement).dispatchEvent(new dom.window.Event('error'))
+    })
+    assert.equal(view.container.querySelectorAll('img').length, 0, 'the failed picture gave way to the monogram')
+
+    view.rerender(<ExtensionIcon name="access" icon={here} iconPlated size={36} />)
+    const retried = view.container.querySelector('img')
+    assert.ok(retried, 'the same instance, handed a different picture, tries it')
+    assert.equal(retried?.getAttribute('src'), here)
+
+    view.rerender(<ExtensionIcon name="access" icon={gone} iconPlated size={36} />)
+    assert.equal(view.container.querySelectorAll('img').length, 0, 'the one that failed is still remembered, not fetched again')
+    view.unmount()
+  })
+
+  run('two glyphs take the monogram’s size, one takes more, and a family is one', () => {
+    const one = mount(<ExtensionIcon name="access" glyph="🦀" size={36} />)
+    const two = mount(<ExtensionIcon name="access" glyph="🚀✨" size={36} />)
+    const letters = mount(<ExtensionIcon name="access" glyph="AI" size={36} />)
+    const family = mount(<ExtensionIcon name="access" glyph="👨‍👩‍👧‍👦" size={36} />)
+    const monogram = mount(<ExtensionIcon name="access" size={36} />)
+    const sizeOf = (view: { root: HTMLElement }): number =>
+      parseFloat((view.root.querySelector('span') as HTMLElement).style.fontSize)
+    assert.equal(sizeOf(two), sizeOf(monogram), 'two emoji are as wide as two letters, and take their size or spill the chip')
+    assert.equal(sizeOf(letters), sizeOf(monogram))
+    assert.ok(sizeOf(one) > sizeOf(two))
+    assert.equal(sizeOf(family), sizeOf(one), 'a family is seven code points and one thing to see')
+    for (const view of [one, two, letters, family, monogram]) view.unmount()
   })
 
   if (failures > 0) {

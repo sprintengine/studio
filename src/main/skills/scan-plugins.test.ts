@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import {
   describePluginComponents,
   findScannedPlugin,
+  glyphGraphemeCount,
   pluginIconGlyph,
   pluginLogoUrl,
   describeUnreadPlugin,
@@ -75,7 +76,7 @@ async function pluginArtworkFields(): Promise<void> {
     readFile: async () => null,
   })
   const byId = new Map(scan.plugins.map((plugin) => [plugin.id, plugin]))
-  assert.equal(byId.size, 13, 'every entry lists, whatever its artwork turned out to be')
+  assert.equal(byId.size, 16, 'every entry lists, whatever its artwork turned out to be')
 
   assert.equal(byId.get('glyph')?.icon, '🦀')
   assert.equal(byId.get('joined-glyph')?.icon, '👩‍💻', 'a zero-width joiner is not a control character')
@@ -84,7 +85,7 @@ async function pluginArtworkFields(): Promise<void> {
   assert.equal(byId.get('both')?.icon, '⚙️')
   assert.equal(byId.get('both')?.logo, 'https://cdn.example.com/both.png', 'both are kept; the ladder is the renderer’s')
 
-  for (const id of ['wordy-icon', 'path-icon', 'data-uri-icon', 'typed-wrong']) {
+  for (const id of ['wordy-icon', 'path-icon', 'data-uri-icon', 'typed-wrong', 'bidi-icon', 'invisible-icon', 'crowded-icon']) {
     assert.equal(byId.get(id)?.icon, undefined, `${id} declares no glyph this app may print`)
   }
   for (const id of ['http-logo', 'data-logo', 'nonsense-logo', 'typed-wrong']) {
@@ -127,6 +128,22 @@ async function pluginArtworkFields(): Promise<void> {
   assert.equal(pluginIconGlyph('👨‍👩‍👧‍👦'), '👨‍👩‍👧‍👦', 'a family is seven code points, inside the limit')
   assert.equal(pluginIconGlyph('123456789'), '', 'nine code points is text, not a glyph')
   assert.equal(pluginIconGlyph('a\nb'), '', 'a line break is not a glyph')
+  // The bidi controls are format characters like the joiner, and are refused
+  // by name: any one of them in the chip reverses the name printed beside it.
+  assert.equal(pluginIconGlyph('‮abc'), '', 'a right-to-left override')
+  assert.equal(pluginIconGlyph('⁦a⁩'), '', 'an isolate')
+  assert.equal(pluginIconGlyph('‏a'), '', 'a right-to-left mark')
+  assert.equal(pluginIconGlyph('؜a'), '', 'the Arabic letter mark')
+  // Something must draw.
+  assert.equal(pluginIconGlyph('‍'), '', 'a lone joiner is an empty chip')
+  assert.equal(pluginIconGlyph('️'), '', 'and so is a lone variation selector')
+  // Graphemes, not code points, are what the chip has room for.
+  assert.equal(pluginIconGlyph('🏴󠁧󠁢󠁥󠁮󠁧󠁿'), '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'a flag built from tag characters is seven code points and one glyph')
+  assert.equal(pluginIconGlyph('🚀✨'), '🚀✨', 'two emoji are two glyphs, inside the cap')
+  assert.equal(pluginIconGlyph('ABCDEFGH'), '', 'eight letters are inside the code-point cap and three times the chip')
+  assert.equal(pluginIconGlyph('🚀✨🦀'), '', 'three emoji are three glyphs')
+  assert.equal(glyphGraphemeCount('👨‍👩‍👧‍👦'), 1)
+  assert.equal(glyphGraphemeCount('AI'), 2)
   assert.equal(pluginIconGlyph(null), '')
   assert.equal(pluginIconGlyph(['🦀']), '')
   assert.equal(pluginLogoUrl('https://example.com/a.png?v=2'), 'https://example.com/a.png?v=2')
