@@ -433,7 +433,8 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
 }
 
 type ProjectColorSwatchRowProps = {
-  /** Optional section label rendered above the row (e.g. "Project colour"). */
+  /** Section label above the row. Defaults to "Project color", the spelling
+   *  the sibling "Highlight color" row already uses in the same menu. */
   label?: string
   /** The colour in force: a hue, `'none'` for a deliberate no-colour, or null
    *  when this project has not been given one yet. */
@@ -454,7 +455,12 @@ type ProjectColorSwatchRowProps = {
 // a leading "clear" against a trailing "No colour" that is itself a stored
 // choice rather than the absence of one. Folding them together would have made
 // the highlight row carry a flag for each of those.
-export function ProjectColorSwatchRow({ label, value, onPick, onItemKeyDown }: ProjectColorSwatchRowProps) {
+export function ProjectColorSwatchRow({
+  label = 'Project color',
+  value,
+  onPick,
+  onItemKeyDown,
+}: ProjectColorSwatchRowProps) {
   return (
     <>
       {label ? (
@@ -472,14 +478,15 @@ export function ProjectColorSwatchRow({ label, value, onPick, onItemKeyDown }: P
                 // highlight row above: `menuitemradio` is what ARIA requires of
                 // a menu's children, and the shared full-bleed row would draw
                 // seven stacked lines where this control is one line of dots.
-                // design-tokens-allow: 2026-09-09 — a swatch, not a menu row; the colour IS the control.
+                // design-tokens-allow: 2026-09-09 (MC-2138) — a swatch, not a menu row: the
+                // colour IS the control, so it cannot wear MENU_ITEM_CLASS's row geometry.
                 role="menuitemradio"
                 aria-checked={selected}
                 data-menu-item="true"
                 tabIndex={-1}
                 onClick={() => onPick(color)}
                 onKeyDown={onItemKeyDown}
-                aria-label={`Project colour ${swatch.label}`}
+                aria-label={`Project color ${swatch.label}`}
                 className={`${SWATCH_TARGET_CLASS} ${FOCUS_RING_CLASS}`}
               >
                 {/* The hue is a class, not an inline hex, so a swatch reads on
@@ -499,17 +506,18 @@ export function ProjectColorSwatchRow({ label, value, onPick, onItemKeyDown }: P
             </Tooltip>
           )
         })}
-        <Tooltip content="No colour">
+        <Tooltip content="No color">
           <button
             type="button"
-            // design-tokens-allow: 2026-09-09 — the trailing swatch of the row above, same shape.
+            // design-tokens-allow: 2026-09-09 (MC-2138) — the trailing swatch of the row
+            // above, same shape and same carve-out from the shared menu row.
             role="menuitemradio"
             aria-checked={value === 'none'}
             data-menu-item="true"
             tabIndex={-1}
             onClick={() => onPick('none')}
             onKeyDown={onItemKeyDown}
-            aria-label="No colour"
+            aria-label="No color"
             className={`${SWATCH_TARGET_CLASS} ${FOCUS_RING_CLASS} text-[color:var(--text-disabled)] hover:text-[color:var(--text-default)]`}
           >
             {/* Dashed and empty, the same "there is deliberately nothing here"

@@ -7,6 +7,7 @@ import {
   pickProjectColor,
   projectColorGlyphClass,
   projectColorKey,
+  projectColorKeys,
   resolveProjectColor,
   type ProjectColorSetting,
 } from './projectColor'
@@ -78,7 +79,12 @@ run('a fresh install hands out the hues in order, one project at a time', () => 
     assert.equal(picked, expected)
     assigned.push(picked)
   }
-  assert.deepEqual(assigned, [...PROJECT_COLORS])
+  // Six projects, six different hues — the acceptance, stated as the property
+  // rather than as the sequence the loop above already asserted step by step.
+  assert.equal(new Set(assigned).size, PROJECT_COLORS.length)
+  // And the seventh has to start over: six hues is the whole ramp, not a
+  // counter that keeps going.
+  assert.ok(assigned.includes(pickProjectColor(assigned)))
 })
 
 run('two open projects never receive the same hue', () => {
@@ -129,6 +135,29 @@ run('allocation reads any iterable, including a settings map values view', () =>
     'folder:/tmp/c': 'none',
   }
   assert.equal(pickProjectColor(Object.values(stored)), 'cyan')
+})
+
+// ----------------------------------------------------- the key set
+
+run('the asked-about keys are trimmed, deduped and sorted into a set', () => {
+  assert.deepEqual(projectColorKeys(['repo:b', 'repo:a', ' repo:b ', 'repo:a']), ['repo:a', 'repo:b'])
+  assert.deepEqual(projectColorKeys([]), [])
+  assert.deepEqual(projectColorKeys([null, undefined, '', '   ']), [])
+})
+
+run('the key set is order-independent: the same projects give the same list', () => {
+  const forwards = projectColorKeys(['repo:c', 'repo:a', 'repo:b'])
+  const backwards = projectColorKeys(['repo:b', 'repo:c', 'repo:a'])
+  assert.deepEqual(forwards, backwards)
+})
+
+run('a folder path containing a newline survives as ONE key', () => {
+  // Legal on macOS and Linux, and the reason the hook passes an array rather
+  // than a joined signature: split back apart, this folder would become two
+  // projects and eat two hues.
+  const awkward = projectColorKey({ folderPath: '/Users/me/two\nlines' })
+  assert.equal(awkward, 'folder:/users/me/two\nlines')
+  assert.deepEqual(projectColorKeys([awkward, 'repo:a']), ['folder:/users/me/two\nlines', 'repo:a'])
 })
 
 // -------------------------------------------------------------- lookup

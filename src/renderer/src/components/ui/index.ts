@@ -70,6 +70,7 @@ export {
   MenuFlyoutItem,
   MenuItem,
   MenuSwatchRow,
+  ProjectColorSwatchRow,
   roveMenuFocus,
 } from './ContextMenu'
 // The menu canon itself, for a surface that must build a menu row the kit does

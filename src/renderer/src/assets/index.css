@@ -1244,42 +1244,84 @@ samp,
  * that is the finished tint; neither may double as a project's colour on the
  * same row. Allocation and the key are utils/projectColor.ts.
  *
- * Stated as --sem-color-mark-* rather than hex, so each hue follows data-mode
- * for free: the deep -600/-700 variants on the four light themes and the -400
- * brights on the seven dark ones. That is the whole reason the highlight
- * palette above needs a light-override block and this does not.
+ * Each hue is declared ONCE and shared by the glyph and the picker's swatch,
+ * because the dot a person clicks has to be the colour the glyph then wears, in
+ * every theme. Stated as --sem-color-mark-* rather than hex so the ramp follows
+ * `data-mode` for free: the deep -600/-700 variants on the light tier and the
+ * -400 brights on the dark one.
  *
- * Violet is the one exception. colour.mark.violet is violet-500 in BOTH modes
- * (every other mark hue has a dark variant), and violet-500 on the ink ground
- * is a glyph you have to hunt for. It is lifted toward --text-strong here - the
- * .highlight-text-* recipe, mixed at the element so the theme's own ink does
- * the work - and put back to the raw token on the light themes below, where
- * violet-500 already reads on white and a lift would only wash it out. */
-.project-mark-blue   { color: var(--sem-color-mark-blue); }
-.project-mark-teal   { color: var(--sem-color-mark-teal); }
-.project-mark-cyan   { color: var(--sem-color-mark-cyan); }
-.project-mark-violet { color: color-mix(in oklab, var(--sem-color-mark-violet) 62%, var(--text-strong)); }
-.project-mark-orange { color: var(--sem-color-mark-orange); }
-.project-mark-red    { color: var(--sem-color-mark-red); }
+ * TELLING SIX HUES APART, MEASURED. The mark ramp was drawn for file-type
+ * glyphs, where a hue labels a kind you also read the name of; here it is the
+ * only thing distinguishing two projects at a 1.4px stroke, so the pairs have
+ * to be measured rather than assumed. Distances below are oklab dE over all
+ * fifteen pairs, on all eleven themes; contrast is against that theme's
+ * --bg-surface.
+ *
+ * As the raw tokens stood, two pairs collapsed. On the light tier orange/red
+ * was 0.056 and teal/cyan 0.058, against a next-closest pair of 0.117 — two
+ * pairs of one colour. On the dark tier teal/cyan was 0.069 and blue/violet
+ * 0.095. Three token-only corrections, applied per tier:
+ *
+ *   cyan takes a step toward blue, becoming a sky rather than a dark teal-blue
+ *   (both tiers, harder on the light one where the ramp is compressed);
+ *   orange takes a step toward the gold that is NOT in the palette, so it stops
+ *   being a lighter red (light tier only — the dark orange-400 is already clear
+ *   of coral-400 at 0.103);
+ *   teal darkens toward the theme's ink, buying separation from cyan in
+ *   lightness rather than in hue (light tier only);
+ *   violet lifts toward the ink, which on a dark ground is the brightening the
+ *   token itself never got - colour.mark.violet is violet-500 in BOTH modes,
+ *   the one mark hue with no dark variant - and on the light tier is dropped,
+ *   where violet-500 already reads on white.
+ *
+ * Result: the worst pair goes 0.056 -> 0.092 on the light tier (now orange/red;
+ * teal/cyan 0.093-0.100, blue/cyan 0.092) and 0.069 -> 0.097 on the dark tier
+ * (now teal/cyan; blue/cyan 0.099, blue/violet 0.096-0.100). Worst contrast on
+ * the light tier is unchanged at 3.93:1 (violet on Vellum and Herbarium); on
+ * the dark tier it goes 5.29:1 -> 4.54:1 (violet on Sage), spent deliberately
+ * on the stronger violet lift. Both stay well clear of the 3:1 floor a non-text
+ * mark is held to, and teal on the light tier gains: 5.47 -> 6.47 on Light.
+ *
+ * 0.10 was the target and 0.092/0.097 is where it stops: blue, cyan and teal
+ * are very nearly collinear in oklab (blue/teal is only 0.174 on the light
+ * tier, and cyan sits between them), so no placement of cyan puts it 0.10 from
+ * both. Buying the last 0.01 costs either a hue that no longer reads as its own
+ * name or a contrast drop, and neither is worth it. If a seventh project ever
+ * needs a hue, this is the measurement that says the ramp is full. */
+.project-mark-blue,   .project-swatch-blue   { --project-mark: var(--sem-color-mark-blue); }
+.project-mark-teal,   .project-swatch-teal   { --project-mark: var(--sem-color-mark-teal); }
+.project-mark-cyan,   .project-swatch-cyan   { --project-mark: color-mix(in oklab, var(--sem-color-mark-cyan) 70%, var(--sem-color-mark-blue)); }
+.project-mark-violet, .project-swatch-violet { --project-mark: color-mix(in oklab, var(--sem-color-mark-violet) 75%, var(--text-strong)); }
+.project-mark-orange, .project-swatch-orange { --project-mark: var(--sem-color-mark-orange); }
+.project-mark-red,    .project-swatch-red    { --project-mark: var(--sem-color-mark-red); }
 
-/* The same hues as a filled dot, for the "Project colour" swatch row. Same
- * values as the glyph classes above on purpose: the dot a person clicks must be
- * the colour the glyph then wears, in every theme. */
-.project-swatch-blue   { background-color: var(--sem-color-mark-blue); }
-.project-swatch-teal   { background-color: var(--sem-color-mark-teal); }
-.project-swatch-cyan   { background-color: var(--sem-color-mark-cyan); }
-.project-swatch-violet { background-color: color-mix(in oklab, var(--sem-color-mark-violet) 62%, var(--text-strong)); }
-.project-swatch-orange { background-color: var(--sem-color-mark-orange); }
-.project-swatch-red    { background-color: var(--sem-color-mark-red); }
+/* The glyph wears the hue as ink; the picker's dot wears it as a fill. */
+.project-mark-blue,
+.project-mark-teal,
+.project-mark-cyan,
+.project-mark-violet,
+.project-mark-orange,
+.project-mark-red { color: var(--project-mark); }
+.project-swatch-blue,
+.project-swatch-teal,
+.project-swatch-cyan,
+.project-swatch-violet,
+.project-swatch-orange,
+.project-swatch-red { background-color: var(--project-mark); }
 
-:root[data-theme="light"] .project-mark-violet,
-:root[data-theme="vellum"] .project-mark-violet,
-:root[data-theme="herbarium"] .project-mark-violet,
-:root[data-theme="paper"] .project-mark-violet { color: var(--sem-color-mark-violet); }
-:root[data-theme="light"] .project-swatch-violet,
-:root[data-theme="vellum"] .project-swatch-violet,
-:root[data-theme="herbarium"] .project-swatch-violet,
-:root[data-theme="paper"] .project-swatch-violet { background-color: var(--sem-color-mark-violet); }
+/* The light tier. `data-mode` is stamped on <html> from LIGHT_SURFACE_THEMES
+ * (hooks/useAppTheme.ts), so a theme added to that list is covered here without
+ * anyone remembering to extend a hand-written list of theme names - which is
+ * how the highlight palette's override block ended up naming four themes by
+ * hand. */
+:root[data-mode="light"] .project-mark-cyan,
+:root[data-mode="light"] .project-swatch-cyan { --project-mark: color-mix(in oklab, var(--sem-color-mark-cyan) 80%, var(--sem-color-mark-blue)); }
+:root[data-mode="light"] .project-mark-teal,
+:root[data-mode="light"] .project-swatch-teal { --project-mark: color-mix(in oklab, var(--sem-color-mark-teal) 85%, var(--text-strong)); }
+:root[data-mode="light"] .project-mark-orange,
+:root[data-mode="light"] .project-swatch-orange { --project-mark: color-mix(in oklab, var(--sem-color-mark-orange) 60%, var(--sem-color-mark-yellow)); }
+:root[data-mode="light"] .project-mark-violet,
+:root[data-mode="light"] .project-swatch-violet { --project-mark: var(--sem-color-mark-violet); }
 
 /* File-tree row washes - "what IS this file?", answered by the row's own
  * background (ruled 2026-09-07, principles.md ->

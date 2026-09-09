@@ -11,6 +11,8 @@ import {
   MenuOption,
   PrimaryButton,
 } from '../../ui'
+import { FolderTypeIcon } from '../../AppIcons'
+import type { ProjectColor } from '../../../utils/projectColor'
 import { GitHubRepoPicker, toRepoListState, type GitHubRepoListState } from '../newWorkspace/GitHubRepoPicker'
 import { resolveCloneSource } from '../newWorkspace/githubClone'
 import { suggestedWorkspaceFolderName } from '../newWorkspace/folderCreation'
@@ -34,6 +36,7 @@ export function ProjectSourceMenu({
   selectedPath,
   defaultParent,
   onSelect,
+  colorOf,
   onBrowse,
   onClone,
   onClose,
@@ -45,6 +48,16 @@ export function ProjectSourceMenu({
   /** Where a cloned repository lands: the smart parent, or null on a cold start with nothing to go on. */
   defaultParent: string | null
   onSelect: (path: string) => void
+  /**
+   * The hue each offered project wears on its folder glyph (owner ruling
+   * 2026-09-09, `one-colour-per-project-on-the-folder-glyph`). The list is where
+   * the person is choosing BETWEEN projects, so it is the one place the six
+   * hues have to be visible side by side; the chip that opened it then shows the
+   * one they picked. Absent — or answering null for a project nobody has seen —
+   * leaves the row's glyph in the row's own ink, which is the honest picture of
+   * "this project has no colour".
+   */
+  colorOf?: (path: string) => ProjectColor | null
   /** Absent hides the Browse… source (a host with no folder dialog). */
   onBrowse?: () => void
   /**
@@ -193,6 +206,15 @@ export function ProjectSourceMenu({
         onSelect(option.path)
         onClose()
       }}
+      // The leading slot is all-or-nothing per the menu spec, and Browse… and
+      // Import from Git already fill it — the project rows were the ones
+      // leaving it empty. The folder glyph closes that and carries the colour.
+      //
+      // The bare glyph, NOT `FolderIdentityIcon`: the logo lookup is one probe
+      // per folder, and a list of every project this app has ever opened would
+      // fire the lot of them to decorate rows the person is scrolling past. The
+      // chip that opened this menu is the one place the logo is worth the probe.
+      icon={<FolderTypeIcon className="mt-0.5 icon-xs shrink-0" color={colorOf?.(option.path) ?? null} />}
     >
       <span className="block truncate text-body font-medium">{option.label}</span>
       <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">

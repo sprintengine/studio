@@ -1331,11 +1331,16 @@ export interface SettingsSliceActions {
   /**
    * Give every one of these projects a colour it does not already have.
    *
+   * `keys` is the set on screen, and it is also the only thing allocation is
+   * measured against: a hue is "taken" when one of THESE projects wears it, not
+   * when some project closed a year ago does. Six hues cannot keep every
+   * project ever opened distinct, and counting the whole stored map would let a
+   * newly opened project collide with a visible one while four hues sat unused
+   * among the handful in front of the person.
+   *
    * Safe to call from an effect on every render: keys that already have an
    * entry (a hue OR `'none'`) are left alone, and when nothing is missing the
-   * action writes nothing at all, so it cannot loop a subscriber. Each missing
-   * key is allocated against the entries written so far, so one call that sees
-   * six new projects hands out six different hues.
+   * action writes nothing at all, so it cannot loop a subscriber.
    */
   assignProjectColors: (keys: readonly string[]) => void
   /**
@@ -1742,11 +1747,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     setProjectColor: (key, color) =>
       set((state) => {
-        const projectKey = typeof key === 'string' ? key.trim() : ''
+        const projectKey = key.trim()
         if (!projectKey) return
         const current = state.appSettings.projectColors ?? {}
         if (color === null) {
-          if (!(projectKey in current)) return
+          if (!Object.hasOwn(current, projectKey)) return
           const next = { ...current }
           delete next[projectKey]
           state.appSettings.projectColors = next
@@ -1760,24 +1765,40 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     assignProjectColors: (keys) =>
       set((state) => {
         const current = state.appSettings.projectColors ?? {}
-        // Deduped in arrival order — the sidebar's order — so the first project
-        // down the list gets the first hue, and calling twice with the same
-        // list is a no-op rather than a reshuffle.
-        const missing: string[] = []
+        // Deduped, and order-independent: the hook hands these over sorted, so
+        // the same set of projects gets the same allocation however the sidebar
+        // happened to lay them out, and calling twice with one set is a no-op
+        // rather than a reshuffle.
+        const onScreen: string[] = []
         const seen = new Set<string>()
         for (const raw of keys) {
-          const key = typeof raw === 'string' ? raw.trim() : ''
+          const key = raw.trim()
           if (!key || seen.has(key)) continue
           seen.add(key)
-          if (key in current) continue
-          missing.push(key)
+          onScreen.push(key)
         }
+        const missing = onScreen.filter((key) => !Object.hasOwn(current, key))
         // The idempotent path, and the reason this is safe in a render effect:
         // no missing key means no write, so no subscriber is notified.
         if (missing.length === 0) return
         const next = { ...current }
+        // Allocation is constrained by the PROJECTS ON SCREEN, not by the whole
+        // stored map. The acceptance is "two open projects never receive the
+        // same hue"; counting a year of closed projects instead would let a new
+        // project collide with an open one while four hues sat unused among the
+        // handful actually visible — six hues cannot keep every project ever
+        // opened distinct, and pretending otherwise spends them on rows nobody
+        // is looking at. History is a record, not a constraint.
+        const inUse = onScreen.flatMap((key) => {
+          const setting = next[key]
+          return setting ? [setting] : []
+        })
         for (const key of missing) {
-          next[key] = pickProjectColor(Object.values(next))
+          const picked = pickProjectColor(inUse)
+          next[key] = picked
+          // Counted immediately, so one call that sees six new projects hands
+          // out six different hues rather than six copies of the first.
+          inUse.push(picked)
         }
         state.appSettings.projectColors = next
       }),
