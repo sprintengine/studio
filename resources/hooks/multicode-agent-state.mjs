@@ -51,6 +51,95 @@ const MAX_PROMPT_LENGTH = 2000
 // Send-side cap on the forwarded cwd (MC-2440). Mirrors MAX_OBSERVED_CWD_LENGTH
 // in src/shared/observed-checkout.ts; the reader re-validates (absolute, capped).
 const MAX_CWD_LENGTH = 4096
+// Send-side cap on a reported file path. Mirrors the reader's cap in
+// src/main/agent-state.ts; an over-long value is DROPPED rather than sliced —
+// half a path names the wrong file, and the reader would reject it anyway.
+const MAX_FILE_PATH_LENGTH = 4096
+
+/**
+ * Line counts for one file-editing tool call, read from the hook's
+ * `tool_response` — which is the tool's own RESULT object, not a wrapper.
+ *
+ * Verified payloads (Claude Code, 2026-09-09):
+ *   Edit   result keys: filePath, newString, oldString, originalFile,
+ *                       replaceAll, structuredPatch, userModified
+ *   Write  result keys: content, filePath, originalFile, structuredPatch,
+ *                       type ('create' | 'update'), userModified
+ *   structuredPatch: [{ oldStart, oldLines, newStart, newLines,
+ *                       lines: [' unchanged', '+added', '-removed', …] }]
+ *
+ * A Write that CREATES a file carries an EMPTY structuredPatch (there is no
+ * "before" to diff against), so its additions are the line count of `content`.
+ *
+ * MultiEdit and NotebookEdit fire the same hook. Their result shapes are NOT
+ * verified here: if one carries a structuredPatch it is counted like the rest,
+ * and otherwise the call is still recorded — path only, 0/0 — because "this
+ * file was touched" is worth more than a guessed count. Nothing infers counts
+ * from a shape this comment has not seen.
+ *
+ * A call that FAILED reports nothing. A tool error comes back as a string (or
+ * an object carrying `error`), never as a result object, and a file the agent
+ * failed to edit appearing in the ledger is exactly the wrong lie — worse than
+ * the missing entry, because it is indistinguishable from a real edit whose
+ * shape we could not count.
+ *
+ * Only the path and the two integers ever ride the socket: the patch text and
+ * the file content stay here (the frame line cap is 64KB, and a person's file
+ * contents are not ours to forward).
+ *
+ * Pure, and deliberately NOT exported: importing this file runs `main()` and
+ * exits the process. The counting is covered by spawning the script with real
+ * hook payloads on stdin (src/main/agent-state-service.test.ts).
+ */
+function deriveFileChange(toolResponse, toolInput) {
+  if (!toolResponse || typeof toolResponse !== 'object' || Array.isArray(toolResponse)) return null
+  const response = toolResponse
+  if (response.error || response.is_error) return null
+  const input = toolInput && typeof toolInput === 'object' ? toolInput : {}
+  const text = (value) => (typeof value === 'string' ? value : null)
+  const rawPath =
+    text(response.filePath)
+    ?? text(response.file_path)
+    ?? text(input.file_path)
+    ?? text(input.filePath)
+    ?? text(input.notebook_path)
+    ?? text(input.notebookPath)
+  const path = rawPath?.trim()
+  if (!path || path.length > MAX_FILE_PATH_LENGTH) return null
+
+  let additions = 0
+  let deletions = 0
+  const hunks = Array.isArray(response.structuredPatch) ? response.structuredPatch : []
+  for (const hunk of hunks) {
+    const lines = hunk && typeof hunk === 'object' && Array.isArray(hunk.lines) ? hunk.lines : []
+    for (const line of lines) {
+      if (typeof line !== 'string') continue
+      // Every hunk line is prefixed: ' ' context, '+' added, '-' removed.
+      // A '\' line ("\ No newline at end of file") is diff bookkeeping, not a
+      // line of the file, and counts as neither.
+      if (line.startsWith('+')) additions += 1
+      else if (line.startsWith('-')) deletions += 1
+    }
+  }
+  // A created file has nothing to diff against, so the patch is empty and the
+  // whole content is the addition. Taken from the result, or from the tool's
+  // own input when the result echoes only the path — otherwise a brand-new
+  // 300-line file would report as zero, which nobody could tell from a real
+  // zero. A trailing newline does not make a last empty line, so it is not
+  // counted as one.
+  if (hunks.length === 0 && response.type === 'create') {
+    const content = text(response.content) ?? text(input.content)
+    if (content !== null) additions = content.length === 0 ? 0 : content.replace(/\n$/, '').split('\n').length
+  }
+  return { path, additions, deletions }
+}
+
+// The tools whose PostToolUse payload this reporter reads a file change out of.
+// Claude Code's spelling; Codex, Kimi and Grok ship the same hook contract and
+// the same `PostToolUse` event name, so a CLI of theirs that spells its editing
+// tools this way is read too — one that does not simply never matches, which is
+// the safe direction (no ledger beats a wrong one).
+const FILE_EDIT_TOOL_NAMES = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
 function readStdin() {
   return new Promise((res) => {
@@ -222,6 +311,30 @@ async function main() {
         frame.wakeup = { delaySeconds: input.delaySeconds }
       }
     }
+  }
+
+  // What the agent just changed on disk, forwarded on the PostToolUse of a
+  // file-editing tool so the app can keep a per-session ledger ("this agent
+  // touched 9 files, +240/-31") without asking git — git answers for the
+  // CHECKOUT, which several agents and the person share. Counts are the hook's
+  // own diff hunks, so they are cumulative by construction: a line edited twice
+  // counts twice, which is the intent (they measure the agent's work, not the
+  // tree's distance from HEAD).
+  //
+  // Deliberately NOT suppressed for a subagent (`agent_id` present, see the cwd
+  // rule below): a subagent's edits belong to the session that spawned it. Only
+  // the path and the two integers are forwarded — never the patch, never the
+  // file content (the reader's frame line cap is 64KB).
+  // `PostToolUse` is Claude/Codex/Kimi/Grok vocabulary. Cursor spells it
+  // `postToolUse`, and is deliberately not read here: none of its tools are
+  // named below, so accepting the spelling would only imply a support that the
+  // payload cannot deliver.
+  if (event === 'PostToolUse' && toolName && FILE_EDIT_TOOL_NAMES.has(toolName)) {
+    const fileChange = deriveFileChange(
+      payload?.tool_response ?? payload?.toolResponse,
+      payload?.tool_input ?? payload?.toolInput
+    )
+    if (fileChange) frame.fileChange = fileChange
   }
 
   // Where the session IS (MC-2440): Claude Code, Codex and Grok put the

@@ -16,6 +16,8 @@ import {
   holdTurnEndForBackgroundWork,
   installAgentStateReporter,
   isAtRestAgentPhase,
+  MAX_FILE_CHANGE_COUNT,
+  MAX_FILE_CHANGE_PATH_LENGTH,
   MAX_TRANSCRIPT_PATH_LENGTH,
   MAX_WAKEUP_DELAY_SECONDS,
   mergeAgentStateHooks,
@@ -337,6 +339,73 @@ async function run(): Promise<void> {
     parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, cwd: 'relative' }, 999)?.event,
     'PostToolUse',
     'a bad cwd never drops the frame'
+  )
+  // …the file ledger's change rides the same rules: absolute path, bounded, and
+  // counts that are real, whole and not negative. A bad one drops the FIELD —
+  // a malformed count must never cost the session the phase it rode in with…
+  const changeOf = (fileChange: unknown) =>
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, fileChange }, 999)
+      ?.fileChange
+  assert.deepEqual(
+    changeOf({ path: '/repo/src/app.ts', additions: 12, deletions: 3 }),
+    { path: '/repo/src/app.ts', additions: 12, deletions: 3 }
+  )
+  assert.deepEqual(
+    changeOf({ path: '/repo/new.ts', additions: 0, deletions: 0 }),
+    { path: '/repo/new.ts', additions: 0, deletions: 0 },
+    'a touched-but-uncounted file (an unverified MultiEdit shape) is still recorded'
+  )
+  assert.deepEqual(
+    changeOf({ path: 'src/app.ts', additions: 1, deletions: 0 }),
+    undefined,
+    'a relative path is meaningless off the reporter’s own cwd'
+  )
+  assert.equal(changeOf({ path: '/repo/a.ts', additions: -1, deletions: 0 }), undefined, 'negative additions')
+  assert.equal(changeOf({ path: '/repo/a.ts', additions: 0, deletions: -4 }), undefined, 'negative deletions')
+  assert.equal(changeOf({ path: '/repo/a.ts', additions: Number.NaN, deletions: 0 }), undefined)
+  assert.equal(changeOf({ path: '/repo/a.ts', additions: Infinity, deletions: 0 }), undefined)
+  assert.equal(changeOf({ path: '/repo/a.ts', additions: '4', deletions: 0 }), undefined, 'counts are numbers')
+  assert.equal(changeOf({ path: '/repo/a.ts', deletions: 0 }), undefined, 'both counts are required')
+  assert.equal(changeOf({ path: '/' + 'x'.repeat(MAX_FILE_CHANGE_PATH_LENGTH), additions: 1, deletions: 0 }), undefined)
+  assert.deepEqual(
+    changeOf({ path: '/' + 'x'.repeat(MAX_FILE_CHANGE_PATH_LENGTH - 1), additions: 1, deletions: 0 })?.path?.length,
+    MAX_FILE_CHANGE_PATH_LENGTH,
+    'a path exactly at the cap is a path, not an anomaly'
+  )
+  assert.deepEqual(
+    changeOf({ path: 'C:\\repo\\a.ts', additions: 1, deletions: 0 }),
+    { path: 'C:\\repo\\a.ts', additions: 1, deletions: 0 },
+    'the ledger is cross-platform: a Windows drive path is absolute'
+  )
+  // `isAbsoluteObservedPath` only reads a path's prefix, so what follows must be
+  // refused here: this value is retained per session, written to a sidecar,
+  // keyed on, and painted in every window.
+  assert.equal(changeOf({ path: '/repo/\u0000evil.ts', additions: 1, deletions: 0 }), undefined, 'a NUL is not a path')
+  assert.equal(
+    changeOf({ path: '/repo/\u001b[31mevil.ts', additions: 1, deletions: 0 }),
+    undefined,
+    'an ANSI escape is not a path'
+  )
+  assert.equal(
+    changeOf({ path: '/repo/two\nlines.ts', additions: 1, deletions: 0 }),
+    undefined,
+    'an embedded newline is not a path'
+  )
+  assert.equal(cwdOf('/repo/\u0000evil'), undefined, 'the observed cwd is held to the same rule')
+  assert.equal(changeOf({ additions: 1, deletions: 0 }), undefined, 'a change with no path names nothing')
+  assert.equal(changeOf('/repo/a.ts'), undefined, 'a bare string is not a change')
+  assert.deepEqual(
+    changeOf({ path: '  /repo/a.ts  ', additions: 3.7, deletions: 1e12 }),
+    { path: '/repo/a.ts', additions: 3, deletions: MAX_FILE_CHANGE_COUNT },
+    'the path is trimmed, a fractional count floors, an absurd one caps'
+  )
+  assert.equal(
+    parseAgentStateFrame(
+      { type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, fileChange: { path: 'nope' } },
+      999
+    )?.event,
+    'PostToolUse',
+    'a bad file change never drops the frame'
   )
   // …the status discriminator rides the same validation (capped, optional)…
   assert.equal(

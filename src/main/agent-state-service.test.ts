@@ -378,6 +378,244 @@ async function run(): Promise<void> {
     assert.equal(cursorFrame.cwd, '/Users/me/proj', 'Cursor reports its launch root, not a command\'s working directory')
     assert.equal(cursorFrame.sessionId, 'cursor-chat')
     cwdServer.close()
+
+    // --- reporter file ledger ---------------------------------------------
+    // The payloads below are the REAL shapes (Claude Code, 2026-09-09):
+    // PostToolUse's `tool_response` IS the tool's result object, and its
+    // structuredPatch hunks are what the counts are summed from. The reporter
+    // forwards path + counts only — never the patch, never the file content.
+    const editSockPath = join(sockDir, 'edit-instance.sock')
+    const editFrames: string[] = []
+    const editServer = await listenLines(editSockPath, editFrames)
+    type FileChangeFrame = {
+      event?: string
+      fileChange?: { path?: string; additions?: number; deletions?: number }
+      [key: string]: unknown
+    }
+    const nextFileChangeFrame = async (index: number): Promise<FileChangeFrame> => {
+      await waitFor(() => editFrames.length >= index + 1)
+      return JSON.parse(editFrames[index]) as FileChangeFrame
+    }
+
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      cwd: '/repo',
+      tool_name: 'Edit',
+      tool_input: { file_path: '/repo/src/app.ts', old_string: 'a', new_string: 'b' },
+      tool_response: {
+        filePath: '/repo/src/app.ts',
+        oldString: 'a',
+        newString: 'b',
+        originalFile: 'a\nkeep\n',
+        replaceAll: false,
+        userModified: false,
+        structuredPatch: [
+          {
+            oldStart: 1,
+            oldLines: 3,
+            newStart: 1,
+            newLines: 4,
+            lines: [' keep', '-gone', '-also gone', '+new one', '+new two', '+new three', ' tail'],
+          },
+          {
+            oldStart: 40,
+            oldLines: 2,
+            newStart: 41,
+            newLines: 2,
+            lines: [' ctx', '-old tail', '+new tail', '\\ No newline at end of file'],
+          },
+        ],
+      },
+    })
+    const editFrame = await nextFileChangeFrame(0)
+    assert.deepEqual(
+      editFrame.fileChange,
+      { path: '/repo/src/app.ts', additions: 4, deletions: 3 },
+      'every +/- line across every hunk counts; a "\\ No newline" marker counts as neither'
+    )
+    assert.equal(
+      JSON.stringify(editFrame).includes('new one'),
+      false,
+      'the patch text must never ride the socket — the frame line cap is 64KB'
+    )
+
+    // A Write that CREATES a file carries an EMPTY structuredPatch: additions
+    // are the line count of `content`, and a trailing newline is not a line.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Write',
+      tool_input: { file_path: '/repo/src/new.ts', content: 'one\ntwo\nthree\n' },
+      tool_response: {
+        type: 'create',
+        filePath: '/repo/src/new.ts',
+        content: 'one\ntwo\nthree\n',
+        originalFile: '',
+        structuredPatch: [],
+        userModified: false,
+      },
+    })
+    assert.deepEqual(
+      (await nextFileChangeFrame(1)).fileChange,
+      { path: '/repo/src/new.ts', additions: 3, deletions: 0 },
+      'a created file counts its content lines, since there is no patch to count'
+    )
+
+    // A file created with no `content` on the result: the tool's own input has
+    // it, and a brand-new 300-line file reporting zero would be indetectable.
+    // No trailing newline here — the strip is the one real off-by-one.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Write',
+      tool_input: { file_path: '/repo/src/from-input.ts', content: 'one\ntwo' },
+      tool_response: { type: 'create', filePath: '/repo/src/from-input.ts', structuredPatch: [] },
+    })
+    assert.deepEqual(
+      (await nextFileChangeFrame(2)).fileChange,
+      { path: '/repo/src/from-input.ts', additions: 2, deletions: 0 },
+      'the content falls back to the tool input, and a file with no trailing newline is not short a line'
+    )
+
+    // A FAILED edit reports nothing. A tool error comes back as a string (or an
+    // object carrying `error`), and a file the agent did NOT change must never
+    // appear in the ledger — it would be indistinguishable from a real edit
+    // whose result shape could not be counted.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Edit',
+      tool_input: { file_path: '/repo/src/untouched.ts', old_string: 'a', new_string: 'b' },
+      tool_response: 'Error: String to replace not found in file.',
+    })
+    assert.equal(
+      (await nextFileChangeFrame(3)).fileChange,
+      undefined,
+      'a failed edit is not an edit, however the CLI phrases the error'
+    )
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Write',
+      tool_input: { file_path: '/repo/src/untouched.ts' },
+      tool_response: { error: 'EACCES: permission denied', filePath: '/repo/src/untouched.ts' },
+    })
+    assert.equal((await nextFileChangeFrame(4)).fileChange, undefined, 'nor an error object carrying a path')
+
+    // A subagent's edit (agent_id present) counts for the session that spawned
+    // it — the cwd suppression above is a cwd rule, not a work rule.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      cwd: '/repo/.claude/worktrees/subagent-scratch',
+      agent_id: 'agent-7f3a',
+      tool_name: 'Write',
+      tool_input: { file_path: '/repo/notes.md' },
+      tool_response: {
+        type: 'update',
+        filePath: '/repo/notes.md',
+        content: 'x',
+        structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-old', '+new'] }],
+      },
+    })
+    const subagentEdit = await nextFileChangeFrame(5)
+    assert.deepEqual(subagentEdit.fileChange, { path: '/repo/notes.md', additions: 1, deletions: 1 })
+    assert.equal(subagentEdit.cwd, undefined, 'the subagent cwd is still suppressed')
+
+    // An editing tool whose result shape we have not verified (MultiEdit,
+    // NotebookEdit) still records the file it touched, with no counts guessed.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'NotebookEdit',
+      tool_input: { notebook_path: '/repo/analysis.ipynb', new_source: 'print(1)' },
+      tool_response: { ok: true },
+    })
+    assert.deepEqual(
+      (await nextFileChangeFrame(6)).fileChange,
+      { path: '/repo/analysis.ipynb', additions: 0, deletions: 0 },
+      'an unverified result shape falls back to the input path with no counts'
+    )
+
+    // The result's own path wins over the input's: the tool reports where it
+    // actually wrote, and a relative or since-resolved input path is the guess.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'MultiEdit',
+      tool_input: { file_path: 'src/relative.ts' },
+      tool_response: {
+        filePath: '/repo/src/resolved.ts',
+        structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: [' keep', '+added'] }],
+      },
+    })
+    assert.deepEqual(
+      (await nextFileChangeFrame(7)).fileChange,
+      { path: '/repo/src/resolved.ts', additions: 1, deletions: 0 },
+      'the result path wins over the input path, and a MultiEdit that carries a patch is counted like any other'
+    )
+
+    // A non-editing tool carries no change at all, and neither does an editing
+    // tool call that names no file.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Bash',
+      tool_input: { command: 'sed -i s/a/b/ file.ts' },
+      tool_response: { filePath: '/repo/via-bash.ts', structuredPatch: [] },
+    })
+    assert.equal(
+      (await nextFileChangeFrame(8)).fileChange,
+      undefined,
+      'Bash is deliberately not attributed, however file-shaped its result looks'
+    )
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Edit',
+      tool_input: {},
+      tool_response: { structuredPatch: [] },
+    })
+    assert.equal((await nextFileChangeFrame(9)).fileChange, undefined, 'no path, no ledger entry')
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Edit',
+      tool_input: { file_path: '/' + 'x'.repeat(5000) },
+      tool_response: {},
+    })
+    assert.equal((await nextFileChangeFrame(10)).fileChange, undefined, 'an absurd path is dropped, not sliced')
+    // The reason the patch stays here rather than riding along: the listener
+    // drops any line over MAX_LINE_BYTES (64KB). A path at the cap plus counts
+    // must leave that budget almost untouched.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Write',
+      tool_input: { file_path: `/${'x'.repeat(4095)}` },
+      tool_response: {
+        type: 'update',
+        filePath: `/${'x'.repeat(4095)}`,
+        content: 'y'.repeat(200_000),
+        structuredPatch: [
+          {
+            oldStart: 1,
+            oldLines: 20_000,
+            newStart: 1,
+            newLines: 20_000,
+            lines: Array.from({ length: 20_000 }, (_unused, index) => `+line ${index}`),
+          },
+        ],
+      },
+    })
+    const bigFrame = await nextFileChangeFrame(11)
+    assert.equal(bigFrame.fileChange?.additions, 20_000, 'a 20k-line patch is counted')
+    assert.ok(
+      Buffer.byteLength(editFrames[11], 'utf8') < 8 * 1024,
+      'the frame carries the count, never the patch — it must stay a rounding error against the 64KB line cap'
+    )
+    editServer.close()
   }
 
   console.log('agent-state-service.test.ts: all assertions passed')

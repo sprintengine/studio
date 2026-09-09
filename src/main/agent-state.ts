@@ -298,6 +298,25 @@ export const MAX_WAKEUP_DELAY_SECONDS = 2 * 3600
 // untrusted string cannot ride the frame into a consumer.
 export const MAX_TRANSCRIPT_PATH_LENGTH = 4096
 
+// One file the agent's PostToolUse hook says it just changed: the path plus the
+// line counts the reporter summed off the tool's own diff hunks. Never the
+// patch or the content — see the reporter.
+export type AgentStateFrameFileChange = {
+  path: string
+  additions: number
+  deletions: number
+}
+
+// A path this long is a broken reporter, not a file. Same bound as the observed
+// cwd, and for the same reason: the value is retained per session and broadcast
+// to every renderer.
+export const MAX_FILE_CHANGE_PATH_LENGTH = MAX_OBSERVED_CWD_LENGTH
+
+// A single tool call cannot honestly add ten million lines; past that the frame
+// is anomalous. Capped rather than dropped, so an absurd count degrades to a
+// large one instead of erasing the fact that the file was edited.
+export const MAX_FILE_CHANGE_COUNT = 10_000_000
+
 // Cap on the forwarded user prompt. The reporter truncates too, but it is
 // untrusted, so this is the enforcement: the value is retained per session and
 // broadcast to every renderer, and an unbounded string would ride into both.
@@ -344,6 +363,12 @@ export type AgentStateFrame = {
   // shape-checked on receipt (absolute, capped) and a bad value drops the
   // field, never the frame — the phase it rides with is still real.
   cwd?: string
+  // The file the agent just edited, forwarded on the PostToolUse of an editing
+  // tool (Edit/Write/MultiEdit/NotebookEdit). Folded into the session's file
+  // ledger. Untrusted like the rest: absolute path, bounded, non-negative
+  // integer counts — a bad value drops the FIELD, never the frame, so a
+  // malformed count cannot cost the session its phase transition.
+  fileChange?: AgentStateFrameFileChange
 }
 
 const VALID_PHASES: ReadonlySet<AgentPhase> = new Set<AgentPhase>([
@@ -414,7 +439,42 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
   }
   const cwd = parseFrameCwd(raw.cwd)
   if (cwd) frame.cwd = cwd
+  const fileChange = parseFrameFileChange(raw.fileChange)
+  if (fileChange) frame.fileChange = fileChange
   return frame
+}
+
+// A reported file change must name an absolute path (a relative one is
+// meaningless off the reporter's own process cwd, and the ledger is shown to a
+// person as the file they can open) with two counts that are real, finite and
+// not negative. Anything else drops the field — the frame still carries its
+// phase, and a missing ledger entry is a smaller lie than a wrong one.
+function parseFrameFileChange(raw: unknown): AgentStateFrameFileChange | null {
+  if (!isRecord(raw)) return null
+  const path = optionalString(raw.path)?.trim()
+  if (!path) return null
+  if (path.length > MAX_FILE_CHANGE_PATH_LENGTH) return null
+  if (hasControlCharacters(path)) return null
+  if (!isAbsoluteObservedPath(path)) return null
+  const additions = parseFileChangeCount(raw.additions)
+  const deletions = parseFileChangeCount(raw.deletions)
+  if (additions === null || deletions === null) return null
+  return { path, additions, deletions }
+}
+
+// Counts are whole lines: a fractional value is rounded down rather than
+// dropped (the edit still happened), a negative or non-finite one is refused
+// outright, and an absurd one is capped.
+//
+// Refusing (rather than defaulting to zero) is deliberate, and is the one place
+// this differs from the reporter's "record the touch even when the shape cannot
+// be counted" rule: the reporter emits a real 0 for a shape it cannot read, so a
+// count arriving as anything but a number means the FRAME is malformed, not that
+// the count is unknown — and a malformed frame is not something to half-believe.
+function parseFileChangeCount(raw: unknown): number | null {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return null
+  if (raw < 0) return null
+  return Math.min(Math.floor(raw), MAX_FILE_CHANGE_COUNT)
 }
 
 // A reported cwd must be absolute (a relative value is meaningless off the
@@ -425,8 +485,19 @@ function parseFrameCwd(raw: unknown): string | null {
   const value = optionalString(raw)?.trim()
   if (!value) return null
   if (value.length > MAX_OBSERVED_CWD_LENGTH) return null
+  if (hasControlCharacters(value)) return null
   if (!isAbsoluteObservedPath(value)) return null
   return value
+}
+
+// `isAbsoluteObservedPath` only inspects a path's PREFIX, so a value that starts
+// `/` passes however it continues. A real path from a real CLI carries no
+// control characters; one that does is either a broken reporter or an attempt to
+// smuggle a NUL, an embedded newline or an ANSI escape into a value the app
+// retains per session, writes to a sidecar, keys a map on and paints in every
+// window. Refuse it at the door rather than at each of those.
+function hasControlCharacters(value: string): boolean {
+  return /[\u0000-\u001f\u007f]/.test(value)
 }
 
 // A malformed wakeup drops (frame stands without it) — the reporter is
