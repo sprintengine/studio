@@ -440,6 +440,7 @@
     "src/renderer/src/components/htmlArtifact": "esm-bundled",
     "src/renderer/src/components/onboarding": "cjs-bundled-jsx",
     "src/renderer/src/components/panels": "cjs-bundled",
+    "src/renderer/src/components/panels/git": "cjs-bundled-jsx-jsdom",
     "src/renderer/src/components/panels/fleet": "cjs-external",
     "src/renderer/src/components/panels/sprintEngineBoard": "cjs-bundled-jsx",
     "src/renderer/src/components/remote": "cjs-external",

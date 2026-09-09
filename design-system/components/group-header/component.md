@@ -73,6 +73,27 @@ Unlike [check-row](../check-row/component.md)'s box, this one is the kit
 checkbox **whole**, input and all: there is one per group rather than one per
 file, so it costs a handful of tab stops and buys the keyboard a real control.
 
+## The band is outside the listbox — ruled 2026-09-09
+
+The rows a band governs are almost always [check rows](../check-row/component.md)
+in a `role="listbox"`. The band is **not** in it.
+
+A listbox may own `option`s and nothing else, and this band is three controls: a
+chevron `<button>`, the kit checkbox whole, and a trailing overflow control. Put
+between the runs of rows inside one listbox, they are invalid children of it —
+and the reason they are *allowed* to be real controls in the first place (one
+per group, not one per row) is the reason they must not pretend to be options.
+
+So a grouped list is one keyboard owner (`role="group"`, `tabindex="0"`, the
+`aria-activedescendant` walk) holding **one listbox per group**, with the bands
+standing between them. The full shape, and why the walk is not split into a tab
+stop per group, is drawn in
+[check-row → Where the group bands sit](../check-row/component.md).
+
+`aria-controls` still points at the region the chevron folds — which is the
+element *around* the listbox, so anything in the fold that is not a row (a cap
+notice, an empty line) has somewhere legal to live.
+
 ## Variants
 
 There is one group header. What changes is how much of it is there: the check,
@@ -124,7 +145,8 @@ answer to "where am I" in a list that already has two.
 - The trailing control carries an `aria-label` naming both the verb and the
   group, and is in the tab order.
 - The band itself takes no role and no tab stop: three controls sit in it, and
-  a fourth wrapping them would be a composite widget nobody asked for.
+  a fourth wrapping them would be a composite widget nobody asked for. It is
+  also outside the listbox those controls govern — see the ruling above.
 - Reduced motion removes the chevron's rotation *transition* and the reveal
   fade, never the rotation or the reveal.
 

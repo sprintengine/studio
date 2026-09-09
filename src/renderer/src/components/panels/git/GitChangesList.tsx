@@ -1,11 +1,24 @@
 // The Changes list: a commit checklist composed from the kit (epic
 // `git-commit-window`, T5; mockup 2522 panel 1).
 //
-// ONE TAB STOP. The list is the `listbox`, it carries `tabIndex=0`, it drives
-// the cursor with `aria-activedescendant`, and it owns Space (tick) and Enter
-// (open). Four hundred rows must not be four hundred tab stops, which is why
-// `check-row`'s box is a drawing rather than an input and why the row is a
-// `<div role="option">` rather than a button.
+// ONE KEYBOARD OWNER, ONE LISTBOX PER GROUP. The outer element is the walk: it
+// carries `tabIndex=0`, drives the cursor with `aria-activedescendant` across
+// every group, and owns Space (tick) and Enter (open). Four hundred rows must
+// not be four hundred tab stops, which is why `check-row`'s box is a drawing
+// rather than an input and why the row is a `<div role="option">` rather than a
+// button.
+//
+// What the outer element is NOT is the listbox. It used to be, and a listbox
+// may own nothing but `option`s — while the group bands standing between the
+// runs of rows are three real controls each (a chevron `<button>`, a real
+// `<input type="checkbox">`, a kebab `<button>`), which `aria-required-children`
+// rejects outright. So the bands sit OUTSIDE every listbox, each group's rows
+// are their own `role="listbox"`, and the outer element is a `role="group"` —
+// a role that supports `aria-activedescendant`, which is what lets one walk
+// span all of them. The band's controls stay real, focusable controls, exactly
+// as `group-header` specifies: they are per-GROUP, not per-row, so they cost a
+// handful of tab stops rather than four hundred. The ruling is recorded in
+// design-system/components/check-row/component.md and group-header/component.md.
 //
 // TWO QUESTIONS, KEPT APART. The tick is a value the row carries — it IS the
 // index — and the fill and edge are where the person is. Clicking the box ticks
@@ -229,8 +242,9 @@ export function GitChangesList({
   return (
     <div
       ref={listRef}
-      role="listbox"
-      aria-multiselectable="true"
+      // `group`, not `listbox`: the bands below are not options, and the walk
+      // spans every group's listbox rather than living inside one of them.
+      role="group"
       aria-label="Changed files"
       aria-activedescendant={cursorPath ? changeRowDomId(listId, cursorPath) : undefined}
       tabIndex={0}
@@ -254,9 +268,12 @@ export function GitChangesList({
         const regionId = `${listId}-${group.id}-rows`
         const expanded = expandedGroupIds.has(group.id)
         return (
-          <div key={group.id} role="group" aria-label={group.title}>
-            {/* The band is not an `option`; the marquee reads this attribute so
-                a drag started on a header does not clear the selection. */}
+          <div key={group.id}>
+            {/* The band is not an `option`, and it is not inside the listbox
+                either — a chevron, a checkbox and a kebab are three controls,
+                and a listbox owns options and nothing else. The marquee reads
+                this attribute so a drag started on a header does not clear the
+                selection. */}
             <div
               data-git-group-header="true"
               onContextMenu={(event) => {
@@ -304,57 +321,62 @@ export function GitChangesList({
                 }
               />
             </div>
-            {/* Hidden, never unmounted: `aria-controls` above has to resolve. */}
+            {/* Hidden, never unmounted: `aria-controls` above has to resolve.
+                The REGION is what folds; the listbox inside it is what the rows
+                belong to, so the cap notice below can sit in the fold without
+                being a non-option child of a listbox. */}
             <div id={regionId} hidden={!expanded}>
-              {group.rows.map((row) => {
-                const appearance = getGitStatusAppearance(row.status)
-                const statusWord = gitStatusWord(row.status)
-                const isSelected = selectedPaths.has(row.path)
-                return (
-                  <CheckRow
-                    key={row.path}
-                    id={changeRowDomId(listId, row.path)}
-                    ref={(node) => registerRowNode(row.path, node)}
-                    data-git-change-row="true"
-                    role="option"
-                    checked={row.checked}
-                    // Always present. `check-row` only swallows the click when
-                    // it has a handler to run, so a box that dropped its
-                    // handler while busy would let the click through to the row
-                    // and OPEN THE DIFF — a tick that shows a diff instead.
-                    onCheckedChange={() => onToggleRow(row)}
-                    glyph={<FileTypeGlyph name={row.filename} tone="kind" className="icon-sm" />}
-                    name={
-                      // The status tint travels with the name, and the word
-                      // travels with it: T5 dropped the trailing status letter,
-                      // so this clause is the only non-colour carrier left and
-                      // colour alone is not an accessible signal.
-                      <span className={appearance.textClass}>
-                        {row.filename}
-                        {statusWord ? <span className="sr-only">, {statusWord}</span> : null}
-                      </span>
-                    }
-                    directory={row.directory || undefined}
-                    selected={isSelected && listFocused}
-                    resting={isSelected && !listFocused}
-                    cursor={cursorPath === row.path}
-                    onClick={(event) => {
-                      if (onRowClick(row, event)) return
-                      onActivateRow(row)
-                    }}
-                    onContextMenu={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      onContextSelect(row)
-                      // A keyboard-summoned menu (Shift+F10, the Menu key)
-                      // carries no pointer; open it on the row rather than at
-                      // the viewport corner.
-                      const rect = event.currentTarget.getBoundingClientRect()
-                      setRowMenu({ x: event.clientX || rect.left, y: event.clientY || rect.bottom, row })
-                    }}
-                  />
-                )
-              })}
+              <div role="listbox" aria-multiselectable="true" aria-label={group.title}>
+                {group.rows.map((row) => {
+                  const appearance = getGitStatusAppearance(row.status)
+                  const statusWord = gitStatusWord(row.status)
+                  const isSelected = selectedPaths.has(row.path)
+                  return (
+                    <CheckRow
+                      key={row.path}
+                      id={changeRowDomId(listId, row.path)}
+                      ref={(node) => registerRowNode(row.path, node)}
+                      data-git-change-row="true"
+                      role="option"
+                      checked={row.checked}
+                      // Always present. `check-row` only swallows the click when
+                      // it has a handler to run, so a box that dropped its
+                      // handler while busy would let the click through to the row
+                      // and OPEN THE DIFF — a tick that shows a diff instead.
+                      onCheckedChange={() => onToggleRow(row)}
+                      glyph={<FileTypeGlyph name={row.filename} tone="kind" className="icon-sm" />}
+                      name={
+                        // The status tint travels with the name, and the word
+                        // travels with it: T5 dropped the trailing status letter,
+                        // so this clause is the only non-colour carrier left and
+                        // colour alone is not an accessible signal.
+                        <span className={appearance.textClass}>
+                          {row.filename}
+                          {statusWord ? <span className="sr-only">, {statusWord}</span> : null}
+                        </span>
+                      }
+                      directory={row.directory || undefined}
+                      selected={isSelected && listFocused}
+                      resting={isSelected && !listFocused}
+                      cursor={cursorPath === row.path}
+                      onClick={(event) => {
+                        if (onRowClick(row, event)) return
+                        onActivateRow(row)
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        onContextSelect(row)
+                        // A keyboard-summoned menu (Shift+F10, the Menu key)
+                        // carries no pointer; open it on the row rather than at
+                        // the viewport corner.
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        setRowMenu({ x: event.clientX || rect.left, y: event.clientY || rect.bottom, row })
+                      }}
+                    />
+                  )
+                })}
+              </div>
               {group.omittedCount > 0 ? (
                 <div className="mx-2 mt-1 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2 py-1.5 text-micro text-[color:var(--text-subtle)]">
                   {group.omittedCount} more changes are hidden to keep the panel responsive. The group’s

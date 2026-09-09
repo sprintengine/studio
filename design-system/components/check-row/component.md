@@ -73,6 +73,49 @@ fill and ink all still come from [checkbox](../checkbox/component.md). A row
 that drew its own tick is exactly how five surfaces came to draw five
 checkboxes.
 
+## Where the group bands sit — ruled 2026-09-09
+
+A grouped list of check rows is **not** one listbox. It is one keyboard owner
+holding **one listbox per group**, with the [group header](../group-header/component.md)
+bands standing between them, outside every listbox.
+
+This is a ruling because the two components were quietly contradicting each
+other. This page says the list is one tab stop and the row's box is a drawing
+so it cannot be the 401st; that page says its band carries a real `<button>`
+chevron, the kit checkbox **whole**, and a trailing control in the tab order.
+Both are right, and the Git panel's first spelling put the bands *inside* the
+`role="listbox"` — which made every band three non-`option` children of a
+listbox (`aria-required-children`, invalid) and turned a thirteen-file panel
+into thirteen tab stops that were never meant to be one walk.
+
+The shape that keeps both promises:
+
+```
+<div role="group" aria-label="Changed files" tabindex="0" aria-activedescendant="…">
+  <div>                                    ← one per group, no role
+    …group-header band: chevron, checkbox, overflow…   ← real controls, no listbox
+    <div id="…-rows" hidden={collapsed}>   ← what aria-controls folds
+      <div role="listbox" aria-multiselectable aria-label="Changes">
+        <div role="option" …>              ← check rows, and nothing else
+```
+
+- **The outer element is `role="group"`, and it owns the walk.** `group`
+  supports `aria-activedescendant`, so one cursor crosses every group: arrows
+  step from the last row of one list into the first of the next, and Space and
+  Enter keep working wherever the cursor is. A tab stop per group would make
+  "walk the changes" a different gesture depending on how many changelists the
+  person happens to have.
+- **The rows' listbox owns `option`s and nothing else.** Anything that is not a
+  row — a cap notice, an empty-group line, a footer — goes in the folded region
+  *beside* the listbox, not inside it.
+- **The band's controls are real, focusable controls.** That is the whole point
+  of them being per-GROUP: a handful of tab stops buys the keyboard a real
+  chevron and a real tri-state box, where per-ROW controls would have cost four
+  hundred. The row's box stays a drawing for exactly the same reason.
+
+An ungrouped flat list is unchanged: one `role="listbox"`, one tab stop, no
+bands.
+
 ## Variants
 
 - **Default** — the flat list row: box, glyph, name, directory, trailing.
@@ -138,7 +181,8 @@ elements, and the row would move under the pointer.
 - The row is a `<div role="option">` (a flat list) or `<div role="treeitem">`
   (a tree), never a `<button>` — so the box may sit inside it, and so the list
   can be one tab stop.
-- **The list is one tab stop.** It carries `tabindex="0"`, drives the row with
+- **The list is one tab stop** — in a grouped list, the `role="group"` that
+  holds the per-group listboxes is that stop (see the ruling above). It carries `tabindex="0"`, drives the row with
   `aria-activedescendant`, and each row carries a stable `id`. Arrow keys move
   the cursor, Space toggles the cursored row's `aria-checked`, and Enter opens.
 - `aria-checked` is `true` / `false` / `"mixed"` and is the *only* announced
