@@ -523,7 +523,6 @@
     "src/renderer/src/components/workspace/globalSurface/extensions/plugins/PluginsSurface.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/workspace/globalSurface/extensions/skills/SkillsSurface.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/workspace/globalSurface/globalDoorsIntegration.test.tsx": "cjs-external-jsx-flexlayout",
-    "src/renderer/src/components/workspace/globalSurface/sprints/RunDoorNewRow.test.tsx": "cjs-bundled-jsx-jsdom",
     "src/renderer/src/components/workspace/globalSurface/sprints/SprintsRail.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/workspace/globalSurface/sprints/sprintRowsLeaveProjects.test.tsx": "cjs-external-jsx-flexlayout",
     "src/renderer/src/components/workspace/globalSurface/sprints/sprintsSurfaceComposition.test.tsx": "cjs-external-jsx-flexlayout",

@@ -7,10 +7,10 @@ import type { RunDoorId } from './runDoors'
 // and the inline new-row all read this table, so the two doors cannot drift into
 // two dialects the way three copy-pasted door surfaces once did.
 //
-// The difference between them is stated ONCE, in `tagline`, under the door's
-// name, and never again: no second explanation on the empty state, no reminder
-// on the new-row, no badge on a run. The words are the mockup's, verbatim —
-// they were ruled, not drafted here.
+// The doors explain themselves by what they offer, not by a line of prose over
+// the rail: no tagline under the door's name, no reminder on the new-row, no
+// badge on a run. The one place a door still says what it is for in words is
+// its first-run canvas, where there is nothing else to read.
 //
 // Naming stays honest about what already exists on disk. A run's state, its MCP
 // tools and its saved rosters keep their spelling; this is a change in what a
@@ -24,16 +24,8 @@ export type RunDoorDefinition = {
   noun: string
   /** The same, in the plural. */
   nounPlural: string
-  /** The one sentence that says how this door differs. Stated once. */
-  tagline: string
-  /** The rail's "New …" affordance and the `+` row at the end of the list. */
+  /** The rail's "New …" affordance, which opens the New sprint dialog. */
   newLabel: string
-  /** The `+` row's own line, which says what pressing it will ask for. */
-  newRowLabel: string
-  /** What the inline row asks for, above its field. */
-  newRowPrompt: string
-  /** The inline row's confirm. */
-  newRowSubmitLabel: string
   search: { placeholder: string; ariaLabel: string }
   filterAriaLabel: string
   scopeAriaLabel: string
@@ -54,11 +46,7 @@ export const WORKFLOWS_DOOR: RunDoorDefinition = {
   label: 'Workflows',
   noun: 'workflow',
   nounPlural: 'workflows',
-  tagline: 'You have a goal. An architect works out what the work is, then a roster does it.',
   newLabel: 'New workflow',
-  newRowLabel: 'New workflow — say what you want done',
-  newRowPrompt: 'What do you want done?',
-  newRowSubmitLabel: 'Start workflow',
   search: {
     placeholder: 'Search workflows…',
     ariaLabel: 'Search workflows across every project',
@@ -80,11 +68,7 @@ export const SPRINTS_DOOR: RunDoorDefinition = {
   label: 'Sprints',
   noun: 'sprint',
   nounPlural: 'sprints',
-  tagline: 'The work is already written down. Agents take what is ready until the graph is empty.',
   newLabel: 'New sprint',
-  newRowLabel: 'New sprint — pick the work it should run',
-  newRowPrompt: 'Which work should it run?',
-  newRowSubmitLabel: 'Start sprint',
   search: {
     placeholder: 'Search sprints…',
     ariaLabel: 'Search sprints across every project',

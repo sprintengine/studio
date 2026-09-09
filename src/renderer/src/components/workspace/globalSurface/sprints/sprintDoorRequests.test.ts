@@ -100,7 +100,7 @@ assert.equal(
 // The inline new-row's own latch (item 2470): the Workflows `+` collects a goal
 // and a roster and hands them to the EXISTING creation path, which reads them
 // once as it opens.
-assert.equal(consumeSprintDoorDraft(), null, 'no draft until an inline row fills one in')
+assert.equal(consumeSprintDoorDraft(), null, 'no draft until a door fills one in')
 noteSprintDoorDraft({ goal: 'Rebuild the settings screen', rosterId: 'roster-1' })
 assert.deepEqual(
   consumeSprintDoorDraft(),

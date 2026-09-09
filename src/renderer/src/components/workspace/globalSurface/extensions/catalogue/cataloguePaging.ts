@@ -46,7 +46,7 @@ export type CataloguePageView = {
  * six: enough that a category reads as a list rather than a teaser, few enough
  * that a 318-row source never mounts more than a screenful at once.
  */
-export const CATALOGUE_PAGE_SIZE = 12
+export const CATALOGUE_PAGE_SIZE = 24
 
 /**
  * Clamp a page into the range a group list actually has. A removal can leave

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { isClaudeCodePluginEntry, type MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../shared/modules/permissions'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
-import { Badge, CloseIconButton, FOCUS_RING_CLASS, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
+import { Badge, FOCUS_RING_CLASS, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
+import { Modal, ModalFooter, ModalHeader } from '../ui/Modal'
 import { mcpMonogram } from '../ui/mcpMonogram'
 import { iconHasOwnPlate } from '../ui/iconPlate'
 import { PermissionChips } from './ThirdPartyModuleList'
@@ -45,23 +46,12 @@ export function PluginDetailPanel({
   onUpsertMcpServer: (server: McpServerConfig) => void
   onClose: () => void
 }) {
-  const headingRef = useRef<HTMLHeadingElement>(null)
   const [flow, setFlow] = useState<InstallFlowState>({ status: 'idle' })
 
+  // Escape, the scrim and the close button are the dialog's own (Modal); what
+  // this keeps is the flow reset: a fresh selection starts a fresh install
+  // flow — never inherit another plugin's verify/trust/blocked state.
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-  useEffect(() => {
-    headingRef.current?.focus()
-    // A fresh selection starts a fresh install flow — never inherit another
-    // plugin's verify/trust/blocked state.
     setFlow({ status: 'idle' })
   }, [plugin.id])
 
@@ -157,36 +147,19 @@ export function PluginDetailPanel({
   }, [plugin, runInstall])
 
   const installView = deriveInstallView(flow)
+  const titleId = 'registry-plugin-detail-title'
 
   return (
-    <aside
-      aria-label={`${plugin.name} details`}
-      className="sticky top-2 w-72 shrink-0 self-start rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-4"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <PluginIcon iconUrl={resolveIconUrl(registryUrl, plugin.icon)} name={plugin.name} size={32} />
-          <div className="min-w-0">
-            {/* design-tokens-allow: heading is a programmatic focus target only (tabIndex -1, moved to on selection) — it never receives keyboard focus */}
-            <h5 ref={headingRef} tabIndex={-1} className="truncate text-body font-semibold leading-5 text-[color:var(--text-strong)] focus:outline-none">
-              {plugin.name}
-            </h5>
-            <div className="mt-0.5 flex items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
-              <StatusDot tone={trust.tone} />
-              <TruncatedText as="span" text={`${trust.label} · ${plugin.publisher.name}`} />
-            </div>
-          </div>
-        </div>
-        <CloseIconButton onClick={onClose} aria-label="Close details" />
-      </div>
-
-      <div className="mt-3 flex items-center gap-2 text-meta text-[color:var(--text-subtle)]">
-        <span className="tabular-nums">Version {plugin.latest}</span>
-        <span aria-hidden>·</span>
-        <TruncatedText as="span" text={plugin.category} />
-      </div>
-
-      <p className="mt-3 text-body leading-5 text-[color:var(--text-muted)]">{plugin.summary}</p>
+    <Modal open onClose={onClose} labelledBy={titleId} size="wide" layout="panel">
+      <ModalHeader
+        title={plugin.name}
+        subtitle={[trust.label, plugin.publisher.name, `Version ${plugin.latest}`, plugin.category].filter(Boolean).join(' · ')}
+        titleId={titleId}
+        onClose={onClose}
+        leading={<PluginIcon iconUrl={resolveIconUrl(registryUrl, plugin.icon)} name={plugin.name} size={40} />}
+      />
+      <div className="mt-4 min-h-0 flex-1 overflow-y-auto border-t border-[color:var(--border-subtle)] px-6 pb-4">
+      <p className="mt-4 text-body leading-5 text-[color:var(--text-default)]">{plugin.summary}</p>
 
       {displayTags.length ? (
         <p className="mt-2 text-meta leading-4 text-[color:var(--text-subtle)]">{displayTags.join(' · ')}</p>
@@ -219,17 +192,6 @@ export function PluginDetailPanel({
       </div>
 
       {plugin.skills?.length ? <PluginSkillsList skills={plugin.skills} /> : null}
-
-      {sourceHref ? (
-        <a
-          href={sourceHref}
-          target="_blank"
-          rel="noreferrer"
-          className={`mt-3 inline-flex text-body font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] ${FOCUS_RING_CLASS}`}
-        >
-          View source
-        </a>
-      ) : null}
 
       {/* Phase-3 trust-gate install flow. Permissions shown here come only from
           the ed25519-verified signed manifest (via verifyMarketplacePlugin) and
@@ -287,11 +249,28 @@ export function PluginDetailPanel({
           </p>
         ) : null}
 
-        {installView.action ? (
-          <div className={installView.trustPrompt ? 'flex gap-2' : ''}>
+      </div>
+      </div>
+      <div className="border-t border-[color:var(--border-subtle)]">
+        <ModalFooter>
+          {sourceHref ? (
+            <a
+              href={sourceHref}
+              target="_blank"
+              rel="noreferrer"
+              className={`mr-auto inline-flex text-body font-medium text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] ${FOCUS_RING_CLASS}`}
+            >
+              View source
+            </a>
+          ) : null}
+          {installView.trustPrompt ? (
+            <GhostButton size="md" onClick={() => setFlow({ status: 'idle' })}>
+              Cancel
+            </GhostButton>
+          ) : null}
+          {installView.action ? (
             <PrimaryButton
               size="md"
-              className="h-control-md w-full"
               disabled={workspaceBlocked}
               onClick={() =>
                 void (installView.action?.kind === 'trust-install'
@@ -301,15 +280,10 @@ export function PluginDetailPanel({
             >
               {installView.action.label}
             </PrimaryButton>
-            {installView.trustPrompt ? (
-              <GhostButton size="md" className="h-control-md" onClick={() => setFlow({ status: 'idle' })}>
-                Cancel
-              </GhostButton>
-            ) : null}
-          </div>
-        ) : null}
+          ) : null}
+        </ModalFooter>
       </div>
-    </aside>
+    </Modal>
   )
 }
 

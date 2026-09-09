@@ -1,10 +1,11 @@
-// One plugin, opened beside its list: what it is, what it ships, what will
-// land where, and — when it runs commands on this machine — exactly which.
+// One plugin, opened: what it is, what it ships, what will land where, and —
+// when it runs commands on this machine — exactly which.
 //
-// A right side pane, not a page: the person is comparing plugins from one
-// source, and switching between them should not cost a round trip through an
-// index. The pane is its own view, so its Install is the one accent fill on
-// screen; the list behind it carries no primary action.
+// A dialog over the list, at the kit's `wide` step. It was a side pane docked
+// beside the rows, which left the rows a column and the plugin a letterbox
+// (extensions review, 2026-09-08). The dialog's footer holds the plugin's
+// actions, so its Install is the one accent fill on screen; the list behind
+// the scrim carries no primary action.
 
 import React from 'react'
 
@@ -25,10 +26,10 @@ import {
   OutlineButton,
   PrimaryButton,
   Section,
-  SidePane,
-  SidePaneHeader,
   Spinner,
 } from '../../../../ui'
+import { Modal, ModalFooter, ModalHeader } from '../../../../ui/Modal'
+import { ExtensionIcon } from '../../../../ui/ExtensionIcon'
 import {
   describeInstallPlan,
   describePluginFilesPlan,
@@ -72,13 +73,24 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
   const filesPlan = describePluginFilesPlan(plugin)
   const origin = plugin.origin
   const installed = props.install.kind !== 'not-installed'
+  // Who published it and what version, in one line under the name. The About
+  // list below carries the rest — where it comes from and at what commit.
+  const subtitle = [plugin.author, plugin.version ? `v${plugin.version}` : '', plugin.category]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
-    <SidePane side="right" width="md" ariaLabelledBy={titleId} className="min-h-0">
-      <SidePaneHeader title={plugin.name} titleId={titleId} onClose={props.onClose} closeLabel={`Close ${plugin.name}`} />
-      <div className="min-h-0 flex-1 overflow-y-auto">
+    <Modal open onClose={props.onClose} labelledBy={titleId} size="wide" layout="panel">
+      <ModalHeader
+        title={plugin.name}
+        subtitle={subtitle || undefined}
+        titleId={titleId}
+        onClose={props.onClose}
+        leading={<ExtensionIcon name={plugin.name} size={40} />}
+      />
+      <div className="mt-4 min-h-0 flex-1 overflow-y-auto border-t border-[color:var(--border-subtle)] px-3 pb-3">
         {plugin.description ? (
-          <p className="px-3 pt-3 text-body leading-relaxed text-[color:var(--text-default)]">{plugin.description}</p>
+          <p className="px-3 pt-4 text-body leading-relaxed text-[color:var(--text-default)]">{plugin.description}</p>
         ) : null}
 
         {props.reading ? (
@@ -102,9 +114,6 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
         <Section level={4} title="About">
           <DefinitionList
             items={[
-              ...(plugin.author ? [{ term: 'Publisher', description: plugin.author }] : []),
-              ...(plugin.version ? [{ term: 'Version', description: <span className="font-mono">{plugin.version}</span> }] : []),
-              ...(plugin.category ? [{ term: 'Category', description: plugin.category }] : []),
               { term: 'Source', description: describeOrigin(plugin, props.source, props.shape) },
               ...(commitLine(plugin, props.source).sha
                 ? [
@@ -233,32 +242,38 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
           </p>
         ) : null}
       </div>
-      <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-[color:var(--border-default)] px-3 py-2">
-        {external ? (
-          <GhostButton onClick={() => void window.api.openExternal(external)}>Open on GitHub</GhostButton>
-        ) : null}
-        {installed && props.install.kind !== 'not-installed' ? (
-          <OutlineButton
-            disabled={props.installing || props.install.record.sourceId === ''}
-            onClick={() => props.install.kind !== 'not-installed' && props.onUninstall(props.install.record)}
+      <div className="border-t border-[color:var(--border-subtle)]">
+        <ModalFooter>
+          {external ? (
+            <GhostButton size="md" className="mr-auto" onClick={() => void window.api.openExternal(external)}>
+              Open on GitHub
+            </GhostButton>
+          ) : null}
+          {installed && props.install.kind !== 'not-installed' ? (
+            <OutlineButton
+              size="md"
+              disabled={props.installing || props.install.record.sourceId === ''}
+              onClick={() => props.install.kind !== 'not-installed' && props.onUninstall(props.install.record)}
+            >
+              Remove
+            </OutlineButton>
+          ) : null}
+          <PrimaryButton
+            size="md"
+            disabled={!props.availability.enabled || props.installing || props.reading}
+            onClick={props.onInstall}
           >
-            Remove
-          </OutlineButton>
-        ) : null}
-        <PrimaryButton
-          disabled={!props.availability.enabled || props.installing || props.reading}
-          onClick={props.onInstall}
-        >
-          {props.installing
-            ? 'Installing…'
-            : props.install.kind === 'update-available'
-              ? 'Update in this workspace'
-              : installed
-                ? 'Install again'
-                : 'Install to this workspace'}
-        </PrimaryButton>
-      </footer>
-    </SidePane>
+            {props.installing
+              ? 'Installing…'
+              : props.install.kind === 'update-available'
+                ? 'Update in this workspace'
+                : installed
+                  ? 'Install again'
+                  : 'Install to this workspace'}
+          </PrimaryButton>
+        </ModalFooter>
+      </div>
+    </Modal>
   )
 }
 

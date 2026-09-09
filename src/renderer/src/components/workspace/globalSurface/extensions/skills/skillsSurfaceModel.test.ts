@@ -19,6 +19,7 @@ import {
 import {
   defaultSkillFilePath,
   deriveGroupTabs,
+  skillPluginFolder,
   deriveSkillCatalogueGroups,
   bundledScanLine,
   skippedNoDescriptionLine,
@@ -666,3 +667,16 @@ run('a source says how many directories the scan passed over, and never says zer
 })
 
 console.log('skills surface model tests passed')
+
+// ── The plugin a skill ships inside ──────────────────────────────────────────
+// A marketplace lays a plugin's skills out as `<plugin>/skills/<skill>`, and
+// the official one carries three skills called "access" that way. The row
+// says which plugin, but only when it tells rows apart.
+{
+  assert.equal(skillPluginFolder('external_plugins/discord/skills/access'), 'discord')
+  assert.equal(skillPluginFolder('plugins/cwc-makers/skills/m5-onboard'), 'cwc-makers')
+  assert.equal(skillPluginFolder('skills/tdd'), '', 'a top-level skills folder has no plugin above it')
+  assert.equal(skillPluginFolder('tdd'), '')
+  assert.equal(skillPluginFolder('skills/tdd/skills'), '', 'the skill has to be the leaf')
+  console.log('ok - skillPluginFolder reads the plugin off the path')
+}

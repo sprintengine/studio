@@ -14,9 +14,9 @@ import { newDesignSystemEntryKeys } from './new-entries'
 // definition of new, so the row and the door can never disagree about what
 // counts, only about how fresh their data is.
 
-/** One registered bundle's arrival dates: its registration id, its folder, and entry key → ISO date. */
+/** One bundle's arrival dates: its registration id, its folder, and entry key → ISO date. */
 export type DesignSystemBundleArrivals = {
-  /** `designSystemRegistrationId(path)` — the same key `appSettings.designSystemSeen` is stamped under. */
+  /** `designSystemRegistrationId(path)` — the key `appSettings.designSystemSeen` stamps. */
   bundleId: string
   path: string
   addedAt: Record<string, string>

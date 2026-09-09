@@ -53,22 +53,21 @@ export function subscribeNewSprintRequests(
   return () => window.removeEventListener(NEW_SPRINT_REQUEST_EVENT, handler)
 }
 
-// ── What the inline new-row collected (item 2470) ────────────────────────────
+// ── What a door collected before opening the dialog (item 2470) ──────────────
 //
-// The `+` at the end of each list opens INLINE, on the row where the plus was —
-// a modal is for interrupting somebody, and somebody who just pressed new is not
-// being interrupted (owner ruling R7). What the row collects is the one thing
-// its door is about: a goal on Workflows, the work itself on Sprints.
-//
-// It creates nothing. Creation is the existing path and stays there — the Sprints
-// row hands over a fully-built `FuturePlanWorkspaceSource`, exactly the seed a
-// Backlog row's "Run a Sprint" builds, and the Workflows row hands over its goal
-// and its roster through this latch for the dialog to open on. A second creation
-// path would be a second set of rules about connectors, isolation, rosters and
-// backlog links, which is precisely what "no new creation logic" forbids.
+// A door that already knows what the operator wants — a goal, a roster — hands
+// it over here rather than making them say it twice. It creates nothing:
+// creation is the existing path and stays there, and this only decides what the
+// New sprint dialog opens on. A second creation path would be a second set of
+// rules about connectors, isolation, rosters and backlog links, which is
+// precisely what "no new creation logic" forbids.
 //
 // A latch rather than an event, for the same reason the selection below is one:
 // the door hands it over BEFORE the dialog mounts, and the dialog reads it once.
+//
+// Nothing fills one in today — the inline new-row that did was removed with the
+// prose it carried, and each door's `New …` now opens the dialog directly. The
+// dialog reads an empty draft and behaves as it always did without one.
 export type SprintDoorDraft = {
   /** What the operator said they want done. Empty when they said nothing. */
   goal: string

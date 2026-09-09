@@ -43,6 +43,7 @@ function ConnectorChip({ label }: { label: string }) {
 export function ConnectorRow({
   icon,
   name,
+  meta,
   summary,
   chips = [],
   status,
@@ -52,6 +53,13 @@ export function ConnectorRow({
 }: {
   icon: React.ReactNode
   name: string
+  /**
+   * The qualifier that tells two rows of the same name apart — the plugin a
+   * skill belongs to, a version — in the mono, low-contrast slot the agent
+   * CLI rows keep beside their name. A row called "access" three times over
+   * is three rows nobody can choose between; "access · discord" is one.
+   */
+  meta?: string
   summary?: string
   chips?: string[]
   // Optional status line (Installed rows): a StatusDot + plain-language label,
@@ -82,6 +90,13 @@ export function ConnectorRow({
             text={name}
             className="min-w-0 text-body font-semibold leading-5 text-[color:var(--text-strong)]"
           />
+          {meta ? (
+            <TruncatedText
+              as="span"
+              text={meta}
+              className="min-w-0 shrink font-mono text-meta text-[color:var(--text-subtle)]"
+            />
+          ) : null}
           {chips.map((label) => (
             <ConnectorChip key={label} label={label} />
           ))}

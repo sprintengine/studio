@@ -51,8 +51,9 @@ export type ChatTitleRequest = {
 
 /**
  * A title is a background job with nothing waiting on it, so the budget is
- * generous: a cold `codex exec` or `claude -p` takes 5-15 s, a slow day more.
- * 90 s is far past any answer still worth having.
+ * generous: a cold `codex exec` takes 5-15 s, `claude -p` with thinking off
+ * ~3 s (see `engineEnv` in the service), a slow day more. 90 s is far past
+ * any answer still worth having.
  */
 export const DEFAULT_TEXT_GENERATION_TIMEOUT_MS = 90_000
 

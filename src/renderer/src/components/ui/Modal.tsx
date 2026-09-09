@@ -160,6 +160,14 @@ type ModalHeaderProps = {
   subtitle?: string
   titleId?: string
   onClose?: () => void
+  /**
+   * The mark of the thing the dialog is about — a monogram, an extension icon
+   * — set before the title at the title's own top edge. For a dialog that
+   * opens ON an item (a skill, a plugin) rather than asking a question, so
+   * the item is recognised by the same mark its row carried. A question has
+   * no leading mark: it is not about a thing that has one.
+   */
+  leading?: React.ReactNode
 }
 
 // Header, body, and footer are separated by space, not by rules. The modal
@@ -171,19 +179,22 @@ type ModalHeaderProps = {
 // The inset is 24px (`space.3xl`, the step the token's own metadata names as the
 // modal inset), not the 20px this shipped with — the last of the four geometry
 // drifts `design-system/components/modal/component.md` files under MC-2110.
-export function ModalHeader({ title, subtitle, titleId, onClose }: ModalHeaderProps) {
+export function ModalHeader({ title, subtitle, titleId, onClose, leading }: ModalHeaderProps) {
   return (
     <div className="flex items-start justify-between gap-4 px-6 pb-0 pt-6">
-      <div className="min-w-0">
-        <TruncatedText
-          as="h2"
-          id={titleId}
-          text={title}
-          className="text-title font-semibold tracking-tight text-[color:var(--text-strong)]"
-        />
-        {subtitle ? (
-          <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{subtitle}</p>
-        ) : null}
+      <div className="flex min-w-0 items-start gap-3">
+        {leading ? <div className="shrink-0">{leading}</div> : null}
+        <div className="min-w-0">
+          <TruncatedText
+            as="h2"
+            id={titleId}
+            text={title}
+            className="text-title font-semibold tracking-tight text-[color:var(--text-strong)]"
+          />
+          {subtitle ? (
+            <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{subtitle}</p>
+          ) : null}
+        </div>
       </div>
       {onClose ? (
         <CloseIconButton size="md" aria-label="Close" onClick={onClose} />

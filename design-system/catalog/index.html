@@ -4113,6 +4113,21 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   padding: var(--sem-space-3xl) var(--sem-space-3xl) 0;
 }
 
+/* A dialog opened ON an item — a skill, a plugin — leads its title with the
+ * item's own mark (a monogram, an extension icon), so the thing is recognised
+ * by what its row already showed. Only the header's leading group knows about
+ * it; the title and subtitle are unchanged beside it. */
+.ds-modal-header-group {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-md);
+  min-width: 0;
+}
+
+.ds-modal-leading {
+  flex-shrink: 0;
+}
+
 .ds-modal-title {
   margin: 0;
   min-width: 0;
@@ -7740,6 +7755,19 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-modal .demo-input:focus-visible {
     outline: var(--sem-focus-ring);
     outline-offset: var(--sem-focus-ring-offset);
+  }
+.ds-embed-component-modal .demo-monogram {
+    display: grid;
+    place-items: center;
+    width: var(--sem-size-control-md);
+    height: var(--sem-size-control-md);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface-raised);
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
   }
 .ds-embed-component-modal .demo-parked .ds-modal-scrim {
     position: static;
@@ -21134,6 +21162,32 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     </div>
   </div>
 
+  <p class="demo-label">A dialog opened on an item leads its title with the item's own mark, and its footer holds the item's actions rather than a question's answer.</p>
+
+  <div class="demo-parked">
+    <div class="ds-modal-scrim">
+      <div class="ds-modal" role="dialog" aria-modal="true" aria-labelledby="parked-item-title" tabindex="-1">
+        <div class="ds-modal-header">
+          <div class="ds-modal-header-group">
+            <span class="ds-modal-leading demo-monogram" aria-hidden="true">TD</span>
+            <div>
+              <h2 class="ds-modal-title" id="parked-item-title">tdd</h2>
+              <p class="ds-modal-subtitle">anthropics/skills · 3 files</p>
+            </div>
+          </div>
+          <button type="button" class="ds-button ds-button--icon" aria-label="Close">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="ds-modal-body">Test-driven development: write the failing test first, then the smallest change that passes it.</div>
+        <div class="ds-modal-footer">
+          <button type="button" class="ds-button ds-button--ghost">Open on GitHub</button>
+          <button type="button" class="ds-button ds-button--primary ds-button--md">Install skill</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="demo-row" data-live>
     <button type="button" class="ds-button ds-button--ghost" data-open-confirm data-tone="danger">Delete workspace…</button>
   </div>
@@ -21188,7 +21242,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>The one surface allowed to stop the page. A modal takes the keyboard, dims everything behind a scrim, and holds the floor until the person answers — so it is spent only on decisions that cannot be deferred and cannot be made in place: confirming a destruction, naming a thing before it can exist, a task that must complete or be abandoned. Extracted from the source product's <code>Modal</code> and <code>ConfirmDialog</code> primitives (<code>src/renderer/src/components/ui/</code>).</p>
 <p>Use a popover when the task is anchored to a control and light-dismiss is acceptable. Use a drawer when the person needs the page visible while they work. A modal that merely *shows* something — a preview, a detail — is a drawer wearing a scrim.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Scrim | <code>.ds-modal-scrim</code> | yes — <code>overlay.scrim</code> at <code>z.modal</code>, centring the shell; a pointer-down on it closes | | Shell | <code>.ds-modal</code> | yes — <code>role=&quot;dialog&quot;</code>, <code>aria-modal=&quot;true&quot;</code>, <code>aria-labelledby</code> the title, <code>tabindex=&quot;-1&quot;</code> | | Header | <code>.ds-modal-header</code> | yes — title <code>.ds-modal-title</code>, optional subtitle <code>.ds-modal-subtitle</code>, optional close button | | Body | <code>.ds-modal-body</code> | no — a confirm with a self-explaining title needs none | | Footer | <code>.ds-modal-footer</code> | yes — the actions, right-aligned, built from <code>ds-button</code> |</p>
+<p>| Part | Class | Required | |---|---|---| | Scrim | <code>.ds-modal-scrim</code> | yes — <code>overlay.scrim</code> at <code>z.modal</code>, centring the shell; a pointer-down on it closes | | Shell | <code>.ds-modal</code> | yes — <code>role=&quot;dialog&quot;</code>, <code>aria-modal=&quot;true&quot;</code>, <code>aria-labelledby</code> the title, <code>tabindex=&quot;-1&quot;</code> | | Header | <code>.ds-modal-header</code> | yes — title <code>.ds-modal-title</code>, optional subtitle <code>.ds-modal-subtitle</code>, optional close button; optionally a leading mark <code>.ds-modal-leading</code> before the title, for a dialog that opens <strong>on</strong> an item (a skill, a plugin) so it is recognised by the same monogram or icon its row carried — a question has no leading mark | | Body | <code>.ds-modal-body</code> | no — a confirm with a self-explaining title needs none | | Footer | <code>.ds-modal-footer</code> | yes — the actions, right-aligned, built from <code>ds-button</code> |</p>
 <p><strong>Header, content, actions — separated by space.</strong> No rule under the title and none above the buttons: the shell already draws its own edge, and it scrolls as one piece (<code>max-height</code> on the shell, not on the body), so neither rule would even be a scroll affordance. A divided dialog is on the reject-on-sight list.</p>
 <p>The shell sits on <code>bg.surface</code> — not <code>bg.surface-raised</code> — because the scrim and <code>shadow.modal</code> already do the separating; a tone step on top would be a third signal for the same fact.</p>
 <p>That ruling holds only if <code>shadow.modal</code> actually separates in both modes, and in dark it did not: a black drop shadow over a scrimmed near-black ground draws nothing, and the <code>border.subtle</code> hairline is 6% white — so a dark-mode shell read as painted on the scrim rather than above it (remote-sessions-ux, 2026-09-03). The fix lives in the TOKEN, not on any surface: <code>shadow.modal</code>'s dark value now leads with an inset top highlight — the lit edge, the same trick <code>shadow.control-raised</code> already encodes — so every consumer separates again and the two-signal reasoning above stays true. No shell may compensate locally with a raised ground or a stronger border; that would be the third signal this section rules out.</p>
@@ -21304,6 +21358,21 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   padding: var(--sem-space-3xl) var(--sem-space-3xl) 0;
 }
 
+/* A dialog opened ON an item — a skill, a plugin — leads its title with the
+ * item's own mark (a monogram, an extension icon), so the thing is recognised
+ * by what its row already showed. Only the header's leading group knows about
+ * it; the title and subtitle are unchanged beside it. */
+.ds-modal-header-group {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-md);
+  min-width: 0;
+}
+
+.ds-modal-leading {
+  flex-shrink: 0;
+}
+
 .ds-modal-title {
   margin: 0;
   min-width: 0;
@@ -21400,6 +21469,21 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
     outline: var(--sem-focus-ring);
     outline-offset: var(--sem-focus-ring-offset);
   }
+  /* A stand-in for the item's own mark (a source monogram, an extension
+     icon): the leading slot holds whatever mark the item's row carried. */
+  .demo-monogram {
+    display: grid;
+    place-items: center;
+    width: var(--sem-size-control-md);
+    height: var(--sem-size-control-md);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface-raised);
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
+  }
   /* Shells are authored parked — statically visible, no scrim — so the
      anatomy shows with scripts off; the catalog embeds this demo without
      JavaScript. The live examples are opened by the script over the page. */
@@ -21434,6 +21518,32 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
         &lt;div class=&quot;ds-modal-footer&quot;&gt;
           &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot;&gt;Cancel&lt;/button&gt;
           &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--md&quot;&gt;Rename&lt;/button&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;A dialog opened on an item leads its title with the item's own mark, and its footer holds the item's actions rather than a question's answer.&lt;/p&gt;
+
+  &lt;div class=&quot;demo-parked&quot;&gt;
+    &lt;div class=&quot;ds-modal-scrim&quot;&gt;
+      &lt;div class=&quot;ds-modal&quot; role=&quot;dialog&quot; aria-modal=&quot;true&quot; aria-labelledby=&quot;parked-item-title&quot; tabindex=&quot;-1&quot;&gt;
+        &lt;div class=&quot;ds-modal-header&quot;&gt;
+          &lt;div class=&quot;ds-modal-header-group&quot;&gt;
+            &lt;span class=&quot;ds-modal-leading demo-monogram&quot; aria-hidden=&quot;true&quot;&gt;TD&lt;/span&gt;
+            &lt;div&gt;
+              &lt;h2 class=&quot;ds-modal-title&quot; id=&quot;parked-item-title&quot;&gt;tdd&lt;/h2&gt;
+              &lt;p class=&quot;ds-modal-subtitle&quot;&gt;anthropics/skills · 3 files&lt;/p&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--icon&quot; aria-label=&quot;Close&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-modal-body&quot;&gt;Test-driven development: write the failing test first, then the smallest change that passes it.&lt;/div&gt;
+        &lt;div class=&quot;ds-modal-footer&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot;&gt;Open on GitHub&lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--primary ds-button--md&quot;&gt;Install skill&lt;/button&gt;
         &lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;

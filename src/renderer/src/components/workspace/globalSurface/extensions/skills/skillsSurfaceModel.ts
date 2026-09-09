@@ -152,6 +152,14 @@ export type SkillListItem = {
   description: string
   /** '' when the source carries no grouping signal. */
   group: string
+  /**
+   * The plugin this skill ships inside — `discord` for
+   * `external_plugins/discord/skills/access` — or '' when the source's skills
+   * are not laid out as plugins, or all belong to the same one. Three rows
+   * called "access" are indistinguishable without it; a source whose every
+   * skill is under one plugin would only be repeating its own name.
+   */
+  plugin: string
   fileCount: number
   hasExecutables: boolean
   /** A skill directory of this name is already in the workspace. */
@@ -266,6 +274,7 @@ function toListItem(skill: ScannedSkill, installedDirNames: ReadonlySet<string>)
     name: skill.name,
     description: skill.description,
     group: skill.group,
+    plugin: skillPluginFolder(skill.id),
     fileCount: skill.files.length,
     hasExecutables: skill.hasExecutables,
     // Installs land in one directory per skill name, so a directory of that
@@ -313,6 +322,17 @@ function matchSkills(items: readonly SkillListItem[], query: string): SkillListI
 }
 
 /**
+ * The plugin a skill's directory sits inside, read off its path: a marketplace
+ * lays a plugin's skills out as `<plugin>/skills/<skill>`, so the segment
+ * before `skills` names the plugin. '' for a skill not laid out that way.
+ */
+export function skillPluginFolder(skillId: string): string {
+  const segments = skillId.split('/').filter(Boolean)
+  const skillsAt = segments.lastIndexOf('skills')
+  return skillsAt >= 1 && skillsAt === segments.length - 2 ? segments[skillsAt - 1] : ''
+}
+
+/**
  * A source's skills as the tab renders them: the repository's own folders as
  * groups, in the order the scan found them, filtered by the tab's search.
  *
@@ -327,7 +347,11 @@ export function deriveSkillCatalogueGroups(input: {
   installedDirNames: ReadonlySet<string>
   query: string
 }): { key: string; label: string; items: SkillListItem[] }[] {
-  const items = input.scan.skills.map((skill) => toListItem(skill, input.installedDirNames))
+  const listed = input.scan.skills.map((skill) => toListItem(skill, input.installedDirNames))
+  // The plugin qualifier earns its place only when it tells rows apart: one
+  // plugin's skills, or a source that is not laid out as plugins, say nothing.
+  const plugins = new Set(listed.map((item) => item.plugin).filter(Boolean))
+  const items = plugins.size > 1 ? listed : listed.map((item) => ({ ...item, plugin: '' }))
   const matched = input.query.trim() ? matchSkills(items, input.query.trim()) : items
   if (matched.length === 0) return []
   const groups = input.scan.groups.filter((name) => matched.some((item) => item.group === name))

@@ -661,6 +661,16 @@ async function main(): Promise<void> {
       ramp: [{ path: 'ref.color.green.600', light: '#2f6a4a', dark: '#4daf7d' }],
       fontFamilyUi: 'Inter, system-ui',
       fontFamilyMono: null,
+      tokens: {
+        fontSize: [{ path: 'sem.font.size.body', light: '13px', dark: '13px' }],
+        fontWeight: [{ path: 'sem.font.weight.emphasis', light: '600', dark: '600' }],
+        fontLine: [],
+        fontTracking: [],
+        space: [{ path: 'sem.space.md', light: '10px', dark: '10px' }],
+        size: [{ path: 'sem.size.control.sm', light: '30px', dark: '30px' }],
+        radius: [{ path: 'sem.radius.control', light: '7px', dark: '7px' }],
+        shadow: [],
+      },
       problems: [],
     },
     groups: [
@@ -694,9 +704,13 @@ async function main(): Promise<void> {
       React.createElement(DesignCanvas, {
         view: designView as never,
         mode: 'dark',
-        openComponent: null,
-        onOpenComponent: () => {},
-        onCloseComponent: () => {},
+        // The tab and the page are the DOOR's state (`DesignGlobalSurface`), so
+        // the canvas takes them; null means "not chosen yet" and opens on the
+        // components, which is what the door is for.
+        tab: null,
+        onTabChange: () => {},
+        pages: {},
+        onPageChange: () => {},
         // No `onReload` / `reloading`: Reveal and Reload moved to the door bar
         // when the canvas gave up its second chrome band (audit 2026-09-02),
         // and the canvas no longer takes them.
@@ -704,23 +718,68 @@ async function main(): Promise<void> {
     )
   })
 
-  await run('2003 no component tile carries a border — spacing does the grouping', () => {
-    const tiles = Array.from(designContainer.querySelectorAll('button')) as Element[]
-    const componentTiles = tiles.filter((tile) =>
-      (tile.getAttribute('aria-label') ?? '').startsWith('button'),
-    )
-    assert.ok(componentTiles.length > 0, 'the fixture renders a component tile')
-    for (const tile of componentTiles) {
-      for (const element of [tile, ...subtree(tile)]) {
+  await run('2003 no specimen carries a border — spacing does the grouping', () => {
+    // The tile grid is gone (v2, 2026-09-08): a specimen is a heading and a
+    // live stage, stacked. The rule it was holding survives the shape change —
+    // a box around a component is chrome competing with the thing it frames.
+    const specimens = Array.from(designContainer.querySelectorAll('section')) as Element[]
+    assert.ok(specimens.length > 0, 'the fixture renders a specimen')
+    for (const specimen of specimens) {
+      for (const element of [specimen, ...subtree(specimen)]) {
         for (const token of classesOf(element)) {
           // `border-0`/`border-none` REMOVE a border (the iframe's UA default),
           // which is the rule, not a violation of it.
           if (token === 'border-0' || token === 'border-none') continue
           assert.ok(
             !/^border(-[trbl])?(-\d+)?$/.test(token) && !token.startsWith('border-['),
-            `a tile must not draw a border, found \`${token}\``,
+            `a specimen must not draw a border, found \`${token}\``,
           )
         }
+      }
+    }
+  })
+
+  await run('2003 the canvas is six tabs, and a specimen is a name and a live demo', () => {
+    const tabs = Array.from(designContainer.querySelectorAll('[role="tab"]')) as Element[]
+    // The fixture declares components and glyphs and carries three token
+    // families, so five of the six tabs have something in them; a tab for a
+    // group the manifest declares empty is not drawn (the rule since 2003).
+    const labels = tabs.map((tab) => (tab.textContent ?? '').replace(/\d+$/, ''))
+    assert.deepEqual(labels, ['Colour', 'Type', 'Spacing', 'Components', 'Glyphs'])
+    assert.equal(
+      tabs.filter((tab) => tab.getAttribute('aria-selected') === 'true').length,
+      1,
+      'exactly one tab is selected',
+    )
+    assert.equal(
+      designContainer.querySelectorAll('[role="tabpanel"]').length,
+      1,
+      'and exactly one panel is mounted — five panels of live documents is the cost this avoids',
+    )
+    // The specimen: the heading, and the demo in its own frame. No counts line
+    // ("3 variants · 4 states" is in the fixture and must not be drawn), no
+    // spec disclosure, and nothing to click into.
+    const text = designContainer.textContent ?? ''
+    assert.match(text, /button/, 'the component is named')
+    assert.ok(!/variants?\b/i.test(text), 'no counts line under a live specimen')
+    assert.ok(!/states?\b/i.test(text), 'and no state count either')
+    assert.equal(designContainer.querySelectorAll('details').length, 0, 'no spec disclosure')
+    assert.ok(!text.includes('Anatomy'), 'and none of its headings')
+    const frames = Array.from(designContainer.querySelectorAll('iframe')) as Element[]
+    assert.equal(frames.length, 1, 'one live document per specimen on the page')
+    assert.ok(
+      (frames[0].getAttribute('srcdoc') ?? '').includes('ds-button'),
+      'and it is the component, composed',
+    )
+  })
+
+  await run('2003 the door sets one face — no monospace anywhere in its chrome', () => {
+    for (const element of [
+      designContainer.firstElementChild as Element,
+      ...subtree(designContainer.firstElementChild as Element),
+    ]) {
+      for (const token of classesOf(element)) {
+        assert.ok(token !== 'font-mono', 'the door states exactly one font-family, the UI face')
       }
     }
   })
@@ -788,15 +847,18 @@ async function main(): Promise<void> {
     assert.ok(/'Reload'/.test(actions), 'Reload is offered, in the door bar')
   })
 
-  await run('2003 the specimen has no container and the name appears exactly once', () => {
+  await run('2003 the canvas never repeats the name the door bar already carries', () => {
+    // The identity band went with the tile grid: the door bar states the
+    // system's name, and a canvas that stated it again was the same fact twice
+    // on one screen. The FOLDER is still visible — that is provenance, not a
+    // second title — and it rides the tab band's trailing edge.
     const occurrences = (designContainer.textContent ?? '').split('multicode').length - 1
-    assert.equal(occurrences, 1, 'the system name is shown once, in the specimen')
-    const specimen = designContainer.querySelector('[aria-label="multicode specimen"]')
-    assert.ok(specimen, 'the specimen is a labelled region')
-    for (const token of classesOf(specimen)) {
-      assert.ok(!token.startsWith('border'), 'the specimen has no container')
-      assert.ok(!token.startsWith('bg-'), 'and no surface of its own')
-    }
+    assert.equal(occurrences, 0, 'the name is the door bar\u2019s, and only the door bar\u2019s')
+    assert.match(
+      designContainer.textContent ?? '',
+      /\/work\/brand\/design-system/,
+      'the folder this system lives in is still on screen',
+    )
   })
 
   act(() => {

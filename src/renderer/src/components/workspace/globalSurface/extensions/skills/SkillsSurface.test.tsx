@@ -177,27 +177,39 @@ run('a relative link opens its file; one the scan never carried is dead, not bro
   )
 })
 
-run('a skill page opened from a listing names its source once, on the way back', () => {
+run('a skill opens as a dialog that names its source once, under the title', () => {
   const one = skill('skills/tdd')
-  const page = (onBack?: () => void): string =>
-    renderToStaticMarkup(
-      <SkillPage
-        source={SOURCE}
-        skill={one}
-        installed={false}
-        installing={false}
-        availability={{ enabled: true, reason: null }}
-        onInstall={() => {}}
-        onBack={onBack}
-      />,
-    )
-  const occurrences = (markup: string): number =>
-    markup.split(SOURCE.repo).length - 1
-  // The crumb carries it; the line under the title would only say it again.
-  assert.equal(occurrences(page(() => {})), 1, 'the crumb states the source, and nothing restates it')
-  assert.ok(page(() => {}).includes('1 file'), 'the file count stays on that line')
-  // A source that IS one skill has no crumb, so the line is where it is stated.
-  assert.equal(occurrences(page(undefined)), 1, 'with no crumb the line names the source')
+  const markup = renderToStaticMarkup(
+    <SkillPage
+      source={SOURCE}
+      skill={one}
+      installed={false}
+      installing={false}
+      availability={{ enabled: true, reason: null }}
+      onInstall={() => {}}
+      onClose={() => {}}
+    />,
+  )
+  assert.ok(markup.includes('role="dialog"') && markup.includes('aria-modal="true"'), 'a dialog over the list, not a pane beside it')
+  assert.equal(markup.split(SOURCE.repo).length - 1, 1, 'the subtitle states the source, and nothing restates it')
+  assert.ok(markup.includes('1 file'), 'and the file count sits on that line')
+  assert.ok(markup.includes('aria-label="Files in this skill"'), 'the reader is inside it')
+  assert.ok(markup.includes('>Install skill<'), 'and so is Install')
+})
+
+run('a skill inside a plugin says which, under its title', () => {
+  const markup = renderToStaticMarkup(
+    <SkillPage
+      source={SOURCE}
+      skill={skill('external_plugins/discord/skills/access', { name: 'access' })}
+      installed={false}
+      installing={false}
+      availability={{ enabled: true, reason: null }}
+      onInstall={() => {}}
+      onClose={() => {}}
+    />,
+  )
+  assert.ok(markup.includes(`${SOURCE.repo} · discord · 1 file`), 'source, plugin, size — the same three facts as its row')
 })
 
 run('the skill page shows the license and compatibility a skill declares, and its metadata', () => {
@@ -213,7 +225,7 @@ run('the skill page shows the license and compatibility a skill declares, and it
       installing={false}
       availability={{ enabled: true, reason: null }}
       onInstall={() => {}}
-      onBack={() => {}}
+      onClose={() => {}}
     />,
   )
   assert.ok(markup.includes('>License<') && markup.includes('Proprietary. LICENSE.txt has complete terms'))
@@ -229,7 +241,7 @@ run('the skill page shows the license and compatibility a skill declares, and it
       installing={false}
       availability={{ enabled: true, reason: null }}
       onInstall={() => {}}
-      onBack={() => {}}
+      onClose={() => {}}
     />,
   )
   assert.equal(bare.includes('>License<'), false)
@@ -246,7 +258,7 @@ run('a name the specification would reject is stated on the page, and Install st
       installing={false}
       availability={{ enabled: true, reason: null }}
       onInstall={() => {}}
-      onBack={() => {}}
+      onClose={() => {}}
     />,
   )
   assert.ok(markup.includes('is not its directory name'), 'the mismatch is stated')
@@ -266,7 +278,7 @@ run('a name the specification would reject is stated on the page, and Install st
       installing={false}
       availability={{ enabled: true, reason: null }}
       onInstall={() => {}}
-      onBack={() => {}}
+      onClose={() => {}}
     />,
   )
   assert.equal(conformant.includes('is not its directory name'), false)
