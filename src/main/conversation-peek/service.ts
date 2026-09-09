@@ -2,10 +2,12 @@ import type { SessionPrompt } from '../../shared/electron-api'
 import type {
   ConversationPeek,
   ConversationPeekAttachment,
+  ConversationPeekImage,
   ConversationPeekMessage,
 } from '../../shared/conversation-peek'
 import {
   emptyConversationPeek,
+  MAX_PEEK_ATTACHMENTS,
   MAX_PEEK_FIRST_CHARS,
   MAX_PEEK_MESSAGE_CHARS,
   MAX_PEEK_MESSAGES,
@@ -163,13 +165,15 @@ export function createConversationPeekService(
     async readConversationPeek(sessionId: string): Promise<ConversationPeek> {
       // An unusable id is a caller bug, not a runtime that cannot report — the
       // same reason the missing-state case below is `unknown`.
-      if (typeof sessionId !== 'string' || !sessionId) return { sessionId: '', source: 'unknown', first: null, since: [] }
+      if (typeof sessionId !== 'string' || !sessionId) {
+        return { sessionId: '', source: 'unknown', first: null, since: [], images: [] }
+      }
       const state = deps.readSessionState(sessionId)
       // No state for this id — killed rather than quit (no sidecar written), or
       // parked past the sidecar TTL. `unknown`, never `none`: we know nothing
       // about this chat's messages, which is not the same as knowing its
       // runtime cannot report them.
-      if (!state) return { sessionId, source: 'unknown', first: null, since: [] }
+      if (!state) return { sessionId, source: 'unknown', first: null, since: [], images: [] }
 
       // The hook's own path first; only then the derived one, and only for a
       // runtime that actually writes Claude-shaped transcripts.
@@ -191,7 +195,13 @@ export function createConversationPeekService(
           arm(sessionId, entries)
           // A readable transcript with nothing in it yet still answers
           // `transcript`: the source is real, it is simply empty.
-          return { sessionId, source: 'transcript', first, since }
+          return {
+            sessionId,
+            source: 'transcript',
+            first,
+            since,
+            images: imageStrip(first, since, entries),
+          }
         }
       }
 
@@ -208,8 +218,8 @@ export function createConversationPeekService(
       // "no messages yet" rather than "this runtime doesn't report its
       // messages" about Claude Code. Only a runtime that genuinely cannot
       // report — OpenCode, Muse, a plain shell — is `none`.
-      if (state.claudeHarness) return { sessionId, source: 'transcript', first: null, since: [] }
-      if (state.reportsMessages) return { sessionId, source: 'live', first: null, since: [] }
+      if (state.claudeHarness) return { sessionId, source: 'transcript', first: null, since: [], images: [] }
+      if (state.reportsMessages) return { sessionId, source: 'live', first: null, since: [], images: [] }
       return emptyConversationPeek(sessionId)
     },
 
@@ -255,6 +265,44 @@ function withThumbnails(
 }
 
 /**
+ * The conversation's images as one strip, oldest first.
+ *
+ * A flat re-listing of attachments that already sit on their messages — the
+ * same objects, so the strip and the rows carry the same ids and open the same
+ * things, and the openable table needs no second set of entries. Built here
+ * rather than in the transcript reader because it is the THUMBNAILED,
+ * ARMED attachments the card wants, and both are this layer's job.
+ *
+ * ONLY IMAGES THERE IS SOMETHING TO OPEN. An image whose payload the reader
+ * could not keep — one over the per-image ceiling, one evicted by newer images,
+ * one in a message whose slots went to files — still counts on its own thread
+ * row, because the message did carry it. It must not reach the strip: a
+ * thumbnail with no bytes behind it is a live-looking button that silently does
+ * nothing when pressed, which is worse than not drawing it. The row's count
+ * stays the honest record that it existed.
+ *
+ * The cap is the same {@link MAX_PEEK_ATTACHMENTS} the reader retains to, so
+ * the two agree by construction; the card's "+N" therefore counts the images on
+ * this strip, never the chat's unknowable total.
+ */
+function imageStrip(
+  first: ConversationPeekMessage | null,
+  since: ConversationPeekMessage[],
+  openable: Map<string, Openable>,
+): ConversationPeekImage[] {
+  const images: ConversationPeekImage[] = []
+  for (const message of first ? [first, ...since] : since) {
+    for (const attachment of message.attachments) {
+      if (attachment.kind !== 'image') continue
+      if (!openable.has(attachment.id)) continue
+      if (images.length >= MAX_PEEK_ATTACHMENTS) return images
+      images.push(attachment)
+    }
+  }
+  return images
+}
+
+/**
  * The peek built from prompts this app watched go by, or null when it watched
  * none. Text only: a `UserPromptSubmit` frame carries the words and nothing
  * else, so a live card never shows an attachment — and never pretends to.
@@ -265,7 +313,8 @@ function livePeek(sessionId: string, prompts: SessionPrompt[]): ConversationPeek
     .filter((message): message is ConversationPeekMessage => message !== null)
   if (messages.length === 0) return null
   const [first, ...rest] = messages
-  return { sessionId, source: 'live', first, since: rest.slice(-MAX_PEEK_MESSAGES) }
+  // No strip: a `UserPromptSubmit` frame carries the words and nothing else.
+  return { sessionId, source: 'live', first, since: rest.slice(-MAX_PEEK_MESSAGES), images: [] }
 }
 
 function livePeekMessage(

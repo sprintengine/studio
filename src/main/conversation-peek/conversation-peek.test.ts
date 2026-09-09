@@ -354,12 +354,19 @@ async function testTranscriptAttachments(): Promise<void> {
     first.text,
   )
 
-  // Only the quoted message retains payloads: the card draws a count on the rest.
-  assert.equal(peek.images.size, 2, [...peek.images.keys()].join(','))
+  // EVERY message retains its payloads now (2026-09-09): the card draws one
+  // strip of every image in the chat, so an image pasted on the fortieth
+  // message is as openable as one pasted on the first — and the row still
+  // carries its own count.
+  assert.equal(peek.images.size, 3, [...peek.images.keys()].join(','))
   for (const image of images) assert.ok(peek.images.has(image.id), image.id)
   const later = peek.since[0]
   assert.equal(later?.attachments.length, 1)
-  assert.equal(peek.images.has(later?.attachments[0]?.id ?? ''), false)
+  assert.equal(
+    peek.images.has(later?.attachments[0]?.id ?? ''),
+    true,
+    'a later message\u2019s image is retained too, or the strip would draw a blank for it',
+  )
 }
 
 async function testTranscriptCaps(): Promise<void> {
@@ -424,9 +431,9 @@ async function testStreamingIsBounded(): Promise<void> {
   const grew = process.memoryUsage().heapUsed - before
   assert.ok(peek)
 
-  // Only the head message's image is retained — the card draws thumbnails there
-  // and a bare count on every later row.
-  assert.equal(peek.images.size, 1, [...peek.images.keys()].join(','))
+  // Retention is bounded by the STRIP, not by the transcript: at most
+  // MAX_PEEK_ATTACHMENTS payloads survive two hundred messages of them.
+  assert.equal(peek.images.size, MAX_PEEK_ATTACHMENTS, [...peek.images.keys()].join(','))
   assert.equal(peek.since.length, MAX_PEEK_MESSAGES)
   assert.ok(
     peek.since.every((message) => message.attachments.length === 1),
@@ -434,12 +441,17 @@ async function testStreamingIsBounded(): Promise<void> {
   )
 
   const retained = [...peek.images.values()].reduce((total, image) => total + image.data.length, 0)
-  assert.ok(retained <= 512 * 1024, `retained ${retained} bytes`)
-  // A smoke bound, not a precise one — GC timing makes the exact figure vary.
-  // It is set well below the ~105MB of payload the file carries, which is the
-  // whole point: the reader must not be proportional to the transcript.
+  assert.ok(
+    retained <= MAX_PEEK_ATTACHMENTS * 512 * 1024,
+    `retained ${retained} bytes`,
+  )
+  // A smoke bound, not a precise one — GC timing makes the exact figure vary,
+  // and it varies MORE now that the reader deliberately holds eight payloads
+  // (~4MB here) rather than the head's alone. It is still set well below the
+  // ~105MB of payload the file carries, which is the whole point: the reader
+  // must not be proportional to the transcript.
   if (process.env.PEEK_HEAP_REPORT) console.log('    heap grew', Math.round(grew/1024/1024), 'MB')
-  assert.ok(grew < 32 * 1024 * 1024, `heap grew ${Math.round(grew / 1024 / 1024)}MB streaming a ~105MB transcript`)
+  assert.ok(grew < 48 * 1024 * 1024, `heap grew ${Math.round(grew / 1024 / 1024)}MB streaming a ~105MB transcript`)
 }
 
 async function testOversizedImageKeepsItsPlace(): Promise<void> {
@@ -848,6 +860,184 @@ function testLivePromptWindow(): void {
   assert.equal(prompts[prompts.length - 1]?.text, `message ${MAX_LIVE_PEEK_PROMPTS + 19}`)
 }
 
+// ── one strip of every image in the chat ────────────────────────────────────
+
+async function testImageStripAcrossMessages(): Promise<void> {
+  const png = 'iVBORw0KGgo='
+  const image = (text: string, count: number) => humanRow('', {
+    message: {
+      role: 'user',
+      content: [
+        { type: 'text', text },
+        ...Array.from({ length: count }, () => ({
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/png', data: png },
+        })),
+      ],
+    },
+  })
+  // Ten images over four messages, two of them on the head. The strip caps at
+  // MAX_PEEK_ATTACHMENTS; every entry in it must be openable, which is the half
+  // that used to be false for anything but the first message.
+  const transcriptPath = await writeTranscript([
+    image('The run stalls on the third task', 2),
+    image('Here is the same output in both terminals', 3),
+    humanRow('Start from the OSC 8 handling'),
+    image('This is what Ghostty does with the same bytes', 5),
+  ])
+  clearTranscriptPeekCache()
+  const transcript = await readTranscriptPeek(transcriptPath)
+  assert.ok(transcript)
+
+  const { service, opened } = harness(
+    { chat: { transcriptPath, prompts: [] } },
+    { [transcriptPath]: transcript },
+  )
+  const peek = await service.readConversationPeek('chat')
+  assert.equal(peek.images.length, MAX_PEEK_ATTACHMENTS, 'the strip is capped, never the whole chat')
+  assert.equal(
+    peek.images.every((entry) => entry.kind === 'image'),
+    true,
+    'the strip holds images and nothing else',
+  )
+  assert.equal(
+    peek.images.every((entry) => Boolean(entry.thumbnailDataUrl)),
+    true,
+    'every image on the strip is drawable — the point of retaining past the first message',
+  )
+  // The rows keep their own counts: the strip is a re-listing, not a move.
+  assert.deepEqual(
+    [peek.first, ...peek.since].map((message) => message?.attachments.length ?? 0),
+    [2, 3, 0, 5],
+  )
+  // Same ids either side, so a click on the strip opens what the row would.
+  const fromRow = peek.since[2]?.attachments[0]
+  assert.ok(fromRow)
+  assert.ok(peek.images.some((entry) => entry.id === fromRow.id), 'a later message reaches the strip')
+  await service.openConversationPeekAttachment('chat', fromRow.id)
+  assert.deepEqual(opened, [fromRow.id], 'and opening it resolves, rather than silently doing nothing')
+
+  // EVERY tile on the strip must open something. This is the property the
+  // feature is actually about: the first cut of it listed the earliest eight
+  // images while retaining a different, later eight, so seven of eight tiles
+  // were live-looking buttons that silently did nothing.
+  opened.length = 0
+  for (const entry of peek.images) await service.openConversationPeekAttachment('chat', entry.id)
+  assert.deepEqual(opened, peek.images.map((entry) => entry.id), 'no dead tile on the strip')
+}
+
+/**
+ * The case the four-message fixture above cannot reach: enough messages that
+ * the rolling window shifts, so retention and the strip have to agree about
+ * WHICH images survive rather than agreeing by coincidence.
+ */
+async function testImageStripPastTheWindow(): Promise<void> {
+  const png = 'iVBORw0KGgo='
+  const rows: Row[] = []
+  for (let index = 0; index < MAX_PEEK_MESSAGES + 20; index += 1) {
+    rows.push(humanRow('', {
+      uuid: `msg-${index}`,
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text: `message ${index}` },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } },
+        ],
+      },
+    }))
+  }
+  clearTranscriptPeekCache()
+  const transcriptPath = await writeTranscript(rows)
+  const transcript = await readTranscriptPeek(transcriptPath)
+  assert.ok(transcript)
+
+  const { service, opened } = harness(
+    { chat: { transcriptPath, prompts: [] } },
+    { [transcriptPath]: transcript },
+  )
+  const peek = await service.readConversationPeek('chat')
+  assert.equal(peek.images.length, MAX_PEEK_ATTACHMENTS, 'the strip is full')
+  for (const entry of peek.images) await service.openConversationPeekAttachment('chat', entry.id)
+  assert.deepEqual(
+    opened,
+    peek.images.map((entry) => entry.id),
+    'every tile opens, seventy messages deep — the window shifting must not strand the strip',
+  )
+  // Newest-wins: the payloads kept are the last images in the file, not the
+  // first ones the reader happened to meet.
+  assert.deepEqual(
+    peek.images.map((entry) => entry.id),
+    Array.from({ length: MAX_PEEK_ATTACHMENTS }, (_, index) =>
+      `msg-${MAX_PEEK_MESSAGES + 20 - MAX_PEEK_ATTACHMENTS + index}:image:0`),
+    'the newest images are the ones with bytes behind them',
+  )
+}
+
+/** An image nothing can be done with must not become a tile that does nothing. */
+async function testUnretainedImageStaysOffTheStrip(): Promise<void> {
+  const png = 'iVBORw0KGgo='
+  const huge = 'A'.repeat(9 * 1024 * 1024)
+  clearTranscriptPeekCache()
+  const transcriptPath = await writeTranscript([
+    humanRow('', {
+      uuid: 'head',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Look at this' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: huge } },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } },
+        ],
+      },
+    }),
+  ])
+  const transcript = await readTranscriptPeek(transcriptPath)
+  assert.ok(transcript)
+  const { service } = harness(
+    { chat: { transcriptPath, prompts: [] } },
+    { [transcriptPath]: transcript },
+  )
+  const peek = await service.readConversationPeek('chat')
+  assert.equal(peek.first?.attachments.length, 2, 'both images still COUNT on the row that carried them')
+  assert.deepEqual(
+    peek.images.map((entry) => entry.id),
+    ['head:image:1'],
+    'the over-ceiling image is absent from the strip; the small one beside it is not',
+  )
+}
+
+/**
+ * The transcript is another process's file, and nothing stops it repeating a
+ * row uuid. Two messages sharing one meant one payload overwrote the other, so
+ * a thumbnail showed — and a click opened — the wrong picture.
+ */
+async function testDuplicateRowIdsDoNotCollide(): Promise<void> {
+  const png = 'iVBORw0KGgo='
+  const other = 'iVBORw0KGgoBBBB='
+  const withImage = (data: string, text: string) => humanRow('', {
+    uuid: 'same-uuid',
+    message: {
+      role: 'user',
+      content: [
+        { type: 'text', text },
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data } },
+      ],
+    },
+  })
+  clearTranscriptPeekCache()
+  const peek = await readTranscriptPeek(
+    await writeTranscript([withImage(png, 'first'), withImage(other, 'second')]),
+  )
+  assert.ok(peek)
+  const firstId = peek.first?.attachments[0]?.id
+  const laterId = peek.since[0]?.attachments[0]?.id
+  assert.ok(firstId && laterId)
+  assert.notEqual(firstId, laterId, 'a repeated uuid must not give two messages the same attachment id')
+  assert.equal(peek.images.size, 2, 'and both payloads survive rather than one overwriting the other')
+  assert.equal(peek.images.get(firstId)?.data, png)
+  assert.equal(peek.images.get(laterId)?.data, other)
+}
+
 // ── the IPC boundary ────────────────────────────────────────────────────────
 
 async function testIpc(): Promise<void> {
@@ -858,7 +1048,7 @@ async function testIpc(): Promise<void> {
     {
       readConversationPeek: async (sessionId) => {
         calls.push(`read:${sessionId}`)
-        return { sessionId, source: 'none', first: null, since: [] }
+        return { sessionId, source: 'none', first: null, since: [], images: [] }
       },
       openConversationPeekAttachment: async (sessionId, attachmentId) => {
         calls.push(`open:${sessionId}:${attachmentId}`)
@@ -898,6 +1088,10 @@ async function run(): Promise<void> {
   testProjectDirEncoding()
   await testLocateTranscript()
   await testAttachmentBudget()
+  await testImageStripAcrossMessages()
+  await testImageStripPastTheWindow()
+  await testUnretainedImageStaysOffTheStrip()
+  await testDuplicateRowIdsDoNotCollide()
   await testSourceSelection()
   await testDerivedTranscriptSelection()
   await testEmptyButCapableSource()
