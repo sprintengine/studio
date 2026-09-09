@@ -103,7 +103,14 @@ function harness(
     if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
     const agentId = `agent-${launches.length}`
     target.agents[agentId] = { id: agentId, name: request.name ?? agentId, cli: request.cli ?? 'codex' } as Workspace['agents'][string]
-    return { ok: true, workspaceId: request.workspaceId, agentId, sessionId: `session-${agentId}` }
+    return {
+      ok: true,
+      workspaceId: request.workspaceId,
+      agentId,
+      sessionId: `session-${agentId}`,
+      cli: request.cli ?? 'claude-code',
+      executionId: `session-${agentId}`,
+    }
   }
 
   const executor = createLocalAutomationExecutor({

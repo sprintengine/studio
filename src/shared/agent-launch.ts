@@ -42,6 +42,33 @@ export type AgentLaunchRequest = {
   connectorId?: string
   /** Built-in skill installed into the working directory before the CLI starts. */
   spawnSkillId?: string
+  /**
+   * The agent's id, when the CALLER owns it. A module agent session is keyed by
+   * something the module already has (a review id, a document id) so a second
+   * start finds the live terminal instead of spawning a twin; the minted
+   * `agent-<cli>-<suffix>` form has nothing anyone could match on. Absent mints.
+   */
+  agentId?: string
+  /**
+   * Absolute working directory, instead of the workspace folder or worktree.
+   * The workspace still names the agent's residency (its tab, its exit report);
+   * this only says where the pty starts.
+   */
+  cwd?: string
+  /**
+   * Recorded as the session's agent-identity role. Absent uses the launch kind
+   * ('general'/'specialist'), which is what every app-level launch wants.
+   */
+  role?: string
+  /**
+   * Accept a workspace of any mode as the launch host. The default refuses
+   * anything but standard/automations-host, because an `agent.launch` caller
+   * that named a hidden workspace has almost certainly named the wrong one. A
+   * module agent session names its host explicitly — the workspace its surface
+   * was opened from — so it opts out of that guard rather than being told the
+   * workspace the user is standing in is the wrong kind.
+   */
+  anyWorkspaceMode?: boolean
 }
 
 export type AgentDisposeRequest = {
@@ -78,7 +105,25 @@ export type AgentLaunchRecord = {
 }
 
 export type AgentLaunchResult =
-  | { ok: true; workspaceId: string; agentId: string; sessionId: string }
+  | {
+      ok: true
+      workspaceId: string
+      agentId: string
+      sessionId: string
+      /**
+       * The CLI main resolved for this launch — the caller's, or the user's
+       * last-selected one when the caller named none. A caller that has to
+       * report which agent it started (or lead a prompt with that CLI's own
+       * skill invocation) cannot re-derive this from the request.
+       */
+      cli: string
+      /**
+       * The session's EXECUTION identity: the id its exit will be reported
+       * under. Equal to the terminal session id today; carried explicitly so a
+       * caller correlating exits never has to depend on that staying true.
+       */
+      executionId: string
+    }
   | { ok: false; code: string; message: string }
 
 export type AgentDisposeResult =
