@@ -14,7 +14,7 @@ import {
   findDiffFocusIndex,
   type DiffFileItem,
 } from './diffFileList'
-import { navigateFile, nextDiffPosition, resolveEdgeHunkIndex } from './diffNavigation'
+import { navigateFile, nextDiffPosition, resolveEdgeHunkIndex, takesNavigationKey } from './diffNavigation'
 import {
   Checkbox,
   CollapseAllGlyph,
@@ -587,6 +587,13 @@ export function DiffViewer({
     })
   }, [treeRevision, repoRoot])
 
+  // The steppers, reachable from the mount callback above the definitions they
+  // point at. Monaco keybindings are registered ONCE, at mount, and a keybinding
+  // that closed over the first render's `navigate` would step from the file that
+  // was open when the window opened.
+  const navigateRef = useRef<(direction: 'next' | 'prev') => void>(() => {})
+  const navigateWholeFileRef = useRef<(direction: 'next' | 'prev') => void>(() => {})
+
   const revealHunk = useCallback((index: number) => {
     const editor = diffEditorRef.current
     const hunks = hunksRef.current
@@ -632,6 +639,24 @@ export function DiffViewer({
           model?.modified.dispose()
         }, 0)
       })
+      // The steppers, registered ON THE EDITOR as well as on the window.
+      //
+      // Monaco has the keyboard whenever the diff is focused, and the window
+      // listener deliberately keeps out of it (`takesNavigationKey`), so
+      // without these F7 and ⌘↑ / ⌘↓ would simply stop working the moment a
+      // person clicked into the text they are stepping through. `addCommand`
+      // is how a keybinding is added to the editor that owns them, and it
+      // supersedes nothing Monaco itself binds: F7 is unbound in a read-only
+      // diff, and ⌘↑ / ⌘↓ are only its "cursor to top / bottom", which the
+      // ⌘Home / ⌘End of the same editor still gives.
+      editor.addCommand(monaco.KeyCode.F7, () => navigateRef.current('next'))
+      editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F7, () => navigateRef.current('prev'))
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.DownArrow, () =>
+        navigateWholeFileRef.current('next')
+      )
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.UpArrow, () =>
+        navigateWholeFileRef.current('prev')
+      )
       editor.onDidUpdateDiff(() => {
         const changes = editor.getLineChanges() ?? []
         hunksRef.current = changes
@@ -698,6 +723,9 @@ export function DiffViewer({
     [currentIndex, items.length, goToFileIndex]
   )
 
+  navigateRef.current = navigate
+  navigateWholeFileRef.current = navigateWholeFile
+
   // The viewer is read-only, so arrows always navigate hunks — except with the
   // platform's command modifier held, which steps a whole FILE (⌘↑ / ⌘↓ on
   // macOS, Ctrl elsewhere). The modifier is tested first: a plain ArrowDown
@@ -739,7 +767,10 @@ export function DiffViewer({
   // focus (a window-wide ArrowDown would hijack every list in the app). Neither
   // scope changed in T4; what changed is that the band now contains controls
   // that own the arrow keys themselves, so `takesNavigationKey` keeps a hunk
-  // step from firing on top of a view change or a menu walk.
+  // step from firing on top of a view change or a menu walk — and MONACO is one
+  // of those controls. With the diff focused the steppers come from the
+  // editor's own keybindings (`handleDiffMount`), never from here, so one press
+  // is one move.
   useEffect(() => {
     if (variant !== 'window') return
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1248,18 +1279,4 @@ export function DiffViewer({
 
 function keyFor(item: DiffFileItem | undefined): string | null {
   return item ? `${item.kind}:${item.path}` : null
-}
-
-/**
- * Whether an arrow key that landed on `target` is the viewer's to take.
- *
- * It is not, when the key landed inside a control that owns the arrow keys
- * itself: the view toggle is a radiogroup (arrows move the selection), the gear
- * menu is a menu (arrows walk the rows), and a text field is a text field.
- * Without this, one ArrowDown on the toggle would both switch to unified AND
- * step a hunk — the band's own controls fighting the surface they sit on.
- */
-function takesNavigationKey(target: HTMLElement | null): boolean {
-  if (!target?.closest) return true
-  return !target.closest('[role="radiogroup"], [role="menu"], input, textarea, [contenteditable="true"]')
 }

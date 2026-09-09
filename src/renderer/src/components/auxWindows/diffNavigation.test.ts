@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 
-import { navigateFile, nextDiffPosition, resolveEdgeHunkIndex } from './diffNavigation'
+import {
+  NAVIGATION_KEY_EXCLUSIONS,
+  navigateFile,
+  nextDiffPosition,
+  resolveEdgeHunkIndex,
+  takesNavigationKey,
+} from './diffNavigation'
 
 testAdvancesWithinFile()
 testCrossesForwardFileBoundary()
@@ -13,6 +19,7 @@ testFileStepperWalksWholeFiles()
 testFileStepperDoesNotWrap()
 testFileStepperReachesAHunklessFile()
 testFileStepperOnAnEmptyOrUnfocusedList()
+testMonacoKeepsItsOwnArrowKeys()
 
 console.log('diffNavigation.test.ts: ok')
 
@@ -103,4 +110,42 @@ function testFileStepperReachesAHunklessFile(): void {
 function testFileStepperOnAnEmptyOrUnfocusedList(): void {
   assert.deepEqual(navigateFile(0, 'next', 0), { type: 'none' })
   assert.deepEqual(navigateFile(-1, 'next', 3), { type: 'none' })
+}
+
+/**
+ * The predicate the window-wide listener guards on. Monaco 0.55 focuses a
+ * `<div class="native-edit-context" role="textbox">` inside `.monaco-editor` —
+ * neither an input, nor a textarea, nor contenteditable — so before this the
+ * viewer took an ArrowDown that Monaco was already handling and the caret and
+ * the hunk cursor both moved on one press.
+ */
+function testMonacoKeepsItsOwnArrowKeys(): void {
+  // A fake `closest`: the element answers for the selectors it "matches".
+  const target = (...matches: string[]) => ({
+    closest: (selector: string) =>
+      selector
+        .split(',')
+        .map((part) => part.trim())
+        .some((part) => matches.includes(part))
+        ? {}
+        : null,
+  })
+
+  assert.equal(takesNavigationKey(target()), true, 'the surface itself')
+  assert.equal(takesNavigationKey(null), true, 'and a key with no target at all')
+  assert.equal(takesNavigationKey({}), true, 'or a target that cannot be asked')
+
+  // Monaco, both ways it can be recognised.
+  assert.equal(takesNavigationKey(target('[role="textbox"]')), false)
+  assert.equal(takesNavigationKey(target('.monaco-editor')), false)
+
+  // And the band's own controls, which is what the predicate was written for.
+  assert.equal(takesNavigationKey(target('[role="radiogroup"]')), false)
+  assert.equal(takesNavigationKey(target('[role="menu"]')), false)
+  assert.equal(takesNavigationKey(target('input')), false)
+  assert.equal(takesNavigationKey(target('textarea')), false)
+  assert.equal(takesNavigationKey(target('[contenteditable="true"]')), false)
+
+  assert.match(NAVIGATION_KEY_EXCLUSIONS, /role="textbox"/)
+  assert.match(NAVIGATION_KEY_EXCLUSIONS, /\.monaco-editor/)
 }

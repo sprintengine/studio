@@ -80,3 +80,44 @@ export function navigateFile(
   if (target < 0 || target > fileCount - 1) return { type: 'none' }
   return { type: 'file', fileIndex: target, edge: 'first' }
 }
+
+/* ------------------------------------------------------------------ *
+ * Whose keyboard is it
+ * ------------------------------------------------------------------ */
+
+/**
+ * The controls that own the arrow keys themselves, and therefore the ones the
+ * viewer's window-wide listener must keep its hands off.
+ *
+ * The last two are Monaco. It is a text editor drawn out of divs, and in 0.55
+ * the thing that actually holds the caret is
+ * `<div class="native-edit-context" role="textbox">` — not an `input`, not a
+ * `textarea`, and not `contenteditable`. So every one of the exclusions this
+ * list started with missed it, and an ArrowDown with the diff focused both
+ * moved Monaco's cursor AND stepped a hunk: one press, two jumps, and F7 or
+ * ⌘↓ the same. `.monaco-editor` is the belt to `[role="textbox"]`'s braces —
+ * the editor's own root, whatever Monaco decides to focus inside it next.
+ *
+ * The steppers are not lost with the editor focused: `DiffViewer` registers
+ * them on the editor itself (`addCommand`), which is where a keybinding
+ * belongs when the editor has the keyboard.
+ */
+export const NAVIGATION_KEY_EXCLUSIONS =
+  '[role="radiogroup"], [role="menu"], input, textarea, [contenteditable="true"], [role="textbox"], .monaco-editor'
+
+/** Just enough of an element to ask. Kept structural so this stays testable
+ *  without a DOM. */
+export type NavigationKeyTarget = { closest?: (selector: string) => unknown } | null
+
+/**
+ * Whether an arrow key that landed on `target` is the viewer's to take.
+ *
+ * It is not, when the key landed inside a control that owns the arrow keys
+ * itself: the view toggle is a radiogroup (arrows move the selection), the gear
+ * menu is a menu (arrows walk the rows), a text field is a text field — and the
+ * diff itself is Monaco.
+ */
+export function takesNavigationKey(target: NavigationKeyTarget): boolean {
+  if (!target?.closest) return true
+  return !target.closest(NAVIGATION_KEY_EXCLUSIONS)
+}
