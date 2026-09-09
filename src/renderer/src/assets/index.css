@@ -301,11 +301,17 @@
      drawn since before the system existed; what changed is that they are a
      diff channel with their own meaning rather than a borrowed status.
 
-     The trade this makes deliberately: a theme that retunes --tone-good no
-     longer moves the diff palette with it. A diff's green means "added" on
-     every theme, which is the point of tokenising it; a theme wanting its own
-     diff palette declares --diff-* itself, the way it already declares its
-     own tones.
+     What that costs, and how it is paid: a theme that retunes --tone-good no
+     longer moves the diff palette with it. That is right for a theme with no
+     opinion about diffs, and wrong for one that hand-tunes its greens and reds
+     to its own paper — because the wash behind diff ink is still
+     --tone-good-soft / --tone-error-soft, so ink and wash would arrive from
+     two different palettes and disagree in hue. So every theme that overrides
+     --tone-good / --tone-error with its own literals (vellum, herbarium,
+     paper, sage, herbarium-dark) re-points --sem-color-diff-added /
+     --sem-color-diff-removed at those same two values, and its diff reads in
+     one palette. A theme with no such override inherits the bundle's, which is
+     the default this paragraph describes.
 
      --diff-context has no bundle counterpart and wants none: "unchanged" is
      not a diff colour, it is the row's ordinary muted ink, and it must follow
@@ -821,6 +827,13 @@
   --tone-warn-soft: rgba(152, 100, 0, 0.18);
   --tone-error-soft: rgba(196, 36, 36, 0.14);
 
+  /* Diff ink follows this theme's own good/error, so it agrees with the
+     --tone-*-soft washes drawn behind it. Without this the ink came from
+     the bundle's default palette and the wash from here, two hues for one
+     idea. */
+  --sem-color-diff-added: #2c6c54;
+  --sem-color-diff-removed: #c42424;
+
   --scrollbar-thumb: #d4ccb8;
   --scrollbar-thumb-hover: #c0b49c;
   --skeleton-shimmer-low: rgba(44, 36, 24, 0.04);
@@ -906,6 +919,13 @@
   --tone-warn-soft: rgba(152, 100, 0, 0.18);
   --tone-error-soft: rgba(196, 36, 36, 0.14);
 
+  /* Diff ink follows this theme's own good/error, so it agrees with the
+     --tone-*-soft washes drawn behind it. Without this the ink came from
+     the bundle's default palette and the wash from here, two hues for one
+     idea. */
+  --sem-color-diff-added: #2c7c5c;
+  --sem-color-diff-removed: #c42424;
+
   --scrollbar-thumb: #d0c8b4;
   --scrollbar-thumb-hover: #bcb4a0;
   --skeleton-shimmer-low: rgba(36, 40, 24, 0.04);
@@ -983,6 +1003,13 @@
   --tone-warn-soft: rgba(154, 96, 0, 0.18);
   --tone-error-soft: rgba(196, 36, 36, 0.14);
 
+  /* Diff ink follows this theme's own good/error, so it agrees with the
+     --tone-*-soft washes drawn behind it. Without this the ink came from
+     the bundle's default palette and the wash from here, two hues for one
+     idea. */
+  --sem-color-diff-added: #157f37;
+  --sem-color-diff-removed: #c42424;
+
   --scrollbar-thumb: #d2d6c4;
   --scrollbar-thumb-hover: #bcc0ae;
   --skeleton-shimmer-low: rgba(28, 32, 22, 0.04);
@@ -1046,6 +1073,13 @@
   --tone-good-soft: rgba(68, 168, 124, 0.18);
   --tone-warn-soft: rgba(204, 156, 64, 0.18);
   --tone-error-soft: rgba(216, 88, 80, 0.16);
+
+  /* Diff ink follows this theme's own good/error, so it agrees with the
+     --tone-*-soft washes drawn behind it. Without this the ink came from
+     the bundle's default palette and the wash from here, two hues for one
+     idea. */
+  --sem-color-diff-added: #44a87c;
+  --sem-color-diff-removed: #d85850;
 
   --scrollbar-thumb: #3c4030;
   --scrollbar-thumb-hover: #484c3c;
@@ -1117,6 +1151,13 @@
   --tone-good-soft: rgba(52, 180, 140, 0.18);
   --tone-warn-soft: rgba(216, 176, 72, 0.18);
   --tone-error-soft: rgba(228, 96, 88, 0.18);
+
+  /* Diff ink follows this theme's own good/error, so it agrees with the
+     --tone-*-soft washes drawn behind it. Without this the ink came from
+     the bundle's default palette and the wash from here, two hues for one
+     idea. */
+  --sem-color-diff-added: #34b48c;
+  --sem-color-diff-removed: #e46058;
 
   --scrollbar-thumb: #30342c;
   --scrollbar-thumb-hover: #3c4034;
