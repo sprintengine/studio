@@ -317,6 +317,11 @@ export const MAX_FILE_CHANGE_PATH_LENGTH = MAX_OBSERVED_CWD_LENGTH
 // large one instead of erasing the fact that the file was edited.
 export const MAX_FILE_CHANGE_COUNT = 10_000_000
 
+// Same ceiling for the status line's own numbers (the context window size in
+// tokens, and the session's cumulative line counts). Capped rather than dropped:
+// an absurd number degrades to a large one instead of erasing the reading.
+export const MAX_STATUS_LINE_COUNT = MAX_FILE_CHANGE_COUNT
+
 // Cap on the forwarded user prompt. The reporter truncates too, but it is
 // untrusted, so this is the enforcement: the value is retained per session and
 // broadcast to every renderer, and an unbounded string would ride into both.
@@ -369,7 +374,42 @@ export type AgentStateFrame = {
   // integer counts — a bad value drops the FIELD, never the frame, so a
   // malformed count cannot cost the session its phase transition.
   fileChange?: AgentStateFrameFileChange
+  // What the session's own status line last said about itself, forwarded by the
+  // status-line forwarder on `event: 'StatusLine'` — an event no manifest names,
+  // so the frame's phase resolution DROPS it and the status line is folded in
+  // before that drop, exactly like a file change. Every field is optional
+  // because the payload's are: `usedPercentage` is null before the first API
+  // call and again right after a /compact, and a session is unnamed until it is
+  // named. Untrusted like the rest: a bad value drops the FIELD.
+  statusLine?: AgentStateFrameStatusLine
 }
+
+// One reading from a session's status line. The numbers are the CLI's own —
+// nothing here is derived, and nothing else from the status-line payload (the
+// transcript path, the repo identity, the rate limits, the prompt cache) is
+// carried: see the forwarder.
+export type AgentStateFrameStatusLine = {
+  // 0..100, rounded to a whole percent on the way in: it is rendered as a ring
+  // and a number, and a broadcast per hundredth of a percent is a broadcast per
+  // token. Absent when the CLI does not know yet.
+  usedPercentage?: number
+  contextWindowSize?: number
+  totalCostUsd?: number
+  linesAdded?: number
+  linesRemoved?: number
+  model?: string
+  sessionName?: string
+}
+
+// Cap on the two free-text status-line fields. A model display name is a word
+// and a session name is a title; anything longer is a broken forwarder, and the
+// value is retained per session for however long that session lives.
+export const MAX_STATUS_LINE_NAME_LENGTH = 256
+
+// And a ceiling on the cost, so that every number off this socket is bounded.
+// A session cannot honestly have spent a million dollars; past that the frame is
+// anomalous. Capped rather than dropped, like the counts.
+export const MAX_STATUS_LINE_COST_USD = 1_000_000
 
 const VALID_PHASES: ReadonlySet<AgentPhase> = new Set<AgentPhase>([
   'starting',
@@ -441,7 +481,62 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
   if (cwd) frame.cwd = cwd
   const fileChange = parseFrameFileChange(raw.fileChange)
   if (fileChange) frame.fileChange = fileChange
+  const statusLine = parseFrameStatusLine(raw.statusLine)
+  if (statusLine) frame.statusLine = statusLine
   return frame
+}
+
+// A status-line reading, field by field: each one that fails its own rule is
+// simply absent, because they are independent readings and a bad cost must not
+// cost the session its context percentage. A reading with NOTHING valid in it
+// drops entirely — the field then never reaches the session, which is what lets
+// the ingest treat "present" as "there is something to fold".
+//
+// The path rules follow the file ledger's: bounded, control characters refused,
+// counts finite and not negative.
+function parseFrameStatusLine(raw: unknown): AgentStateFrameStatusLine | null {
+  if (!isRecord(raw)) return null
+  const statusLine: AgentStateFrameStatusLine = {}
+  // A percentage outside 0..100 is not a percentage. Refused rather than
+  // clamped: a forwarder that reports 900% has read the wrong field, and
+  // clamping it to 100 would paint a full context ring on an empty session.
+  const usedPercentage = raw.usedPercentage
+  if (typeof usedPercentage === 'number' && Number.isFinite(usedPercentage) && usedPercentage >= 0 && usedPercentage <= 100) {
+    statusLine.usedPercentage = Math.round(usedPercentage)
+  }
+  const contextWindowSize = parseStatusLineCount(raw.contextWindowSize)
+  if (contextWindowSize !== null) statusLine.contextWindowSize = contextWindowSize
+  // Cost is money, not a line count: it keeps the fraction the counts floor
+  // away, and is refused when negative or not finite, capped when absurd.
+  if (typeof raw.totalCostUsd === 'number' && Number.isFinite(raw.totalCostUsd) && raw.totalCostUsd >= 0) {
+    statusLine.totalCostUsd = Math.min(raw.totalCostUsd, MAX_STATUS_LINE_COST_USD)
+  }
+  const linesAdded = parseStatusLineCount(raw.linesAdded)
+  if (linesAdded !== null) statusLine.linesAdded = linesAdded
+  const linesRemoved = parseStatusLineCount(raw.linesRemoved)
+  if (linesRemoved !== null) statusLine.linesRemoved = linesRemoved
+  const model = parseStatusLineName(raw.model)
+  if (model) statusLine.model = model
+  const sessionName = parseStatusLineName(raw.sessionName)
+  if (sessionName) statusLine.sessionName = sessionName
+  return Object.keys(statusLine).length > 0 ? statusLine : null
+}
+
+function parseStatusLineCount(raw: unknown): number | null {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return null
+  return Math.min(Math.floor(raw), MAX_STATUS_LINE_COUNT)
+}
+
+// A name is a name: trimmed, bounded, and free of control characters for the
+// same reason a reported path is — it is retained per session, and the surfaces
+// that will read it paint it. (The rule is the paths' one: C0 and DEL. A model
+// name is display text rather than a path, so it is a loose fit, but one rule
+// for every string off this socket beats two.)
+function parseStatusLineName(raw: unknown): string | null {
+  const value = optionalString(raw)?.trim()
+  if (!value || value.length > MAX_STATUS_LINE_NAME_LENGTH) return null
+  if (hasControlCharacters(value)) return null
+  return value
 }
 
 // A reported file change must name an absolute path (a relative one is

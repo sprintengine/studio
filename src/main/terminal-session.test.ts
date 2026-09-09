@@ -14,8 +14,10 @@ import {
   materializeTerminalReplay,
   MAX_SESSION_FILE_CHANGE_PATH_CHARS,
   MAX_SESSION_FILE_CHANGES,
+  parseSessionContextUsage,
   parseSessionFileChanges,
   recordSessionFileChange,
+  recordSessionStatusLine,
   recordTerminalInput,
   recordTerminalVisibility,
   transitionTerminalActivity,
@@ -51,6 +53,8 @@ function main(): void {
   assertPlaceholderIdlesSinceTheTurnEnd()
   assertFileLedgerAccumulatesAndStaysBounded()
   assertPersistedLedgerIsReadBackAsUntrustedInput()
+  assertStatusLineReadingsMergeAndGateTheBroadcast()
+  assertPersistedContextUsageIsReadBackAsUntrustedInput()
 }
 
 // The per-session file ledger: counts accumulate, the newest edit is at the
@@ -164,6 +168,94 @@ function assertPersistedLedgerIsReadBackAsUntrustedInput(): void {
   const capped = parseSessionFileChanges(oversized)
   assert.equal(capped?.size, MAX_SESSION_FILE_CHANGES, 'a sidecar cannot grow the ledger past its cap')
   assert.ok(capped?.has('/repo/file-0.ts'), 'and what it keeps is the head of the newest-first list')
+}
+
+// A status-line reading MERGES into the session and only a moved whole percent
+// is worth a broadcast. The null-after-compact rule is the load-bearing part:
+// the CLI reports no percentage before its first API call and again right after
+// a /compact, and "not known right now" must not erase the number a person was
+// watching a second ago.
+function assertStatusLineReadingsMergeAndGateTheBroadcast(): void {
+  // A session whose first refresh lands before its first API call knows the
+  // cost and the model but not the percentage, and must not invent one.
+  const unread = createSession({ startedAt: 0 })
+  assert.equal(recordSessionStatusLine(unread, { totalCostUsd: 0, model: 'Opus' }, 50), false)
+  assert.equal(unread.contextUsage, undefined, 'no percentage yet is not a percentage of zero')
+  assert.equal(getTerminalSnapshot(unread).contextUsage, null)
+
+  const session = createSession({ startedAt: 0 })
+
+  assert.equal(
+    recordSessionStatusLine(session, { usedPercentage: 8, totalCostUsd: 0.5, model: 'Opus' }, 100),
+    true,
+    'a first reading moves the snapshot'
+  )
+  assert.deepEqual(session.contextUsage, { usedPercentage: 8, at: 100 })
+  assert.equal(session.statusLine?.model, 'Opus')
+
+  assert.equal(
+    recordSessionStatusLine(session, { usedPercentage: 8, totalCostUsd: 0.9, linesAdded: 40 }, 200),
+    false,
+    'the same whole percent is not news, however much the cost moved'
+  )
+  assert.deepEqual(session.contextUsage, { usedPercentage: 8, at: 100 }, 'and the timestamp does not drift')
+  assert.equal(session.statusLine?.totalCostUsd, 0.9, 'but the reading itself is kept current')
+  assert.equal(session.statusLine?.linesAdded, 40)
+
+  // A /compact: no percentage in the payload at all.
+  assert.equal(recordSessionStatusLine(session, { totalCostUsd: 1.1 }, 300), false)
+  assert.deepEqual(
+    session.contextUsage,
+    { usedPercentage: 8, at: 100 },
+    'a reading with no percentage keeps the last known one'
+  )
+  assert.equal(session.statusLine?.model, 'Opus', 'and takes nothing else with it either')
+
+  assert.equal(recordSessionStatusLine(session, { usedPercentage: 3 }, 400), true)
+  assert.deepEqual(session.contextUsage, { usedPercentage: 3, at: 400 }, 'the next real reading replaces it')
+
+  // Out of order: a status-line process is spawned per refresh, so they can
+  // finish in any order, and an older reading carries older facts.
+  assert.equal(recordSessionStatusLine(session, { usedPercentage: 71, totalCostUsd: 0.1 }, 350), false)
+  assert.deepEqual(session.contextUsage, { usedPercentage: 3, at: 400 })
+  assert.equal(session.statusLine?.totalCostUsd, 1.1, 'a stale reading does not roll the cost back either')
+}
+
+// The sidecar is a file on disk here too.
+function assertPersistedContextUsageIsReadBackAsUntrustedInput(): void {
+  assert.equal(parseSessionContextUsage(undefined), undefined)
+  assert.equal(parseSessionContextUsage(null), undefined)
+  assert.equal(parseSessionContextUsage('8%'), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: 8 }), undefined, 'a reading needs its time')
+  assert.equal(parseSessionContextUsage({ at: 5 }), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: -1, at: 5 }), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: 101, at: 5 }), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: Number.NaN, at: 5 }), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: 8, at: -1 }), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: 8, at: '5' }), undefined)
+  assert.deepEqual(parseSessionContextUsage({ usedPercentage: 8.6, at: 400.5 }), { usedPercentage: 9, at: 400 })
+  assert.deepEqual(parseSessionContextUsage({ usedPercentage: 0, at: 0 }), { usedPercentage: 0, at: 0 })
+  // Clamped to arrival like a reporter frame's ts: a hand-edited sidecar timed
+  // in the year 275760 would be written back out on the next suspend and ride
+  // into every window from there.
+  assert.deepEqual(
+    parseSessionContextUsage({ usedPercentage: 8, at: 8.6e15 }, 1_000),
+    { usedPercentage: 8, at: 1_000 },
+    'a far-future sidecar time is clamped, not believed'
+  )
+
+  // And it comes back onto a rehydrated placeholder.
+  const placeholder = createSuspendedPlaceholderSession({
+    sessionId: 'status-line-placeholder',
+    savedAt: 1_000,
+    contextUsage: { usedPercentage: 42, at: 900 },
+  })
+  assert.deepEqual(getTerminalSnapshot(placeholder).contextUsage, { usedPercentage: 42, at: 900 })
+  assert.equal(
+    getTerminalSnapshot(createSuspendedPlaceholderSession({ sessionId: 'no-reading', savedAt: 1_000 })).contextUsage,
+    null,
+    'a session nothing read reports null, never a guess'
+  )
 }
 
 // Owner, 2026-09-05: the quit path writes every agent's sidecar at one moment,

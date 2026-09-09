@@ -18,6 +18,9 @@ import {
   isAtRestAgentPhase,
   MAX_FILE_CHANGE_COUNT,
   MAX_FILE_CHANGE_PATH_LENGTH,
+  MAX_STATUS_LINE_COST_USD,
+  MAX_STATUS_LINE_COUNT,
+  MAX_STATUS_LINE_NAME_LENGTH,
   MAX_TRANSCRIPT_PATH_LENGTH,
   MAX_WAKEUP_DELAY_SECONDS,
   mergeAgentStateHooks,
@@ -406,6 +409,92 @@ async function run(): Promise<void> {
     )?.event,
     'PostToolUse',
     'a bad file change never drops the frame'
+  )
+  // …and the status line's reading rides its own: a percentage that IS one,
+  // rounded to a whole percent; counts that are real, whole and not negative; a
+  // cost that is money; names that are bounded and free of control characters.
+  // Each field stands or falls alone — a bad cost must not cost the session its
+  // context percentage — and a reading with nothing valid in it drops entirely,
+  // so "present" means "there is something to fold".
+  const statusOf = (statusLine: unknown) =>
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'StatusLine', ts: 5, statusLine }, 999)
+      ?.statusLine
+  assert.deepEqual(
+    statusOf({
+      usedPercentage: 8.4,
+      contextWindowSize: 200_000,
+      totalCostUsd: 0.01234,
+      linesAdded: 156,
+      linesRemoved: 23,
+      model: 'Opus',
+      sessionName: 'hook ledger',
+    }),
+    {
+      usedPercentage: 8,
+      contextWindowSize: 200_000,
+      totalCostUsd: 0.01234,
+      linesAdded: 156,
+      linesRemoved: 23,
+      model: 'Opus',
+      sessionName: 'hook ledger',
+    },
+    'the percentage rounds to a whole percent; the cost keeps its fraction'
+  )
+  assert.equal(statusOf({ usedPercentage: 8.6 })?.usedPercentage, 9, 'rounds, not floors')
+  assert.deepEqual(statusOf({ usedPercentage: 0 }), { usedPercentage: 0 }, 'zero is a reading, not an absence')
+  assert.deepEqual(statusOf({ usedPercentage: 100 }), { usedPercentage: 100 })
+  // Refused rather than clamped: a forwarder reporting 900% has read the wrong
+  // field, and clamping would paint a full ring on an empty session.
+  assert.equal(statusOf({ usedPercentage: 101 }), undefined, 'a percentage above 100 is not a percentage')
+  assert.equal(statusOf({ usedPercentage: -1 }), undefined)
+  assert.equal(statusOf({ usedPercentage: Number.NaN }), undefined)
+  assert.equal(statusOf({ usedPercentage: '8' }), undefined, 'a percentage is a number')
+  assert.deepEqual(
+    statusOf({ usedPercentage: 12, totalCostUsd: -1, linesAdded: -2, model: 42 }),
+    { usedPercentage: 12 },
+    'a bad field drops alone — the reading beside it survives'
+  )
+  assert.equal(statusOf({ totalCostUsd: 0 })?.totalCostUsd, 0, 'a free session costs zero, which is a fact')
+  assert.equal(
+    statusOf({ totalCostUsd: 1e300 })?.totalCostUsd,
+    MAX_STATUS_LINE_COST_USD,
+    'money is bounded too — every number off this socket is'
+  )
+  assert.equal(statusOf({ totalCostUsd: 0.5 })?.totalCostUsd, 0.5, 'but it keeps the fraction the counts floor away')
+  assert.deepEqual(
+    statusOf({ contextWindowSize: 200_000.7, linesAdded: 1e12 }),
+    { contextWindowSize: 200_000, linesAdded: MAX_STATUS_LINE_COUNT },
+    'counts floor, an absurd one caps'
+  )
+  assert.equal(statusOf({ model: '  Opus  ' })?.model, 'Opus', 'a name is trimmed')
+  assert.equal(statusOf({ model: 'x'.repeat(MAX_STATUS_LINE_NAME_LENGTH) })?.model?.length, MAX_STATUS_LINE_NAME_LENGTH)
+  assert.equal(statusOf({ model: 'x'.repeat(MAX_STATUS_LINE_NAME_LENGTH + 1) }), undefined, 'over the cap drops')
+  // The names are retained per session, written to a sidecar and painted in
+  // every window, so they are held to the ledger path's rule.
+  assert.equal(statusOf({ sessionName: 'ledger\u001b[31m' }), undefined, 'an ANSI escape is not a name')
+  assert.equal(statusOf({ sessionName: 'two\nlines' }), undefined, 'an embedded newline is not a name')
+  assert.equal(statusOf({ sessionName: 'nul\u0000' }), undefined, 'a NUL is not a name')
+  assert.equal(statusOf({}), undefined, 'an empty reading is no reading')
+  // Every `undefined` above is read off a frame, so each one would also pass if
+  // the FRAME had been dropped. It is not: a bad field costs the field only.
+  for (const bad of [{ sessionName: 'x'.repeat(9000) }, { usedPercentage: 900, model: 42 }]) {
+    const frame = parseAgentStateFrame(
+      { type: 'agent_state', agentId: 'a1', event: 'StatusLine', ts: 5, statusLine: bad },
+      999
+    )
+    assert.equal(frame?.event, 'StatusLine', `the frame survives ${JSON.stringify(bad)}`)
+    assert.equal(frame?.statusLine, undefined)
+  }
+  assert.equal(statusOf({ usedPercentage: null }), undefined, 'a null percentage alone is no reading')
+  assert.equal(statusOf('8%'), undefined, 'a bare string is not a reading')
+  assert.equal(statusOf([8]), undefined, 'an array is not a reading')
+  assert.equal(
+    parseAgentStateFrame(
+      { type: 'agent_state', agentId: 'a1', event: 'StatusLine', ts: 5, statusLine: { usedPercentage: 900 } },
+      999
+    )?.event,
+    'StatusLine',
+    'a bad status line never drops the frame'
   )
   // …the status discriminator rides the same validation (capped, optional)…
   assert.equal(

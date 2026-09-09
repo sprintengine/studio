@@ -162,6 +162,7 @@ async function main(): Promise<void> {
     await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
     await assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule)
     await assertFileLedgerFollowsHookReportedEdits(runtimeModule)
+    await assertContextUsageFollowsStatusLineFrames(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule)
@@ -3499,6 +3500,168 @@ async function assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule: Runti
   }
 }
 
+// Context-window usage, from the session's own status line. The forwarder's
+// frames carry `event: 'StatusLine'`, which no manifest names — so the phase
+// resolution always DROPS them, and the reading has to be folded in before that
+// drop or it never arrives. A null percentage (right after a /compact) keeps the
+// last known reading, and only a change in the whole percent is worth a
+// broadcast.
+async function assertContextUsageFollowsStatusLineFrames(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-context-'))
+  const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-context-data-'))
+  const sidecarStore = createTerminalSnapshotSidecarStore({ resolveUserDataDir: () => userDataDir })
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtimeOptions = {
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    snapshotSidecars: sidecarStore,
+  }
+  const runtime = runtimeModule.createTerminalRuntime(runtimeOptions)
+  const snapshot = () =>
+    runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-context')
+  const base = Date.now()
+  const frame = (overrides: Partial<AgentStateFrame>): AgentStateFrame => ({
+    type: 'agent_state',
+    agentId: 'agent-context',
+    workspaceId: 'ws-context',
+    sessionId: null,
+    event: 'StatusLine',
+    ts: base,
+    ...overrides,
+  })
+  const sentSessionsChanges = async (): Promise<number> => {
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
+    return mockSender.sent.filter((event) => event.channel === 'terminal:sessions-changed').length
+  }
+
+  let contextPty: MockPtyProcess
+  try {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'sess-context',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-context',
+      agentId: 'agent-context',
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, 'expected a pty for sess-context')
+    contextPty = spawned
+    assert.equal(snapshot()?.contextUsage, null, 'a session that has not made an API call knows nothing')
+
+    // A first reading lands, and it broadcasts on its own: no phase moved.
+    await sentSessionsChanges()
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 100,
+        statusLine: { usedPercentage: 8, contextWindowSize: 200_000, totalCostUsd: 0.5, model: 'Opus' },
+      })
+    )
+    assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 8, at: base + 100 })
+    assert.equal(await sentSessionsChanges(), 1, 'a context reading is broadcast-worthy on its own')
+
+    // The same whole percent again is not news, however much the cost moved.
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(
+      frame({ ts: base + 200, statusLine: { usedPercentage: 8, totalCostUsd: 0.9, linesAdded: 40 } })
+    )
+    assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 8, at: base + 100 }, 'the timestamp holds too')
+    assert.equal(await sentSessionsChanges(), 0, 'an unchanged percentage must not repaint every window')
+
+    // A /compact reports the percentage as null, which arrives as an absent
+    // field. The last known reading stands: "not known right now" is not "empty".
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(frame({ ts: base + 300, statusLine: { totalCostUsd: 1.1, sessionName: 'ledger' } }))
+    assert.deepEqual(
+      snapshot()?.contextUsage,
+      { usedPercentage: 8, at: base + 100 },
+      'a null percentage after a compact keeps the last known reading'
+    )
+    assert.equal(await sentSessionsChanges(), 0)
+
+    // The next real reading replaces it.
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(frame({ ts: base + 400, statusLine: { usedPercentage: 3 } }))
+    assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 3, at: base + 400 })
+    assert.equal(await sentSessionsChanges(), 1)
+
+    // Out of order: a status-line process is spawned per refresh and they can
+    // finish in any order, so a reading older than the one already held is
+    // ignored rather than rolling the number backwards.
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(frame({ ts: base + 350, statusLine: { usedPercentage: 71 } }))
+    assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 3, at: base + 400 }, 'a stale reading is ignored')
+    assert.equal(await sentSessionsChanges(), 0)
+
+    // The frame's own event resolves to a drop for every Claude manifest, and a
+    // drop must not take the phase with it either: the phase the session had
+    // before the status line arrived is the phase it still has.
+    runtime.ingestAgentStateFrame(frame({ ts: base + 500, event: 'UserPromptSubmit' }))
+    assert.equal(snapshot()?.agentState?.phase, 'thinking')
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(frame({ ts: base + 600, statusLine: { usedPercentage: 9 } }))
+    assert.equal(snapshot()?.agentState?.phase, 'thinking', 'a status-line refresh moves no phase')
+    assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 9, at: base + 600 })
+    assert.equal(await sentSessionsChanges(), 1, 'and a dropped frame still publishes its reading')
+
+    // The other gate: a reading riding a frame whose event the manifest DOES
+    // name reaches the broadcast at the end of the function rather than the
+    // early-return one, and both have to publish it. Nothing sends this today
+    // — the forwarder's event is in no manifest — but the frame type allows a
+    // reading on any frame, and a plugin manifest is data.
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(
+      frame({ ts: base + 700, event: 'PostToolUse', statusLine: { usedPercentage: 15 } })
+    )
+    assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 15, at: base + 700 })
+    assert.equal(await sentSessionsChanges(), 1, 'an applied frame publishes its reading too')
+
+    // Parked across an app restart: the reading rides the snapshot sidecar.
+    contextPty.emitData('context painted output\r\n')
+    await delay(20)
+    runtime.ipcHandlers.suspendTerminal('sess-context')
+    contextPty.emitExit({ exitCode: 0 })
+    const start = Date.now()
+    while (!sidecarStore.read('sess-context')) {
+      if (Date.now() - start > 5_000) throw new Error('timed out waiting for the context sidecar')
+      await delay(20)
+    }
+    assert.deepEqual(sidecarStore.read('sess-context')?.contextUsage, { usedPercentage: 15, at: base + 700 })
+  } finally {
+    await runtime.shutdown()
+  }
+
+  const runtime2 = runtimeModule.createTerminalRuntime(runtimeOptions)
+  try {
+    await runtime2.ipcHandlers.getTerminalStatus('sess-context', mockSender as unknown as WebContents)
+    const rehydrated = runtime2.ipcHandlers
+      .listTerminals()
+      .find((session) => session.sessionId === 'sess-context')?.contextUsage
+    assert.equal(rehydrated?.usedPercentage, 15, 'a chat parked across a restart still says how full it was')
+    // The frames above are stamped on a synthetic clock that runs ahead of the
+    // real one, and the sidecar reader clamps a future time to arrival — the
+    // same rule the socket applies to a reporter's `ts`, pinned on its own in
+    // terminal-session.test.ts. So the reading comes back, dated no later than
+    // now.
+    assert.ok(
+      rehydrated !== null && rehydrated !== undefined && rehydrated.at > base - 1 && rehydrated.at <= Date.now(),
+      `the persisted time came back clamped to arrival: ${JSON.stringify(rehydrated)}`
+    )
+  } finally {
+    await runtime2.shutdown()
+  }
+}
+
 // The per-session file ledger: what this agent edited, summed from its own
 // PostToolUse hooks and never from git (the checkout is shared; the ledger is
 // the agent's own work). Counts accumulate — a line edited twice counts twice —
@@ -3561,7 +3724,7 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
     const ledgerPty = await spawnLedgerAgent()
     assert.deepEqual(snapshot()?.fileChanges, [], 'a fresh session has edited nothing — empty, never absent')
     assert.equal(snapshot()?.activeSubagents, 0)
-    assert.equal(snapshot()?.contextUsage, null, 'context usage is the next phase\'s to fill')
+    assert.equal(snapshot()?.contextUsage, null, 'nothing has read this session\'s status line yet')
 
     // Two edits of the same file SUM: the ledger measures the work, not the
     // tree's distance from HEAD, so a line edited twice counts twice.

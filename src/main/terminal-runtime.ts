@@ -67,8 +67,10 @@ import {
   isTerminalSessionStale,
   listSessionFileChanges,
   materializeTerminalReplay,
+  parseSessionContextUsage,
   parseSessionFileChanges,
   recordSessionFileChange,
+  recordSessionStatusLine,
   recordTerminalInput,
   recordTerminalVisibility,
   transitionTerminalActivity,
@@ -1092,6 +1094,9 @@ function writeTerminalSnapshotSidecar(
     // session with nothing painted is never rehydrated, so there would be
     // nothing to read the ledger back onto.
     ...(session.fileChanges?.size ? { fileChanges: listSessionFileChanges(session) } : {}),
+    // The context reading rides the same sidecar and for the same reason: a
+    // parked chat that says nothing about how full it is looks like a fresh one.
+    ...(session.contextUsage ? { contextUsage: session.contextUsage } : {}),
     lastTurnEndedAt: session.lastTurnEndedAt ?? undefined,
     snapshot: payload.snapshot,
     rawReplay: payload.rawReplay,
@@ -1137,6 +1142,7 @@ async function rehydrateSuspendedTerminalFromSidecar(
     worktreePath: sidecar.worktreePath,
     observedCheckout: parseObservedCheckout(sidecar.observedCheckout) ?? undefined,
     fileChanges: parseSessionFileChanges(sidecar.fileChanges),
+    contextUsage: parseSessionContextUsage(sidecar.contextUsage),
     lastTurnEndedAt: typeof sidecar.lastTurnEndedAt === 'number' ? sidecar.lastTurnEndedAt : null,
     replaySnapshot: snapshot,
     rawReplay: snapshot ? undefined : sidecar.rawReplay,
@@ -2295,11 +2301,26 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const ledgerChanged = frame.fileChange
     ? recordSessionFileChange(session, frame.fileChange, frame.ts)
     : false
+  // How full the context window is, from the session's own status line — folded
+  // in here for the same reason and in the same place as the edit above. It
+  // arrives on `event: 'StatusLine'`, which is in no manifest's agentStateSpec
+  // and therefore always resolves to a DROP: a status-line refresh is not a
+  // lifecycle event and must move no phase. Folding it before the drop is what
+  // makes the reading arrive at all.
+  //
+  // Only a change in the whole-percent reading counts as a change worth
+  // broadcasting; the cost and line counts move on every refresh and nothing
+  // renders them yet.
+  const contextUsageChanged = frame.statusLine
+    ? recordSessionStatusLine(session, frame.statusLine, frame.ts)
+    : false
   // Every path out of this function that does not reach the broadcast at the
-  // end still has to publish an edit: it is rendered, and this is the only
-  // place it would be.
+  // end still has to publish an edit or a context reading: they are rendered,
+  // and this is the only place they would be.
   const publishLedgerChange = (): void => {
-    if (ledgerChanged && terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged()
+    if ((ledgerChanged || contextUsageChanged) && terminals.get(session.sessionId) === session) {
+      broadcastTerminalSessionsChanged()
+    }
   }
 
   // A stale frame (older than the phase we already recorded) is ignored so
@@ -2449,7 +2470,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // folds a burst of them into one send.
   const attentionChanged = (previousPhase === 'awaiting_input') !== (resolution.phase === 'awaiting_input')
   if (
-    (activityChanged || attentionChanged || cliSessionIdChanged || promptChanged || ledgerChanged || backgroundWorkChanged)
+    (activityChanged || attentionChanged || cliSessionIdChanged || promptChanged || ledgerChanged || contextUsageChanged || backgroundWorkChanged)
     && terminals.get(session.sessionId) === session
   ) {
     broadcastTerminalSessionsChanged()

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, rmSync, statSync } from 'fs'
 import { mkdir, rename, rm, writeFile } from 'fs/promises'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { join } from 'path'
-import type { AgentCli, AgentExecutionMode, SessionFileChange, TerminalKind } from '../shared/electron-api'
+import type { AgentCli, AgentExecutionMode, SessionContextUsage, SessionFileChange, TerminalKind } from '../shared/electron-api'
 
 // Durable freeze-the-view: per-terminal snapshot sidecars under
 // `<userData>/terminal-snapshots/<sessionId>.json`.
@@ -63,6 +63,10 @@ export type TerminalSnapshotSidecar = {
   // MAX_SESSION_FILE_CHANGES on the way in; read back through
   // parseSessionFileChanges, since this file is untrusted input too.
   fileChanges?: SessionFileChange[]
+  // How full the parked session's context window was, so a chat frozen across
+  // an app restart still says so. Read back through parseSessionContextUsage —
+  // untrusted input like the rest of this file.
+  contextUsage?: SessionContextUsage
   // Exactly one of these carries the painted content: `snapshot` is a
   // headless-xterm serialized screen (replays faithfully, incl. alt-screen
   // TUIs); `rawReplay` is the retained pty byte stream captured on the quit

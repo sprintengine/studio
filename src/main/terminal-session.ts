@@ -7,6 +7,7 @@ import type {
   AgentSessionIdentity,
   AgentState,
   SessionActivity,
+  SessionContextUsage,
   SessionFileChange,
   SessionPrompt,
   TerminalKind,
@@ -14,6 +15,7 @@ import type {
   TerminalSessionSnapshot,
 } from '../shared/electron-api'
 import type { AgentLaunchRecord } from '../shared/agent-launch'
+import type { AgentStateFrameStatusLine } from './agent-state'
 import { isValidFileChangePath, MAX_FILE_CHANGE_COUNT } from './agent-state'
 import {
   getTerminalHistoryTier,
@@ -125,6 +127,19 @@ export type TerminalSession = {
   // its ledger through the snapshot sidecar, which is the only place it is
   // written down.
   fileChanges?: Map<string, SessionFileChange>
+  // The last reading from this session's own status line (the status-line
+  // forwarder's `StatusLine` frames). Only `contextUsage` below is on the
+  // snapshot today; the cost, the line counts, the model and the session name
+  // are kept here for the surfaces that will read them, so the forwarder is
+  // written once rather than once per consumer.
+  statusLine?: SessionStatusLine
+  // How much of the context window this session has consumed, as of the reading
+  // that last MOVED it. A null percentage — which the CLI reports before its
+  // first API call and again right after a /compact — deliberately does NOT
+  // clear this: "not known right now" is not "empty", and painting a compacted
+  // session as unknown would lose the number a person was watching seconds
+  // before the next real reading replaces it.
+  contextUsage?: SessionContextUsage
   // Background work the agent still owns — subagents started and not yet
   // stopped, per the manifest's `background` events. A turn end that arrives
   // while this is above zero is held as working (agent-state.ts,
@@ -404,6 +419,9 @@ type SuspendedPlaceholderSessionInput = {
   // The file ledger the sidecar persisted, newest-edited first, so a session
   // parked across an app restart still says what it changed.
   fileChanges?: Map<string, SessionFileChange>
+  // The context reading the sidecar persisted, so a parked chat still says how
+  // full it was.
+  contextUsage?: SessionContextUsage
   replaySnapshot?: string
   // Raw retained pty stream, used only when no serialized snapshot could be
   // built — seeds the replay buffer so reveal still paints something.
@@ -460,6 +478,7 @@ export function createSuspendedPlaceholderSession(
     worktreePath: input.worktreePath,
     observedCheckout: input.observedCheckout,
     fileChanges: input.fileChanges,
+    contextUsage: input.contextUsage,
     agentSession: undefined,
     visible: false,
     // The rehydration moment, NOT savedAt: getTerminalLastSeenAt feeds the 24h
@@ -630,6 +649,84 @@ export function parseSessionFileChanges(raw: unknown): Map<string, SessionFileCh
   return ledger.size > 0 ? ledger : undefined
 }
 
+/**
+ * The session's own status line, as its last reading left it. Everything except
+ * `at` is optional for the same reason the frame's fields are: the CLI reports
+ * what it knows.
+ */
+export type SessionStatusLine = {
+  usedPercentage?: number
+  contextWindowSize?: number
+  totalCostUsd?: number
+  linesAdded?: number
+  linesRemoved?: number
+  model?: string
+  sessionName?: string
+  // When the reading that produced this state arrived. Also the ordering guard:
+  // a status line refreshes several times a turn and its frames can be
+  // delivered out of order.
+  at: number
+}
+
+/**
+ * Fold one status-line reading into the session.
+ *
+ * Returns whether the SNAPSHOT changed — that is, whether the whole-percent
+ * context usage moved. It is the only part of this that a window renders today,
+ * and the status line refreshes after every assistant message: broadcasting on
+ * a cost that ticked by a thousandth of a cent would be a broadcast per turn
+ * per session for nothing anyone can see.
+ *
+ * The reading MERGES rather than replaces. A payload whose `used_percentage` is
+ * null (before the first API call, and again right after a /compact) arrives
+ * with the field simply absent, and must not take the cost, the model or the
+ * last known percentage with it.
+ *
+ * `contextUsage.at` is the moment the percentage LAST MOVED, not the moment of
+ * the last reading, so that what is held is exactly what was last broadcast —
+ * a timestamp that advanced silently on every refresh would drift away from
+ * every window and from the sidecar written off it.
+ *
+ * Unlike the file ledger beside it, a reading is NOT order-independent: it is a
+ * level, not a sum, so a late-arriving older one is dropped rather than folded.
+ */
+export function recordSessionStatusLine(
+  session: TerminalSession,
+  reading: AgentStateFrameStatusLine,
+  at: number
+): boolean {
+  const previous = session.statusLine
+  // Out of order: a status-line process is spawned per refresh and they can
+  // finish in any order. An older reading carries older facts, and the next
+  // refresh repairs anything this drops.
+  if (previous && previous.at > at) return false
+  session.statusLine = { ...previous, ...reading, at }
+
+  const usedPercentage = reading.usedPercentage
+  if (usedPercentage === undefined) return false
+  if (session.contextUsage?.usedPercentage === usedPercentage) return false
+  session.contextUsage = { usedPercentage, at }
+  return true
+}
+
+/**
+ * Read a persisted context reading back off the snapshot sidecar. A file on
+ * disk is untrusted input like a reporter frame, so this applies the same rules
+ * the socket does (whole percent, 0..100, a real timestamp).
+ */
+export function parseSessionContextUsage(raw: unknown, now = Date.now()): SessionContextUsage | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const candidate = raw as Partial<SessionContextUsage>
+  const { usedPercentage, at } = candidate
+  if (typeof usedPercentage !== 'number' || !Number.isFinite(usedPercentage)) return undefined
+  if (usedPercentage < 0 || usedPercentage > 100) return undefined
+  if (typeof at !== 'number' || !Number.isFinite(at) || at < 0) return undefined
+  // Clamped to arrival, exactly as a reporter frame's `ts` is: a far-future
+  // time on disk would be re-written to the sidecar on the next suspend and
+  // ride into every window from there.
+  return { usedPercentage: Math.round(usedPercentage), at: Math.min(Math.floor(at), now) }
+}
+
 export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSnapshot {
   compactTerminalReplayToLimit(session)
   return {
@@ -670,9 +767,9 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     // ledger and zero, never absence.
     fileChanges: listSessionFileChanges(session),
     activeSubagents: session.backgroundWork ?? 0,
-    // Phase 2 (the status-line forwarder) is what will fill this; until then
-    // every session reports "not known" rather than a guess.
-    contextUsage: null,
+    // The status-line forwarder's reading, or null for a session whose CLI has
+    // no status line and for one that has not made an API call yet.
+    contextUsage: session.contextUsage ?? null,
     lastTurnEndedAt: session.lastTurnEndedAt ?? null,
     exitedAt: session.exitedAt,
     outputBufferLength: session.outputLength,
