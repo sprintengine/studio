@@ -73,7 +73,7 @@ function fakeTerminal(): StudioTerminal & {
       loads += 1
       return handle
     },
-    emit: (results) => {
+    emit: (results: SearchResults) => {
       for (const listener of [...listeners]) listener(results)
     },
     listenerCount: () => listeners.size,
@@ -99,10 +99,15 @@ async function main(): Promise<void> {
 
   const terminalRef: { current: StudioTerminal | null } = { current: first }
   const containerRef: { current: HTMLElement | null } = { current: document.createElement('div') }
-  let find: TerminalFind | null = null
+  // A holder rather than a `let`: the hook's value is assigned inside the
+  // component, which the compiler cannot see, so a plain local stays narrowed
+  // to `null` and every `bar.current?.` below reads as `never`. A property is
+  // re-widened by the `act` calls between the reads, which is what the test
+  // actually relies on.
+  const bar: { current: TerminalFind | null } = { current: null }
 
   function Harness(): null {
-    find = useTerminalFind({
+    bar.current = useTerminalFind({
       workspaceId: 'w1',
       containerRef: containerRef as React.RefObject<HTMLElement | null>,
       terminalRef: terminalRef as React.RefObject<StudioTerminal | null>,
@@ -123,18 +128,18 @@ async function main(): Promise<void> {
   await act(async () => {
     respondToTerminalFind('w1')
   })
-  assert.equal(find?.open, true, 'the bar is open')
+  assert.equal(bar.current?.open, true, 'the bar is open')
   assert.equal(first.listenerCount(), 1, 'opening subscribes to the mounted terminal')
 
   // A find in the terminal the pane mounted with.
   await act(async () => {
-    find?.setQuery('needle')
+    bar.current?.setQuery('needle')
   })
   assert.deepEqual(first.searched, ['needle'], 'the find ran against the mounted terminal')
   await act(async () => {
     first.emit({ index: 0, count: 12 })
   })
-  assert.deepEqual(find?.results, { index: 0, count: 12 }, 'and its counts reached the bar')
+  assert.deepEqual(bar.current?.results, { index: 0, count: 12 }, 'and its counts reached the bar')
 
   // The pane's mount effect re-runs and builds a NEW terminal, exactly as it
   // does when a workspace folder resolves or a session reattaches. The find bar
@@ -142,7 +147,7 @@ async function main(): Promise<void> {
   terminalRef.current = second
 
   await act(async () => {
-    find?.findNext()
+    bar.current?.findNext()
   })
   assert.deepEqual(second.searched, ['needle'], 'the find follows the live terminal')
   assert.equal(first.listenerCount(), 0, 'the disposed terminal keeps no listener of ours')
@@ -152,7 +157,7 @@ async function main(): Promise<void> {
     second.emit({ index: 1, count: 4 })
   })
   assert.deepEqual(
-    find?.results,
+    bar.current?.results,
     { index: 1, count: 4 },
     'the counter reads the LIVE terminal — it used to stay frozen on the dead one',
   )
@@ -161,12 +166,12 @@ async function main(): Promise<void> {
   await act(async () => {
     first.emit({ index: 9, count: 99 })
   })
-  assert.deepEqual(find?.results, { index: 1, count: 4 }, 'a disposed addon no longer moves the counter')
+  assert.deepEqual(bar.current?.results, { index: 1, count: 4 }, 'a disposed addon no longer moves the counter')
 
   // One addon per terminal: the handle is still cached per instance, so a
   // second find does not load a second search addon.
   await act(async () => {
-    find?.findPrevious()
+    bar.current?.findPrevious()
   })
   assert.equal(second.loadCount(), 1, 'the handle is still cached per terminal, not re-loaded per find')
 

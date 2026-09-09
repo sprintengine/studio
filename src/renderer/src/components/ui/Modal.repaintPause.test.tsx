@@ -68,11 +68,15 @@ async function main(): Promise<void> {
     const render = (isOpen: boolean) => {
       act(() => {
         root.render(
-          React.createElement(
-            Modal,
-            { open: isOpen, onClose: () => {}, label: 'Test dialog' },
-            React.createElement('p', null, 'body')
-          )
+          // `children` is a required prop on `Modal`, so it goes IN the props
+          // rather than as a `createElement` rest argument — the rest form
+          // never satisfies a required `children`.
+          React.createElement(Modal, {
+            open: isOpen,
+            onClose: () => {},
+            label: 'Test dialog',
+            children: React.createElement('p', null, 'body'),
+          })
         )
       })
     }

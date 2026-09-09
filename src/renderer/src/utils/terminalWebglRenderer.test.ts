@@ -174,17 +174,20 @@ run('no WebGL2 context leaves the terminal on the DOM renderer without throwing'
 
 run('an addon constructor that throws is caught too', () => {
   const terminal = createFakeTerminal()
-  let handle: ReturnType<typeof attachWebglRenderer> | null = null
+  // Held on a property, not a `let`: the assignment happens inside the callback
+  // `doesNotThrow` runs, which the compiler cannot see, so a local would stay
+  // narrowed to `null` and `handle?.state()` would read as `never`.
+  const attached: { handle: ReturnType<typeof attachWebglRenderer> | null } = { handle: null }
 
   assert.doesNotThrow(() => {
-    handle = attachWebglRenderer({
+    attached.handle = attachWebglRenderer({
       terminal,
       createAddon: () => {
         throw new Error('no WebGL2')
       },
     })
   })
-  assert.equal(handle?.state(), 'unavailable')
+  assert.equal(attached.handle?.state(), 'unavailable')
 })
 
 run('refuses to load against a terminal that has not been opened', () => {

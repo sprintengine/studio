@@ -322,7 +322,8 @@ function testTheZshShimHandsEveryStageBackToTheUsersOwnFiles(): void {
 // shell with no env-only hook gets nothing rather than a broken approximation.
 function testOnlyTheShellsWeCanReachThroughEnvAreArmed(): void {
   const bash = buildShellIntegrationSetup('bash', null)
-  assert.ok(bash?.includes('PROMPT_COMMAND='), 'bash imports PROMPT_COMMAND from env')
+  assert.ok(bash, 'bash is reachable through the environment alone')
+  assert.ok(bash.includes('PROMPT_COMMAND='), 'bash imports PROMPT_COMMAND from env')
   assert.ok(bash.endsWith('; export PROMPT_COMMAND'), 'and it is exported, or the exec would not carry it')
   assert.ok(bash.includes(`'"'"'`), 'the emitter is quoted for the startup script, not pasted raw')
 
@@ -442,7 +443,8 @@ function testOsc133ZshHooksRunFirstAndHandTheStatusBack(): void {
 // half-armed approximation, and an agent pane never runs this path at all.
 function testTheMarksAreArmedForShellsOnly(): void {
   const bash = buildShellIntegrationSetup('bash', null)
-  assert.ok(bash?.includes('133;A'), 'bash carries the marks in the same variable as OSC 7')
+  assert.ok(bash, 'bash is armed')
+  assert.ok(bash.includes('133;A'), 'bash carries the marks in the same variable as OSC 7')
   assert.equal(
     bash.match(/PROMPT_COMMAND=/gu)?.length,
     2,
@@ -451,7 +453,8 @@ function testTheMarksAreArmedForShellsOnly(): void {
   assert.ok(bash.endsWith('; export PROMPT_COMMAND'), 'exported, or it would not survive the exec')
 
   const zsh = buildShellIntegrationSetup('zsh', '/profile/shell-integration/zsh')
-  assert.ok(zsh?.includes('ZDOTDIR'), 'zsh is reached through the same generated $ZDOTDIR, not a second one')
+  assert.ok(zsh, 'zsh is armed')
+  assert.ok(zsh.includes('ZDOTDIR'), 'zsh is reached through the same generated $ZDOTDIR, not a second one')
   assert.ok(!zsh.includes('133'), 'the marks live in the generated files, not in the startup script')
 
   for (const shellName of ['sh', 'fish', 'nu', undefined]) {
