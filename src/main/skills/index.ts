@@ -133,6 +133,13 @@ export type SkillsServiceDeps = {
    * fallback. Absent means yes.
    */
   gitInstalled?: boolean
+  /**
+   * Re-ask whether git is usable before a read or a listing. The integrator
+   * probes git after the app is ready and again when it was missing, so a
+   * person who installs git and presses Sync is read over git on that press —
+   * not after a restart. Awaited before the three deps above are read.
+   */
+  refreshTransport?: () => Promise<void>
 }
 
 export type SkillsService = {
@@ -167,16 +174,26 @@ export function createSkillsService(
   const discovery = createSkillDiscoveryClient(deps.discovery)
   const installs = deps.pluginInstallStore ?? createPluginInstallStore(userDataDir)
   const mcpClients = deps.mcpClients ?? (async () => ['claude-code', 'codex'])
-  // A reader is only ever injected because this machine has git, so its
-  // presence IS the transport unless the integrator says otherwise.
-  const transport: SkillRepoTransport = deps.repoTransport ?? (deps.repoReader ? 'git' : 'api')
-  const gitInstalled = deps.gitInstalled ?? true
+  // Read at call time, never captured: the integrator hands these in as
+  // getters that change once git is probed (after the app is ready) or found
+  // (after the person installs it). A reader is only ever present because this
+  // machine has git, so its presence IS the transport unless told otherwise.
+  const transportNow = (): SkillRepoTransport => deps.repoTransport ?? (deps.repoReader ? 'git' : 'api')
+  const gitInstalledNow = (): boolean => deps.gitInstalled ?? true
+  const refreshTransport = async (): Promise<void> => {
+    await deps.refreshTransport?.()
+  }
   const updateChecker = createSourceUpdateChecker({
     store,
     resolveToken: deps.resolveToken,
     github: deps.github,
-    ...(deps.repoReader ? { repoReader: deps.repoReader } : {}),
-    transport,
+    get repoReader() {
+      return deps.repoReader
+    },
+    get transport() {
+      return transportNow()
+    },
+    refreshTransport,
   })
 
   /**
@@ -189,7 +206,9 @@ export function createSkillsService(
    * Sync reads every plugin the marketplace lists rather than twenty of them.
    */
   async function repoContext(): Promise<RepoContext> {
+    await refreshTransport()
     const token = await deps.resolveToken()
+    const transport = transportNow()
     return {
       reader: deps.repoReader ?? apiSkillRepoReader({ ...deps.github, token }),
       transport,
@@ -255,7 +274,8 @@ export function createSkillsService(
       // an unread plugin depends on it, and the renderer has no other way to
       // learn which reader this build wired (git-transport ruling, owner
       // 2026-09-08).
-      return { ok: true, sources: await store.listSources(), transport, gitInstalled }
+      await refreshTransport()
+      return { ok: true, sources: await store.listSources(), transport: transportNow(), gitInstalled: gitInstalledNow() }
     },
 
     async addSource(input) {
@@ -1314,12 +1334,16 @@ function linkedFailureKind(
   transport: SkillRepoTransport
 ): 'rate-limited' | 'offline' | 'unreadable' {
   if (transport === 'git') {
-    // Duck-typed rather than imported: the git reader's error carries a `kind`,
-    // and this file is not the place that owns which kinds it can be. Only a
-    // dead network and a timed-out fetch are facts about the minute; everything
-    // else is a fact about the repository.
+    // The git reader names the kind itself. A throttle from the git host is
+    // a fact about the minute exactly as the API's was, so it halts the pass
+    // and leaves the rest pending; a timeout is a fact about ONE repository —
+    // a slow tree, not a dead network — so it is that repository's verdict and
+    // the pass carries on (review, 2026-09-09: one 60 s fetch used to mark
+    // two hundred repositories "GitHub could not be reached").
     const kind = (error as { kind?: unknown } | null)?.kind
-    return kind === 'offline' || kind === 'timeout' ? 'offline' : 'unreadable'
+    if (kind === 'rate-limited') return 'rate-limited'
+    if (kind === 'offline') return 'offline'
+    return 'unreadable'
   }
   if (!(error instanceof SkillFetchError)) return 'unreadable'
   if (error.rateLimit?.exhausted === true) return 'rate-limited'

@@ -235,7 +235,10 @@ export function newHomeCardSlugs(
   if (!seenAt) return slugs
   const seenMs = Date.parse(seenAt)
   if (Number.isNaN(seenMs)) return slugs
-  for (const card of cards) {
+  // Only what this build can draw: a card whose artwork it does not ship is
+  // not on the page, so counting it would badge the square for a chip nobody
+  // can ever see (review, 2026-09-09).
+  for (const card of renderableCards(cards)) {
     const publishedMs = Date.parse(card.publishedAt)
     // Strictly after. A card published at the very millisecond of the stamp was
     // on the page the person just looked at, so it is not news to them; and a

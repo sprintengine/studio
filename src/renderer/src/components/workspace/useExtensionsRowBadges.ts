@@ -44,7 +44,7 @@ export function useExtensionsRowBadges(): ExtensionsRowBadges {
   // The same shared index the run doors and the Extensions home read: one
   // subscription and one coalesced scan per window, however many read it.
   const sprintRuns = useSprintRunIndex()
-  const designArrivals = useDesignArrivals()
+  const designArrivals = useDesignArrivals(designEnabled)
   // The rows' names come from the modules that own them, through the one
   // resolver the drawer and the home use, so a badge's accessible name says
   // what the row beside it says.

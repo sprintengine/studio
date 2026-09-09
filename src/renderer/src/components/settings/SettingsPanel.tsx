@@ -908,9 +908,10 @@ export default function SettingsPanel({
   const [githubTokenStatus, setGithubTokenStatus] = useState<GitHubTokenUiStatus | null>(null)
   // Which transport the skills service reads repositories over, because the
   // cadence line below is a different sentence on each (git-transport ruling,
-  // owner 2026-09-08). 'api' until the answer lands, which is the cautious half
-  // of the pair: it is the one that still names the token.
-  const [skillRepoTransport, setSkillRepoTransport] = useState<SkillRepoTransport>('api')
+  // owner 2026-09-08). Null until the answer lands: guessing 'api' told a
+  // machine with git that it checks once a day, which was simply false
+  // (review, 2026-09-09) — the line waits for the fact instead.
+  const [skillRepoTransport, setSkillRepoTransport] = useState<SkillRepoTransport | null>(null)
   const [githubTokenDraft, setGithubTokenDraft] = useState('')
   const [githubTokenMessage, setGithubTokenMessage] = useState('')
   const [githubTokenPending, setGithubTokenPending] = useState(false)
@@ -1650,9 +1651,11 @@ export default function SettingsPanel({
                     count, so it is hourly whatever this field says (owner
                     ruling, 2026-09-08) — a person who finds updates slow to
                     appear should read why here, not guess. */}
-                <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
-                  {sourceUpdateCadenceLine(githubTokenStatus?.configured === true, skillRepoTransport)}
-                </p>
+                {skillRepoTransport ? (
+                  <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
+                    {sourceUpdateCadenceLine(githubTokenStatus?.configured === true, skillRepoTransport)}
+                  </p>
+                ) : null}
               </div>
             }
           />

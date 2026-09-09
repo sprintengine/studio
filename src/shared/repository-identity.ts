@@ -116,6 +116,26 @@ export function parseRemoteFetchUrls(stdout: string): Map<string, string> {
 }
 
 /**
+ * What a read of a folder's identity actually answered.
+ *
+ * `settled` is the difference between "asked, and this folder has no remote"
+ * and "could not ask" — a read that timed out on a spun-down volume, or that
+ * threw. Both used to arrive as a bare `null`, which made a folder on a sleeping
+ * disk indistinguishable from a folder with no remote. That is fine for
+ * GROUPING, where either way the folder groups by its path, and wrong for
+ * anything that writes the answer down: one-colour-per-project (2026-09-09)
+ * would spend a hue on the folder's PATH key and then a second on its
+ * repository key the next time the volume was awake, so one project would end
+ * up wearing two of the six colours. A caller that persists anything derived
+ * from an identity must wait for `settled`.
+ */
+export type RepositoryIdentityRead = {
+  identity: RepositoryIdentity | null
+  /** The read completed and this IS the answer — including "no remote". */
+  settled: boolean
+}
+
+/**
  * Whether two identities name one repository. Null on either side is "not
  * known", which never matches — an unidentified folder stays its own thing.
  */

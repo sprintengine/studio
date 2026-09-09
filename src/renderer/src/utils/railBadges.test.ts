@@ -56,11 +56,18 @@ assert.equal(automationsRailBadge([note({ id: 'x' }), note({ id: 'y', level: 'wa
 assert.equal(automationsRailBadge([note({ id: 'x', level: 'warning' }), note({ id: 'y', level: 'error' })])?.tone, 'error', 'the loudest level wins')
 
 // ── Cards since last seen ─────────────────────────────────────────────────────
-const card = (slug: string, publishedAt: string): HostedCard => ({ slug, publishedAt } as unknown as HostedCard)
+// With artwork this build ships: a card it cannot draw is not on the page and
+// so is never counted (the home's own rule, which this counter delegates to).
+const card = (slug: string, publishedAt: string): HostedCard => ({ slug, publishedAt, art: 'browser' } as unknown as HostedCard)
 const cards = [card('old', '2026-09-01'), card('new', '2026-09-06T12:00:00Z'), card('bad', 'not a date')]
 assert.equal(unseenCardCount(cards, undefined), 0, 'never looked is nothing new — the host stamps the first feed as seen')
 assert.equal(unseenCardCount(cards, '2026-09-03T00:00:00Z'), 1, 'only cards published after the last look count; an unparseable date never does')
 assert.equal(unseenCardCount(cards, 'garbage'), 0)
+assert.equal(
+  unseenCardCount([...cards, { slug: 'unknown-art', publishedAt: '2026-09-07', art: 'nothing-this-build-has' } as unknown as HostedCard], '2026-09-03T00:00:00Z'),
+  1,
+  'a card whose artwork this build cannot draw is not counted — the home would show no chip for it',
+)
 
 // ── News → drawer rows ────────────────────────────────────────────────────────
 // Owner, 2026-09-08: the notification goes on the row it came from. A source
@@ -90,16 +97,16 @@ assert.deepEqual(
 assert.equal(extensionsRowBadge({ label: 'Plugins', unread: [] }), null, 'nothing is no badge, not a 0')
 assert.deepEqual(
   extensionsRowBadge({ label: 'Plugins', unread: [note({ id: 'c', source: 'marketplace' })] }),
-  { count: 1, tone: 'accent', label: 'Plugins: 1 new' },
+  { count: 1, tone: 'accent', label: 'Plugins: 1 new', detail: '1 new' },
 )
 assert.deepEqual(
   extensionsRowBadge({ label: 'Sprints', unread: [note({ id: 'd', source: 'sprintengine' })], waiting: 2 }),
-  { count: 3, tone: 'warn', label: 'Sprints: 2 waiting on you, 1 new' },
+  { count: 3, tone: 'warn', label: 'Sprints: 2 waiting on you, 1 new', detail: '2 waiting on you, 1 new' },
   'a run waiting on you is gold and the label keeps the two apart',
 )
 assert.deepEqual(
   extensionsRowBadge({ label: 'Design', unread: [], arrived: 4 }),
-  { count: 4, tone: 'accent', label: 'Design: 4 new' },
+  { count: 4, tone: 'accent', label: 'Design: 4 new', detail: '4 new' },
   'entries arrived since the last look are news',
 )
 assert.equal(

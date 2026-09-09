@@ -3,7 +3,15 @@ import React from 'react'
 import { basename } from '../../../utils/paths'
 import { showToast } from '../../../store/toastStore'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
+import { useProjectColors } from '../../../hooks/useProjectColors'
+import { projectColorKey, resolveProjectColor, type ProjectColor } from '../../../utils/projectColor'
 import { ChipButton, Popover } from '../../ui'
+import { FolderIdentityIcon } from '../FolderIdentityIcon'
+import {
+  folderIdentityKey,
+  useFolderRepositoryIdentities,
+  type FolderIdentityMap,
+} from '../useFolderRepositoryIdentities'
 import { resolveDefaultParentPath } from '../newWorkspace/folderCreation'
 import {
   ProjectSourceMenu,
@@ -24,6 +32,16 @@ import {
 //
 // New chat's behaviour is unchanged by the move: same chip, same menu, same
 // clone handling, same recents.
+//
+// The chip WEARS THE PROJECT'S COLOUR (owner ruling 2026-09-09, backlog item
+// `one-colour-per-project-on-the-folder-glyph`, decision 7). The owner's
+// complaint was "I keep opening up a new chat and forgetting to pick the
+// project", and the fix is that a chosen project and no project stop looking
+// alike: a chosen one is a solid folder in its own hue, and no project at all
+// is a dashed, colourless folder reading "Choose a project". The colour is on
+// the glyph and nowhere else on the line — decision 1 — so there is no tinted
+// pill and no dot, and there is deliberately no hint text under the chip
+// (owner: the person can figure it out from the composer below).
 
 /** One choosable project scope: a folder some open workspace lives in. */
 export type ProjectScopeOption = ProjectSourceOption
@@ -38,6 +56,9 @@ export function ProjectScopePicker({
   onClone,
   importFromGit = true,
   ariaLabel = 'Project this agent runs in',
+  color,
+  unfiled,
+  identities,
 }: {
   label: string
   /** Checked-out branch, shown after the project name. Null on a door with no checkout. */
@@ -62,6 +83,37 @@ export function ProjectScopePicker({
   importFromGit?: boolean
   /** What the trigger is called, for a host whose question is not "which project does this agent run in". */
   ariaLabel?: string
+  /**
+   * The chosen project's hue, when the HOST already knows it.
+   *
+   * A project is a repository (decision 3), and only the host holds the
+   * repository identity behind `selectedPath` — New chat reads it for the
+   * machine list anyway. Passing it here is therefore the accurate answer, and
+   * `null` is a real one: an unseen project, or a person who chose "No colour".
+   * Omitting the prop entirely asks this component to resolve the hue from the
+   * path alone, which is right for a folder with no remote and simply misses —
+   * a plain folder glyph — for one that has.
+   */
+  color?: ProjectColor | null
+  /**
+   * No project is chosen, so the glyph is the dashed grey outline: no folder is
+   * not a project (decision 6). Defaults to "nothing is selected", which is what
+   * it means on every host that passes `selectedPath` honestly.
+   */
+  unfiled?: boolean
+  /**
+   * Which repository each offered folder is a clone of, so the rows in the
+   * popover wear their own hues rather than only the chosen one.
+   *
+   * Handed down rather than read here: New chat already asks main for exactly
+   * this map (`useFolderRepositoryIdentities` over the scope and every option),
+   * and a second reader would repeat every IPC for the same answer. It covers
+   * the folders the HOST knows; the recents below are this component's own rows
+   * and it asks for those itself. A host with no map still gets colours — the
+   * rows fall back to the folder key, which finds the projects that have no
+   * remote and misses the rest, and a miss is a plain glyph, never a wrong one.
+   */
+  identities?: FolderIdentityMap
 }) {
   // Projects this app knows beyond the ones open in this window: the recent
   // folders the workspace hub lists. Searching the selector covers them too,
@@ -81,6 +133,35 @@ export function ProjectScopePicker({
     }
     return recents
   }, [options, storedRecentFolders])
+  // One map for the chip and every row in the list, out of the same store the
+  // sidebar's glyphs read, so a colour changed from the project header moves
+  // all of them at once.
+  const projectColors = useProjectColors()
+  // The recents are this component's own rows, so their identities are its own
+  // question to ask. The host's map covers the projects the host knows — the
+  // scope and the open ones — and a recent clone of an open repository is
+  // exactly the row that would otherwise sit grey beside its blue twin, which
+  // is the confusion the colour exists to end. Main caches the answer, so this
+  // is a read of a cache rather than a git call per row.
+  const recentIdentities = useFolderRepositoryIdentities(
+    React.useMemo(() => recentOptions.map((option) => option.path), [recentOptions]),
+  )
+  const colorOf = React.useCallback(
+    (path: string | null | undefined): ProjectColor | null => {
+      const folderPath = path?.trim()
+      if (!folderPath) return null
+      const key = folderIdentityKey(folderPath)
+      // `??` rather than a merged map: an answered "not a repository" is null
+      // in both maps and an unasked folder is absent from both, so either way
+      // the key falls back to the folder path — which is the right key for a
+      // folder with no remote and simply misses for one whose read is late.
+      const repository = identities?.get(key) ?? recentIdentities.get(key) ?? null
+      return resolveProjectColor(projectColors, projectColorKey({ folderPath, repository }))
+    },
+    [identities, projectColors, recentIdentities],
+  )
+  const chipColor = color === undefined ? colorOf(selectedPath) : color
+  const chipUnfiled = unfiled ?? !selectedPath?.trim()
   // Cold start: nothing open and nothing recent still needs somewhere for a
   // clone to land, so the app's default parent (the hub's own fallback) is
   // asked for once rather than telling the person to open a project first.
@@ -143,6 +224,17 @@ export function ProjectScopePicker({
           data-project-trigger="true"
           {...triggerProps}
         >
+          {/* The one coloured thing on the line, and the SAME component the
+              sidebar's folder header uses — so a project with a detected logo
+              shows its logo here too, and the hue is what the glyph falls back
+              to rather than a second mark beside it. A logo already answers
+              "which project is this"; a hue behind one would answer it twice. */}
+          <FolderIdentityIcon
+            folderPath={selectedPath}
+            className="icon-xs shrink-0"
+            color={chipColor}
+            unfiled={chipUnfiled}
+          />
           {label}
           {branch ? ` · ${branch}` : ''}
           <ChevronGlyph />
@@ -159,6 +251,7 @@ export function ProjectScopePicker({
         selectedPath={selectedPath}
         defaultParent={defaultParent}
         onSelect={(path) => onSelect(path)}
+        colorOf={colorOf}
         onBrowse={onBrowse}
         onClone={importFromGit ? runClone : undefined}
         onClose={() => setOpen(false)}

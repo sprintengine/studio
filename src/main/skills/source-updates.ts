@@ -59,6 +59,8 @@ export type SourceUpdateCheckerDeps = {
   repoReader?: SkillRepoReader
   /** What that reader speaks. It is the cadence's other half; defaults to 'api'. */
   transport?: SkillRepoTransport
+  /** Awaited before each check reads the two above; see `SkillsServiceDeps.refreshTransport`. */
+  refreshTransport?: () => Promise<void>
   /** Injected in tests. */
   resolveHead?: (source: SkillSource, token: string) => Promise<string>
   now?: () => Date
@@ -77,8 +79,9 @@ export type SourceUpdateChecker = {
 
 export function createSourceUpdateChecker(deps: SourceUpdateCheckerDeps): SourceUpdateChecker {
   const now = deps.now ?? (() => new Date())
-  const transport: SkillRepoTransport = deps.transport ?? (deps.repoReader ? 'git' : 'api')
-  const reader = deps.repoReader
+  // Read per check, never captured: the integrator hands these in as getters
+  // that change once git is probed or installed (`SkillsServiceDeps`).
+  const transportNow = (): SkillRepoTransport => deps.transport ?? (deps.repoReader ? 'git' : 'api')
   const resolveHead =
     deps.resolveHead
     ?? (async (source: SkillSource, token: string): Promise<string> => {
@@ -86,6 +89,7 @@ export function createSourceUpdateChecker(deps: SourceUpdateCheckerDeps): Source
       if (!ref) throw new Error(`${source.repo} is not a repository that can be checked.`)
       // The reader's own head resolution when there is one — one round trip
       // either way, but git's is not counted by the API's hourly limit.
+      const reader = deps.repoReader
       if (reader) return reader.resolveCommit(`${ref.owner}/${ref.repo}`, ref.ref)
       return resolveSkillRepoCommit(ref, { ...deps.github, token })
     })
@@ -102,6 +106,8 @@ export function createSourceUpdateChecker(deps: SourceUpdateCheckerDeps): Source
   }
 
   async function run(): Promise<SkillSourceUpdateCheck> {
+    await deps.refreshTransport?.()
+    const transport = transportNow()
     const sources = (await deps.store.listSources()).filter((source) => source.kind === 'github')
     const token = await deps.resolveToken().catch(() => '')
     const hasToken = token.trim() !== ''

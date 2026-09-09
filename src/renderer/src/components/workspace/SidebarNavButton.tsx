@@ -26,8 +26,14 @@ import { Tooltip } from '../ui/Tooltip'
 export type RowBadge = {
   count: number
   tone: Tone
-  /** The count's accessible name; a bare number tells a screen reader nothing. */
+  /** The count's full accessible name ("Plugins: 1 new") — what the app rail's square says. */
   label: string
+  /**
+   * The same without the place ("1 new"). A row already names its place in
+   * its own label, so this is what its badge announces; the full form after
+   * the row's name read "Plugins Plugins: 1 new" (review, 2026-09-09).
+   */
+  detail?: string
 }
 
 export function SidebarNavButton({
@@ -69,6 +75,9 @@ export function SidebarNavButton({
   icon: React.ReactNode
 }) {
   const highlighted = Boolean(active) || Boolean(dropActive)
+  const shownBadge = badge && badge.count > 0 ? badge : null
+  const badgeShown = shownBadge !== null
+  const badgeDetail = shownBadge?.detail ?? shownBadge?.label ?? ''
   const button = (
     // The kit's row at the sidebar's navigation rhythm. `selected` paints the
     // canonical selection — the neutral fill plus the 2px inset edge every other
@@ -84,27 +93,30 @@ export function SidebarNavButton({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       aria-current={active ? 'true' : undefined}
-      aria-label={collapsed ? ariaLabel : undefined}
+      // Collapsed, the button's own name is all a screen reader gets — the
+      // badge's live region only speaks on change — so the count rides in it.
+      aria-label={collapsed ? (badgeShown ? `${ariaLabel}, ${badgeDetail}` : ariaLabel) : undefined}
       className={`relative text-heading font-medium ${collapsed ? 'justify-center' : ''}`}
     >
       {icon}
       {!collapsed ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
-      {badge && badge.count > 0 ? (
+      {shownBadge ? (
         collapsed ? (
           // Docked on the row's own corner (the row is `relative`), ringed in
           // the sidebar's ground — `bg.canvas`, the same ground the rail's
           // squares sit on — rather than the app ground the primitive assumes.
+          // Decorative here: the button's aria-label above already says it.
           <Badge
             corner
-            tone={badge.tone}
-            count={badge.count}
+            decorative
+            tone={shownBadge.tone}
+            count={shownBadge.count}
             max={99}
-            ariaLabel={badge.label}
             className="border-[color:var(--bg-canvas)]"
           />
         ) : (
           <span className="ml-auto flex shrink-0 pl-1">
-            <Badge tone={badge.tone} count={badge.count} max={99} ariaLabel={badge.label} />
+            <Badge tone={shownBadge.tone} count={shownBadge.count} max={99} ariaLabel={badgeDetail} />
           </span>
         )
       ) : indicator ? (
