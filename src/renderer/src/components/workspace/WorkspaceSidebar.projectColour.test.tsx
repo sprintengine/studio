@@ -8,11 +8,17 @@ import { JSDOM } from 'jsdom'
 // Everything here is about the SIDEBAR's half of that item, and it mounts the
 // real component because every claim the ruling makes is about what the rail
 // renders: that two open projects are never handed one hue, that the hue is on
-// the glyph and keyed by REPOSITORY (so a paired machine's clone wears it too),
-// that "No folder" is not a project and gets the dashed outline instead, that
-// the header menu changes it everywhere at once, and that a restart keeps it.
-// The allocator and the palette have their own unit suite
-// (utils/projectColor.test.ts); this is the surface's.
+// the glyph and keyed by REPOSITORY, that "No folder" is not a project and gets
+// the dashed outline instead, that the header menu changes it everywhere at
+// once, and that a restart keeps it. The allocator and the palette have their
+// own unit suite (utils/projectColor.test.ts); this is the surface's.
+//
+// The rail has exactly TWO carriers, reviewed and cut down to them on
+// 2026-09-09: the flat stream's project line and the folder header. The Starred
+// and Remote bands carry no folder glyph at all — a hue there would be a third
+// colour channel on a row that already wears the gold star or the machine
+// glyph, and can also be wearing the needs-input wash. The Remote band is
+// asserted here as a NEGATIVE for exactly that reason.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -49,9 +55,30 @@ class NoopResizeObserver {
 anyGlobal.ResizeObserver = NoopResizeObserver
 dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
-// A gate on the repository reads, so the suite can hold a folder's identity
-// unanswered and watch what the rail does in the meantime — the phantom-key
-// case below, which is the whole reason allocation waits.
+// The hook's re-ask for a read that did not settle is a 10s timer. Rather than
+// wait it out, intercept exactly that delay and fire it on demand — React's own
+// scheduler uses shorter ones and is left alone.
+const realSetTimeout = globalThis.setTimeout
+const RETRY_DELAY_MS = 10_000
+let pendingRetries: Array<() => void> = []
+anyGlobal.setTimeout = ((handler: TimerHandler, delay?: number, ...rest: unknown[]) => {
+  if (delay === RETRY_DELAY_MS && typeof handler === 'function') {
+    pendingRetries.push(handler as () => void)
+    return 0 as unknown as ReturnType<typeof setTimeout>
+  }
+  return (realSetTimeout as (...args: unknown[]) => ReturnType<typeof setTimeout>)(handler, delay, ...rest)
+}) as unknown as typeof setTimeout
+
+// The reader, under this suite's control: which folders answer, when, and
+// whether the answer SETTLED.
+type IdentityRead = { identity: { canonicalKey: string; remoteUrl: string; name: string } | null; settled: boolean }
+const MULTICODE = {
+  canonicalKey: 'github.com/acme/multicode',
+  remoteUrl: 'git@github.com:acme/multicode.git',
+  name: 'multicode',
+}
+const asks: string[] = []
+const unsettledFolders = new Set<string>()
 let releaseIdentities: () => void = () => {}
 let identityGate: Promise<void> = Promise.resolve()
 function holdIdentities(): void {
@@ -67,14 +94,15 @@ domWindow.api = {
   onSprintRunsChanged: () => () => {},
   listSprintRuns: async () => [],
   detectProjectLogo: async () => null,
-  // /projA is a clone of acme/multicode; the remote row below is the same
-  // repository on a paired machine, so both must resolve to one colour key.
-  // /projB is a folder with no remote at all — a real project, keyed by path.
-  getGitRepositoryIdentity: async (folderPath: string) => {
+  // /projA is a clone of acme/multicode. /projB is a folder with no remote at
+  // all — a real project, keyed by path, and the case a "was it answered?"
+  // gate must not swallow. Anything in `unsettledFolders` answers "could not
+  // ask", which is not an answer and must never be written down as one.
+  getGitRepositoryIdentity: async (folderPath: string): Promise<IdentityRead> => {
+    asks.push(folderPath)
     await identityGate
-    return folderPath === '/projA'
-      ? { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
-      : null
+    if (unsettledFolders.has(folderPath)) return { identity: null, settled: false }
+    return { identity: folderPath === '/projA' ? MULTICODE : null, settled: true }
   },
 }
 
@@ -84,12 +112,18 @@ function markClassOf(node: Element | null | undefined): string | null {
   return /project-mark-[a-z]+/.exec(className)?.[0] ?? null
 }
 
+// The menu's own spelling, said once: the swatch row is the kit's
+// (ui/ContextMenu), and this suite should not restate its label per assertion.
+const PICK_HUE_LABEL = 'Project color Violet'
+const PICKED_HUE_CLASS = 'project-mark-violet'
+
 async function main(): Promise<void> {
   const React = await import('react')
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
   const { useWorkspaceStore } = await import('../../store/workspaceStore')
+  const { normalizeAppSettings } = await import('../../store/slices/settingsSlice')
   const { resetProjectLogos } = await import('../../utils/projectLogos')
 
   resetProjectLogos()
@@ -98,14 +132,19 @@ async function main(): Promise<void> {
   const workspace = (id: string, name: string, folderPath: string | null, extra?: Record<string, unknown>) =>
     ({ id, name, mode: 'standard', folderPath, ...extra }) as unknown
 
-  const workspaces = [
+  const localWorkspaces = [
     workspace('w1', 'Alpha', '/projA'),
     workspace('w2', 'Bravo', '/projA'),
     workspace('w3', 'Charlie', '/projB'),
+  ] as SidebarProps['workspaces']
+
+  const workspaces = [
+    ...localWorkspaces,
     // No folder is not a project (decision 6).
     workspace('w4', 'Echo', null),
-    // Born on a paired machine, in ITS clone of acme/multicode. One project
-    // across machines: the machine is a glyph, never a second colour.
+    // Born on a paired machine, in ITS clone of acme/multicode. It lives in the
+    // Remote band, where the machine glyph is the row's mark and no folder
+    // glyph is drawn at all.
     workspace('w5', 'Foxtrot', null, {
       remoteOrigin: {
         connectionId: 'c1',
@@ -113,11 +152,7 @@ async function main(): Promise<void> {
         workspaceId: 'rw1',
         workspaceName: 'multicode',
         workspaceRoot: '/Users/air/multicode',
-        repository: {
-          canonicalKey: 'github.com/acme/multicode',
-          remoteUrl: 'git@github.com:acme/multicode.git',
-          name: 'multicode',
-        },
+        repository: MULTICODE,
       },
       layoutModel: { layout: { type: 'row', children: [] } },
     }),
@@ -156,35 +191,25 @@ async function main(): Promise<void> {
     openSettings: noop,
     settingsOpen: false,
   } as unknown as SidebarProps)
-  const props = propsFor(workspaces)
 
   const settle = async () => {
     for (let i = 0; i < 12; i += 1) await Promise.resolve()
     act(() => {})
     for (let i = 0; i < 4; i += 1) {
       await act(async () => {
-        await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
+        await new Promise((resolve) => realSetTimeout(resolve, 0))
       })
     }
   }
 
-  const mount = async (mountProps: SidebarProps = props) => {
+  const mount = async (mountProps: SidebarProps) => {
     const container = dom.window.document.createElement('div')
     dom.window.document.body.appendChild(container)
     const root = createRoot(container)
     act(() => {
       root.render(React.createElement(WorkspaceSidebar, mountProps))
     })
-    for (let i = 0; i < 12; i += 1) await Promise.resolve()
-    act(() => {})
-    // The repository reads settle off the event loop, and the colour is only
-    // allocated once they have — see `settled` in the sidebar. Yielding a
-    // macrotask inside `act` is what lets that second pass commit.
-    for (let i = 0; i < 4; i += 1) {
-      await act(async () => {
-        await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
-      })
-    }
+    await settle()
     return { container, root }
   }
 
@@ -195,14 +220,31 @@ async function main(): Promise<void> {
     assert.ok(row, `row for ${name} rendered`)
     return row!
   }
+  const headerFor = (container: Element, name: string) => {
+    const header = [...container.querySelectorAll('button[aria-expanded]')].find((candidate) =>
+      candidate.textContent?.includes(name)
+    )
+    assert.ok(header, `folder header for ${name} rendered`)
+    return header!
+  }
+  const openFolderMenu = (container: Element, name: string) => {
+    const button = [...container.querySelectorAll('button[aria-label^="Folder actions"]')].find((candidate) =>
+      candidate.getAttribute('aria-label')?.includes(name)
+    )
+    assert.ok(button, `${name}'s header offers its folder menu`)
+    act(() => {
+      button!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+  }
+  const closeFolderMenu = () => {
+    act(() => {
+      dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+  }
+  const hueSwatch = () => dom.window.document.querySelector(`button[aria-label="${PICK_HUE_LABEL}"]`)
+  const projectColorsNow = () => useWorkspaceStore.getState().appSettings.projectColors
 
-  // The flat stream is where the project line — glyph plus name — lives, so
-  // that is the shape this suite reads.
-  act(() => {
-    useWorkspaceStore.getState().setChatListView('all')
-  })
-
-  // ── A hue is allocated only once the repository question is ANSWERED ────
+  // ── 1 · A hue is allocated only once the repository question is ANSWERED ──
   //
   // The bug this guards: a folder keyed by its PATH while its identity read is
   // still in flight would be given a hue one frame before the key becomes the
@@ -211,61 +253,115 @@ async function main(): Promise<void> {
   // visibly change colour a moment after the window opened, which decision 4
   // ("it never changes behind the person's back") forbids.
   holdIdentities()
-  const pending = await mount(propsFor(workspaces.slice(0, 3)))
-  const colorsWhilePending = useWorkspaceStore.getState().appSettings.projectColors
-  assert.deepEqual(colorsWhilePending, {}, 'nothing is allocated while the repository reads are in flight')
+  const pending = await mount(propsFor(localWorkspaces))
+  assert.deepEqual(projectColorsNow(), {}, 'nothing is allocated while the repository reads are in flight')
   assert.equal(
-    markClassOf(rowFor(pending.container, 'Alpha').firstElementChild!.querySelector('svg')),
+    markClassOf(headerFor(pending.container, 'projA').querySelector('svg')),
     null,
-    'and the glyph is the plain outline for that beat, not a hue it would have to give back'
+    'and the header glyph is the plain outline for that beat, not a hue it would have to give back'
   )
+
+  // The picker is gated on the same answer, and for a sharper reason: a hue
+  // picked now would be written to `folder:/projA`, and a beat later the
+  // project is keyed `repo:…` and the person's choice has silently vanished.
+  openFolderMenu(pending.container, 'projA')
+  assert.equal(hueSwatch(), null, 'the folder menu offers no project colour until the key is final')
+  closeFolderMenu()
 
   releaseIdentities()
   await settle()
-  const colorsAfterRead = useWorkspaceStore.getState().appSettings.projectColors
   assert.deepEqual(
-    Object.keys(colorsAfterRead).sort(),
+    Object.keys(projectColorsNow()).sort(),
     ['folder:/projb', 'repo:github.com/acme/multicode'],
     'the answer allocates exactly one key per project: the repository for the folder that has one, '
-      + 'and — the case a `has()` check must not swallow — the PATH for the folder whose read said "no remote"'
+      + 'and — the case a settled-only gate must not swallow — the PATH for the folder whose read said "no remote"'
   )
-  assert.ok(!('folder:/proja' in colorsAfterRead), 'no phantom path key survives for a folder that is a repository')
+  assert.ok(!('folder:/proja' in projectColorsNow()), 'no phantom path key survives for a folder that is a repository')
+
+  const markA = markClassOf(headerFor(pending.container, 'projA').querySelector('svg'))
+  const markB = markClassOf(headerFor(pending.container, 'projB').querySelector('svg'))
+  assert.ok(markA, 'an open project is given a hue the first time it is seen')
+  assert.ok(markB, 'and so is the second one')
+  assert.notEqual(markA, markB, 'two open projects never receive the same hue')
+
+  openFolderMenu(pending.container, 'projA')
+  assert.ok(hueSwatch(), 'and the picker appears once the key is final')
+  closeFolderMenu()
 
   act(() => {
     pending.root.unmount()
   })
 
-  const first = await mount()
-
-  // ── Assigned on first sight, and never the same hue twice ───────────────
+  // ── 2 · A read that could not be MADE is not an answer either ────────────
   //
+  // Main answers `settled: false` for a 3s timeout or a git error — a folder on
+  // a spun-down volume. Recording that as "no remote" would hand the folder a
+  // `folder:` hue now and a `repo:` one the next time the volume was awake, so
+  // it stays absent, colourless, and is asked again.
+  unsettledFolders.add('/projC')
+  const asleep = [...localWorkspaces, workspace('w6', 'Golf', '/projC')] as SidebarProps['workspaces']
+  const spunDown = await mount(propsFor(asleep))
+  assert.ok(!('folder:/projc' in projectColorsNow()), 'a folder whose read could not be made is given no hue')
+  assert.equal(
+    markClassOf(headerFor(spunDown.container, 'projC').querySelector('svg')),
+    null,
+    'and its header glyph stays plain rather than claiming a project colour'
+  )
+  openFolderMenu(spunDown.container, 'projC')
+  assert.equal(hueSwatch(), null, 'nor can a colour be picked for a project whose identity is unknown')
+  closeFolderMenu()
+
+  // The volume wakes up. The hook re-asks on main's own retry window rather
+  // than holding the folder unanswered for the life of the window.
+  asks.length = 0
+  unsettledFolders.delete('/projC')
+  const retries = pendingRetries
+  pendingRetries = []
+  assert.ok(retries.length > 0, 'an unsettled read schedules a re-ask')
+  act(() => {
+    for (const retry of retries) retry()
+  })
+  await settle()
+  assert.ok(asks.includes('/projC'), 'and the re-ask really asks main again')
+  assert.equal(
+    projectColorsNow()['folder:/projc'] !== undefined,
+    true,
+    'once it answers, the project is allocated a hue like any other'
+  )
+
+  act(() => {
+    spunDown.root.unmount()
+  })
+
+  // ── 3 · The two carriers, and the rows that deliberately have none ───────
+  act(() => {
+    useWorkspaceStore.getState().setChatListView('all')
+  })
+  const stream = await mount(propsFor(workspaces))
+
   // The project line is the row's first child in the stream, and its glyph is
   // the first svg in it: the ONE element the colour is allowed on.
   const glyphOf = (container: Element, name: string) =>
     rowFor(container, name).firstElementChild!.querySelector('svg')
 
-  const markA = markClassOf(glyphOf(first.container, 'Alpha'))
-  const markB = markClassOf(glyphOf(first.container, 'Charlie'))
-  assert.ok(markA, 'an open project is given a hue the first time it is seen')
-  assert.ok(markB, 'and so is the second one')
-  assert.notEqual(markA, markB, 'two open projects never receive the same hue')
+  assert.equal(markClassOf(glyphOf(stream.container, 'Alpha')), markA, "the stream line wears its project's hue")
   assert.equal(
-    markClassOf(glyphOf(first.container, 'Bravo')),
+    markClassOf(glyphOf(stream.container, 'Bravo')),
     markA,
     'every chat of one project shows that project one hue'
   )
+  assert.equal(markClassOf(glyphOf(stream.container, 'Charlie')), markB, 'and the other project shows the other')
 
   // The name beside the glyph is not tinted, and neither is the row: the hue
   // identifies, it never grades (design system, "Identity colour").
-  const alphaLine = rowFor(first.container, 'Alpha').firstElementChild!
   assert.equal(
-    markClassOf(alphaLine.querySelector('span')),
+    markClassOf(rowFor(stream.container, 'Alpha').firstElementChild!.querySelector('span')),
     null,
     'the project name stays in the row ink — the colour is on the glyph and nowhere else'
   )
 
-  // ── No folder is not a project ──────────────────────────────────────────
-  const echoGlyph = glyphOf(first.container, 'Echo')
+  // No folder is not a project.
+  const echoGlyph = glyphOf(stream.container, 'Echo')
   assert.equal(markClassOf(echoGlyph), null, 'an unfiled chat is given no hue at all')
   assert.equal(
     echoGlyph!.querySelector('path')?.getAttribute('stroke-dasharray'),
@@ -273,99 +369,77 @@ async function main(): Promise<void> {
     'it wears the dashed outline instead, so unfiled reads as its own thing'
   )
 
-  // ── A project is a repository, so a paired machine's clone is the same one ──
-  const foxtrotGlyph = rowFor(first.container, 'Foxtrot').querySelector('[data-project-glyph] svg')
+  // The Remote band, as a negative. Reviewed 2026-09-09: its rows lead with the
+  // machine glyph and carry no folder glyph, so there is no third colour
+  // channel on a row that can also be wearing the needs-input wash.
+  const foxtrot = rowFor(stream.container, 'Foxtrot')
+  assert.ok(foxtrot.querySelector('[data-remote-row-glyph]'), 'a band row leads with the machine glyph')
+  assert.equal(markClassOf(foxtrot.querySelector('svg')), null, 'and wears no project hue of its own')
   assert.equal(
-    markClassOf(foxtrotGlyph),
-    markA,
-    'a remote row for the repository /projA is a clone of wears that project hue'
-  )
-  assert.ok(
-    rowFor(first.container, 'Foxtrot').querySelector('[data-remote-row-glyph]'),
-    'and it still leads with the machine glyph — the machine is a glyph, not a second colour'
+    markClassOf(foxtrot.querySelectorAll('svg')[1]),
+    null,
+    'no second glyph on the row carries one either'
   )
 
-  // ── Changed by the person, from the project header's menu ───────────────
-  //
-  // The header only exists in the project tree, so this half reads that shape.
+  act(() => {
+    stream.root.unmount()
+  })
+
+  // ── 4 · Changed by the person, everywhere at once ────────────────────────
   act(() => {
     useWorkspaceStore.getState().setChatListView('projects')
   })
-  await act(async () => {
-    await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
-  })
-
-  const headerButton = [...first.container.querySelectorAll('button[aria-label^="Folder actions"]')].find(
-    (button) => button.getAttribute('aria-label')?.includes('projA')
-  )
-  assert.ok(headerButton, "projA's header offers its folder menu")
-  act(() => {
-    headerButton!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-  })
-
-  const swatch = [...dom.window.document.querySelectorAll('button[aria-label="Project colour Violet"]')][0]
-  assert.ok(swatch, '"Project colour" is on the folder header menu, with the six hues')
+  const tree = await mount(propsFor(workspaces))
+  openFolderMenu(tree.container, 'projA')
+  const swatch = hueSwatch()
+  assert.ok(swatch, '"Project color" is on the folder header menu, with the six hues')
   act(() => {
     swatch!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   })
-  await act(async () => {
-    await new Promise((resolve) => dom.window.setTimeout(resolve, 0))
-  })
+  await settle()
 
-  const headerGlyphOf = (container: Element, name: string) => {
-    const header = [...container.querySelectorAll('button[aria-expanded]')].find((candidate) =>
-      candidate.textContent?.includes(name)
-    )
-    assert.ok(header, `folder header for ${name} rendered`)
-    return header!.querySelector('svg')
-  }
   assert.equal(
-    markClassOf(headerGlyphOf(first.container, 'projA')),
-    'project-mark-violet',
+    markClassOf(headerFor(tree.container, 'projA').querySelector('svg')),
+    PICKED_HUE_CLASS,
     "the header's own glyph takes the colour the person picked"
   )
   assert.equal(
-    markClassOf(rowFor(first.container, 'Foxtrot').querySelector('[data-project-glyph] svg')),
-    'project-mark-violet',
-    'and so does the remote row for the same repository, at the same moment'
-  )
-  assert.equal(
-    markClassOf(headerGlyphOf(first.container, 'projB')),
+    markClassOf(headerFor(tree.container, 'projB').querySelector('svg')),
     markB,
     'the other project is untouched'
   )
-
   act(() => {
-    first.root.unmount()
+    tree.root.unmount()
   })
 
-  // ── Restarting the app keeps every project's colour ─────────────────────
+  // ── 5 · Restarting the app keeps every project's colour ──────────────────
   //
-  // A second mount over the same persisted `appSettings.projectColors` is what
-  // the next launch is: the allocator must find nothing missing and write
-  // nothing, so every glyph comes back the colour it was left.
+  // A real restart, not a re-mount over the same live store: the persisted map
+  // is the ONLY thing carried across, through the same `normalizeAppSettings`
+  // the store hydrates with. If the hues lived anywhere but that map, they die
+  // here.
+  const persisted = { ...projectColorsNow() }
   act(() => {
+    useWorkspaceStore.setState({ appSettings: normalizeAppSettings({ projectColors: persisted }, []) })
     useWorkspaceStore.getState().setChatListView('all')
   })
-  const second = await mount()
+  assert.deepEqual(projectColorsNow(), persisted, 'the map survives the hydrate the next launch performs')
+
+  const restarted = await mount(propsFor(workspaces))
   assert.equal(
-    markClassOf(glyphOf(second.container, 'Alpha')),
-    'project-mark-violet',
-    'a re-mount over the stored map keeps the colour the person chose'
+    markClassOf(glyphOf(restarted.container, 'Alpha')),
+    PICKED_HUE_CLASS,
+    'a fresh store hydrated from the persisted map keeps the colour the person chose'
   )
   assert.equal(
-    markClassOf(glyphOf(second.container, 'Charlie')),
+    markClassOf(glyphOf(restarted.container, 'Charlie')),
     markB,
     'and the hue the allocator chose, rather than allocating a fresh one'
   )
-  assert.equal(
-    markClassOf(glyphOf(second.container, 'Echo')),
-    null,
-    'the unfiled row is still no project'
-  )
+  assert.equal(markClassOf(glyphOf(restarted.container, 'Echo')), null, 'the unfiled row is still no project')
 
   act(() => {
-    second.root.unmount()
+    restarted.root.unmount()
   })
 }
 

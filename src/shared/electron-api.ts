@@ -100,7 +100,7 @@ import type {
   TailnetScope,
 } from './tailnet'
 import type { TailnetPeerScan } from './tailnet-peers'
-import type { RepositoryIdentity } from './repository-identity'
+import type { RepositoryIdentityRead } from './repository-identity'
 import type {
   FleetAttachResult,
   FleetBrowse,
@@ -3928,9 +3928,12 @@ export type ElectronApi = {
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>
   /**
    * Which repository a folder is a clone of — its primary remote, normalised
-   * (one-project-across-machines). Null for a non-repo or a remote-less one.
+   * (one-project-across-machines). A null `identity` is a non-repo or a
+   * remote-less one; `settled: false` is a read that could not be made at all
+   * (a spun-down volume, git unavailable), which is NOT the same answer and
+   * must not be written down as one. See `RepositoryIdentityRead`.
    */
-  getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentity | null>
+  getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentityRead>
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
   getGitConflictFile: (repoRoot: string, filePath: string) => Promise<GitConflictFileContent | null>
   resolveGitConflict: (repoRoot: string, filePath: string, content: string) => Promise<GitCommandResult>

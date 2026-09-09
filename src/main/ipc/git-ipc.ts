@@ -1,7 +1,7 @@
 import type { IpcMain } from 'electron'
 import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
-import { readRepositoryIdentity } from '../repository-identity'
+import { readRepositoryIdentityRead } from '../repository-identity'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import type { BranchStepSelection } from '../../shared/electron-api'
 import { checkIgnoredPaths } from '../git-ignore'
@@ -139,10 +139,13 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
   })
 
   // one-project-across-machines: which repository a folder is a clone of, for
-  // the sidebar's grouping and the launch panel's machine filter.
+  // the sidebar's grouping and the launch panel's machine filter. The renderer
+  // gets the full read — identity AND whether the question was answered —
+  // because one-colour-per-project persists a hue off the answer and must not
+  // treat a spun-down volume as "no remote" (RepositoryIdentityRead).
   ipcMain.handle('git:get-repository-identity', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repository-identity', { folderPath }, () =>
-      readRepositoryIdentity(folderPath)
+      readRepositoryIdentityRead(folderPath)
     )
   })
 
