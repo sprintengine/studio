@@ -237,6 +237,34 @@ async function run(): Promise<void> {
     { input: { tool: 'edit', sessionID: 'ses_opencode_1', callID: 'c10' }, output: null },
     // 11. Total garbage in both positions: must not throw into OpenCode.
     { input: null, output: 'a string where the result object should be' },
+    // === Pull request capture (epic `pull-request-marks`, decision 8b) =====
+    // 12. `gh pr view` prints a pull request URL and opens nothing. It emits no
+    //     frame at all (the dedup eats a `tool.execute.after` that carries
+    //     neither a file change nor a capture), which is the point.
+    {
+      input: { tool: 'bash', sessionID: 'ses_opencode_1', callID: 'c12', args: { command: 'gh pr view 12 --json url' } },
+      output: { title: 'gh pr view', output: '{"url":"https://github.com/acme/app/pull/12"}', metadata: { exit: 0 } },
+    },
+    // 13. The creation itself: `gh` prints the URL on the LAST line of output.
+    {
+      input: {
+        tool: 'bash',
+        sessionID: 'ses_opencode_1',
+        callID: 'c13',
+        args: { command: 'cd ../website && gh pr create --fill', description: 'Open the pull request' },
+      },
+      output: {
+        title: 'gh pr create',
+        output: 'remote: Resolving deltas: 100% (12/12)\nhttps://github.com/acme/website/pull/9/files?w=1\n',
+        metadata: { exit: 0 },
+      },
+    },
+    // 14. A creation that FAILED with no URL anywhere: nothing to capture, and
+    //     the dedup then eats the frame — so the count below is what proves it.
+    {
+      input: { tool: 'bash', sessionID: 'ses_opencode_1', callID: 'c14', args: { command: 'gh pr create --fill' } },
+      output: { title: 'gh pr create', output: 'pull request create failed: No commits between main and feature', metadata: { exit: 1 } },
+    },
   ]
 
   const exitCode = await drive(calls)
@@ -328,13 +356,39 @@ async function run(): Promise<void> {
   )
   console.log('ok - apply_patch sends one frame per file, counting from the per-file patch when the tool omits the numbers')
 
-  assert.equal(changes.length, 11, 'a payload naming no file at all claims nothing and adds no frame')
+  assert.equal(changes.length, 12, 'a payload naming no file at all claims nothing and adds no frame')
   console.log('ok - a payload with no path anywhere adds no ledger entry')
+
+  // The pull request capture: the bash tool's own output, read the same way the
+  // command-hook reporter reads a `gh pr create` result. Twelve frames in total
+  // — the eleven above plus ONE for the creation — so the two bash calls that
+  // opened nothing are proved to have captured nothing by their absence: a
+  // `tool.execute.after` carrying neither a file change nor a capture is eaten
+  // by the plugin's own dedup, and a capture is exempt from it precisely so the
+  // one frame that matters cannot be dropped.
+  const captures = parsed.map((frame) => frame.pullRequest)
+  assert.deepEqual(
+    captures.filter(Boolean),
+    [{ url: 'https://github.com/acme/website/pull/9' }],
+    'exactly one call opened a pull request, and the capture stops at its number — a tab and a query are not part of it'
+  )
+  assert.deepEqual(
+    captures.slice(0, 11),
+    new Array(11).fill(undefined),
+    'every frame before it carries no capture: editing a file opens no pull request'
+  )
+  assert.deepEqual(
+    captures[11],
+    { url: 'https://github.com/acme/website/pull/9' },
+    'the capture rides the frame of the call that made it'
+  )
+  assert.equal(parsed.length, 12, 'a bash call that captured nothing and edited nothing adds no frame')
+  console.log('ok - `gh pr create` captures its URL, while `gh pr view` and a failed creation capture nothing')
 
   // The patch text and the file content are not ours to forward: the frame line
   // cap is 64KB, and a person's source is not a line range.
   const wire = frames.join('\n')
-  for (const secret of ['line 7', 'row 7', 'alpha', '@@', 'Index:']) {
+  for (const secret of ['line 7', 'row 7', 'alpha', '@@', 'Index:', 'Resolving deltas', 'gh pr create']) {
     assert.equal(wire.includes(secret), false, `the frame must never carry patch or file content (${secret})`)
   }
   console.log('ok - no patch text or file content ever rides the socket')

@@ -381,6 +381,90 @@ function deriveFileChanges(toolName, args, output, directory) {
   return changes
 }
 
+// ---------------------------------------------------------------------------
+// Pull request capture (epic `pull-request-marks`, decision 8b)
+//
+// The same read the command-hook reporter does on PostToolUse
+// (resources/hooks/multicode-agent-state.mjs — keep the two in step), on the
+// one hook OpenCode gives that carries a tool's input AND its result. The
+// regex below is the wire-side twin of `parsePullRequestUrl`
+// (src/shared/review/pr-url.ts): a plugin loaded by OpenCode's own runtime can
+// import nothing from src/, and main re-validates every URL through the real
+// parser before believing it.
+//
+// `/pull/<n>` and digits are what make it a pull request, so an issue, a commit
+// and the `/pull/new/<branch>` link a push prints all fail to match. The URL is
+// read from the tool's RESULT only, never from its arguments: an agent that
+// merely typed a pull request URL has not opened one.
+// ---------------------------------------------------------------------------
+const MAX_PULL_REQUEST_URL_LENGTH = 2048
+const MAX_PULL_REQUEST_SCAN_LENGTH = 64 * 1024
+const PULL_REQUEST_URL_RE = /https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+(?![\w])/
+const GH_PR_CREATE_RE = /\bgh\s+pr\s+create\b/
+const PULL_REQUEST_TOOL_NAMES = new Set(['bash'])
+
+// `gh pr create` prints the URL on its LAST line, so an over-long output is read
+// at BOTH ends rather than truncated from the front. The two ends are searched
+// separately: the head is a cut string, so a match running to its very end may
+// be half a URL whose number continues past the cut, and only a match that ends
+// inside the slice is believed. The output itself is never forwarded — only the
+// URL, which the reader caps again.
+function matchPullRequestUrl(text) {
+  if (typeof text !== 'string' || text.length === 0) return null
+  if (text.length <= MAX_PULL_REQUEST_SCAN_LENGTH) return firstPullRequestUrl(text, false)
+  const half = MAX_PULL_REQUEST_SCAN_LENGTH / 2
+  return firstPullRequestUrl(text.slice(0, half), true) ?? firstPullRequestUrl(text.slice(-half), false)
+}
+
+function firstPullRequestUrl(text, mustEndInside) {
+  const match = PULL_REQUEST_URL_RE.exec(text)
+  if (!match) return null
+  if (mustEndInside && match.index + match[0].length >= text.length) return null
+  return match[0].length <= MAX_PULL_REQUEST_URL_LENGTH ? match[0] : null
+}
+
+// OpenCode's tool result is `{ title, output, metadata }` — verified live
+// against opencode 1.18.30 for the FILE tools; that the bash tool puts its
+// captured stdout+stderr on the same `output` is INFERRED from that shape, not
+// captured. `stdout`, `stderr` and a plain string are read too, so a build that
+// answers differently still lands rather than silently capturing nothing.
+function extractPullRequestUrl(output, depth = 0) {
+  if (depth > 4) return null
+  if (typeof output === 'string') return matchPullRequestUrl(output)
+  if (Array.isArray(output)) {
+    for (const entry of output.slice(0, 50)) {
+      const url = extractPullRequestUrl(entry, depth + 1)
+      if (url) return url
+    }
+    return null
+  }
+  if (!isPlainObject(output)) return null
+  for (const field of ['output', 'stdout', 'stderr', 'text', 'content', 'result', 'pullRequestUrl']) {
+    const url = extractPullRequestUrl(output[field], depth + 1)
+    if (url) return url
+  }
+  return null
+}
+
+/**
+ * The pull request one `tool.execute.after` opened, or null. Gated on the tool
+ * and its ARGUMENTS first — the bash tool running a command containing
+ * `gh pr create`, or an MCP tool whose name ends in `vcs_pr` (the sprint tool) —
+ * so an ordinary `cat` of a file that happens to hold a pull request URL
+ * captures nothing. `gh pr view` and `gh pr list` do not match the literal.
+ */
+function derivePullRequest(toolName, args, output) {
+  const tool = typeof toolName === 'string' ? toolName.trim().toLowerCase() : ''
+  if (!PULL_REQUEST_TOOL_NAMES.has(tool) && !tool.endsWith('vcs_pr')) return null
+  if (PULL_REQUEST_TOOL_NAMES.has(tool)) {
+    const input = isPlainObject(args) ? args : {}
+    const command = typeof input.command === 'string' ? input.command : null
+    if (!command || !GH_PR_CREATE_RE.test(command)) return null
+  }
+  const url = extractPullRequestUrl(output)
+  return url ? { url } : null
+}
+
 // `frames` is a LIST: an apply_patch that rewrote six files is six frames, and
 // they go down ONE connection rather than six, because this runs inside the
 // tool call OpenCode is waiting on.
@@ -444,7 +528,7 @@ let lastEvent = null
 // a worktree it did not create.
 let launchDirectory = null
 
-async function report(phase, event, sessionId, fileChanges = []) {
+async function report(phase, event, sessionId, fileChanges = [], pullRequest = null) {
   if (!phase) return
   // Seed the lock before the dedup early-return, so the root id is captured even
   // from a frame we suppress (the first frame, `starting`, is never a dup).
@@ -452,8 +536,10 @@ async function report(phase, event, sessionId, fileChanges = []) {
   // A call CARRYING file changes is never a duplicate: two edits in a row share
   // the `tool.execute.after` event name but describe different files, and the
   // dedup exists to throttle streamed deltas, not to drop the ledger. The phase
-  // it repeats is idempotent on re-ingest, so the extra frames are free.
-  if (event === lastEvent && fileChanges.length === 0) return
+  // it repeats is idempotent on re-ingest, so the extra frames are free. A
+  // captured pull request is exempt for the same reason and more sharply: there
+  // is exactly one frame that carries it, and dropping it loses the mark.
+  if (event === lastEvent && fileChanges.length === 0 && !pullRequest) return
   lastEvent = event
   const socketPath = resolveSocketPath()
   if (!socketPath) return
@@ -469,6 +555,11 @@ async function report(phase, event, sessionId, fileChanges = []) {
     ts: Date.now(),
   }
   if (launchDirectory) frame.cwd = launchDirectory
+  // The pull request this call just opened (epic `pull-request-marks`): the URL
+  // and nothing else — never the command, never the output. Main files it
+  // against this conversation under the URL's OWN repository, so a
+  // `cd ../website && gh pr create` is captured where it actually landed.
+  if (pullRequest) frame.pullRequest = pullRequest
   // One frame per changed FILE (an apply_patch can rewrite several in one
   // call), all carrying the identical event and ts so the phase fold stays
   // idempotent and the ledger reads each file once. No file change: the phase
@@ -525,7 +616,15 @@ export const MulticodeAgentState = async (context) => {
         } catch {
           changes = []
         }
-        await report('thinking', 'tool.execute.after', sessionId, changes)
+        // Derived defensively and separately again: a capture this cannot read
+        // must cost the frame nothing but its mark.
+        let pullRequest = null
+        try {
+          pullRequest = derivePullRequest(input?.tool, input?.args, output)
+        } catch {
+          pullRequest = null
+        }
+        await report('thinking', 'tool.execute.after', sessionId, changes, pullRequest)
       } catch {
         // Never let a reporter error break OpenCode.
       }

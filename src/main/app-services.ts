@@ -378,6 +378,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     onAgentLaunched: (session) => agentChangelistFeed.onAgentLaunched(session),
     onAgentFileEdit: (input) => agentChangelistFeed.onAgentFileEdit(input),
     onAgentSessionExit: (session) => agentChangelistFeed.onAgentSessionExit(session),
+    // The hook capture of a pull request the agent just opened (epic
+    // `pull-request-marks`, decision 8b). The record is built below — this
+    // closure only runs once a frame arrives, long after — and it is what files
+    // the pull request under the URL's own repository.
+    onPullRequestCaptured: (input) => pullRequestRecord.noteCaptured(input),
     // Item 47: the phone enables, pauses and fires automations through the same
     // front door the desktop UI writes through.
     resolveAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),

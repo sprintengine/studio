@@ -225,6 +225,19 @@ type TerminalRuntimeOptions = {
     ts: number
   }): void
   onAgentSessionExit?(session: TerminalSession): void
+  // --- Pull request marks (pull-request-record.ts) --------------------------
+  //
+  // A pull request one of this session's tool calls just opened, as the hook
+  // reporter captured it (epic `pull-request-marks`, decision 8b). Fire-and-
+  // forget like the changelist seams above: the record swallows its own
+  // failures, and a mark is a convenience while a terminal is not.
+  //
+  // The URL is all that is passed: the record files a capture under the URL's
+  // OWN repository, never the session's observed checkout, because
+  // `cd ../website && gh pr create` opens a pull request the session's cwd knows
+  // nothing about (decision 10). Resolving a git root here would file it in the
+  // wrong repository.
+  onPullRequestCaptured?(input: { url: string; sessionId: string }): void
 }
 
 type TerminalIpcHandlers = {
@@ -316,6 +329,7 @@ let setSprintEngineAutomationModeAdapter: TerminalRuntimeOptions['setSprintEngin
 let resolveAutomationsFrontDoorAdapter: TerminalRuntimeOptions['resolveAutomationsFrontDoor']
 let onAgentLaunched: TerminalRuntimeOptions['onAgentLaunched']
 let onAgentFileEdit: TerminalRuntimeOptions['onAgentFileEdit']
+let onPullRequestCaptured: TerminalRuntimeOptions['onPullRequestCaptured']
 let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 
 // Whether a CLI can report authoritative agent state: true exactly when its
@@ -498,6 +512,7 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   resolveAutomationsFrontDoorAdapter = options.resolveAutomationsFrontDoor
   onAgentLaunched = options.onAgentLaunched
   onAgentFileEdit = options.onAgentFileEdit
+  onPullRequestCaptured = options.onPullRequestCaptured
   onAgentSessionExit = options.onAgentSessionExit
   reapSkipLogState.clear()
   remoteTerminalViewers.clear()
@@ -2377,6 +2392,21 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const contextUsageChanged = frame.statusLine
     ? recordSessionStatusLine(session, frame.statusLine, frame.ts)
     : false
+  // A pull request the agent just opened, handed to the record in the same
+  // place and for the same reason as the two folds above: it arrives on a
+  // `PostToolUse`, and a frame dropped as stale or held back by the phase guard
+  // still carries a pull request that really exists. The record owns everything
+  // after this — which repository the URL names, the branch (learned on the
+  // first state read), the de-duplication and the watch — so all that is passed
+  // is the URL and the session that made it. The id is the app's own session id,
+  // resolved above, so the capture can never land on a session main cannot name.
+  if (frame.pullRequest && onPullRequestCaptured) {
+    try {
+      onPullRequestCaptured({ url: frame.pullRequest.url, sessionId: session.sessionId })
+    } catch (error) {
+      console.warn('[terminal-runtime] pull request capture failed', error)
+    }
+  }
   // Every path out of this function that does not reach the broadcast at the
   // end still has to publish an edit or a context reading: they are rendered,
   // and this is the only place they would be.

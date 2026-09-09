@@ -624,6 +624,61 @@ async function run(): Promise<void> {
     'StatusLine',
     'a bad status line never drops the frame'
   )
+  // …a captured pull request rides the app's ONE URL parser: the reporter's
+  // regex is a wire-side twin, and this is where the two meet. What is not a
+  // GitHub or GitHub Enterprise pull request URL drops the FIELD — never the
+  // frame, which is also carrying the phase and the cwd of the same tool call.
+  const prOf = (pullRequest: unknown) =>
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, pullRequest }, 999)
+      ?.pullRequest
+  assert.deepEqual(
+    prOf({ url: 'https://github.com/acme/app/pull/12' }),
+    { url: 'https://github.com/acme/app/pull/12' }
+  )
+  assert.deepEqual(
+    prOf({ url: 'https://github.example.com:8443/acme/app/pull/77' }),
+    { url: 'https://github.example.com:8443/acme/app/pull/77' },
+    'a GitHub Enterprise host is a pull request host'
+  )
+  assert.deepEqual(
+    prOf({ url: '  https://github.com/acme/app/pull/9/files?w=1  ' }),
+    { url: 'https://github.com/acme/app/pull/9/files?w=1' },
+    'a trailing tab and query survive validation — the record canonicalises them on the way in'
+  )
+  assert.equal(prOf({ url: 'https://github.com/acme/app/issues/12' }), undefined, 'an issue is not a pull request')
+  assert.equal(prOf({ url: 'https://github.com/acme/app/commit/9f2c1ab' }), undefined, 'a commit is not a pull request')
+  assert.equal(
+    prOf({ url: 'https://bitbucket.org/acme/app/pull-requests/4' }),
+    undefined,
+    'a typed "unsupported" is not a capture either'
+  )
+  assert.equal(prOf({ url: 'not a url at all' }), undefined)
+  assert.equal(prOf({ url: 'javascript:alert(1)' }), undefined, 'only http(s) is a pull request URL')
+  assert.equal(
+    prOf({ url: `https://github.com/acme/${'x'.repeat(3000)}/pull/1` }),
+    undefined,
+    'an absurd URL is a broken reporter, not a pull request'
+  )
+  assert.equal(prOf({ url: 'https://github.com/acme/app/pull/12\u001b[31m' }), undefined, 'an ANSI escape is not a URL')
+  assert.equal(prOf({ url: '' }), undefined)
+  assert.equal(prOf({ url: 12 }), undefined)
+  assert.equal(prOf('https://github.com/acme/app/pull/12'), undefined, 'a bare string is not the field')
+  assert.equal(prOf(undefined), undefined)
+  // Every `undefined` above is read off a frame, so each would also pass if the
+  // FRAME had been dropped. It is not: a bad capture costs the capture only.
+  const badPrFrame = parseAgentStateFrame(
+    {
+      type: 'agent_state',
+      agentId: 'a1',
+      event: 'PostToolUse',
+      ts: 5,
+      cwd: '/repo',
+      pullRequest: { url: 'https://github.com/acme/app/issues/12' },
+    },
+    999
+  )
+  assert.equal(badPrFrame?.cwd, '/repo', 'a malformed capture never costs the frame the rest of its truth')
+  assert.equal(badPrFrame?.pullRequest, undefined)
   // …the status discriminator rides the same validation (capped, optional)…
   assert.equal(
     parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'stop', status: 'error', ts: 5 }, 999)?.status,

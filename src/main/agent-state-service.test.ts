@@ -1093,6 +1093,259 @@ async function run(): Promise<void> {
 
     vocabServer.close()
 
+    // --- reporter pull request capture (epic `pull-request-marks`, 8b) ------
+    // The reporter already sees every tool call's command and result, so the
+    // moment an agent opens a pull request is a moment it is told about. Two
+    // gates and one regex: a shell command containing `gh pr create`, or a tool
+    // NAME ending in `vcs_pr` (the sprint MCP tool through Claude's hook). The
+    // URL comes out of the RESULT — never out of `tool_input`, which is the
+    // agent's own text — and the result itself never rides the socket.
+    const prSockPath = join(sockDir, 'pr-instance.sock')
+    const prFrames: string[] = []
+    const prServer = await listenLines(prSockPath, prFrames)
+    type PullRequestFrame = { event?: string; pullRequest?: { url?: string }; [key: string]: unknown }
+    const nextPrFrame = async (index: number): Promise<PullRequestFrame> => {
+      await waitFor(() => prFrames.length >= index + 1)
+      return JSON.parse(prFrames[index]) as PullRequestFrame
+    }
+
+    // Claude Code's Bash tool: the result is an object with the command's two
+    // streams on it, and `gh pr create` prints the URL as its LAST line.
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'Bash',
+      tool_input: { command: "gh pr create --title 'Ship it' --body 'Because'", description: 'Open the PR' },
+      tool_response: {
+        stdout: 'Creating pull request for feature into main in acme/app\n\nhttps://github.com/acme/app/pull/12\n',
+        stderr: '',
+        interrupted: false,
+        isImage: false,
+      },
+    })
+    assert.deepEqual(
+      (await nextPrFrame(0)).pullRequest,
+      { url: 'https://github.com/acme/app/pull/12' },
+      'a `gh pr create` on Claude`s Bash tool captures the URL its result printed'
+    )
+
+    // The same tool answering with a plain STRING (Claude collapses some Bash
+    // results to their output; Grok always does), and a URL carrying the tabs
+    // and query a paste picks up. What is captured is the pull request, not the
+    // page: main`s parser canonicalises it.
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'Bash',
+      tool_input: { command: 'cd ../website && gh pr create --fill' },
+      tool_response: 'https://github.com/acme/website/pull/9/files?w=1\n',
+    })
+    assert.deepEqual(
+      (await nextPrFrame(1)).pullRequest,
+      { url: 'https://github.com/acme/website/pull/9' },
+      'the capture stops at the pull request number — a tab and a query are not part of it'
+    )
+
+    // Codex`s shell tool: `command` is the argv ARRAY, and the result is the
+    // one string "Exit code: N / Wall time / Output:" (the same shape
+    // apply_patch answers with).
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'codex-pr',
+      cwd: vocabDir,
+      tool_name: 'shell',
+      tool_input: { command: ['bash', '-lc', 'gh pr create --fill'], workdir: vocabDir },
+      tool_response:
+        'Exit code: 0\nWall time: 3 seconds\nOutput:\nCreating pull request for feat into main in acme/app\nhttps://github.example.com:8443/acme/app/pull/77\n',
+    })
+    assert.deepEqual(
+      (await nextPrFrame(2)).pullRequest,
+      { url: 'https://github.example.com:8443/acme/app/pull/77' },
+      'Codex`s argv array is read as one command, and a GitHub Enterprise host with a port is a pull request too'
+    )
+
+    // Grok Build: camelCase envelope, `post_tool_use` event spelling.
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hookEventName: 'post_tool_use',
+      sessionId: 'grok-pr',
+      cwd: vocabDir,
+      toolName: 'bash',
+      toolInput: { command: 'gh  pr   create --draft --fill' },
+      toolResponse: 'https://github.com/acme/app/pull/31\n',
+    })
+    const grokPrFrame = await nextPrFrame(3)
+    assert.equal(grokPrFrame.event, 'post_tool_use')
+    assert.deepEqual(
+      grokPrFrame.pullRequest,
+      { url: 'https://github.com/acme/app/pull/31' },
+      'the snake_case event spelling and the camelCase field names both capture'
+    )
+
+    // The sprint MCP tool through Claude`s hook: the tool NAME is the gate (no
+    // shell command exists), and an MCP result is a CONTENT ARRAY of text parts.
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'mcp__sprintengine-studio__sprintengine_vcs_pr',
+      tool_input: { runId: 'pr-link-team' },
+      tool_response: {
+        content: [
+          { type: 'text', text: JSON.stringify({ ok: true, action: 'vcs_pr', branch: 'se/pr-link-team', pullRequestUrl: 'https://github.com/acme/repo/pull/9' }) },
+        ],
+        isError: false,
+      },
+    })
+    assert.deepEqual(
+      (await nextPrFrame(4)).pullRequest,
+      { url: 'https://github.com/acme/repo/pull/9' },
+      'an MCP content array is searched, and the tool name alone is gate enough for it'
+    )
+
+    // An enormous result — a push`s progress output with the URL at the very
+    // END, which is where `gh` puts it. The capture must survive it, and NOTHING
+    // but the URL may ride the socket (the reader`s frame line cap is 64KB).
+    const noisyOutput = `${'remote: Resolving deltas: 100% (4242/4242)\n'.repeat(6000)}https://github.com/acme/app/pull/4242\n`
+    assert.ok(noisyOutput.length > 200_000, 'the oversized fixture must be well past the scan cap')
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'Bash',
+      tool_input: { command: 'git push -u origin feature && gh pr create --fill' },
+      tool_response: { stdout: noisyOutput, stderr: '' },
+    })
+    const noisyFrame = await nextPrFrame(5)
+    assert.deepEqual(
+      noisyFrame.pullRequest,
+      { url: 'https://github.com/acme/app/pull/4242' },
+      'a result far past the scan cap is read at BOTH ends, because `gh` prints the URL last'
+    )
+    assert.ok(prFrames[5].length < 2000, `only the URL rides the frame (${prFrames[5].length} bytes)`)
+    assert.equal(prFrames[5].includes('Resolving deltas'), false, 'the raw output is never forwarded')
+
+    // === Everything that must NOT capture ==================================
+    // `gh pr view` and `gh pr list` print pull request URLs all day long.
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'Bash',
+      tool_input: { command: 'gh pr view 12 --json url' },
+      tool_response: '{"url":"https://github.com/acme/app/pull/12"}',
+    })
+    assert.equal((await nextPrFrame(6)).pullRequest, undefined, 'reading a pull request is not opening one')
+
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'Bash',
+      tool_input: { command: 'gh pr list --head feature' },
+      tool_response: '12\tShip it\tfeature\thttps://github.com/acme/app/pull/12\n',
+    })
+    assert.equal((await nextPrFrame(7)).pullRequest, undefined, 'listing pull requests is not opening one')
+
+    // The URL in the agent`s own text, with none in the result: the input is
+    // what the agent SAID, and saying it opens nothing.
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'Bash',
+      tool_input: { command: "gh pr create --body 'supersedes https://github.com/acme/app/pull/3'" },
+      tool_response: 'pull request create failed: GraphQL: No commits between main and feature',
+    })
+    assert.equal((await nextPrFrame(8)).pullRequest, undefined, 'a URL is only ever read out of the RESULT')
+
+    // Neither an issue, nor a commit, nor the "create one by visiting" link a
+    // push prints is a pull request.
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'Bash',
+      tool_input: { command: 'gh pr create --fill' },
+      tool_response: [
+        'remote: Create a pull request for `feature` on GitHub by visiting:',
+        'remote:      https://github.com/acme/app/pull/new/feature',
+        'see also https://github.com/acme/app/issues/12 and',
+        'https://github.com/acme/app/commit/9f2c1ab and https://github.com/acme/app/pull/12ab',
+      ].join('\n'),
+    })
+    assert.equal((await nextPrFrame(9)).pullRequest, undefined, 'an issue, a commit, `/pull/new/…` and `/pull/12ab` are none of them a pull request')
+
+    // A plain shell that never ran the creation, and a file-editing tool: two
+    // tool calls whose results are full of pull request URLs.
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'Bash',
+      tool_input: { command: 'cat CHANGELOG.md' },
+      tool_response: 'landed in https://github.com/acme/app/pull/8\n',
+    })
+    assert.equal((await nextPrFrame(10)).pullRequest, undefined, 'a shell command that never opened one captures nothing')
+
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'Edit',
+      tool_input: { file_path: join(vocabDir, 'notes.md'), old_string: 'a', new_string: 'https://github.com/acme/app/pull/5' },
+      tool_response: { filePath: join(vocabDir, 'notes.md'), structuredPatch: [] },
+    })
+    assert.equal((await nextPrFrame(11)).pullRequest, undefined, 'an editing tool captures no pull request, whatever it wrote')
+
+    // Cursor stays on the branch lookup: its `postToolUse` carries no tool
+    // detail, so accepting the spelling would imply a support it cannot deliver.
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'postToolUse',
+      conversation_id: 'cursor-chat',
+      workspace_roots: [vocabDir],
+      tool_name: 'Shell',
+      tool_input: { command: 'gh pr create --fill' },
+      tool_response: 'https://github.com/acme/app/pull/12\n',
+    })
+    assert.equal((await nextPrFrame(12)).pullRequest, undefined, 'Cursor`s postToolUse never captures a pull request')
+
+    // A pull request opened before the turn ended still rides its own frame:
+    // the capture is on PostToolUse, and a Stop carries no tool at all.
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'Stop',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_response: 'https://github.com/acme/app/pull/12\n',
+    })
+    assert.equal((await nextPrFrame(13)).pullRequest, undefined, 'only a PostToolUse can carry a capture')
+
+    // A URL that STRADDLES the scan cut is never captured as its own prefix.
+    // The reporter reads an over-long result at both ends; the head slice here
+    // ends in the middle of `…/pull/123456`, and `/pull/12` is a real pull
+    // request — the WRONG one. It is refused, the tail does not reach back this
+    // far, and the honest answer is no capture at all.
+    const scanHalf = 32_768
+    const straddledPrefix = 'https://github.com/acme/app/pull/12'
+    const straddledOutput = `${'x'.repeat(scanHalf - straddledPrefix.length)}${straddledPrefix}3456\n${'y'.repeat(200_000)}`
+    assert.equal(straddledOutput.indexOf(straddledPrefix) + straddledPrefix.length, scanHalf, 'the fixture must cut mid-number')
+    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'pr-session',
+      cwd: vocabDir,
+      tool_name: 'Bash',
+      tool_input: { command: 'gh pr create --fill' },
+      tool_response: straddledOutput,
+    })
+    assert.equal(
+      (await nextPrFrame(14)).pullRequest,
+      undefined,
+      'half a pull request number is a different pull request, so it is no capture at all'
+    )
+
+    prServer.close()
+
     // --- status-line forwarder ---------------------------------------------
     // Executes the REAL bundled forwarder: the payload below is Claude Code's
     // documented status-line document, and what comes back over the socket must

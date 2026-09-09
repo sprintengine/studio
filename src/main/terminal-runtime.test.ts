@@ -11,6 +11,9 @@ import { MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR } from './sprintengine-manag
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { TERMINAL_REMOTE_FRAME_CHUNK_CHARS } from './terminal-remote-attach'
 import { createAgentLaunchService } from './agent-launch-service'
+import { createPullRequestRecord } from './pull-request-record'
+import { readPullRequestState } from './github/branch-pull-request'
+import type { GhResult, GhRunner } from './github/gh'
 import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
 
 type RuntimeModule = typeof import('./terminal-runtime')
@@ -164,6 +167,7 @@ async function main(): Promise<void> {
     await assertFileLedgerFollowsHookReportedEdits(runtimeModule)
     await assertAgentChangelistSeamsFire(runtimeModule)
     await assertContextUsageFollowsStatusLineFrames(runtimeModule)
+    await assertCapturedPullRequestReachesTheRecord(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule)
@@ -4894,6 +4898,126 @@ async function assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(
   } finally {
     await runtime.shutdown()
     await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// A pull request the hook reporter captured must reach the record, filed under
+// the session that opened it (epic `pull-request-marks`, decision 8b).
+//
+// The record here is the REAL one — only `gh` is fake, so the state read that a
+// capture schedules runs its real parsing against a canned `gh pr view`. What is
+// under test is the seam: a `pullRequest` on a frame becomes a
+// `noteCaptured({ url, sessionId })`, with the app's OWN session id (the record
+// files by session, and an id main cannot resolve would file nothing), and it is
+// folded in ahead of the guards, exactly as a status line is.
+async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-pr-capture-'))
+  const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-pr-record-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  // A `gh` that answers `pr view` and nothing else. A `pr list` would mean the
+  // runtime had gone looking for a branch, which a capture must never do: the
+  // pull request may be in a repository this session has never been in.
+  const ghCalls: string[][] = []
+  const fakeGh: GhRunner = {
+    available: async () => true,
+    run: async (args): Promise<GhResult> => {
+      ghCalls.push(args)
+      assert.equal(args[1], 'view', 'a capture asks GitHub about the URL it was given, never about a branch')
+      return {
+        found: true,
+        code: 0,
+        stdout: JSON.stringify({ state: 'OPEN', isDraft: false, mergedAt: null, closedAt: null, headRefName: 'site/banner' }),
+        stderr: '',
+      }
+    },
+  }
+  const record = createPullRequestRecord({
+    userDataDir,
+    reads: { readPullRequestState: (url) => readPullRequestState(url, { gh: fakeGh }) },
+    // The session's own checkout is not a git clone of anything here, and a
+    // capture must not need it to be: the URL says where the pull request is.
+    resolveRepoKey: async () => null,
+  })
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    onPullRequestCaptured: (input) => record.noteCaptured(input),
+  })
+
+  try {
+    const spawnResult = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session-pr-capture',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-pr-capture',
+      agentId: 'agent-pr-capture',
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(spawnResult.ok, true, JSON.stringify(spawnResult))
+
+    const base = Date.now()
+    const frame = (overrides: Partial<AgentStateFrame>): AgentStateFrame => ({
+      type: 'agent_state',
+      agentId: 'agent-pr-capture',
+      workspaceId: 'ws-pr-capture',
+      sessionId: null,
+      event: 'PostToolUse',
+      ts: base,
+      ...overrides,
+    })
+
+    // A tool call that opened a pull request in ANOTHER repository — the agent
+    // ran `cd ../website && gh pr create`, which never moved this session's cwd.
+    runtime.ingestAgentStateFrame(
+      frame({ ts: base + 100, pullRequest: { url: 'https://github.com/acme/website/pull/9/files?w=1' } })
+    )
+    await record.flush()
+    const captured = record.forSession('session-pr-capture')
+    assert.equal(captured.length, 1, 'the capture reached the record')
+    assert.equal(captured[0].url, 'https://github.com/acme/website/pull/9')
+    assert.equal(captured[0].repoKey, 'github.com/acme/website', 'filed under the URL`s own repository')
+    assert.equal(captured[0].state, 'open', 'a captured pull request is open the moment it exists')
+    assert.equal(captured[0].openedBySessionId, 'session-pr-capture', 'the app`s own session id, not the CLI`s')
+    assert.deepEqual(
+      record.forBranch('github.com/acme/website', 'site/banner'),
+      captured,
+      'the state read the capture scheduled learned its branch'
+    )
+    assert.equal(record.forSession('some-other-session').length, 0, 'a capture belongs to the conversation that made it')
+
+    // A frame the phase guard DROPS still carries a pull request that really
+    // exists. Claude spawns a hook process per tool call, so a later-stamped
+    // frame landing first is ordinary — and the capture is folded in ahead of
+    // the guard, exactly as a status line is.
+    runtime.ingestAgentStateFrame(frame({ ts: base + 5000, event: 'Stop' }))
+    runtime.ingestAgentStateFrame(frame({ ts: base + 200, pullRequest: { url: 'https://github.com/acme/app/pull/4' } }))
+    await record.flush()
+    assert.deepEqual(
+      record.forSession('session-pr-capture').map((entry) => entry.number).sort((a, b) => a - b),
+      [4, 9],
+      'a frame dropped as stale still files the pull request it carried'
+    )
+
+    // And a frame with no capture on it files nothing.
+    runtime.ingestAgentStateFrame(frame({ ts: base + 6000, event: 'Stop' }))
+    await record.flush()
+    assert.equal(record.forSession('session-pr-capture').length, 2, 'an ordinary frame files nothing')
+    assert.equal(ghCalls.length, 2, 'one state read per captured URL, and no branch lookup at all')
+  } finally {
+    runtime.ipcHandlers.killTerminal('session-pr-capture')
+    record.dispose()
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+    await rm(userDataDir, { recursive: true, force: true })
   }
 }
 

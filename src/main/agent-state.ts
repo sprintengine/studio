@@ -6,6 +6,7 @@ import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/el
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { isAbsoluteObservedPath, MAX_OBSERVED_CWD_LENGTH } from '../shared/observed-checkout'
 import { isRecord } from '../shared/records'
+import { parsePullRequestUrl } from '../shared/review/pr-url'
 import type { ChangelistEdit } from '../shared/git/changelists'
 import { resolveClaudeConfigDir } from './conversation-peek/locate'
 
@@ -370,6 +371,21 @@ export const MAX_FILE_CHANGE_PATH_LENGTH = MAX_OBSERVED_CWD_LENGTH
 // large one instead of erasing the fact that the file was edited.
 export const MAX_FILE_CHANGE_COUNT = 10_000_000
 
+// One pull request the agent's PostToolUse hook says it just OPENED (epic
+// `pull-request-marks`, decision 8b): the URL, and nothing else. The reporter
+// matched the creation and extracted the URL out of the tool's result, so no
+// command and no output ever rides the frame — and the app learns about the
+// pull request the moment it exists instead of waiting for the branch lookup.
+//
+// Where it belongs is the URL's own question: an agent that ran
+// `cd ../website && gh pr create` opened one in a repository its session does
+// not sit in, and the URL is the only thing that says so (decision 10).
+export type AgentStateFramePullRequest = { url: string }
+
+// A URL this long is a broken reporter, not a pull request. The reporter caps
+// too; this is the enforcement, since the reporter is untrusted input.
+export const MAX_PULL_REQUEST_URL_LENGTH = 2048
+
 // Same ceiling for the status line's own numbers (the context window size in
 // tokens, and the session's cumulative line counts). Capped rather than dropped:
 // an absurd number degrades to a large one instead of erasing the reading.
@@ -435,6 +451,13 @@ export type AgentStateFrame = {
   // call and again right after a /compact, and a session is unnamed until it is
   // named. Untrusted like the rest: a bad value drops the FIELD.
   statusLine?: AgentStateFrameStatusLine
+  // The pull request the agent just opened, forwarded on the PostToolUse of a
+  // `gh pr create` (or of the sprint MCP tool that runs one). Folded in before
+  // the phase drop, exactly like a status line: a `PostToolUse` resolves to
+  // `thinking` and could roll a phase backward, but the pull request it carries
+  // is true whatever the frame's fate. Untrusted like the rest: a URL that is
+  // not a pull request URL drops the FIELD, never the frame.
+  pullRequest?: AgentStateFramePullRequest
 }
 
 // One reading from a session's status line. The numbers are the CLI's own —
@@ -536,7 +559,30 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
   if (fileChange) frame.fileChange = fileChange
   const statusLine = parseFrameStatusLine(raw.statusLine)
   if (statusLine) frame.statusLine = statusLine
+  const pullRequest = parseFramePullRequest(raw.pullRequest)
+  if (pullRequest) frame.pullRequest = pullRequest
   return frame
+}
+
+// A captured pull request, or nothing. The URL must be one the app's OWN parser
+// recognises as a pull request (`parsePullRequestUrl` — GitHub and GitHub
+// Enterprise; a Bitbucket URL is a typed "unsupported", which is not a capture
+// either), bounded, and free of control characters like every other string off
+// this socket.
+//
+// A bad value drops the FIELD and never the frame: the reporter is untrusted
+// input, and a malformed capture must not cost the session the phase, the cwd or
+// the ledger entry the same frame carries. There is exactly ONE URL parser in
+// main — the reporter's regex is its documented wire-side twin, and this is
+// where the two meet.
+function parseFramePullRequest(raw: unknown): AgentStateFramePullRequest | null {
+  if (!isRecord(raw)) return null
+  const url = optionalString(raw.url)?.trim()
+  if (!url || url.length > MAX_PULL_REQUEST_URL_LENGTH) return null
+  if (hasControlCharacters(url)) return null
+  const parsed = parsePullRequestUrl(url)
+  if (!parsed || 'unsupported' in parsed) return null
+  return { url }
 }
 
 // A status-line reading, field by field: each one that fails its own rule is
