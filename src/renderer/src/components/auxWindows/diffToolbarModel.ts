@@ -172,6 +172,10 @@ export function differenceCounterLabel(input: IncludedHunkCountInput): string {
   const noun = differenceCount === 1 ? '1 difference' : `${differenceCount} differences`
   const included = includedHunkCount(input)
   if (included !== null) return `${noun}, ${included} included`
+  // A branch step has no index behind it, so the working tree's stage flags say
+  // nothing about it: a historical diff of a file that happens to be staged
+  // right now must not claim its own differences are "included".
+  if (!isIncludable(input.item)) return noun
   // Before T7 the only "included" fact in the building is the whole file's, so
   // that is the only claim the counter makes.
   if (fileInclude.checked && !fileInclude.indeterminate) return `${noun}, all included`

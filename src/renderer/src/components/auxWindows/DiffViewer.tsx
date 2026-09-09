@@ -276,6 +276,7 @@ function DiffSettingsMenu({
         surfaceRef.current = surface
         surface.querySelector<HTMLButtonElement>('[data-menu-item="true"]')?.focus()
       }}
+      surfaceClassName={`min-w-[11rem] ${MENU_LIST_CLASS}`}
       renderTrigger={({ ref, togglePopover }) => (
         <Tooltip content="Diff settings" placement="bottom">
           <ToolbarButton ref={ref} ariaLabel="Diff settings" menu expanded={open} onClick={togglePopover}>
@@ -284,20 +285,20 @@ function DiffSettingsMenu({
         </Tooltip>
       )}
     >
-      <div
-        className={MENU_LIST_CLASS}
+      <MenuItem
+        checked={prefs.wordWrap}
+        onClick={() => onChange({ wordWrap: !prefs.wordWrap })}
         onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}
       >
-        <MenuItem checked={prefs.wordWrap} onClick={() => onChange({ wordWrap: !prefs.wordWrap })}>
-          Word wrap
-        </MenuItem>
-        <MenuItem
-          checked={prefs.ignoreTrimWhitespace}
-          onClick={() => onChange({ ignoreTrimWhitespace: !prefs.ignoreTrimWhitespace })}
-        >
-          Ignore whitespace
-        </MenuItem>
-      </div>
+        Word wrap
+      </MenuItem>
+      <MenuItem
+        checked={prefs.ignoreTrimWhitespace}
+        onClick={() => onChange({ ignoreTrimWhitespace: !prefs.ignoreTrimWhitespace })}
+        onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}
+      >
+        Ignore whitespace
+      </MenuItem>
     </Popover>
   )
 }
@@ -761,7 +762,12 @@ export function DiffViewer({
   // are this window's own session state. All four reach Monaco through
   // `liveDiffEditorOptions`, so changing any of them is an `updateOptions`
   // call and never a remount.
-  const diffView = useWorkspaceStore((state) => state.diffView)
+  // Narrowed on read: the persisted envelope is a JSON blob a previous version
+  // (or a hand edit) could have left anything in, and an unrecognised value
+  // would leave the radiogroup with no checked segment at all.
+  const diffView = useWorkspaceStore((state) =>
+    state.diffView === 'unified' ? 'unified' : 'side-by-side'
+  )
   const [sessionPrefs, setSessionPrefs] = useState(DEFAULT_DIFF_EDITOR_PREFS)
   const editorPrefs = useMemo<DiffEditorPrefs>(
     () => ({ diffView, ...sessionPrefs }),
@@ -777,8 +783,14 @@ export function DiffViewer({
     // carry the same values, so a mount that happens later starts correct.
     // `onDidUpdateDiff` fires after this and re-reveals the hunk the cursor was
     // on, so toggling the view keeps the person's place.
-    diffEditorRef.current?.updateOptions(liveDiffEditorOptions(editorPrefs))
-  }, [editorPrefs])
+    const editor = diffEditorRef.current
+    if (!editor) return
+    editor.updateOptions(liveDiffEditorOptions(editorPrefs))
+    // Switching to unified relays both sides into one editor. Monaco keeps the
+    // scroll offset, which is not the same thing as keeping the HUNK — so the
+    // cursor is re-revealed rather than left to whatever the relayout produced.
+    revealHunk(hunkIndexRef.current)
+  }, [editorPrefs, revealHunk])
 
   const setDiffView = useCallback((next: DiffViewMode) => {
     // See auxSettingsWrite: an aux window may only write a setting after
@@ -850,9 +862,13 @@ export function DiffViewer({
         }
         await refreshGitStatus()
       } catch (error) {
-        setIncludeOverride(null)
         setIncludeError(error instanceof Error ? error.message : 'Could not change what is included.')
       } finally {
+        // The refresh above awaits a completed `git status`, so by here the
+        // truth is on screen: drop the optimistic value unconditionally rather
+        // than leaving a box that disagrees with the index for good if the
+        // write landed somewhere we did not predict.
+        setIncludeOverride(null)
         includeBusyRef.current = false
       }
     })()
@@ -1017,7 +1033,7 @@ export function DiffViewer({
         {/* Not a live region: the file stepper beside it already announces every
             move, and two polite regions in one 30px band means every file change
             is read out twice. */}
-        {currentItem ? (
+        {currentItem && content.state === 'ready' ? (
           <span className="shrink-0 whitespace-nowrap px-1 text-meta tabular-nums text-[color:var(--text-muted)]">
             {counterLabel}
           </span>

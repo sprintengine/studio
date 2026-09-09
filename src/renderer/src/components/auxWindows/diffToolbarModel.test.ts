@@ -149,6 +149,12 @@ run('the counter claims only what it knows', () => {
   assert.equal(differenceCounterLabel({ item, differenceCount: 2, fileInclude: mixed }), '2 differences')
   // A binary or mode-only change has no hunks, and says so rather than "0 differences, all included".
   assert.equal(differenceCounterLabel({ item, differenceCount: 0, fileInclude: full }), 'No differences')
+  // A branch step has no index behind it: the working tree's flags say nothing
+  // about a diff between two commits.
+  assert.equal(
+    differenceCounterLabel({ item: branch(), differenceCount: 2, fileInclude: full }),
+    '2 differences',
+  )
 })
 
 run('includedHunkCount is the T7 seam and answers null until T7 fills it', () => {
