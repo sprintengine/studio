@@ -1,13 +1,13 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The twenty-nine SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The thirty-one SVGs in
 `glyphs/` (close, search, spinner, multicode-mark, git-branch, remote-machine,
 commit, worktree, history, folder, file-typescript, file-generic, and the
-seventeen Commit-window action marks — rollback, move-to-changelist, stash,
+nineteen Commit-window action marks — rollback, move-to-changelist, stash,
 group-by, expand-all, collapse-all, next-difference, previous-difference,
 show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message,
-new-changelist, delete-changelist, edit-changelist, create-patch) are
+new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are
 the framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
 beside it. This entry documents that vocabulary so a consumer can pick, size,
@@ -289,6 +289,7 @@ because putting changes away is one concept whether it is a view or a verb.
 | `WriteCommitMessageGlyph` | Compose the commit message | Three lines of a message with a crossed spark beside them: *text, composed for you*. A pencil would say a person types it, which is `OpenInEditorGlyph`'s job | `glyphs/write-commit-message.svg` |
 | `NewChangelistGlyph` · `DeleteChangelistGlyph` | Make / remove a changelist | The bare plus and the bare minus at the family's weight. The changelist is already named by the menu row beside them, so the operator is the whole mark; `FolderPlusIcon` is a 24-grid folder and a changelist is not a folder (added 2026-09-09, T6) | `glyphs/new-changelist.svg` · `glyphs/delete-changelist.svg` |
 | `EditChangelistGlyph` | Rename a changelist | The pencil WITHOUT the page. `OpenInEditorGlyph` is the pencil on a page and means "hand this file to an editor"; renaming a list touches no file, so it keeps the tool and drops the page | `glyphs/edit-changelist.svg` |
+| `KebabGlyph` | More actions (the overflow trigger) | Three dots stacked, `r=1.15` at y 3.4 / 8 / 12.6. The one mark in this folder made of FILLS: a dot has no line work, and a stroked dot is a circle pretending to be a point. One drawing since 2026-09-09 — `OverflowMenu` drew it on a 14-grid and the Git group band hand-rolled a 16-grid copy | `glyphs/kebab.svg` |
 | `CreatePatchGlyph` | Write the selection out as a patch | A page carrying a diff's two marks, one added line over one taken away: a patch is a file *of* a difference, so the glyph is both. Not `WriteCommitMessageGlyph`'s prose lines, and not another frame — every frame in this family is a layout | `glyphs/create-patch.svg` |
 
 Reused, not redrawn, by the same two surfaces: `RefreshIcon` (re-read the

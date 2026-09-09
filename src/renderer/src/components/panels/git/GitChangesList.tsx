@@ -47,6 +47,7 @@ import {
   FileTypeGlyph,
   GroupHeader,
   GroupHeaderAction,
+  KebabGlyph,
   MenuDivider,
   MenuFlyoutItem,
   MenuItem,
@@ -317,11 +318,7 @@ export function GitChangesList({
                       setGroupMenu({ x: rect.left, y: rect.bottom, group })
                     }}
                   >
-                    <svg viewBox="0 0 16 16" aria-hidden="true" className="size-icon-xs" fill="currentColor">
-                      <circle cx="8" cy="3.4" r="1.15" />
-                      <circle cx="8" cy="8" r="1.15" />
-                      <circle cx="8" cy="12.6" r="1.15" />
-                    </svg>
+                    <KebabGlyph />
                   </GroupHeaderAction>
                 }
               />

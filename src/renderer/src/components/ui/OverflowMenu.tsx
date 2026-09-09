@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { Popover } from './Popover'
 import { MenuDivider, MenuSwatchRow, MenuFlyoutItem } from './ContextMenu'
+import { KebabGlyph } from './KebabGlyph'
 import { Tooltip } from './Tooltip'
 import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from './menuClasses'
 import { FOCUS_RING_CLASS } from './tokens'
@@ -70,13 +71,10 @@ type OverflowMenuProps = {
   align?: 'start' | 'end'
 }
 
-const KEBAB = (
-  <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" focusable="false">
-    <circle cx="7" cy="3" r="1.2" fill="currentColor" />
-    <circle cx="7" cy="7" r="1.2" fill="currentColor" />
-    <circle cx="7" cy="11" r="1.2" fill="currentColor" />
-  </svg>
-)
+// The shared mark, at a step on the icon ramp. This used to be a private
+// 14-grid drawing here and a second 16-grid one in the Git panel's group band —
+// the same three dots at two pitches, one of them off the ramp.
+const KEBAB = <KebabGlyph />
 
 export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align = 'end' }: OverflowMenuProps) {
   const [open, setOpen] = useState(false)

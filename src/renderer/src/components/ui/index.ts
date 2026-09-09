@@ -75,6 +75,11 @@ export {
   EditChangelistGlyph,
   NewChangelistGlyph,
 } from './GitActionGlyphs'
+// The overflow mark, one drawing. Two surfaces drew it privately at two
+// pitches until 2026-09-09 — `OverflowMenu`'s own trigger and the Git panel's
+// group band — which is exactly the drift `design-system/glyphs/` exists to
+// stop.
+export { KebabGlyph } from './KebabGlyph'
 // The one micro chip, for the "active" mark on a changelist's band
 // (design-system/components/micro-chip).
 export { MicroChip } from './DefaultChip'
