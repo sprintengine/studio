@@ -11,7 +11,7 @@
 // and that a profile already in use is never touched.
 
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -195,6 +195,58 @@ async function main(): Promise<void> {
     await mkdir(current, { recursive: true })
     await mkdir(legacy, { recursive: true })
     writeStore(legacy, { sources: [], scans: {} })
+    const outcome = adoptLegacySkillSources({ userDataDir: current, legacyDir: legacy, log: () => {} })
+    assert.equal(outcome.reason, 'nothing-to-carry')
+    assert.ok(existsSync(join(current, 'skill-sources-legacy-adoption.json')))
+  })
+
+  await run('a current store that cannot be read is never written over as though it were empty', async () => {
+    // The store's own drop path, which this rescue must not reopen: a current
+    // store that is unreadable for a moment used to parse to nothing, and the
+    // plan was then renamed over the top of it — every source it held, gone.
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return
+    const { current, legacy } = profiles()
+    await mkdir(current, { recursive: true })
+    await mkdir(legacy, { recursive: true })
+    const held: PersistedState = { sources: [ANTHROPIC_SKILLS], scans: { [ANTHROPIC_SKILLS.id]: scanOf('anthropics/pdf') } }
+    writeStore(current, held)
+    writeStore(legacy, { sources: [MATT], scans: {} })
+    const path = join(current, 'skill-sources.json')
+    chmodSync(path, 0o000)
+
+    const outcome = adoptLegacySkillSources({ userDataDir: current, legacyDir: legacy, log: () => {} })
+    chmodSync(path, 0o600)
+    assert.equal(outcome.reason, 'failed', 'the rescue aborts')
+    assert.equal(existsSync(join(current, 'skill-sources-legacy-adoption.json')), false, 'and does not mark itself done')
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), held, 'the current store is exactly as it was')
+
+    // Readable again next launch: the rescue runs, and a store already in use
+    // is left alone — the marker records that.
+    assert.equal(adoptLegacySkillSources({ userDataDir: current, legacyDir: legacy, log: () => {} }).reason, 'nothing-to-carry')
+  })
+
+  await run('current bytes that are not JSON are left for the store to quarantine', async () => {
+    // Same ruling, other cause. The store keeps unparsable bytes aside under a
+    // timestamped name on its next write; the rescue must not destroy them
+    // first by writing a fresh file where they were.
+    const { current, legacy } = profiles()
+    await mkdir(current, { recursive: true })
+    await mkdir(legacy, { recursive: true })
+    const garbage = '{"sources":[{"id":"github:acme/skills"'
+    writeFileSync(join(current, 'skill-sources.json'), garbage)
+    writeStore(legacy, { sources: [MATT], scans: {} })
+
+    const outcome = adoptLegacySkillSources({ userDataDir: current, legacyDir: legacy, log: () => {} })
+    assert.equal(outcome.reason, 'failed')
+    assert.equal(readFileSync(join(current, 'skill-sources.json'), 'utf8'), garbage, 'byte for byte')
+    assert.equal(existsSync(join(current, 'skill-sources-legacy-adoption.json')), false)
+  })
+
+  await run('an old store nobody can parse carries nothing, and is marked so', async () => {
+    const { current, legacy } = profiles()
+    await mkdir(current, { recursive: true })
+    await mkdir(legacy, { recursive: true })
+    writeFileSync(join(legacy, 'skill-sources.json'), 'not a store')
     const outcome = adoptLegacySkillSources({ userDataDir: current, legacyDir: legacy, log: () => {} })
     assert.equal(outcome.reason, 'nothing-to-carry')
     assert.ok(existsSync(join(current, 'skill-sources-legacy-adoption.json')))

@@ -28,7 +28,7 @@ import { basename, dirname, join } from 'node:path'
 import type { ScanResult, SkillSource } from '../../shared/skills'
 import {
   isRemovableSkillSource,
-  parseSkillSourceState,
+  parseSkillSourceBytes,
   skillSourceLog,
   type PersistedState,
   type SkillSourceLog,
@@ -143,8 +143,8 @@ export function adoptLegacySkillSources(options: {
     // about, and one `existsSync` a launch is not a cost.
     if (!existsSync(legacyPath)) return { carried: [], reason: 'no-legacy-profile' }
 
-    const current = readState(join(userDataDir, STORE_FILE), log)
-    const legacy = readState(legacyPath, log)
+    const current = readCurrentState(join(userDataDir, STORE_FILE), log)
+    const legacy = readLegacyState(legacyPath, log)
     const plan = planLegacySourceAdoption(current, legacy)
     if (!plan) {
       writeMarker(markerPath, { adoptedAt: new Date().toISOString(), from: legacyPath, carried: [] })
@@ -164,15 +164,46 @@ export function adoptLegacySkillSources(options: {
   }
 }
 
-function readState(path: string, log: SkillSourceLog): PersistedState {
+/** The bytes of a store, or null when there is no store. Anything else throws. */
+function readStoreBytes(path: string): string | null {
   try {
-    return parseSkillSourceState(readFileSync(path, 'utf8'), log)
+    return readFileSync(path, 'utf8')
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      log('store-unreadable', { path, message: error instanceof Error ? error.message : String(error) })
-    }
-    return { sources: [], scans: {} }
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
   }
+}
+
+/**
+ * The current store, read to be WRITTEN OVER — which is the store's own
+ * write-path question, and gets the store's own answer. ENOENT is "no store
+ * yet". Any other error, and any bytes that are present but not JSON, abort
+ * the rescue: parsing an unreadable store to an empty one and then writing the
+ * plan over it would lose every source it holds, which is precisely the drop
+ * path the store closed (2026-09-10) and this file must not reopen. No marker
+ * is written for a failure, so the rescue simply runs again next launch; the
+ * unparsable case clears itself, because the store quarantines those bytes on
+ * its next write.
+ */
+function readCurrentState(path: string, log: SkillSourceLog): PersistedState {
+  const raw = readStoreBytes(path)
+  if (raw === null) return { sources: [], scans: {} }
+  const { state, unparsable } = parseSkillSourceBytes(raw, log)
+  if (unparsable && raw.trim().length > 0) {
+    throw new Error(`${path} holds bytes that are not a store; left for the store to quarantine`)
+  }
+  return state
+}
+
+/**
+ * The old store, read only to be COPIED FROM. Bytes nobody can parse carry
+ * nothing, and the marker records that. A file that could not be read at all
+ * still aborts rather than marking "nothing to carry" over a store that was
+ * never looked at.
+ */
+function readLegacyState(path: string, log: SkillSourceLog): PersistedState {
+  const raw = readStoreBytes(path)
+  return raw === null ? { sources: [], scans: {} } : parseSkillSourceBytes(raw, log).state
 }
 
 /** The same temp-then-rename the store writes with, so a crash mid-write cannot truncate it. */

@@ -13,7 +13,7 @@
 // the network; what is under test is persistence, not scanning.
 
 import assert from 'node:assert/strict'
-import { mkdtemp } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -164,6 +164,25 @@ async function main(): Promise<void> {
     const result = await serviceOver(userData).addSource({ repo: OFFICIAL_PLUGINS_SKILL_SOURCE_REPO })
     assert.equal(result.ok, true, result.ok ? '' : result.message)
     assert.equal(result.ok && result.mergedIntoBuiltin, true)
+  })
+
+  await run('a removal over a store that cannot be read is an answer, not a rejected call', async () => {
+    // The store refuses to write over a file it could not read and throws to
+    // say so. The modal and the tab's Remove both await this result and read
+    // `message` from it; a rejection there would leave the button on
+    // "Removing…" for good.
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return
+    const userData = await mkdtemp(join(tmpdir(), 'multicode-source-persistence-'))
+    const service = serviceOver(userData)
+    assert.equal((await service.addSource({ repo: ADDED_REPO })).ok, true)
+    const path = join(userData, 'skill-sources.json')
+    const before = await readFile(path, 'utf8')
+    await chmod(path, 0o000)
+    const removed = await service.removeSource({ sourceId: ADDED_ID })
+    await chmod(path, 0o600)
+    assert.equal(removed.ok, false, 'the removal reports a failure')
+    assert.ok(!removed.ok && removed.message.length > 0, 'with something the person can act on')
+    assert.equal(await readFile(path, 'utf8'), before, 'and the store is untouched')
   })
 
   await run('adding a repository twice without replace is still refused', async () => {

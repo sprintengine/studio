@@ -378,7 +378,18 @@ export function createSkillsService(
         skillSourceLog('source-remove', { id, outcome: 'refused-always-present' })
         return { ok: false, message: 'This source is part of Multicode and cannot be removed.' }
       }
-      const removed = await store.removeSource(id)
+      // The store now refuses to write over a file it could not read (a
+      // permission error, a busy volume) and says so by throwing. Here that is
+      // an answer for the person, not a rejected IPC call: the modal and the
+      // tab's Remove both await this result and read `message` from it.
+      let removed: boolean
+      try {
+        removed = await store.removeSource(id)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        skillSourceLog('source-remove', { id, outcome: 'failed', message })
+        return { ok: false, message }
+      }
       skillSourceLog('source-remove', { id, outcome: removed ? 'removed' : 'not-in-list' })
       return removed ? { ok: true, sourceId: id } : { ok: false, message: 'That source is not in your list.' }
     },

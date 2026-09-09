@@ -174,7 +174,7 @@ export function createSkillSourceStore(userDataDir: string, options: SkillSource
   const read = async (): Promise<PersistedState> => {
     try {
       const raw = await readBytes()
-      return raw === null ? emptyState() : parseStore(raw, log).state
+      return raw === null ? emptyState() : parseSkillSourceBytes(raw, log).state
     } catch (error) {
       log('store-unreadable', { path, message: errorMessage(error) })
       return emptyState()
@@ -200,7 +200,7 @@ export function createSkillSourceStore(userDataDir: string, options: SkillSource
   const readForWrite = async (): Promise<PersistedState> => {
     const raw = await readBytes()
     if (raw === null) return emptyState()
-    const { state, unparsable } = parseStore(raw, log)
+    const { state, unparsable } = parseSkillSourceBytes(raw, log)
     if (unparsable && raw.trim().length > 0) {
       const kept = `${path}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await rename(path, kept).catch(() => undefined)
@@ -291,15 +291,20 @@ export function createSkillSourceStore(userDataDir: string, options: SkillSource
  * repository is one paste.
  */
 export function parseSkillSourceState(raw: string, log: SkillSourceLog = skillSourceLog): PersistedState {
-  return parseStore(raw, log).state
+  return parseSkillSourceBytes(raw, log).state
 }
 
 /**
- * The parse, plus whether the bytes were JSON at all — which only the write
- * path needs, to tell "there was nothing here" from "there was something here
- * and it is now unreadable".
+ * The parse, plus whether the bytes were JSON at all — which only a caller
+ * about to WRITE needs, to tell "there was nothing here" from "there was
+ * something here and it is now unreadable". The store's own write path asks
+ * it, and so does the legacy-profile rescue before it writes over the current
+ * store (`legacy-profile.ts`).
  */
-function parseStore(raw: string, log: SkillSourceLog): { state: PersistedState; unparsable: boolean } {
+export function parseSkillSourceBytes(
+  raw: string,
+  log: SkillSourceLog,
+): { state: PersistedState; unparsable: boolean } {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
