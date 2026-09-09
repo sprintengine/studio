@@ -11,8 +11,6 @@
 // through IPC, and never written into changeset.json (`source.url` is the public
 // URL only). Node/Electron-main only.
 
-import { execFile } from 'child_process'
-import { promisify } from 'util'
 import {
   canonicalPullRequestUrl,
   parsePullRequestUrl,
@@ -29,9 +27,8 @@ import {
 } from '../changeset-service'
 import { parsePatch } from '../patch-parse'
 import { runGitCommand } from '../../git-utils'
+import { defaultResolveToken, sharedGhRunner, type GhRunner } from '../../github/gh'
 import { isRecord } from '../../../shared/records'
-
-const execFileAsync = promisify(execFile)
 
 // A probe must answer fast enough to never wedge the creation flow's step pane; a
 // build may pull a large diff and is allowed longer.
@@ -59,16 +56,16 @@ export type FetchLike = (
   init?: { headers?: Record<string, string>; signal?: AbortSignal }
 ) => Promise<FetchResponseLike>
 
-interface GhResult {
-  found: boolean // false only when the gh binary itself is absent
-  code: number
-  stdout: string
-  stderr: string
-}
-export interface GhRunner {
-  available(): Promise<boolean>
-  run(args: string[]): Promise<GhResult>
-}
+// The gh runner is THE one in `src/main/github/gh.ts` (decision 11). Re-exported
+// here because this module was its old home: the review paths, the review-sync
+// write path and the version-control probe all import it from here, and one
+// runner is the point — not one import path.
+export {
+  createDefaultGhRunner,
+  defaultResolveToken,
+  type GhResult,
+  type GhRunner,
+} from '../../github/gh'
 
 export interface GithubPrProviderDeps {
   gh: GhRunner
@@ -400,87 +397,6 @@ function isAbortLike(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
 }
 
-// Default gh runner: a direct spawn, then — when the binary is not on PATH — a
-// retry through the user's login+interactive shell. A GUI-launched app on macOS
-// does not inherit the shell PATH, so a Homebrew/nvm `gh` is invisible to a bare
-// spawn but present in the shell that PTY terminals use (mirrors detectCli's
-// $SHELL -ilc fallback in cli-runtime-install.ts).
-// Exported so the review-sync write path (MC-1683) shares the exact same gh
-// runner — including the GUI-launched-app shell-PATH fallback — instead of
-// duplicating it, keeping "gh-first auth" identical between read and write.
-export function createDefaultGhRunner(): GhRunner {
-  const maxBuffer = MAX_PATCH_BYTES + 1024 * 1024
-  const runDirect = async (args: string[]): Promise<GhResult> => {
-    try {
-      const { stdout, stderr } = await execFileAsync('gh', args, { maxBuffer, windowsHide: true })
-      return { found: true, code: 0, stdout, stderr }
-    } catch (error) {
-      const err = error as { code?: string | number; stdout?: string; stderr?: string }
-      if (err.code === 'ENOENT') return { found: false, code: -1, stdout: '', stderr: '' }
-      return { found: true, code: typeof err.code === 'number' ? err.code : 1, stdout: err.stdout ?? '', stderr: err.stderr ?? '' }
-    }
-  }
-  const runViaShell = async (args: string[]): Promise<GhResult | null> => {
-    const descriptor = buildShellGhDescriptor(args, process.env.SHELL)
-    if (!descriptor) return null
-    try {
-      const { stdout, stderr } = await execFileAsync(descriptor.file, descriptor.args, { maxBuffer, windowsHide: true })
-      return { found: true, code: 0, stdout, stderr }
-    } catch (error) {
-      const err = error as { code?: string | number; stdout?: string; stderr?: string }
-      if (err.code === 'ENOENT') return { found: false, code: -1, stdout: '', stderr: '' }
-      return { found: true, code: typeof err.code === 'number' ? err.code : 1, stdout: err.stdout ?? '', stderr: err.stderr ?? '' }
-    }
-  }
-  const run = async (args: string[]): Promise<GhResult> => {
-    const direct = await runDirect(args)
-    if (direct.found) return direct
-    return (await runViaShell(args)) ?? direct
-  }
-  return {
-    run,
-    async available() {
-      const result = await run(['--version'])
-      return result.found && result.code === 0
-    },
-  }
-}
-
-function buildShellGhDescriptor(args: string[], shell: string | undefined): { file: string; args: string[] } | null {
-  if (process.platform !== 'darwin' && process.platform !== 'linux') return null
-  const shellPath = shell?.trim()
-  if (!shellPath) return null
-  const shellName = shellPath.split('/').pop()
-  if (shellName !== 'zsh' && shellName !== 'bash') return null
-  const command = ['gh', ...args].map(posixSingleQuote).join(' ')
-  return { file: shellPath, args: ['-ilc', command] }
-}
-
-function posixSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`
-}
-
-// Resolves the REST token from the same environment variables gh reads.
-// github.com is fixed to api.github.com so GH_TOKEN can only ever reach GitHub.
-// A GHES host, though, comes straight from the pasted URL: handing the enterprise
-// token to an arbitrary host would leak it, so the token is released only when the
-// host matches an explicitly configured enterprise host (gh's own GH_HOST). An
-// unconfigured or mismatched host falls through unauthenticated.
-export function defaultResolveToken(host: string, provider: PullRequestProvider): Promise<string | null> {
-  if (provider === 'github') return Promise.resolve(pickEnv('GH_TOKEN', 'GITHUB_TOKEN'))
-  const configuredHost = (process.env.GH_HOST ?? process.env.GH_ENTERPRISE_HOST ?? '').trim().toLowerCase()
-  if (!configuredHost || configuredHost !== host.toLowerCase()) return Promise.resolve(null)
-  return Promise.resolve(pickEnv('GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'))
-}
-
-function pickEnv(...names: string[]): string | null {
-  for (const name of names) {
-    const value = process.env[name]?.trim()
-    if (value) return value
-  }
-  return null
-}
-
 // PR-project inference (MC-1787). A pasted pull-request URL identifies a repo by
 // host + owner/repo; the same triple, read from each open project's git remotes,
 // tells us which local checkout (if any) that PR belongs to — so a reviewer who
@@ -591,7 +507,7 @@ export async function matchPrProjectRoots(
 
 function defaultDeps(): GithubPrProviderDeps {
   return {
-    gh: createDefaultGhRunner(),
+    gh: sharedGhRunner(),
     fetchImpl: (url, init) => fetch(url, init) as unknown as Promise<FetchResponseLike>,
     resolveToken: defaultResolveToken,
   }

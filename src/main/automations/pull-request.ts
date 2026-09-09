@@ -1,9 +1,5 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-
 import { runGitCommand } from '../git-utils'
-
-const execFileAsync = promisify(execFile)
+import { sharedGhRunner, type GhRunner } from '../github/gh'
 
 // App-side pull-request open for an agent-backed automation run. The user chose
 // "worktree + branch convention, app opens the PR": the agent works in a per-run
@@ -101,24 +97,25 @@ function firstUrl(text: string): string | null {
   return match ? match[0] : null
 }
 
-async function runGhCommand(cwd: string, args: string[]): Promise<CommandResult> {
-  try {
-    const { stdout, stderr } = await execFileAsync('gh', args, {
-      cwd,
-      encoding: 'utf8',
-      maxBuffer: 20 * 1024 * 1024,
-      windowsHide: true,
-    })
-    return { ok: true, stdout, stderr }
-  } catch (error) {
-    const execError = error as { stdout?: string; stderr?: string; message?: string; code?: string }
-    const missing = execError.code === 'ENOENT'
+/**
+ * This module's `gh` calls, on THE shared runner (`main/github/gh.ts`,
+ * epic `pull-request-marks` decision 11). It used to spawn `gh` itself, without
+ * the login-shell PATH retry, so a GUI-launched app with a Homebrew `gh` was
+ * told the binary did not exist and every run finished without a pull request
+ * link. Same Fallback Discipline as before — a missing or failing `gh` is a
+ * REASON, never a faked PR — only now "missing" is the runner's `found: false`
+ * rather than an ENOENT this module had to recognise on its own.
+ */
+export function createGhCommandRunner(gh: GhRunner) {
+  return async (cwd: string, args: string[]): Promise<CommandResult> => {
+    const result = await gh.run(args, { cwd })
+    if (!result.found) {
+      return { ok: false, stdout: '', stderr: 'the GitHub CLI (gh) is not installed or not on PATH' }
+    }
     return {
-      ok: false,
-      stdout: execError.stdout ?? '',
-      stderr: missing
-        ? 'the GitHub CLI (gh) is not installed or not on PATH'
-        : execError.stderr ?? execError.message ?? 'gh command failed',
+      ok: result.code === 0,
+      stdout: result.stdout,
+      stderr: result.code === 0 ? result.stderr : result.stderr.trim() || 'gh command failed',
     }
   }
 }
@@ -129,5 +126,5 @@ const defaultPullRequestDeps: PullRequestDeps = {
     stdout: result.stdout,
     stderr: result.stderr,
   })),
-  runGh: runGhCommand,
+  runGh: createGhCommandRunner(sharedGhRunner()),
 }
