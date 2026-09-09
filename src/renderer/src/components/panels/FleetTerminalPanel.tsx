@@ -65,6 +65,9 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
     const term = studioTerminal.terminal
     const fitAddon = studioTerminal.fitAddon
     term.open(container)
+    // Immediately after `open()`: the WebGL addon reads `term.element`, and a
+    // GPU failure loaded before that point escapes through `open()` itself.
+    studioTerminal.loadWebglRenderer()
 
     const fitTerminal = () => {
       if (container.clientWidth === 0 || container.clientHeight === 0) return

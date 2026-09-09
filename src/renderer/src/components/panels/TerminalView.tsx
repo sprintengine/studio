@@ -563,6 +563,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       return true
     })
     term.open(container)
+    // Immediately after `open()`: the WebGL addon reads `term.element`, and a
+    // GPU failure loaded before that point escapes through `open()` itself.
+    studioTerminal.loadWebglRenderer()
     fitTerminal()
     focusTerminal()
 

@@ -205,6 +205,9 @@ export default function PlainTerminalPanel({
       return true
     })
     term.open(container)
+    // Immediately after `open()`: the WebGL addon reads `term.element`, and a
+    // GPU failure loaded before that point escapes through `open()` itself.
+    studioTerminal.loadWebglRenderer()
 
     // Non-null for every shell surface; the guard is what keeps a surface that
     // must not resolve local paths (fleet) from ever registering this provider.

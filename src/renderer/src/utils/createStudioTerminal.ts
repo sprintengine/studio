@@ -2,12 +2,19 @@ import { Terminal } from '@xterm/xterm'
 import type { IDisposable, ILinkHandler } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../shared/terminal-history'
 import { TERMINAL_CELL_GEOMETRY_OPTIONS } from '../../../shared/terminal-options'
 import { MONO_FONT_STACK } from './fonts'
+import { logPerfEvent } from './perfDiagnostics'
 import { bindTerminalTheme, getTerminalTheme } from './terminalTheme'
+import {
+  attachWebglRenderer,
+  type WebglRendererHandle,
+  type WebglRendererState,
+} from './terminalWebglRenderer'
 
 /**
  * One place constructs a terminal.
@@ -18,9 +25,9 @@ import { bindTerminalTheme, getTerminalTheme } from './terminalTheme'
  * the same option literal.
  *
  * What this owns: the option block, the theme (and its live re-tint binding),
- * the font, the scrollback, the fit addon, the web-links addon, the
- * `linkHandler` slot that OSC 8 hyperlinks will fill, and OSC handler
- * registration.
+ * the font, the scrollback, the fit addon, the web-links addon, the WebGL
+ * renderer and its context-loss fallback, the `linkHandler` slot that OSC 8
+ * hyperlinks will fill, and OSC handler registration.
  *
  * What it deliberately does NOT own: `term.open()`, keyboard handlers, and the
  * file-link provider. Those are per-pane and, in the link provider's case,
@@ -115,6 +122,19 @@ export type StudioTerminal = {
    */
   loadWebLinks: () => void
   /**
+   * Loads the WebGL renderer, and arms the fallback that keeps a lost GPU
+   * context from blanking the pane.
+   *
+   * **Call it immediately after `term.open()`.** Split out for the same reason
+   * the addon itself checks `terminal.element`: loaded against an unopened
+   * terminal the addon defers into xterm's internal `onWillOpen`, and a
+   * context failure then throws out of `term.open()` rather than out of here.
+   * See `terminalWebglRenderer.ts`. Idempotent: a second call does nothing.
+   */
+  loadWebglRenderer: () => void
+  /** Which renderer is painting this pane. `'webgl'` only while WebGL holds. */
+  webglRendererState: () => WebglRendererState
+  /**
    * Tears down everything the factory created, terminal included. Call it last
    * in a pane's cleanup — anything reading `terminal` must run before it.
    */
@@ -151,6 +171,26 @@ export function createStudioTerminal({
     oscDisposables.push(terminal.parser.registerOscHandler(Number(identifier), handler))
   }
 
+  let webglRenderer: WebglRendererHandle | null = null
+  const loadWebglRenderer = (): void => {
+    if (webglRenderer) return
+    webglRenderer = attachWebglRenderer({
+      terminal,
+      createAddon: () => new WebglAddon(),
+      // Which renderer a pane ended up on decides how to read every terminal
+      // timing number, so it is recorded rather than silently absorbed — a
+      // machine that always falls back is a machine whose profiles mean
+      // something different.
+      onStateChange: (state, error) => {
+        logPerfEvent('terminal', 'terminal-renderer', {
+          surface: surface.kind,
+          state,
+          ...(error === undefined ? {} : { error: String(error) }),
+        })
+      },
+    })
+  }
+
   let webLinksAddon: WebLinksAddon | null = null
   const loadWebLinks = (): void => {
     if (!onWebLink || webLinksAddon) return
@@ -163,7 +203,12 @@ export function createStudioTerminal({
     fitAddon,
     linkRoots: terminalSurfaceLinkRoots(surface),
     loadWebLinks,
+    loadWebglRenderer,
+    webglRendererState: () => webglRenderer?.state() ?? 'not-loaded',
     dispose: () => {
+      // Before the terminal: the addon's disposal reaches back into the
+      // terminal's render service to put the DOM renderer back.
+      webglRenderer?.dispose()
       webLinksAddon?.dispose()
       for (const disposable of oscDisposables) disposable.dispose()
       unbindTerminalTheme()
