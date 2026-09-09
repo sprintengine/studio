@@ -274,6 +274,105 @@ or cache resolved values in JS, and never hard-code a hex.
 | Accent | `--accent-primary`, `--accent-primary-soft`, `--focus-ring` | Primary actions/selection, soft accent fills; `--focus-ring` is a full box-shadow value |
 | Tone | `--tone-neutral`, `--tone-accent`, `--tone-warn`, `--tone-good`, `--tone-error`, `--tone-merged` | Semantic status: idle/neutral, active/info, caution, success, failure, merged/PR-purple |
 
+## UI kit, surface shell and Monaco
+
+Three of the app's own runtime pieces are bridged to modules, so a module-owned
+door looks and behaves like a bundled one instead of re-implementing chrome a
+shade off:
+
+| Specifier | What it is |
+|---|---|
+| `@multicode/module-sdk/ui` | A curated slice of the app's component kit |
+| `@multicode/module-sdk/surface` | The door shell and its rail/canvas substrate |
+| `@monaco-editor/react` | The Monaco React wrapper the app already ships |
+
+**They are host-provided.** This package ships only their TYPES; the `.js`
+behind `./ui` and `./surface` is a stub that throws
+`"@multicode/module-sdk/ui is provided by the host at runtime; mark it external
+in your bundler"` the moment it is evaluated. The app installs an import map
+before it evaluates your `entry.renderer` bundle and answers all three
+specifiers (plus `react`, `react-dom`, `react-dom/client`,
+`react/jsx-runtime`) with its own live instances — which is also why there is
+exactly one React, one Monaco and one copy of the kit in the process.
+
+So every one of them must be marked external:
+
+```
+esbuild src/renderer.tsx --bundle --format=esm --outfile=dist/renderer.mjs \
+  --external:react --external:react-dom --external:react-dom/client \
+  --external:react/jsx-runtime \
+  --external:@monaco-editor/react \
+  --external:@multicode/module-sdk/ui \
+  --external:@multicode/module-sdk/surface
+```
+
+Keep `moduleResolution: "bundler"` (or `node16`) in your tsconfig so the
+subpath `exports` are honoured. Bundling one of these in by mistake fails
+loudly at load with the message above, never silently with a second React.
+
+### `@multicode/module-sdk/ui`
+
+`GhostButton`, `OutlineButton`, `PrimaryButton`, `Banner`, `Drawer`,
+`EmptyState`, `Field`, `Input`, `Textarea`, `InlineNotice`, `KbdChord`,
+`LifecycleGlyph`, `LinkButton`, `RowButton`, `Section`, `SegmentedControl`,
+`Select`, `Spinner`, `StatusDot`, `TruncatedText`, `CliModelPickerButton`, and
+the `FOCUS_RING_CLASS` string for any focusable you draw yourself. Props are
+published for each, alongside the shared vocabulary they are written in:
+`Tone`, `StatusTone`, `LifecycleState`, `SelectItem`, `SegmentedControlItem`,
+`FilterMenuGroup`, `CliRuntimeOption`.
+
+The list is deliberately short and deliberately frozen: it is a versioned
+contract, pinned against the app's own components by a drift guard in both
+directions. A component you want that is not here is cheaper copied into your
+module than frozen here forever.
+
+### `@multicode/module-sdk/surface`
+
+`GlobalSurfaceShell` — the door frame: title bar, actions slot, back
+affordance, rail gutter, attention strip. `useSurfaceBackNav()` wires its back
+control to the host's surface history. `SurfaceRail` is the list column every
+bundled door uses (rows, groups, search, filter, scope, a new-affordance), and
+`SurfaceCanvasState` is the one loading / empty / error canvas. Types:
+`GlobalSurfaceBar`, `GlobalSurfaceShellProps`, `SurfaceCanvasStateProps`,
+`SurfaceRailRow`, `SurfaceRailGroup`, `SurfaceRailSearch`,
+`SurfaceRailFilter`, `SurfaceRailScope`, `SurfaceRailNewAffordance`,
+`SurfaceRailProps`.
+
+### `@monaco-editor/react`
+
+Import `Editor` / `DiffEditor` as usual and declare `@monaco-editor/react` a
+dependency for types; the host answers the specifier at runtime, so your bundle
+carries no editor. Drive its theme from `host.watchColorScheme(scheme => …)`
+rather than reading the app's CSS — the tokens are contract, the theme name
+Monaco wants is not.
+
+### Tailwind classes produce no CSS unless you ship it
+
+The bridged components arrive fully styled — they were compiled by the app's
+own Tailwind build, and the design tokens they reference
+(`var(--bg-surface)`, …) come from the host stylesheet.
+
+**Utility classes YOU write do not.** The app's Tailwind build scans app
+source only, so a `flex gap-2 text-meta` first used inside your module compiles
+to nothing at all and renders as unstyled markup. Either write plain CSS /
+inline styles against the theme tokens above, or ship your own utilities-only
+stylesheet and inject it. The second is a few lines:
+
+```css
+/* tailwind.css */
+@import "tailwindcss/utilities" layer(utilities);
+@source "./src";
+/* plus a copy of the @theme block for any custom scale you use */
+```
+
+```
+npx @tailwindcss/cli -i tailwind.css -o src/styles/utilities.css --minify
+```
+
+Then inject the built CSS text through a single `<style>` element when your
+renderer entry registers. Utilities-only keeps it small and keeps it from
+fighting the host's preflight, which has already run.
+
 ## Programmatic workspace creation
 
 A module's `entry.main` can create a workspace through the always-on app core,
