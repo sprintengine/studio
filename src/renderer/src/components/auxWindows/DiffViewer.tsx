@@ -778,19 +778,28 @@ export function DiffViewer({
   // envelope from it would push a snapshot of that moment over whatever the
   // workspace window has changed since. The workspace window flips it as it
   // opens the tab (WorkspaceManager), exactly as docking a file back does.
+  const [dockError, setDockError] = useState<string | null>(null)
   const showInApp = useCallback(() => {
     if (!workspaceId) return
     const target = currentItem ?? items[0]
     const kind = target?.kind === 'branch' ? 'unstaged' : target?.kind
     void (async () => {
-      await window.api.dockDiffToWorkspace({
+      setDockError(null)
+      const result = await window.api.dockDiffToWorkspace({
         workspaceId,
         repoRoot,
         focusPath: target?.path ?? focusPath ?? null,
         focusKind: kind ?? focusKind ?? null,
       })
-      // Closed only after the hand-off is on its way: a window that vanishes
-      // first leaves the person with neither the window nor the tab.
+      // Closed only once a window has SAID it took the diff. "On its way" was
+      // not enough: the hand-off is a broadcast that every workspace window is
+      // free to ignore (none of them holds this workspace, or none is open at
+      // all), and closing on the strength of that left the person with neither
+      // the window nor the tab. On a refusal the window stays up and says why.
+      if (!result?.accepted) {
+        setDockError('No open workspace to show this in')
+        return
+      }
       await window.api.windowClose()
     })()
   }, [currentItem, focusKind, focusPath, items, repoRoot, workspaceId])
@@ -1195,12 +1204,13 @@ export function DiffViewer({
         </div>
       </div>
 
-      {/* One band for both include failures — the whole file's and a single
-          hunk's. They are the same sentence to a person ("that did not go into
-          the commit") and git's own words are what either one shows. */}
-      {(includeError ?? fileHunks.error) ? (
+      {/* One band for every failure this window can report — the whole file's
+          include, a single hunk's, and a hand-off back to the app that no
+          window took. They are the same sentence to a person ("that did not
+          happen"), and git's own words are what the include failures show. */}
+      {(dockError ?? includeError ?? fileHunks.error) ? (
         <InlineNotice tone="error" className="mx-3 mt-2 shrink-0">
-          {includeError ?? fileHunks.error}
+          {dockError ?? includeError ?? fileHunks.error}
         </InlineNotice>
       ) : null}
 

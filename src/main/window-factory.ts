@@ -319,6 +319,14 @@ type CreateAuxWindowOptions = {
   bounds?: { x: number; y: number; width: number; height: number } | null
 }
 
+/** Is this window one this process opened as an aux window? The registry is
+ *  already here and the answer is a Map scan of at most a handful of entries,
+ *  so the dock-diff hand-off can ask before it broadcasts anything. */
+export function isAuxWindow(win: BrowserWindow): boolean {
+  for (const candidate of auxWindows.values()) if (candidate === win) return true
+  return false
+}
+
 export function openAuxWindow({
   kind,
   singletonKey,

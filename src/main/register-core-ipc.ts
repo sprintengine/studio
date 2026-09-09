@@ -48,7 +48,7 @@ import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
-import { confirmWorkspaceWindowClose, createDiagnosticsWindow, createMainWindow, openAuxWindow } from './window-factory'
+import { confirmWorkspaceWindowClose, createDiagnosticsWindow, createMainWindow, isAuxWindow, openAuxWindow } from './window-factory'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
 import type { AppServices } from './app-services'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
@@ -74,6 +74,7 @@ export function registerCoreIpc(
     },
     confirmWindowClose: confirmWorkspaceWindowClose,
     openAuxWindow,
+    isAuxWindow,
   })
   registerBrowserIpc(ipcMain, services.browserManager)
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService, {

@@ -2498,6 +2498,16 @@ export type DockDiffToWorkspaceInput = {
   focusKind: 'staged' | 'unstaged' | null
 }
 
+// What the receiving window is handed, and what it acks with. The diff window
+// closes itself on the strength of this hand-off, so the hand-off has to be
+// acknowledged: `requestId` is what the workspace window sends back once it has
+// actually opened the tab.
+export type DockDiffToWorkspacePayload = DockDiffToWorkspaceInput & { requestId: string }
+
+/** `accepted: false` means no open window took the diff — the caller keeps its
+ *  own window up and says so, rather than closing into nothing. */
+export type DockDiffToWorkspaceResult = { accepted: boolean }
+
 export type OpenExternalResult =
   | { ok: true }
   | { ok: false; message: string }
@@ -3542,8 +3552,10 @@ export type ElectronApi = {
   onAuxWindowRetarget: (cb: (payload: AuxWindowRetargetPayload) => void) => () => void
   dockFileToWorkspace: (input: DockFileToWorkspaceInput) => Promise<void>
   onDockFileToWorkspace: (cb: (input: DockFileToWorkspaceInput) => void) => () => void
-  dockDiffToWorkspace: (input: DockDiffToWorkspaceInput) => Promise<void>
-  onDockDiffToWorkspace: (cb: (input: DockDiffToWorkspaceInput) => void) => () => void
+  dockDiffToWorkspace: (input: DockDiffToWorkspaceInput) => Promise<DockDiffToWorkspaceResult>
+  onDockDiffToWorkspace: (cb: (input: DockDiffToWorkspacePayload) => void) => () => void
+  /** The receiving window's half of the hand-off: "I opened the tab." */
+  ackDockDiffToWorkspace: (requestId: string) => void
   confirmWindowClose: () => Promise<void>
   openExternal: (url: string) => Promise<OpenExternalResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void

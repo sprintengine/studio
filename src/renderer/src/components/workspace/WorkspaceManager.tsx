@@ -504,7 +504,7 @@ export default function WorkspaceManager() {
   // envelope; the aux window's copy is as old as the window.
   useEffect(() => {
     if (typeof window.api.onDockDiffToWorkspace !== 'function') return
-    return window.api.onDockDiffToWorkspace(({ workspaceId, repoRoot, focusPath, focusKind }) => {
+    return window.api.onDockDiffToWorkspace(({ requestId, workspaceId, repoRoot, focusPath, focusKind }) => {
       const state = useWorkspaceStore.getState()
       if (!state.workspaces.some((workspace) => workspace.id === workspaceId)) return
       // Windows that do not hold this workspace no-op, exactly as the docked
@@ -519,6 +519,10 @@ export default function WorkspaceManager() {
       if (!opened) return
       state.setActiveWorkspaceForWindow(workspaceWindowId, workspaceId)
       state.setDiffOpensInWindow(false)
+      // The ack is the last thing, and only on the path that actually opened
+      // the tab: it is what lets the diff window close itself, so every early
+      // return above has to leave it unsaid.
+      window.api.ackDockDiffToWorkspace?.(requestId)
     })
   }, [workspaceWindowId])
   // Main-owned automation mode intent (MC-1567): subscribe to authoritative
