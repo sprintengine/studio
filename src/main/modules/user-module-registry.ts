@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'fs'
-import { cp, mkdir, readdir, readFile } from 'fs/promises'
+import { cp, mkdir, readdir, readFile, rename, rm } from 'fs/promises'
 import { homedir } from 'os'
 import { basename, join } from 'path'
 
@@ -60,6 +60,14 @@ function readDirSafeSync(dir: string): import('fs').Dirent[] {
   } catch {
     return []
   }
+}
+
+// A module id never starts with a dot, so a dotted directory under the module
+// root is never a module: it is this file's own install staging folder, or an
+// editor's. Skipping it keeps a half-written install out of the rejected list
+// (where it would read as a broken module the user cannot find).
+function isHiddenModuleDir(name: string): boolean {
+  return name.startsWith('.')
 }
 
 // Validate the manifest.json in a module folder and confirm its declared id
@@ -148,7 +156,7 @@ export async function discoverUserModules(root: string, ctx: ModuleTrustContext)
   const rejected: ModuleRejection[] = []
 
   for (const entry of await readDirSafe(root)) {
-    if (!entry.isDirectory()) continue
+    if (!entry.isDirectory() || isHiddenModuleDir(entry.name)) continue
     const moduleRoot = join(root, entry.name)
     const loaded = await loadManifestFromDir(moduleRoot, entry.name, ctx)
     if (!loaded.ok) {
@@ -167,7 +175,7 @@ export function discoverUserModulesSync(root: string, ctx: ModuleTrustContext): 
   const rejected: ModuleRejection[] = []
 
   for (const entry of readDirSafeSync(root)) {
-    if (!entry.isDirectory()) continue
+    if (!entry.isDirectory() || isHiddenModuleDir(entry.name)) continue
     const moduleRoot = join(root, entry.name)
     const loaded = loadManifestFromDirSync(moduleRoot, entry.name, ctx)
     if (!loaded.ok) {
@@ -182,8 +190,9 @@ export function discoverUserModulesSync(root: string, ctx: ModuleTrustContext): 
 }
 
 // Validate the manifest in a selected folder, then copy the whole folder into
-// the user module root under its declared id (overwriting an existing install of
-// the same id). Returns the trust classification so the UI can prompt.
+// the user module root under its declared id, REPLACING any existing install of
+// that id (see the copy below for why replacing and not merging).
+// Returns the trust classification so the UI can prompt.
 export async function installModuleFolder(
   srcDir: string,
   root: string,
@@ -221,8 +230,34 @@ export async function installModuleFolder(
 
   const destination = join(root, result.manifest.id)
   await mkdir(root, { recursive: true })
-  // Copy the folder by content; force overwrites a prior install of this id.
-  await cp(srcDir, destination, { recursive: true, force: true })
+  // A re-install REPLACES the folder; it does not merge into it. `cp --force`
+  // overwrites every file it is given and leaves every file it is not, so a
+  // version that dropped `dist/renderer.mjs` used to install on top of the
+  // version that had one — and the stale bundle, still matching the manifest's
+  // old entry path, kept loading. The trust grant is bound to the manifest
+  // fingerprint, so those leftovers rode in under a fingerprint that never
+  // covered them.
+  //
+  // The copy lands in a temp sibling and is renamed into place, so a copy that
+  // fails halfway leaves the previous install standing rather than a folder
+  // with half of each version in it. Rename is not atomic across the two steps
+  // (the old folder has to go first), so the window is real but small, and the
+  // caller's rollback path restores from its own snapshot.
+  const staging = join(root, `.${basename(result.manifest.id)}.installing.${process.pid}.${Date.now()}`)
+  await rm(staging, { recursive: true, force: true })
+  try {
+    await cp(srcDir, staging, { recursive: true, force: true })
+    await rm(destination, { recursive: true, force: true })
+    await rename(staging, destination)
+  } catch (error) {
+    await rm(staging, { recursive: true, force: true }).catch(() => undefined)
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      ok: false,
+      rejected: { path: destination, issues: [{ path: '', message }] },
+      message: `Could not install module "${result.manifest.id}": ${message}`,
+    }
+  }
 
   return {
     ok: true,
