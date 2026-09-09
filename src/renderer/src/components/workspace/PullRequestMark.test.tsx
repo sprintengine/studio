@@ -118,8 +118,8 @@ async function main(): Promise<void> {
 
   await run('a draft is an OPEN pull request whose tooltip says draft — never a fourth state', () => {
     const copy = sidebarMarkCopy([pr({ number: 415, isDraft: true })])
-    assert.equal(copy?.title, `Pull request ${num(415)} open, draft`)
-    assert.match(copy?.ariaLabel ?? '', /415, open, draft\./)
+    assert.equal(copy?.title, `Pull request ${num(415)} open, a draft`)
+    assert.match(copy?.ariaLabel ?? '', /415, open, a draft\./)
   })
 
   await run('every earlier pull request gets its own line, newest first, and is spoken too', () => {
@@ -132,11 +132,11 @@ async function main(): Promise<void> {
     assert.deepEqual(copy?.lines, [
       'Open it on GitHub',
       `Earlier: ${num(411)} merged`,
-      `Earlier: ${num(402)} closed`,
+      `Earlier: ${num(402)} closed without merging`,
     ])
     assert.equal(
       copy?.ariaLabel,
-      'Pull request 421, open. Earlier: pull request 411, merged. Earlier: pull request 402, closed. Open it on GitHub',
+      'Pull request 421, open. Earlier: pull request 411, merged. Earlier: pull request 402, closed without merging. Open it on GitHub',
     )
   })
 

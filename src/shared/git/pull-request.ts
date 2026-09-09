@@ -64,8 +64,10 @@ export const PULL_REQUEST_TONE_VAR: Record<PullRequestTone, string> = {
 /** The word a tooltip or a spoken label uses for the state. */
 export function pullRequestStateLabel(pr: Pick<BranchPullRequest, 'state' | 'isDraft'>): string {
   if (pr.state === 'merged') return 'merged'
-  if (pr.state === 'closed') return 'closed'
-  return pr.isDraft ? 'open, draft' : 'open'
+  // "closed" alone reads as resolved; the mockup's wording says the work did
+  // NOT land, which is the fact the red cross is drawing.
+  if (pr.state === 'closed') return 'closed without merging'
+  return pr.isDraft ? 'open, a draft' : 'open'
 }
 
 /**

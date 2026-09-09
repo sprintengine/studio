@@ -106,9 +106,9 @@ function pr(overrides: Partial<BranchPullRequest> & { number: number }): BranchP
   assert.deepEqual(Object.keys(PULL_REQUEST_TONE_VAR).sort(), ['accent', 'error', 'merged'])
 
   assert.equal(pullRequestStateLabel({ state: 'open', isDraft: false }), 'open')
-  assert.equal(pullRequestStateLabel({ state: 'open', isDraft: true }), 'open, draft')
+  assert.equal(pullRequestStateLabel({ state: 'open', isDraft: true }), 'open, a draft')
   assert.equal(pullRequestStateLabel({ state: 'merged', isDraft: false }), 'merged')
-  assert.equal(pullRequestStateLabel({ state: 'closed', isDraft: false }), 'closed')
+  assert.equal(pullRequestStateLabel({ state: 'closed', isDraft: false }), 'closed without merging')
   assert.equal(
     pullRequestStateLabel({ state: 'merged', isDraft: true }),
     'merged',
