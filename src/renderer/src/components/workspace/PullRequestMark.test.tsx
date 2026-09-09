@@ -238,7 +238,10 @@ async function main(): Promise<void> {
       NOW,
     )
     assert.equal(copy?.title, 'Gate OSC 52 writes')
-    assert.match(copy?.lines[0] ?? '', /^Pull request #418 · /, 'the identity moves back down')
+    assert.ok(
+      copy?.lines[0]?.startsWith(`Pull request ${num(418)} · `),
+      'the identity moves back down',
+    )
     assert.match(copy?.ariaLabel ?? '', /: Gate OSC 52 writes\. Open it on GitHub$/)
   })
 
@@ -393,6 +396,58 @@ async function main(): Promise<void> {
     assert.equal(
       chevron?.getAttribute('aria-label'),
       'All pull requests from this conversation, 3',
+    )
+    many.unmount()
+  })
+
+  await run('one pull request wears the SAME arm as several — same chrome, same hit floor', () => {
+    // The mockup draws `.peek-pr` once and uses it for the lone mark and for
+    // the primary half inside the split (frames 3 and 4). Before this the solo
+    // arm was a text link of its own: no height, so a ~15px target where the
+    // split arm gave 24, and an underline on hover where the split arm gives a
+    // ground. The two arms are now the same element from the same component.
+    // Whitespace-insensitive: a class string joined from parts can carry a gap
+    // where an optional part was empty, and that is not a difference in chrome.
+    const chrome = (el: Element | null | undefined): string =>
+      (el?.getAttribute('class') ?? '').split(/\s+/).filter(Boolean).sort().join(' ')
+    const single = mount(
+      React.createElement(PullRequestPeekMark, { pullRequests: [pr({ number: 418 })], now: NOW }),
+    )
+    const soloArm = single.host.querySelector('[data-pull-request-mark]')
+    const soloGroup = soloArm?.parentElement
+    assert.equal(soloArm?.tagName, 'BUTTON', 'a control, not an anchor')
+    assert.equal(
+      single.host.querySelector('[aria-haspopup="menu"]'),
+      null,
+      'and no chevron over a menu with one row in it',
+    )
+    single.unmount()
+
+    const many = mount(React.createElement(PullRequestPeekMark, { pullRequests: MANY, now: NOW }))
+    const splitArm = many.host.querySelector('[data-pull-request-mark]')
+    const splitGroup = splitArm?.parentElement
+    assert.ok(splitArm, 'the split arm carries the marker too, so the mark is found the same way')
+    assert.equal(chrome(soloArm), chrome(splitArm), 'the two arms are the same half')
+    assert.equal(chrome(soloGroup), chrome(splitGroup), 'inside the same group chrome')
+    assert.match(
+      soloGroup?.getAttribute('class') ?? '',
+      /h-\[var\(--hit-target-min\)\]/,
+      'which is what pads the 16px drawing out to the 24px hit floor',
+    )
+    assert.match(soloArm?.getAttribute('class') ?? '', /hover:bg-\[color:var\(--bg-hover\)\]/, 'the hover fill')
+    assert.equal(
+      soloArm?.getAttribute('class')?.includes('underline'),
+      false,
+      'and no link underline, which a mark in a state tone must not take',
+    )
+    // The tooltip's `aria-describedby` lands on the wrapper span it clones, so
+    // it is never announced — deliberately: the half's own name below is every
+    // word the tooltip shows, and a description repeating it would be said
+    // twice.
+    assert.equal(
+      splitArm?.getAttribute('aria-label'),
+      peekMarkCopy(MANY, NOW)?.ariaLabel,
+      'the spoken name carries the whole of what the tooltip says',
     )
     many.unmount()
   })

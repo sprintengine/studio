@@ -87,7 +87,15 @@ different target*. Two unrelated actions welded together are two buttons.
   a count belongs in the heading — "Open · 4" — not repeated down the rows.
 - Offer only targets that resolve. A row for something that is not installed is
   a fake affordance — omit it, never disable it.
-- Keep the menu at two or more rows. One alternative is a plain button.
+- Keep the menu at two or more rows. One alternative is a plain button — and
+  the component holds that rule itself: handed fewer than two targets it draws
+  **the primary half alone**, in the group's own chrome, with no chevron and no
+  menu. Not a different control and not a lookalike: the same half, the same
+  height, the same hover fill and the same focus ring, because a surface whose
+  target list grows from one to two must not change size or hit area under the
+  reader. (The conversation peek's pull request mark is exactly that surface,
+  and its lone arm was a text link until 2026-09-09: a ~15px target beside the
+  split shape's 24px one.)
 - Persist the primary where the choice belongs (per app, per project) and fall
   back to the first available target when the remembered one is gone.
 
@@ -95,7 +103,8 @@ different target*. Two unrelated actions welded together are two buttons.
 
 - Two real `<button>`s, so both halves are in the tab order and operable with
   Enter and Space. Never collapse them into one element with a click-position
-  test.
+  test. With a single target there is one real `<button>` and no menu half at
+  all — nothing announces a menu that does not exist.
 - The primary half carries an `aria-label` naming its resolved target ("Open in
   VS Code") when the visible label is only the verb.
 - The menu half carries `aria-haspopup="menu"` and a live `aria-expanded`, and

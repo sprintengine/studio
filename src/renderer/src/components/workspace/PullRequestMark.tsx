@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { LinkButton, PullRequestGlyph, SplitButton, Tooltip, IconButton, type SplitButtonItem } from '../ui'
+import { PullRequestGlyph, SplitButton, Tooltip, IconButton, type SplitButtonItem } from '../ui'
 import { formatRelativeMs, relativeFromNow } from '../../utils/relativeTime'
 import {
   earlierPullRequests,
@@ -465,37 +465,39 @@ export function PullRequestPeekMark({
       layer="menu"
       wrapperClassName="flex shrink-0 items-center"
     >
-      {pullRequests.length > 1 ? (
-        // A plain wrapper, because `Tooltip` wires its handlers onto the element
-        // it is given and `SplitButton` takes a closed set of props: handed them
-        // directly they would be dropped and the tooltip would never open. The
-        // hover and the focus both still reach this span — focus events bubble.
-        <span className="flex items-center">
-          <SplitButton
-            quiet
-            layer="menu"
-            label={<PeekMarkFace pr={primary} />}
-            primaryAriaLabel={copy.ariaLabel}
-            menuAriaLabel={`All pull requests from this conversation, ${pullRequests.length}`}
-            items={items}
-            onPrimary={() => openPullRequest(primary.url)}
-          />
-        </span>
-      ) : (
-        <LinkButton
-          layout="row"
-          size="inherit"
-          aria-label={copy.ariaLabel}
-          data-pull-request-mark={primary.url}
-          className="shrink-0"
-          onClick={(event) => {
-            event.stopPropagation()
-            openPullRequest(primary.url)
-          }}
-        >
-          <PeekMarkFace pr={primary} />
-        </LinkButton>
-      )}
+      {/* A plain wrapper, because `Tooltip` wires its handlers onto the element
+          it is given and `SplitButton` takes a closed set of props: handed them
+          directly they would be dropped and the tooltip would never open. The
+          hover and the focus both still reach this span — focus events bubble.
+
+          `Tooltip` also clones its child with `aria-describedby`, which lands on
+          THIS span and is therefore never announced. That is deliberate and
+          costs nothing: `primaryAriaLabel` below is the whole of what the
+          tooltip says (`copy.ariaLabel` — the same number, the same state word,
+          the same title, the same "Open it on GitHub"), so a description
+          pointing at those words as well would only make a screen reader say
+          them twice. The tooltip is the POINTER's copy of a label the control
+          already carries. */}
+      <span className="flex items-center">
+        <SplitButton
+          quiet
+          layer="menu"
+          label={<PeekMarkFace pr={primary} />}
+          primaryAriaLabel={copy.ariaLabel}
+          // On the primary half, which is the control, exactly as the sidebar
+          // mark's marker is on its button. One pull request or several, the
+          // mark is found the same way and pressed in the same place.
+          primaryData={{ name: 'data-pull-request-mark', value: primary.url }}
+          menuAriaLabel={`All pull requests from this conversation, ${pullRequests.length}`}
+          // One target draws the primary half alone — the group's own chrome,
+          // the 24px hit floor, the hover fill, and no chevron over a menu with
+          // one row in it (`SplitButton`'s own rule). The solo arm used to be a
+          // text link here, which made the same mark a ~15px target with one
+          // pull request and a 24px one with two.
+          items={items}
+          onPrimary={() => openPullRequest(primary.url)}
+        />
+      </span>
     </Tooltip>
   )
 }

@@ -195,7 +195,13 @@ async function main(): Promise<void> {
             label="Open"
             primaryAriaLabel="Open in the last-used target"
             menuAriaLabel="Open in…"
-            items={[{ id: 'vscode', label: 'VS Code', onSelect: () => {}, checked: true }]}
+            // Two targets, because one is not a split button: handed fewer
+            // than two the component draws its primary half alone and opens no
+            // menu at all (design-system/components/split-button → Usage).
+            items={[
+              { id: 'vscode', label: 'VS Code', onSelect: () => {}, checked: true },
+              { id: 'zed', label: 'Zed', onSelect: () => {} },
+            ]}
             onPrimary={() => {}}
           />,
         )

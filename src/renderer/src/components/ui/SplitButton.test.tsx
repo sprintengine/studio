@@ -16,7 +16,12 @@ import { SplitButton } from './SplitButton'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>')
 
-function group(props: { quiet?: boolean; disabled?: boolean }): Element {
+function group(props: {
+  quiet?: boolean
+  disabled?: boolean
+  items?: React.ComponentProps<typeof SplitButton>['items']
+  primaryData?: React.ComponentProps<typeof SplitButton>['primaryData']
+}): Element {
   const host = dom.window.document.createElement('div')
   host.innerHTML = renderToStaticMarkup(
     React.createElement(SplitButton, {
@@ -125,6 +130,44 @@ run('a disabled quiet group disables both halves', () => {
   assert.equal(buttons.length, 2)
   for (const button of buttons) {
     assert.ok(button.hasAttribute('disabled'), 'a live primary beside a dead menu reads as a bug')
+  }
+})
+
+// One target is not a split button (Usage: "keep the menu at two or more rows;
+// one alternative is a plain button"), and the component holds that rule itself
+// rather than asking every caller to. What matters is that the lone arm is the
+// SAME half in the SAME group chrome: the conversation peek's pull request mark
+// is one or several depending on what the conversation did, and its solo arm
+// used to be a text link that lost the 24px floor and the hover fill.
+run('fewer than two targets draw the primary half alone, in the same chrome', () => {
+  const solo = group({ quiet: true, items: [{ id: 'vscode', label: 'VS Code', onSelect: () => {} }] })
+  const pair = group({ quiet: true })
+  const buttons = halves(solo)
+  assert.equal(buttons.length, 1, 'no chevron over a menu with one row in it')
+  assert.equal(solo.querySelector('[aria-haspopup="menu"]'), null, 'and nothing announcing a menu')
+  assert.equal(
+    solo.getAttribute('class')?.trim(),
+    pair.getAttribute('class')?.trim(),
+    'the same group: the hit-target floor, the chip radius, the overflow clip',
+  )
+  assert.equal(
+    buttons[0].getAttribute('class'),
+    halves(pair)[0].getAttribute('class'),
+    'and the same half inside it',
+  )
+  assert.equal(buttons[0].getAttribute('aria-label'), 'Open in VS Code')
+  assert.equal(halves(group({ items: [] })).length, 1, 'no targets at all is the same shape')
+})
+
+run('the primary half carries the host surface’s own marker when it is given one', () => {
+  const marked = group({
+    quiet: true,
+    primaryData: { name: 'data-pull-request-mark', value: 'https://github.com/acme/app/pull/418' },
+  })
+  for (const items of [undefined, [{ id: 'one', label: 'One', onSelect: () => {} }]]) {
+    const node = items ? group({ quiet: true, items, primaryData: { name: 'data-pull-request-mark', value: 'x' } }) : marked
+    const primary = halves(node)[0]
+    assert.ok(primary.hasAttribute('data-pull-request-mark'), 'on the half that is pressed, either shape')
   }
 })
 

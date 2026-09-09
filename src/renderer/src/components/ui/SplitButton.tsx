@@ -3,6 +3,17 @@
 // the last-used target; the chevron half lists every target and re-points the
 // primary.
 //
+// Handed FEWER THAN TWO targets it draws the primary half alone, with the
+// group's own chrome and no chevron. That is the spec's rule ("keep the menu at
+// two or more rows; one alternative is a plain button") made true by the
+// component instead of asked of every caller — a chevron whose menu holds one
+// row is a control that opens to say nothing. It matters that this is the same
+// code rather than a lookalike: the peek's pull request mark is one or several
+// depending on what the conversation did, and when its solo arm was a text link
+// of its own it lost the 24px hit floor and the hover fill the group gives its
+// half, so the SAME mark was a 15px target with one pull request and a 24px one
+// with two.
+//
 // The group owns the border, the radius, and the height; the halves are
 // borderless and separated by one internal hairline. That is what keeps it a
 // single object rather than two buttons that happen to touch. Because the group
@@ -95,6 +106,16 @@ export type SplitButtonProps = {
    * popover tier would paint the menu under the surface that opened it.
    */
   layer?: 'popover' | 'menu'
+  /**
+   * A `data-*` marker for the PRIMARY half — how the surface that hosts this
+   * control finds its own control in the DOM (the pull request mark's
+   * `data-pull-request-mark`, which its sidebar twin carries too).
+   *
+   * One named attribute rather than a props spread: the half's click, its label
+   * and its type are this component's, and a caller able to spread props onto
+   * it could quietly re-bind any of them.
+   */
+  primaryData?: { name: `data-${string}`; value: string }
   disabled?: boolean
   className?: string
 }
@@ -147,6 +168,7 @@ export function SplitButton({
   onPrimary,
   onMenuOpenChange,
   primaryRef,
+  primaryData,
   quiet = false,
   layer = 'popover',
   disabled = false,
@@ -190,6 +212,54 @@ export function SplitButton({
     [open, setOpenState],
   )
 
+  // The group's chrome and the primary half, spelled once and worn by both
+  // shapes: with a chevron beside it, and — under two targets — on its own.
+  const groupClass = [
+    'inline-flex items-stretch overflow-hidden',
+    // Quiet: the chrome comes off and the group comes down to the hit-target
+    // floor, for a meta line the bordered group would out-weigh. The overflow
+    // clip stays — it is what keeps each half's hover fill inside the corners —
+    // and so does the halves' internal hairline, which is what still says one
+    // object with two halves.
+    quiet
+      ? 'h-[var(--hit-target-min)] rounded-xs'
+      : 'h-control-sm rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
+    // The GROUP carries the elevation, not the halves: it already owns the
+    // border and the radius, and two sunken halves inside one outline would
+    // read as two controls. `:active` matches an ancestor of the pressed
+    // element, so pressing either half sinks the whole group — which is what a
+    // split button is.
+    //
+    // Conditional because the group is a <span>: `.control-edge:disabled`
+    // cannot match it the way it matches the kit's <button>s, so a disabled
+    // split button would otherwise keep standing off the page. A quiet group
+    // has no edge to press: the raised ground it would sink is exactly what the
+    // variant takes away.
+    disabled || quiet ? '' : 'control-edge',
+  ].join(' ')
+
+  const primaryHalf = (
+    <button
+      ref={primaryRef}
+      type="button"
+      onClick={onPrimary}
+      disabled={disabled}
+      aria-label={primaryAriaLabel}
+      {...(primaryData ? { [primaryData.name]: primaryData.value } : {})}
+      className={`${HALF} gap-1.5 ${quiet ? 'px-1.5' : 'px-2.5'}`}
+    >
+      {glyph}
+      {label}
+    </button>
+  )
+
+  // One target: the group is its primary half and nothing else. No `Popover` is
+  // mounted at all — a menu that can never be opened is still a listener, a
+  // portal and an id.
+  if (items.length < 2) {
+    return <span className={[groupClass, className ?? ''].join(' ')}>{primaryHalf}</span>
+  }
+
   return (
     <Popover
       open={open}
@@ -205,42 +275,8 @@ export function SplitButton({
       onOpenAutoFocus={focusFirstItem}
       className={className}
       renderTrigger={({ ref, togglePopover, triggerProps }) => (
-        <span
-          className={[
-            'inline-flex items-stretch overflow-hidden',
-            // Quiet: the chrome comes off and the group comes down to the
-            // hit-target floor, for a meta line the bordered group would
-            // out-weigh. The overflow clip stays — it is what keeps each half's
-            // hover fill inside the corners — and so does the halves' internal
-            // hairline, which is what still says one object with two halves.
-            quiet
-              ? 'h-[var(--hit-target-min)] rounded-xs'
-              : 'h-control-sm rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
-            // The GROUP carries the elevation, not the halves: it already owns
-            // the border and the radius, and two sunken halves inside one
-            // outline would read as two controls. `:active` matches an
-            // ancestor of the pressed element, so pressing either half sinks
-            // the whole group — which is what a split button is.
-            //
-            // Conditional because the group is a <span>: `.control-edge:disabled`
-            // cannot match it the way it matches the kit's <button>s, so a
-            // disabled split button would otherwise keep standing off the page.
-            // A quiet group has no edge to press: the raised ground it would
-            // sink is exactly what the variant takes away.
-            disabled || quiet ? '' : 'control-edge',
-          ].join(' ')}
-        >
-          <button
-            ref={primaryRef}
-            type="button"
-            onClick={onPrimary}
-            disabled={disabled}
-            aria-label={primaryAriaLabel}
-            className={`${HALF} gap-1.5 ${quiet ? 'px-1.5' : 'px-2.5'}`}
-          >
-            {glyph}
-            {label}
-          </button>
+        <span className={groupClass}>
+          {primaryHalf}
           <button
             ref={ref}
             type="button"

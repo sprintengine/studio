@@ -273,8 +273,16 @@ run('the title is still the only thing on the head that yields width', () => {
   const markup = card({ agent: { pullRequests: [pullRequest({ number: 418 })] } })
   assert.match(markup, /min-w-0 flex-1 truncate/, 'the title keeps its ellipsis and its flex')
   const markIndex = markup.indexOf('data-pull-request-mark')
-  const markTag = markup.slice(markup.lastIndexOf('<', markIndex), markup.indexOf('>', markIndex) + 1)
-  assert.match(markTag, /shrink-0/, 'the mark itself never shrinks')
+  assert.ok(markIndex > 0, 'the mark is on the head')
+  // The mark is a control GROUP now (the split button's primary half, alone
+  // when there is one pull request), so what must not shrink is the group and
+  // the tooltip wrapper around it, not the inner button.
+  const beforeTheMark = markup.slice(0, markIndex)
+  assert.match(
+    beforeTheMark.slice(-400),
+    /flex shrink-0 items-center/,
+    'the mark sits in a slot that holds its width',
+  )
 })
 
 run('a conversation that opened nothing draws no mark at all', () => {
