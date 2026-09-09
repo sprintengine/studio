@@ -49,6 +49,48 @@ const result = await workspaces.create({ name: 'Scratch', folderPath: '/abs/path
 The promise resolves only after the workspace is confirmed on the
 workspace-sync bus, so a returned id is always a real workspace.
 
+### Developing a first-party module locally
+
+A handful of module ids are **reserved** (`BUNDLED_MODULE_IDS`): the app
+installs one only when its `manifest.json` is signed by a key whose
+fingerprint is listed in `resources/marketplace/trusted-publishers.json`. That
+is what stops anyone shadowing a first-party module — and it also means a
+contributor building the app from source cannot install their own build of
+one, because they do not hold the release signing key.
+
+`resources/marketplace/trusted-publishers.dev.json` is the way through. It has
+the same shape as `trusted-publishers.json`, it is gitignored, and its
+fingerprints are unioned into the trusted set **only when the app is not
+packaged** (`src/main/marketplace/trusted-publishers.ts`). A packaged build
+never reads it, and neither does the registry verifier
+(`npm run verify:marketplace-registry` opens `trusted-publishers.json` by name),
+so a dev key can never become a signing authority for anybody else.
+
+```bash
+# once
+multicode-module keygen --out ~/.config/sprintengine/keys/my-dev.key
+# prints: Public key fingerprint: <fingerprint>
+
+cat > resources/marketplace/trusted-publishers.dev.json <<'JSON'
+{
+  "schemaVersion": 1,
+  "publishers": [
+    {
+      "name": "Multicode Labs",
+      "verified": true,
+      "publicKey": "<the public key the keygen printed>",
+      "fingerprint": "<fingerprint>",
+      "scope": "Local development only; never committed."
+    }
+  ]
+}
+JSON
+```
+
+The `name` must equal the `publisher.name` on the registry entry you are
+standing in for. Then sign both the inner module manifest and the bundle
+`plugin.json` with that key, install, and restart the app.
+
 ### Publishing a module to the marketplace
 
 Folder install (above) is the developer loop. To let other users discover and
