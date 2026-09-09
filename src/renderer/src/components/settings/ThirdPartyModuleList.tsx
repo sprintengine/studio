@@ -21,7 +21,7 @@ import { getRendererHost } from '../../modules'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import type { Tone } from '../ui/tokens'
-import { type ActionResult, ActionResultMessage, Badge, EmptyState, IconButton, InlineNotice, Spinner, StatusDot, Switch, Tooltip } from '../ui'
+import { type ActionResult, ActionResultMessage, Badge, EmptyState, IconButton, InlineNotice, OutlineButton, Spinner, StatusDot, Switch, Tooltip } from '../ui'
 import { FolderPlusIcon } from '../AppIcons'
 import { SettingsSectionTitle } from './SettingsAtoms'
 
@@ -175,6 +175,7 @@ export function ThirdPartyModuleRow({
   rendererLoadState = getThirdPartyRendererLoadState(module.manifest.id),
   onTrustChange,
   onEnabledChange,
+  onUninstall,
 }: {
   module: ThirdPartyModuleView
   pending: boolean
@@ -182,6 +183,10 @@ export function ThirdPartyModuleRow({
   rendererLoadState?: ThirdPartyRendererLoadState
   onTrustChange: (trusted: boolean) => void
   onEnabledChange: (enabled: boolean) => void
+  // G3: the other end of a marketplace install. Absent on a build whose preload
+  // predates the uninstall channel, and the row simply carries no control —
+  // never a button that reports an error when pressed.
+  onUninstall?: () => void
 }) {
   const trust = TRUST_PRESENTATION[module.trust]
   const rendererEntry = describeRendererEntry(module.launch.rendererEntry, rendererLoadState, module.trust)
@@ -259,6 +264,22 @@ export function ThirdPartyModuleRow({
         </div>
       ) : null}
       <PermissionChips permissions={module.manifest.permissions ?? []} />
+      {onUninstall ? (
+        <div className="flex justify-end">
+          {/* Removing a module is a destructive, rarely-wanted action beside two
+              switches that are neither, so it is a quiet outline button at the
+              end of the row rather than a third control competing with them.
+              The confirm dialog is where the consequence is stated. */}
+          <OutlineButton
+            size="sm"
+            disabled={pending}
+            onClick={onUninstall}
+            aria-label={`Uninstall ${module.manifest.displayName}`}
+          >
+            Uninstall
+          </OutlineButton>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -316,6 +337,45 @@ export function ThirdPartyModuleList({
   }, [load])
 
   const { confirm: confirmDialog } = useConfirmDialog()
+
+  // G3. The uninstall the marketplace install never had a way back from: the
+  // lifecycle removes the module folder, the CLI plugins and skill copies the
+  // same bundle installed, its MCP servers out of the synced configs, and the
+  // trust grant — then drops the receipt. The id passed is the MODULE's, which
+  // the lifecycle resolves to the receipt that owns it (a bundle's id and its
+  // module's id need not match).
+  const uninstall = useCallback(
+    async (module: ThirdPartyModuleView) => {
+      if (typeof window.api.uninstallMarketplacePlugin !== 'function') return
+      const name = module.manifest.displayName
+      const confirmed = await confirmDialog({
+        title: `Uninstall ${name}?`,
+        // Says what leaves and what stays. Project data a module wrote is its
+        // own and is never touched by an uninstall, and saying so is the
+        // difference between a reversible action and one nobody dares press.
+        body: `Its files are removed from this machine, along with anything else its plugin installed. Work it saved inside your projects stays on disk. Loaded module code is only unloaded when the app restarts.`,
+        confirmLabel: 'Uninstall',
+        tone: 'danger',
+      })
+      if (!confirmed) return
+      setPendingId(module.manifest.id)
+      try {
+        const result = await window.api.uninstallMarketplacePlugin({ pluginId: module.manifest.id })
+        setMessage(
+          result.ok
+            ? { tone: 'info', text: `Uninstalled "${name}". Restart SprintEngine Studio to finish removing it.` }
+            : { tone: 'error', text: result.message ?? 'Could not uninstall this module.' },
+        )
+        await load()
+      } catch (error) {
+        setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Uninstall failed.' })
+      } finally {
+        setPendingId(null)
+      }
+    },
+    [confirmDialog, load],
+  )
+
   const setTrust = useCallback(
     async (id: string, trusted: boolean) => {
       if (typeof window.api.setThirdPartyModuleTrust !== 'function') return
@@ -351,6 +411,10 @@ export function ThirdPartyModuleList({
     },
     [confirmDialog, load]
   )
+
+  // A build whose preload predates the uninstall channel offers no control at
+  // all, rather than one that fails when pressed.
+  const canUninstall = typeof window.api.uninstallMarketplacePlugin === 'function'
 
   return (
     <div className="flex flex-col gap-3 border-t border-[color:var(--border-subtle)] pt-5">
@@ -388,6 +452,7 @@ export function ThirdPartyModuleList({
               enabled={resolveModuleEnabled(overrides, module)}
               onTrustChange={(next) => void setTrust(module.manifest.id, next)}
               onEnabledChange={(next) => onSetEnabled(module.manifest.id, next)}
+              {...(canUninstall ? { onUninstall: () => void uninstall(module) } : {})}
             />
           ))}
         </div>

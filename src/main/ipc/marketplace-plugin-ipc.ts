@@ -3,6 +3,8 @@ import { app, type IpcMain } from 'electron'
 import type {
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
+  MarketplacePluginUninstallInput,
+  MarketplacePluginUninstallResult,
   MarketplacePluginVerifyResult,
   MarketplaceRegistryReadInput,
   MarketplaceUpdateStatesResult,
@@ -109,6 +111,23 @@ export function registerMarketplacePluginIpc(
     async (_event, input: MarketplacePluginRegistryInstallInput): Promise<MarketplacePluginRegistryInstallResult> => {
       try {
         return await lifecycle.updateFromRegistry(input)
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
+  // The other end of install (G3). The lifecycle has been able to uninstall a
+  // receipt since it was written; nothing could call it, so a marketplace
+  // install was a one-way door — the files were removable only by hand, and the
+  // receipt that says what they were stayed behind either way. It takes the
+  // same envelope install does, because removing an MCP component writes the
+  // CLI configs and needs the workspace and settings to do it.
+  ipcMain.handle(
+    'marketplace:plugins:uninstall',
+    async (_event, input: MarketplacePluginUninstallInput): Promise<MarketplacePluginUninstallResult> => {
+      try {
+        return await lifecycle.uninstall(input)
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
