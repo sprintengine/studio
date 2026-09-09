@@ -4732,8 +4732,10 @@ export default function WorkspaceManager() {
             project; all of them clear activeGlobalSurface. Gated on the surface's
             owning module: a stale flag after a module toggle resolves to null and
             the workspace shows through. Automations, Design and Plugins are
-            doors again (Extensions drawer ruling, 2026-09-05); Settings, the
-            Diff popout and Reviews stay modals in the mount below. */}
+            doors again (Extensions drawer ruling, 2026-09-05); Settings and
+            Reviews stay modals in the mount below. The Diff popout is not on
+            that list any more: the diff opens in its own OS window or in the
+            pane's Diff tab, and the in-app modal went with the epic (T3). */}
         {/* Surface, not canvas (MC-1844): a door is a working page, so it paints
             the neutral surface ground — the themed canvas (sage in the green
             themes) stays the sidebar/chrome's identity only. */}
