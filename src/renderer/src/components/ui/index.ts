@@ -61,7 +61,6 @@ export {
   PreviousDifferenceGlyph,
   RollbackGlyph,
   SideBySideGlyph,
-  OpenInEditorGlyph,
   StashGlyph,
   UnifiedGlyph,
   WriteCommitMessageGlyph,
