@@ -283,6 +283,8 @@ because putting changes away is one concept whether it is a view or a verb.
 | `SideBySideGlyph` | Diff layout: two panes | A frame split by one vertical line | `glyphs/side-by-side.svg` |
 | `UnifiedGlyph` | Diff layout: one pane | The same frame, unsplit. The pair is a two-state toggle, and the presence or absence of the divider *is* the difference | `glyphs/unified.svg` |
 | `GearGlyph` | Settings on a toolbar | A real toothed gear. `GeneralSettingsIcon` is sliders on the 24-grid rail and the `config` file kind is an identity mark, so neither serves an action toolbar | `glyphs/gear.svg` |
+| `OpenInEditorGlyph` | Open the file in an editor | The pencil on the page: the one mark in this family that leaves the diff rather than rearranging it | `glyphs/open-in-editor.svg` |
+| `WriteCommitMessageGlyph` | Compose the commit message | Three lines of a message with a crossed spark beside them: *text, composed for you*. A pencil would say a person types it, which is `OpenInEditorGlyph`'s job | `glyphs/write-commit-message.svg` |
 | `OpenInEditorGlyph` | Open this file in an editor | The pencil on the page. The one mark in the family that leaves the diff rather than rearranging it, so it is not another frame (added 2026-09-09 for the diff window's toolbar, T4) | `glyphs/open-in-editor.svg` |
 
 Reused, not redrawn, by the same two surfaces: `RefreshIcon` (re-read the

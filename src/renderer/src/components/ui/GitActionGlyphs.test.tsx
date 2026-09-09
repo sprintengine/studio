@@ -40,6 +40,8 @@ const FAMILY: Array<[keyof typeof glyphs, string]> = [
   ['SideBySideGlyph', 'side-by-side.svg'],
   ['UnifiedGlyph', 'unified.svg'],
   ['GearGlyph', 'gear.svg'],
+  ['OpenInEditorGlyph', 'open-in-editor.svg'],
+  ['WriteCommitMessageGlyph', 'write-commit-message.svg'],
 ]
 
 function render(name: keyof typeof glyphs): Element {

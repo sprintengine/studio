@@ -61,8 +61,10 @@ export {
   PreviousDifferenceGlyph,
   RollbackGlyph,
   SideBySideGlyph,
+  OpenInEditorGlyph,
   StashGlyph,
   UnifiedGlyph,
+  WriteCommitMessageGlyph,
 } from './GitActionGlyphs'
 export { ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export { CliModelPickerButton, CliModelPopoverSurface } from './CliModelPicker'

@@ -2,9 +2,8 @@
 // toolbar button do*. Eleven concepts, drawn once here and mirrored
 // framework-neutral in `design-system/glyphs/` (rollback, move-to-changelist,
 // stash, group-by, expand-all, collapse-all, next-difference, side-by-side,
-// unified, gear, open-in-editor) — see design-system/components/glyphs/component.md
-// → "Git and
-// diff actions".
+// unified, gear, open-in-editor) — see design-system/components/glyphs/
+// component.md → "Git and diff actions".
 //
 // 16-grid, `currentColor`, `fill="none"`, frame 1.3 / line work 1.4, legible at
 // `--sem-icon-size-sm`. Every glyph is `aria-hidden`: an action glyph never
