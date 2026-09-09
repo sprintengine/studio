@@ -189,6 +189,65 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  run('the overflow control says it opens a menu, and whether it is open', () => {
+    const closed = mount(
+      <GroupHeader
+        title="Changes"
+        expanded
+        controls="b"
+        onExpandedChange={() => {}}
+        action={
+          <GroupHeaderAction ariaLabel="Actions for Changes" menu expanded={false}>
+            ⋮
+          </GroupHeaderAction>
+        }
+      />,
+    )
+    const trigger = closed.band.querySelector('button[aria-label="Actions for Changes"]')
+    assert.equal(trigger?.getAttribute('aria-haspopup'), 'menu', 'the slot is specified as an overflow MENU')
+    assert.equal(
+      trigger?.getAttribute('aria-expanded'),
+      'false',
+      'haspopup without expanded announces a menu and never says whether it is showing',
+    )
+    closed.unmount()
+
+    const open = mount(
+      <GroupHeader
+        title="Changes"
+        expanded
+        controls="b"
+        onExpandedChange={() => {}}
+        action={
+          <GroupHeaderAction ariaLabel="Actions for Changes" menu expanded>
+            ⋮
+          </GroupHeaderAction>
+        }
+      />,
+    )
+    assert.equal(
+      open.band.querySelector('button[aria-label="Actions for Changes"]')?.getAttribute('aria-expanded'),
+      'true',
+    )
+    open.unmount()
+
+    // A plain action control claims neither — it acts rather than opening
+    // anything, and an `aria-haspopup` it never honours is a promise broken.
+    const plain = mount(
+      <GroupHeader
+        title="Changes"
+        expanded
+        controls="b"
+        onExpandedChange={() => {}}
+        action={<GroupHeaderAction ariaLabel="Refresh Changes">⟳</GroupHeaderAction>}
+      />,
+    )
+    const bare = plain.band.querySelector('button[aria-label="Refresh Changes"]')
+    assert.equal(bare?.getAttribute('aria-haspopup'), null)
+    assert.equal(bare?.getAttribute('aria-expanded'), null)
+    plain.unmount()
+  })
+
   run('the band takes no role and no tab stop of its own', () => {
     const view = mount(
       <GroupHeader

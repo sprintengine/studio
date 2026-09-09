@@ -150,10 +150,21 @@ export function GroupHeader({
  */
 export function GroupHeaderAction({
   ariaLabel,
+  menu = false,
+  expanded,
   onClick,
   children,
 }: {
   ariaLabel: string
+  /** The control opens a menu rather than acting. `aria-haspopup` is what tells
+   *  a screen-reader user that pressing it will move them into a menu instead
+   *  of doing something to the group — the band's spec asks for an overflow
+   *  MENU in this slot, so this is the normal case rather than the exception. */
+  menu?: boolean
+  /** Whether that menu is open right now. Paired with `menu`, and required by
+   *  it: `aria-haspopup` without `aria-expanded` announces a menu and then
+   *  never says whether it is showing. */
+  expanded?: boolean
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void
   children: React.ReactNode
 }): JSX.Element {
@@ -161,6 +172,8 @@ export function GroupHeaderAction({
     <button
       type="button"
       aria-label={ariaLabel}
+      aria-haspopup={menu ? 'menu' : undefined}
+      aria-expanded={menu ? expanded ?? false : undefined}
       onClick={onClick}
       className={`grid size-[var(--hit-target-min)] place-items-center rounded-xs text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_INSET_CLASS}`}
     >

@@ -307,6 +307,11 @@ export function GitChangesList({
                 action={
                   <GroupHeaderAction
                     ariaLabel={`Actions for ${group.title}`}
+                    // It opens the band's menu, so it says so — and says
+                    // whether that menu is showing, which is the half a person
+                    // driving this by ear actually needs.
+                    menu
+                    expanded={groupMenu?.group.id === group.id}
                     onClick={(event) => {
                       const rect = event.currentTarget.getBoundingClientRect()
                       setGroupMenu({ x: rect.left, y: rect.bottom, group })

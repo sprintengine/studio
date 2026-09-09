@@ -143,7 +143,11 @@ answer to "where am I" in a list that already has two.
   naming what it governs ("Stage every file in Changes") — the visible title is
   the group's name, not the box's.
 - The trailing control carries an `aria-label` naming both the verb and the
-  group, and is in the tab order.
+  group, and is in the tab order. Being the overflow MENU this slot is shaped
+  for, it also carries `aria-haspopup="menu"` and `aria-expanded` — the first
+  so a person is told they are about to be moved into a menu rather than have
+  something done to the group, the second because a popup announced with no
+  open state is a control that never says what it did.
 - The band itself takes no role and no tab stop: three controls sit in it, and
   a fourth wrapping them would be a composite widget nobody asked for. It is
   also outside the listbox those controls govern — see the ruling above.
