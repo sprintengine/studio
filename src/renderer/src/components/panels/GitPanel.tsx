@@ -44,6 +44,7 @@ import {
   renameChangelistFor,
   setActiveChangelistFor,
   useChangelists,
+  type ChangelistCallResult,
 } from '../../hooks/useChangelists'
 import { DEFAULT_CHANGELIST_ID, normalizeChangelistPath } from '../../../../shared/git/changelists'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
@@ -1029,18 +1030,35 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const changelistName = (id: string): string =>
     changelists.find((list) => list.id === id)?.name ?? 'this changelist'
 
-  const afterChangelistChange = async (text: string): Promise<void> => {
-    setMessage({ tone: 'success', text })
+  /**
+   * Say what happened, and only if it happened. `runChangelistCall` swallows the
+   * store's rejection so the last good lists stay on screen — which is right —
+   * and hands back `ok`, which is the half that must be read. This panel used to
+   * announce "Moved 3 files to Spike" off the fact that a promise had settled.
+   */
+  const reportChangelistResult = async (
+    result: ChangelistCallResult,
+    success: string,
+    failure: string,
+  ): Promise<boolean> => {
+    if (!result.ok) {
+      setMessage({ tone: 'error', text: result.error ? `${failure} ${result.error}` : failure })
+      return false
+    }
+    setMessage({ tone: 'success', text: success })
     await refreshChangelists(repoRoot)
+    return true
   }
 
   const handleMoveToChangelist = async (changelistId: string, rows: GitChangeRow[]): Promise<void> => {
     if (!repoRoot || rows.length === 0) return
-    await moveChangelistPathsFor(repoRoot, changelistId, rows.map((row) => row.path))
-    setMessage({
-      tone: 'success',
-      text: `Moved ${rows.length === 1 ? '1 file' : `${rows.length} files`} to ${changelistName(changelistId)}.`,
-    })
+    const result = await moveChangelistPathsFor(repoRoot, changelistId, rows.map((row) => row.path))
+    const files = rows.length === 1 ? '1 file' : `${rows.length} files`
+    await reportChangelistResult(
+      result,
+      `Moved ${files} to ${changelistName(changelistId)}.`,
+      `Could not move ${files} to ${changelistName(changelistId)}.`,
+    )
   }
 
   const openNewChangelistDialog = (paths: string[]): void => {
@@ -1067,18 +1085,21 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     setChangelistDialog(null)
     if (!request || !repoRoot) return
     if (request.mode === 'new') {
-      await createChangelistFor(repoRoot, {
+      const created = await createChangelistFor(repoRoot, {
         name: value.name,
         comment: value.comment,
         activate: value.activate,
         paths: request.paths,
       })
-      await afterChangelistChange(`Created ${value.name}.`)
+      await reportChangelistResult(created, `Created ${value.name}.`, `Could not create ${value.name}.`)
       return
     }
     if (!request.changelistId) return
-    await renameChangelistFor(repoRoot, request.changelistId, { name: value.name, comment: value.comment })
-    await afterChangelistChange(`Renamed to ${value.name}.`)
+    const renamed = await renameChangelistFor(repoRoot, request.changelistId, {
+      name: value.name,
+      comment: value.comment,
+    })
+    await reportChangelistResult(renamed, `Renamed to ${value.name}.`, `Could not rename to ${value.name}.`)
   }
 
   const handleDeleteChangelist = async (changelistId: string): Promise<void> => {
@@ -1109,14 +1130,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       tone: 'danger',
     })
     if (!confirmed) return
-    await deleteChangelistFor(repoRoot, changelistId)
-    await afterChangelistChange(`Deleted ${list.name}.`)
+    const result = await deleteChangelistFor(repoRoot, changelistId)
+    await reportChangelistResult(result, `Deleted ${list.name}.`, `Could not delete ${list.name}.`)
   }
 
   const handleSetActiveChangelist = async (changelistId: string): Promise<void> => {
     if (!repoRoot) return
-    await setActiveChangelistFor(repoRoot, changelistId)
-    setMessage({ tone: 'success', text: `New changes now land in ${changelistName(changelistId)}.` })
+    const result = await setActiveChangelistFor(repoRoot, changelistId)
+    await reportChangelistResult(
+      result,
+      `New changes now land in ${changelistName(changelistId)}.`,
+      `Could not make ${changelistName(changelistId)} the active changelist.`,
+    )
   }
 
   // --- The rest of the row menu ---------------------------------------------

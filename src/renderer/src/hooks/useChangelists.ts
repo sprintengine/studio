@@ -51,24 +51,47 @@ function publish(subscription: ChangelistSubscription, lists: Changelist[]): Cha
 }
 
 /**
+ * What a mutation actually did. The lists come back either way — a failed call
+ * keeps the last good ones on screen, because falling back to the bare default
+ * would make a transient IPC error look exactly like "someone deleted all your
+ * changelists" — but `ok` is the half the caller must read.
+ *
+ * It exists because the panel used to announce "Moved 3 files to Spike" off the
+ * mere fact that the promise settled, while this module swallowed every error
+ * and answered with the unchanged lists. The rejection went nowhere, the lists
+ * did not move, and the person was told they had.
+ */
+export type ChangelistCallResult = {
+  ok: boolean
+  changelists: Changelist[]
+  /** Only when `ok` is false: what to put in front of the person. */
+  error?: string
+}
+
+/**
  * Run one store call and publish its answer. Every mutation goes through here
  * rather than setting state from its own return value, so a second panel is
  * told about a rename it did not make.
- *
- * A failed call keeps the last good lists on screen. The alternative — falling
- * back to the bare default — would make a transient IPC error look exactly like
- * "someone deleted all your changelists".
  */
 async function runChangelistCall(
   repoRoot: string | null,
   call: (root: string) => Promise<Changelist[]>,
-): Promise<Changelist[]> {
-  if (!repoRoot || typeof window.api.getGitChangelists !== 'function') return createDefaultChangelists()
+): Promise<ChangelistCallResult> {
+  if (!repoRoot || typeof window.api.getGitChangelists !== 'function') {
+    // No repository, or a preload that predates changelists. Not an error to
+    // report — there was nothing to act on — but not a success to announce
+    // either, so nothing is claimed.
+    return { ok: false, changelists: createDefaultChangelists() }
+  }
   const subscription = getSubscription(repoRoot)
   try {
-    return publish(subscription, await call(subscription.repoRoot))
-  } catch {
-    return subscription.lists
+    return { ok: true, changelists: publish(subscription, await call(subscription.repoRoot)) }
+  } catch (error) {
+    return {
+      ok: false,
+      changelists: subscription.lists,
+      error: error instanceof Error ? error.message : String(error),
+    }
   }
 }
 
@@ -79,21 +102,25 @@ export function refreshChangelists(repoRoot: string | null): Promise<Changelist[
   const subscription = getSubscription(repoRoot)
   // Coalesce: a burst of watch ticks must not become a burst of git spawns.
   if (subscription.inFlight) return subscription.inFlight
-  const promise = runChangelistCall(repoRoot, (root) => window.api.getGitChangelists(root)).finally(() => {
-    subscription.inFlight = null
-  })
+  // A READ, not a mutation: it announces nothing, so a failed one legitimately
+  // resolves to the last good lists rather than to a signal somebody must read.
+  const promise = runChangelistCall(repoRoot, (root) => window.api.getGitChangelists(root))
+    .then((result) => result.changelists)
+    .finally(() => {
+      subscription.inFlight = null
+    })
   subscription.inFlight = promise
   return promise
 }
 
-export function setActiveChangelistFor(repoRoot: string | null, id: string): Promise<Changelist[]> {
+export function setActiveChangelistFor(repoRoot: string | null, id: string): Promise<ChangelistCallResult> {
   return runChangelistCall(repoRoot, (root) => window.api.setActiveGitChangelist(root, id))
 }
 
 export function createChangelistFor(
   repoRoot: string | null,
   input: { name: string; comment?: string; activate?: boolean; paths?: string[] },
-): Promise<Changelist[]> {
+): Promise<ChangelistCallResult> {
   return runChangelistCall(repoRoot, (root) => window.api.createGitChangelist(root, input))
 }
 
@@ -101,11 +128,11 @@ export function renameChangelistFor(
   repoRoot: string | null,
   id: string,
   input: { name: string; comment?: string },
-): Promise<Changelist[]> {
+): Promise<ChangelistCallResult> {
   return runChangelistCall(repoRoot, (root) => window.api.renameGitChangelist(root, id, input))
 }
 
-export function deleteChangelistFor(repoRoot: string | null, id: string): Promise<Changelist[]> {
+export function deleteChangelistFor(repoRoot: string | null, id: string): Promise<ChangelistCallResult> {
   return runChangelistCall(repoRoot, (root) => window.api.deleteGitChangelist(root, id))
 }
 
@@ -113,7 +140,7 @@ export function moveChangelistPathsFor(
   repoRoot: string | null,
   id: string,
   paths: string[],
-): Promise<Changelist[]> {
+): Promise<ChangelistCallResult> {
   return runChangelistCall(repoRoot, (root) => window.api.moveGitChangelistPaths(root, id, paths))
 }
 
