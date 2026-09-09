@@ -809,13 +809,20 @@ export function DiffViewer({
   // envelope from it would push a snapshot of that moment over whatever the
   // workspace window has changed since. The workspace window flips it as it
   // opens the tab (WorkspaceManager), exactly as docking a file back does.
-  const [dockError, setDockError] = useState<string | null>(null)
+  // ── The failure band ────────────────────────────────────────────────────
+  // ONE message, and it is the newest one. There were three states here —
+  // the hand-off's, the file box's and the hunk read's — collapsed at the
+  // render with `??`, which is a PRIORITY, not a recency: a "No open workspace"
+  // from ten minutes ago outranked git's reason for refusing the click a person
+  // had just made, and nothing cleared any of them when the file changed, so a
+  // complaint about one file was still on screen over another.
+  const [bandError, setBandError] = useState<string | null>(null)
   const showInApp = useCallback(() => {
     if (!workspaceId) return
     const target = currentItem ?? items[0]
     const kind = target?.kind === 'branch' ? 'unstaged' : target?.kind
     void (async () => {
-      setDockError(null)
+      setBandError(null)
       const result = await window.api.dockDiffToWorkspace({
         workspaceId,
         repoRoot,
@@ -828,7 +835,7 @@ export function DiffViewer({
       // all), and closing on the strength of that left the person with neither
       // the window nor the tab. On a refusal the window stays up and says why.
       if (!result?.accepted) {
-        setDockError('No open workspace to show this in')
+        setBandError('No open workspace to show this in')
         return
       }
       await window.api.windowClose()
@@ -894,7 +901,6 @@ export function DiffViewer({
   const [includeOverride, setIncludeOverride] = useState<
     { path: string; state: IncludeBoxState } | null
   >(null)
-  const [includeError, setIncludeError] = useState<string | null>(null)
   const includeBusyRef = useRef(false)
 
   const fileInclude =
@@ -934,13 +940,13 @@ export function DiffViewer({
         if (!result.ok) {
           // Let the real state win rather than leaving a box that lies.
           setIncludeOverride(null)
-          setIncludeError(result.message ?? result.stderr ?? 'Could not change what is included.')
+          setBandError(result.message ?? result.stderr ?? 'Could not change what is included.')
         } else {
-          setIncludeError(null)
+          setBandError(null)
         }
         await refreshGitStatus()
       } catch (error) {
-        setIncludeError(error instanceof Error ? error.message : 'Could not change what is included.')
+        setBandError(error instanceof Error ? error.message : 'Could not change what is included.')
       } finally {
         // The refresh above awaits a completed `git status`, so by here the
         // truth is on screen: drop the optimistic value unconditionally rather
@@ -973,6 +979,29 @@ export function DiffViewer({
       }),
     [fileHunks.hunks, fileHunks.override, currentItem?.kind, currentItem?.path, currentItem?.relativePath]
   )
+
+  // The band belongs to the FILE on screen. A failure about the last one is not
+  // a fact about this one, and leaving it up made the window look broken on a
+  // file that was perfectly fine. Declared before the mirror below so that a
+  // step which both changes the file and lands a read failure ends on the
+  // failure rather than on the clear.
+  useEffect(() => {
+    setBandError(null)
+  }, [currentItem?.path])
+
+  // The hunk read's own failure, folded into the one band. It clears itself
+  // when a later read succeeds — but only if the band is still showing what it
+  // put there, or a hand-off refusal since would vanish with it.
+  const hunkErrorRef = useRef<string | null>(null)
+  useEffect(() => {
+    const previous = hunkErrorRef.current
+    hunkErrorRef.current = fileHunks.error
+    if (fileHunks.error) {
+      setBandError(fileHunks.error)
+      return
+    }
+    setBandError((current) => (current !== null && current === previous ? null : current))
+  }, [fileHunks.error])
 
   // ── Open in editor ──────────────────────────────────────────────────────
   // The pane routes through `openFileSurface`, which honours the person's
@@ -1238,10 +1267,12 @@ export function DiffViewer({
       {/* One band for every failure this window can report — the whole file's
           include, a single hunk's, and a hand-off back to the app that no
           window took. They are the same sentence to a person ("that did not
-          happen"), and git's own words are what the include failures show. */}
-      {(dockError ?? includeError ?? fileHunks.error) ? (
+          happen"), and git's own words are what the include failures show. One
+          STATE as well as one band: whichever failed last is what is shown, and
+          changing file clears it. */}
+      {bandError ? (
         <InlineNotice tone="error" className="mx-3 mt-2 shrink-0">
-          {dockError ?? includeError ?? fileHunks.error}
+          {bandError}
         </InlineNotice>
       ) : null}
 
