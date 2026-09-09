@@ -6,6 +6,7 @@
 import React, { useCallback, useRef } from 'react'
 import { FOCUS_RING_CLASS } from './tokens'
 import { Tooltip } from './Tooltip'
+import { toolbarItemProps, useInToolbarBand } from './Toolbar'
 
 export type SegmentedControlItem<V extends string = string> = {
   value: V
@@ -71,6 +72,13 @@ export function SegmentedControl<V extends string = string>({
   className,
 }: SegmentedControlProps<V>) {
   const groupRef = useRef<HTMLDivElement | null>(null)
+  // Inside a Toolbar the strip is not a tab stop of its own: the band promises
+  // ONE, and a radiogroup that kept its own would make the band three. The
+  // SELECTED segment carries the band's hook — it is the one segment the
+  // radiogroup pattern lets Tab reach — so the band walks INTO the strip and
+  // the strip's own arrow keys take over from there (Toolbar's key handler
+  // stands aside for a radiogroup). Home/End still reach the band's ends.
+  const inBand = useInToolbarBand()
 
   const moveSelection = useCallback(
     (delta: number) => {
@@ -120,7 +128,10 @@ export function SegmentedControl<V extends string = string>({
             // has; only the drawing changes.
             aria-label={iconOnly ? item.label : undefined}
             disabled={item.disabled}
-            tabIndex={checked ? 0 : -1}
+            {...toolbarItemProps(inBand && checked)}
+            // In a band the single 0 is the band's to hand out, and a 0
+            // rendered here would take it back on the next render.
+            tabIndex={!inBand && checked ? 0 : -1}
             onClick={() => {
               if (!checked) onChange(item.value)
             }}

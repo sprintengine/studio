@@ -19,6 +19,7 @@
 import React from 'react'
 
 import { FOCUS_RING_CLASS } from './tokens'
+import { toolbarItemProps, useInToolbarBand } from './Toolbar'
 
 /** A gap in the number strip, standing for the pages it hides. */
 export type PagerStep = number | 'gap'
@@ -101,6 +102,11 @@ export function Pager({
   inlineNoun?: string
   className?: string
 }): JSX.Element {
+  // The inline stepper lives in a Toolbar band, and the band is one tab stop:
+  // its two chevrons join the band's roving walk rather than adding two stops
+  // of their own between the tabs and the diff. They own no arrow keys, so the
+  // walk reaches them and passes through them like any other item.
+  const inBand = useInToolbarBand()
   if (inline) {
     return (
       <nav
@@ -111,6 +117,8 @@ export function Pager({
           type="button"
           aria-label="Previous"
           disabled={page <= 1}
+          {...toolbarItemProps(inBand)}
+          tabIndex={inBand ? -1 : undefined}
           onClick={() => onPageChange(page - 1)}
           className={`${INLINE_STEP_CLASS} ${FOCUS_RING_CLASS}`}
         >
@@ -131,6 +139,8 @@ export function Pager({
           type="button"
           aria-label="Next"
           disabled={page >= pageCount}
+          {...toolbarItemProps(inBand)}
+          tabIndex={inBand ? -1 : undefined}
           onClick={() => onPageChange(page + 1)}
           className={`${INLINE_STEP_CLASS} ${FOCUS_RING_CLASS}`}
         >

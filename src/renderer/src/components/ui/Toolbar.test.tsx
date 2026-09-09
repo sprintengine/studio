@@ -12,7 +12,12 @@ import { JSDOM } from 'jsdom'
 //      exists to remove;
 //   2. a disabled item keeps its place in the BAND but not in the WALK;
 //   3. an item that opens a menu says so in ARIA, not only with a corner mark;
-//   4. the divider is decoration, not a structural separator.
+//   4. the divider is decoration, not a structural separator;
+//   5. a MIXED band — one holding a segmented control and an inline pager — is
+//      still one tab stop, and the child that owns its own arrow keys keeps
+//      them instead of being overruled by the band's walk;
+//   6. the remembered tab stop survives a re-render with focus outside the
+//      band, which is the whole point of remembering it.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -28,7 +33,25 @@ anyGlobal.HTMLButtonElement = dom.window.HTMLButtonElement
 anyGlobal.Node = dom.window.Node
 anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
 anyGlobal.MouseEvent = dom.window.MouseEvent
+anyGlobal.getComputedStyle = dom.window.getComputedStyle
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
+// The mixed-band checks mount the real SegmentedControl, which reaches for a
+// Tooltip; these are what that needs from a browser and nothing more.
+dom.window.matchMedia = ((query: string) => ({
+  matches: false,
+  media: query,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  addListener: () => {},
+  removeListener: () => {},
+})) as unknown as typeof dom.window.matchMedia
+class NoopResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+anyGlobal.ResizeObserver = NoopResizeObserver
+dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
 let failures = 0
 function run(name: string, fn: () => void): void {
@@ -47,6 +70,8 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { Toolbar, ToolbarButton, ToolbarDivider, ToolbarSpacer } = await import('./Toolbar')
+  const { SegmentedControl } = await import('./SegmentedControl')
+  const { Pager } = await import('./Pager')
 
   const document = dom.window.document
   const glyph = <svg viewBox="0 0 16 16" aria-hidden="true" />
@@ -61,6 +86,11 @@ async function main(): Promise<void> {
     return {
       band: container.firstElementChild as HTMLElement,
       container: container as unknown as HTMLElement,
+      rerender: (next: React.ReactNode) => {
+        act(() => {
+          root.render(next)
+        })
+      },
       unmount: () => {
         act(() => root.unmount())
         container.remove()
@@ -229,6 +259,194 @@ async function main(): Promise<void> {
 
     withRule.unmount()
     bare.unmount()
+  })
+
+  // --- The mixed band -------------------------------------------------------
+  // The band promises ONE tab stop. A segmented control and an inline pager are
+  // each a composite with its own focus rules, and dropped into the band
+  // unchanged they broke the promise from both ends: they stood up tab stops of
+  // their own, and their arrow keys bubbled to a walk that could not see where
+  // focus was, so `move(null, 1)` teleported it to item one.
+
+  function mixedBand(view: 'a' | 'b' = 'a'): React.ReactElement {
+    return (
+      <Toolbar ariaLabel="Diff">
+        <ToolbarButton ariaLabel="Previous difference">{glyph}</ToolbarButton>
+        <SegmentedControl
+          ariaLabel="Diff view"
+          value={view}
+          onChange={() => {}}
+          iconOnly
+          items={[
+            { value: 'a', label: 'Side by side', icon: glyph },
+            { value: 'b', label: 'Unified', icon: glyph },
+          ]}
+        />
+        <Pager inline page={2} pageCount={27} rangeLabel="File 2 of 27" ariaLabel="Files" onPageChange={() => {}} />
+        <ToolbarButton ariaLabel="Open in editor">{glyph}</ToolbarButton>
+      </Toolbar>
+    )
+  }
+
+  run('a mixed band is still ONE tab stop', () => {
+    const view = mount(mixedBand())
+    const focusable = Array.from(view.band.querySelectorAll('button')) as HTMLElement[]
+    assert.equal(focusable.length, 6, 'two items, two segments, two chevrons')
+    const stops = focusable.filter((item) => item.tabIndex === 0)
+    assert.equal(
+      stops.length,
+      1,
+      'a radiogroup and a stepper that kept their own tab stops would make the band three',
+    )
+    assert.equal(stops[0]?.getAttribute('aria-label'), 'Previous difference', 'and it is the first item')
+
+    // Both composites hang off the band's own hook rather than being skipped.
+    const walked = Array.from(view.band.querySelectorAll('[data-toolbar-item]')).map((item) =>
+      item.getAttribute('aria-label'),
+    )
+    assert.deepEqual(
+      walked,
+      ['Previous difference', 'Side by side', 'Previous', 'Next', 'Open in editor'],
+      'the SELECTED segment and both chevrons join the walk; the unselected segment is the radiogroup\'s own business',
+    )
+    view.unmount()
+  })
+
+  run('the band walks its own items and steps into the composites', () => {
+    const view = mount(mixedBand())
+    const items = Array.from(view.band.querySelectorAll('[data-toolbar-item]')) as HTMLElement[]
+    const press = (key: string): void => {
+      act(() => {
+        ;(document.activeElement as HTMLElement).dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key, bubbles: true }),
+        )
+      })
+    }
+    act(() => {
+      items[0].focus()
+    })
+    press('ArrowRight')
+    assert.equal(
+      (document.activeElement as HTMLElement).getAttribute('aria-label'),
+      'Side by side',
+      'the walk reaches the segmented control rather than jumping over it',
+    )
+    press('End')
+    assert.equal(
+      (document.activeElement as HTMLElement).getAttribute('aria-label'),
+      'Open in editor',
+      'and Home/End still reach the ends from inside a radiogroup — it claims neither key',
+    )
+    press('ArrowLeft')
+    assert.equal(
+      (document.activeElement as HTMLElement).getAttribute('aria-label'),
+      'Next',
+      'the stepper\'s chevrons are ordinary items in the walk',
+    )
+    view.unmount()
+  })
+
+  run('a child that owns its arrow keys keeps them', () => {
+    let selected = 'a'
+    const view = mount(
+      <Toolbar ariaLabel="Diff">
+        <ToolbarButton ariaLabel="Previous difference">{glyph}</ToolbarButton>
+        <SegmentedControl
+          ariaLabel="Diff view"
+          value="a"
+          onChange={(next) => {
+            selected = next
+          }}
+          iconOnly
+          items={[
+            { value: 'a', label: 'Side by side', icon: glyph },
+            { value: 'b', label: 'Unified', icon: glyph },
+          ]}
+        />
+        <ToolbarButton ariaLabel="Open in editor">{glyph}</ToolbarButton>
+      </Toolbar>,
+    )
+    const segment = view.band.querySelector('[role="radio"][aria-checked="true"]') as HTMLElement
+    act(() => {
+      segment.focus()
+      segment.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    assert.equal(selected, 'b', 'the radiogroup moved its own selection')
+    assert.notEqual(
+      (document.activeElement as HTMLElement).getAttribute('aria-label'),
+      'Previous difference',
+      'and the band did not ALSO answer the key by teleporting focus to item one',
+    )
+
+    // The same for a text field, which the band's own docs forbid but which the
+    // guard has to survive: its caret keys are its own, Home and End included.
+    const withInput = mount(
+      <Toolbar ariaLabel="Filter">
+        <ToolbarButton ariaLabel="Refresh">{glyph}</ToolbarButton>
+        <input aria-label="Filter files" defaultValue="src" />
+        <ToolbarButton ariaLabel="Collapse all">{glyph}</ToolbarButton>
+      </Toolbar>,
+    )
+    const field = withInput.band.querySelector('input') as HTMLElement
+    act(() => {
+      field.focus()
+      for (const key of ['ArrowRight', 'Home', 'End']) {
+        field.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, bubbles: true }))
+      }
+    })
+    assert.equal(document.activeElement, field, 'the caret keys never left the field')
+
+    view.unmount()
+    withInput.unmount()
+  })
+
+  run('the remembered tab stop survives a re-render with focus outside the band', () => {
+    // The bug this pins: the stop used to be re-derived from
+    // `document.activeElement` on every render. Focus leaves the band, the
+    // region's state moves, and the person Tabs back in — to item one, not to
+    // where they were.
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+
+    const view = mount(band())
+    const items = Array.from(view.band.querySelectorAll('button')) as HTMLElement[]
+    act(() => {
+      items[2].focus()
+    })
+    assert.deepEqual(items.map((item) => item.tabIndex), [-1, -1, 0])
+
+    act(() => {
+      outside.focus()
+    })
+    view.rerender(band())
+    const after = Array.from(view.band.querySelectorAll('button')) as HTMLElement[]
+    assert.deepEqual(
+      after.map((item) => item.tabIndex),
+      [-1, -1, 0],
+      'Tab comes back to where the person was, not to item one',
+    )
+
+    // And it gives way when the remembered item leaves the walk: a disabled
+    // item is not a tab stop, so the band falls through to the first.
+    view.rerender(
+      <Toolbar ariaLabel="Changed files">
+        <ToolbarButton ariaLabel="Refresh">{glyph}</ToolbarButton>
+        <ToolbarButton ariaLabel="Discard changes">{glyph}</ToolbarButton>
+        <ToolbarDivider />
+        <ToolbarButton ariaLabel="Collapse all" disabled>
+          {glyph}
+        </ToolbarButton>
+      </Toolbar>,
+    )
+    const disabled = Array.from(view.band.querySelectorAll('button')) as HTMLElement[]
+    assert.deepEqual(
+      disabled.map((item) => item.tabIndex),
+      [0, -1, -1],
+      'a remembered stop that is no longer walkable falls through to the first item',
+    )
+
+    view.unmount()
+    outside.remove()
   })
 
   if (failures > 0) {

@@ -134,6 +134,17 @@ pointer that is reaching for its neighbour.
   between items, exactly one item carries `tabindex="0"`, and Tab leaves the
   band. Nine separate tab stops between the tabs and the first file is the
   cost this role exists to remove.
+- **A composite child joins the walk; its own keys stay its own.** The band
+  holds more than `button --icon` in two places (the diff window's
+  `segmented-control --icon-only` and its `pager --inline`), and each of those
+  is a composite with focus rules of its own. They carry the band's
+  `.ds-toolbar-item` hook — the segmented control on its *selected* segment,
+  the pager on both chevrons — so the band stays one tab stop instead of three.
+  What they do **not** give up is the key they own: Left/Right inside a
+  radiogroup, a menu or a text field belong to that child, and the band stands
+  aside rather than answering as well. Home/End still reach the band's ends
+  from inside a radiogroup or a menu (neither claims them) and are given up
+  only in a text field, where they move the caret.
 - Disabled items keep their place in the walk when they carry `aria-disabled`;
   use the `disabled` attribute only where the reason needs no explanation.
 - The divider is `aria-hidden`, and the corner menu mark is drawn in CSS, so

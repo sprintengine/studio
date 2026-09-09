@@ -23,6 +23,41 @@ import { IconButton } from './Buttons'
 
 const ITEM_ATTR = 'data-toolbar-item'
 
+/** The attribute the band's roving walk looks for. Exported so a COMPOSITE
+ *  child of the band — the segmented control, the inline pager — can hang its
+ *  own focusables off the same hook rather than standing up a second tab stop
+ *  inside a band whose whole promise is that there is one. */
+export const TOOLBAR_ITEM_ATTR = ITEM_ATTR
+
+// Children that own their own arrow keys. A radiogroup moves its selection, a
+// menu walks its options, a text field moves the caret; the band walks BETWEEN
+// items. When both answer, the band wins by accident — its `move(null, 1)`
+// fallback teleports focus to item one from wherever the person was.
+const NESTED_COMPOSITE = '[role="radiogroup"], [role="menu"], input, textarea, select'
+
+// Is this subtree inside a Toolbar band? Composite children read it and join
+// the band's walk instead of keeping a tab stop of their own. A context rather
+// than a prop, because the caller that composes a band should not have to
+// remember to tell each child it is in one.
+const ToolbarBandContext = React.createContext(false)
+
+export function useInToolbarBand(): boolean {
+  return React.useContext(ToolbarBandContext)
+}
+
+/**
+ * What a composite child spreads onto each of its own focusable elements to be
+ * walked by the band. Empty outside a band, so a pager under a list and a
+ * segmented control in a form are untouched.
+ *
+ * The child must also pin `tabIndex` to -1 while in a band: the Toolbar's
+ * effect is what hands the single 0 out, and a child that renders its own 0
+ * would put it back on the next render.
+ */
+export function toolbarItemProps(inBand: boolean): Record<string, string> {
+  return inBand ? { [ITEM_ATTR]: '' } : {}
+}
+
 export function Toolbar({
   /** Names the REGION the band acts on ("Changed files"), never "Toolbar" — a
    *  window with three toolbars must not present three identical landmarks. */
@@ -49,13 +84,25 @@ export function Toolbar({
     )
   }, [])
 
-  // Exactly one item in the tab order, and it is the one focus last rested on —
-  // recomputed after every render because the band's contents change with the
-  // region's state (an item appears, another disables).
+  // The remembered tab stop. A REF, not a re-derivation: `document.activeElement`
+  // answers "who has focus now", and once focus has left the band the answer is
+  // nobody — so recomputing it on every render walked the person back to item
+  // one every time the region's state moved while they were elsewhere. The ref
+  // remembers where they were; it is honoured while that item is still in the
+  // band and still enabled, and falls through to the first item when it is not.
+  const rovedRef = React.useRef<HTMLElement | null>(null)
+
+  // Exactly one item in the tab order, reasserted after every render because
+  // the band's contents change with the region's state (an item appears,
+  // another disables).
   React.useEffect(() => {
     const all = Array.from(ref.current?.querySelectorAll<HTMLElement>(`[${ITEM_ATTR}]`) ?? [])
     const enabled = walkable()
-    const active = enabled.find((item) => item === document.activeElement) ?? enabled[0]
+    const focused = enabled.find((item) => item === document.activeElement) ?? null
+    const roved = rovedRef.current
+    const remembered = roved && enabled.includes(roved) ? roved : null
+    const active = focused ?? remembered ?? enabled[0] ?? null
+    rovedRef.current = active
     for (const item of all) item.tabIndex = item === active ? 0 : -1
   })
 
@@ -78,11 +125,27 @@ export function Toolbar({
       role="toolbar"
       aria-label={ariaLabel}
       onKeyDown={(event) => {
+        const isStep = event.key === 'ArrowRight' || event.key === 'ArrowLeft'
+        const isEnd = event.key === 'Home' || event.key === 'End'
+        if (!isStep && !isEnd) return
+        // A child that owns its own arrow keys keeps them. Everything in the
+        // band bubbles to here, so without this the segmented control's
+        // selection walk and the inline pager's chevrons each ALSO stepped the
+        // band — and because their focused element is not a toolbar item, the
+        // step started from `null` and landed on item one.
+        const source = event.target as HTMLElement | null
+        const nested = source?.closest?.<HTMLElement>(NESTED_COMPOSITE) ?? null
+        const ownsKeys = nested !== null && !nested.hasAttribute(ITEM_ATTR)
+        // Home/End are given up only where they mean something else: they move
+        // the caret in a text field, but a radiogroup and a menu claim neither,
+        // so the ends of the band stay reachable from inside one.
+        const caretHost = nested !== null && /^(?:INPUT|TEXTAREA|SELECT)$/.test(nested.tagName)
+        if (ownsKeys && (isStep || caretHost)) return
         // The event usually bubbles from the focused item; fall back to what
         // actually has focus, so a key pressed while focus sits on the band
         // itself still walks from where the person is rather than from item one.
         const target =
-          (event.target as HTMLElement).closest<HTMLElement>(`[${ITEM_ATTR}]`) ??
+          source?.closest<HTMLElement>(`[${ITEM_ATTR}]`) ??
           (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(`[${ITEM_ATTR}]`) ??
           null
         if (event.key === 'ArrowRight') {
@@ -104,6 +167,7 @@ export function Toolbar({
         // returning comes back to where the person was.
         const item = (event.target as HTMLElement).closest<HTMLElement>(`[${ITEM_ATTR}]`)
         if (!item) return
+        rovedRef.current = item
         for (const other of walkable()) other.tabIndex = other === item ? 0 : -1
       }}
       className={[
@@ -114,7 +178,7 @@ export function Toolbar({
         className ?? '',
       ].join(' ')}
     >
-      {children}
+      <ToolbarBandContext.Provider value={true}>{children}</ToolbarBandContext.Provider>
     </div>
   )
 }
