@@ -75,10 +75,18 @@ import type {
   ModuleStorageResult as AppModuleStorageResult,
 } from '../../../src/main/module-host/module-storage'
 import {
+  AgentSessionsModuleServiceToken as AppAgentSessionsModuleServiceToken,
   ModuleStorageToken as AppModuleStorageToken,
   WorkspaceContextToken as AppWorkspaceContextToken,
   WorkspaceServiceToken as AppWorkspaceServiceToken,
 } from '../../../src/main/module-host/service-tokens'
+import type {
+  ModuleAgentExitEvent as AppModuleAgentExitEvent,
+  ModuleAgentSessionRecord as AppModuleAgentSessionRecord,
+  ModuleAgentSessionService as AppModuleAgentSessionService,
+  ModuleAgentSpawnRequest as AppModuleAgentSpawnRequest,
+  ModuleAgentSpawnResult as AppModuleAgentSpawnResult,
+} from '../../../src/shared/modules/agent-sessions'
 import type {
   AgentIdNamespaceDefinition as AppAgentIdNamespaceDefinition,
   BacklogItemAction as AppBacklogItemAction,
@@ -177,6 +185,11 @@ import type {
   ModuleAgentSessionView as SdkModuleAgentSessionView,
   ModuleFocusTabInput as SdkModuleFocusTabInput,
   ModuleSpawnAgentInput as SdkModuleSpawnAgentInput,
+  ModuleAgentExitEvent as SdkModuleAgentExitEvent,
+  ModuleAgentSessionRecord as SdkModuleAgentSessionRecord,
+  ModuleAgentSessionService as SdkModuleAgentSessionService,
+  ModuleAgentSpawnRequest as SdkModuleAgentSpawnRequest,
+  ModuleAgentSpawnResult as SdkModuleAgentSpawnResult,
   ModuleSpawnAgentResult as SdkModuleSpawnAgentResult,
   ModuleStorageErrorCode as SdkModuleStorageErrorCode,
   ModuleStorageResult as SdkModuleStorageResult,
@@ -245,6 +258,15 @@ expectType<IsExact<AppSettingsSectionProps, SdkSettingsSectionProps>>()
 // provided under WorkspaceContextToken must match the SDK's contract.
 expectType<IsExact<AppModuleWorkspaceView, SdkModuleWorkspaceView>>()
 expectType<IsExact<AppModuleWorkspaceContextService, SdkWorkspaceContextService>>()
+// Agent sessions (D5 / WP-B): the five public shapes a module's entry.main
+// programs against. Exact, not assignable — an optional field added on one side
+// only is precisely the drift a module author would discover as a spawn that
+// silently ignored what they asked for.
+expectType<IsExact<AppModuleAgentSessionRecord, SdkModuleAgentSessionRecord>>()
+expectType<IsExact<AppModuleAgentSpawnRequest, SdkModuleAgentSpawnRequest>>()
+expectType<IsExact<AppModuleAgentSpawnResult, SdkModuleAgentSpawnResult>>()
+expectType<IsExact<AppModuleAgentExitEvent, SdkModuleAgentExitEvent>>()
+expectType<IsExact<AppModuleAgentSessionService, SdkModuleAgentSessionService>>()
 // Live runtime surfaces (MC-1535): the published views/inputs mirror the
 // app-side declarations exactly; RendererHost method soundness rides the
 // AppRendererHost extends SdkRendererHost assertion below.
@@ -401,6 +423,11 @@ assert.equal(SDK_FILE_DROP_MIME, APP_FILE_DROP_MIME, 'MULTICODE_FILE_DROP_MIME d
 assert.equal(AppWorkspaceServiceToken.key, 'core.workspace', 'WorkspaceServiceToken key drifted')
 assert.equal(AppWorkspaceContextToken.key, 'core.workspace-context', 'WorkspaceContextToken key drifted')
 assert.equal(AppModuleStorageToken.key, 'core.module-storage', 'ModuleStorageToken key drifted')
+assert.equal(
+  AppAgentSessionsModuleServiceToken.key,
+  'agent-sessions.module-service',
+  'AgentSessionsModuleServiceToken key drifted'
+)
 
 // The published surface must not contain `any` (the source is also compiled
 // with strict settings; this guards the emitted declarations the tarball ships).

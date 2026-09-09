@@ -46,6 +46,13 @@ export function createModuleWorkspaceService(
 // whose folder path has yet to re-hydrate.
 export type ModuleWorkspaceContextService = {
   get(workspaceId: string): Promise<ModuleWorkspaceView | null>
+  /**
+   * Every workspace currently open, in registry order. The main-side twin of
+   * `RendererHost.listWorkspaces`, and the only way a module's `entry.main`
+   * can answer "which project roots are open" — an MCP tool a module
+   * contributes runs with no window and no renderer to ask.
+   */
+  list(): Promise<ModuleWorkspaceView[]>
 }
 
 export type ModuleWorkspaceContextBackends = {
@@ -62,6 +69,12 @@ export function createModuleWorkspaceContextService(
         .state.workspaces.find((entry) => entry.id === workspaceId)
       if (!workspace) return null
       return toModuleWorkspaceView(workspace)
+    },
+    async list(): Promise<ModuleWorkspaceView[]> {
+      return backends
+        .getWorkspaceSyncSnapshot()
+        .state.workspaces.map((workspace) => toModuleWorkspaceView(workspace))
+        .filter((view): view is ModuleWorkspaceView => view !== null)
     },
   }
 }
