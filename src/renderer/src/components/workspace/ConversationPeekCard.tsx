@@ -78,6 +78,14 @@ export type ConversationPeekStatus = {
 export type ConversationPeekAgent = {
   /** What `readConversationPeek` is asked about. Already the unit of the contract. */
   sessionId: string
+  /**
+   * The agent behind the session, when there is one — the id its changelist is
+   * named after (`agent:<agentId>`), and what "open the diff" hands the shell
+   * so the diff opens on THIS agent's changes rather than the repository's.
+   * Null for a session with no agent record, and then the diff opens on all
+   * changes exactly as it did before agent changelists.
+   */
+  agentId?: string | null
   /** Runtime id; null when unknown. */
   cli: AgentCli | null
   /** Launch model id; null → the CLI's own default. */
@@ -651,11 +659,13 @@ export function ConversationPeekCard({
   /** Absent when the preload has no opener — the thumbnails then render inert rather than lying. */
   onOpenAttachment?: (attachmentId: string) => void
   /**
-   * Open the diff for one path, or — with `null` — the whole diff. The shell
-   * wires this to the workspace's pane, because a path only means something
-   * against a workspace and this component knows of none.
+   * Open the diff for one path, or — with `null` — the whole of this agent's
+   * diff. The shell wires this to the workspace's pane, because a path only
+   * means something against a workspace and this component knows of none; the
+   * agent id goes with it so the shell can open the agent's changelist rather
+   * than the repository (agent changelists, Wave 4).
    */
-  onOpenDiff?: (path: string | null) => void
+  onOpenDiff?: (path: string | null, agentId: string | null) => void
 }) {
   const agent = identity.agent
   // One list, first message included. `first` is still its own field on the
@@ -719,7 +729,10 @@ export function ConversationPeekCard({
         ) : null}
       </div>
 
-      <ChangedFiles changes={agent.fileChanges} onOpenDiff={onOpenDiff} />
+      <ChangedFiles
+        changes={agent.fileChanges}
+        onOpenDiff={onOpenDiff ? (path) => onOpenDiff(path, agent.agentId ?? null) : undefined}
+      />
       <ImageStrip images={peek?.images ?? []} onOpen={onOpenAttachment} />
 
       {loading && !peek ? (

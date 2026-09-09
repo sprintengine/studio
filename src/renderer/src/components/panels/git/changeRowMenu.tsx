@@ -23,7 +23,9 @@
 //   belongs to the model picker at workspace scope, and the dispatcher takes
 //   the first match, so a hint here would name a key that does something else.
 //   The command is registered and bindable; the day it has a working chord the
-//   hint comes back.
+//   hint comes back. The BAND menu's "Show diff for <list>" carries ⌘D on the
+//   same terms: the panel routes that chord to the focused group band, so it is
+//   a key that works from where the person is standing.
 //
 //   DESTRUCTIVE IS INK. `variant="danger"` colours the label; there is no fill,
 //   no tone, no icon change.
@@ -116,6 +118,12 @@ export type ChangeRowMenuContext = ChangelistActions & {
    *  would file paths that are drawn in the untracked group whatever list they
    *  are in, and nothing would appear to happen. */
   untrackedOnly: boolean
+  /** EVERY row the actions will touch is a GUEST row — a changelist's view of
+   *  hunks in a file that lives in another list. The file-level destructive
+   *  items are unavailable there: discarding or deleting from a guest row would
+   *  take lines this list does not own, which is the failure agent changelists
+   *  exist to prevent. The file's own row still offers both. */
+  partialOnly: boolean
   onCommitFiles: () => void
   onDiscard: () => void
   onShowDiff: () => void
@@ -215,6 +223,11 @@ function changelistEntries(
  */
 export const UNTRACKED_MOVE_REASON = 'tracked files only'
 
+/** And the one a guest row spends, for the same reason and in the same place:
+ *  in the LABEL, because a disabled control receives no pointer events and a
+ *  tooltip on one is a sentence nobody can read. */
+export const PARTIAL_ROW_REASON = 'use the file’s own row'
+
 /** "Move to another changelist…" and its list of destinations. The list the
  *  files are already in is present and disabled — moving a file to where it
  *  already is is not an error, it is a no-op, and hiding the row would make the
@@ -287,11 +300,15 @@ export function buildChangeRowMenu(context: ChangeRowMenuContext): ChangeRowMenu
     {
       kind: 'item',
       id: 'discard',
-      label: many ? `Discard changes in ${context.selectedCount} selected files…` : 'Discard changes…',
+      label: context.partialOnly
+        ? `Discard changes — ${PARTIAL_ROW_REASON}`
+        : many
+        ? `Discard changes in ${context.selectedCount} selected files…`
+        : 'Discard changes…',
       icon: <RollbackGlyph className="icon-xs" />,
-      shortcut: '⌥⌘Z',
-      danger: true,
-      disabled: context.busy,
+      ...(context.partialOnly ? {} : { shortcut: '⌥⌘Z' }),
+      danger: !context.partialOnly,
+      disabled: context.busy || context.partialOnly,
       onSelect: context.onDiscard,
     },
     moveEntry(
@@ -349,11 +366,15 @@ export function buildChangeRowMenu(context: ChangeRowMenuContext): ChangeRowMenu
     {
       kind: 'item',
       id: 'delete-files',
-      label: many ? `Delete ${context.selectedCount} selected files…` : 'Delete…',
+      label: context.partialOnly
+        ? `Delete — ${PARTIAL_ROW_REASON}`
+        : many
+        ? `Delete ${context.selectedCount} selected files…`
+        : 'Delete…',
       icon: menuIconSlot(),
-      shortcut: '⌫',
-      danger: true,
-      disabled: context.busy,
+      ...(context.partialOnly ? {} : { shortcut: '⌫' }),
+      danger: !context.partialOnly,
+      disabled: context.busy || context.partialOnly,
       onSelect: context.onDeleteFiles,
     },
     // Only for a file git has never heard of. "Add to git" on a tracked file
@@ -418,6 +439,11 @@ export type ChangeGroupMenuContext = ChangelistActions & {
   onStageAll: () => void
   onUnstageAll: () => void
   onDiscardAll: () => void
+  /** Stage the whole list — every home file, and this list's hunks in the files
+   *  it only owns a piece of — then put the caret in the composer. */
+  onCommitChangelist: () => void
+  /** The diff viewer, filtered to this list. */
+  onShowChangelistDiff: () => void
   onRefresh: () => void
 }
 
@@ -436,6 +462,32 @@ export function buildChangeGroupMenu(context: ChangeGroupMenuContext): ChangeRow
     context.group.kind === 'changelist'
       ? [
           { kind: 'divider' as const, id: 'after-group-files' },
+          // The two items that act on the list AS A UNIT, at the top of the
+          // changelist half — "Commit changelist" is the gesture the
+          // whole feature is for, and it is not "stage all": it stages exactly
+          // what this list owns, hunks included, and then hands the caret over.
+          // It does NOT commit; the message is still unwritten, and the same
+          // rule that keeps "Commit files…" from committing applies here.
+          {
+            kind: 'item' as const,
+            id: 'commit-changelist',
+            label: `Commit ${context.group.title}…`,
+            icon: menuIconSlot(),
+            disabled: context.busy || empty,
+            onSelect: context.onCommitChangelist,
+          },
+          {
+            kind: 'item' as const,
+            id: 'show-changelist-diff',
+            label: `Show diff for ${context.group.title}`,
+            icon: <ShowDiffGlyph className="icon-xs" />,
+            // The hint is legal here for the same reason the row menu's is: ⌘D
+            // works with this menu CLOSED, on a focused group band, and the
+            // panel routes it to this very action.
+            shortcut: '⌘D',
+            disabled: empty,
+            onSelect: context.onShowChangelistDiff,
+          },
           moveEntry(context, context.busy, `Move ${count === 1 ? 'the file' : 'these files'} to another changelist…`),
           ...changelistEntries(context, context.busy, { showEditHint: false }),
         ]

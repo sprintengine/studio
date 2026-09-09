@@ -6,6 +6,7 @@ import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/el
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { isAbsoluteObservedPath, MAX_OBSERVED_CWD_LENGTH } from '../shared/observed-checkout'
 import { isRecord } from '../shared/records'
+import type { ChangelistEdit } from '../shared/git/changelists'
 import { resolveClaudeConfigDir } from './conversation-peek/locate'
 
 // =============================================================================
@@ -306,7 +307,18 @@ export type AgentStateFrameFileChange = {
   path: string
   additions: number
   deletions: number
+  // The MINIMAL changed regions of the call, in git's hunk convention (agent
+  // changelists): four small ints each, and the only thing that lets an agent's
+  // changelist own the LINES it wrote in a file two agents share. Absent when
+  // the reporter could not read the patch's shape — a file-level claim, which
+  // is what every consumer already falls back to.
+  edits?: ChangelistEdit[]
 }
+
+// A single tool call that rewrote more than this many separate regions is a
+// whole-file rewrite in all but name. The reporter caps too; this is the
+// enforcement, since the reporter is untrusted input.
+export const MAX_FILE_CHANGE_EDITS = 200
 
 // A path this long is a broken reporter, not a file. Same bound as the observed
 // cwd, and for the same reason: the value is retained per session and broadcast
@@ -552,7 +564,35 @@ function parseFrameFileChange(raw: unknown): AgentStateFrameFileChange | null {
   const additions = parseFileChangeCount(raw.additions)
   const deletions = parseFileChangeCount(raw.deletions)
   if (additions === null || deletions === null) return null
-  return { path, additions, deletions }
+  const edits = parseFrameFileChangeEdits(raw.edits)
+  return { path, additions, deletions, ...(edits ? { edits } : {}) }
+}
+
+// The changed regions, or nothing. Every one of the four numbers must be a
+// whole, finite, non-negative int in git's hunk convention (a zero-length side
+// is an anchor, and `+0,0` is a real deletion at the head of a file — which is
+// why zero is allowed on a `start`), and a malformed member drops the whole
+// FIELD rather than the frame: the file was still edited, and a file-level claim
+// is a smaller lie than a line range that is off by a region.
+//
+// Over the cap the list is TRUNCATED rather than dropped: the regions ascend, so
+// the ones that are kept are still exactly right, and the rest fall to the
+// changelist model's remainder rule.
+function parseFrameFileChangeEdits(raw: unknown): ChangelistEdit[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const edits: ChangelistEdit[] = []
+  for (const entry of raw.slice(0, MAX_FILE_CHANGE_EDITS)) {
+    if (!isRecord(entry)) return null
+    const bound = (value: unknown): number | null =>
+      typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+    const oldStart = bound(entry.oldStart)
+    const oldLines = bound(entry.oldLines)
+    const newStart = bound(entry.newStart)
+    const newLines = bound(entry.newLines)
+    if (oldStart === null || oldLines === null || newStart === null || newLines === null) return null
+    edits.push({ oldStart, oldLines, newStart, newLines })
+  }
+  return edits.length > 0 ? edits : null
 }
 
 // What a file path in the ledger has to be, wherever it arrives from — a

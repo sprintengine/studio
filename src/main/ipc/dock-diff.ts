@@ -28,6 +28,9 @@ export type DockDiffRequest = {
   repoRoot: string
   focusPath: string | null
   focusKind: 'staged' | 'unstaged' | null
+  /** The changelist filter the diff window was showing; carried so the pane
+   *  tab opens on the same list. Absent or null: all changes. */
+  changelistId?: string | null
 }
 
 /** One window that might hold the workspace, as this protocol needs it. */

@@ -150,7 +150,14 @@ function HunkIncludeBox({ box, onToggle }: { box: HunkBox; onToggle: (key: strin
       aria-label={box.label}
       aria-disabled={box.busy || undefined}
       data-hunk-key={box.key}
-      className={`flex size-icon-xs cursor-pointer items-center justify-center ${FOCUS_RING_CLASS} aria-disabled:cursor-progress`}
+      // A hunk another list owns (agent changelists) is drawn quieter, not
+      // locked: the box still toggles. The margin is one glyph wide, so the
+      // owner's NAME is a tooltip and the accessible label, never a chip —
+      // a chip here hung over the first characters of the code.
+      title={box.ownerLabel ? `Owned by ${box.ownerLabel}` : undefined}
+      className={`relative flex size-icon-xs cursor-pointer items-center justify-center ${FOCUS_RING_CLASS} aria-disabled:cursor-progress${
+        box.ownerLabel ? ' opacity-50' : ''
+      }`}
       // Monaco reads mousedown in the margin as "select this line"; the box is
       // a control sitting on top of the gutter, not a place in the text.
       onMouseDown={(event) => event.stopPropagation()}

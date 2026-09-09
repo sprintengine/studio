@@ -504,7 +504,7 @@ export default function WorkspaceManager() {
   // envelope; the aux window's copy is as old as the window.
   useEffect(() => {
     if (typeof window.api.onDockDiffToWorkspace !== 'function') return
-    return window.api.onDockDiffToWorkspace(({ requestId, workspaceId, repoRoot, focusPath, focusKind }) => {
+    return window.api.onDockDiffToWorkspace(({ requestId, workspaceId, repoRoot, focusPath, focusKind, changelistId }) => {
       const state = useWorkspaceStore.getState()
       if (!state.workspaces.some((workspace) => workspace.id === workspaceId)) return
       // Windows that do not hold this workspace no-op, exactly as the docked
@@ -514,7 +514,8 @@ export default function WorkspaceManager() {
       if (held && !held.includes(workspaceId)) return
       const opened = state.openPaneTab(workspaceId, {
         kind: 'diff',
-        diff: { repoRoot, focusPath, focusKind },
+        // The window's changelist filter comes home with it (agent changelists).
+        diff: { repoRoot, focusPath, focusKind, ...(changelistId ? { changelistId } : {}) },
       })
       if (!opened) return
       state.setActiveWorkspaceForWindow(workspaceWindowId, workspaceId)

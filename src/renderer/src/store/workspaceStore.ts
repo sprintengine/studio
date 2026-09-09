@@ -389,6 +389,9 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setFileExplorerSelectedPath: (id: WorkspaceId, selectedPath: string | null) => void
   setBacklogViewState: (id: WorkspaceId, patch: Partial<WorkspaceBacklogState>) => void
   setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void
+  /** Remember which agent this workspace is on — the Diff surfaces' default
+   *  changelist (agent changelists). See workspacesSlice. */
+  setLastActiveAgent: (id: WorkspaceId, agentId: string | null) => void
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
   /**

@@ -395,6 +395,13 @@ interface WorkspacesSliceActions {
   setFileExplorerSelectedPath: (id: WorkspaceId, selectedPath: string | null) => void
   setBacklogViewState: (id: WorkspaceId, patch: Partial<WorkspaceBacklogState>) => void
   setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void
+  /**
+   * Remember which agent this workspace is on — the agent whose terminal tab
+   * was last selected. Idempotent by design: the layout calls it on every
+   * selection change and on mount, so the common case must be a no-op rather
+   * than a write that re-persists the registry.
+   */
+  setLastActiveAgent: (id: WorkspaceId, agentId: string | null) => void
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
   /**
@@ -1661,6 +1668,18 @@ export function createWorkspacesSlice(
         if (!ws) return
         const current = ws.gitPanelState ?? defaultWorkspaceGitPanelState()
         ws.gitPanelState = normalizeWorkspaceGitPanelState({ ...current, ...patch })
+      }),
+
+    setLastActiveAgent: (id, agentId) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        const next = typeof agentId === 'string' && agentId.trim().length > 0 ? agentId.trim() : null
+        // The guard is the point: selection fires on mount, on every layout
+        // change and on every programmatic focus, and an unconditional write
+        // would mark the registry dirty on each one.
+        if ((ws.lastActiveAgentId ?? null) === next) return
+        ws.lastActiveAgentId = next
       }),
 
     setGitCommitDraft: (id, scopeId, text) =>

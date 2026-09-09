@@ -390,7 +390,12 @@ async function run(): Promise<void> {
     const editServer = await listenLines(editSockPath, editFrames)
     type FileChangeFrame = {
       event?: string
-      fileChange?: { path?: string; additions?: number; deletions?: number }
+      fileChange?: {
+        path?: string
+        additions?: number
+        deletions?: number
+        edits?: Array<{ oldStart: number; oldLines: number; newStart: number; newLines: number }>
+      }
       [key: string]: unknown
     }
     const nextFileChangeFrame = async (index: number): Promise<FileChangeFrame> => {
@@ -431,9 +436,22 @@ async function run(): Promise<void> {
     })
     const editFrame = await nextFileChangeFrame(0)
     assert.deepEqual(
-      editFrame.fileChange,
-      { path: '/repo/src/app.ts', additions: 4, deletions: 3 },
+      { ...editFrame.fileChange, edits: undefined },
+      { path: '/repo/src/app.ts', additions: 4, deletions: 3, edits: undefined },
       'every +/- line across every hunk counts; a "\\ No newline" marker counts as neither'
+    )
+    // The line RANGES the agent's changelist owns are the CHANGED lines, never
+    // the hunk bounds: hunk one is `@@ -1,3 +1,4 @@` and claims old 2-3 → new
+    // 2-4 only, because ' keep' and ' tail' are context the agent did not write.
+    // Hunk two proves the same across a `\ No newline` marker, which is diff
+    // bookkeeping and moves neither cursor.
+    assert.deepEqual(
+      editFrame.fileChange?.edits,
+      [
+        { oldStart: 2, oldLines: 2, newStart: 2, newLines: 3 },
+        { oldStart: 41, oldLines: 1, newStart: 42, newLines: 1 },
+      ],
+      'context advances both cursors and never enters an edit'
     )
     assert.equal(
       JSON.stringify(editFrame).includes('new one'),
@@ -459,7 +477,14 @@ async function run(): Promise<void> {
     })
     assert.deepEqual(
       (await nextFileChangeFrame(1)).fileChange,
-      { path: '/repo/src/new.ts', additions: 3, deletions: 0 },
+      {
+        path: '/repo/src/new.ts',
+        additions: 3,
+        deletions: 0,
+        // git spells a whole-file creation `@@ -0,0 +1,3 @@`: `-0,0` is the
+        // anchor before the first line of a file that did not exist.
+        edits: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 3 }],
+      },
       'a created file counts its content lines, since there is no patch to count'
     )
 
@@ -475,7 +500,12 @@ async function run(): Promise<void> {
     })
     assert.deepEqual(
       (await nextFileChangeFrame(2)).fileChange,
-      { path: '/repo/src/from-input.ts', additions: 2, deletions: 0 },
+      {
+        path: '/repo/src/from-input.ts',
+        additions: 2,
+        deletions: 0,
+        edits: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2 }],
+      },
       'the content falls back to the tool input, and a file with no trailing newline is not short a line'
     )
 
@@ -521,7 +551,12 @@ async function run(): Promise<void> {
       },
     })
     const subagentEdit = await nextFileChangeFrame(5)
-    assert.deepEqual(subagentEdit.fileChange, { path: '/repo/notes.md', additions: 1, deletions: 1 })
+    assert.deepEqual(subagentEdit.fileChange, {
+      path: '/repo/notes.md',
+      additions: 1,
+      deletions: 1,
+      edits: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1 }],
+    })
     assert.equal(subagentEdit.cwd, undefined, 'the subagent cwd is still suppressed')
 
     // An editing tool whose result shape we have not verified (MultiEdit,
@@ -553,7 +588,13 @@ async function run(): Promise<void> {
     })
     assert.deepEqual(
       (await nextFileChangeFrame(7)).fileChange,
-      { path: '/repo/src/resolved.ts', additions: 1, deletions: 0 },
+      {
+        path: '/repo/src/resolved.ts',
+        additions: 1,
+        deletions: 0,
+        // Inserted AFTER old line 1 — the context line the agent kept.
+        edits: [{ oldStart: 1, oldLines: 0, newStart: 2, newLines: 1 }],
+      },
       'the result path wins over the input path, and a MultiEdit that carries a patch is counted like any other'
     )
 
@@ -616,6 +657,76 @@ async function run(): Promise<void> {
       Buffer.byteLength(editFrames[11], 'utf8') < 8 * 1024,
       'the frame carries the count, never the patch — it must stay a rounding error against the 64KB line cap'
     )
+
+    // A PURE DELETION between context lines: the region has no new-side lines,
+    // so it is anchored after the new line before it (git's `+1,0`) — the one
+    // spelling the changelist model's line tracker reads back.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Edit',
+      tool_input: { file_path: '/repo/src/cut.ts' },
+      tool_response: {
+        filePath: '/repo/src/cut.ts',
+        structuredPatch: [
+          { oldStart: 1, oldLines: 4, newStart: 1, newLines: 2, lines: [' a', '-b', '-c', ' d'] },
+        ],
+      },
+    })
+    assert.deepEqual(
+      (await nextFileChangeFrame(12)).fileChange,
+      {
+        path: '/repo/src/cut.ts',
+        additions: 0,
+        deletions: 2,
+        edits: [{ oldStart: 2, oldLines: 2, newStart: 1, newLines: 0 }],
+      },
+      'a deletion is anchored after the new line that survives above it'
+    )
+
+    // CONTEXT-FREE hunks (context 0): the header's number is an ANCHOR on the
+    // side that has no lines, not the first line of a run, so a hunk that opens
+    // with `+` lines must not be read one line early.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Edit',
+      tool_input: { file_path: '/repo/src/anchors.ts' },
+      tool_response: {
+        filePath: '/repo/src/anchors.ts',
+        structuredPatch: [
+          { oldStart: 4, oldLines: 0, newStart: 5, newLines: 2, lines: ['+x', '+y'] },
+          { oldStart: 9, oldLines: 2, newStart: 0, newLines: 0, lines: ['-gone', '-also'] },
+        ],
+      },
+    })
+    assert.deepEqual(
+      (await nextFileChangeFrame(13)).fileChange?.edits,
+      [
+        { oldStart: 4, oldLines: 0, newStart: 5, newLines: 2 },
+        { oldStart: 9, oldLines: 2, newStart: 0, newLines: 0 },
+      ],
+      'an insertion keeps its `-4,0` anchor, and a head-of-file deletion keeps `+0,0`'
+    )
+
+    // A patch whose SHAPE cannot be read: the file is still reported (it was
+    // edited) with no `edits` at all, which the app takes as a file-level claim.
+    await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'edit-session',
+      tool_name: 'Edit',
+      tool_input: { file_path: '/repo/src/unreadable.ts' },
+      tool_response: {
+        filePath: '/repo/src/unreadable.ts',
+        structuredPatch: [{ oldStart: 'one', newStart: null, lines: ['+a', '-b'] }],
+      },
+    })
+    assert.deepEqual(
+      (await nextFileChangeFrame(14)).fileChange,
+      { path: '/repo/src/unreadable.ts', additions: 1, deletions: 1 },
+      'an unreadable patch drops the ranges, never the file'
+    )
+
     editServer.close()
 
     // --- status-line forwarder ---------------------------------------------

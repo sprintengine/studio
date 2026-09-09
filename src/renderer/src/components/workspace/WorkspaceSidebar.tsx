@@ -8,6 +8,7 @@ import { checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type 
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
+import { changelistOwnerId } from '../../../../shared/git/changelists'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import type { AgentCli } from '../../../../shared/electron-api'
 import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMap } from './useFolderRepositoryIdentities'
@@ -28,6 +29,7 @@ import {
   IconButton,
   Input,
   LifecycleGlyph,
+  LinkButton,
   MenuDivider,
   AgentWorkingDots,
   MenuItem,
@@ -1003,6 +1005,7 @@ export function TerminalLineView({
   disambiguate = false,
   dim = false,
   rowOwnsStatus = false,
+  onOpenDiff,
 }: {
   line: TerminalLine
   now: number
@@ -1023,6 +1026,13 @@ export function TerminalLineView({
    * terminals is the one waiting, and the row's single seat cannot.
    */
   rowOwnsStatus?: boolean
+  /**
+   * Open this terminal's diff — its agent's changelist (agent changelists).
+   * Absent for a line with no agent behind it (a shell, a remote pane, a
+   * session main holds no agent record for), and then the ±count is the plain
+   * reading it has always been rather than a control that does nothing.
+   */
+  onOpenDiff?: () => void
 }) {
   const runtimeLabel = line.cli
     ? labelForCliRuntime(line.cli as AgentCli)
@@ -1100,18 +1110,42 @@ export function TerminalLineView({
         // spoken label are what say which of the two you are reading. The
         // kit's Tooltip, not a native title, carries them.
         <Tooltip content={diffCopy.tooltip} wrapperClassName="inline-flex shrink-0">
-          <span
-            // Only a folder reading dims (see diffScopeCopy): a `branch`
-            // reading IS attributable work — to the branch rather than to this
-            // terminal alone — and a `session` reading is the most
-            // attributable of the four, this agent's own edits and nobody
-            // else's, so both draw at full strength.
-            className={`shrink-0 font-mono text-micro tabular-nums ${diffCopy.dim ? 'opacity-60' : ''}`}
-          >
-            <span className="text-[color:var(--tone-good)]">+{line.additions}</span>
-            <span className="ml-1 text-[color:var(--tone-error)]">−{line.deletions}</span>
-            <span className="sr-only">{diffCopy.srText}</span>
-          </span>
+          {/* Only a folder reading dims (see diffScopeCopy): a `branch` reading
+              IS attributable work — to the branch rather than to this terminal
+              alone — and a `session` reading is the most attributable of the
+              four, this agent's own edits and nobody else's, so both draw at
+              full strength.
+
+              Where there is an agent behind the line the numbers are a
+              CONTROL — the shortest path from "this agent changed 40 lines" to
+              seeing which — and the kit's link button is what carries the focus
+              ring and the hit target for it. Where there is not, the same
+              drawing stays a reading. */}
+          {onOpenDiff ? (
+            <LinkButton
+              layout="row"
+              underline="never"
+              size="inherit"
+              ink="quiet"
+              aria-label={`Open this agent\u2019s diff. ${diffCopy.srText}`}
+              className={`shrink-0 font-mono text-micro tabular-nums ${diffCopy.dim ? 'opacity-60' : ''}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpenDiff()
+              }}
+            >
+              <span className="text-[color:var(--tone-good)]">+{line.additions}</span>
+              <span className="ml-1 text-[color:var(--tone-error)]">−{line.deletions}</span>
+            </LinkButton>
+          ) : (
+            <span
+              className={`shrink-0 font-mono text-micro tabular-nums ${diffCopy.dim ? 'opacity-60' : ''}`}
+            >
+              <span className="text-[color:var(--tone-good)]">+{line.additions}</span>
+              <span className="ml-1 text-[color:var(--tone-error)]">−{line.deletions}</span>
+              <span className="sr-only">{diffCopy.srText}</span>
+            </span>
+          )}
         </Tooltip>
       ) : null}
       {/* The line's own seat: working dots + how long, the failure dot, a
@@ -2613,10 +2647,18 @@ export default function WorkspaceSidebar({
         identities={peekIdentities}
         now={now}
         className={titleClusterClass}
-        onOpenDiff={(path) =>
+        onOpenDiff={(path, agentId) =>
           openPaneTab(workspace.id, {
             kind: 'diff',
-            diff: { focusPath: path, focusKind: path ? 'unstaged' : null },
+            diff: {
+              focusPath: path,
+              focusKind: path ? 'unstaged' : null,
+              // The card is one agent's conversation, so "open the diff" is
+              // that agent's changelist — named outright rather than left to
+              // the workspace's last-active default, which answers a different
+              // question and could answer it with a different agent.
+              ...(agentId ? { changelistId: changelistOwnerId(agentId) } : {}),
+            },
           })
         }
       >
@@ -2828,17 +2870,42 @@ export default function WorkspaceSidebar({
             {flatProject ? null : statusSeat}
           </div>
         ) : null}
-        {rowLines.lines.map((line, index) => (
-          <TerminalLineView
-            key={line.key}
-            line={line}
-            now={now}
-            seatOverlay={index === 0 && !flatProject ? rowActionsOverlay : undefined}
-            disambiguate={rowLines.lines.length > 1}
-            dim={emphasis === 'quiet'}
-            rowOwnsStatus={flatProject !== null}
-          />
-        ))}
+        {rowLines.lines.map((line, index) => {
+          // An agent line's ±count is that agent's own work, so pressing it
+          // opens that agent's changelist. The agent id comes from the row's
+          // sessions rather than from the line, because a line is a drawing of
+          // a terminal and the diff is a fact about the agent inside it.
+          const lineAgentId =
+            line.kind === 'agent'
+              ? (peekSessionsByWorkspaceId.get(workspace.id) ?? []).find(
+                  (session) => session.sessionId === line.key,
+                )?.agentId ?? null
+              : null
+          return (
+            <TerminalLineView
+              key={line.key}
+              line={line}
+              now={now}
+              seatOverlay={index === 0 && !flatProject ? rowActionsOverlay : undefined}
+              disambiguate={rowLines.lines.length > 1}
+              dim={emphasis === 'quiet'}
+              rowOwnsStatus={flatProject !== null}
+              onOpenDiff={
+                lineAgentId
+                  ? () =>
+                      openPaneTab(workspace.id, {
+                        kind: 'diff',
+                        diff: {
+                          focusPath: null,
+                          focusKind: null,
+                          changelistId: changelistOwnerId(lineAgentId),
+                        },
+                      })
+                  : undefined
+              }
+            />
+          )
+        })}
         {rowLines.overflow > 0 ? (
           <div
             className={`flex h-5 items-center text-micro ${

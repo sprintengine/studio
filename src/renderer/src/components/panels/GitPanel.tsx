@@ -19,6 +19,7 @@ import { EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, I
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { MODAL_SURFACE_SELECTOR } from '../ui/Modal'
 import { buildChangeGroupMenu, buildChangeRowMenu, type ChangelistActions, type CopyPathKind } from './git/changeRowMenu'
+import { applyChangelistHunks, changelistHunkTargets } from './git/changelistHunks'
 import { ChangelistDialog, type ChangelistDialogValue } from './git/ChangelistDialog'
 import { GitChangesList } from './git/GitChangesList'
 import { GitChangesToolbar, type ShowDiffPlacement } from './git/GitChangesToolbar'
@@ -30,6 +31,7 @@ import {
   isUntrackedEntry,
   nextCheckIntent,
   nextCursorPath,
+  revertableRows,
   splitGitPath,
   visibleChangeRows,
   type GitChangeGroup,
@@ -691,6 +693,21 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     () => new Set(statusEntries.filter(isUntrackedEntry).map((entry) => entry.relativePath)),
     [statusEntries]
   )
+  // "Move to another changelist" is a no-op for a file drawn in the UNTRACKED
+  // group — it is filed in a list already and rendered in that group whatever
+  // list that is. Since agent changelists an untracked file whose home is an
+  // agent's list is drawn IN that list, so the question is no longer "is it
+  // untracked" but "is it drawn in the untracked group", and the answer is read
+  // off the groups the panel actually built.
+  const untrackedGroupPaths = useMemo(
+    () =>
+      new Set(
+        (changeGroups.find((group) => group.kind === 'untracked')?.allRows ?? []).map(
+          (row) => row.relativePath,
+        ),
+      ),
+    [changeGroups]
+  )
   // The commit message box, so "Commit files…" can hand it the caret after it
   // stages what was named.
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
@@ -757,9 +774,73 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       () => window.api.unstageGitPaths(repoRoot!, paths),
       paths.length > 1 ? `Unstaged ${paths.length} files.` : 'Unstaged file.'
     )
+  /**
+   * Stage or unstage a set of ROWS, which since agent changelists is two calls
+   * rather than one: the whole files go through `git:stage`, and every guest
+   * row — a list's view of hunks in a file that lives elsewhere — goes through
+   * a stage-hunk loop over exactly that list's hunks.
+   *
+   * One `runAction`, not two, so the panel takes one busy lock and does one
+   * refresh: two would let a second gesture land between the halves, and the
+   * status line would report whichever finished last.
+   */
+  const stageRows = async (
+    label: string,
+    rows: GitChangeRow[],
+    intent: 'stage' | 'unstage',
+    success: (moved: { files: number; hunks: number }) => string,
+  ): Promise<GitCommandResult | null> => {
+    const paths = rows.filter((row) => row.partial !== true).map((row) => row.path)
+    const targets = changelistHunkTargets(rows)
+    if (paths.length === 0 && targets.length === 0) return null
+    let hunks = 0
+    const result = await runAction(
+      label,
+      async () => {
+        if (paths.length > 0) {
+          const staged = intent === 'stage'
+            ? await window.api.stageGitPaths(repoRoot!, paths)
+            : await window.api.unstageGitPaths(repoRoot!, paths)
+          // The whole files first, and a failure there stops the hunks: the
+          // person asked for one thing, and half of it having worked is a
+          // message, not a success.
+          if (!staged.ok) return staged
+        }
+        if (targets.length === 0) return { ok: true, stdout: '', stderr: '', message: null }
+        const outcome = await applyChangelistHunks({
+          repoRoot: repoRoot!,
+          changelists,
+          targets,
+          intent,
+          api: window.api,
+        })
+        hunks = outcome.applied
+        return { ok: outcome.ok, stdout: '', stderr: '', message: outcome.message }
+      },
+      success({ files: paths.length, hunks: 0 }),
+    )
+    // The hunk count is only known once the loop has run, and `runAction` takes
+    // its success line up front — so the honest sentence replaces the optimistic
+    // one here, after the refresh, rather than being guessed before the call.
+    if (result?.ok && hunks > 0) {
+      setMessage({ tone: 'success', text: success({ files: paths.length, hunks }) })
+    }
+    return result
+  }
+
+  const filesAndHunks = (verb: string) => (moved: { files: number; hunks: number }): string => {
+    const parts: string[] = []
+    if (moved.files > 0) parts.push(moved.files === 1 ? '1 file' : `${moved.files} files`)
+    if (moved.hunks > 0) parts.push(moved.hunks === 1 ? '1 hunk' : `${moved.hunks} hunks`)
+    return `${verb} ${parts.length > 0 ? parts.join(' and ') : 'nothing'}.`
+  }
+
   // Discard. Takes rows rather than status entries because the checklist is what
   // asks for it now, and a row already carries both spellings of the path.
-  const revertEntries = async (entries: Array<{ path: string; relativePath: string }>) => {
+  const revertEntries = async (
+    entries: Array<{ path: string; relativePath: string }>,
+    skippedPartial = 0,
+  ) => {
     const seen = new Set<string>()
     const unique = entries.filter((entry) => {
       if (seen.has(entry.path)) return false
@@ -775,6 +856,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           This throws away every change to{' '}
           {many ? `these ${unique.length} files` : unique[0].relativePath} in {activeScopeLabel}. The action
           cannot be undone from here.
+          {/* There is no per-hunk revert in the git layer, and `git checkout --`
+              takes the whole file — so a file this list only owns a piece of is
+              LEFT ALONE rather than discarded on another list's behalf, and the
+              dialog says so before the person agrees to anything. */}
+          {skippedPartial > 0 ? (
+            <div className="mt-2">
+              {skippedPartial === 1 ? '1 file is' : `${skippedPartial} files are`} skipped: this changelist
+              owns only part of {skippedPartial === 1 ? 'it' : 'them'}, and discarding would throw away
+              another list’s lines too. Discard {skippedPartial === 1 ? 'it' : 'them'} from the file’s own
+              row.
+            </div>
+          ) : null}
           <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
@@ -795,6 +888,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // appears later (T6's changelists) arrives OPEN — the alternative is a new
   // changelist that silently starts folded because nobody had expanded it yet.
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set())
+  // Which group band holds focus. A ref rather than state: nothing renders
+  // differently for it, and the only reader is the command handler, which is
+  // itself a ref reassigned on every render.
+  const focusedGroupIdRef = useRef<string | null>(null)
   const expandedGroupIds = useMemo(
     () => new Set(checklistGroups.filter((group) => !collapsedGroupIds.has(group.id)).map((group) => group.id)),
     [checklistGroups, collapsedGroupIds]
@@ -807,14 +904,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   )
   const visibleRowsRef = useRef(visibleRows)
   const changeRowNodesRef = useRef<Record<string, HTMLElement | null>>({})
-  const selectionAnchorPathRef = useRef<string | null>(null)
+  const selectionAnchorKeyRef = useRef<string | null>(null)
   const changeDragRef = useRef<{ startY: number } | null>(null)
   const changeDragCompletedRef = useRef(false)
-  // Keyed by PATH alone. The old key was `scope\0path`, because a partially
-  // staged file had a row in the Staged section and another in the Unstaged one;
-  // it is one row with a dashed box now, so the path is the whole identity.
-  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set())
-  const [cursorPath, setCursorPath] = useState<string | null>(null)
+  // Keyed by ROW KEY (`changeRowKey`). It was the path alone from T5 — the old
+  // `scope\0path` key went when a partially staged file became one row with a
+  // dashed box — and agent changelists put a second row back: a list that owns
+  // hunks of a file living elsewhere draws a guest row beside the home one, so
+  // path is no longer an identity. Keyed by path, ⌘A would tick both, an arrow
+  // key would stick on the first of the two, and a stage would go to whichever
+  // came first in the array.
+  const [selectedRowKeys, setSelectedRowKeys] = useState<Set<string>>(() => new Set())
+  const [cursorRowKey, setCursorRowKey] = useState<string | null>(null)
 
   // Keep the geometry snapshot fresh, drop selection for rows that vanished
   // (committed, discarded, refreshed away) so a stale path never drives a batch
@@ -822,17 +923,17 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // dropping it — the list is the tab stop, and a cursor that evaporates on
   // every stage is a keyboard user starting from the top each time.
   useEffect(() => {
-    const previousOrder = visibleRowsRef.current.map((row) => row.path)
-    const nextOrder = visibleRows.map((row) => row.path)
+    const previousOrder = visibleRowsRef.current.map((row) => row.key)
+    const nextOrder = visibleRows.map((row) => row.key)
     visibleRowsRef.current = visibleRows
-    setSelectedPaths((current) => {
+    setSelectedRowKeys((current) => {
       if (current.size === 0) return current
       const valid = new Set(nextOrder)
       const next = new Set<string>()
-      for (const path of current) if (valid.has(path)) next.add(path)
+      for (const key of current) if (valid.has(key)) next.add(key)
       return next.size === current.size ? current : next
     })
-    setCursorPath((current) => nextCursorPath(previousOrder, nextOrder, current))
+    setCursorRowKey((current) => nextCursorPath(previousOrder, nextOrder, current))
   }, [visibleRows])
 
   useEffect(() => {
@@ -840,15 +941,15 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       if (!changeDragRef.current) return
       const bounds = visibleRowsRef.current
         .map((row) => {
-          const node = changeRowNodesRef.current[row.path]
+          const node = changeRowNodesRef.current[row.key]
           if (!node) return null
           const rect = node.getBoundingClientRect()
-          return { path: row.path, top: rect.top, bottom: rect.bottom }
+          return { path: row.key, top: rect.top, bottom: rect.bottom }
         })
         .filter((row): row is { path: string; top: number; bottom: number } => Boolean(row))
       const keys = fileExplorerSelectionFromVerticalRange(bounds, changeDragRef.current.startY, clientY)
       changeDragCompletedRef.current = keys.length > 0
-      setSelectedPaths(new Set(keys))
+      setSelectedRowKeys(new Set(keys))
     }
     const handleMouseMove = (event: MouseEvent) => updateDragSelection(event.clientY)
     const handleMouseUp = () => {
@@ -881,94 +982,115 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     event.preventDefault()
     changeDragRef.current = { startY: event.clientY }
     changeDragCompletedRef.current = false
-    selectionAnchorPathRef.current = null
-    setSelectedPaths(new Set())
+    selectionAnchorKeyRef.current = null
+    setSelectedRowKeys(new Set())
   }
 
-  const registerChangeRowNode = (path: string, node: HTMLElement | null) => {
-    if (node) changeRowNodesRef.current[path] = node
-    else delete changeRowNodesRef.current[path]
+  const registerChangeRowNode = (rowKey: string, node: HTMLElement | null) => {
+    if (node) changeRowNodesRef.current[rowKey] = node
+    else delete changeRowNodesRef.current[rowKey]
   }
 
   // Returns true when the click was consumed as a selection gesture (marquee
   // suppression, shift-range, or cmd-toggle) and must not also open the diff.
   const handleChangeRowClick = (row: GitChangeRow, event: React.MouseEvent): boolean => {
     if (changeDragCompletedRef.current) return true
-    const anchor = selectionAnchorPathRef.current
+    const anchor = selectionAnchorKeyRef.current
     if (event.shiftKey && anchor) {
       const keys = fileExplorerSelectionRange(
-        visibleRowsRef.current.map((visible) => visible.path),
+        visibleRowsRef.current.map((visible) => visible.key),
         anchor,
-        row.path
+        row.key
       )
-      if (keys.length) setSelectedPaths(new Set(keys))
-      setCursorPath(row.path)
+      if (keys.length) setSelectedRowKeys(new Set(keys))
+      setCursorRowKey(row.key)
       return true
     }
     if (event.metaKey || event.ctrlKey) {
-      selectionAnchorPathRef.current = row.path
-      setSelectedPaths((current) => {
+      selectionAnchorKeyRef.current = row.key
+      setSelectedRowKeys((current) => {
         const next = new Set(current)
-        if (next.has(row.path) && next.size > 1) next.delete(row.path)
-        else next.add(row.path)
+        if (next.has(row.key) && next.size > 1) next.delete(row.key)
+        else next.add(row.key)
         return next
       })
-      setCursorPath(row.path)
+      setCursorRowKey(row.key)
       return true
     }
-    selectionAnchorPathRef.current = row.path
-    setSelectedPaths(new Set([row.path]))
-    setCursorPath(row.path)
+    selectionAnchorKeyRef.current = row.key
+    setSelectedRowKeys(new Set([row.key]))
+    setCursorRowKey(row.key)
     return false
   }
 
-  const handleMoveCursor = (path: string, mode: 'replace' | 'extend') => {
-    const anchor = selectionAnchorPathRef.current
+  const handleMoveCursor = (rowKey: string, mode: 'replace' | 'extend') => {
+    const anchor = selectionAnchorKeyRef.current
     if (mode === 'extend' && anchor) {
       const keys = fileExplorerSelectionRange(
-        visibleRowsRef.current.map((visible) => visible.path),
+        visibleRowsRef.current.map((visible) => visible.key),
         anchor,
-        path
+        rowKey
       )
-      setSelectedPaths(new Set(keys.length ? keys : [path]))
+      setSelectedRowKeys(new Set(keys.length ? keys : [rowKey]))
     } else {
-      selectionAnchorPathRef.current = path
-      setSelectedPaths(new Set([path]))
+      selectionAnchorKeyRef.current = rowKey
+      setSelectedRowKeys(new Set([rowKey]))
     }
-    setCursorPath(path)
-    changeRowNodesRef.current[path]?.scrollIntoView?.({ block: 'nearest' })
+    setCursorRowKey(rowKey)
+    changeRowNodesRef.current[rowKey]?.scrollIntoView?.({ block: 'nearest' })
   }
 
   // A right-click on a row outside the current selection makes that row the
   // selection first, so the menu's batch labels describe exactly the rows the
   // actions will touch. A right-click inside the selection leaves it alone.
   const handleChangeRowContextSelect = (row: GitChangeRow) => {
-    if (selectedPaths.has(row.path)) return
-    selectionAnchorPathRef.current = row.path
-    setSelectedPaths(new Set([row.path]))
-    setCursorPath(row.path)
+    if (selectedRowKeys.has(row.key)) return
+    selectionAnchorKeyRef.current = row.key
+    setSelectedRowKeys(new Set([row.key]))
+    setCursorRowKey(row.key)
   }
 
   // The tick IS the index: unchecked and mixed both stage (mixed stages the
   // rest, never unstages the part already in), checked unstages.
+  //
+  // On a GUEST row it is the same sentence about a smaller thing: the box
+  // stages this list's hunks of the file and leaves every other list's alone.
+  // What it SHOWS is still the whole file's tri-state (see `toGitChangeRow`),
+  // which is the v1 limitation — the click is right, the drawing is coarse.
   const handleToggleChangeRow = (row: GitChangeRow) => {
-    const paths = [row.path]
-    void (nextCheckIntent(row.checked) === 'stage' ? stagePaths(paths) : unstagePaths(paths))
+    const intent = nextCheckIntent(row.checked)
+    if (row.partial) {
+      void stageRows(
+        intent === 'stage' ? 'Staging changes' : 'Unstaging changes',
+        [row],
+        intent,
+        filesAndHunks(intent === 'stage' ? 'Staged' : 'Unstaged'),
+      )
+      return
+    }
+    void (intent === 'stage' ? stagePaths([row.path]) : unstagePaths([row.path]))
   }
 
   const handleToggleChangeGroup = (group: GitChangeGroup, next: boolean) => {
     // Every row the group holds, not the five hundred on screen: the box
-    // governs the group.
-    const { action, paths } = groupToggleAction(group.allRows, next)
-    if (paths.length === 0) return
-    void (action === 'stage' ? stagePaths(paths) : unstagePaths(paths))
+    // governs the group. Guest rows come back apart from the paths, because
+    // `git add` on a file this list owns two hunks of would stage another
+    // list's lines under this list's name.
+    const { action, rows } = groupToggleAction(group.allRows, next)
+    if (rows.length === 0) return
+    void stageRows(
+      action === 'stage' ? 'Staging files' : 'Unstaging files',
+      rows,
+      action,
+      filesAndHunks(action === 'stage' ? 'Staged' : 'Unstaged'),
+    )
   }
 
   // The rows an action acts on: the selection when the row is part of it (a
   // right-click has already made it so), otherwise the row alone.
   const changeActionRows = (row?: GitChangeRow): GitChangeRow[] => {
-    if (row && !selectedPaths.has(row.path)) return [row]
-    const selected = visibleRows.filter((visible) => selectedPaths.has(visible.path))
+    if (row && !selectedRowKeys.has(row.key)) return [row]
+    const selected = visibleRows.filter((visible) => selectedRowKeys.has(visible.key))
     if (selected.length > 0) return selected
     return row ? [row] : []
   }
@@ -976,8 +1098,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // The row the toolbar's single-file actions mean: the cursor, or the first
   // row of the selection when the cursor is off the list.
   const toolbarTargetRow =
-    (cursorPath ? visibleRows.find((row) => row.path === cursorPath) : undefined)
-    ?? visibleRows.find((row) => selectedPaths.has(row.path))
+    (cursorRowKey ? visibleRows.find((row) => row.key === cursorRowKey) : undefined)
+    ?? visibleRows.find((row) => selectedRowKeys.has(row.key))
     ?? null
 
   // Every file the band's actions would touch is untracked. Only "move to
@@ -986,14 +1108,28 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const toolbarTargetUntrackedOnly = ((): boolean => {
     if (!toolbarTargetRow) return false
     const rows = changeActionRows(toolbarTargetRow)
-    return rows.length > 0 && rows.every((row) => untrackedPaths.has(row.relativePath))
+    return rows.length > 0 && rows.every((row) => untrackedGroupPaths.has(row.relativePath))
   })()
 
   const handleChangeRowsRevert = async (rows: GitChangeRow[]) => {
     if (rows.length === 0) return null
-    const batching = rows.length > 1
-    const result = await revertEntries(rows)
-    if (batching && result !== null) setSelectedPaths(new Set())
+    // A guest row is a claim on some of a file's lines, and discard is a
+    // whole-file operation. So the guests are dropped here and named in the
+    // confirm dialog; the file's own row still discards it.
+    const { actionable, skippedPartial: skipped } = revertableRows(rows)
+    if (actionable.length === 0) {
+      setMessage({
+        tone: 'neutral',
+        text:
+          skipped === 1
+            ? 'That row is one changelist’s changes to a file that lives in another list. Discard it from the file’s own row.'
+            : 'Those rows are changelists’ changes to files that live in other lists. Discard them from the files’ own rows.',
+      })
+      return null
+    }
+    const batching = actionable.length > 1
+    const result = await revertEntries(actionable, skipped)
+    if (batching && result !== null) setSelectedRowKeys(new Set())
     return result
   }
 
@@ -1008,7 +1144,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // spelling — a mixed comparison would answer "the default" for every row and
   // put "Delete changelist" on the wrong list.
   const changelistIdForRow = useCallback(
-    (row: Pick<GitChangeRow, 'relativePath'>): string => {
+    (row: Pick<GitChangeRow, 'relativePath' | 'changelistId'>): string => {
+      // The row already knows, when it was drawn in a changelist group — and it
+      // is the only one that knows for a GUEST row, whose file's home is a
+      // different list from the one the row is standing in.
+      if (row.changelistId) return row.changelistId
       const relative = normalizeChangelistPath(row.relativePath)
       return changelists.find((list) => list.paths.includes(relative))?.id
         ?? activeChangelist?.id
@@ -1157,11 +1297,36 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // composer. It does NOT commit: the message is still unwritten, and a menu
   // item that committed on the strength of a right-click would be the one
   // irreversible thing in this menu.
-  const handleCommitFiles = async (rows: GitChangeRow[]): Promise<void> => {
+  const handleCommitFiles = async (
+    rows: GitChangeRow[],
+    label = 'Staging files',
+  ): Promise<void> => {
     if (rows.length === 0) return
-    const unstaged = rows.filter((row) => row.checked !== true)
-    if (unstaged.length > 0) await stagePaths(unstaged.map((row) => row.path))
+    // A guest row is staged a hunk at a time and a whole file with `git add`;
+    // `stageRows` is the one place that knows which is which. A fully staged
+    // row has nothing left to add, and is dropped rather than re-staged.
+    const pending = rows.filter((row) => row.checked !== true || row.partial === true)
+    if (pending.length > 0) await stageRows(label, pending, 'stage', filesAndHunks('Staged'))
     composerRef.current?.focus()
+  }
+
+  /**
+   * Committing a changelist must stage exactly what this list owns — every
+   * file whose home it is, plus its own hunks in the files it is only a guest
+   * in — and hand the caret to the composer.
+   *
+   * It does NOT commit, for the same reason "Commit files…" does not: the
+   * message is still unwritten. The composer already offers the list's comment
+   * as its placeholder when the list is ACTIVE (that is what a list comment is
+   * for), and a list that is not active gets no extra prefill — a message
+   * nobody typed is a message nobody meant.
+   */
+  const handleCommitChangelist = async (group: GitChangeGroup): Promise<void> => {
+    if (group.allRows.length === 0) {
+      setMessage({ tone: 'neutral', text: `${group.title} has nothing to stage.` })
+      return
+    }
+    await handleCommitFiles(group.allRows, `Staging ${group.title}`)
   }
 
   // Copies every row the menu named, one per line — not just the row under the
@@ -1198,7 +1363,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await stagePaths(additions.map((row) => row.path))
   }
 
-  const handleDeleteFiles = async (rows: GitChangeRow[]): Promise<void> => {
+  const handleDeleteFiles = async (candidates: GitChangeRow[]): Promise<void> => {
+    // Same rule as discard, and a stronger reason: this removes the FILE, and a
+    // guest row's list owns some of its lines rather than the file.
+    const { actionable: rows } = revertableRows(candidates)
     if (rows.length === 0 || typeof window.api.deletePath !== 'function') return
     const many = rows.length > 1
     const confirmed = await dialog.confirm({
@@ -1231,7 +1399,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       },
       many ? `Deleted ${rows.length} files.` : 'Deleted file.'
     )
-    setSelectedPaths(new Set())
+    setSelectedRowKeys(new Set())
   }
 
   // The patch text is git's, always: the panel sends paths and main runs
@@ -1385,6 +1553,17 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         break
       case 'git.changes.showDiff': {
         if (dialogOpen) break
+        // ⌘D means "show me the diff of what I am standing on". On a group band
+        // that is the whole changelist; on the list it is the cursor's row. One
+        // command, two places it can land — extending the binding rather than
+        // registering a second chord that would race this one in the dispatcher.
+        const band = focusedGroupIdRef.current
+          ? checklistGroups.find((group) => group.id === focusedGroupIdRef.current)
+          : null
+        if (band && band.kind === 'changelist') {
+          openChangelistDiff(band)
+          break
+        }
         const row = toolbarTargetRow
         if (row) openChangeDiff(row)
         break
@@ -1900,13 +2079,58 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // the panel is showing a worktree scope.
   const openChangeDiff = (row: GitChangeRow, placement: ShowDiffPlacement = 'default') => {
     if (!repoRoot) return
-    const request = { workspaceId, repoRoot, focusPath: row.path, scope: row.diffScope }
+    // A guest row IS a changelist's view of the file, so the diff it opens is
+    // filtered to that list — the same answer the band's "Show diff for <list>"
+    // gives, reached from the row instead of from the header.
+    const filter = row.partial && row.changelistId ? { changelistId: row.changelistId } : {}
+    const request = { workspaceId, repoRoot, focusPath: row.path, scope: row.diffScope, ...filter }
     if (placement === 'app') {
       // The two explicit placements bypass the preference rather than flipping
       // it: "show it there this once" is not "show it there from now on".
       useWorkspaceStore.getState().openPaneTab(workspaceId, {
         kind: 'diff',
-        diff: { repoRoot, focusPath: row.path, focusKind: row.diffScope },
+        diff: { repoRoot, focusPath: row.path, focusKind: row.diffScope, ...filter },
+      })
+      return
+    }
+    if (placement === 'window') {
+      void openDiffWindow(request)
+      return
+    }
+    openGitDiff(request)
+  }
+
+  /**
+   * "Show diff for <list>" — the whole changelist in the viewer, filtered.
+   *
+   * A filter needs something to focus on, and the viewer opens on a file: the
+   * list's first row is that file, which is the same one the person would have
+   * clicked. An empty list has no diff to show and says so rather than opening
+   * a window onto nothing.
+   */
+  const openChangelistDiff = (group: GitChangeGroup, placement: ShowDiffPlacement = 'default') => {
+    if (!repoRoot || !group.changelistId) return
+    const row = group.allRows[0]
+    if (!row) {
+      setMessage({ tone: 'neutral', text: `${group.title} has no changed files to show.` })
+      return
+    }
+    const request = {
+      workspaceId,
+      repoRoot,
+      focusPath: row.path,
+      scope: row.diffScope,
+      changelistId: group.changelistId,
+    }
+    if (placement === 'app') {
+      useWorkspaceStore.getState().openPaneTab(workspaceId, {
+        kind: 'diff',
+        diff: {
+          repoRoot,
+          focusPath: row.path,
+          focusKind: row.diffScope,
+          changelistId: group.changelistId,
+        },
       })
       return
     }
@@ -2264,20 +2488,23 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                         return updated
                       })
                     }
-                    selectedPaths={selectedPaths}
-                    cursorPath={cursorPath}
+                    selectedRowKeys={selectedRowKeys}
+                    cursorRowKey={cursorRowKey}
                     onToggleRow={handleToggleChangeRow}
                     onToggleGroup={handleToggleChangeGroup}
                     onRowClick={handleChangeRowClick}
                     onActivateRow={(row) => openChangeDiff(row)}
                     onMoveCursor={handleMoveCursor}
-                    onSelectAll={() => setSelectedPaths(new Set(visibleRows.map((row) => row.path)))}
+                    onSelectAll={() => setSelectedRowKeys(new Set(visibleRows.map((row) => row.key)))}
                     onContextSelect={handleChangeRowContextSelect}
                     registerRowNode={registerChangeRowNode}
                     onOpenInEditor={(row) => void handleOpenFileInEditor(row)}
                     onDeleteFiles={(row) => void handleDeleteFiles(changeActionRows(row))}
                     onAddToGit={(row) => void handleAddToGit(changeActionRows(row))}
                     onEditChangelist={(row) => openEditChangelistDialog(changelistIdForRow(row))}
+                    onGroupHeaderFocus={(groupId) => {
+                      focusedGroupIdRef.current = groupId
+                    }}
                     buildMenu={(row) => {
                       const rows = changeActionRows(row)
                       return buildChangeRowMenu({
@@ -2286,7 +2513,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                         selectedCount: rows.length,
                         busy: Boolean(busy),
                         untracked: untrackedPaths.has(row.relativePath),
-                        untrackedOnly: rows.every((entry) => untrackedPaths.has(entry.relativePath)),
+                        untrackedOnly: rows.every((entry) => untrackedGroupPaths.has(entry.relativePath)),
+                        partialOnly: rows.every((entry) => entry.partial === true),
                         onCommitFiles: () => void handleCommitFiles(rows),
                         onDiscard: () => void handleChangeRowsRevert(rows),
                         onShowDiff: () => openChangeDiff(row),
@@ -2314,6 +2542,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                         onStageAll: () => handleToggleChangeGroup(group, true),
                         onUnstageAll: () => handleToggleChangeGroup(group, false),
                         onDiscardAll: () => void handleChangeRowsRevert(group.allRows),
+                        onCommitChangelist: () => void handleCommitChangelist(group),
+                        onShowChangelistDiff: () => openChangelistDiff(group),
                         onRefresh: () => void refreshAll(),
                       })
                     }

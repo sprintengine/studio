@@ -18,6 +18,7 @@ import {
   renameGitChangelist,
   setActiveGitChangelist,
 } from '../git-changelists'
+import type { Changelist } from '../../shared/git/changelists'
 import { createGitPatch, suggestedPatchFileName } from '../git-patch'
 import {
   abortGitOperation,
@@ -75,7 +76,16 @@ type IpcDiagnostics = {
  *  this module stays free of `electron.app` and the store stays testable —
  *  and REQUIRED rather than defaulted, because a default of `''` would write
  *  every repository's changelists into whatever the process cwd happened to be. */
-export type GitIpcPaths = { userDataDir: string }
+export type GitIpcPaths = {
+  userDataDir: string
+  /** Told which repository's changelists a mutation below just rewrote. The
+   *  window that asked re-renders from the answer it gets back; every OTHER
+   *  window — a second workspace window, the standalone diff window filtered
+   *  to one list — learns only from this. Same channel the agent changelist
+   *  feed uses (`git:changelists-changed`), so the renderer has one subscription
+   *  for both kinds of writer. */
+  onChangelistsChanged?: (repoRoot: string) => void
+}
 
 export function registerGitIpc(
   ipcMain: IpcMain,
@@ -369,9 +379,23 @@ export function registerGitIpc(
     )
   })
 
+  // A mutation answers the asking window with the reconciled set AND tells every
+  // other window to re-read. The two are one step so no handler can forget the
+  // second half: a list renamed in the panel must rename in the diff window's
+  // header strip, which is a different BrowserWindow with its own copy.
+  const changed = async (repoRoot: string, write: () => Promise<Changelist[]>): Promise<Changelist[]> => {
+    const lists = await write()
+    try {
+      paths.onChangelistsChanged?.(repoRoot)
+    } catch (error) {
+      console.warn('[git-ipc] changelists broadcast failed', error)
+    }
+    return lists
+  }
+
   ipcMain.handle('git:changelists:set-active', async (_, repoRoot: string, id: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-set-active', { repoRoot, id }, () =>
-      setActiveGitChangelist(paths.userDataDir, repoRoot, id)
+      changed(repoRoot, () => setActiveGitChangelist(paths.userDataDir, repoRoot, id))
     )
   })
 
@@ -379,7 +403,7 @@ export function registerGitIpc(
     'git:changelists:create',
     async (_, repoRoot: string, input: { name: string; comment?: string; activate?: boolean; paths?: string[] }) => {
       return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-create', { repoRoot }, () =>
-        createGitChangelist(paths.userDataDir, repoRoot, input)
+        changed(repoRoot, () => createGitChangelist(paths.userDataDir, repoRoot, input))
       )
     }
   )
@@ -388,14 +412,14 @@ export function registerGitIpc(
     'git:changelists:rename',
     async (_, repoRoot: string, id: string, input: { name: string; comment?: string }) => {
       return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-rename', { repoRoot, id }, () =>
-        renameGitChangelist(paths.userDataDir, repoRoot, id, input)
+        changed(repoRoot, () => renameGitChangelist(paths.userDataDir, repoRoot, id, input))
       )
     }
   )
 
   ipcMain.handle('git:changelists:delete', async (_, repoRoot: string, id: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-delete', { repoRoot, id }, () =>
-      deleteGitChangelist(paths.userDataDir, repoRoot, id)
+      changed(repoRoot, () => deleteGitChangelist(paths.userDataDir, repoRoot, id))
     )
   })
 
@@ -404,7 +428,7 @@ export function registerGitIpc(
       'GitIPC',
       'changelists-move-paths',
       { repoRoot, id, pathCount: filePaths.length },
-      () => moveGitChangelistPaths(paths.userDataDir, repoRoot, id, filePaths)
+      () => changed(repoRoot, () => moveGitChangelistPaths(paths.userDataDir, repoRoot, id, filePaths))
     )
   })
 

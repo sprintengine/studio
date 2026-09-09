@@ -28,17 +28,24 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
 import { createHash, randomUUID } from 'crypto'
 import { isAbsolute, join } from 'path'
 import {
+  changelistOwnerId,
   createDefaultChangelists,
+  createOwnedChangelist,
   moveChangelistPaths,
   normalizeChangelists,
   reconcileChangelists,
+  recordEdit,
   createChangelist as createInModel,
   deleteChangelist as deleteInModel,
   renameChangelist as renameInModel,
   setActiveChangelist as setActiveInModel,
   type Changelist,
+  type ChangelistEdit,
+  type ChangelistOwner,
+  type HunkRange,
 } from '../shared/git/changelists'
 import { getGitStatus } from './git-status'
+import { readFileHunks } from './git-hunks'
 import { getRelativeGitPath, normalizeComparablePath, toPosixPath } from './git-utils'
 
 const STORE_DIR = 'git-changelists'
@@ -131,6 +138,56 @@ async function withStore<T>(repoRoot: string, action: () => Promise<T>): Promise
 }
 
 /**
+ * The current hunks of the files some list owns a PIECE of — and of no other
+ * file.
+ *
+ * This is the read that lets reconcile drop a span whose lines git no longer
+ * reports (they were committed, or reverted, or rewritten by somebody else).
+ * It is also the read that could make every `get` slow, so the set it runs over
+ * is deliberately tiny: a path is looked up only when some list holds SPANS for
+ * it — which is only ever a file two agents both edited — and only when git
+ * still reports it as changed at all. A repository nobody has partially claimed
+ * costs exactly nothing here, and the map comes back `undefined` so reconcile
+ * skips the whole pass.
+ *
+ * A file whose hunks cannot be known — binary, untracked, or a diff git refused
+ * — is deliberately LEFT OUT of the map rather than mapped to `[]`: absent means
+ * "nobody looked" and keeps the spans, and an empty array would silently hand
+ * every line of an untracked file back to its home list.
+ */
+async function readSpanHunks(
+  repoRoot: string,
+  lists: Changelist[],
+  changedPaths: string[],
+): Promise<Record<string, HunkRange[]> | undefined> {
+  const present = new Set(changedPaths)
+  const paths = [
+    ...new Set(lists.flatMap((list) => Object.keys(list.spans ?? {}))),
+  ].filter((path) => present.has(path))
+  if (paths.length === 0) return undefined
+  const hunksByPath: Record<string, HunkRange[]> = {}
+  await Promise.all(
+    paths.map(async (path) => {
+      // `readFileHunks` reads BOTH sides of the index and returns their union,
+      // whatever scope it is handed: a hunk an agent already staged is still a
+      // hunk its span belongs to.
+      const result = await readFileHunks(repoRoot, path, 'unstaged').catch(() => null)
+      if (!result?.ok || result.unsupported) return
+      const seen = new Set<string>()
+      const ranges: HunkRange[] = []
+      for (const hunk of result.hunks) {
+        const key = `${hunk.newStart},${hunk.newLines}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        ranges.push({ newStart: hunk.newStart, newLines: hunk.newLines })
+      }
+      hunksByPath[path] = ranges
+    }),
+  )
+  return Object.keys(hunksByPath).length > 0 ? hunksByPath : undefined
+}
+
+/**
  * Apply a change to this repository's lists, reconcile against git, persist,
  * and answer with what the panel should now render. Every public entry point
  * below is this function with a different `mutate`, which is what keeps
@@ -148,10 +205,89 @@ async function updateLists(
     // A repository git cannot read (mid-checkout, a missing worktree) must not
     // prune every path out of every list — the lists are kept exactly as they
     // were and the next successful read reconciles them.
-    const reconciled = changedPaths ? reconcileChangelists(mutated, changedPaths) : normalizeChangelists(mutated)
+    const reconciled = changedPaths
+      ? reconcileChangelists(
+          mutated,
+          changedPaths,
+          await readSpanHunks(repoRoot, normalizeChangelists(mutated), changedPaths).catch(() => undefined),
+        )
+      : normalizeChangelists(mutated)
     await writeStoredLists(userDataDir, repoRoot, reconciled)
     return reconciled
   })
+}
+
+// --- Agent changelists -------------------------------------------------------
+//
+// Three entry points the agent changelist feed (`agent-changelist-feed.ts`)
+// spends, and nothing else calls. They go through `updateLists` like every
+// other mutation, so an edit arriving while a person renames a list cannot land
+// on top of the rename: the per-repository queue orders them, whatever order
+// the launch/edit/exit frames themselves arrived in.
+
+/**
+ * The agent's own list, made if it is not there. `activate` is the launch's to
+ * pass (decision of record: launching an agent makes its list active, so edits
+ * that bypass the reporter hook are adopted into it).
+ */
+export function ensureOwnedChangelist(
+  userDataDir: string,
+  repoRoot: string,
+  owner: ChangelistOwner,
+  options?: { activate?: boolean },
+): Promise<Changelist[]> {
+  return updateLists(userDataDir, repoRoot, (lists) => createOwnedChangelist(lists, owner, options))
+}
+
+/**
+ * Record one agent's edits — a coalesced batch of tool calls, in ARRIVAL order,
+ * because ownership is last-writer-wins per line and the arrival order is the
+ * only order this side knows.
+ *
+ * An item with no `edits` is a file-level claim: the reporter could not read the
+ * patch's shape, so the most that can honestly be said is "this agent touched
+ * this file". `recordEdit` with no edits says exactly that — it claims a file
+ * nobody owns yet, and leaves one that already has a home alone.
+ */
+export function recordAgentEdits(
+  userDataDir: string,
+  repoRoot: string,
+  owner: ChangelistOwner,
+  batch: ReadonlyArray<{ path: string; edits?: ChangelistEdit[] }>,
+): Promise<Changelist[]> {
+  const id = changelistOwnerId(owner.agentId)
+  return updateLists(userDataDir, repoRoot, (lists) => {
+    let next = createOwnedChangelist(lists, owner)
+    for (const item of batch) {
+      const path = toStoredPath(repoRoot, item.path)
+      // A path that climbs out of the repository is not this repository's to
+      // claim. The feed guards this too; the store is where it has to be true.
+      if (!path || path === '..' || path.startsWith('../')) continue
+      next = recordEdit(next, id, path, item.edits ?? [])
+    }
+    return next
+  })
+}
+
+/**
+ * Flag the agent as gone. Reconcile deletes the list right here if it is also
+ * empty (the agent committed everything it wrote); a list that still holds work
+ * stays, named after an agent that is no longer running, until a person commits,
+ * moves or deletes it.
+ */
+export function markOwnerExited(
+  userDataDir: string,
+  repoRoot: string,
+  agentId: string,
+): Promise<Changelist[]> {
+  const id = changelistOwnerId(agentId)
+  return updateLists(userDataDir, repoRoot, (lists) =>
+    normalizeChangelists(
+      lists.map((list) =>
+        list.id === id && list.owner ? { ...list, owner: { ...list.owner, exited: true as const } } : list,
+      ),
+    ),
+  )
 }
 
 export function getGitChangelists(userDataDir: string, repoRoot: string): Promise<Changelist[]> {

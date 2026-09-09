@@ -6,6 +6,8 @@ import type { WorkspacePaneTab } from '../../../types/workspace'
 import type { FuturePlanWorkspaceSource } from '../../../types/workspace'
 import { SuspenseFallback } from '../../ui/SuspenseFallback'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
+import { useChangelists } from '../../../hooks/useChangelists'
+import { defaultDiffChangelistId } from '../../../utils/diffChangelistDefault'
 import { paneKindRetainsPanel } from './paneKinds'
 
 // The pane's content region: one layer per tab that needs to stay mounted
@@ -48,6 +50,72 @@ function PaneUnavailable() {
         This view isn’t available right now. Its feature may be disabled, or the tab may be out of date.
       </p>
     </div>
+  )
+}
+
+/**
+ * The pane's Diff tab, and the one place the DEFAULT changelist filter is
+ * chosen (agent changelists, Wave 4).
+ *
+ * It lives here rather than in the pane's "+" menu because every way of opening
+ * an unaddressed Diff tab ends here: the "+ Diff" item, the letter accelerator,
+ * a Diff tab restored from disk with nothing in it. A filter picked at the menu
+ * would be picked once and then be wrong for the other two.
+ *
+ * The rule is narrow on purpose. A tab that names a changelist keeps it; a tab
+ * that names a FILE keeps all changes, because a person who asked for a file's
+ * diff has not asked to be shown one agent's slice of the repository — and a
+ * default filter that hid the file they asked for would be the worst failure
+ * this feature can have. Only the empty request consults the workspace.
+ *
+ * Its own component so the changelist read is mounted with the Diff tab and
+ * nowhere else: a hook in `PaneTabPanel` would run for every tab kind.
+ */
+function PaneDiffTab({
+  workspaceId,
+  repoRoot,
+  tab,
+  onDiffCountChange,
+}: {
+  workspaceId: string
+  repoRoot: string
+  tab: WorkspacePaneTab
+  onDiffCountChange?: (count: number | null) => void
+}) {
+  const lastActiveAgentId = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.lastActiveAgentId ?? null,
+  )
+  const asked = tab.diff?.changelistId ?? null
+  const wantsDefault = !asked && !tab.diff?.focusPath && Boolean(lastActiveAgentId)
+  // Read only when a default is actually in question. An addressed Diff tab
+  // makes no changelist call at all, which is what keeps every diff opened from
+  // a Git row exactly the diff it was before.
+  const { changelists } = useChangelists(wantsDefault ? repoRoot : null)
+  const changelistId = asked ?? (wantsDefault ? defaultDiffChangelistId({ lastActiveAgentId }, changelists) : null)
+
+  return (
+    <DiffViewer
+      // Keyed on the repo only: a Git row click retargets the mounted
+      // viewer through its focus props. Remounting per target (the aux
+      // window's rule) disposes Monaco's models under the diff widget.
+      // The changelist is deliberately NOT in the key: the default settles a
+      // tick after mount, and remounting on it would flash Monaco on the way
+      // into every unaddressed Diff tab.
+      key={repoRoot}
+      repoRoot={repoRoot}
+      focusPath={tab.diff?.focusPath ?? null}
+      focusKind={tab.diff?.focusKind ?? null}
+      changelistId={changelistId}
+      // Carried into the window when the band's "Open in separate
+      // window" is used, so that window's "Show in the app" knows the
+      // pane it came from and can hand the diff back.
+      workspaceId={workspaceId}
+      variant="pane"
+      onItemCountChange={onDiffCountChange}
+      // The pane is the only host with a branch to step through; the aux
+      // window opens on one file of the working tree.
+      branchSteps
+    />
   )
 }
 
@@ -105,23 +173,11 @@ function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCount
       const repoRoot = tab.diff?.repoRoot ?? diffRepoRoot
       return repoRoot && selectModuleEnabled(moduleOverrides, 'git')
         ? (
-          <DiffViewer
-            // Keyed on the repo only: a Git row click retargets the mounted
-            // viewer through its focus props. Remounting per target (the aux
-            // window's rule) disposes Monaco's models under the diff widget.
-            key={repoRoot}
-            repoRoot={repoRoot}
-            focusPath={tab.diff?.focusPath ?? null}
-            focusKind={tab.diff?.focusKind ?? null}
-            // Carried into the window when the band's "Open in separate
-            // window" is used, so that window's "Show in the app" knows the
-            // pane it came from and can hand the diff back.
+          <PaneDiffTab
             workspaceId={workspaceId}
-            variant="pane"
-            onItemCountChange={onDiffCountChange}
-            // The pane is the only host with a branch to step through; the aux
-            // window opens on one file of the working tree.
-            branchSteps
+            repoRoot={repoRoot}
+            tab={tab}
+            onDiffCountChange={onDiffCountChange}
           />
         )
         : <PaneUnavailable />

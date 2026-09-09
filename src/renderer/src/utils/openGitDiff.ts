@@ -14,6 +14,13 @@ export type OpenGitDiffInput = {
   focusPath: string
   /** Which side to open on: `staged` is HEAD↔index, `unstaged` index↔worktree. */
   scope: 'staged' | 'unstaged'
+  /**
+   * Show only one changelist's files (`agent:<agentId>` for an owned list).
+   * Absent means "All changes", which is what every caller meant before agent
+   * changelists existed and still means today — the filter is additive, never
+   * a default the viewer invents for itself.
+   */
+  changelistId?: string
 }
 
 // Single routing point for "show me this file's diff". Honours the sticky
@@ -31,11 +38,17 @@ export function openGitDiff(input: OpenGitDiffInput): void {
       repoRoot: input.repoRoot,
       focusPath: input.focusPath,
       scope: input.scope,
+      ...(input.changelistId ? { changelistId: input.changelistId } : {}),
     })
     return
   }
   store.openPaneTab(input.workspaceId, {
     kind: 'diff',
-    diff: { repoRoot: input.repoRoot, focusPath: input.focusPath, focusKind: input.scope },
+    diff: {
+      repoRoot: input.repoRoot,
+      focusPath: input.focusPath,
+      focusKind: input.scope,
+      ...(input.changelistId ? { changelistId: input.changelistId } : {}),
+    },
   })
 }

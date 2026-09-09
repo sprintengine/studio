@@ -1,4 +1,5 @@
 import type { GitFileStatus, GitStatusSnapshot } from '../../../../shared/electron-api'
+import { normalizeChangelistPath, pathsOfChangelist, type Changelist } from '../../../../shared/git/changelists'
 
 // One navigable entry in the diff viewer. A partially-staged file appears twice
 // — once as its staged diff (HEAD↔index) and once as its unstaged diff
@@ -17,9 +18,28 @@ export type DiffFileItem = {
 // the Git panel: the staged group (sorted by relative path) followed by the
 // unstaged group (sorted). Conflicted files are excluded — they keep the
 // dedicated Resolve flow rather than opening in the diff viewer.
-export function buildDiffFileList(status: GitStatusSnapshot | null): DiffFileItem[] {
+//
+// `changelist` narrows the list to ONE changelist's files (agent changelists):
+// the files it owns whole plus the files it owns a piece of, which is exactly
+// `pathsOfChangelist` — a partially-owned file is a file you must be able to
+// step to, or the hunks the list owns inside it are unreachable from a filtered
+// window. Absent, nothing is filtered and this is the function it always was.
+//
+// Everything downstream stays the same: the order, the two kinds, the exclusion
+// of conflicts. A filter that emptied the list is an EMPTY list, not a fallback
+// to everything — the viewer says whose list it is and offers the way back
+// (DiffViewer's filtered empty state), because silently showing all changes
+// under a header that names an agent is the one answer nobody can read.
+export function buildDiffFileList(
+  status: GitStatusSnapshot | null,
+  options?: { changelist?: Changelist | null }
+): DiffFileItem[] {
   if (!status) return []
-  const entries = Object.values(status.files).filter((entry) => entry.status !== 'conflicted')
+  const list = options?.changelist ?? null
+  const owned = list ? new Set(pathsOfChangelist(list)) : null
+  const entries = Object.values(status.files)
+    .filter((entry) => entry.status !== 'conflicted')
+    .filter((entry) => !owned || owned.has(normalizeChangelistPath(entry.relativePath)))
   const byPath = (a: { relativePath: string }, b: { relativePath: string }): number =>
     a.relativePath.localeCompare(b.relativePath)
 

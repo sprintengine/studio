@@ -164,6 +164,7 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
     repoRoot?: unknown
     focusPath?: unknown
     focusKind?: unknown
+    changelistId?: unknown
   }): Promise<DockDiffToWorkspaceResult> => {
     const workspaceId = typeof input?.workspaceId === 'string' ? input.workspaceId : ''
     const repoRoot = typeof input?.repoRoot === 'string' ? input.repoRoot : ''
@@ -174,6 +175,10 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
     if (!workspaceId || !repoRoot || !isAbsolute(repoRoot)) return { accepted: false }
     const focusPath = typeof input?.focusPath === 'string' && input.focusPath ? input.focusPath : null
     const focusKind = input?.focusKind === 'staged' || input?.focusKind === 'unstaged' ? input.focusKind : null
+    // The filter rides along as an opaque list id; the receiving pane looks it
+    // up in the repository's own lists and shows all changes if it is gone.
+    const changelistId =
+      typeof input?.changelistId === 'string' && input.changelistId.trim() ? input.changelistId.trim() : null
     const sender = BrowserWindow.fromWebContents(event.sender)
     // Only an aux window hands a diff back; the registry already knows which
     // those are, so the check costs a Map scan.
@@ -187,7 +192,7 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
         isDestroyed: () => win.isDestroyed(),
         send: (request: DockDiffRequest) => win.webContents.send('workspace:dock-diff', request),
       })),
-      payload: { workspaceId, repoRoot, focusPath, focusKind },
+      payload: { workspaceId, repoRoot, focusPath, focusKind, changelistId },
       subscribe: (listener) => {
         // The ack's SENDER, resolved here rather than trusted from the message:
         // `offerDockDiff` compares it with the window it asked, so a window

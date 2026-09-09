@@ -58,8 +58,10 @@ export function ConversationPeekPopover({
   children: React.ReactNode
   now: number
   className?: string
-  /** Open the diff for one of this agent's changed paths, or the whole diff for `null`. */
-  onOpenDiff?: (path: string | null) => void
+  /** Open the diff for one of this agent's changed paths, or the whole of the
+   *  agent's diff for `null`. The agent id rides along so the shell can open
+   *  that agent's changelist (agent changelists). */
+  onOpenDiff?: (path: string | null, agentId: string | null) => void
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null)
   // The card's own subtree, so a scroll that starts inside it can be told apart

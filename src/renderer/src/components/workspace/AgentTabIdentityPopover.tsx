@@ -58,7 +58,7 @@ export function AgentTabIdentityPopover({
   identity: AgentTabIdentity
   children: React.ReactNode
   /** Open the diff for one of this agent's changed paths, or the whole diff for `null`. */
-  onOpenDiff?: (path: string | null) => void
+  onOpenDiff?: (path: string | null, agentId: string | null) => void
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null)
   const tabButtonRef = useRef<HTMLElement | null>(null)

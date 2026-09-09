@@ -17,6 +17,7 @@ import {
   installAgentStateReporter,
   isAtRestAgentPhase,
   MAX_FILE_CHANGE_COUNT,
+  MAX_FILE_CHANGE_EDITS,
   MAX_FILE_CHANGE_PATH_LENGTH,
   MAX_STATUS_LINE_COST_USD,
   MAX_STATUS_LINE_COUNT,
@@ -409,6 +410,61 @@ async function run(): Promise<void> {
     )?.event,
     'PostToolUse',
     'a bad file change never drops the frame'
+  )
+  // …and the changed REGIONS the agent's changelist is built from ride the same
+  // rules one level down: four whole non-negative ints each (zero is legal on a
+  // `start`, because `+0,0` is git's own spelling for a deletion at the head of
+  // a file), capped, and a malformed member drops the FIELD, never the frame.
+  const editsOf = (edits: unknown) => changeOf({ path: '/repo/a.ts', additions: 1, deletions: 0, edits })?.edits
+  assert.deepEqual(
+    editsOf([{ oldStart: 2, oldLines: 2, newStart: 2, newLines: 3 }]),
+    [{ oldStart: 2, oldLines: 2, newStart: 2, newLines: 3 }],
+    'a well-formed region survives verbatim'
+  )
+  assert.deepEqual(
+    editsOf([{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 4 }]),
+    [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 4 }],
+    'a whole-file creation anchors at 0, which is a start, not an anomaly'
+  )
+  assert.equal(editsOf(undefined), undefined, 'no regions is a file-level claim, not an error')
+  assert.equal(editsOf([]), undefined, 'and neither is an empty list')
+  assert.equal(editsOf('1,2,3,4'), undefined, 'the regions are a list')
+  assert.equal(
+    editsOf([{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1 }, { oldStart: -1, oldLines: 0, newStart: 1, newLines: 1 }]),
+    undefined,
+    'one malformed region drops every region: half a claim is a wrong claim'
+  )
+  assert.equal(editsOf([{ oldStart: 1, oldLines: 1, newStart: 1 }]), undefined, 'all four numbers are required')
+  assert.equal(editsOf([{ oldStart: 1.5, oldLines: 1, newStart: 1, newLines: 1 }]), undefined, 'lines are whole')
+  assert.equal(editsOf([{ oldStart: Number.NaN, oldLines: 1, newStart: 1, newLines: 1 }]), undefined)
+  assert.equal(
+    changeOf({
+      path: '/repo/a.ts',
+      additions: 1,
+      deletions: 0,
+      edits: Array.from({ length: MAX_FILE_CHANGE_EDITS + 40 }, (_unused, index) => ({
+        oldStart: index + 1,
+        oldLines: 1,
+        newStart: index + 1,
+        newLines: 1,
+      })),
+    })?.edits?.length,
+    MAX_FILE_CHANGE_EDITS,
+    'a rewrite past the cap is truncated — the regions ascend, so the kept ones are still right'
+  )
+  assert.deepEqual(
+    parseAgentStateFrame(
+      {
+        type: 'agent_state',
+        agentId: 'a1',
+        event: 'PostToolUse',
+        ts: 5,
+        fileChange: { path: '/repo/a.ts', additions: 1, deletions: 0, edits: [{ oldStart: 'x' }] },
+      },
+      999
+    )?.fileChange,
+    { path: '/repo/a.ts', additions: 1, deletions: 0 },
+    'a malformed region list drops the field, and the file is still reported'
   )
   // …and the status line's reading rides its own: a percentage that IS one,
   // rounded to a whole percent; counts that are real, whole and not negative; a

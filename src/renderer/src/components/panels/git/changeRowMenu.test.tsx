@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   buildChangeGroupMenu,
   buildChangeRowMenu,
+  PARTIAL_ROW_REASON,
   UNTRACKED_MOVE_REASON,
   type ChangeRowMenuEntry,
 } from './changeRowMenu'
@@ -26,6 +27,7 @@ const LISTS: Changelist[] = [
 ]
 
 const ROW: GitChangeRow = {
+  key: '/repo/src/a.ts',
   path: '/repo/src/a.ts',
   relativePath: 'src/a.ts',
   filename: 'a.ts',
@@ -54,6 +56,7 @@ function rowMenu(over: Partial<Parameters<typeof buildChangeRowMenu>[0]> = {}): 
     busy: false,
     untracked: false,
     untrackedOnly: false,
+    partialOnly: false,
     onCommitFiles: NOOP,
     onDiscard: NOOP,
     onShowDiff: NOOP,
@@ -215,6 +218,8 @@ const find = (entries: ChangeRowMenuEntry[], id: string): ChangeRowMenuEntry => 
       onStageAll: NOOP,
       onUnstageAll: NOOP,
       onDiscardAll: NOOP,
+      onCommitChangelist: NOOP,
+      onShowChangelistDiff: NOOP,
       onRefresh: NOOP,
     })
 
@@ -225,6 +230,8 @@ const find = (entries: ChangeRowMenuEntry[], id: string): ChangeRowMenuEntry => 
       'unstage-all',
       'discard-all',
       'after-group-files',
+      'commit-changelist',
+      'show-changelist-diff',
       'move-to-changelist',
       'new-changelist',
       'delete-changelist',
@@ -233,8 +240,22 @@ const find = (entries: ChangeRowMenuEntry[], id: string): ChangeRowMenuEntry => 
       'after-group-repo',
       'refresh',
     ],
-    'the three "all" actions, then the changelist half the row menu also carries',
+    'the three "all" actions, then the two that act on the LIST, then the changelist half',
   )
+  assert.equal((find(bandMenu(), 'commit-changelist') as { label: string }).label, 'Commit Spike…')
+  assert.equal(
+    (find(bandMenu(), 'show-changelist-diff') as { shortcut?: string }).shortcut,
+    '⌘D',
+    'the band’s diff item names the key the panel routes to a focused band',
+  )
+  // An empty list has nothing to commit and no diff to filter.
+  for (const id of ['commit-changelist', 'show-changelist-diff']) {
+    assert.equal(
+      (find(bandMenu({ totalCount: 0, rows: [], allRows: [] }), id) as { disabled?: boolean }).disabled,
+      true,
+      `${id} on an empty list would act on nothing`,
+    )
+  }
   assert.equal(
     (find(bandMenu(), 'edit-changelist') as { shortcut?: string }).shortcut,
     undefined,
@@ -245,7 +266,7 @@ const find = (entries: ChangeRowMenuEntry[], id: string): ChangeRowMenuEntry => 
   assert.deepEqual(
     ids(bandMenu({ kind: 'untracked', changelistId: undefined })),
     ['stage-all', 'unstage-all', 'discard-all', 'after-group-repo', 'refresh'],
-    'an untracked group has no changelist to act on, and offers no move',
+    'an untracked group has no changelist to act on, and offers no move, commit or filtered diff',
   )
 
   // An empty group's "all" actions are unavailable — there is nothing to stage,
@@ -257,6 +278,28 @@ const find = (entries: ChangeRowMenuEntry[], id: string): ChangeRowMenuEntry => 
       `${id} on an empty group would act on nothing`,
     )
   }
+}
+
+// ── a guest row's menu withholds what would take another list's lines ────────
+//
+// A `partial` row is one changelist's view of hunks in a file that lives in
+// another list. Discard and Delete are whole-FILE operations, so on that row
+// they are disabled and say why in the label — a disabled control receives no
+// pointer events, so the reason cannot live in a tooltip.
+{
+  const guest = rowMenu({ partialOnly: true })
+  for (const id of ['discard', 'delete-files']) {
+    const item = find(guest, id) as { disabled?: boolean; label: string; shortcut?: string; danger?: boolean }
+    assert.equal(item.disabled, true, `${id} would take lines this list does not own`)
+    assert.match(item.label, new RegExp(PARTIAL_ROW_REASON), `${id} says where the action lives instead`)
+    assert.equal(item.shortcut, undefined, 'and drops the hint for a key that would do nothing here')
+    assert.equal(item.danger, false, 'an unavailable item is not coloured as a destructive one')
+  }
+  // The menu keeps its SHAPE: same items, same order, on a guest row.
+  assert.deepEqual(ids(guest), ids(rowMenu()), 'nothing appears or vanishes, only its availability moves')
+  // And the ordinary row keeps both.
+  assert.equal((find(rowMenu(), 'discard') as { disabled?: boolean }).disabled, false)
+  assert.equal((find(rowMenu(), 'delete-files') as { shortcut?: string }).shortcut, '⌫')
 }
 
 console.log('ok - the row menu and the band menu keep their shape, their hints and their conditions')

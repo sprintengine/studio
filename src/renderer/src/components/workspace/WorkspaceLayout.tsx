@@ -55,6 +55,7 @@ import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
+import { changelistOwnerId } from '../../../../shared/git/changelists'
 import { ContextMenu, IconButton, LifecycleGlyph, type LifecycleState, LoadingOverlay, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone, Tooltip } from '../ui'
 
 interface Props {
@@ -299,6 +300,32 @@ function renderTerminalRecencyIndicator(
   )
 }
 
+/**
+ * The agent a selected tab is showing, or null when it is showing no agent at
+ * all (a file editor, the browser, a plain shell nobody launched an agent in).
+ *
+ * Two kinds of tab can be an agent's: the agent tab, which names its agent in
+ * its config, and a plain terminal tab whose SESSION carries an `agentId` —
+ * an agent attached to a terminal that was already there. Both are "the agent
+ * the person is working with", which is what the Diff surfaces default to.
+ */
+function agentIdOfTab(
+  node: TabNode,
+  sessions: readonly { sessionId: string; agentId?: string }[],
+): string | null {
+  const component = node.getComponent()
+  if (component === 'agent') {
+    const config = node.getConfig() as { agentId?: string } | undefined
+    return config?.agentId ?? node.getId()
+  }
+  if (component === 'terminal') {
+    const config = node.getConfig() as { terminalId?: string } | undefined
+    const terminalId = config?.terminalId ?? node.getId()
+    return sessions.find((session) => session.sessionId === `terminal-${terminalId}`)?.agentId ?? null
+  }
+  return null
+}
+
 function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, renderNewAgentPanel }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
@@ -370,6 +397,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const setActiveFile = useWorkspaceStore((s) => s.setActiveFile)
   const setFocusedAgent = useWorkspaceStore((s) => s.setFocusedAgent)
+  const setLastActiveAgent = useWorkspaceStore((s) => s.setLastActiveAgent)
+  // The sessions, without making them a dependency of the selection callback:
+  // the snapshot array changes on every terminal frame, and a callback rebuilt
+  // that often would be a new `onModelChange` on every keystroke in a terminal.
+  const terminalSessionsRef = useRef(terminalSessions)
+  terminalSessionsRef.current = terminalSessions
   // The agent tab the layout is on, recorded as the workspace's focused agent
   // (sidebar-lists-every-terminal): the branch chip follows it. Read from the
   // model's active tabset rather than from `onAction`, because a tab is
@@ -378,14 +411,23 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
   // without an action the layout sees. flexlayout marks the selected tab's
   // tabset active on every select, so the active tabset's selected node IS
   // the tab the person is on. A no-op when it has not changed.
+  //
+  // It also records the workspace's LAST-ACTIVE AGENT (agent changelists),
+  // which is a wider net: a plain terminal tab running an agent session counts
+  // too, because the changelist the Diff surfaces default to is the agent's,
+  // and which kind of tab that agent happens to be drawn in is not a fact the
+  // diff cares about. `setFocusedAgent` keeps its narrower rule exactly.
   const followSelectedAgentTab = useCallback(
     (model: Model) => {
       const selected = model.getActiveTabset()?.getSelectedNode()
-      if (!(selected instanceof TabNode) || selected.getComponent() !== 'agent') return
+      if (!(selected instanceof TabNode)) return
+      const agentId = agentIdOfTab(selected, terminalSessionsRef.current)
+      if (agentId) setLastActiveAgent(workspaceId, agentId)
+      if (selected.getComponent() !== 'agent') return
       const config = selected.getConfig() as { agentId?: string } | undefined
       setFocusedAgent(workspaceId, config?.agentId ?? selected.getId())
     },
-    [setFocusedAgent, workspaceId],
+    [setFocusedAgent, setLastActiveAgent, workspaceId],
   )
   const closeFile = useWorkspaceStore((s) => s.closeFile)
   // Keep a stable Model instance per workspace — re-creating it destroys drag/resize state
@@ -1424,6 +1466,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           // there is nothing to ask, and the alternative the roster used to take
           // was to open the card on a SIBLING agent's conversation.
           sessionId: agentSessionId ?? '',
+          // Whose changelist the card's "open the diff" filters to.
+          agentId,
           cli: agent?.cli ?? null,
           model: agent?.cliModel ?? null,
           fileChanges: agentSnapshot?.fileChanges ?? [],
@@ -1440,10 +1484,17 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       renderValues.content = (
         <AgentTabIdentityPopover
           identity={agentIdentity}
-          onOpenDiff={(path) =>
+          onOpenDiff={(path, diffAgentId) =>
             openPaneTab(workspaceId, {
               kind: 'diff',
-              diff: { focusPath: path, focusKind: path ? 'unstaged' : null },
+              diff: {
+                focusPath: path,
+                focusKind: path ? 'unstaged' : null,
+                // The card is one agent's, so the diff it opens is that
+                // agent's changelist — explicitly, not through the workspace's
+                // last-active default, which is about a different question.
+                ...(diffAgentId ? { changelistId: changelistOwnerId(diffAgentId) } : {}),
+              },
             })
           }
         >

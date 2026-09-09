@@ -34,6 +34,18 @@ export type HunkBox = {
   /** A write for this hunk is in flight; the box is drawn but refuses clicks. */
   busy: boolean
   label: string
+  /**
+   * The name of the changelist that owns this hunk, when it is NOT the list the
+   * viewer is filtered to (agent changelists, Wave 4). Absent whenever there is
+   * no filter, which is every diff the window opened before agent changelists
+   * existed — the gutter is then exactly the gutter T7 drew.
+   *
+   * It is a label, not a lock: the box still toggles. A person looking at
+   * Nadia's list and seeing one hunk marked `Priya` may well want to stage it
+   * anyway; what they must not have is the file's own include box quietly
+   * staging it for them (see `DiffViewer.toggleInclude` under a filter).
+   */
+  ownerLabel?: string
 }
 
 /**
@@ -112,12 +124,16 @@ export function hunkBoxes(input: {
   key: string | null
   override: HunkOverride | null
   relativePath: string
+  /** `hunkKey` -> the name of the changelist that owns the hunk, for the hunks
+   *  the FILTERED list does not own. Absent when there is no filter. */
+  foreignOwners?: Record<string, string>
 }): HunkBox[] {
   const override = settleOverrideKey(input.override, input.key)
   return input.hunks.map((hunk) => {
     const key = hunkKey(hunk)
     const pending = override?.hunkKey === key
     const checked = pending ? (override as HunkOverride).checked : hunk.included
+    const ownerLabel = input.foreignOwners?.[key]
     return {
       key,
       widgetId: `${hunk.scope}.${hunk.index}`,
@@ -126,7 +142,13 @@ export function hunkBoxes(input: {
       busy: Boolean(pending),
       // Every box in the margin needs its own name, and "hunk 3" is only a name
       // if you can see the others. The line is what a person is looking at.
-      label: `${checked ? 'Exclude' : 'Include'} the change at line ${hunkGutterLine(hunk)} of ${input.relativePath}`,
+      // The owner is part of the NAME, not only of the picture: a box a screen
+      // reader reaches must say whose lines it is about, or the chip beside it
+      // is information only a sighted reader gets.
+      label: `${checked ? 'Exclude' : 'Include'} the change at line ${hunkGutterLine(hunk)} of ${input.relativePath}${
+        ownerLabel ? ` — owned by ${ownerLabel}` : ''
+      }`,
+      ...(ownerLabel ? { ownerLabel } : {}),
     }
   })
 }

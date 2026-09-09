@@ -2549,6 +2549,9 @@ export type DockDiffToWorkspaceInput = {
   repoRoot: string
   focusPath: string | null
   focusKind: 'staged' | 'unstaged' | null
+  /** The changelist the window was filtered to, so the pane tab it becomes
+   *  opens on the same list (agent changelists). Null or absent: all changes. */
+  changelistId?: string | null
 }
 
 // What the receiving window is handed, and what it acks with. The diff window
@@ -4100,6 +4103,14 @@ export type ElectronApi = {
   /** Delete a list; its paths return to the default, which cannot be deleted. */
   deleteGitChangelist: (repoRoot: string, id: string) => Promise<Changelist[]>
   moveGitChangelistPaths: (repoRoot: string, id: string, paths: string[]) => Promise<Changelist[]>
+  /**
+   * Main has written a repository's changelists itself — an agent launched,
+   * edited or exited, and its list moved without any window asking for it. The
+   * renderer re-reads for a matching root; the payload carries the root and
+   * nothing else, because the store's answer is always the WHOLE reconciled set
+   * and a pushed copy of it could only ever be the older one.
+   */
+  onGitChangelistsChanged: (cb: (event: { repoRoot: string }) => void) => () => void
   /** `git diff` (or `--cached`) of the named paths, as patch text. */
   createGitPatch: (repoRoot: string, paths: string[], cached?: boolean) => Promise<GitPatchResult>
   /** The same text, through the OS save dialog. */

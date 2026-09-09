@@ -109,6 +109,7 @@ import {
 } from './terminal-reap-policy'
 import { recordReapEvent } from './terminal-reap-log'
 import type { TerminalRootInfo } from './workspace-memory'
+import type { ChangelistEdit } from '../shared/git/changelists'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -204,6 +205,26 @@ type TerminalRuntimeOptions = {
   // path as the desktop UI. Resolved lazily (the module registers it on the kernel
   // after app services are built). Absent in tests: the command rejects cleanly.
   resolveAutomationsFrontDoor?: () => AutomationsAppFrontDoor | null
+  // --- Agent changelists (agent-changelist-feed.ts) -------------------------
+  //
+  // Three seams, one feed. They are OPTIONAL and must never be able to fail a
+  // session: the runtime calls them inside a try/catch and ignores whatever
+  // comes back, because the changelist store is a convenience and a terminal is
+  // not.
+  //
+  // `onAgentLaunched` fires where a session goes live (`attachTerminalSession`),
+  // which is the ONE seam every launch path passes through — the launch service,
+  // an agent descriptor spawn, and a resume alike — so an agent launched by any
+  // of them gets its list. `onAgentFileEdit` fires per reported edit, and
+  // `onAgentSessionExit` once per pty that dies on its own.
+  onAgentLaunched?(session: TerminalSession): void
+  onAgentFileEdit?(input: {
+    session: TerminalSession
+    path: string
+    edits?: ChangelistEdit[]
+    ts: number
+  }): void
+  onAgentSessionExit?(session: TerminalSession): void
 }
 
 type TerminalIpcHandlers = {
@@ -293,6 +314,9 @@ let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
 let setSprintEngineAutomationModeAdapter: TerminalRuntimeOptions['setSprintEngineAutomationMode']
 let resolveAutomationsFrontDoorAdapter: TerminalRuntimeOptions['resolveAutomationsFrontDoor']
+let onAgentLaunched: TerminalRuntimeOptions['onAgentLaunched']
+let onAgentFileEdit: TerminalRuntimeOptions['onAgentFileEdit']
+let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 
 // Whether a CLI can report authoritative agent state: true exactly when its
 // plugin manifest declares an `agentStateSpec` (the capability that also drives
@@ -472,6 +496,9 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   logReapDiagnostic = options.logDiagnostic
   setSprintEngineAutomationModeAdapter = options.setSprintEngineAutomationMode
   resolveAutomationsFrontDoorAdapter = options.resolveAutomationsFrontDoor
+  onAgentLaunched = options.onAgentLaunched
+  onAgentFileEdit = options.onAgentFileEdit
+  onAgentSessionExit = options.onAgentSessionExit
   reapSkipLogState.clear()
   remoteTerminalViewers.clear()
   sprintEngineMcpRunRefCounts.clear()
@@ -2301,6 +2328,23 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const ledgerChanged = frame.fileChange
     ? recordSessionFileChange(session, frame.fileChange, frame.ts)
     : false
+  // The same edit, handed to the agent changelist feed. Here rather than after
+  // the guards below for exactly the reason the ledger fold is: the edit already
+  // happened, and a frame dropped as stale or as an unnamed event still carries
+  // a true one. Only an AGENT session claims lines — a plain terminal has no
+  // list to put them in — and the feed can never throw into the runtime.
+  if (frame.fileChange && session.agentId && onAgentFileEdit) {
+    try {
+      onAgentFileEdit({
+        session,
+        path: frame.fileChange.path,
+        ...(frame.fileChange.edits ? { edits: frame.fileChange.edits } : {}),
+        ts: frame.ts,
+      })
+    } catch (error) {
+      console.warn('[terminal-runtime] agent changelist edit feed failed', error)
+    }
+  }
   // How full the context window is, from the session's own status line — folded
   // in here for the same reason and in the same place as the edit above. It
   // arrives on `event: 'StatusLine'`, which is in no manifest's agentStateSpec
@@ -2778,6 +2822,18 @@ function attachTerminalSession(
   initialInput: string | undefined
 ): void {
   terminals.set(sessionId, terminalSession)
+  // The agent's own changelist, made and made ACTIVE at launch (decision of
+  // record): edits that bypass the reporter hook — a Bash `sed`, a formatter on
+  // save — are then adopted into the launching agent's list rather than into
+  // whichever list happened to be active. A resume runs through here too, which
+  // is right: the same agent is launching again.
+  if (terminalSession.kind === 'agent' && terminalSession.agentId && onAgentLaunched) {
+    try {
+      onAgentLaunched(terminalSession)
+    } catch (error) {
+      console.warn('[terminal-runtime] agent changelist launch feed failed', error)
+    }
+  }
   startSprintEngineAgentHeartbeat(terminalSession)
   scheduleTerminalIdleTransition(terminalSession)
   // Arms for the spawn-stamped `starting` phase, so an agent whose hooks never
@@ -2891,6 +2947,18 @@ function attachTerminalSession(
       }
       for (const listener of agentSessionExitListeners) {
         trackAgentListenerRecord(Promise.resolve(listener(exitEvent)).catch(() => {}))
+      }
+    }
+    // The agent's changelist is marked exited here — once, on the one path a pty
+    // dies on its own. NOT on the suspend branch above, which returns early:
+    // a frozen session is coming back, and a list whose owner has "exited" is a
+    // list reconcile deletes the moment it empties. `agentSession` is not
+    // required (a hand-launched agent terminal has none); an agentId is.
+    if (terminalSession.agentId && onAgentSessionExit) {
+      try {
+        onAgentSessionExit(terminalSession)
+      } catch (error) {
+        console.warn('[terminal-runtime] agent changelist exit feed failed', error)
       }
     }
     if (terminals.get(sessionId) === terminalSession) {

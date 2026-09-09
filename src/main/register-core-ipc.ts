@@ -139,7 +139,10 @@ export function registerCoreIpc(
     // The changelist store's home. Resolved here rather than inside the git
     // modules so those stay free of `electron.app` and remain testable against
     // a temp directory.
-    { userDataDir: app.getPath('userData') }
+    {
+      userDataDir: app.getPath('userData'),
+      onChangelistsChanged: services.broadcastGitChangelistsChanged,
+    }
   )
   registerVersionControlIpc(ipcMain)
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)

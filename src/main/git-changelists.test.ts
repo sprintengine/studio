@@ -11,13 +11,21 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_CHANGELIST_ID, type Changelist } from '../shared/git/changelists'
+import {
+  changelistOwnerId,
+  DEFAULT_CHANGELIST_ID,
+  type Changelist,
+  type ChangelistOwner,
+} from '../shared/git/changelists'
 import {
   changelistsStorePath,
   createGitChangelist,
   deleteGitChangelist,
+  ensureOwnedChangelist,
   getGitChangelists,
+  markOwnerExited,
   moveGitChangelistPaths,
+  recordAgentEdits,
   renameGitChangelist,
   setActiveGitChangelist,
 } from './git-changelists'
@@ -148,11 +156,113 @@ async function main(): Promise<void> {
     )
 
     await assertPatches(repo)
+    await assertAgentChangelists(userData, root)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 
   console.log('git changelists store ok')
+}
+
+/**
+ * The agent half, against a real repository with real commits: two agents in one
+ * file, the spans one of them owns, and the two ways a span or a whole list
+ * stops existing — git no longer reporting those lines, and the agent that owned
+ * them leaving with nothing left to show.
+ */
+async function assertAgentChangelists(userData: string, root: string): Promise<void> {
+  const repo = join(root, 'repo-agents')
+  git(root, ['init', '--initial-branch=main', repo])
+  configureRepo(repo)
+  const base = Array.from({ length: 10 }, (_unused, index) => `line ${index + 1}`).join('\n') + '\n'
+  writeFileSync(join(repo, 'shared.ts'), base)
+  git(repo, ['add', '.'])
+  git(repo, ['commit', '-m', 'base'])
+
+  const nadia: ChangelistOwner = { kind: 'agent', agentId: 'agent-nadia', name: 'Nadia', workspaceId: 'ws-1' }
+  const ivo: ChangelistOwner = { kind: 'agent', agentId: 'agent-ivo', name: 'Ivo', workspaceId: 'ws-1' }
+  const nadiaId = changelistOwnerId(nadia.agentId)
+  const ivoId = changelistOwnerId(ivo.agentId)
+
+  // A launch makes the agent's list and makes it ACTIVE, and says so twice
+  // without moving anything: launch calls it, and so does every edit frame.
+  const launched = await ensureOwnedChangelist(userData, repo, nadia, { activate: true })
+  assert.equal(byName(launched, 'Nadia').id, nadiaId)
+  assert.deepEqual(launched.filter((list) => list.active).map((list) => list.id), [nadiaId])
+  const relaunched = await ensureOwnedChangelist(userData, repo, nadia, { activate: true })
+  assert.equal(relaunched.length, launched.length, 'the second launch makes no second list')
+
+  // Nadia rewrites line 1; Ivo rewrites lines 5-6. Both are real changes in the
+  // working tree, because a span that overlaps no hunk is a span reconcile drops.
+  const withBoth = base.split('\n')
+  withBoth[0] = 'nadia one'
+  withBoth[4] = 'ivo five'
+  withBoth[5] = 'ivo six'
+  writeFileSync(join(repo, 'shared.ts'), withBoth.join('\n'))
+
+  const afterNadia = await recordAgentEdits(userData, repo, nadia, [
+    { path: join(repo, 'shared.ts'), edits: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1 }] },
+  ])
+  assert.deepEqual(
+    pathsOf(afterNadia, nadiaId),
+    ['shared.ts'],
+    'the first agent to edit a file nobody owns becomes its home — no spans needed',
+  )
+
+  const afterIvo = await recordAgentEdits(userData, repo, ivo, [
+    { path: 'shared.ts', edits: [{ oldStart: 5, oldLines: 2, newStart: 5, newLines: 2 }] },
+  ])
+  assert.deepEqual(pathsOf(afterIvo, nadiaId), ['shared.ts'], 'the home does not move when a guest edits')
+  assert.deepEqual(pathsOf(afterIvo, ivoId), [], 'and the guest claims no whole file')
+  assert.deepEqual(
+    afterIvo.find((list) => list.id === ivoId)?.spans,
+    { 'shared.ts': [{ start: 5, lines: 2 }] },
+    'the guest owns exactly the lines it wrote',
+  )
+
+  // A path outside the repository is not this repository's to claim.
+  const outsider = await recordAgentEdits(userData, repo, ivo, [{ path: join(root, 'elsewhere.ts') }])
+  assert.deepEqual(pathsOf(outsider, ivoId), [], 'a path that climbs out of the checkout is dropped')
+
+  // Ivo's lines go back to what they were: the file is still changed (Nadia's
+  // line 1), but git reports no hunk where Ivo's span is, so the span is inert
+  // and reconcile drops it on the very next read.
+  const withoutIvo = base.split('\n')
+  withoutIvo[0] = 'nadia one'
+  writeFileSync(join(repo, 'shared.ts'), withoutIvo.join('\n'))
+  const reread = await getGitChangelists(userData, repo)
+  assert.equal(
+    reread.find((list) => list.id === ivoId)?.spans,
+    undefined,
+    'a span that overlaps no current hunk is dropped',
+  )
+  assert.deepEqual(pathsOf(reread, nadiaId), ['shared.ts'], 'and the home keeps the file it owns whole')
+  assert.ok(reread.some((list) => list.id === ivoId), 'the list itself stays while its agent is still running')
+
+  // The agent leaves with nothing left to show: the list goes.
+  const afterIvoExit = await markOwnerExited(userData, repo, ivo.agentId)
+  assert.equal(
+    afterIvoExit.some((list) => list.id === ivoId),
+    false,
+    'an owned list whose agent exited and which holds nothing is deleted',
+  )
+
+  // Nadia's is not empty, so hers stays — named after an agent that has gone,
+  // until a person commits, moves or deletes it.
+  const afterNadiaExit = await markOwnerExited(userData, repo, nadia.agentId)
+  assert.deepEqual(pathsOf(afterNadiaExit, nadiaId), ['shared.ts'], 'a list with work in it survives its agent')
+  assert.equal(afterNadiaExit.find((list) => list.id === nadiaId)?.owner?.exited, true)
+
+  // …and goes the moment the work is committed.
+  git(repo, ['add', 'shared.ts'])
+  git(repo, ['commit', '-m', 'nadia'])
+  const afterCommit = await getGitChangelists(userData, repo)
+  assert.deepEqual(
+    afterCommit.map((list) => list.id),
+    [DEFAULT_CHANGELIST_ID],
+    'the committed list is gone and the default is all that is left',
+  )
+  assert.equal(afterCommit.filter((list) => list.active).length, 1, 'and something is still active')
 }
 
 async function assertPatches(repo: string): Promise<void> {

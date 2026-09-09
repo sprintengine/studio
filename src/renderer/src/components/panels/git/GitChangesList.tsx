@@ -31,6 +31,14 @@
 // T6 added three kinds and changed nothing here except the chip on the band and
 // the band's own menu, which is the point of having taken an array in T5.
 //
+// A PARTIAL ROW IS A DIFFERENT ROW ABOUT THE SAME FILE. Agent changelists let a
+// list own hunks of a file that lives in another list, and that draws a second
+// row — same filename, same directory, a `partial` micro-chip, and a `key` that
+// is not the path. Everything the list keys on is `row.key` for exactly that
+// reason; the chip is the visible half and the row's name carries the sentence,
+// because a chip is a drawing and the box under it does something different
+// here from what every other box in the panel does.
+//
 // THE LIST OWNS FOUR MORE KEYS. Space ticks and Enter opens, as before; ⌘↓
 // opens the file in an editor, F2 edits the changelist the cursor's row sits
 // in, ⌫ deletes the selected files from disk, and ⌥⌘A adds an untracked one to
@@ -67,8 +75,10 @@ export type GitChangesListProps = {
   visibleRows: GitChangeRow[]
   expandedGroupIds: ReadonlySet<string>
   onExpandedChange: (groupId: string, next: boolean) => void
-  selectedPaths: ReadonlySet<string>
-  cursorPath: string | null
+  /** `changeRowKey`, never `path`: a file with a guest row in another list has
+   *  TWO rows on screen, and a selection keyed by path would tick both. */
+  selectedRowKeys: ReadonlySet<string>
+  cursorRowKey: string | null
   /** Tick or untick one row. The panel decides which way from the row's state. */
   onToggleRow: (row: GitChangeRow) => void
   /** Tick or untick a whole group. */
@@ -80,7 +90,7 @@ export type GitChangesListProps = {
   /** Enter, or a plain click on the row body. */
   onActivateRow: (row: GitChangeRow) => void
   /** Move the keyboard cursor, replacing or extending the selection with it. */
-  onMoveCursor: (path: string, mode: 'replace' | 'extend') => void
+  onMoveCursor: (rowKey: string, mode: 'replace' | 'extend') => void
   onSelectAll: () => void
   /** A right-click makes the row the selection when it was outside it, so the
    *  menu's labels describe exactly what the actions will touch. */
@@ -98,10 +108,14 @@ export type GitChangesListProps = {
   onAddToGit: (row: GitChangeRow) => void
   /** F2 on the cursor's row — edits the changelist that row sits in. */
   onEditChangelist: (row: GitChangeRow) => void
-  registerRowNode: (path: string, node: HTMLElement | null) => void
+  registerRowNode: (rowKey: string, node: HTMLElement | null) => void
+  /** Which group band holds focus, so the panel can route ⌘D to "show diff for
+   *  this changelist" instead of to the cursor's row. Null when focus left the
+   *  bands entirely. */
+  onGroupHeaderFocus?: (groupId: string | null) => void
 }
 
-type RowMenuState = { x: number; y: number; row: GitChangeRow }
+type RowMenuState = { x: number; y: number; row: GitChangeRow; groupTitle: string }
 type GroupMenuState = { x: number; y: number; group: GitChangeGroup }
 
 /**
@@ -152,8 +166,8 @@ export function GitChangesList({
   visibleRows,
   expandedGroupIds,
   onExpandedChange,
-  selectedPaths,
-  cursorPath,
+  selectedRowKeys,
+  cursorRowKey,
   onToggleRow,
   onToggleGroup,
   onRowClick,
@@ -168,6 +182,7 @@ export function GitChangesList({
   onAddToGit,
   onEditChangelist,
   registerRowNode,
+  onGroupHeaderFocus,
 }: GitChangesListProps): JSX.Element {
   const [rowMenu, setRowMenu] = React.useState<RowMenuState | null>(null)
   const [groupMenu, setGroupMenu] = React.useState<GroupMenuState | null>(null)
@@ -176,12 +191,12 @@ export function GitChangesList({
   const [listFocused, setListFocused] = React.useState(false)
   const listRef = React.useRef<HTMLDivElement | null>(null)
 
-  const cursorIndex = cursorPath ? visibleRows.findIndex((row) => row.path === cursorPath) : -1
+  const cursorIndex = cursorRowKey ? visibleRows.findIndex((row) => row.key === cursorRowKey) : -1
 
   function moveTo(index: number, extend: boolean): void {
     const row = visibleRows[Math.min(Math.max(index, 0), visibleRows.length - 1)]
     if (!row) return
-    onMoveCursor(row.path, extend ? 'extend' : 'replace')
+    onMoveCursor(row.key, extend ? 'extend' : 'replace')
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
@@ -247,7 +262,7 @@ export function GitChangesList({
       // spans every group's listbox rather than living inside one of them.
       role="group"
       aria-label="Changed files"
-      aria-activedescendant={cursorPath ? changeRowDomId(listId, cursorPath) : undefined}
+      aria-activedescendant={cursorRowKey ? changeRowDomId(listId, cursorRowKey) : undefined}
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onMouseDown={(event) => {
@@ -277,6 +292,15 @@ export function GitChangesList({
                 selection. */}
             <div
               data-git-group-header="true"
+              // The band is three real controls, so it is where a keyboard
+              // actually lands between two runs of rows — and ⌘D there means
+              // "show me this whole changelist", not "show me the row the
+              // cursor happens to be on twenty rows below".
+              onFocus={() => onGroupHeaderFocus?.(group.id)}
+              onBlur={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+                onGroupHeaderFocus?.(null)
+              }}
               onContextMenu={(event) => {
                 event.preventDefault()
                 event.stopPropagation()
@@ -302,6 +326,12 @@ export function GitChangesList({
                 // The chip states a fact that was true before the person
                 // arrived — this is the list the next change lands in — which is
                 // exactly what `micro-chip` is for, and why it takes no tone.
+                //
+                // And it is the ONLY chip a band wears. An agent's list draws
+                // its agent's name and its count like every other list: no
+                // liveness dot, no status glyph (owner's ruling, 2026-09-09).
+                // A header that reported whether a process was alive would be a
+                // second, quieter agent list competing with the sidebar's.
                 chip={group.active ? <MicroChip>active</MicroChip> : undefined}
                 // The band's menu, reachable without a right-click. One control,
                 // revealed on hover AND focus, which is the slot's whole rule.
@@ -332,12 +362,12 @@ export function GitChangesList({
                 {group.rows.map((row) => {
                   const appearance = getGitStatusAppearance(row.status)
                   const statusWord = gitStatusWord(row.status)
-                  const isSelected = selectedPaths.has(row.path)
+                  const isSelected = selectedRowKeys.has(row.key)
                   return (
                     <CheckRow
-                      key={row.path}
-                      id={changeRowDomId(listId, row.path)}
-                      ref={(node) => registerRowNode(row.path, node)}
+                      key={row.key}
+                      id={changeRowDomId(listId, row.key)}
+                      ref={(node) => registerRowNode(row.key, node)}
                       data-git-change-row="true"
                       role="option"
                       checked={row.checked}
@@ -355,12 +385,35 @@ export function GitChangesList({
                         <span className={appearance.textClass}>
                           {row.filename}
                           {statusWord ? <span className="sr-only">, {statusWord}</span> : null}
+                          {/* The chip below is the visible half; a chip is a
+                              drawing, so the sentence that says what THIS row
+                              is — and what its box will do, which is not what
+                              every other box on screen does — travels with the
+                              name where a screen reader meets it first. */}
+                          {row.partial ? (
+                            <span className="sr-only">
+                              , partial: {group.title}’s changes only. Ticking stages that list’s hunks
+                              of this file.
+                            </span>
+                          ) : null}
                         </span>
                       }
-                      directory={row.directory || undefined}
+                      directory={
+                        row.partial ? (
+                          // The chip trails the directory and never shrinks:
+                          // the path is what gets cut in a narrow panel, the
+                          // fact that this row is a piece of a file is not.
+                          <span className="flex min-w-0 items-center gap-1">
+                            <span className="min-w-0 truncate">{row.directory}</span>
+                            <MicroChip>partial</MicroChip>
+                          </span>
+                        ) : (
+                          row.directory || undefined
+                        )
+                      }
                       selected={isSelected && listFocused}
                       resting={isSelected && !listFocused}
-                      cursor={cursorPath === row.path}
+                      cursor={cursorRowKey === row.key}
                       onClick={(event) => {
                         if (onRowClick(row, event)) return
                         onActivateRow(row)
@@ -373,7 +426,12 @@ export function GitChangesList({
                         // carries no pointer; open it on the row rather than at
                         // the viewport corner.
                         const rect = event.currentTarget.getBoundingClientRect()
-                        setRowMenu({ x: event.clientX || rect.left, y: event.clientY || rect.bottom, row })
+                        setRowMenu({
+                          x: event.clientX || rect.left,
+                          y: event.clientY || rect.bottom,
+                          row,
+                          groupTitle: group.title,
+                        })
                       }}
                     />
                   )
@@ -393,7 +451,13 @@ export function GitChangesList({
         <ContextMenu
           x={rowMenu.x}
           y={rowMenu.y}
-          ariaLabel={`Actions for ${rowMenu.row.relativePath}`}
+          ariaLabel={
+            // A guest row and its home row are the same file with two menus, so
+            // the menu says which of the two it belongs to.
+            rowMenu.row.partial
+              ? `Actions for ${rowMenu.groupTitle}’s changes to ${rowMenu.row.relativePath}`
+              : `Actions for ${rowMenu.row.relativePath}`
+          }
           onClose={() => setRowMenu(null)}
           surfaceClassName="min-w-[260px]"
         >

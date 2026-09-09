@@ -98,6 +98,7 @@ import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { createConversationPeek } from './conversation-peek/io'
 import { cliResumeCapabilities, createTerminalRuntime, listTerminalRoots, resolveSpawnEventSink } from './terminal-runtime'
+import { createAgentChangelistFeed } from './agent-changelist-feed'
 import { createBrowserManager } from './browser/browser-manager'
 import { createBrowserControl } from './browser/browser-control'
 import { createBrowserTools } from './automation/browser-tools'
@@ -340,10 +341,35 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // Extensions storefront's IPC.
   const marketplaceRegistryReader = createDefaultMarketplaceRegistryClient()
 
+  // Agent changelists: an agent's own list, holding exactly the lines it wrote.
+  // The feed owns every rule about WHICH checkout a claim belongs to and what it
+  // refuses to claim (see agent-changelist-feed.ts); this only hands it the
+  // user-data dir it writes under and the way to tell the windows to re-read.
+  // Shared by the feed and by the changelist IPC handlers (register-core-ipc):
+  // a list moved by an agent and a list renamed by a person reach the other
+  // windows the same way.
+  const broadcastGitChangelistsChanged = (repoRoot: string): void => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+      // Same shape and same spelling the preload subscribes to
+      // (`onGitChangelistsChanged`); the renderer re-reads for a matching root.
+      window.webContents.send('git:changelists-changed', { repoRoot })
+    }
+  }
+  const agentChangelistFeed = createAgentChangelistFeed({
+    userDataDir: app.getPath('userData'),
+    broadcast: broadcastGitChangelistsChanged,
+  })
+
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
     requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
     logMainPerfEvent,
+    // The three agent-changelist seams. Fire-and-forget by contract: the feed
+    // swallows its own failures, so none of them can cost a session anything.
+    onAgentLaunched: (session) => agentChangelistFeed.onAgentLaunched(session),
+    onAgentFileEdit: (input) => agentChangelistFeed.onAgentFileEdit(input),
+    onAgentSessionExit: (session) => agentChangelistFeed.onAgentSessionExit(session),
     // Item 47: the phone enables, pauses and fires automations through the same
     // front door the desktop UI writes through.
     resolveAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
@@ -1181,6 +1207,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     sprintRuntime,
     conversationPeek,
     terminalRuntime,
+    agentChangelistFeed,
+    broadcastGitChangelistsChanged,
     updateService,
     withIpcDiagnostics,
     workspaceBackupService,

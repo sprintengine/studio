@@ -11,6 +11,7 @@ import {
   groupToggleAction,
   nextCheckIntent,
   nextCursorPath,
+  revertableRows,
   splitGitPath,
   toGitChangeRow,
   visibleChangeRows,
@@ -92,12 +93,14 @@ const groupRows = [
   { path: '/repo/b', checked: false as const },
   { path: '/repo/c', checked: 'mixed' as const },
 ]
-assert.deepEqual(groupToggleAction(groupRows, true), { action: 'stage', paths: ['/repo/b', '/repo/c'] })
-assert.deepEqual(groupToggleAction(groupRows, false), { action: 'unstage', paths: ['/repo/a', '/repo/c'] })
-assert.deepEqual(groupToggleAction([], true), { action: 'stage', paths: [] })
+assert.deepEqual(groupToggleAction(groupRows, true).paths, ['/repo/b', '/repo/c'])
+assert.deepEqual(groupToggleAction(groupRows, false).paths, ['/repo/a', '/repo/c'])
+assert.equal(groupToggleAction(groupRows, true).action, 'stage')
+assert.equal(groupToggleAction(groupRows, false).action, 'unstage')
+assert.deepEqual(groupToggleAction([], true), { action: 'stage', rows: [], paths: [], partialRows: [] })
 assert.deepEqual(
   groupToggleAction([off, off].map((row, index) => ({ ...row, path: `/repo/${index}` })), false),
-  { action: 'unstage', paths: [] },
+  { action: 'unstage', rows: [], paths: [], partialRows: [] },
   'unticking a group with nothing in the index asks git for nothing',
 )
 
@@ -212,6 +215,165 @@ assert.deepEqual(
   claimingUntracked.find((group) => group.id === 'changelist:modal')?.rows.map((row) => row.relativePath),
   ['design-system/components/modal/component.css', 'src/main/app-services.ts', 'src/main/checkpoint-store.ts'],
 )
+
+// ── Partial rows: one file, a row in every list that owns a piece of it ──────
+//
+// The rule the panel rests on: a status entry draws a row in its HOME list, and
+// an extra `partial` row in every list holding spans for it. The remainder — the
+// hunks nobody's spans cover — is the home list's, which is why the home row is
+// never marked partial and never disappears.
+
+const spanLists = [
+  { id: 'default', name: 'Changes', paths: ['src/main/checkpoint-store.ts'], active: false },
+  {
+    id: 'agent:nadia',
+    name: 'Nadia',
+    paths: ['src/main/app-services.ts'],
+    spans: { 'src/main/checkpoint-store.ts': [{ start: 4, lines: 3 }] },
+    active: true,
+    owner: { kind: 'agent' as const, agentId: 'nadia', name: 'Nadia' },
+  },
+  {
+    id: 'agent:otto',
+    name: 'Otto',
+    paths: [],
+    spans: { 'src/main/checkpoint-store.ts': [{ start: 40, lines: 2 }] },
+    active: false,
+    owner: { kind: 'agent' as const, agentId: 'otto', name: 'Otto' },
+  },
+]
+
+const withSpans = buildGitChangeGroups(snapshot, { changelists: spanLists })
+const groupOf = (id: string) => {
+  const found = withSpans.find((group) => group.id === id)
+  assert.ok(found, `no group ${id}`)
+  return found
+}
+
+assert.deepEqual(
+  groupOf('changelist:agent:nadia').rows.map((row) => [row.relativePath, row.partial === true]),
+  [
+    ['design-system/components/modal/component.css', false],
+    ['src/main/app-services.ts', false],
+    ['src/main/checkpoint-store.ts', true],
+  ],
+  'the guest row sits with the home rows, in path order, marked partial',
+)
+assert.deepEqual(
+  groupOf('changelist:agent:otto').rows.map((row) => [row.relativePath, row.partial === true]),
+  [['src/main/checkpoint-store.ts', true]],
+  'a list with nothing but spans is still a list, with one row in it',
+)
+assert.deepEqual(
+  groupOf('changelist:default').rows.map((row) => [row.relativePath, row.partial === true]),
+  [['src/main/checkpoint-store.ts', false]],
+  'the home row is never partial: the remainder is the home list’s',
+)
+assert.equal(groupOf('changelist:agent:otto').totalCount, 1, 'a guest row counts in its list’s header')
+
+// Every row knows which list it is standing in — the guest row's is NOT the
+// file's home, which is the whole reason the panel cannot re-derive it.
+const guest = groupOf('changelist:agent:otto').rows[0]
+const homeRow = groupOf('changelist:default').rows[0]
+assert.equal(guest.changelistId, 'agent:otto')
+assert.equal(homeRow.changelistId, 'default')
+assert.equal(guest.path, homeRow.path, 'the same file')
+assert.notEqual(guest.key, homeRow.key, 'and never the same row key')
+assert.equal(homeRow.key, homeRow.path, 'an ordinary row’s key is still its path')
+
+// The group box, and what a click on it acts on: guest rows come back apart
+// from the paths, because `git add` on that file would stage Otto's lines too.
+const toggle = groupToggleAction(groupOf('changelist:agent:nadia').allRows, true)
+assert.deepEqual(
+  toggle.paths,
+  ['/repo/design-system/components/modal/component.css'],
+  'only the files this list owns whole are staged by path (app-services.ts is already in)',
+)
+assert.deepEqual(
+  toggle.partialRows.map((row) => row.relativePath),
+  ['src/main/checkpoint-store.ts'],
+  'and the file it owns a piece of is staged a hunk at a time instead',
+)
+assert.equal(toggle.rows.length, 2, 'both buckets together are what the click acts on')
+
+// A span for a path git no longer reports draws nothing: the lists follow
+// status, and a row for a file that is not there is a row nobody can act on.
+const goneSpan = buildGitChangeGroups(snapshot, {
+  changelists: [
+    { id: 'default', name: 'Changes', paths: ['src/main/app-services.ts'], active: true },
+    { id: 'agent:otto', name: 'Otto', paths: [], spans: { 'src/main/gone.ts': [{ start: 1, lines: 2 }] }, active: false },
+  ],
+})
+assert.equal(
+  goneSpan.find((group) => group.id === 'changelist:agent:otto')?.totalCount,
+  0,
+  'a span on a file git does not report is not a row',
+)
+
+// A file an AGENT created is `??`. T6 files untracked in its own group; an
+// agent's own new file belongs in the agent's list, which is where a person
+// looks to see what that agent did.
+const agentCreated = buildGitChangeGroups(snapshot, {
+  changelists: [
+    { id: 'default', name: 'Changes', paths: [], active: true },
+    {
+      id: 'agent:otto',
+      name: 'Otto',
+      paths: ['swap2-top.png'],
+      active: false,
+      owner: { kind: 'agent' as const, agentId: 'otto', name: 'Otto' },
+    },
+  ],
+})
+assert.deepEqual(
+  agentCreated.find((group) => group.id === 'changelist:agent:otto')?.rows.map((row) => row.relativePath),
+  ['swap2-top.png'],
+  'the untracked file an agent created draws in that agent’s list',
+)
+assert.equal(
+  agentCreated.some((group) => group.kind === 'untracked'),
+  false,
+  'and not also in the untracked group — a file is one row',
+)
+// A hand-made list keeps T6's rule exactly: nothing about the file changed.
+assert.deepEqual(
+  claimingUntracked.map((group) => group.id).slice(-1),
+  ['untracked'],
+  'a list with no owner still leaves untracked files where T6 put them',
+)
+
+// Discard and delete take the whole FILE, and a guest row is a claim on some of
+// its lines — so those rows are skipped and counted rather than acted on. The
+// count is what the confirm dialog spends saying which files it will not touch.
+{
+  const home = groupOf('changelist:default').rows[0]
+  const other = groupOf('changelist:agent:nadia').rows[1]
+  const split = revertableRows([other, guest])
+  assert.deepEqual(split.actionable.map((row) => row.relativePath), ['src/main/app-services.ts'])
+  assert.equal(split.actionable[0].partial, undefined, 'only the whole-file row survives')
+  assert.equal(split.skippedPartial, 1, 'and the guest row is counted, not silently dropped')
+  assert.deepEqual(revertableRows([guest]), { actionable: [], skippedPartial: 1 })
+  assert.deepEqual(revertableRows([home]), { actionable: [home], skippedPartial: 0 })
+  // ...but a guest row whose file the selection ALSO holds through its home row
+  // is not "skipped": that file is about to be discarded by the row that may.
+  const nadiaGuest = groupOf('changelist:agent:nadia').rows[2]
+  assert.equal(nadiaGuest.partial, true)
+  assert.equal(revertableRows([home, guest, nadiaGuest]).skippedPartial, 0)
+  assert.equal(revertableRows([guest, nadiaGuest]).skippedPartial, 1, 'one FILE, not two rows')
+}
+
+// Directory and None arrange FILES, so spans change nothing there.
+for (const grouping of ['directory', 'none'] as const) {
+  const rows = buildGitChangeGroups(snapshot, { grouping, changelists: spanLists }).flatMap(
+    (group) => group.rows,
+  )
+  assert.equal(rows.filter((row) => row.partial).length, 0, `${grouping} draws no partial rows`)
+  assert.equal(
+    rows.filter((row) => row.relativePath === 'src/main/checkpoint-store.ts').length,
+    1,
+    `${grouping} draws the file once`,
+  )
+}
 
 // ── Group by ──────────────────────────────────────────────────────────────────
 // The other two arrangements the toolbar offers. Untracked is its own group in

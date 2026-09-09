@@ -17,9 +17,22 @@
 // app-owned sets of paths, one of them active, plus an Untracked group. So the
 // builder takes a LIST of group definitions and the view renders whatever it
 // returns; adding a changelist is adding a definition, not rewriting the list.
+//
+// AGENT CHANGELISTS BROKE "ONE FILE, ONE ROW". A list can own HUNKS of a file
+// whose home is another list (`spans`, shared/git/changelists), so one status
+// entry now draws a row in its home list's group AND a `partial: true` row in
+// every list that owns some of its lines. That is the only place in this file
+// where a path appears twice, and it is why a row's identity is `key` rather
+// than `path`: two rows for one file share a path, and a selection, a keyboard
+// cursor and a DOM id that could not tell them apart would put the walk in a
+// loop and hand a whole-file stage to whichever of the two came first.
+//
+// The Directory and None groupings are untouched by any of it: they arrange
+// FILES, and a file is one row there whoever owns its lines.
 
 import {
   DEFAULT_CHANGELIST_ID,
+  isPartialInList,
   orderedChangelists,
   type Changelist,
 } from '../../../../../shared/git/changelists'
@@ -29,10 +42,18 @@ import type { CheckRowCheckedState } from '../../ui/CheckRow'
  *  `CheckRow`s is fine; four thousand is a frozen panel. */
 export const MAX_RENDERED_GIT_CHANGES_PER_GROUP = 500
 
-/** A file in the checklist. `path` is the absolute path git reported, and it is
- *  ALSO the selection key: T5 dropped the old `scope\0path` key because a
- *  partially-staged file is one row now, not one row in each of two sections. */
+/** A file in the checklist. `path` is the absolute path git reported; `key` is
+ *  the row's IDENTITY. The two were the same thing until agent changelists —
+ *  T5 dropped the old `scope\0path` key because a partially-staged file is one
+ *  row now rather than one in each of two sections — and they are the same
+ *  thing still for every row but a `partial` one, which shares its file's path
+ *  with the row in that file's home list. */
 export type GitChangeRow = {
+  /** Unique per rendered row: the path, or `<changelistId>\0<path>` for a
+   *  guest list's partial row. Everything that has to tell two rows apart —
+   *  selection, the keyboard cursor, the DOM id, the node registry, React's
+   *  own key — spends this and never `path`. */
+  key: string
   path: string
   relativePath: string
   /** The part the eye lands on. Never truncated by the row. */
@@ -46,6 +67,25 @@ export type GitChangeRow = {
   checked: CheckRowCheckedState
   /** Which side of the index this row's diff opens on. */
   diffScope: 'staged' | 'unstaged'
+  /** This row is a GUEST's view of the file: the changelist named below owns
+   *  some of the file's hunks, and the file itself lives in another list. Its
+   *  box stages that list's hunks and nothing else; every file-level action
+   *  reached from it (discard, delete) would take lines that are not this
+   *  list's, so the panel refuses them here and offers them on the home row. */
+  partial?: boolean
+  /** The changelist whose group this row is drawn in. Set on every row of a
+   *  changelist group, home and guest alike; absent under the Directory and
+   *  None groupings, which are not lists. */
+  changelistId?: string
+}
+
+/** The row's identity. One spelling, in one place, because the list, the panel
+ *  and the tests all key on it — and because the day it is spelled twice is the
+ *  day a partial row's tick stages the whole file. */
+export function changeRowKey(row: Pick<GitChangeRow, 'path' | 'partial' | 'changelistId'>): string {
+  // NUL, because it is the one byte a path cannot hold — so a guest row's key
+  // can never collide with some other file's plain path.
+  return row.partial && row.changelistId ? `${row.changelistId}\u0000${row.path}` : row.path
 }
 
 /** What kind of group this is, which is what decides how its rows behave. The
@@ -170,20 +210,70 @@ export function groupCheckedState(rows: Array<Pick<GitChangeRow, 'checked'>>): C
  * unticking unstages every row with anything in the index. Rows the render cap
  * held back are INCLUDED — the box governs the group, and a group that staged
  * only its first five hundred files would be a quiet lie.
+ *
+ * Guest (`partial`) rows come back in their own bucket rather than as paths,
+ * because staging one means staging THIS list's hunks of that file and nothing
+ * else. A caller that ignores `partialRows` stages fewer changes than the
+ * person asked for; one that put them in `paths` would stage more, which is the
+ * failure that matters.
  */
-export function groupToggleAction(
-  rows: Array<Pick<GitChangeRow, 'path' | 'checked'>>,
+export function groupToggleAction<
+  Row extends Pick<GitChangeRow, 'path' | 'checked' | 'partial'>,
+>(
+  rows: Row[],
   next: boolean,
-): { action: 'stage' | 'unstage'; paths: string[] } {
-  if (next) {
-    return { action: 'stage', paths: rows.filter((row) => row.checked !== true).map((row) => row.path) }
+): { action: 'stage' | 'unstage'; rows: Row[]; paths: string[]; partialRows: Row[] } {
+  const wanted = next
+    ? rows.filter((row) => row.checked !== true)
+    : rows.filter((row) => row.checked !== false)
+  return {
+    action: next ? 'stage' : 'unstage',
+    // Every row the click acts on, whole files and guests together — what a
+    // caller that can do both hands straight to its one stage call.
+    rows: wanted,
+    // A guest row is NOT a path: `git add <file>` on a file this list owns two
+    // hunks of would stage the other list's lines with them, which is the whole
+    // thing agent changelists exist to prevent. Those rows come back separately
+    // and the panel stages them a hunk at a time.
+    paths: wanted.filter((row) => row.partial !== true).map((row) => row.path),
+    partialRows: wanted.filter((row) => row.partial === true),
   }
-  return { action: 'unstage', paths: rows.filter((row) => row.checked !== false).map((row) => row.path) }
 }
 
-export function toGitChangeRow(entry: GitStatusEntry): GitChangeRow {
+/**
+ * Which of a set of rows a WHOLE-FILE destructive action may touch, and how many
+ * it must leave alone.
+ *
+ * Discard is `git checkout --` and delete is `unlink`; both take the file. A
+ * guest row is a changelist's claim on some of a file's LINES, and there is no
+ * per-hunk revert in the git layer to answer it with — so the rule is not "do
+ * it anyway", it is "skip it and say so". The count comes back because the
+ * confirm dialog has to name what will not happen before the person agrees to
+ * what will.
+ */
+export function revertableRows<Row extends Pick<GitChangeRow, 'partial' | 'path'>>(
+  rows: Row[],
+): { actionable: Row[]; skippedPartial: number } {
+  const actionable = rows.filter((row) => row.partial !== true)
+  // A guest row whose FILE is already in the selection through its home row is
+  // not skipped — the file is being discarded, by the row that may. Counting it
+  // would put "1 file is skipped" in a dialog that is about to touch that very
+  // file, which is the kind of sentence that teaches people to stop reading
+  // dialogs.
+  const covered = new Set(actionable.map((row) => row.path))
+  const skipped = rows.filter((row) => row.partial === true && !covered.has(row.path))
+  return { actionable, skippedPartial: new Set(skipped.map((row) => row.path)).size }
+}
+
+export function toGitChangeRow(
+  entry: GitStatusEntry,
+  membership?: { changelistId?: string; partial?: boolean },
+): GitChangeRow {
   const { directory, filename } = splitGitPath(entry.relativePath)
+  const partial = membership?.partial === true
+  const changelistId = membership?.changelistId
   return {
+    key: changeRowKey({ path: entry.path, ...(partial ? { partial } : {}), ...(changelistId ? { changelistId } : {}) }),
     path: entry.path,
     relativePath: entry.relativePath,
     filename,
@@ -191,10 +281,18 @@ export function toGitChangeRow(entry: GitStatusEntry): GitChangeRow {
     status: entry.status,
     staged: entry.staged,
     unstaged: entry.unstaged,
+    // A partial row's tick is the FILE's tri-state, not this list's. Reading
+    // the list's own hunks would cost a `git diff` per row on every refresh,
+    // and the box's click is already list-scoped (the panel stages exactly this
+    // list's hunks), so the honest half is shown and the expensive half is the
+    // v1 limitation — the diff viewer's per-hunk boxes are where the true
+    // per-list state lives.
     checked: entryCheckedState(entry),
     // A row with work outside the index opens on that work (index↔worktree);
     // one that is wholly staged has nothing there, so it opens HEAD↔index.
     diffScope: entry.unstaged ? 'unstaged' : 'staged',
+    ...(partial ? { partial: true as const } : {}),
+    ...(changelistId ? { changelistId } : {}),
   }
 }
 
@@ -213,12 +311,9 @@ export function isUntrackedEntry(entry: Pick<GitStatusEntry, 'status' | 'staged'
   return entry.status === 'new' && !entry.staged
 }
 
-function cappedGroup(
-  base: Omit<GitChangeGroup, 'rows' | 'allRows' | 'omittedCount' | 'totalCount' | 'checked'>,
-  entries: GitStatusEntry[],
-  limit: number,
-): GitChangeGroup {
-  const allRows = entries.map(toGitChangeRow)
+type GroupBase = Omit<GitChangeGroup, 'rows' | 'allRows' | 'omittedCount' | 'totalCount' | 'checked'>
+
+function cappedRowGroup(base: GroupBase, allRows: GitChangeRow[], limit: number): GitChangeGroup {
   const rows = allRows.slice(0, limit)
   return {
     ...base,
@@ -228,6 +323,10 @@ function cappedGroup(
     omittedCount: Math.max(0, allRows.length - rows.length),
     checked: groupCheckedState(allRows),
   }
+}
+
+function cappedGroup(base: GroupBase, entries: GitStatusEntry[], limit: number): GitChangeGroup {
+  return cappedRowGroup(base, entries.map((entry) => toGitChangeRow(entry)), limit)
 }
 
 /**
@@ -252,12 +351,33 @@ export function buildGitChangeGroups(
   const grouping = options.grouping ?? 'changelist'
   const conflicts = entries.filter((entry) => entry.status === 'conflicted').sort(byRelativePath)
   const rest = entries.filter((entry) => entry.status !== 'conflicted')
-  const untracked = rest.filter(isUntrackedEntry).sort(byRelativePath)
-  const tracked = rest.filter((entry) => !isUntrackedEntry(entry)).sort(byRelativePath)
+  const lists = options.changelists ?? []
+  const byChangelist = grouping === 'changelist' && lists.length > 0
+  // A file an AGENT created is `??`, and T6's rule — untracked is a fact about
+  // the file, so it draws in its own group under every grouping — would file
+  // the agent's own new files away from the agent's list, which is the one
+  // place a person looks to see what that agent did. So an untracked path whose
+  // home is an OWNED list is drawn there instead. A hand-made list keeps T6's
+  // rule exactly: moving an untracked file into one changes nothing on screen,
+  // and the menu still says so.
+  const ordered = byChangelist ? orderedChangelists(lists) : []
+  const ownedHomes = new Map<string, string>()
+  for (const list of ordered) {
+    if (!list.owner) continue
+    for (const path of list.paths) ownedHomes.set(path, list.id)
+  }
+  const drawsInOwnedList = (entry: GitStatusEntry): boolean =>
+    isUntrackedEntry(entry) && ownedHomes.has(entry.relativePath)
+  const untracked = rest
+    .filter((entry) => isUntrackedEntry(entry) && !drawsInOwnedList(entry))
+    .sort(byRelativePath)
+  const tracked = rest
+    .filter((entry) => !isUntrackedEntry(entry) || drawsInOwnedList(entry))
+    .sort(byRelativePath)
 
   const groups: GitChangeGroup[] = []
   if (conflicts.length > 0) {
-    const allRows = conflicts.map(toGitChangeRow)
+    const allRows = conflicts.map((entry) => toGitChangeRow(entry))
     const rows = allRows.slice(0, limit)
     groups.push({
       id: 'conflicts',
@@ -273,20 +393,30 @@ export function buildGitChangeGroups(
     })
   }
 
-  const lists = options.changelists ?? []
-  if (grouping === 'changelist' && lists.length > 0) {
-    const ordered = orderedChangelists(lists)
+  if (byChangelist) {
     const activeId = ordered.find((list) => list.active)?.id ?? DEFAULT_CHANGELIST_ID
-    const byList = new Map<string, GitStatusEntry[]>(ordered.map((list) => [list.id, []]))
+    const byList = new Map<string, GitChangeRow[]>(ordered.map((list) => [list.id, []]))
     const claim = new Map<string, string>()
     for (const list of ordered) for (const path of list.paths) claim.set(path, list.id)
     for (const entry of tracked) {
       const listId = claim.get(entry.relativePath) ?? activeId
-      ;(byList.get(listId) ?? byList.get(activeId))?.push(entry)
+      const home = byList.has(listId) ? listId : activeId
+      byList.get(home)?.push(toGitChangeRow(entry, { changelistId: home }))
+    }
+    // The guest rows, on top of the home rows: one per list that owns hunks of
+    // a file living somewhere else. `isPartialInList` is the model's own answer
+    // — it is false for the home list, so a file never draws twice in one group.
+    const shown = new Map(rest.map((entry) => [entry.relativePath, entry]))
+    for (const list of ordered) {
+      for (const path of Object.keys(list.spans ?? {}).sort()) {
+        const entry = shown.get(path)
+        if (!entry || !isPartialInList(list, path)) continue
+        byList.get(list.id)?.push(toGitChangeRow(entry, { changelistId: list.id, partial: true }))
+      }
     }
     for (const list of ordered) {
       groups.push(
-        cappedGroup(
+        cappedRowGroup(
           {
             id: `changelist:${list.id}`,
             kind: 'changelist',
@@ -295,7 +425,7 @@ export function buildGitChangeGroups(
             active: list.active,
             ...(list.comment ? { comment: list.comment } : {}),
           },
-          byList.get(list.id) ?? [],
+          (byList.get(list.id) ?? []).sort((a, b) => a.relativePath.localeCompare(b.relativePath)),
           limit,
         ),
       )
@@ -360,9 +490,11 @@ export function formatCommitCounts(counts: { checked: number; total: number }): 
 }
 
 /** The row's DOM id, for `aria-activedescendant`. Kept here beside the key it is
- *  built from so the list and the rows cannot spell it differently. */
-export function changeRowDomId(listId: string, path: string): string {
-  return `${listId}-row-${encodeURIComponent(path)}`
+ *  built from so the list and the rows cannot spell it differently — and it is
+ *  built from `row.key`, not `row.path`, so a guest row and the home row of the
+ *  same file are two ids rather than one id twice in the document. */
+export function changeRowDomId(listId: string, rowKey: string): string {
+  return `${listId}-row-${encodeURIComponent(rowKey)}`
 }
 
 /** Every tickable row on screen, in visual order, from the groups that are open.
@@ -386,6 +518,9 @@ export function visibleChangeRows(
  * committed, discarded or refreshed away must not take the cursor with it: the
  * cursor lands on whatever is now at its old index, or on the last row if the
  * list got shorter, or nowhere if it emptied.
+ *
+ * The three arguments are ROW KEYS (`changeRowKey`), not paths: a file that has
+ * a guest row as well as a home row occupies two places in the walk.
  */
 export function nextCursorPath(
   previousOrder: string[],

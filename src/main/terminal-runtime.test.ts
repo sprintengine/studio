@@ -162,6 +162,7 @@ async function main(): Promise<void> {
     await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
     await assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule)
     await assertFileLedgerFollowsHookReportedEdits(runtimeModule)
+    await assertAgentChangelistSeamsFire(runtimeModule)
     await assertContextUsageFollowsStatusLineFrames(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
@@ -3949,6 +3950,155 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
 // A reporter frame updates the matching session's authoritative phase, bridges
 // it to the legacy activity field, ignores stale out-of-order frames, and is a
 // safe no-op for an unknown agent id.
+// The three seams the agent changelist feed hangs off (`agent-changelist-feed.ts`):
+// a launch, every reported edit, and the one exit. What is proved here is that
+// they fire where the feature needs them to — an edit even on a frame the phase
+// guards drop, a launch only for an AGENT, an exit exactly once — and that a
+// seam that throws cannot take a terminal down with it.
+async function assertAgentChangelistSeamsFire(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-changelists-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const launched: Array<{ agentId?: string; agentName?: string; cwd?: string }> = []
+  const edits: Array<{ agentId?: string; path: string; edits?: unknown; ts: number }> = []
+  const exited: Array<string | undefined> = []
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    onAgentLaunched: (session) => {
+      launched.push({ agentId: session.agentId, agentName: session.agentName, cwd: session.cwd })
+    },
+    onAgentFileEdit: (input) => {
+      edits.push({ agentId: input.session.agentId, path: input.path, edits: input.edits, ts: input.ts })
+      if (input.path.endsWith('explode.ts')) throw new Error('the store is on fire')
+    },
+    onAgentSessionExit: (session) => {
+      exited.push(session.agentId)
+    },
+  })
+
+  try {
+    const spawn = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'sess-changelists',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-changelists',
+      agentId: 'agent-changelists',
+      agentName: 'Nadia',
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(spawn.ok, true, JSON.stringify(spawn))
+    const agentPty = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(agentPty, 'expected a pty for sess-changelists')
+    assert.deepEqual(
+      launched,
+      [{ agentId: 'agent-changelists', agentName: 'Nadia', cwd: workspaceRoot }],
+      'a launched agent gets its changelist, named and rooted where it runs'
+    )
+
+    // A plain terminal has no agent and must never get an owned list.
+    const shell = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'sess-changelists-shell',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      kind: 'terminal',
+      shellOnly: true,
+      visible: false,
+    })
+    assert.equal(shell.ok, true, JSON.stringify(shell))
+    assert.equal(launched.length, 1, 'a plain terminal is not an agent')
+
+    const base = Date.now()
+    const frame = (overrides: Partial<AgentStateFrame>): AgentStateFrame => ({
+      type: 'agent_state',
+      agentId: 'agent-changelists',
+      workspaceId: 'ws-changelists',
+      sessionId: null,
+      event: 'PostToolUse',
+      ts: base,
+      ...overrides,
+    })
+
+    runtime.ingestAgentStateFrame(frame({
+      ts: base + 100,
+      fileChange: {
+        path: '/repo/src/app.ts',
+        additions: 3,
+        deletions: 1,
+        edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 3 }],
+      },
+    }))
+    assert.deepEqual(
+      edits,
+      [{
+        agentId: 'agent-changelists',
+        path: '/repo/src/app.ts',
+        edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 3 }],
+        ts: base + 100,
+      }],
+      'the reported regions reach the feed verbatim, with the session that wrote them'
+    )
+
+    // An edit whose patch the reporter could not read still reaches the feed —
+    // a file-level claim is a smaller lie than none.
+    edits.length = 0
+    runtime.ingestAgentStateFrame(frame({
+      ts: base + 200,
+      fileChange: { path: '/repo/src/opaque.ts', additions: 0, deletions: 0 },
+    }))
+    assert.deepEqual(edits.map((edit) => [edit.path, edit.edits]), [['/repo/src/opaque.ts', undefined]])
+
+    // …and so does one on a frame the guards drop: a STALE frame moves no phase,
+    // but the edit it carries already happened. Same for an event this CLI's
+    // manifest does not name.
+    edits.length = 0
+    runtime.ingestAgentStateFrame(frame({
+      ts: base + 50,
+      fileChange: { path: '/repo/src/late.ts', additions: 1, deletions: 0 },
+    }))
+    runtime.ingestAgentStateFrame(frame({
+      ts: base + 300,
+      event: 'Notification',
+      notificationType: 'idle_prompt',
+      fileChange: { path: '/repo/src/dropped.ts', additions: 1, deletions: 0 },
+    }))
+    assert.deepEqual(
+      edits.map((edit) => edit.path),
+      ['/repo/src/late.ts', '/repo/src/dropped.ts'],
+      'an edit is order-independent: neither the stale guard nor a dropped event may eat it'
+    )
+
+    // A seam that throws is the feed's problem, never the session's.
+    edits.length = 0
+    runtime.ingestAgentStateFrame(frame({
+      ts: base + 400,
+      fileChange: { path: '/repo/src/explode.ts', additions: 1, deletions: 0 },
+    }))
+    assert.equal(edits.length, 1, 'the throwing seam was called')
+    assert.equal(
+      runtime.ipcHandlers.listTerminals().some((session) => session.sessionId === 'sess-changelists'),
+      true,
+      'and the session survived it'
+    )
+
+    // Exactly once, on the pty that died on its own.
+    agentPty.emitExit({ exitCode: 0 })
+    assert.deepEqual(exited, ['agent-changelists'], 'the agent’s list is marked exited once, on exit')
+  } finally {
+    runtime.ipcHandlers.killTerminal('sess-changelists-shell')
+    await runtime.shutdown()
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
 async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-ingest-'))
   mockPty.spawnCalls = []

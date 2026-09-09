@@ -783,7 +783,13 @@ export type WorkspacePaneTab = {
   // scope, which is not always the workspace's own worktree — and the pane
   // honours it rather than re-deriving one; absent, the workspace's worktree
   // is the repository (a Diff tab opened from the pane's own + menu).
-  diff?: { repoRoot?: string; focusPath: string | null; focusKind: 'staged' | 'unstaged' | null }
+  diff?: {
+    repoRoot?: string
+    focusPath: string | null
+    focusKind: 'staged' | 'unstaged' | null
+    /** Filter the viewer to one changelist (`agent:<agentId>`); absent = all. */
+    changelistId?: string
+  }
   // Browser only: the device toolbar's viewport; absent means fill.
   viewport?: BrowserViewport
 }
@@ -976,4 +982,21 @@ export type Workspace = {
   // on workspaces created before the field existed, which reads as unlocked —
   // correct, since those are sitting on a default "Chat 44" name.
   titleLocked?: boolean
+  // The agent whose terminal was last selected in this workspace's layout
+  // (agent changelists, Wave 4). It is the DEFAULT the Diff surfaces open on:
+  // a Diff tab asked for with no file and no changelist shows that agent's
+  // changelist, because "show me the diff" in a workspace where an agent has
+  // been working means that agent's diff far more often than it means the
+  // whole repository's.
+  //
+  // Only a default, and only when the list is really there: the helper that
+  // reads it (`utils/diffChangelistDefault.ts`) checks the repository's lists
+  // first, so an agent that exited and had its list reconciled away leaves the
+  // Diff tab unfiltered rather than empty.
+  //
+  // Null once nothing qualifies; absent on every workspace written before the
+  // field existed, which reads the same way. Persisted like its siblings — it
+  // is a remembered choice, and forgetting it on every restart would make the
+  // first Diff of a session the one that never obeys.
+  lastActiveAgentId?: string | null
 }

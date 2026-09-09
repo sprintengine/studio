@@ -90,16 +90,24 @@ export default function AuxWindowApp() {
     return (
       <Suspense fallback={<AuxLoading />}>
         <DiffViewerWindow
-          // Keyed on the REPOSITORY alone. A retarget to another file in the
-          // same repo flows in as props and the viewer walks its own cursor
-          // there; keying on the file remounted Monaco under the diff widget on
-          // every Git row click — the flash the pane tab was careful to avoid
-          // (see WorkspacePaneBody). A different repository is a different file
-          // list, and that does start over.
-          key={params.repoRoot}
+          // Keyed on the REPOSITORY and the CHANGELIST. A retarget to another
+          // file in the same repo flows in as props and the viewer walks its
+          // own cursor there; keying on the file remounted Monaco under the
+          // diff widget on every Git row click — the flash the pane tab was
+          // careful to avoid (see WorkspacePaneBody). A different repository is
+          // a different file list, and that does start over.
+          //
+          // A different CHANGELIST is a different file list too, and it starts
+          // over for the same reason: the viewer holds a cursor, a chosen
+          // filter and a hunk read that are all about the list it opened on, so
+          // retargeting one into another leaves a cursor pointing at a file the
+          // new list may not contain. The empty string is "no filter", which is
+          // the key every diff opened before agent changelists carries.
+          key={`${params.repoRoot}\n${params.changelistId ?? ''}`}
           repoRoot={params.repoRoot}
           focusPath={params.focusPath ?? null}
           focusKind={focusKind}
+          changelistId={params.changelistId ?? null}
           workspaceId={params.workspaceId ?? null}
         />
       </Suspense>

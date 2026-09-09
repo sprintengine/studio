@@ -2,6 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DiffEditor, type DiffOnMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
 import { useGitStatus, useGitTreeRevision, type GitRepoState } from '../../hooks/useGitStatus'
+import { useChangelists } from '../../hooks/useChangelists'
+import { hunkKey, hunkToggleScope, type GitHunkView } from '../../../../shared/git/hunks'
+import {
+  hunkOwnerId,
+  normalizeChangelistPath,
+  pathsOfChangelist,
+  type Changelist,
+} from '../../../../shared/git/changelists'
 import { detectLanguage, isImageFile } from '../../utils/files'
 import { joinFilePath } from '../../utils/paths'
 import { BranchStepStrip, BRANCH_STEP_PANEL_ID } from './BranchStepStrip'
@@ -23,12 +31,15 @@ import {
   GearGlyph,
   InlineNotice,
   MenuItem,
+  MicroChip,
   NextDifferenceGlyph,
   OpenInEditorGlyph,
+  OutlineButton,
   Pager,
   Popover,
   PreviousDifferenceGlyph,
   SegmentedControl,
+  Select,
   SideBySideGlyph,
   Toolbar,
   ToolbarButton,
@@ -86,6 +97,16 @@ type Props = {
   focusPath: string | null
   focusKind: 'staged' | 'unstaged' | null
   /**
+   * Show only one changelist's files (`agent:<agentId>`, agent changelists).
+   * Null/absent is "All changes" and is the whole of the pre-changelist
+   * behaviour: no extra read, no extra chrome, the same file list.
+   *
+   * It is the filter the viewer OPENS on, not the filter it is stuck with — the
+   * header strip's select is the person's copy of it, and a list that has since
+   * been deleted degrades to all changes with the strip saying so.
+   */
+  changelistId?: string | null
+  /**
    * The workspace this diff belongs to. The pane host knows it outright; the
    * window host carries it as a URL param so "Show in the app" can name the
    * pane it hands the diff back to. Null in a window opened before the param
@@ -112,6 +133,11 @@ type DiffContent =
   | { state: 'ready'; original: string; modified: string; language: string }
 
 const NUL = '\u0000'
+
+/** The changelist select's "no filter" option. Not a list id — the model has no
+ *  id for "everything", and inventing one would put a phantom list in front of
+ *  every function that takes one. */
+const ALL_CHANGES = '__all-changes__'
 
 // Two reads of the same file that say the same thing. The live re-read below
 // drops a result that matches what is on screen, so an unchanged file costs two
@@ -144,6 +170,42 @@ async function readStageSide(
   const result = await window.api.getGitFileAtStage(repoRoot, path, stage)
   if (!result.ok) return { error: result.message }
   return { content: result.content, binary: result.binary, tooLarge: result.tooLarge }
+}
+
+/**
+ * Stage (or unstage) exactly the hunks a changelist owns in one file.
+ *
+ * One `git apply` per hunk, in arrival order, stopping at the first refusal so
+ * the person is told about the hunk that actually failed rather than about the
+ * last one. Hunks whose state already matches the direction are skipped, which
+ * is what makes a second click on a half-done file finish it instead of
+ * flipping the half that was already there.
+ *
+ * There is no batched IPC for this and there deliberately is not one: main
+ * finds a hunk by re-reading the diff at that instant (`git-hunks.ts`), so a
+ * batch would be a list of fingerprints against a file that moved under it
+ * halfway through. Sequential calls each read the file as it is now.
+ */
+async function stageOwnedHunks(input: {
+  repoRoot: string
+  filePath: string
+  hunks: GitHunkView[]
+  action: 'stage' | 'unstage'
+}): Promise<{ ok: boolean; message?: string | null; stderr?: string | null }> {
+  const wanted = input.action === 'stage'
+  const targets = input.hunks.filter((hunk) => hunk.included !== wanted)
+  for (const hunk of targets) {
+    const ref = {
+      repoRoot: input.repoRoot,
+      filePath: input.filePath,
+      scope: hunkToggleScope(hunk),
+      index: hunk.index,
+      fingerprint: hunk.fingerprint,
+    }
+    const result = wanted ? await window.api.stageGitHunk(ref) : await window.api.unstageGitHunk(ref)
+    if (!result.ok) return result
+  }
+  return { ok: true }
 }
 
 // Reads the working-tree side off disk. A deleted-on-disk file (unstaged
@@ -412,6 +474,7 @@ export function DiffViewer({
   repoRoot,
   focusPath,
   focusKind,
+  changelistId = null,
   workspaceId = null,
   variant = 'window',
   onItemCountChange,
@@ -432,11 +495,81 @@ export function DiffViewer({
   const steps = useBranchSteps(repoRoot, branchSteps, status)
   const stripEntries = useMemo(() => stripEntriesFrom(steps.snapshot), [steps.snapshot])
   const stepNote = useMemo(() => scopeNote(steps.snapshot), [steps.snapshot])
-  const workingItems = useMemo(() => buildDiffFileList(status), [status])
-  const branchItems = useMemo(
+  // ── The changelist filter ───────────────────────────────────────────────
+  //
+  // The viewer OPENS on `changelistId` and the person owns it from there: the
+  // strip's select is the only writer, so "show me all changes" is one click
+  // and never a reopen. The prop still wins whenever the host changes it (a
+  // retarget, a new tab), which is what `chosenFilter.from` compares.
+  //
+  // The lists are read only when there IS a filter. That is the whole of "no
+  // changelist means today's behaviour, byte for byte": an ordinary diff makes
+  // no changelist IPC call, draws no select, and labels no hunk.
+  const filtering = Boolean(changelistId)
+  const { changelists, refresh: refreshChangelists } = useChangelists(filtering ? gitRoot : null)
+  const [chosenFilter, setChosenFilter] = useState<{ from: string | null; id: string | null }>(() => ({
+    from: changelistId ?? null,
+    id: changelistId ?? null,
+  }))
+  const filterId = chosenFilter.from === (changelistId ?? null) ? chosenFilter.id : changelistId ?? null
+  const filterList = filterId ? changelists.find((list) => list.id === filterId) ?? null : null
+
+  // "Not read yet" and "gone" are the same shape — a list that is not in the
+  // array — and they must not be told apart by guessing. The first completed
+  // read is the moment the difference becomes real, so nothing is called gone
+  // before it, and until then the filter is honoured with an EMPTY list rather
+  // than by falling back to the whole repository: a window opened on an agent's
+  // list must not flash every file in the checkout before narrowing to seven.
+  const [listsRead, setListsRead] = useState(false)
+  useEffect(() => {
+    if (!filtering || !gitRoot) return
+    let live = true
+    void refreshChangelists().then(() => {
+      if (live) setListsRead(true)
+    })
+    return () => {
+      live = false
+    }
+  }, [filtering, gitRoot, refreshChangelists])
+  // A repository that is not one never gets a changelist read, so "the lists
+  // have not landed" would be forever there; the viewer's own answer about the
+  // repository is the one worth showing.
+  const filterReadable = repoState !== 'not-git' && repoState !== 'error'
+  const filterPending = Boolean(filterId) && !filterList && !listsRead && filterReadable
+  const filterMissing = Boolean(filterId) && !filterList && (listsRead || !filterReadable)
+  const pendingList = useMemo<Changelist | null>(
+    () => (filterPending && filterId ? { id: filterId, name: '', paths: [], active: false } : null),
+    [filterPending, filterId]
+  )
+  const showAllChanges = useCallback(() => {
+    setChosenFilter({ from: changelistId ?? null, id: null })
+  }, [changelistId])
+
+  const workingItems = useMemo(
+    () => buildDiffFileList(status, { changelist: filterList ?? pendingList }),
+    [status, filterList, pendingList]
+  )
+  const unfilteredBranchItems = useMemo(
     () => branchItemsFrom(steps.diff, steps.selection, steps.snapshot, repoRoot),
     [steps.diff, steps.selection, steps.snapshot, repoRoot]
   )
+  // The pane steps through the BRANCH, and its file list is a step's diff, not
+  // git status — so the filter has to be applied here too, or the pane shows
+  // the right name in the select over the whole checkout's files. It applies to
+  // the WORKING-TREE step only: a changelist describes uncommitted lines, and
+  // a commit is a step the list has already been pruned out of, so filtering
+  // history by it would show an empty commit under an agent's name.
+  const branchItems = useMemo(() => {
+    const list = filterList ?? pendingList
+    if (!list) return unfilteredBranchItems
+    const owned = new Set(pathsOfChangelist(list))
+    return unfilteredBranchItems.filter(
+      (item) => item.modifiedRev !== 'worktree' || owned.has(normalizeChangelistPath(item.relativePath))
+    )
+  }, [unfilteredBranchItems, filterList, pendingList])
+  // Whether what the pane is showing is the working tree at all — the one step
+  // the filter can empty honestly.
+  const branchShowsWorktree = unfilteredBranchItems.some((item) => item.modifiedRev === 'worktree')
   const items = branchSteps ? branchItems : workingItems
 
   useEffect(() => {
@@ -849,8 +982,11 @@ export function DiffViewer({
       repoRoot,
       focusPath: target?.path ?? focusPath ?? '',
       scope: scope ?? focusKind ?? 'unstaged',
+      // The list the pane is filtered to goes with it; the window opens on the
+      // same seven files, not on the whole repository.
+      ...(filterId ? { changelistId: filterId } : {}),
     })
-  }, [currentItem, focusKind, focusPath, items, repoRoot, workspaceId])
+  }, [currentItem, filterId, focusKind, focusPath, items, repoRoot, workspaceId])
 
   // The window's half of the flip. The preference is NOT written here: this
   // window's store was hydrated when it opened, and writing the settings
@@ -876,6 +1012,9 @@ export function DiffViewer({
         repoRoot,
         focusPath: target?.path ?? focusPath ?? null,
         focusKind: kind ?? focusKind ?? null,
+        // The filter the person is looking at — the strip's choice, not the
+        // one the window opened on — so the pane tab shows the same list.
+        changelistId: filterId,
       })
       // Closed only once a window has SAID it took the diff. "On its way" was
       // not enough: the hand-off is a broadcast that every workspace window is
@@ -888,7 +1027,7 @@ export function DiffViewer({
       }
       await window.api.windowClose()
     })()
-  }, [currentItem, focusKind, focusPath, items, repoRoot, workspaceId])
+  }, [currentItem, filterId, focusKind, focusPath, items, repoRoot, workspaceId])
 
   // ── How the diff is drawn ───────────────────────────────────────────────
   // `diffView` is the persisted app setting (settingsSlice); the other three
@@ -950,6 +1089,12 @@ export function DiffViewer({
     { path: string; state: IncludeBoxState } | null
   >(null)
   const includeBusyRef = useRef(false)
+  // What the file's include box means UNDER A FILTER: this list's hunks, and
+  // their include state. Filled in below, after the hunk read that answers it —
+  // through a ref rather than by moving the read up here, because the callback
+  // must not be rebuilt on every watcher tick. Empty (`list: null`) whenever
+  // there is no filter, and then the box is the whole-file box it always was.
+  const listStageRef = useRef<{ list: string | null; hunks: GitHunkView[] }>({ list: null, hunks: [] })
 
   const fileInclude =
     includeOverride && includeOverride.path === currentItem?.path
@@ -973,6 +1118,7 @@ export function DiffViewer({
   const toggleInclude = useCallback(() => {
     const item = currentItem
     if (!item || !isIncludable(item) || includeBusyRef.current) return
+    const owned = listStageRef.current
     const action = includeAction(fileInclude)
     includeBusyRef.current = true
     setIncludeOverride({
@@ -981,8 +1127,20 @@ export function DiffViewer({
     })
     void (async () => {
       try {
-        const result =
-          action === 'stage'
+        // UNDER A FILTER the box is not "this file": it is "my list's part of
+        // this file". Staging the whole file would quietly stage another
+        // agent's hunks — the one thing a per-agent view exists to prevent — so
+        // the box loops the list's own hunks instead. Order does not matter:
+        // main locates a hunk by the fingerprint of its body, not by an index
+        // that staging the hunk above it would have moved.
+        const result = owned.list
+          ? await stageOwnedHunks({
+              repoRoot,
+              filePath: item.path,
+              hunks: owned.hunks,
+              action,
+            })
+          : action === 'stage'
             ? await window.api.stageGitPaths(repoRoot, [item.relativePath])
             : await window.api.unstageGitPaths(repoRoot, [item.relativePath])
         if (!result.ok) {
@@ -1017,6 +1175,47 @@ export function DiffViewer({
     treeRevision,
     refreshGitStatus,
   })
+  // Whose hunks these are, for the hunks the filtered list does NOT own. The
+  // model answers per hunk (`hunkOwnerId` — most new-side lines covered, the
+  // file's home list for the remainder), so a file that three agents touched
+  // reads as three names down one gutter. Empty whenever there is no filter,
+  // which is what leaves the ordinary gutter exactly as T7 drew it.
+  const foreignHunkOwners = useMemo(() => {
+    if (!filterList || !currentItem || currentItem.kind === 'branch') return undefined
+    const names = new Map(changelists.map((list) => [list.id, list.name]))
+    const owners: Record<string, string> = {}
+    for (const hunk of fileHunks.hunks) {
+      const ownerId = hunkOwnerId(changelists, currentItem.relativePath, hunk)
+      if (ownerId === filterList.id) continue
+      owners[hunkKey(hunk)] = names.get(ownerId) ?? ownerId
+    }
+    return Object.keys(owners).length > 0 ? owners : undefined
+  }, [filterList, changelists, fileHunks.hunks, currentItem?.kind, currentItem?.relativePath])
+
+  // The hunks the FILTERED list owns in the file on screen — what its include
+  // box acts on, and what its tri-state reads.
+  const listHunks = useMemo(() => {
+    if (!filterList || !currentItem || currentItem.kind === 'branch') return []
+    return fileHunks.hunks.filter(
+      (hunk) => hunkOwnerId(changelists, currentItem.relativePath, hunk) === filterList.id
+    )
+  }, [filterList, changelists, fileHunks.hunks, currentItem?.kind, currentItem?.relativePath])
+  listStageRef.current = { list: filterList && listHunks.length > 0 ? filterList.id : null, hunks: listHunks }
+
+  // The include box under a filter is the LIST's tri-state, not the file's: all
+  // of my hunks in, some in, none in. A pending click still wins over it — the
+  // optimistic value is the same one the unfiltered box uses, and it is dropped
+  // the moment git has answered either way.
+  const listInclude = useMemo<IncludeBoxState | null>(() => {
+    if (!filterList || listHunks.length === 0) return null
+    const included = listHunks.filter((hunk) => hunk.included).length
+    if (included === 0) return { checked: false, indeterminate: false }
+    if (included === listHunks.length) return { checked: true, indeterminate: false }
+    return { checked: false, indeterminate: true }
+  }, [filterList, listHunks])
+  const boxInclude =
+    includeOverride && includeOverride.path === currentItem?.path ? fileInclude : listInclude ?? fileInclude
+
   const gutterBoxes = useMemo(
     () =>
       hunkBoxes({
@@ -1024,8 +1223,16 @@ export function DiffViewer({
         key: hunkFileKey(currentItem),
         override: fileHunks.override,
         relativePath: currentItem?.relativePath ?? '',
+        ...(foreignHunkOwners ? { foreignOwners: foreignHunkOwners } : {}),
       }),
-    [fileHunks.hunks, fileHunks.override, currentItem?.kind, currentItem?.path, currentItem?.relativePath]
+    [
+      fileHunks.hunks,
+      fileHunks.override,
+      foreignHunkOwners,
+      currentItem?.kind,
+      currentItem?.path,
+      currentItem?.relativePath,
+    ]
   )
 
   // The stepper's stops, from the same hunks the boxes and the counter come
@@ -1091,6 +1298,19 @@ export function DiffViewer({
 
   const header = headerStripModel(currentItem)
 
+  // The select IS the name: one control and one fact rather than a label beside
+  // a control that could disagree with it. The file count is NOT repeated here
+  // — the toolbar's stepper already reads "1/7 files" over the same list, and in
+  // the pane's width a second count pushed the right half of the strip under
+  // the left one.
+  const filterOptions = useMemo(
+    () => [
+      { value: ALL_CHANGES, label: 'All changes' },
+      ...changelists.map((list) => ({ value: list.id, label: list.name })),
+    ],
+    [changelists]
+  )
+
   // The window's name, editor-style: `Commit: <file>`. ONE string, used by
   // both the OS title (the window switcher, which T3 set) and the title bar the
   // person is looking at — they cannot drift apart if there is only one of
@@ -1112,6 +1332,14 @@ export function DiffViewer({
   }`
 
   const noFiles = items.length === 0 || currentIndex < 0
+  // The filter is on, the lists have been read, and the list is empty — the
+  // agent's work has all been committed. That is an ANSWER, not an empty
+  // repository, so it says whose list it is and offers the one click out.
+  const filteredEmpty =
+    Boolean(filterList)
+    && items.length === 0
+    && repoState === 'ready'
+    && (!branchSteps || branchShowsWorktree)
 
   return (
     <div
@@ -1264,8 +1492,48 @@ export function DiffViewer({
           nothing — the code under it does. Left is what the file is compared
           AGAINST, right is what you are looking at, and both come from the
           revisions `loadDiffContent` actually read (diffToolbarModel). */}
-      <div className="flex h-7 shrink-0 items-stretch border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] text-meta">
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-3">
+      <div
+        className={`flex shrink-0 items-stretch border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] text-meta ${
+          // A control is 30px and this row is 28px, so the row grows — but only
+          // where a filter put a control in it. An unfiltered diff keeps the
+          // 28px strip T4 drew, to the pixel.
+          filtering ? 'min-h-8' : 'h-7'
+        }`}
+      >
+        {/* Both halves clip: each is `flex-1 min-w-0`, and in a narrow pane the
+            left one's fixed-width children (the select, the lock, the base
+            revision) used to spill under the right one's text instead of being
+            cut at the divider. */}
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden px-3">
+          {/* WHOSE changes you are looking at, and the one click back to all of
+              them. Only under a filter: an ordinary diff has nothing to choose
+              between, and a select offering one option is a control that does
+              nothing. */}
+          {filtering ? (
+            <>
+              <Select
+                ariaLabel="Show one changelist"
+                className="shrink-0"
+                triggerMinWidthClassName="min-w-0"
+                value={filterList ? filterList.id : ALL_CHANGES}
+                items={filterOptions}
+                onChange={(next) =>
+                  setChosenFilter({
+                    from: changelistId ?? null,
+                    id: next === ALL_CHANGES ? null : next,
+                  })
+                }
+              />
+              {filterMissing ? (
+                // The list this window was opened on has been deleted, or its
+                // agent exited and reconcile cleared it. Say so and show
+                // everything — a viewer that went blank because its filter
+                // outlived its list is the failure this sentence exists for.
+                <MicroChip className="shrink-0">That changelist is gone</MicroChip>
+              ) : null}
+              <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-[color:var(--border-subtle)]" />
+            </>
+          ) : null}
           {/* The padlock: this side is not yours to edit. Reused from
               FileTypeGlyph rather than redrawn (glyphs/component.md). */}
           <FileTypeGlyph kind="lock" className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
@@ -1303,13 +1571,17 @@ export function DiffViewer({
             </span>
           ) : null}
         </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2 border-l border-[color:var(--border-subtle)] px-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden border-l border-[color:var(--border-subtle)] px-3">
           {header?.includable && currentItem ? (
             <Checkbox
-              checked={fileInclude.checked}
-              indeterminate={fileInclude.indeterminate}
+              checked={boxInclude.checked}
+              indeterminate={boxInclude.indeterminate}
               onChange={toggleInclude}
-              ariaLabel={`Include ${currentItem.relativePath} in the commit`}
+              ariaLabel={
+                listStageRef.current.list && filterList
+                  ? `Include ${filterList.name}\u2019s changes to ${currentItem.relativePath} in the commit`
+                  : `Include ${currentItem.relativePath} in the commit`
+              }
             />
           ) : null}
           {header ? (
@@ -1345,15 +1617,32 @@ export function DiffViewer({
         id={branchSteps ? BRANCH_STEP_PANEL_ID : undefined}
         role={branchSteps ? 'tabpanel' : undefined}
       >
-        <DiffBody
-          content={content}
-          repoState={repoState}
-          currentItem={currentItem}
-          onMount={handleDiffMount}
-          monacoTheme={monacoTheme}
-          options={editorOptions}
-          stepLoading={branchSteps && steps.loading}
-        />
+        {filterPending ? (
+          // The lists are one IPC read behind the status snapshot. "No changed
+          // files" during that beat would be a claim about the repository made
+          // before anyone asked it anything.
+          <CenteredMessage>Loading changes\u2026</CenteredMessage>
+        ) : filteredEmpty ? (
+          <EmptyState
+            title={`${filterList?.name ?? 'This changelist'} has nothing changed here.`}
+            body="Everything it owned has been committed, moved to another list, or discarded."
+            action={
+              <OutlineButton size="sm" onClick={showAllChanges}>
+                Show all changes
+              </OutlineButton>
+            }
+          />
+        ) : (
+          <DiffBody
+            content={content}
+            repoState={repoState}
+            currentItem={currentItem}
+            onMount={handleDiffMount}
+            monacoTheme={monacoTheme}
+            options={editorOptions}
+            stepLoading={branchSteps && steps.loading}
+          />
+        )}
         {/* Renders nothing of its own — only portals into the widget nodes it
             hangs in Monaco's glyph margin — so where it sits in the tree is
             immaterial, and it sits beside the editor it draws on. */}

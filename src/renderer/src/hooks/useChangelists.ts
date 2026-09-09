@@ -182,5 +182,20 @@ export function useChangelists(repoRoot: string | null): UseChangelistsResult {
     void refreshChangelists(repoRoot)
   }, [repoRoot, treeRevision])
 
+  // Main writes these lists too: an agent launching, editing or exiting moves
+  // its own changelist with nobody in a window having asked. It pushes the ROOT
+  // and nothing else — the store always answers with the whole reconciled set,
+  // so a pushed copy could only ever be the older one — on one channel for every
+  // repository, which is why the root is compared here. `refreshChangelists`
+  // coalesces, so a burst of writes costs one read.
+  useEffect(() => {
+    if (!repoRoot || typeof window.api.onGitChangelistsChanged !== 'function') return
+    const key = normalizePathKey(repoRoot)
+    return window.api.onGitChangelistsChanged((event) => {
+      if (!event?.repoRoot || normalizePathKey(event.repoRoot) !== key) return
+      void refreshChangelists(repoRoot)
+    })
+  }, [repoRoot])
+
   return { changelists, activeChangelist: pickActive(changelists), refresh }
 }

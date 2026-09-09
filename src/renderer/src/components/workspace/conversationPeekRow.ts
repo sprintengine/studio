@@ -134,6 +134,10 @@ export function rowConversationPeekIdentities(input: {
         status: agentStatusOf(session, input.now),
         agent: {
           sessionId: session.sessionId,
+          // The agent, not only the session: the card's "open the diff" opens
+          // that agent's changelist, and a session id is not what a list is
+          // named after.
+          agentId: session.agentId ?? record?.id ?? null,
           cli: record?.cli ?? session.cli ?? null,
           model: record?.cliModel ?? null,
           fileChanges: session.fileChanges ?? [],
@@ -161,6 +165,7 @@ export function rowConversationPeekIdentities(input: {
           status: agentStatusOf(null, input.now),
           agent: {
             sessionId,
+            agentId: record.id,
             cli: record.cli ?? null,
             model: record.cliModel ?? null,
             // A parked record is not a session: main holds no ledger for it,

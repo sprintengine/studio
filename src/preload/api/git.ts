@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { RepositoryIdentityRead } from '../../shared/repository-identity'
 import type { GitFileHunksResult, GitHunkRef, GitHunkScope } from '../../shared/git/hunks'
 import type { Changelist } from '../../shared/git/changelists'
@@ -153,6 +153,17 @@ export const gitApi = {
     ipcRenderer.invoke('git:changelists:delete', repoRoot, id),
   moveGitChangelistPaths: (repoRoot: string, id: string, paths: string[]): Promise<Changelist[]> =>
     ipcRenderer.invoke('git:changelists:move-paths', repoRoot, id, paths),
+  // Main's own writes to a repository's lists (an agent launching, editing or
+  // exiting). One channel for every repository, filtered in the renderer on the
+  // root, exactly as `terminal:sessions-changed` is one channel for every
+  // session: a per-repository channel would need a subscription per open
+  // checkout and a teardown nobody would get right.
+  onGitChangelistsChanged: (cb: (event: { repoRoot: string }) => void): (() => void) => {
+    const ch = 'git:changelists-changed'
+    const handler = (_: IpcRendererEvent, event: { repoRoot: string }) => cb(event)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
   createGitPatch: (repoRoot: string, paths: string[], cached?: boolean): Promise<GitPatchResult> =>
     ipcRenderer.invoke('git:create-patch', repoRoot, paths, cached),
   saveGitPatch: (repoRoot: string, patch: string, defaultFileName?: string): Promise<GitPatchSaveResult> =>
@@ -222,6 +233,7 @@ export const gitApi = {
   | 'renameGitChangelist'
   | 'deleteGitChangelist'
   | 'moveGitChangelistPaths'
+  | 'onGitChangelistsChanged'
   | 'createGitPatch'
   | 'saveGitPatch'
   | 'getGitHubTokenStatus'

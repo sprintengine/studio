@@ -1373,4 +1373,36 @@ assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a 
   assert.equal(rowOf(activeId!).settledAt ?? null, null, 'the active row is exempt from the sweep')
 }
 
+// --- lastActiveAgentId: the Diff surfaces' default (agent changelists) -------
+{
+  const workspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+    name: 'Last active agent',
+  })
+  const row = (): Workspace =>
+    useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)!
+
+  assert.equal(row().lastActiveAgentId ?? null, null, 'a new workspace remembers no agent')
+
+  useWorkspaceStore.getState().setLastActiveAgent(workspaceId, 'agent-1')
+  assert.equal(row().lastActiveAgentId, 'agent-1')
+
+  // Idempotent: the layout calls this on every selection change and on mount,
+  // so the same id twice must not be a second write.
+  const before = row()
+  useWorkspaceStore.getState().setLastActiveAgent(workspaceId, 'agent-1')
+  assert.equal(row(), before, 'a repeat of the same agent leaves the row untouched')
+
+  useWorkspaceStore.getState().setLastActiveAgent(workspaceId, '  agent-2  ')
+  assert.equal(row().lastActiveAgentId, 'agent-2', 'ids are trimmed')
+
+  useWorkspaceStore.getState().setLastActiveAgent(workspaceId, '   ')
+  assert.equal(row().lastActiveAgentId, null, 'a blank id is no agent, not an agent named blank')
+
+  useWorkspaceStore.getState().setLastActiveAgent(workspaceId, 'agent-3')
+  useWorkspaceStore.getState().setLastActiveAgent(workspaceId, null)
+  assert.equal(row().lastActiveAgentId, null, 'and it can be cleared outright')
+
+  useWorkspaceStore.getState().setLastActiveAgent('no-such-workspace', 'agent-1')
+}
+
 console.log('workspacesSlice.test.ts: ok')

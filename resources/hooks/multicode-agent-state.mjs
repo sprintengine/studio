@@ -55,6 +55,98 @@ const MAX_CWD_LENGTH = 4096
 // src/main/agent-state.ts; an over-long value is DROPPED rather than sliced —
 // half a path names the wrong file, and the reader would reject it anyway.
 const MAX_FILE_PATH_LENGTH = 4096
+// Send-side cap on the changed REGIONS forwarded per call (agent changelists).
+// Mirrors MAX_FILE_CHANGE_EDITS in src/main/agent-state.ts. A call that rewrote
+// more of a file than this is a whole-file rewrite in all but name; the first
+// 200 regions are kept (they are ascending, so the ones that are kept are still
+// correct) and the rest fall to the changelist model's remainder rule.
+const MAX_EDITS_PER_FRAME = 200
+
+/**
+ * The MINIMAL changed regions of one tool call — what the agent's changelist
+ * ends up owning line by line (`recordEdit` in src/shared/git/changelists.ts).
+ *
+ * NOT the hunk bounds. A structuredPatch hunk is padded with context lines on
+ * both sides, so `@@ -1,7 +1,8 @@` around a one-line change would claim eight
+ * lines the agent never touched — and in a file two agents share, those lines
+ * belong to whoever last wrote them. So each hunk is WALKED: a context line
+ * advances both cursors and can never be inside an edit; a `-` advances the old
+ * cursor; a `+` advances the new one; and a maximal run of `-`/`+` lines is one
+ * edit. A `\ No newline at end of file` marker is diff bookkeeping — it moves
+ * neither cursor and does not break the run it trails.
+ *
+ * The output is in GIT's hunk convention, which is what the model reads: a run
+ * starts at its first line, and a side with no lines is ANCHORED AFTER the
+ * preceding line (`-4,0` = "inserted after old line 4", `+0,0` = "deleted before
+ * the first new line"). The same convention is the reason a CONTEXT-FREE hunk
+ * (`oldLines: 0` / `newLines: 0`, which only happens at context 0) has its
+ * cursor started one line later than the header says: the header's number is an
+ * anchor there, not the first line of a run.
+ *
+ * Unreadable shape → null, and the caller then forwards the path with no
+ * `edits` at all: a file-level claim is a smaller lie than a wrong line range.
+ */
+function deriveEdits(hunks) {
+  const edits = []
+  for (const hunk of hunks) {
+    if (!hunk || typeof hunk !== 'object') return null
+    const { oldStart, oldLines, newStart, newLines, lines } = hunk
+    if (!Number.isInteger(oldStart) || !Number.isInteger(newStart)) return null
+    if (oldStart < 0 || newStart < 0) return null
+    if (!Array.isArray(lines)) return null
+    // A zero-length side is an anchor ("after this line"), so the first line of
+    // the region it describes is the next one. `oldLines`/`newLines` are read
+    // ONLY for that test — deliberately, so a CLI that omits them degrades to
+    // the ordinary (context-carrying) reading rather than losing every range.
+    let oldCursor = oldLines === 0 ? oldStart + 1 : oldStart
+    let newCursor = newLines === 0 ? newStart + 1 : newStart
+    let runOld = 0
+    let runNew = 0
+    let runOldAt = oldCursor
+    let runNewAt = newCursor
+    const openRun = () => {
+      if (runOld === 0 && runNew === 0) {
+        runOldAt = oldCursor
+        runNewAt = newCursor
+      }
+    }
+    const flush = () => {
+      if (runOld === 0 && runNew === 0) return
+      edits.push({
+        oldStart: runOld > 0 ? runOldAt : Math.max(0, runOldAt - 1),
+        oldLines: runOld,
+        newStart: runNew > 0 ? runNewAt : Math.max(0, runNewAt - 1),
+        newLines: runNew,
+      })
+      runOld = 0
+      runNew = 0
+    }
+    for (const line of lines) {
+      if (typeof line !== 'string') return null
+      if (line.startsWith('\\')) continue
+      if (line.startsWith('-')) {
+        openRun()
+        runOld += 1
+        oldCursor += 1
+        continue
+      }
+      if (line.startsWith('+')) {
+        openRun()
+        runNew += 1
+        newCursor += 1
+        continue
+      }
+      // Context (' ', and whatever an unchanged line is otherwise spelled as):
+      // it ends the run and steps both sides.
+      flush()
+      oldCursor += 1
+      newCursor += 1
+    }
+    flush()
+    if (edits.length >= MAX_EDITS_PER_FRAME) return edits.slice(0, MAX_EDITS_PER_FRAME)
+  }
+  return edits
+}
 
 /**
  * Line counts for one file-editing tool call, read from the hook's
@@ -83,9 +175,10 @@ const MAX_FILE_PATH_LENGTH = 4096
  * the missing entry, because it is indistinguishable from a real edit whose
  * shape we could not count.
  *
- * Only the path and the two integers ever ride the socket: the patch text and
- * the file content stay here (the frame line cap is 64KB, and a person's file
- * contents are not ours to forward).
+ * Only the path, the two integers and the changed line RANGES (`deriveEdits`,
+ * four ints each) ever ride the socket: the patch text and the file content stay
+ * here (the frame line cap is 64KB, and a person's file contents are not ours to
+ * forward).
  *
  * Pure, and deliberately NOT exported: importing this file runs `main()` and
  * exits the process. The counting is covered by spawning the script with real
@@ -131,7 +224,18 @@ function deriveFileChange(toolResponse, toolInput) {
     const content = text(response.content) ?? text(input.content)
     if (content !== null) additions = content.length === 0 ? 0 : content.replace(/\n$/, '').split('\n').length
   }
-  return { path, additions, deletions }
+  // The changed regions, for the agent's changelist. A created file is one
+  // region: git spells a whole-file creation `@@ -0,0 +1,N @@`, and `-0,0` is
+  // the anchor before the first line of a file that did not exist.
+  const edits =
+    hunks.length === 0 && response.type === 'create'
+      ? additions > 0
+        ? [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: additions }]
+        : []
+      : deriveEdits(hunks)
+  // No regions at all (an empty create, a patch shape this could not read) means
+  // no `edits` field: the app then claims the FILE rather than any line of it.
+  return edits && edits.length > 0 ? { path, additions, deletions, edits } : { path, additions, deletions }
 }
 
 // The tools whose PostToolUse payload this reporter reads a file change out of.

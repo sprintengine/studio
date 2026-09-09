@@ -12,6 +12,9 @@ export async function openDiffWindow(input: {
   repoRoot: string
   focusPath: string
   scope: 'staged' | 'unstaged'
+  // Show only this changelist's files. Absent = all changes (the behaviour
+  // every caller had before agent changelists).
+  changelistId?: string
 }): Promise<void> {
   await window.api.openAuxWindow({
     kind: 'diff',
@@ -21,6 +24,7 @@ export async function openDiffWindow(input: {
       repoRoot: input.repoRoot,
       focusPath: input.focusPath,
       scope: input.scope,
+      ...(input.changelistId ? { changelistId: input.changelistId } : {}),
       ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
     },
     bounds: readAuxWindowBounds('diff'),

@@ -10,16 +10,25 @@ type Props = {
   repoRoot: string
   focusPath: string | null
   focusKind: 'staged' | 'unstaged' | null
+  /** Show only one changelist's files; null is all changes. */
+  changelistId?: string | null
   /** The workspace this diff was opened from: where "Show in the app" hands it back. */
   workspaceId: string | null
 }
 
-export default function DiffViewerWindow({ repoRoot, focusPath, focusKind, workspaceId }: Props) {
+export default function DiffViewerWindow({
+  repoRoot,
+  focusPath,
+  focusKind,
+  changelistId = null,
+  workspaceId,
+}: Props) {
   return (
     <DiffViewer
       repoRoot={repoRoot}
       focusPath={focusPath}
       focusKind={focusKind}
+      changelistId={changelistId}
       workspaceId={workspaceId}
       variant="window"
     />
