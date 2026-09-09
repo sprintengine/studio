@@ -1157,11 +1157,14 @@ export function DiffViewer({
               {STATUS_LABEL[currentItem.status]}
               {currentItem.kind === 'branch'
               && (currentItem as BranchDiffItem).additions + (currentItem as BranchDiffItem).deletions > 0 ? (
+                /* One channel for the whole diff surface: +N/−N read --diff-*,
+                   the same tokens the body's ink and the gutter use, not the
+                   status tones they used to borrow. */
                 <span className="ml-1 font-mono tabular-nums">
-                  <span className="text-[color:var(--tone-good)]">
+                  <span className="text-[color:var(--diff-added)]">
                     +{(currentItem as BranchDiffItem).additions}
                   </span>
-                  <span className="ml-1 text-[color:var(--tone-error)]">
+                  <span className="ml-1 text-[color:var(--diff-removed)]">
                     −{(currentItem as BranchDiffItem).deletions}
                   </span>
                 </span>
