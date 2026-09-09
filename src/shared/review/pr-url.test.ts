@@ -75,6 +75,35 @@ run('canonicalPullRequestUrl strips query and trailing noise', () => {
   }
 })
 
+run('a GHES host on a non-default port keeps the port', () => {
+  // A self-hosted server behind `https://github.example.com:8443` is reachable
+  // only WITH the port: the canonical URL is what is stored, what the link
+  // opens and what `gh pr view <url>` is handed, and a port dropped from any of
+  // those points at a host that does not answer (or is not the one gh has auth
+  // for, which never settles).
+  const parsed = parsePullRequestUrl('https://github.example.com:8443/acme/app/pull/77')
+  assert.deepEqual(parsed, {
+    provider: 'github-enterprise',
+    host: 'github.example.com',
+    port: '8443',
+    owner: 'acme',
+    repo: 'app',
+    number: 77,
+  })
+  assert.ok(parsed && 'provider' in parsed)
+  if (parsed && 'provider' in parsed) {
+    assert.equal(canonicalPullRequestUrl(parsed), 'https://github.example.com:8443/acme/app/pull/77')
+  }
+  // The default port is not a port: every github.com URL is untouched.
+  assert.deepEqual(parsePullRequestUrl('https://github.com:443/acme/app/pull/2'), {
+    provider: 'github',
+    host: 'github.com',
+    owner: 'acme',
+    repo: 'app',
+    number: 2,
+  })
+})
+
 function main(): void {
   let failed = false
   for (const test of tests) {

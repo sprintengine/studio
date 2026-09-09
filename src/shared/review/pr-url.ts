@@ -9,7 +9,19 @@ import type { PullRequestProvider } from './changeset'
 
 export interface ParsedPullRequest {
   provider: PullRequestProvider
+  /** Hostname only, lower-cased — never carries the port; see `port`. */
   host: string
+  /**
+   * The port, when the URL named a non-default one, as a string of digits. A
+   * self-hosted GitHub Enterprise Server behind `https://host:8443` is reached
+   * only WITH it: dropping the port sends the link and every `gh pr view <url>`
+   * to a host that either does not answer or is not the one gh has auth for.
+   * Absent for the ordinary `:443`/`:80` case, so a canonical URL is unchanged
+   * for every github.com pull request. Repository KEYS still drop it
+   * (`canonicalRepositoryKey` keys on the hostname), so one server's clones key
+   * together however they were cloned.
+   */
+  port?: string
   owner: string
   repo: string
   number: number
@@ -32,6 +44,9 @@ export function parsePullRequestUrl(rawUrl: string): PullRequestUrlResult {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
 
   const host = url.hostname.toLowerCase()
+  // `URL.port` is '' for the protocol's default port, which is exactly when the
+  // canonical URL must not carry one.
+  const port = url.port
   const segments = url.pathname
     .split('/')
     .map(decodeSegment)
@@ -55,7 +70,7 @@ export function parsePullRequestUrl(rawUrl: string): PullRequestUrlResult {
     const repo = segments[i - 1]
     if (!owner || !repo) continue
     const provider: PullRequestProvider = host === 'github.com' ? 'github' : 'github-enterprise'
-    return { provider, host, owner, repo, number }
+    return { provider, host, ...(port ? { port } : {}), owner, repo, number }
   }
 
   return null
@@ -65,7 +80,8 @@ export function parsePullRequestUrl(rawUrl: string): PullRequestUrlResult {
 // stripped. Persisted as `changeset.source.url` so the stored record never
 // carries the paste's incidental cruft.
 export function canonicalPullRequestUrl(parsed: ParsedPullRequest): string {
-  return `https://${parsed.host}/${parsed.owner}/${parsed.repo}/pull/${parsed.number}`
+  const authority = parsed.port ? `${parsed.host}:${parsed.port}` : parsed.host
+  return `https://${authority}/${parsed.owner}/${parsed.repo}/pull/${parsed.number}`
 }
 
 function parsePositiveInt(value: string | undefined): number | null {
