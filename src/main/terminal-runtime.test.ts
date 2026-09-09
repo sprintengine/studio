@@ -4908,8 +4908,10 @@ async function assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(
 // capture schedules runs its real parsing against a canned `gh pr view`. What is
 // under test is the seam: a `pullRequest` on a frame becomes a
 // `noteCaptured({ url, sessionId })`, with the app's OWN session id (the record
-// files by session, and an id main cannot resolve would file nothing), and it is
-// folded in ahead of the guards, exactly as a status line is.
+// files by session, and an id main cannot resolve would file nothing), folded in
+// ahead of the PHASE and staleness guards exactly as a status line is — and,
+// like the file ledger, after the liveness guard: a dead session accepts no
+// more facts about itself.
 async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-pr-capture-'))
   const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-pr-record-'))
@@ -4925,10 +4927,24 @@ async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeM
     run: async (args): Promise<GhResult> => {
       ghCalls.push(args)
       assert.equal(args[1], 'view', 'a capture asks GitHub about the URL it was given, never about a branch')
+      // Answered through a login shell, banner and all — the normal path for a
+      // GUI-launched macOS app with a Homebrew gh.
+      // Whichever URL was asked about: `gh pr view <url>` answers for that one.
+      const asked = args[2] ?? ''
+      const number = Number(/\/pull\/(\d+)/.exec(asked)?.[1] ?? 0)
       return {
         found: true,
         code: 0,
-        stdout: JSON.stringify({ state: 'OPEN', isDraft: false, mergedAt: null, closedAt: null, headRefName: 'site/banner' }),
+        stdout: `Now using node v22.4.0 (npm v10.13.0)\n${JSON.stringify({
+          number,
+          title: number === 9 ? 'Refresh the banner' : 'Something else',
+          state: 'OPEN',
+          isDraft: false,
+          createdAt: number === 9 ? '2026-09-05T09:00:00.000Z' : '2026-09-06T09:00:00.000Z',
+          mergedAt: null,
+          closedAt: null,
+          headRefName: number === 9 ? 'site/banner' : 'feature',
+        })}\n`,
         stderr: '',
       }
     },
@@ -4986,6 +5002,17 @@ async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeM
     assert.equal(captured[0].url, 'https://github.com/acme/website/pull/9')
     assert.equal(captured[0].repoKey, 'github.com/acme/website', 'filed under the URL`s own repository')
     assert.equal(captured[0].state, 'open', 'a captured pull request is open the moment it exists')
+    // REVIEW FIX (finding 2). A capture is filed from a URL alone and, in another
+    // repository, no branch lookup will ever name it: the state read is the only
+    // thing that ever gives it a title and a real opening date. Without them the
+    // peek's bold title line and every menu row render empty, and the spoken
+    // label says "Pull request 9, open: ."
+    assert.equal(captured[0].title, 'Refresh the banner', 'the capture learned its title from the state read')
+    assert.equal(
+      captured[0].openedAt,
+      Date.parse('2026-09-05T09:00:00.000Z'),
+      'and when GitHub says it was opened, not when the hook happened to notice it',
+    )
     assert.equal(captured[0].openedBySessionId, 'session-pr-capture', 'the app`s own session id, not the CLI`s')
     assert.deepEqual(
       record.forBranch('github.com/acme/website', 'site/banner'),
@@ -4993,6 +5020,17 @@ async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeM
       'the state read the capture scheduled learned its branch'
     )
     assert.equal(record.forSession('some-other-session').length, 0, 'a capture belongs to the conversation that made it')
+
+    // REVIEW FIX (finding 5). One session is resolved by id, not by building a
+    // snapshot of every session — each of which reads the pull request record —
+    // and the live list is what a window-focus refresh fans out over.
+    const raw = runtimeModule.getTerminalSessionById('session-pr-capture')
+    assert.equal(raw?.sessionId, 'session-pr-capture', 'a session object is reachable by id')
+    assert.equal(runtimeModule.getTerminalSessionById('no-such-session'), null)
+    assert.ok(
+      runtimeModule.listLiveTerminalSessions().some((session) => session.sessionId === 'session-pr-capture'),
+      'and a live session is on the fan-out list',
+    )
 
     // A frame the phase guard DROPS still carries a pull request that really
     // exists. Claude spawns a hook process per tool call, so a later-stamped
@@ -5014,6 +5052,13 @@ async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeM
     assert.equal(ghCalls.length, 2, 'one state read per captured URL, and no branch lookup at all')
   } finally {
     runtime.ipcHandlers.killTerminal('session-pr-capture')
+    // An exited session drops off the fan-out list but stays reachable by id:
+    // its marks are still drawn, and hovering one is still a reason to refresh.
+    assert.equal(
+      runtimeModule.listLiveTerminalSessions().some((session) => session.sessionId === 'session-pr-capture'),
+      false,
+      'a killed session is not re-asked about on every window focus',
+    )
     record.dispose()
     await runtime.shutdown()
     await rm(workspaceRoot, { recursive: true, force: true })

@@ -913,6 +913,29 @@ function broadcastTerminalSessionsChanged(): void {
 }
 
 /**
+ * One session OBJECT by id, and the live ones — not snapshots.
+ *
+ * A caller that only needs to read a session's own fields (its observed
+ * checkout, say) must not have to build `listTerminals()`, which is a full
+ * snapshot of EVERY session and, for the pull request marks, calls back into
+ * the record for each one. Resolving a single session that way made a hover
+ * O(sessions) snapshot builds.
+ *
+ * `listLiveTerminalSessions` deliberately drops the exited and disposed ones:
+ * a background refresh has nothing to learn from a session whose process is
+ * gone, and a fan-out that includes them is that much wider for nothing. A
+ * lookup by id still answers for an exited session — its marks are still drawn,
+ * and hovering one is still a reason to refresh.
+ */
+export function getTerminalSessionById(sessionId: string): TerminalSession | null {
+  return terminals.get(sessionId) ?? null
+}
+
+export function listLiveTerminalSessions(): TerminalSession[] {
+  return [...terminals.values()].filter((session) => !session.isDisposed && !session.hasExited)
+}
+
+/**
  * A pull request record changed: re-emit the sessions the change reaches (epic
  * `pull-request-marks`, decision 10). Which sessions those are is the record's
  * question, not this module's — a session is reached either because it sits on
@@ -2394,12 +2417,21 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
     : false
   // A pull request the agent just opened, handed to the record in the same
   // place and for the same reason as the two folds above: it arrives on a
-  // `PostToolUse`, and a frame dropped as stale or held back by the phase guard
-  // still carries a pull request that really exists. The record owns everything
-  // after this — which repository the URL names, the branch (learned on the
-  // first state read), the de-duplication and the watch — so all that is passed
-  // is the URL and the session that made it. The id is the app's own session id,
-  // resolved above, so the capture can never land on a session main cannot name.
+  // `PostToolUse`, and a frame dropped as stale or held back by the PHASE guard
+  // still carries a pull request that really exists.
+  //
+  // It sits AFTER the liveness guard above, exactly as the file ledger does: a
+  // frame that arrives once the pty is gone is dropped here too. That is the
+  // deliberate line — a dead session is no longer accepting facts about itself —
+  // and it costs at most the last capture of a session that exited in the same
+  // instant, which the next branch lookup finds anyway when it is on the
+  // session's own branch.
+  //
+  // The record owns everything after this — which repository the URL names, the
+  // branch (learned on the first state read), the de-duplication and the watch —
+  // so all that is passed is the URL and the session that made it. The id is the
+  // app's own session id, resolved above, so the capture can never land on a
+  // session main cannot name.
   if (frame.pullRequest && onPullRequestCaptured) {
     try {
       onPullRequestCaptured({ url: frame.pullRequest.url, sessionId: session.sessionId })

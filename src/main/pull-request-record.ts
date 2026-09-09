@@ -518,7 +518,11 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
       ...at.entry,
       ...(next.title ? { title: next.title } : {}),
       ...(typeof next.openedAt === 'number' && next.openedAt > 0 ? { openedAt: next.openedAt } : {}),
-      ...(typeof next.number === 'number' && next.number > 0 ? { number: next.number } : {}),
+      // Only when the URL did not name one: the number in the URL is the number,
+      // and a read that disagreed with it would be about a different pull request.
+      ...(at.entry.number === 0 && typeof next.number === 'number' && next.number > 0
+        ? { number: next.number }
+        : {}),
       state: next.state,
       isDraft: next.isDraft,
       stateAt: next.stateAt,

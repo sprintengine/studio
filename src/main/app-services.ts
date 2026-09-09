@@ -100,6 +100,8 @@ import { createConversationPeek } from './conversation-peek/io'
 import {
   cliResumeCapabilities,
   createTerminalRuntime,
+  getTerminalSessionById,
+  listLiveTerminalSessions,
   listTerminalRoots,
   notePullRequestRecordChanged,
   resolveSpawnEventSink,
@@ -452,10 +454,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // the terminal snapshot channel they already ride.
   const pullRequestRecord = createPullRequestRecord({
     userDataDir: app.getPath('userData'),
+    // The session OBJECTS, not snapshots: `listTerminals()` builds a snapshot of
+    // every session — each of which reads this very record — so resolving one
+    // session that way made a hover O(sessions) snapshot builds. The list is the
+    // live sessions only; an exited or disposed one has nothing to re-ask about.
     sessions: {
-      get: (sessionId) =>
-        terminalRuntime.ipcHandlers.listTerminals().find((session) => session.sessionId === sessionId) ?? null,
-      list: () => terminalRuntime.ipcHandlers.listTerminals(),
+      get: (sessionId) => getTerminalSessionById(sessionId),
+      list: () => listLiveTerminalSessions(),
     },
     onRecordChanged: (change) =>
       notePullRequestRecordChanged((session) => pullRequestRecord.changeAffectsSession(change, session)),
