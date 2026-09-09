@@ -301,4 +301,58 @@ const rootlessProvider = provideLinksFor(
 assert.equal(rootlessProvider.links, undefined)
 assert.deepEqual(rootlessProvider.drops, [{ reason: 'no-root', text: reportedPath }])
 
-console.log('ok - terminalFileLinks')
+// A thunk root is read on every provideLinks call, not captured at
+// registration. This is what lets a `cd` (OSC 7) or the async spawn-cwd
+// resolution reach links already on screen: the provider is registered
+// synchronously, right after `term.open`, long before either value is known.
+// Baking one in produced the quietest possible bug — the same relative path
+// exists in the stale tree too, so the link opened the WRONG COPY.
+const movingTerminal = makeTerminal(120, [{ text: reportedLine, isWrapped: false }])
+let liveExecutionRoot: string | null = null
+const movingDrops: Drop[] = []
+const activated: string[] = []
+const movingProvider = createTerminalFileLinkProvider({
+  terminal: movingTerminal,
+  workspaceRoot: null,
+  executionRoot: () => liveExecutionRoot,
+  inspectPath: async () => ({ exists: true, isDirectory: false }),
+  onActivate: ({ resolvedPath }) => {
+    activated.push(resolvedPath)
+  },
+  onDrop: (drop) => movingDrops.push(drop),
+})
+
+async function clickTheLink(): Promise<string | undefined> {
+  let links: ILink[] | undefined
+  movingProvider.provideLinks(1, (provided) => {
+    links = provided
+  })
+  const link = links?.[0]
+  if (!link) return undefined
+  const before = activated.length
+  link.activate({ clientX: 0, clientY: 0 } as MouseEvent, link.text)
+  // The activate path stats the path before it reports; give it its turns.
+  for (let tick = 0; tick < 5 && activated.length === before; tick += 1) await Promise.resolve()
+  return activated.at(-1)
+}
+
+async function main(): Promise<void> {
+  // Nothing known yet: the decision of record still holds — unlinked, counted.
+  assert.equal(await clickTheLink(), undefined)
+  assert.deepEqual(movingDrops, [{ reason: 'no-root', text: reportedPath }])
+
+  // The spawn cwd lands. The SAME provider instance now resolves against it.
+  liveExecutionRoot = '/repo'
+  assert.equal(await clickTheLink(), `/repo/${reportedPath}`)
+
+  // And a `cd` moves it again, with nothing re-registered.
+  liveExecutionRoot = '/repo/worktrees/feature'
+  assert.equal(await clickTheLink(), `/repo/worktrees/feature/${reportedPath}`)
+
+  console.log('ok - terminalFileLinks')
+}
+
+main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})

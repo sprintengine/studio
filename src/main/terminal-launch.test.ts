@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 
 import { buildHostContextDocument } from '../shared/host-context/document'
 import {
+  OSC7_BASH_PROMPT_COMMAND,
   applyAgentIdentityEnv,
+  buildOsc7ShellSetup,
+  buildOsc7ZshShim,
   applyHostContextToPrompt,
   hostContextRenderInputs,
   mergeProviderLaunchEnv,
@@ -24,6 +27,9 @@ async function main(): Promise<void> {
   testPromptModeWritesNoFileAndWrapsTheRequest()
   testPromptModeLeavesAnEmptyComposerAlone()
   testWslAndWindowsNormalizeTheContextPaths()
+  testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning()
+  testTheZshShimHandsEveryStageBackToTheUsersOwnFiles()
+  testOnlyTheShellsWeCanReachThroughEnvAreArmed()
   console.log('terminal-launch tests passed')
 }
 
@@ -232,3 +238,87 @@ main().catch((err) => {
   console.error(err)
   process.exit(1)
 })
+
+// ── OSC 7 ───────────────────────────────────────────────────────────────────
+
+// The renderer refuses any `file:` URI that names a host — a pane attached to
+// another machine must never resolve a local path, and this machine's hostname
+// is indistinguishable from someone else's once it is on the wire. So the
+// emitter's half of that contract is: never send one.
+function testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning(): void {
+  assert.match(
+    OSC7_BASH_PROMPT_COMMAND,
+    /printf '\\033\]7;file:\/\/%s\\033\\\\' "\$__multicode_osc7"/u,
+    'an empty host, and $PWD (already absolute) supplies the leading slash',
+  )
+  assert.ok(
+    !/file:\/\/\$\{?HOST/u.test(OSC7_BASH_PROMPT_COMMAND),
+    'never the hostname form other terminals emit',
+  )
+
+  const escapes = [...OSC7_BASH_PROMPT_COMMAND.matchAll(/%([0-9A-F]{2})\}/gu)].map((match) => match[1])
+  assert.deepEqual(
+    escapes,
+    ['25', '23', '3F', '5C'],
+    '% is escaped FIRST — every later replacement introduces one, and a second pass would turn %5C into %255C',
+  )
+
+  const zshrc = buildOsc7ZshShim('.zshrc')
+  const zshEscapes = [...zshrc.matchAll(/%([0-9A-F]{2})\}/gu)].map((match) => match[1])
+  assert.deepEqual(zshEscapes, ['25', '23', '3F', '5C'], 'both shells escape the same set in the same order')
+  assert.match(zshrc, /printf '\\033\]7;file:\/\/%s\\033\\\\' \$d/u)
+}
+
+// The shim stands in front of the user's $ZDOTDIR, so the one thing it must
+// never do is cost them a startup file or leave $ZDOTDIR pointing at us.
+function testTheZshShimHandsEveryStageBackToTheUsersOwnFiles(): void {
+  for (const fileName of ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const) {
+    const shim = buildOsc7ZshShim(fileName)
+    assert.ok(
+      shim.includes(`if [[ -f $ZDOTDIR/${fileName} ]]; then source $ZDOTDIR/${fileName}; fi`),
+      `${fileName} sources the user's own copy — zsh takes the WHOLE set from $ZDOTDIR, so a missing shim silently drops that file`,
+    )
+    assert.ok(shim.includes('ZDOTDIR=${MULTICODE_USER_ZDOTDIR:-$HOME}'), `${fileName} runs it with their own $ZDOTDIR`)
+    assert.ok(
+      shim.includes('if [[ $ZDOTDIR == $MULTICODE_ZDOTDIR_SELF ]]; then ZDOTDIR=$HOME; fi'),
+      `${fileName} refuses to source itself if a relaunch pointed us at ourselves`,
+    )
+  }
+
+  // Only the interactive stage installs the hook, and it is the stage that
+  // hands $ZDOTDIR back for good.
+  const zshrc = buildOsc7ZshShim('.zshrc')
+  assert.ok(zshrc.includes('precmd_functions+=(__multicode_osc7_cwd)'))
+  assert.ok(
+    zshrc.includes('if (( ! ${precmd_functions[(I)__multicode_osc7_cwd]} )); then'),
+    'a nested zsh reads this file again and must not stack a second hook',
+  )
+  assert.ok(zshrc.trimEnd().endsWith('__multicode_osc7_cwd'), 'the launch directory is reported before the first prompt')
+  assert.ok(zshrc.includes('ZDOTDIR=$MULTICODE_USER_ZDOTDIR'), 'the shell is left holding its own $ZDOTDIR')
+  for (const fileName of ['.zshenv', '.zprofile', '.zlogin'] as const) {
+    assert.ok(
+      !buildOsc7ZshShim(fileName).includes('precmd_functions'),
+      `${fileName} installs no hook — the interactive stage owns it`,
+    )
+  }
+}
+
+// Only the environment survives the `exec` into the user's real shell, so a
+// shell with no env-only hook gets nothing rather than a broken approximation.
+function testOnlyTheShellsWeCanReachThroughEnvAreArmed(): void {
+  const bash = buildOsc7ShellSetup('bash', null)
+  assert.ok(bash?.startsWith('export PROMPT_COMMAND='), 'bash imports PROMPT_COMMAND from env')
+  assert.ok(bash.includes(`'"'"'`), 'the emitter is quoted for the startup script, not pasted raw')
+
+  const zsh = buildOsc7ShellSetup('zsh', '/profile/shell-integration/zsh')
+  assert.equal(
+    zsh,
+    'if [ "${ZDOTDIR:-}" != \'/profile/shell-integration/zsh\' ]; then export MULTICODE_USER_ZDOTDIR="${ZDOTDIR:-$HOME}"; fi; '
+    + "export ZDOTDIR='/profile/shell-integration/zsh'",
+  )
+
+  assert.equal(buildOsc7ShellSetup('zsh', null), null, 'no shim directory (unwritable profile) means no OSC 7, not a broken $ZDOTDIR')
+  assert.equal(buildOsc7ShellSetup('sh', '/profile/shell-integration/zsh'), null)
+  assert.equal(buildOsc7ShellSetup('fish', '/profile/shell-integration/zsh'), null)
+  assert.equal(buildOsc7ShellSetup(undefined, '/profile/shell-integration/zsh'), null)
+}

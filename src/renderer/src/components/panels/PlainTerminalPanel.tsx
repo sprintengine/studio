@@ -8,7 +8,7 @@ import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createStudioTerminal, terminalSurfaceLinkRoots, type TerminalSurface } from '../../utils/createStudioTerminal'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
-import { createTerminalOscLinkHandler } from '../../utils/terminalOscLinks'
+import { createTerminalOscLinkHandler, parseTerminalOscCwd } from '../../utils/terminalOscLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
@@ -97,6 +97,21 @@ export default function PlainTerminalPanel({
     // so this surface's permission to resolve a local path must be known before
     // the terminal exists. Same function the factory calls.
     const surfaceLinkRoots = terminalSurfaceLinkRoots(terminalSurface)
+    // Where this shell actually IS, in two layers, newest first.
+    //
+    // `launchExecutionRoot` is the directory the pty was spawned in, which is
+    // only known after the async worktree probe below — so it is written there
+    // rather than captured here, and the link provider reads both through a
+    // thunk.
+    //
+    // `oscExecutionRoot` is what the shell itself reports over OSC 7, and it is
+    // the only one that stays true: the launch directory stops being the cwd the
+    // first time the user types `cd`, and every relative path printed afterwards
+    // then resolves into a tree the shell left. That failure is invisible —
+    // the same relative path usually exists in the old tree too — so the link
+    // opens the wrong copy instead of failing.
+    let launchExecutionRoot: string | null = null
+    let oscExecutionRoot: string | null = null
     const inspectPath = async (path: string): Promise<{ exists: boolean; isDirectory: boolean }> => {
       try {
         const stat = await window.api.statPath(path)
@@ -141,6 +156,23 @@ export default function PlainTerminalPanel({
       onWebLink: (event, uri) => {
         setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
       },
+      // OSC 7 — the shell reporting its working directory. xterm registers
+      // handlers for 0,1,2,4,8,10-12,104,110-112 and NOT 7, so without this the
+      // sequence the startup script now emits (`terminal-launch.ts`) would be
+      // parsed and thrown away.
+      oscHandlers: {
+        7: (data) => {
+          // Same gate as an OSC 8 payload, and for the same reason: this is a
+          // sequence any program with a pane can print. A payload naming
+          // another host, or any local path at all on a surface with no link
+          // roots, leaves the previous value standing.
+          const cwd = parseTerminalOscCwd(data, { allowLocalPaths: surfaceLinkRoots !== null })
+          if (cwd) oscExecutionRoot = cwd
+          // Handled either way: nothing else in the app wants OSC 7, and
+          // reporting it unhandled would only put it back on xterm's floor.
+          return true
+        },
+      },
     })
     const term = studioTerminal.terminal
     registerTerminalInstance(sessionId, term)
@@ -179,7 +211,9 @@ export default function PlainTerminalPanel({
     const fileLinkDisposable = surfaceLinkRoots ? term.registerLinkProvider(createTerminalFileLinkProvider({
       terminal: term,
       workspaceRoot: surfaceLinkRoots.workspaceRoot,
-      executionRoot: surfaceLinkRoots.executionRoot,
+      // A thunk, so a `cd` (or the async spawn-cwd resolution below) reaches the
+      // links already on screen without re-registering the provider.
+      executionRoot: () => oscExecutionRoot ?? launchExecutionRoot,
       inspectPath,
       onActivate: openFileLinkMenu,
       onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
@@ -311,6 +345,11 @@ export default function PlainTerminalPanel({
         )
         if (disposed) return
         const terminalCwd = cwdOverride ?? resolved.cwd ?? folderReadyPath ?? undefined
+        // The directory the pty is about to start in — the resolution base for
+        // relative paths until the shell reports one of its own. It matters most
+        // for a pane with a `cwdOverride` or a worktree redirect, where it is
+        // NOT the workspace root the surface carries.
+        launchExecutionRoot = terminalCwd ?? null
         const sprintEngineStatePath = cwdOverride ? undefined : folderReadyPath ? sprintEngineContext?.statePath : undefined
         if (resolved.missing) {
           term.write(

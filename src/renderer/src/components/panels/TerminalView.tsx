@@ -426,20 +426,22 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     // and every relative match is then dropped, which is what `onDrop` below
     // makes countable.
     //
-    // Known and deliberate gap: the last argument is `null`, so a non-worktree
-    // agent in a worktree-backed workspace resolves links against the parent
-    // checkout while its process actually runs in the worktree. The launch path
-    // below resolves the real cwd, but only after an async `pathExists` that
-    // this synchronous registration cannot wait on. Reading the agent's cwd off
-    // the wire is [[terminal-osc7-cwd]]'s job; until then both trees hold the
-    // same relative paths, so the link opens the same file in the wrong copy
-    // rather than failing.
+    // The last argument is `null` because the worktree cwd is only knowable
+    // behind an async `pathExists`, which this synchronous registration cannot
+    // wait on. That used to be the end of it, and it was wrong in a way nothing
+    // showed: a non-worktree agent in a worktree-backed workspace resolved links
+    // against the PARENT checkout while its process ran in the worktree, so a
+    // clicked relative path opened the same file in the wrong copy rather than
+    // failing. It is a starting value now — the launch path below overwrites
+    // `launchExecutionRoot` with the cwd the pty actually got, and the provider
+    // reads that through a thunk.
     const linkExecutionRoot = resolveAgentExecutionRoot(
       currentContext().agent?.execution,
       currentContext().storedExecutionWorktreePath,
       folderReadyPath,
       null
     )
+    let launchExecutionRoot: string | null = linkExecutionRoot.cwd ?? null
     const terminalSurface: TerminalSurface = {
       kind: 'agent',
       workspaceRoot: folderReadyPath ?? currentContext().savedFolderPath ?? null,
@@ -576,7 +578,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const fileLinkDisposable = linkRoots ? term.registerLinkProvider(createTerminalFileLinkProvider({
       terminal: term,
       workspaceRoot: linkRoots.workspaceRoot,
-      executionRoot: linkRoots.executionRoot,
+      // A thunk, so the correction the launch path makes below reaches the links
+      // already on screen without re-registering the provider.
+      executionRoot: () => launchExecutionRoot,
       inspectPath,
       // The click no longer decides anything — it opens the chooser (MC-1899).
       onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
@@ -1053,6 +1057,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           worktreePath: undefined,
         }
       }
+      // The link roots now agree with the process. Everything above — the
+      // worktree redirect and the vanished-worktree fallback — moved the spawn
+      // cwd away from the guess made before this terminal existed; leaving the
+      // guess in place is what made a link open the right path in the wrong
+      // checkout. Read through a thunk, so this lands on links already drawn.
+      launchExecutionRoot = executionRoot.cwd ?? launchExecutionRoot
       terminalLaunchDetails = [
         `Session: ${sessionId}`,
         `CLI: ${launchCli}${launchAgent.cliModel ? ` · ${launchAgent.cliModel}` : ''}`,

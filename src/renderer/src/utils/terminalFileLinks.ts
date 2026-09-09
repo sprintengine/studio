@@ -57,10 +57,29 @@ export type TerminalFileLinkDrop = {
   text: string
 }
 
+/**
+ * A root the provider resolves relative paths against, or a thunk read afresh
+ * on every `provideLinks` call.
+ *
+ * The thunk exists because a pane's real root is not known when the provider is
+ * registered. Registration is synchronous, immediately after `term.open`; the
+ * spawn cwd is settled later behind an async `pathExists` (a worktree redirect),
+ * and a shell's cwd changes for the rest of the session every time the user
+ * types `cd` (OSC 7). A value baked in at registration is therefore a guess that
+ * silently ages, and the failure mode is the worst kind: the same relative path
+ * exists in the stale tree too, so the link opens the WRONG COPY rather than
+ * failing. Reading it late costs nothing — `provideLinks` runs on hover.
+ */
+export type TerminalFileLinkRoot = string | null | (() => string | null)
+
+function readTerminalFileLinkRoot(root: TerminalFileLinkRoot | undefined): string | null {
+  return typeof root === 'function' ? root() : root ?? null
+}
+
 export type TerminalFileLinkProviderOptions = {
   terminal: Terminal
-  workspaceRoot?: string | null
-  executionRoot?: string | null
+  workspaceRoot?: TerminalFileLinkRoot
+  executionRoot?: TerminalFileLinkRoot
   inspectPath: (path: string) => Promise<TerminalFileLinkPathInfo>
   /** Hands the verified click up to the host (MC-1899): the provider no longer
    *  decides what a click DOES, it only resolves what was clicked. */
@@ -357,9 +376,15 @@ export function createTerminalFileLinkProvider({
         return
       }
 
+      // Read on every call, not captured at registration: see
+      // `TerminalFileLinkRoot`. For a plain root this is the same value it
+      // always was.
       const references = findTerminalFileReferences(
         logicalLine.text,
-        { executionRoot, workspaceRoot },
+        {
+          executionRoot: readTerminalFileLinkRoot(executionRoot),
+          workspaceRoot: readTerminalFileLinkRoot(workspaceRoot),
+        },
         onDrop
       )
       if (references.length === 0) {

@@ -665,6 +665,162 @@ function buildUserShellStartup(): string {
   ].join('; ')
 }
 
+// ── OSC 7: the shell says where it actually is ──────────────────────────────
+//
+// A pane's `executionRoot` is the directory it was LAUNCHED in, so the moment a
+// user types `cd` every relative path printed afterwards resolves against the
+// wrong tree — silently, because the wrong tree usually holds a file by that
+// name too. OSC 7 (`ESC ] 7 ; file://<host>/<path> ST`) is the standard way a
+// shell keeps its terminal up to date, and xterm registers no handler for it,
+// so both halves are ours: emit it here, read it in
+// `terminalOscLinks.ts`/`PlainTerminalPanel`.
+//
+// Neither macOS shell emits it unprompted. The awkward part is that our startup
+// script does its work and then `exec`s the user's real interactive shell —
+// which is the right thing to do, and it means a function or a hook defined in
+// the script is gone by the time there is a prompt to hook. Only the
+// ENVIRONMENT survives the exec, so each shell is reached the one way it can be
+// reached through env alone:
+//
+// - **bash** imports `PROMPT_COMMAND` from the environment and runs it before
+//   every prompt, so the whole emitter travels as one exported string.
+// - **zsh** has no such variable (`precmd_functions` is an array, and arrays do
+//   not travel in env), but it does read its startup files from `$ZDOTDIR`. So
+//   we point that at a generated directory whose files hand straight back to
+//   the user's own and then add the hook. The user's files still see their own
+//   `$ZDOTDIR` while they run, and the shell is left holding it afterwards.
+//
+// A user who has already set `PROMPT_COMMAND` or `ZDOTDIR` keeps it: the value
+// is captured before it is replaced, and a rc file that appends to
+// `PROMPT_COMMAND` (the common case) keeps ours as well. A rc that ASSIGNS
+// `PROMPT_COMMAND` outright wins and no OSC 7 arrives — which is the same as
+// any other shell that does not emit it, and the renderer falls back to the
+// launch directory rather than breaking.
+//
+// The host is deliberately empty (`file:///Users/…`, not `file://mymac/…`):
+// the renderer refuses any `file:` URI that names a host, because a pane
+// attached to another machine must never resolve a local path, and a payload
+// carrying THIS machine's hostname is indistinguishable from one carrying
+// someone else's.
+
+/** The path characters that would change what the URI means if left raw. */
+const OSC7_PATH_ESCAPES: Array<[string, string]> = [
+  // `%` first: every replacement below introduces one, and re-escaping those
+  // would turn `%5C` into `%255C`.
+  ['%', '%25'],
+  // `#` starts a fragment and `?` a query — either would TRUNCATE the path at
+  // that point rather than corrupt it, which is the failure that looks like a
+  // working link to the wrong directory.
+  ['#', '%23'],
+  ['?', '%3F'],
+  // The URL parser folds `\` to `/` for file URIs, so a directory named with
+  // one would come back as an extra path segment.
+  ['\\', '%5C'],
+]
+
+/**
+ * bash's emitter, as one self-contained line.
+ *
+ * It has to be self-contained because it travels as an environment variable
+ * through an `exec` — there is no function definition on the far side to call.
+ */
+export const OSC7_BASH_PROMPT_COMMAND: string = [
+  '__multicode_osc7=${PWD}',
+  ...OSC7_PATH_ESCAPES.map(([from, to]) => `__multicode_osc7=\${__multicode_osc7//\\${from}/${to}}`),
+  `printf '\\033]7;file://%s\\033\\\\' "$__multicode_osc7"`,
+].join('; ')
+
+/** zsh's emitter plus the `precmd` hook that runs it, appended to our `.zshrc`. */
+const OSC7_ZSH_HOOK: string = [
+  '__multicode_osc7_cwd() {',
+  // The user's option set is theirs; this function should not depend on it.
+  '  emulate -L zsh',
+  '  local d=$PWD',
+  ...OSC7_PATH_ESCAPES.map(([from, to]) => `  d=\${d//\\${from}/${to}}`),
+  `  printf '\\033]7;file://%s\\033\\\\' $d`,
+  '}',
+  'typeset -ag precmd_functions',
+  // Idempotent: a nested zsh reads this file again and must not stack the hook.
+  'if (( ! ${precmd_functions[(I)__multicode_osc7_cwd]} )); then',
+  '  precmd_functions+=(__multicode_osc7_cwd)',
+  'fi',
+  // The first prompt has no `cd` before it, so report the launch directory too.
+  '__multicode_osc7_cwd',
+].join('\n')
+
+/**
+ * One of the four files zsh reads out of `$ZDOTDIR`, as a shim in front of the
+ * user's own copy.
+ *
+ * All four exist because zsh takes the WHOLE set from `$ZDOTDIR`: shim only
+ * `.zshrc` and a login shell silently loses its `.zprofile`.
+ */
+export function buildOsc7ZshShim(fileName: '.zshenv' | '.zprofile' | '.zshrc' | '.zlogin'): string {
+  const lines = [
+    '# SprintEngine Studio shell integration (OSC 7 working-directory reporting).',
+    '# Generated — rewritten on every terminal launch, so do not edit.',
+    '#',
+    '# This directory stands in front of the user\'s $ZDOTDIR and hands each stage',
+    '# straight back to it, so their own files run with their own $ZDOTDIR set.',
+    'MULTICODE_ZDOTDIR_SELF=${ZDOTDIR}',
+    'ZDOTDIR=${MULTICODE_USER_ZDOTDIR:-$HOME}',
+    '# A nested launch could point us at ourselves; $HOME is the shell\'s own default.',
+    'if [[ $ZDOTDIR == $MULTICODE_ZDOTDIR_SELF ]]; then ZDOTDIR=$HOME; fi',
+    `if [[ -f $ZDOTDIR/${fileName} ]]; then source $ZDOTDIR/${fileName}; fi`,
+    '# Their file may have moved $ZDOTDIR itself; that is the value to keep.',
+    'export MULTICODE_USER_ZDOTDIR=$ZDOTDIR',
+  ]
+
+  if (fileName === '.zshrc') {
+    // Interactive shells end here, so this is where the shell gets its own
+    // $ZDOTDIR back for good and where the hook goes.
+    lines.push('ZDOTDIR=$MULTICODE_USER_ZDOTDIR', 'unset MULTICODE_ZDOTDIR_SELF', '', OSC7_ZSH_HOOK)
+  } else {
+    lines.push('ZDOTDIR=$MULTICODE_ZDOTDIR_SELF', 'unset MULTICODE_ZDOTDIR_SELF')
+  }
+
+  return `${lines.join('\n')}\n`
+}
+
+/**
+ * The generated `$ZDOTDIR`, or null when it could not be written (a read-only
+ * profile directory, say). Null simply means no OSC 7 from zsh.
+ *
+ * Stable rather than per-session: the contents do not vary, and a per-session
+ * directory would need reaping on a path where a crashed app leaves it behind.
+ */
+function ensureOsc7ZshZdotdir(): string | null {
+  try {
+    const directory = join(app.getPath('userData'), 'shell-integration', 'zsh')
+    mkdirSync(directory, { recursive: true })
+    for (const fileName of ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const) {
+      writeFileSync(join(directory, fileName), buildOsc7ZshShim(fileName), { encoding: 'utf8', mode: 0o600 })
+    }
+    return directory
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The startup-script line that arms OSC 7 for this shell, or null for a shell
+ * we have no env-only way to reach (`sh`, `fish`, a login shell we do not know).
+ */
+export function buildOsc7ShellSetup(shellName: string | undefined, zdotdir: string | null): string | null {
+  if (shellName === 'bash') {
+    return `export PROMPT_COMMAND=${quotePosix(OSC7_BASH_PROMPT_COMMAND)}`
+  }
+  if (shellName === 'zsh' && zdotdir) {
+    return [
+      // Captured before it is replaced, and guarded so a relaunch inside one of
+      // our own terminals does not record the shim directory as "the user's".
+      `if [ "\${ZDOTDIR:-}" != ${quotePosix(zdotdir)} ]; then export MULTICODE_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"; fi`,
+      `export ZDOTDIR=${quotePosix(zdotdir)}`,
+    ].join('; ')
+  }
+  return null
+}
+
 function isLoginShell(shellName: string | undefined): boolean {
   return shellName === 'bash' || shellName === 'zsh'
 }
@@ -1127,8 +1283,13 @@ export function getPlainShellLaunchConfig(
 
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
+  // Only a shell pane gets OSC 7. An agent pane runs a CLI rather than a prompt
+  // (nothing would fire the hook), and a fleet pane must not resolve a local
+  // path at all — so this is the one launcher that arms it.
+  const osc7Setup = buildOsc7ShellSetup(shellName, shellName === 'zsh' ? ensureOsc7ZshZdotdir() : null)
   const launchCommand = [
     buildSprintEngineShellBootstrap(sprintEngineStatePath),
+    ...(osc7Setup ? [osc7Setup] : []),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
   const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)
