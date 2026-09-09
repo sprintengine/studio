@@ -17,7 +17,9 @@ export function ExtensionIcon({
   slug,
   name,
   icon,
+  iconPlated,
   mark,
+  glyph,
   size = 36,
 }: {
   /** Simple Icons slug for a brand mark fetched from the CDN, when one is known. */
@@ -25,6 +27,21 @@ export function ExtensionIcon({
   name: string
   /** The entry's own icon — a data URI from the bundled catalog, or an https URL. */
   icon?: string
+  /**
+   * True when the caller KNOWS `icon` brings its own ground — a GitHub owner's
+   * avatar, a marketplace entry's logo — and so must fill the slot rather than
+   * sit inset in the neutral chip. `iconHasOwnPlate` can only answer that for
+   * artwork it can decode; for an https URL it answers "chip", the safe wrong
+   * answer, and this is how a caller who does know says otherwise.
+   */
+  iconPlated?: boolean
+  /**
+   * A glyph the entry gives itself — an emoji, or a character or two of text.
+   * It is drawn rather than fetched, like `mark`, but it is the publisher's
+   * own string rather than one we ship, so it ranks below `mark` and above
+   * every picture: a plugin that says it is 🦀 has answered the question.
+   */
+  glyph?: string
   /**
    * A mark we ship ourselves, drawn rather than fetched — SprintEngine's own
    * extensions wear the frond. It outranks every other source: an id we
@@ -40,8 +57,9 @@ export function ExtensionIcon({
   // because it needs a ground: a flat brand mark (the catalogue's near-black
   // GitHub would vanish bare on dark), a shipped `mark` whose ink is fixed for
   // a light plate, the Simple Icons CDN glyph (no tint segment — a baked tint
-  // is invisible on the opposite theme), and the monogram, which is a letter.
-  if (icon && !failed && iconHasOwnPlate(icon)) {
+  // is invisible on the opposite theme), the publisher's own `glyph`, and the
+  // monogram, which is a letter.
+  if (icon && !glyph && !failed && (iconPlated || iconHasOwnPlate(icon))) {
     return (
       <img
         src={icon}
@@ -69,6 +87,16 @@ export function ExtensionIcon({
           className="grid place-items-center [&>svg]:h-full [&>svg]:w-full"
         >
           {mark}
+        </span>
+      ) : glyph ? (
+        // Its own line-height, and larger than the monogram: an emoji is
+        // artwork wearing a text box, and at the monogram's size it reads as a
+        // small stain in a large chip rather than as the plugin's mark.
+        <span
+          style={{ fontSize: Math.round(size * 0.58) }}
+          className="select-none leading-none text-[color:var(--icon-chip-ink)]"
+        >
+          {glyph}
         </span>
       ) : src ? (
         <img

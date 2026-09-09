@@ -26,10 +26,14 @@ import {
 } from '../../../../ui'
 import { Modal, ModalFooter, ModalHeader } from '../../../../ui/Modal'
 import { ExtensionIcon } from '../../../../ui/ExtensionIcon'
+import { extensionIconProps, skillArtwork } from '../catalogue/pluginArtwork'
 import { SkillReader } from './SkillReader'
 import { sourceDisplayName, skillPluginFolder, type SkillInstallAvailability } from './skillsSurfaceModel'
 
 const TITLE_ID = 'skill-detail-title'
+
+/** The header's icon slot, in one place: the artwork ladder asks for its size. */
+const HEADER_ICON_SIZE = 40
 
 export function SkillPage({
   source,
@@ -63,7 +67,13 @@ export function SkillPage({
         subtitle={subtitle}
         titleId={TITLE_ID}
         onClose={onClose}
-        leading={<ExtensionIcon name={skill.name} size={40} />}
+        leading={
+          <ExtensionIcon
+            name={skill.name}
+            size={HEADER_ICON_SIZE}
+            {...extensionIconProps(skillArtwork(skill, source, HEADER_ICON_SIZE))}
+          />
+        }
       />
       <div className="mt-4 min-h-0 flex-1 border-t border-[color:var(--border-subtle)]">
         <SkillReader

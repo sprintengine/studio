@@ -63,6 +63,7 @@ import { bundledScanLine, sourceDisplayName, summarizeSyncRun } from '../skills/
 import type { SkillSourcesState } from '../skills/useSkillSources'
 import { CatalogueHead, CatalogueSurface, type CatalogueAddMenu, type CatalogueSection } from '../catalogue/CatalogueSurface'
 import { SourceAvatar } from '../catalogue/SourceAvatar'
+import { extensionIconProps, pluginArtwork, sourceArtwork } from '../catalogue/pluginArtwork'
 import {
   catalogueMonogram,
   catalogueTabLabel,
@@ -86,6 +87,9 @@ import {
 } from './pluginsSurfaceModel'
 
 const MISSING_API_MESSAGE = 'Plugins need an app restart before they are available.'
+
+/** The row's icon slot, in one place: the artwork ladder asks for its size. */
+const ROW_ICON_SIZE = 36
 
 /** Every shape a row in this view can take; one union, so one pager walks them all. */
 type PluginItem =
@@ -439,6 +443,17 @@ export function PluginsCatalogue({
 
   // ── Rows ───────────────────────────────────────────────────────────────────
 
+  // Every plugin's mark, decided once per scan rather than once per row: the
+  // ladder is pure, and 292 rows re-deciding it on every keystroke of the
+  // search box would be the same answer computed 292 times.
+  const artworkByPluginId = useMemo(() => {
+    const artwork = new Map<string, ReturnType<typeof pluginArtwork>>()
+    for (const plugin of scan ? scanPlugins(scan) : []) {
+      artwork.set(plugin.id, pluginArtwork(plugin, activeSource ?? undefined, ROW_ICON_SIZE))
+    }
+    return artwork
+  }, [activeSource, scan])
+
   const renderRow = useCallback(
     (item: PluginItem): React.ReactNode => {
       if (item.kind === 'builtin') {
@@ -446,7 +461,13 @@ export function PluginsCatalogue({
         return (
           <ConnectorRow
             key="sprintengine-studio-builtin"
-            icon={<ExtensionIcon name={row.name} size={36} />}
+            icon={
+              <ExtensionIcon
+                name={row.name}
+                size={ROW_ICON_SIZE}
+                {...extensionIconProps(sourceArtwork(activeSource ?? undefined, row.name, ROW_ICON_SIZE))}
+              />
+            }
             name={row.name}
             summary={row.summary}
             // "Plugin" says nothing under a Plugins heading; "Built in" does.
@@ -480,7 +501,13 @@ export function PluginsCatalogue({
         return (
           <ConnectorRow
             key={row.pluginId}
-            icon={<ExtensionIcon name={row.name} size={36} />}
+            icon={
+              <ExtensionIcon
+                name={row.name}
+                size={ROW_ICON_SIZE}
+                {...extensionIconProps(artworkByPluginId.get(row.pluginId))}
+              />
+            }
             name={row.name}
             summary={row.description || row.components}
             // Not "Plugin": every row under this heading is one. A chip is for
@@ -520,7 +547,19 @@ export function PluginsCatalogue({
       return (
         <ConnectorRow
           key={server.id}
-          icon={<ExtensionIcon name={server.name} size={36} />}
+          icon={
+            <ExtensionIcon
+              name={server.name}
+              size={ROW_ICON_SIZE}
+              // A server a plugin declares wears that plugin's mark; one
+              // declared at the repository's root has no plugin to borrow
+              // from and wears the account's face.
+              {...extensionIconProps(
+                artworkByPluginId.get(server.declaredBy)
+                  ?? sourceArtwork(activeSource ?? undefined, server.name, ROW_ICON_SIZE),
+              )}
+            />
+          }
           name={server.name}
           summary={
             needsPlugin
@@ -556,7 +595,7 @@ export function PluginsCatalogue({
         />
       )
     },
-    [activeSource, addScannedServer, connectors, onLaunchConnector, openPluginRow, openRow, scan],
+    [activeSource, addScannedServer, artworkByPluginId, connectors, onLaunchConnector, openPluginRow, openRow, scan],
   )
 
   // ── Head, notices, body, detail ────────────────────────────────────────────

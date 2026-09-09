@@ -30,6 +30,7 @@ import {
 } from '../../../../ui'
 import { Modal, ModalFooter, ModalHeader } from '../../../../ui/Modal'
 import { ExtensionIcon } from '../../../../ui/ExtensionIcon'
+import { extensionIconProps, pluginArtwork } from '../catalogue/pluginArtwork'
 import {
   describeInstallPlan,
   describePluginFilesPlan,
@@ -59,6 +60,9 @@ export type PluginDetailPaneProps = {
   onClose: () => void
 }
 
+/** The header's icon slot, in one place: the artwork ladder asks for its size. */
+const HEADER_ICON_SIZE = 40
+
 export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
   const { plugin } = props
   const titleId = 'plugin-detail-title'
@@ -86,7 +90,13 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
         subtitle={subtitle || undefined}
         titleId={titleId}
         onClose={props.onClose}
-        leading={<ExtensionIcon name={plugin.name} size={40} />}
+        leading={
+          <ExtensionIcon
+            name={plugin.name}
+            size={HEADER_ICON_SIZE}
+            {...extensionIconProps(pluginArtwork(plugin, props.source, HEADER_ICON_SIZE))}
+          />
+        }
       />
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto border-t border-[color:var(--border-subtle)] px-3 pb-3">
         {plugin.description ? (

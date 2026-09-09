@@ -17,7 +17,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { skillDirName, type SkillSource } from '../../../../../../../shared/skills'
+import { scanPlugins, skillDirName, type SkillSource } from '../../../../../../../shared/skills'
 import { GhostButton, InlineNotice, Spinner, StatusDot, TruncatedText } from '../../../../ui'
 import { ExtensionIcon } from '../../../../ui/ExtensionIcon'
 import { ConnectorRow } from '../../../../panels/ConnectorsPanel/ConnectorRow'
@@ -35,6 +35,7 @@ import {
 } from '../catalogue/catalogueTabs'
 import { RecommendedSources } from '../catalogue/RecommendedSources'
 import { SourceAvatar } from '../catalogue/SourceAvatar'
+import { extensionIconProps, pluginsByFolder, skillArtwork } from '../catalogue/pluginArtwork'
 import { SourceTabActions } from '../catalogue/SourceTabActions'
 import { SkillPage } from './SkillPage'
 import type { SkillSourcesState } from './useSkillSources'
@@ -50,6 +51,9 @@ import {
 } from './skillsSurfaceModel'
 
 const MISSING_API_MESSAGE = 'Skills need an app restart before they are available.'
+
+/** The row's icon slot, in one place: the artwork ladder asks for its size. */
+const ROW_ICON_SIZE = 36
 
 export function SkillsCatalogue({
   sources,
@@ -176,11 +180,24 @@ export function SkillsCatalogue({
     [query, scan, sources.installedDirNames],
   )
 
+  // A skill wears its plugin's mark when it ships inside one, so the plugins
+  // are indexed by the folder name `skillPluginFolder()` reads off a skill's
+  // id — once per scan, not once per row.
+  const pluginsByName = useMemo(() => pluginsByFolder(scan ? scanPlugins(scan) : []), [scan])
+
   const renderRow = useCallback(
     (item: SkillListItem): React.ReactNode => (
       <ConnectorRow
         key={item.skillId}
-        icon={<ExtensionIcon name={item.name} size={36} />}
+        icon={
+          <ExtensionIcon
+            name={item.name}
+            size={ROW_ICON_SIZE}
+            {...extensionIconProps(
+              skillArtwork(item, activeSource ?? undefined, ROW_ICON_SIZE, pluginsByName.get(item.plugin)),
+            )}
+          />
+        }
         name={item.name}
         // The plugin it ships inside, when that is what tells it apart from
         // the row above it: "access · discord", "access · telegram".
@@ -220,7 +237,7 @@ export function SkillsCatalogue({
         }
       />
     ),
-    [activeSource, installSkill, installing, openSkillId, workspaceRoot],
+    [activeSource, installSkill, installing, openSkillId, pluginsByName, workspaceRoot],
   )
 
   const thisReport = report?.sourceId === activeSource?.id ? report : null
