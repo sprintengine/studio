@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { closeSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { buildHostContextDocument } from '../shared/host-context/document'
 import {
@@ -8,6 +11,7 @@ import {
   SHELL_INTEGRATION_BASH_PROMPT_COMMAND,
   buildShellIntegrationSetup,
   buildShellIntegrationZshShim,
+  replaceFileAtomically,
   applyHostContextToPrompt,
   hostContextRenderInputs,
   mergeProviderLaunchEnv,
@@ -35,6 +39,9 @@ async function main(): Promise<void> {
   testOsc133RidesTheSamePromptCommandAndCapturesTheStatusFirst()
   testOsc133ZshHooksRunFirstAndHandTheStatusBack()
   testTheMarksAreArmedForShellsOnly()
+  testTheShimQuotesEveryExpansionThatWouldOtherwiseBeAGlob()
+  testBashKeepsTheUsersOwnPromptCommand()
+  testTheShimFilesAreReplacedRatherThanTruncated()
   console.log('terminal-launch tests passed')
 }
 
@@ -271,7 +278,7 @@ function testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning(): void {
   const zshrc = buildShellIntegrationZshShim('.zshrc')
   const zshEscapes = [...zshrc.matchAll(/%([0-9A-F]{2})\}/gu)].map((match) => match[1])
   assert.deepEqual(zshEscapes, ['25', '23', '3F', '5C'], 'both shells escape the same set in the same order')
-  assert.match(zshrc, /printf '\\033\]7;file:\/\/%s\\033\\\\' \$d/u)
+  assert.match(zshrc, /printf '\\033\]7;file:\/\/%s\\033\\\\' "\$d"/u)
 }
 
 // The shim stands in front of the user's $ZDOTDIR, so the one thing it must
@@ -280,12 +287,12 @@ function testTheZshShimHandsEveryStageBackToTheUsersOwnFiles(): void {
   for (const fileName of ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const) {
     const shim = buildShellIntegrationZshShim(fileName)
     assert.ok(
-      shim.includes(`if [[ -f $ZDOTDIR/${fileName} ]]; then source $ZDOTDIR/${fileName}; fi`),
+      shim.includes(`if [[ -f "$ZDOTDIR/${fileName}" ]]; then source "$ZDOTDIR/${fileName}"; fi`),
       `${fileName} sources the user's own copy — zsh takes the WHOLE set from $ZDOTDIR, so a missing shim silently drops that file`,
     )
     assert.ok(shim.includes('ZDOTDIR=${MULTICODE_USER_ZDOTDIR:-$HOME}'), `${fileName} runs it with their own $ZDOTDIR`)
     assert.ok(
-      shim.includes('if [[ $ZDOTDIR == $MULTICODE_ZDOTDIR_SELF ]]; then ZDOTDIR=$HOME; fi'),
+      shim.includes('if [[ $ZDOTDIR == "$MULTICODE_ZDOTDIR_SELF" ]]; then ZDOTDIR=$HOME; fi'),
       `${fileName} refuses to source itself if a relaunch pointed us at ourselves`,
     )
   }
@@ -315,7 +322,8 @@ function testTheZshShimHandsEveryStageBackToTheUsersOwnFiles(): void {
 // shell with no env-only hook gets nothing rather than a broken approximation.
 function testOnlyTheShellsWeCanReachThroughEnvAreArmed(): void {
   const bash = buildShellIntegrationSetup('bash', null)
-  assert.ok(bash?.startsWith('export PROMPT_COMMAND='), 'bash imports PROMPT_COMMAND from env')
+  assert.ok(bash?.includes('PROMPT_COMMAND='), 'bash imports PROMPT_COMMAND from env')
+  assert.ok(bash.endsWith('; export PROMPT_COMMAND'), 'and it is exported, or the exec would not carry it')
   assert.ok(bash.includes(`'"'"'`), 'the emitter is quoted for the startup script, not pasted raw')
 
   const zsh = buildShellIntegrationSetup('zsh', '/profile/shell-integration/zsh')
@@ -421,7 +429,7 @@ function testOsc133ZshHooksRunFirstAndHandTheStatusBack(): void {
   // OSC 7 is unchanged by all of the above: same hook, same registration, and
   // it is still the interactive stage alone that installs anything.
   assert.ok(zshrc.includes('precmd_functions+=(__multicode_osc7_cwd)'), 'OSC 7 still registers its own hook')
-  assert.ok(zshrc.includes("printf '\\033]7;file://%s\\033\\\\' $d"), 'OSC 7 still emits')
+  assert.ok(zshrc.includes("printf '\\033]7;file://%s\\033\\\\' \"$d\""), 'OSC 7 still emits')
   for (const fileName of ['.zshenv', '.zprofile', '.zlogin'] as const) {
     const shim = buildShellIntegrationZshShim(fileName)
     assert.ok(!shim.includes('__multicode_osc133'), `${fileName} installs no mark hook — the interactive stage owns it`)
@@ -435,7 +443,12 @@ function testOsc133ZshHooksRunFirstAndHandTheStatusBack(): void {
 function testTheMarksAreArmedForShellsOnly(): void {
   const bash = buildShellIntegrationSetup('bash', null)
   assert.ok(bash?.includes('133;A'), 'bash carries the marks in the same variable as OSC 7')
-  assert.ok(bash.startsWith('export PROMPT_COMMAND='), 'and in exactly one variable')
+  assert.equal(
+    bash.match(/PROMPT_COMMAND=/gu)?.length,
+    2,
+    'and in exactly one variable — the capture of the user\'s own, then ours',
+  )
+  assert.ok(bash.endsWith('; export PROMPT_COMMAND'), 'exported, or it would not survive the exec')
 
   const zsh = buildShellIntegrationSetup('zsh', '/profile/shell-integration/zsh')
   assert.ok(zsh?.includes('ZDOTDIR'), 'zsh is reached through the same generated $ZDOTDIR, not a second one')
@@ -447,5 +460,94 @@ function testTheMarksAreArmedForShellsOnly(): void {
       null,
       `${String(shellName)} gets no shell integration at all`,
     )
+  }
+}
+
+
+// The right side of `==` inside `[[ ]]` is a GLOB unless it is quoted, and under
+// `setopt globsubst` — which a user's own .zshenv can set, and which is in
+// effect by the time three of the four shim stages reach this line — an
+// unquoted `$MULTICODE_ZDOTDIR_SELF` is a pattern rather than a string. The
+// shim path is `~/Library/Application Support/<productName>/…`, so a single
+// `[`, `]`, `*`, `?`, `(` or `)` anywhere in it made the self-reference guard
+// either miss (the shim sources itself) or fire against a directory that merely
+// MATCHED, discarding a real `~/.config/zsh`.
+function testTheShimQuotesEveryExpansionThatWouldOtherwiseBeAGlob(): void {
+  for (const fileName of ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const) {
+    const shim = buildShellIntegrationZshShim(fileName)
+    assert.ok(
+      !/==\s*\$[A-Za-z_]/u.test(shim),
+      `${fileName}: an unquoted expansion on the right of == is a glob pattern, not a string`,
+    )
+    // `source` and `[[ -f ]]` run with the USER'S options in effect, so
+    // SH_WORD_SPLIT / GLOB_SUBST reach them too.
+    assert.ok(
+      !/\bsource \$/u.test(shim) && !/\[\[ -f \$/u.test(shim),
+      `${fileName}: the user's own startup file is named with a quoted path`,
+    )
+  }
+  // The one pattern that IS meant to be a pattern stays one: PS1 is searched
+  // for the mark with a literal `*…*`, which quoting would break.
+  assert.ok(buildShellIntegrationZshShim('.zshrc').includes("[[ $PS1 != *$'\\e]133;B'* ]]"))
+}
+
+// The section header always claimed an inherited `PROMPT_COMMAND` was kept. It
+// was not: bash got a bare `export PROMPT_COMMAND=<ours>`, which destroys it.
+function testBashKeepsTheUsersOwnPromptCommand(): void {
+  const bash = buildShellIntegrationSetup('bash', null) ?? ''
+
+  assert.ok(
+    bash.startsWith('case "${PROMPT_COMMAND:-}" in *__multicode_status*) ;; *) '
+      + 'MULTICODE_USER_PROMPT_COMMAND=${PROMPT_COMMAND:-}; export MULTICODE_USER_PROMPT_COMMAND ;; esac; '),
+    'the inherited value is captured before it is replaced',
+  )
+  assert.ok(
+    bash.includes('${MULTICODE_USER_PROMPT_COMMAND:+"; $MULTICODE_USER_PROMPT_COMMAND"}'),
+    'and run BEHIND ours — the emitter puts $? back last precisely so it can be',
+  )
+  assert.ok(
+    !bash.includes('export PROMPT_COMMAND='),
+    'assigned then exported, so no shell can field-split the joined value',
+  )
+  // The guard keys on a variable that appears only in our own emitter, so a
+  // relaunch inside one of our terminals does not record ours as "the user's"
+  // and grow the string once per nesting level.
+  assert.ok(SHELL_INTEGRATION_BASH_PROMPT_COMMAND.includes('__multicode_status'))
+}
+
+// Four files, a STABLE shared directory, rewritten on every shell-pane launch:
+// restoring a saved layout starts several at once. `writeFileSync` opens with
+// O_TRUNC, so a zsh reading `.zshrc` while another launch rewrites it can read
+// the empty middle — the user's own config then silently never sources, and
+// $ZDOTDIR is left pointing at the shim for that shell's whole life.
+function testTheShimFilesAreReplacedRatherThanTruncated(): void {
+  const directory = mkdtempSync(join(tmpdir(), 'multicode-shim-'))
+  try {
+    const filePath = join(directory, '.zshrc')
+    const before = `${'old'.repeat(4_000)}\n`
+    writeFileSync(filePath, before, 'utf8')
+
+    // A reader that opened the file BEFORE the replace. Under O_TRUNC this
+    // descriptor would see an empty (or half-written) file; under rename it
+    // keeps the whole inode it opened.
+    const descriptor = openSync(filePath, 'r')
+    try {
+      replaceFileAtomically(filePath, 'new contents\n')
+
+      const buffer = Buffer.alloc(before.length)
+      const read = readSync(descriptor, buffer, 0, buffer.length, 0)
+      assert.equal(
+        buffer.subarray(0, read).toString('utf8'),
+        before,
+        'a reader that opened the old file still sees all of it — the replace was atomic',
+      )
+    } finally {
+      closeSync(descriptor)
+    }
+
+    assert.equal(readFileSync(filePath, 'utf8'), 'new contents\n', 'and a new reader sees the new file')
+    assert.deepEqual(readdirSync(directory), ['.zshrc'], 'no temporary left behind')
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
   }
 }

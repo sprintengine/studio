@@ -1,6 +1,6 @@
 import { app } from 'electron'
-import { createHash } from 'crypto'
-import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
+import { createHash, randomUUID } from 'crypto'
+import { chmodSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
@@ -690,12 +690,15 @@ function buildUserShellStartup(): string {
 //   the user's own and then add the hook. The user's files still see their own
 //   `$ZDOTDIR` while they run, and the shell is left holding it afterwards.
 //
-// A user who has already set `PROMPT_COMMAND` or `ZDOTDIR` keeps it: the value
-// is captured before it is replaced, and a rc file that appends to
-// `PROMPT_COMMAND` (the common case) keeps ours as well. A rc that ASSIGNS
-// `PROMPT_COMMAND` outright wins and no OSC 7 arrives — which is the same as
-// any other shell that does not emit it, and the renderer falls back to the
-// launch directory rather than breaking.
+// A user who has already set `PROMPT_COMMAND` or `ZDOTDIR` keeps it: both are
+// captured into a `MULTICODE_USER_…` variable before they are replaced, and
+// theirs is run behind ours (`PROMPT_COMMAND`) or handed back to them
+// (`ZDOTDIR`). Both captures are guarded against a relaunch inside one of our
+// own terminals, where the inherited value is already ours. A rc file that
+// appends to `PROMPT_COMMAND` (the common case) keeps ours as well. A rc that
+// ASSIGNS `PROMPT_COMMAND` outright wins and no OSC 7 arrives — which is the
+// same as any other shell that does not emit it, and the renderer falls back
+// to the launch directory rather than breaking.
 //
 // The host is deliberately empty (`file:///Users/…`, not `file://mymac/…`):
 // the renderer refuses any `file:` URI that names a host, because a pane
@@ -780,6 +783,13 @@ export const OSC7_BASH_PROMPT_COMMAND: string = [
 export const OSC133_BASH_STATUS_CAPTURE: string = '__multicode_status=$?'
 
 /**
+ * The variable name above, on its own: `buildShellIntegrationSetup` matches on
+ * it to tell an inherited `PROMPT_COMMAND` that is ALREADY ours from a user's.
+ * Named here so the two cannot drift.
+ */
+export const OSC133_BASH_STATUS_CAPTURE_VARIABLE: string = '__multicode_status'
+
+/**
  * bash's OSC 133 marks, appended to the same exported `PROMPT_COMMAND`.
  *
  * Four lines, in the order they have to run:
@@ -825,7 +835,7 @@ const OSC7_ZSH_HOOK: string = [
   '  emulate -L zsh',
   '  local d=$PWD',
   ...OSC7_PATH_ESCAPES.map(([from, to]) => `  d=\${d//\\${from}/${to}}`),
-  `  printf '\\033]7;file://%s\\033\\\\' $d`,
+  `  printf '\\033]7;file://%s\\033\\\\' "$d"`,
   '}',
   'typeset -ag precmd_functions',
   // Idempotent: a nested zsh reads this file again and must not stack the hook.
@@ -913,10 +923,19 @@ export function buildShellIntegrationZshShim(fileName: '.zshenv' | '.zprofile' |
     'MULTICODE_ZDOTDIR_SELF=${ZDOTDIR}',
     'ZDOTDIR=${MULTICODE_USER_ZDOTDIR:-$HOME}',
     '# A nested launch could point us at ourselves; $HOME is the shell\'s own default.',
-    'if [[ $ZDOTDIR == $MULTICODE_ZDOTDIR_SELF ]]; then ZDOTDIR=$HOME; fi',
-    `if [[ -f $ZDOTDIR/${fileName} ]]; then source $ZDOTDIR/${fileName}; fi`,
+    // The right side of `==` inside `[[ ]]` is a GLOB PATTERN unless it is
+    // quoted, and this path is `~/Library/Application Support/<productName>/…`
+    // — one `[`, `*`, `?` or `(` in the product name or the user's home and the
+    // self-reference guard either stops firing or fires against a directory
+    // that merely matched, throwing away a real `~/.config/zsh`.
+    'if [[ $ZDOTDIR == "$MULTICODE_ZDOTDIR_SELF" ]]; then ZDOTDIR=$HOME; fi',
+    // Quoted for the same reason one layer down: these run with the USER'S
+    // options in effect (their .zshenv has already been sourced by the shim
+    // above), so `SH_WORD_SPLIT` or `GLOB_SUBST` would otherwise reach an
+    // unquoted expansion of a path we do not control.
+    `if [[ -f "$ZDOTDIR/${fileName}" ]]; then source "$ZDOTDIR/${fileName}"; fi`,
     '# Their file may have moved $ZDOTDIR itself; that is the value to keep.',
-    'export MULTICODE_USER_ZDOTDIR=$ZDOTDIR',
+    'export MULTICODE_USER_ZDOTDIR="$ZDOTDIR"',
   ]
 
   if (fileName === '.zshrc') {
@@ -949,11 +968,46 @@ function ensureShellIntegrationZshZdotdir(): string | null {
     const directory = join(app.getPath('userData'), 'shell-integration', 'zsh')
     mkdirSync(directory, { recursive: true })
     for (const fileName of ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const) {
-      writeFileSync(join(directory, fileName), buildShellIntegrationZshShim(fileName), { encoding: 'utf8', mode: 0o600 })
+      replaceFileAtomically(join(directory, fileName), buildShellIntegrationZshShim(fileName))
     }
     return directory
   } catch {
     return null
+  }
+}
+
+/**
+ * Write, then rename into place — never `O_TRUNC` over a file something else
+ * may be reading.
+ *
+ * This directory is STABLE and SHARED, and these four files are rewritten on
+ * every shell-pane launch. Restoring a saved layout starts several panes at
+ * once: a plain `writeFileSync` truncates `.zshrc` to nothing and refills it,
+ * so the zsh one pane just spawned can read the empty middle of another pane's
+ * write. The user's own `.zshrc` then silently never sources, and `$ZDOTDIR`
+ * is left pointing at the shim for the life of that shell. `rename(2)` is
+ * atomic within a filesystem, so a reader sees either the old file or the new
+ * one and never a half of either.
+ *
+ * The temporary name carries the pid and a UUID so two processes writing the
+ * same target cannot collide on the temporary either.
+ *
+ * Exported for terminal-launch.test.ts, which holds a descriptor open across a
+ * replace — the one observation that tells `rename` apart from `O_TRUNC`.
+ */
+export function replaceFileAtomically(filePath: string, contents: string): void {
+  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temporaryPath, contents, { encoding: 'utf8', mode: 0o600 })
+    renameSync(temporaryPath, filePath)
+  } catch (error) {
+    // A failed rename leaves the temporary behind; a failed write may too.
+    try {
+      unlinkSync(temporaryPath)
+    } catch {
+      // Nothing to clean up, or nothing we can do about it.
+    }
+    throw error
   }
 }
 
@@ -963,7 +1017,25 @@ function ensureShellIntegrationZshZdotdir(): string | null {
  */
 export function buildShellIntegrationSetup(shellName: string | undefined, zdotdir: string | null): string | null {
   if (shellName === 'bash') {
-    return `export PROMPT_COMMAND=${quotePosix(SHELL_INTEGRATION_BASH_PROMPT_COMMAND)}`
+    return [
+      // The user's own exported `PROMPT_COMMAND`, captured before it is
+      // replaced — the same shape the zsh branch below uses for `$ZDOTDIR`.
+      // A bare `export PROMPT_COMMAND=…` destroyed an inherited value outright,
+      // which is what the header of this section always claimed it did not do.
+      //
+      // The `case` is the self-reference guard: relaunching inside one of our
+      // own terminals inherits `<ours>; <theirs>`, and re-capturing THAT would
+      // append our emitter to itself once per nesting level. `__multicode_status`
+      // appears only in our string, and `MULTICODE_USER_PROMPT_COMMAND` is
+      // exported, so the nested shell keeps the value the outer one captured.
+      `case "\${PROMPT_COMMAND:-}" in *${OSC133_BASH_STATUS_CAPTURE_VARIABLE}*) ;; *) MULTICODE_USER_PROMPT_COMMAND=\${PROMPT_COMMAND:-}; export MULTICODE_USER_PROMPT_COMMAND ;; esac`,
+      // Theirs runs AFTER ours, which is the order the emitter is built for:
+      // its last act is to put `$?` back, so a command appended behind it still
+      // reads the real exit status. A plain assignment rather than
+      // `export NAME=…` so no shell can field-split the joined value.
+      `PROMPT_COMMAND=${quotePosix(SHELL_INTEGRATION_BASH_PROMPT_COMMAND)}\${MULTICODE_USER_PROMPT_COMMAND:+"; \$MULTICODE_USER_PROMPT_COMMAND"}`,
+      'export PROMPT_COMMAND',
+    ].join('; ')
   }
   if (shellName === 'zsh' && zdotdir) {
     return [
