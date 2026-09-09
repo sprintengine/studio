@@ -75,7 +75,14 @@ const CLOSED = (
   </>
 )
 
-/** The drawings, exported so `LifecycleGlyph` draws the same marks rather than a second copy. */
+/**
+ * The drawings themselves, so `LifecycleGlyph` can render two of these marks
+ * under its own lifecycle tones rather than keeping a second copy of them.
+ * Deliberately NOT in `ui/index.ts`: a bare SVG fragment on the kit's public
+ * surface is an invitation to paste paths, which is what this family exists to
+ * stop. Reach for `PullRequestGlyph` unless you are drawing under another
+ * vocabulary's ink.
+ */
 export const PULL_REQUEST_SHAPES: Record<PullRequestState, JSX.Element> = {
   open: OPEN,
   merged: MERGED,
