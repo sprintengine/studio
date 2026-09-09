@@ -444,6 +444,185 @@ async function main(): Promise<void> {
     }
   })
 
+  // --- the conversation peek card, and the ring it introduced --------------
+  // A hover surface is the easiest place in the app to hand-roll a control:
+  // nothing about it is reachable by the ordinary keyboard sweep, so a raw
+  // `<button>`, a missing name or a colour spelled by hand survives review by
+  // being invisible. The card is mounted here for the same reason the rows and
+  // tabs above are — a contract that holds only in the file that declares it is
+  // not a contract the composed tree keeps.
+  //
+  // `ContextRing` is the new primitive this card brought
+  // (design-system/components/context-ring), so the rules it has to satisfy
+  // are asserted on the card that consumes it rather than in isolation.
+
+  const { ConversationPeekCard } = await import('../workspace/ConversationPeekCard')
+  const peekContainer = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(peekContainer)
+  const peekRoot = createRoot(peekContainer)
+  const peekNow = 1_800_000_000_000
+  act(() => {
+    peekRoot.render(
+      React.createElement(ConversationPeekCard, {
+        identity: {
+          name: 'Improve Git Diff Viewing',
+          taskId: 'MC-2488',
+          status: { kind: 'working', label: 'Working' },
+          agent: {
+            sessionId: '309703f3-0000-1756',
+            cli: 'claude-code',
+            model: 'claude-fable-5-1',
+            activeSubagents: 2,
+            contextUsage: { usedPercentage: 38, at: peekNow },
+            fileChanges: [
+              {
+                path: '/repo/src/renderer/src/components/git/GitDiffPane.tsx',
+                additions: 48,
+                deletions: 12,
+                edits: 3,
+                lastEditedAt: peekNow,
+              },
+            ],
+          },
+        },
+        peek: {
+          sessionId: '309703f3-0000-1756',
+          source: 'transcript',
+          first: {
+            id: 'm1',
+            text: 'I think we need to improve our git panel',
+            at: peekNow - 3_120_000,
+            attachments: [],
+            truncatedChars: 0,
+          },
+          since: [
+            {
+              id: 'm2',
+              text: '1A is definitely more in line with what we want',
+              at: peekNow - 1_740_000,
+              attachments: [{ kind: 'image', id: 'img-0', label: 'shot.png' }],
+              truncatedChars: 0,
+            },
+          ],
+          images: [
+            { kind: 'image', id: 'img-0', label: 'shot.png', thumbnailDataUrl: 'data:image/png;base64,AA' },
+          ],
+        },
+        loading: false,
+        now: peekNow,
+        copied: false,
+        onCopySession: () => {},
+        onOpenAttachment: () => {},
+        onOpenDiff: () => {},
+      } as never),
+    )
+  })
+
+  await run('the peek card composes: a corner, a ring, a file row, a thumbnail and a thread', () => {
+    assert.ok(peekContainer.querySelector('.agent-working-dots'), 'the corner drew the sidebar’s mark')
+    assert.ok(peekContainer.querySelector('[aria-label="Context 38% used"]'), 'the ring drew')
+    assert.ok(
+      peekContainer.querySelector('[aria-label^="Open the diff for"]'),
+      'the changed file drew as a link',
+    )
+    assert.ok(peekContainer.querySelector('[aria-label="Open shot.png"]'), 'the image strip drew')
+    assert.equal(peekContainer.querySelectorAll('li').length, 2, 'and the thread is one list of two rows')
+  })
+
+  await run('every control on the peek card has an accessible name', () => {
+    const unnamed = Array.from(peekContainer.querySelectorAll('button')).filter((control) => {
+      const label = control.getAttribute('aria-label') ?? ''
+      return !label.trim() && !(control.textContent ?? '').trim()
+    })
+    assert.deepEqual(
+      unnamed.map((control) => control.outerHTML.slice(0, 80)),
+      [],
+      'a hover surface is not reachable by an ordinary sweep, so an unnamed control here is never found',
+    )
+  })
+
+  await run('the corner is the sidebar’s working mark, never a status dot', () => {
+    // The whole point of the 2026-09-09 revision: the row says "working" with
+    // three staggered dots, so a pulsing disc six pixels away on the card would
+    // be two vocabularies for one fact.
+    for (const element of subtree(peekContainer.firstElementChild as Element)) {
+      for (const token of classesOf(element)) {
+        assert.ok(
+          !/^animate-pulse$/.test(token),
+          `the card wears the working dots, never a second liveness idiom — found \`${token}\``,
+        )
+      }
+    }
+    const dots = peekContainer.querySelector('.agent-working-dots')
+    assert.equal(dots?.getAttribute('role'), 'img', 'the mark carries the state')
+    assert.equal(
+      dots?.getAttribute('aria-label'),
+      '2 running',
+      'in words, and the visible word beside it is decorative so nothing is announced twice',
+    )
+  })
+
+  await run('the context ring is a named graphic on a full-size hit target', () => {
+    const ring = peekContainer.querySelector('[aria-label="Context 38% used"]') as Element
+    assert.equal(ring.getAttribute('role'), 'img', 'a graphic, not a control — it does nothing when pressed')
+    assert.equal(ring.getAttribute('tabindex'), '0', 'but focusable: a hover-only tooltip is not a reveal')
+    assert.ok(
+      classesOf(ring).some((token) => token.includes('--hit-target-min')),
+      'a 14px mark sits inside the 24px hit-target floor',
+    )
+    assert.ok(
+      classesOf(ring).some((token) => token.includes('focus-ring')),
+      'and wears the product focus ring rather than a border swap',
+    )
+    assert.equal(
+      ring.querySelector('svg')?.getAttribute('aria-hidden'),
+      'true',
+      'the label lives on the target, so the mark is announced once',
+    )
+  })
+
+  await run('the peek card spells no colour of its own — every one is a token', () => {
+    // Any bracketed value on a colour utility has to resolve through a
+    // variable. `text-[length:…]` is a size that happens to share the `text-`
+    // prefix and is not a colour at all.
+    const COLOUR_UTILITY = /^(?:bg|text|border|stroke|fill)-\[(.+)\]$/
+    for (const element of subtree(peekContainer.firstElementChild as Element)) {
+      for (const token of classesOf(element)) {
+        assert.ok(
+          !/#[0-9a-fA-F]{3,8}\b/.test(token),
+          `\`${token}\` spells a raw colour; the card takes every one from the token layer`,
+        )
+        const arbitrary = token.match(COLOUR_UTILITY)?.[1]
+        if (!arbitrary || arbitrary.startsWith('length:')) continue
+        assert.ok(
+          arbitrary.includes('var(--'),
+          `\`${token}\` is an arbitrary colour value rather than a var() reference`,
+        )
+      }
+    }
+  })
+
+  await run('a file row is the kit link, not a hand-rolled box', () => {
+    const row = peekContainer.querySelector('[aria-label^="Open the diff for"]') as Element
+    assert.equal(row.tagName, 'BUTTON', 'a control, so it has a focus ring and a role')
+    const classes = classesOf(row)
+    assert.ok(classes.some((token) => token.includes('focus-ring')), 'wearing the shared ring')
+    assert.ok(
+      !classes.some((token) => /^h-\d|^min-h-control/.test(token)),
+      'and no control height: six of these have to read as a list, not as six buttons',
+    )
+    assert.match(
+      row.getAttribute('aria-label') ?? '',
+      /GitDiffPane\.tsx$/,
+      'named by the whole path, because three files in a list can share a basename',
+    )
+  })
+
+  act(() => {
+    peekRoot.unmount()
+  })
+  peekContainer.remove()
+
   // --- item 2003: the Design door's canvas ---------------------------------
   // The canvas renders THIRD-PARTY design systems, so it is the surface most
   // likely to drift into borrowing the previewed system's idioms. Mounted with a
