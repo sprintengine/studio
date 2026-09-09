@@ -97,6 +97,7 @@
   "agentStateSpec": {
     "$comment": "Byte-for-byte the claude-code spec: this runtime is the same `claude` binary against a redirected endpoint, so it fires the same lifecycle hooks and shares the same .claude/settings.local.json registration. Formerly admitted by a harnessId fallback in core; declared here so the capability is explicit per plugin.",
     "registration": { "kind": "settings-json", "path": ".claude/settings.local.json" },
+    "statusLine": true,
     "events": [
       { "event": "SessionStart", "phase": "starting" },
       { "event": "UserPromptSubmit", "phase": "thinking" },

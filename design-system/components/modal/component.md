@@ -18,7 +18,7 @@ drawer wearing a scrim.
 |---|---|---|
 | Scrim | `.ds-modal-scrim` | yes — `overlay.scrim` at `z.modal`, centring the shell; a pointer-down on it closes |
 | Shell | `.ds-modal` | yes — `role="dialog"`, `aria-modal="true"`, `aria-labelledby` the title, `tabindex="-1"` |
-| Header | `.ds-modal-header` | yes — title `.ds-modal-title`, optional subtitle `.ds-modal-subtitle`, optional close button |
+| Header | `.ds-modal-header` | yes — title `.ds-modal-title`, optional subtitle `.ds-modal-subtitle`, optional close button; optionally a leading mark `.ds-modal-leading` before the title, for a dialog that opens **on** an item (a skill, a plugin) so it is recognised by the same monogram or icon its row carried — a question has no leading mark |
 | Body | `.ds-modal-body` | no — a confirm with a self-explaining title needs none |
 | Footer | `.ds-modal-footer` | yes — the actions, right-aligned, built from `ds-button` |
 

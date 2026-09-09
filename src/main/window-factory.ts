@@ -296,11 +296,35 @@ const auxWindows = new Map<string, BrowserWindow>()
 
 type AuxWindowKind = 'diff' | 'file'
 
+// The OS window's name. Set at construction so the window has one from the
+// instant it exists — in the taskbar, in the window switcher, in Mission
+// Control. The diff renderer narrows it to `Commit: <file>` as soon as it knows
+// which file it is showing (the page owns the title once it sets one).
+const AUX_WINDOW_TITLES: Record<AuxWindowKind, string> = {
+  diff: 'Diff',
+  file: 'Editor',
+}
+
+// The renderer shell's own `<title>`. One index.html serves every window, so
+// loading it announces this name to the OS and overwrites whatever the window
+// was constructed with — which is how a diff window came to read "Multicode"
+// until its React tree got around to naming itself. This is the one title an
+// aux window refuses; every other one is the page naming itself.
+const RENDERER_SHELL_TITLE = 'Multicode'
+
 type CreateAuxWindowOptions = {
   kind: AuxWindowKind
   singletonKey: string
   params: Record<string, string>
   bounds?: { x: number; y: number; width: number; height: number } | null
+}
+
+/** Is this window one this process opened as an aux window? The registry is
+ *  already here and the answer is a Map scan of at most a handful of entries,
+ *  so the dock-diff hand-off can ask before it broadcasts anything. */
+export function isAuxWindow(win: BrowserWindow): boolean {
+  for (const candidate of auxWindows.values()) if (candidate === win) return true
+  return false
 }
 
 export function openAuxWindow({
@@ -320,6 +344,7 @@ export function openAuxWindow({
 
   const safeBounds = normalizeWindowBounds(bounds)
   const win = new BrowserWindow({
+    title: AUX_WINDOW_TITLES[kind],
     width: safeBounds?.width ?? 1100,
     height: safeBounds?.height ?? 720,
     ...(safeBounds ? { x: safeBounds.x, y: safeBounds.y } : {}),
@@ -356,6 +381,23 @@ export function openAuxWindow({
   })
   win.on('closed', () => {
     if (auxWindows.get(registryKey) === win) auxWindows.delete(registryKey)
+  })
+
+  // Keep the constructed name against the shell's. `preventDefault` stops the
+  // shell's title from reaching the window at all; a title the aux page sets
+  // for itself (`Commit: <file>`) is not this string and still wins, so the
+  // page keeps ownership the moment it takes it.
+  win.webContents.on('page-title-updated', (event, title) => {
+    if (title.trim() !== RENDERER_SHELL_TITLE) return
+    event.preventDefault()
+    if (!win.isDestroyed()) win.setTitle(AUX_WINDOW_TITLES[kind])
+  })
+  // The net under it, for a load that hands the window the shell's name
+  // without an event we saw (a restored title, a reload): once the page is up,
+  // if the window is still wearing the shell's name, take it back.
+  win.webContents.on('did-finish-load', () => {
+    if (win.isDestroyed()) return
+    if (win.getTitle().trim() === RENDERER_SHELL_TITLE) win.setTitle(AUX_WINDOW_TITLES[kind])
   })
 
   const schedulePlacementUpdate = createPlacementUpdateScheduler(win)

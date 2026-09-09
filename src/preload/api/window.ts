@@ -3,6 +3,9 @@ import type {
   AuxWindowRetargetPayload,
   CreateWorkspaceWindowInput,
   CreateWorkspaceWindowResult,
+  DockDiffToWorkspaceInput,
+  DockDiffToWorkspacePayload,
+  DockDiffToWorkspaceResult,
   DockFileToWorkspaceInput,
   ElectronApi,
   OpenAuxWindowInput,
@@ -35,6 +38,19 @@ export const windowApi = {
     const handler = (_: IpcRendererEvent, input: DockFileToWorkspaceInput) => cb(input)
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
+  },
+  dockDiffToWorkspace: (input: DockDiffToWorkspaceInput): Promise<DockDiffToWorkspaceResult> =>
+    ipcRenderer.invoke('window:dock-diff', input),
+  onDockDiffToWorkspace: (cb: (input: DockDiffToWorkspacePayload) => void): (() => void) => {
+    const ch = 'workspace:dock-diff'
+    const handler = (_: IpcRendererEvent, input: DockDiffToWorkspacePayload) => cb(input)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
+  // Fire-and-forget on purpose: main is already waiting on this and has its own
+  // timeout, so there is nothing for the acking window to await.
+  ackDockDiffToWorkspace: (requestId: string): void => {
+    ipcRenderer.send('window:dock-diff-ack', requestId)
   },
   confirmWindowClose: (): Promise<void> => ipcRenderer.invoke('window:confirm-close'),
   openExternal: (url: string): Promise<OpenExternalResult> =>
@@ -69,6 +85,9 @@ export const windowApi = {
   | 'onAuxWindowRetarget'
   | 'dockFileToWorkspace'
   | 'onDockFileToWorkspace'
+  | 'dockDiffToWorkspace'
+  | 'onDockDiffToWorkspace'
+  | 'ackDockDiffToWorkspace'
   | 'confirmWindowClose'
   | 'openExternal'
   | 'onWindowStateChanged'

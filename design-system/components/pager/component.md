@@ -24,6 +24,7 @@ different depth is a list with no position at all.
 | Step | `.ds-pager-step` | yes (with controls) — previous, each page number, next |
 | Elision | `.ds-pager-gap` | no — `…` standing for skipped numbers, `aria-hidden` |
 | Icon | `.ds-pager-icon` | no — the chevrons, `icon.size.xs`, `aria-hidden` |
+| Position | `.ds-pager-position` | `--inline` only — `n/m`, tabular, carrying the sentence as its accessible name |
 
 Steps sit `size.control.sm` (30px) tall and at least that wide, spaced by
 `space.3xs`, with `space.md` inline padding so a three-digit page still fits
@@ -41,6 +42,29 @@ There is one pager. What changes is how much of it is there:
   plugins here") and there are no controls. An empty list still gets its
   sentence, because the alternative is a blank region that reads as broken.
 
+…and one modifier, for a pager that is not the foot of anything:
+
+- **`--inline`** (2026-09-09) — the pager as a **stepper inside a band**:
+  `n/m` in `tabular-nums` between two `size.control.xs` chevrons, sitting in a
+  [toolbar](../toolbar/component.md) beside other controls. The diff window's
+  file stepper is what it was drawn for — "2/27" between the hunk arrows and the
+  view toggle.
+
+  Three things go, all for the same reason (the band has no width to spend on
+  them): the numbered strip, the words sentence, and the foot padding. The
+  chevrons drop to `size.control.xs` so the stepper sits level with the
+  `button --icon` items beside it rather than standing a step taller.
+
+  **What does not go is the rule that makes a pager a pager.** The ends stay
+  reachable, and the chevrons are *disabled* at them, never absent — removing
+  them reflows the band under the pointer that is clicking them. And the
+  sentence does not disappear: it moves to the position's **accessible name**,
+  so a screen reader still hears "File 2 of 27" while the drawing shrinks to
+  "2/27".
+
+  Use it only where a foot does not exist. A list with a bottom edge gets the
+  full pager; `n/m` in a band is a compression, and compressions are paid for.
+
 ## States
 
 | State | Treatment |
@@ -50,6 +74,7 @@ There is one pager. What changes is how much of it is there:
 | Current page | `bg.selected` + `text.primary` + `font.weight.medium`, marked `aria-current="page"` |
 | Focus-visible | `focus.ring` |
 | Disabled | `opacity: 0.5`, `cursor: not-allowed` — previous on page 1, next on the last |
+| Inline position | `.ds-pager-position` at `text.muted`, tabular. Never the accent: "where am I" is a state display |
 
 ## Usage
 
@@ -72,7 +97,9 @@ that does not fit continues onto the next page under a heading that says so.
 Two pagers, or a pager per group, is a list with two positions.
 
 **Say the position in words.** "Showing 13–24 of 318" is the whole point.
-Numbers alone tell you where you can go, not where you are.
+Numbers alone tell you where you can go, not where you are. `--inline` is the
+one place the words are not *drawn*, and even there they are still said: the
+sentence becomes the position's accessible name rather than being dropped.
 
 **Paging replaces rows; it must not move focus.** The clicked page button
 keeps focus, so the range sentence is a `role="status"` live region — that
@@ -90,7 +117,10 @@ changed.
 - Previous and next are `aria-label`led; their chevrons are `aria-hidden`.
 - The elision is `aria-hidden` — it names no page.
 - The range is `role="status" aria-live="polite"`, and it is the only live
-  region in the pager.
+  region in the pager. On `--inline` the position takes that role, and an
+  `aria-label` carrying the full sentence — so the visible "2/27" and the
+  announced "File 2 of 27" are one element, and there is still exactly one live
+  region.
 - Tab order is the natural one: the strip is a row of ordinary buttons, not a
   roving-tabindex composite. A pager is reached rarely and left immediately,
   so a person tabbing to page 4 should not first have to discover that arrow
@@ -98,8 +128,9 @@ changed.
 
 ## Shipped implementation
 
-`src/renderer/src/components/ui/Pager.tsx`, exporting `Pager` (the row) and
-`pagerSteps` (which numbers to draw, given the page and the count). What a
+`src/renderer/src/components/ui/Pager.tsx`, exporting `Pager` (the row, with
+an `inline` prop) and `pagerSteps` (which numbers to draw, given the page and
+the count). What a
 page CONTAINS is not the primitive's business: the consumer's own model slices
 its groups and hands over `page`, `pageCount` and the range sentence. The
 Extensions catalogues' model is

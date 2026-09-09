@@ -444,6 +444,185 @@ async function main(): Promise<void> {
     }
   })
 
+  // --- the conversation peek card, and the ring it introduced --------------
+  // A hover surface is the easiest place in the app to hand-roll a control:
+  // nothing about it is reachable by the ordinary keyboard sweep, so a raw
+  // `<button>`, a missing name or a colour spelled by hand survives review by
+  // being invisible. The card is mounted here for the same reason the rows and
+  // tabs above are — a contract that holds only in the file that declares it is
+  // not a contract the composed tree keeps.
+  //
+  // `ContextRing` is the new primitive this card brought
+  // (design-system/components/context-ring), so the rules it has to satisfy
+  // are asserted on the card that consumes it rather than in isolation.
+
+  const { ConversationPeekCard } = await import('../workspace/ConversationPeekCard')
+  const peekContainer = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(peekContainer)
+  const peekRoot = createRoot(peekContainer)
+  const peekNow = 1_800_000_000_000
+  act(() => {
+    peekRoot.render(
+      React.createElement(ConversationPeekCard, {
+        identity: {
+          name: 'Improve Git Diff Viewing',
+          taskId: 'MC-2488',
+          status: { kind: 'working', label: 'Working' },
+          agent: {
+            sessionId: '309703f3-0000-1756',
+            cli: 'claude-code',
+            model: 'claude-fable-5-1',
+            activeSubagents: 2,
+            contextUsage: { usedPercentage: 38, at: peekNow },
+            fileChanges: [
+              {
+                path: '/repo/src/renderer/src/components/git/GitDiffPane.tsx',
+                additions: 48,
+                deletions: 12,
+                edits: 3,
+                lastEditedAt: peekNow,
+              },
+            ],
+          },
+        },
+        peek: {
+          sessionId: '309703f3-0000-1756',
+          source: 'transcript',
+          first: {
+            id: 'm1',
+            text: 'I think we need to improve our git panel',
+            at: peekNow - 3_120_000,
+            attachments: [],
+            truncatedChars: 0,
+          },
+          since: [
+            {
+              id: 'm2',
+              text: '1A is definitely more in line with what we want',
+              at: peekNow - 1_740_000,
+              attachments: [{ kind: 'image', id: 'img-0', label: 'shot.png' }],
+              truncatedChars: 0,
+            },
+          ],
+          images: [
+            { kind: 'image', id: 'img-0', label: 'shot.png', thumbnailDataUrl: 'data:image/png;base64,AA' },
+          ],
+        },
+        loading: false,
+        now: peekNow,
+        copied: false,
+        onCopySession: () => {},
+        onOpenAttachment: () => {},
+        onOpenDiff: () => {},
+      } as never),
+    )
+  })
+
+  await run('the peek card composes: a corner, a ring, a file row, a thumbnail and a thread', () => {
+    assert.ok(peekContainer.querySelector('.agent-working-dots'), 'the corner drew the sidebar’s mark')
+    assert.ok(peekContainer.querySelector('[aria-label="Context 38% used"]'), 'the ring drew')
+    assert.ok(
+      peekContainer.querySelector('[aria-label^="Open the diff for"]'),
+      'the changed file drew as a link',
+    )
+    assert.ok(peekContainer.querySelector('[aria-label="Open shot.png"]'), 'the image strip drew')
+    assert.equal(peekContainer.querySelectorAll('li').length, 2, 'and the thread is one list of two rows')
+  })
+
+  await run('every control on the peek card has an accessible name', () => {
+    const unnamed = Array.from(peekContainer.querySelectorAll('button')).filter((control) => {
+      const label = control.getAttribute('aria-label') ?? ''
+      return !label.trim() && !(control.textContent ?? '').trim()
+    })
+    assert.deepEqual(
+      unnamed.map((control) => control.outerHTML.slice(0, 80)),
+      [],
+      'a hover surface is not reachable by an ordinary sweep, so an unnamed control here is never found',
+    )
+  })
+
+  await run('the corner is the sidebar’s working mark, never a status dot', () => {
+    // The whole point of the 2026-09-09 revision: the row says "working" with
+    // three staggered dots, so a pulsing disc six pixels away on the card would
+    // be two vocabularies for one fact.
+    for (const element of subtree(peekContainer)) {
+      for (const token of classesOf(element)) {
+        assert.ok(
+          !/^animate-pulse$/.test(token),
+          `the card wears the working dots, never a second liveness idiom — found \`${token}\``,
+        )
+      }
+    }
+    const dots = peekContainer.querySelector('.agent-working-dots')
+    assert.equal(dots?.getAttribute('role'), 'img', 'the mark carries the state')
+    assert.equal(
+      dots?.getAttribute('aria-label'),
+      '2 running',
+      'in words, and the visible word beside it is decorative so nothing is announced twice',
+    )
+  })
+
+  await run('the context ring is a named graphic on a full-size hit target', () => {
+    const ring = peekContainer.querySelector('[aria-label="Context 38% used"]') as Element
+    assert.equal(ring.getAttribute('role'), 'img', 'a graphic, not a control — it does nothing when pressed')
+    assert.equal(ring.getAttribute('tabindex'), '0', 'but focusable: a hover-only tooltip is not a reveal')
+    assert.ok(
+      classesOf(ring).some((token) => token.includes('--hit-target-min')),
+      'a 14px mark sits inside the 24px hit-target floor',
+    )
+    assert.ok(
+      classesOf(ring).some((token) => token.includes('focus-ring')),
+      'and wears the product focus ring rather than a border swap',
+    )
+    assert.equal(
+      ring.querySelector('svg')?.getAttribute('aria-hidden'),
+      'true',
+      'the label lives on the target, so the mark is announced once',
+    )
+  })
+
+  await run('the peek card spells no colour of its own — every one is a token', () => {
+    // Any bracketed value on a colour utility has to resolve through a
+    // variable. `text-[length:…]` is a size that happens to share the `text-`
+    // prefix and is not a colour at all.
+    const COLOUR_UTILITY = /^(?:bg|text|border|stroke|fill)-\[(.+)\]$/
+    for (const element of subtree(peekContainer)) {
+      for (const token of classesOf(element)) {
+        assert.ok(
+          !/#[0-9a-fA-F]{3,8}\b/.test(token),
+          `\`${token}\` spells a raw colour; the card takes every one from the token layer`,
+        )
+        const arbitrary = token.match(COLOUR_UTILITY)?.[1]
+        if (!arbitrary || arbitrary.startsWith('length:')) continue
+        assert.ok(
+          arbitrary.includes('var(--'),
+          `\`${token}\` is an arbitrary colour value rather than a var() reference`,
+        )
+      }
+    }
+  })
+
+  await run('a file row is the kit link, not a hand-rolled box', () => {
+    const row = peekContainer.querySelector('[aria-label^="Open the diff for"]') as Element
+    assert.equal(row.tagName, 'BUTTON', 'a control, so it has a focus ring and a role')
+    const classes = classesOf(row)
+    assert.ok(classes.some((token) => token.includes('focus-ring')), 'wearing the shared ring')
+    assert.ok(
+      !classes.some((token) => /^h-\d|^min-h-control/.test(token)),
+      'and no control height: six of these have to read as a list, not as six buttons',
+    )
+    assert.match(
+      row.getAttribute('aria-label') ?? '',
+      /GitDiffPane\.tsx$/,
+      'named by the whole path, because three files in a list can share a basename',
+    )
+  })
+
+  act(() => {
+    peekRoot.unmount()
+  })
+  peekContainer.remove()
+
   // --- item 2003: the Design door's canvas ---------------------------------
   // The canvas renders THIRD-PARTY design systems, so it is the surface most
   // likely to drift into borrowing the previewed system's idioms. Mounted with a
@@ -482,6 +661,16 @@ async function main(): Promise<void> {
       ramp: [{ path: 'ref.color.green.600', light: '#2f6a4a', dark: '#4daf7d' }],
       fontFamilyUi: 'Inter, system-ui',
       fontFamilyMono: null,
+      tokens: {
+        fontSize: [{ path: 'sem.font.size.body', light: '13px', dark: '13px' }],
+        fontWeight: [{ path: 'sem.font.weight.emphasis', light: '600', dark: '600' }],
+        fontLine: [],
+        fontTracking: [],
+        space: [{ path: 'sem.space.md', light: '10px', dark: '10px' }],
+        size: [{ path: 'sem.size.control.sm', light: '30px', dark: '30px' }],
+        radius: [{ path: 'sem.radius.control', light: '7px', dark: '7px' }],
+        shadow: [],
+      },
       problems: [],
     },
     groups: [
@@ -515,33 +704,89 @@ async function main(): Promise<void> {
       React.createElement(DesignCanvas, {
         view: designView as never,
         mode: 'dark',
-        openComponent: null,
-        onOpenComponent: () => {},
-        onCloseComponent: () => {},
         // No `onReload` / `reloading`: Reveal and Reload moved to the door bar
         // when the canvas gave up its second chrome band (audit 2026-09-02),
         // and the canvas no longer takes them.
+        //
+        // No `openComponent` / `onOpenComponent` / `onCloseComponent` either:
+        // the canvas stopped being a grid you click into on 2026-09-08
+        // (c375c687a) and became six tabs of live demos. Its view state is now
+        // the tab and the per-tab page, both held by the door — which is what
+        // this fixture hands it. (Repaired 2026-09-09: the rewrite left this
+        // suite mounting the canvas with the old props, so `pages[active]`
+        // threw and every assertion below it went unrun.)
+        tab: null,
+        onTabChange: () => {},
+        pages: {},
+        onPageChange: () => {},
       }),
     )
   })
 
-  await run('2003 no component tile carries a border — spacing does the grouping', () => {
-    const tiles = Array.from(designContainer.querySelectorAll('button')) as Element[]
-    const componentTiles = tiles.filter((tile) =>
-      (tile.getAttribute('aria-label') ?? '').startsWith('button'),
-    )
-    assert.ok(componentTiles.length > 0, 'the fixture renders a component tile')
-    for (const tile of componentTiles) {
-      for (const element of [tile, ...subtree(tile)]) {
+  // Re-pointed 2026-09-09 at the canvas the Design-door rewrite left (c375c687a,
+  // "six tabs, live demos, nothing to click into"). The rule is unchanged —
+  // spacing does the grouping, a specimen draws no box — but the thing it reads
+  // is no longer a clickable tile: a specimen is now a `Section` holding one
+  // live demo, so that is what gets read.
+  await run('2003 no component specimen carries a border — spacing does the grouping', () => {
+    const specimens = Array.from(designContainer.querySelectorAll('section')) as Element[]
+    assert.ok(specimens.length > 0, 'the fixture renders a component specimen')
+    for (const specimen of specimens) {
+      for (const element of [specimen, ...subtree(specimen)]) {
         for (const token of classesOf(element)) {
           // `border-0`/`border-none` REMOVE a border (the iframe's UA default),
           // which is the rule, not a violation of it.
           if (token === 'border-0' || token === 'border-none') continue
           assert.ok(
             !/^border(-[trbl])?(-\d+)?$/.test(token) && !token.startsWith('border-['),
-            `a tile must not draw a border, found \`${token}\``,
+            `a specimen must not draw a border, found \`${token}\``,
           )
         }
+      }
+    }
+  })
+
+  await run('2003 the canvas is six tabs, and a specimen is a name and a live demo', () => {
+    const tabs = Array.from(designContainer.querySelectorAll('[role="tab"]')) as Element[]
+    // The fixture declares components and glyphs and carries three token
+    // families, so five of the six tabs have something in them; a tab for a
+    // group the manifest declares empty is not drawn (the rule since 2003).
+    const labels = tabs.map((tab) => (tab.textContent ?? '').replace(/\d+$/, ''))
+    assert.deepEqual(labels, ['Colour', 'Type', 'Spacing', 'Components', 'Glyphs'])
+    assert.equal(
+      tabs.filter((tab) => tab.getAttribute('aria-selected') === 'true').length,
+      1,
+      'exactly one tab is selected',
+    )
+    assert.equal(
+      designContainer.querySelectorAll('[role="tabpanel"]').length,
+      1,
+      'and exactly one panel is mounted — five panels of live documents is the cost this avoids',
+    )
+    // The specimen: the heading, and the demo in its own frame. No counts line
+    // ("3 variants · 4 states" is in the fixture and must not be drawn), no
+    // spec disclosure, and nothing to click into.
+    const text = designContainer.textContent ?? ''
+    assert.match(text, /button/, 'the component is named')
+    assert.ok(!/variants?\b/i.test(text), 'no counts line under a live specimen')
+    assert.ok(!/states?\b/i.test(text), 'and no state count either')
+    assert.equal(designContainer.querySelectorAll('details').length, 0, 'no spec disclosure')
+    assert.ok(!text.includes('Anatomy'), 'and none of its headings')
+    const frames = Array.from(designContainer.querySelectorAll('iframe')) as Element[]
+    assert.equal(frames.length, 1, 'one live document per specimen on the page')
+    assert.ok(
+      (frames[0].getAttribute('srcdoc') ?? '').includes('ds-button'),
+      'and it is the component, composed',
+    )
+  })
+
+  await run('2003 the door sets one face — no monospace anywhere in its chrome', () => {
+    for (const element of [
+      designContainer.firstElementChild as Element,
+      ...subtree(designContainer.firstElementChild as Element),
+    ]) {
+      for (const token of classesOf(element)) {
+        assert.ok(token !== 'font-mono', 'the door states exactly one font-family, the UI face')
       }
     }
   })
@@ -609,13 +854,33 @@ async function main(): Promise<void> {
     assert.ok(/'Reload'/.test(actions), 'Reload is offered, in the door bar')
   })
 
-  await run('2003 the specimen has no container and the name appears exactly once', () => {
-    const occurrences = (designContainer.textContent ?? '').split('multicode').length - 1
-    assert.equal(occurrences, 1, 'the system name is shown once, in the specimen')
-    const specimen = designContainer.querySelector('[aria-label="multicode specimen"]')
-    assert.ok(specimen, 'the specimen is a labelled region')
-    for (const token of classesOf(specimen)) {
-      assert.ok(!token.startsWith('border'), 'the specimen has no container')
+  // Also re-pointed 2026-09-09. The old canvas carried an identity block — the
+  // system's name over a ramp — and the rule was "shown once, and in no box of
+  // its own". The rewrite deleted that block: the door bar names the system, and
+  // the canvas is only its contents. So the rule tightens rather than relaxes —
+  // the name is shown ZERO times in the canvas's own copy — and the one thing
+  // the band still says about the bundle, its folder, is said once.
+  await run('2003 the canvas names no system in its own copy, and its folder once', () => {
+    const copy = designContainer.textContent ?? ''
+    assert.equal(
+      copy.split('multicode').length - 1,
+      0,
+      'the door bar names the system; the canvas repeating it is the second name',
+    )
+    assert.equal(
+      copy.split('/work/brand/design-system').length - 1,
+      1,
+      'the folder is said once, in the band, and nowhere else',
+    )
+    // Still no surface of its own around the contents: the panel is padding.
+    const panel = designContainer.querySelector('[role="tabpanel"]')
+    assert.ok(panel, 'the contents live in a labelled tab panel')
+    for (const token of classesOf(panel)) {
+      // `border` on its own is a container too — a 1px rule on all four sides.
+      // The hyphen was added while re-pointing this at the rewritten canvas and
+      // it opened exactly the hole the rule exists to close, so the prefix is
+      // back to `border`.
+      assert.ok(!token.startsWith('border'), 'the panel draws no container')
       assert.ok(!token.startsWith('bg-'), 'and no surface of its own')
     }
   })
@@ -1128,10 +1393,11 @@ async function main(): Promise<void> {
       'components/workspace/newSprint/NewSprintDialog.tsx': /<Modal\b/,
       // RosterManagerModal left with its door (2026-09-05); nothing replaced it.
       'components/diagnostics/DiagnosticsOverlay.tsx': /<Modal\b/,
-      // The modal-surface host: Settings and the Diff popout mount through this
-      // one Modal. Plugins, Automations and Design were modals here from
+      // The modal-surface host: Settings and Reviews mount through this one
+      // Modal. Plugins, Automations and Design were modals here from
       // 2026-09-01 until the Extensions drawer ruling (2026-09-05) made them
-      // card-region surfaces again.
+      // card-region surfaces again; the Diff popout was here too until the
+      // diff got its own OS window (git-commit-window T3, 2026-09-09).
       'components/workspace/WorkspaceManager.tsx': /<Modal\b/,
     }
     for (const [file, pattern] of Object.entries(shells)) {
@@ -1226,11 +1492,27 @@ async function main(): Promise<void> {
     // multi-line field is not a step on a ramp whose steps are 26/30/34, and
     // widening this to every height would make the rule a repo-wide field sweep
     // wearing a button rule's name.
+    //
+    // `components/panels/git/**` joined the family on 2026-09-09. T5 and T6
+    // moved the Changes view out of `GitPanel.tsx` into six files in that
+    // directory, and the rule they were written under stopped covering them the
+    // moment they were extracted — a named-file rule that a refactor can walk
+    // out of polices the past. A DIRECTORY, not three more file names, so the
+    // next file added there is policed on the day it lands.
+    const GIT_SURFACE_DIR = 'components/panels/git/'
     const GIT_SURFACES = [
       'components/panels/GitPanel.tsx',
       'components/panels/GitConflictResolverPanel.tsx',
       'components/panels/GitGraphView.tsx',
+      ...rendererSources()
+        .map((path) => relative(join(process.cwd(), 'src/renderer/src'), path))
+        .filter((file) => file.startsWith(GIT_SURFACE_DIR))
+        .sort(),
     ]
+    assert.ok(
+      GIT_SURFACES.some((file) => file.startsWith(GIT_SURFACE_DIR)),
+      'the Changes view still lives in components/panels/git — if it moved, move this rule with it',
+    )
     const OFF_RAMP_HEIGHT = /(?:^|\s)h-(?:\d+(?:\.\d+)?|\[\d+(?:\.\d+)?px\])(?=\s|$)/
     const HOVER_FILL = /(?:^|\s)hover:bg-\S+(?=\s|$)/
 

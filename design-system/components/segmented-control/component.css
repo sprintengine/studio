@@ -72,3 +72,29 @@
     transition: none;
   }
 }
+
+/* ── Icon-only (2026-09-09) ──────────────────────────────────────────────
+ * Square segments carrying a glyph instead of a word, for a strip on a band
+ * that cannot spend width on labels — the diff window's side-by-side / unified
+ * toggle, sharing its row with the file stepper and the include counter.
+ *
+ * `size.control.xs` square, so the strip matches the `button --icon` items
+ * beside it in a `toolbar` band rather than standing a step taller than them,
+ * and the glyph steps up to `icon.size.sm`: here the glyph IS the control, not
+ * a mark beside the word that is.
+ *
+ * The label does not disappear — it becomes the segment's `aria-label` and its
+ * tooltip, which is the contract `tabs --icon-only` already wrote. A segment
+ * with no label and no tooltip is a blank button, and it is the only thing this
+ * variant can get wrong. */
+.ds-segmented-control--icon-only .ds-segmented-control-segment {
+  width: var(--sem-size-control-xs);
+  height: var(--sem-size-control-xs);
+  justify-content: center;
+  padding: 0;
+}
+
+.ds-segmented-control--icon-only .ds-segmented-control-segment svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}

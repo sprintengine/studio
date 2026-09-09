@@ -297,12 +297,11 @@ export function SurfaceRailHeader({
   search,
   filterControl,
 }: {
-  /** One line under the door's name, above everything it offers — what this
-   *  door is FOR, where a door has a sibling it has to be told apart from
-   *  (Workflows and Sprints, item 2470), or WHICH THING it is showing, where a
-   *  global door is scoped to one project (the Design door's project chip). Said
-   *  once, here, and nowhere else on the surface; a door with nothing to
-   *  distinguish it omits it entirely.
+  /** One line under the door's name, above everything it offers — WHICH THING
+   *  the door is showing, where a global door is scoped to one project (the
+   *  Design door's project chip). Said once, here, and nowhere else on the
+   *  surface; a door with nothing to distinguish it omits it entirely, which
+   *  is every door that would only be explaining itself in prose.
    *
    *  It sits outside the group headings deliberately: a heading whose group has
    *  no rows is dropped, and a scope control that vanished when its project had
@@ -333,8 +332,7 @@ export function SurfaceRailHeader({
     <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-2 pb-0 pt-2">
       {/* A div, not a p: the slot is typed `ReactNode` and the Design door puts
           its project chip here, whose popover renders a div — inside a `p` the
-          browser silently closes the paragraph and the chip lands outside it.
-          Sprints' tagline reads identically either way. */}
+          browser silently closes the paragraph and the chip lands outside it. */}
       {intro ? (
         <div className="mb-2 text-meta leading-4 text-[color:var(--text-muted)]">{intro}</div>
       ) : null}

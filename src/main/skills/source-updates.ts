@@ -8,14 +8,19 @@
 // presses (an installed skill may have been edited in place, and the re-copy
 // is blind within a source).
 //
-// **The cadence depends on the GitHub token** (owner ruling, 2026-09-08,
-// MC-2519). Anonymous GitHub allows 60 requests an hour for the whole machine,
-// shared with every other read the app makes and with anything else on the
-// same IP; a source checked every hour spends 24 of those a day on a question
-// whose answer changes far less often, and a person with several sources can
-// exhaust the budget on update checks alone and then find a scan or an install
-// refused. So without a token each source is checked at most once a day, and
-// with one — 5,000 requests an hour — hourly, as before.
+// **Over git the cadence is hourly for everyone** (git-transport ruling, owner
+// 2026-09-08): a head check is one `git ls-remote`, which the REST limit does
+// not count, so there is nothing left for a token to buy. What follows is the
+// API fallback, where the token still decides.
+//
+// **On the API path the cadence depends on the GitHub token** (owner ruling,
+// 2026-09-08, MC-2519). Anonymous GitHub allows 60 requests an hour for the
+// whole machine, shared with every other read the app makes and with anything
+// else on the same IP; a source checked every hour spends 24 of those a day on
+// a question whose answer changes far less often, and a person with several
+// sources can exhaust the budget on update checks alone and then find a scan or
+// an install refused. So without a token each source is checked at most once a
+// day, and with one — 5,000 requests an hour — hourly, as before.
 //
 // The window is per source and lives HERE rather than in the scheduler, so it
 // holds for every caller: the hourly poller leg simply finds nothing due 23
@@ -36,6 +41,7 @@ import {
   type SkillSource,
 } from '../../shared/skills'
 import { parseSkillRepoRef, resolveSkillRepoCommit, type SkillGithubOptions } from './github-tree'
+import type { SkillRepoReader, SkillRepoTransport } from './repo-reader'
 import type { SkillSourceStore } from './source-store'
 
 export const SKILL_SOURCES_UPDATED_CHANNEL = 'skills:sources-updated'
@@ -44,6 +50,17 @@ export type SourceUpdateCheckerDeps = {
   store: SkillSourceStore
   resolveToken: () => Promise<string>
   github?: SkillGithubOptions
+  /**
+   * The reader the head check asks, when the service was given one. Over git
+   * that is `git ls-remote`, which costs the REST limit nothing (git-transport
+   * ruling, owner 2026-09-08); with none the check resolves the head over the
+   * API exactly as it always did.
+   */
+  repoReader?: SkillRepoReader
+  /** What that reader speaks. It is the cadence's other half; defaults to 'api'. */
+  transport?: SkillRepoTransport
+  /** Awaited before each check reads the two above; see `SkillsServiceDeps.refreshTransport`. */
+  refreshTransport?: () => Promise<void>
   /** Injected in tests. */
   resolveHead?: (source: SkillSource, token: string) => Promise<string>
   now?: () => Date
@@ -62,11 +79,18 @@ export type SourceUpdateChecker = {
 
 export function createSourceUpdateChecker(deps: SourceUpdateCheckerDeps): SourceUpdateChecker {
   const now = deps.now ?? (() => new Date())
+  // Read per check, never captured: the integrator hands these in as getters
+  // that change once git is probed or installed (`SkillsServiceDeps`).
+  const transportNow = (): SkillRepoTransport => deps.transport ?? (deps.repoReader ? 'git' : 'api')
   const resolveHead =
     deps.resolveHead
     ?? (async (source: SkillSource, token: string): Promise<string> => {
       const ref = parseSkillRepoRef(source.repo)
       if (!ref) throw new Error(`${source.repo} is not a repository that can be checked.`)
+      // The reader's own head resolution when there is one — one round trip
+      // either way, but git's is not counted by the API's hourly limit.
+      const reader = deps.repoReader
+      if (reader) return reader.resolveCommit(`${ref.owner}/${ref.repo}`, ref.ref)
       return resolveSkillRepoCommit(ref, { ...deps.github, token })
     })
   let inFlight: Promise<SkillSourceUpdateCheck> | null = null
@@ -82,10 +106,12 @@ export function createSourceUpdateChecker(deps: SourceUpdateCheckerDeps): Source
   }
 
   async function run(): Promise<SkillSourceUpdateCheck> {
+    await deps.refreshTransport?.()
+    const transport = transportNow()
     const sources = (await deps.store.listSources()).filter((source) => source.kind === 'github')
     const token = await deps.resolveToken().catch(() => '')
     const hasToken = token.trim() !== ''
-    const intervalMs = sourceUpdateIntervalMs(hasToken)
+    const intervalMs = sourceUpdateIntervalMs(hasToken, transport)
     const startedAt = now()
     const entries: SkillSourceUpdateEntry[] = []
     const newlyChanged: string[] = []
@@ -99,7 +125,7 @@ export function createSourceUpdateChecker(deps: SourceUpdateCheckerDeps): Source
         // Not asked. What the last real check recorded stands, so the rails
         // keep whatever mark they had — a source is not "up to date" merely
         // because this run did not look at it.
-        skipped.push({ sourceId: source.id, message: sourceUpdateSkipMessage(ageMs, hasToken) })
+        skipped.push({ sourceId: source.id, message: sourceUpdateSkipMessage(ageMs, hasToken, transport) })
         entries.push({
           sourceId: source.id,
           name: source.repo || source.name,

@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
@@ -47,7 +48,7 @@ import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
-import { confirmWorkspaceWindowClose, createDiagnosticsWindow, createMainWindow, openAuxWindow } from './window-factory'
+import { confirmWorkspaceWindowClose, createDiagnosticsWindow, createMainWindow, isAuxWindow, openAuxWindow } from './window-factory'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
 import type { AppServices } from './app-services'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
@@ -73,6 +74,7 @@ export function registerCoreIpc(
     },
     confirmWindowClose: confirmWorkspaceWindowClose,
     openAuxWindow,
+    isAuxWindow,
   })
   registerBrowserIpc(ipcMain, services.browserManager)
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService, {
@@ -127,11 +129,18 @@ export function registerCoreIpc(
   })
   registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
   registerBacklogIpc(ipcMain)
-  registerGitIpc(ipcMain, {
-    enabled: diagnosticsEnabled,
-    logMainPerfEvent: services.logMainPerfEvent,
-    withIpcDiagnostics: services.withIpcDiagnostics,
-  })
+  registerGitIpc(
+    ipcMain,
+    {
+      enabled: diagnosticsEnabled,
+      logMainPerfEvent: services.logMainPerfEvent,
+      withIpcDiagnostics: services.withIpcDiagnostics,
+    },
+    // The changelist store's home. Resolved here rather than inside the git
+    // modules so those stay free of `electron.app` and remain testable against
+    // a temp directory.
+    { userDataDir: app.getPath('userData') }
+  )
   registerVersionControlIpc(ipcMain)
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerGitHubReposIpc(ipcMain, services.githubTokenStore)

@@ -1,10 +1,14 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The twelve SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The thirty-one SVGs in
 `glyphs/` (close, search, spinner, multicode-mark, git-branch, remote-machine,
-commit, worktree, history, folder, file-typescript, file-generic) are the
-framework-neutral assets; the shipped vocabulary lives in React —
+commit, worktree, history, folder, file-typescript, file-generic, and the
+nineteen Commit-window action marks — rollback, move-to-changelist, stash,
+group-by, expand-all, collapse-all, next-difference, previous-difference,
+show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message,
+new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are
+the framework-neutral assets; the shipped vocabulary lives in React —
 `src/renderer/src/components/AppIcons.tsx` and the `ui/` glyph primitives
 beside it. This entry documents that vocabulary so a consumer can pick, size,
 and color a glyph without reading the React source.
@@ -203,12 +207,12 @@ is private to the component, applied through its `tone` prop.
 | `generic` | Plain document — anything unrecognised |
 
 Colour is the `tone` axis, and the surface picks it (ruled 2026-09-06,
-principles.md → "Identity colour"). `tone="ink"`, the default, is the
-monochrome glyph the 2026-09-02 ruling left: it takes the row's ink, and it is
-the rule wherever the filename already carries a status tint — the Git changes
-list — so that tint stays the row's one colour. `tone="kind"` inks the glyph
-in its language's identity hue from the `--sem-color-mark-*` ramp, the
-pairings people know from their editors:
+amended 2026-09-09, principles.md → "Identity colour"). `tone="ink"`, the
+default, is the monochrome glyph the 2026-09-02 ruling left: it takes the
+row's ink, and it is what a row uses when its glyph names no language or when
+the surface wants no identity channel at all. `tone="kind"` inks the glyph in
+its language's identity hue from the `--sem-color-mark-*` ramp, the pairings
+people know from their editors:
 
 | Hue | Kinds |
 |---|---|
@@ -224,9 +228,18 @@ pairings people know from their editors:
 A `*-test` kind takes its base language's hue: the notch says "test", the hue
 still says which language.
 
-The File Explorer is the surface that qualifies: nothing else in its rows is
-coloured. The hue identifies and never grades — it is not a status ramp, and a
-`.ts` row is not "more" than a `.md` row for being bluer. `glyphs/file-
+**Both file surfaces wear `tone="kind"` (amended 2026-09-09).** The
+2026-09-06 ruling let the hue on only where nothing else in the row was
+coloured, which admitted the File Explorer and excluded the Git changes list.
+The owner reversed the exclusion for the Commit window: a Git row carries the
+kind hue on its glyph **and** the status tint on its name, because the hue
+identifies and the tint grades. The glyph is the same blue on a modified,
+added and deleted `.ts` row — it never moves with state — so the only thing
+grading in the row is still the name.
+
+The hue identifies and never grades: it is not a status ramp, and a `.ts` row
+is not "more" than a `.md` row for being bluer. A row still spends at most two
+colour channels, and the second one is the name's. `glyphs/file-
 typescript.svg` and `glyphs/file-generic.svg` are the framework-neutral samples
 of the tile and document idioms, in `currentColor`.
 
@@ -246,8 +259,43 @@ the first set had to be learned from the tooltip.
 | Changes | A commit node on a line identifies changes | `glyphs/commit.svg` |
 | Worktrees | A folder holding that node: a checkout in its own directory | `glyphs/worktree.svg` |
 | Log | The history clock | `glyphs/history.svg` |
-| Stashes | The drawer | — |
+| Stashes | The drawer — the same one drawing the Stash *action* wears, extracted to `ui/GitActionGlyphs.tsx` so the view strip and the toolbar cannot drift | `glyphs/stash.svg` |
 | Terminal | The prompt in a frame | — |
+
+### Git and diff actions (16-grid — `ui/GitActionGlyphs.tsx`)
+
+*What will this toolbar button do* on the Commit window and the diff window
+(epic `git-commit-window`, 2026-09-09).
+Action glyphs, not identity: they answer the sixth question, so they sit here
+rather than in the Git-views strip above, and the two families share `stash`
+because putting changes away is one concept whether it is a view or a verb.
+16-grid, `currentColor`, `fill="none"`; frame 1.3, line work 1.4. Every one is
+`aria-hidden` — the icon-only button that hosts it carries the `aria-label`.
+
+| Export | Concept | Shape | Asset |
+|---|---|---|---|
+| `RollbackGlyph` | Discard a file's changes | The undo arrow: a hook doubling back on itself. **Not** `ResetIcon` — that is "restore a default", a 24-grid settings act, and this one throws work away | `glyphs/rollback.svg` |
+| `MoveToChangelistGlyph` | Move files between changelists | Two opposed arrows, one over the other | `glyphs/move-to-changelist.svg` |
+| `StashGlyph` | Stash uncommitted work | The drawer. One drawing, shared with the Stashes view above | `glyphs/stash.svg` |
+| `GroupByGlyph` | Grouping options | The target: a ring crossed by four ticks | `glyphs/group-by.svg` |
+| `ExpandAllGlyph` | Expand every group | Two chevrons apart | `glyphs/expand-all.svg` |
+| `CollapseAllGlyph` | Collapse every group | The same two chevrons, together | `glyphs/collapse-all.svg` |
+| `NextDifferenceGlyph` · `PreviousDifferenceGlyph` | Step to the next / previous hunk | An arrow travelling to a rule — the hunk boundary it lands on. ONE drawing, mirrored about y = 8 for the other direction, the way `ChevronDownIcon` is rotated rather than twinned; a bare chevron would say *disclosure*, which stepping is not. React applies the mirror as a transform; the folder ships both, because a framework-neutral asset a consumer has to transform is not a framework-neutral asset | `glyphs/next-difference.svg` · `glyphs/previous-difference.svg` |
+| `ShowDiffGlyph` | Open this file's diff | Two opposed arrows about a centre line: one running right over it, one running left under it — two versions read against each other. **Not** `NextDifferenceGlyph`, which the diff window spends on *step to the next hunk*: one mark answering "open the comparison" in one window and "move within the comparison" in the other teaches that the mark means nothing in particular (added 2026-09-09, review of T5/T6) | `glyphs/show-diff.svg` |
+| `SideBySideGlyph` | Diff layout: two panes | A frame split by one vertical line | `glyphs/side-by-side.svg` |
+| `UnifiedGlyph` | Diff layout: one pane | The same frame, unsplit. The pair is a two-state toggle, and the presence or absence of the divider *is* the difference | `glyphs/unified.svg` |
+| `GearGlyph` | Settings on a toolbar | A real toothed gear. `GeneralSettingsIcon` is sliders on the 24-grid rail and the `config` file kind is an identity mark, so neither serves an action toolbar | `glyphs/gear.svg` |
+| `OpenInEditorGlyph` | Open the file in an editor | The pencil on the page: the one mark in this family that leaves the diff rather than rearranging it, so it is not another frame (added 2026-09-09 for the diff window's toolbar, T4) | `glyphs/open-in-editor.svg` |
+| `WriteCommitMessageGlyph` | Compose the commit message | Three lines of a message with a crossed spark beside them: *text, composed for you*. A pencil would say a person types it, which is `OpenInEditorGlyph`'s job | `glyphs/write-commit-message.svg` |
+| `NewChangelistGlyph` · `DeleteChangelistGlyph` | Make / remove a changelist | The bare plus and the bare minus at the family's weight. The changelist is already named by the menu row beside them, so the operator is the whole mark; `FolderPlusIcon` is a 24-grid folder and a changelist is not a folder (added 2026-09-09, T6) | `glyphs/new-changelist.svg` · `glyphs/delete-changelist.svg` |
+| `EditChangelistGlyph` | Rename a changelist | The pencil WITHOUT the page. `OpenInEditorGlyph` is the pencil on a page and means "hand this file to an editor"; renaming a list touches no file, so it keeps the tool and drops the page | `glyphs/edit-changelist.svg` |
+| `KebabGlyph` | More actions (the overflow trigger) | Three dots stacked, `r=1.15` at y 3.4 / 8 / 12.6. The one mark in this folder made of FILLS: a dot has no line work, and a stroked dot is a circle pretending to be a point. One drawing since 2026-09-09 — `OverflowMenu` drew it on a 14-grid and the Git group band hand-rolled a 16-grid copy | `glyphs/kebab.svg` |
+| `CreatePatchGlyph` | Write the selection out as a patch | A page carrying a diff's two marks, one added line over one taken away: a patch is a file *of* a difference, so the glyph is both. Not `WriteCommitMessageGlyph`'s prose lines, and not another frame — every frame in this family is a layout | `glyphs/create-patch.svg` |
+
+Reused, not redrawn, by the same two surfaces: `RefreshIcon` (re-read the
+working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
+`glyphs/worktree.svg`, `glyphs/history.svg` (the view strip), and
+`ChevronDownIcon` rotated for disclosure.
 
 ### Utility marks (16-grid)
 
@@ -368,8 +416,11 @@ Cite these rather than matching the code you happen to be nearest.
    inconsistency, resolved by consuming the shared exports (item 3).
 5. **`RefreshIcon` is a 16-grid primitive named `Icon`** where the family
    convention is `Glyph`. Rename when it next moves.
-6. **The `glyphs/` folder holds twelve assets** against a shipped vocabulary of
+6. **The `glyphs/` folder holds twenty-nine assets** against a shipped vocabulary of
    roughly sixty. This entry closes the documentation gap; extracting
    framework-neutral SVGs for the core-action set into `glyphs/` (and
    registering them in `design-system.json`) remains open. *2026-09-05:* the
    Git view marks, the folder and two file-type samples joined the folder.
+   *2026-09-09:* the seventeen Commit-window and diff-window action marks
+   joined it (Git and diff actions, above), `previous-difference` among them
+   as a shipped mirror rather than a transform the reader has to apply.

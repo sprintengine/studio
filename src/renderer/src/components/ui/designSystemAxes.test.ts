@@ -64,7 +64,17 @@ function code(file: string): string {
     .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ')
 }
 
-/** The directory a count is attributed to: `components/<area>`, else top level. */
+/**
+ * The directory a count is attributed to: `components/<area>`, else top level.
+ *
+ * One level deep on purpose, so a subdirectory cannot be a hiding place. Every
+ * file under `components/panels/git/` is counted against `components/panels`,
+ * which is what keeps a ratchet honest when a panel is broken up: the Changes
+ * view moved into six new files there in T5/T6 and stayed policed at its old
+ * baseline without a line changing here. (The named-file rules in
+ * `designSystemConformance.test.tsx` had to be widened by hand — that is the
+ * cost of naming files rather than walking a tree, and why this one walks.)
+ */
 function area(file: string): string {
   const parts = relative(RENDERER, file).split('/')
   if (parts[0] !== 'components') return parts[0]
@@ -268,7 +278,14 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // hand-spelled icon box goes with it. Banked, not left as headroom.
     'components/workspace': 11,
     'components/panels': 10, // 2026-09-08: the second swap
-    'components/ui': 14,
+    // ui 14 → 13, 2026-09-09: the "Project colour" swatch row landed beside the
+    // highlight one in `ContextMenu`, and rather than adding a fifth copy of the
+    // 20px disc the file now spells it once (`SWATCH_DOT_SIZE_CLASS`) for all
+    // four swatches — the same repair the tab chip took above. The geometry is
+    // still off the ramp (20px sits between icon-md 18 and icon-lg 22) and still
+    // owed; it is owed in one place instead of four. Banked, not left as
+    // headroom for the next off-ramp.
+    'components/ui': 13,
     // New directory, 2026-09-08 — a MOVE, not a regression. The Design Wizard
     // was deleted; the generated-HTML artifact frame and its annotate mode
     // survived it (the Backlog mockup surfaces and the Sprint Engine

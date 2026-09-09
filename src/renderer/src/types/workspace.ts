@@ -132,6 +132,28 @@ export type WorkspaceHighlight = {
   color: HighlightColor | null
 }
 
+/**
+ * The six identity hues a project's folder glyph can wear (owner, 2026-09-09).
+ * Gold and green are deliberately absent: gold is what a row wears when an
+ * agent is waiting on the person and green is the finished tint, so neither may
+ * double as a project's colour on the same row.
+ *
+ * Declared here, beside HighlightColor and for the same reason: AppSettings is
+ * shared with main (tsconfig.node lists this file and nothing else out of the
+ * renderer), so the type has to live somewhere main can reach. The ordered
+ * palette, the allocator and the swatch metadata are utils/projectColor.ts,
+ * which re-exports these two names and asserts at compile time that its list
+ * and this union still name the same six hues.
+ */
+export type ProjectColor = 'blue' | 'teal' | 'cyan' | 'violet' | 'orange' | 'red'
+
+/**
+ * What is stored per project: a hue, or `'none'` — the person choosing no
+ * colour, which is a different thing from a project that has not been seen yet
+ * (absent from the map) and is what stops the allocator handing it a hue again.
+ */
+export type ProjectColorSetting = ProjectColor | 'none'
+
 export type PreviewSlot = {
   x: number
   y: number
@@ -458,6 +480,19 @@ export type AppSettings = {
    */
   sprintEngineRunSettings: Record<string, SprintEngineRunSettings>
   projectKnowledgeRoots: Record<string, string | null>
+  /**
+   * The identity hue each project wears on its folder glyph, keyed by
+   * `projectColorKey` (utils/projectColor) — the canonical repository key when
+   * the folder has a remote, else the normalised folder path. One key per
+   * project, so a paired machine's clone of a repository wears the same hue as
+   * this disk's.
+   *
+   * Written once, the first time a project is seen (`assignProjectColors`), and
+   * thereafter only by the person changing it. `'none'` is a chosen no-colour,
+   * which is a different thing from a key that is absent: absent means "not yet
+   * seen" and is what the allocator fills.
+   */
+  projectColors: Record<string, ProjectColorSetting>
   recentWorkspaceFolders: string[]
   /**
    * The project the Design door is showing, chosen with its own project chip.
@@ -743,8 +778,12 @@ export type WorkspacePaneTab = {
   faviconUrl?: string
   // Terminal only: the pty id the tab owns; closing the tab kills it.
   terminalId?: string
-  // Diff only: the file the viewer opened on, and which side.
-  diff?: { focusPath: string | null; focusKind: 'staged' | 'unstaged' | null }
+  // Diff only: the repository the viewer reads, the file it opened on, and
+  // which side. `repoRoot` is the opener's repository — the Git panel's active
+  // scope, which is not always the workspace's own worktree — and the pane
+  // honours it rather than re-deriving one; absent, the workspace's worktree
+  // is the repository (a Diff tab opened from the pane's own + menu).
+  diff?: { repoRoot?: string; focusPath: string | null; focusKind: 'staged' | 'unstaged' | null }
   // Browser only: the device toolbar's viewport; absent means fill.
   viewport?: BrowserViewport
 }

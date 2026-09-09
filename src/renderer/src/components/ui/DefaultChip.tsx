@@ -15,8 +15,12 @@ const MICRO_CHIP_TONES = {
   neutral: 'border-[color:var(--border-default)] text-[color:var(--text-subtle)]',
 } as const
 
-/** The one micro chip: `radius.chip`, hairline, micro type. Every bordered micro mark renders through it. */
-function MicroChip({
+/** The one micro chip: `radius.chip`, hairline, micro type. Every bordered micro mark renders through it.
+ *  Exported since T6 (git-commit-window): the Git panel's changelist band wears
+ *  an "active" chip, which is the same fact-about-the-thing-beside-it this
+ *  primitive exists for — and a second hand-rolled hairline rectangle is
+ *  exactly what `design-system/components/micro-chip` was written to stop. */
+export function MicroChip({
   tone = 'neutral',
   className,
   children,

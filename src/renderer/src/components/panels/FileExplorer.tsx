@@ -18,7 +18,7 @@ import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { isImageFile } from '../../utils/files'
 import { isPathOrChild } from '../../utils/paths'
-import { openDiffWindow } from '../auxWindows/openDiffWindow'
+import { openGitDiff } from '../../utils/openGitDiff'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } from '../../utils/fileExplorerSelection'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
@@ -238,7 +238,7 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
       // 12x16 flow advance: the negative margins give back the padding, so the
       // chevron draws exactly where it did while the box a pointer has to hit
       // clears the floor. The 16px advance sits level with the 16px folder and
-      // file glyphs beside it, so the row's `min-h-[26px]` — not this box — is
+      // file glyphs beside it, so the row's own 24px floor — not this box — is
       // what sets its height; drop the negative margins and the row jumps to
       // 32px. The sibling spacer on file rows is still w-3, so the columns line
       // up. The ink and the hover step are now the kit's: the chevron lifts under
@@ -1668,7 +1668,10 @@ function ExplorerTree({
       if (repoRoot) {
         const gitEntry = getGitEntry(latestGitStatusRef.current, entry.path)
         const scope = gitEntry?.staged && !gitEntry.unstaged ? 'staged' : 'unstaged'
-        await openDiffWindow({ repoRoot, focusPath: entry.path, scope })
+        // The same routing the Git panel's rows take: the window by
+        // default, the pane's Diff tab once the person has flipped it. The
+        // repository is the one this tree's status was read against.
+        openGitDiff({ workspaceId, repoRoot, focusPath: entry.path, scope })
       }
       return
     }
@@ -2077,7 +2080,9 @@ function ExplorerTree({
         // the kit's `Input` on the `well` ground, and `size="none"` is what lets
         // the box stay off the ramp: `h-5` is 20px, below the 26/30/34 ramp's
         // first step, and deliberately so — this field replaces the NAME INSIDE a
-        // file-tree row, and a tree row is 22px tall. A ramp-height field would
+        // file-tree row, and a tree row is 24px tall — `size.hit-target-min`,
+        // with 2px of padding either side, so a 20px field is exactly the
+        // content box the row already has. A ramp-height field would
         // push every sibling row down while one is being renamed, which is the
         // one thing an in-place edit must not do. Everything else — the border,
         // the ground, the radius, the focus ring — is now the primitive's.
@@ -2140,7 +2145,12 @@ function ExplorerTree({
             if (!isSearching) setRootCollapsed((current) => !current)
             focusTree()
           }}
-          className="group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          // 24px at rest: `size.hit-target-min`, the floor the epic brought the
+          // tree to (git-commit-window, 2026-09-09).
+          // The two pixels come out of the VERTICAL PADDING — the 16px glyph
+          // slot is untouched, so the chevron, the folder mark and the file
+          // mark still line up with every other rail in the app.
+          className="group flex min-h-[var(--hit-target-min)] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-0.5 text-meta text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
         >
           <ChevronIcon
             expanded={isSearching || !rootCollapsed}
@@ -2226,7 +2236,12 @@ function ExplorerTree({
               // the same one ("which of these is the keyboard on?"). They used
               // to take `--bg-hover`, which made a selected row and a pointed-at
               // row the same picture (design-system/patterns/selection.html).
-              className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-meta transition-colors ${
+              // 24px at rest, matching the root row above: the floor is
+              // `size.hit-target-min` and the two pixels came out of `py`, not
+              // out of the 16px glyph slot. The tallest thing a row can hold is
+              // the 20px rename field, which still clears the 20px content box
+              // this leaves, so a row being renamed does not push its siblings.
+              className={`group flex min-h-[var(--hit-target-min)] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-0.5 text-meta transition-colors ${
                 isDropTarget
                   ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-1 ring-[color:var(--accent-primary)]'
                   : isSelected
@@ -2235,7 +2250,17 @@ function ExplorerTree({
                     : 'bg-[color:var(--bg-selected-resting)] text-[color:var(--text-strong)]'
                   : `${ignored ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-default)]'} ${washClassName} hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`
               }`}
-              // One level in from the root row above.
+              // The indent, said out loud rather than left as arithmetic
+              // (principles.md: an indent that aligns to a reserved glyph slot
+              // is structure, not rhythm — it keeps its computed value, off the
+              // space scale, with a line saying what it lines up with). 8px is
+              // the root row's own `px-2` inset, so depth 0 starts one step in
+              // from it. Each further level adds 14px: the chevron's 12px flow
+              // advance — the kit's 24px `xs` button pulled back by `-mx-1.5` —
+              // plus 2px, so a child's disclosure column clears its parent's
+              // instead of sitting directly under it. A file row's `w-3` spacer
+              // is that same 12px, which is what keeps files and folders on one
+              // glyph column at every depth.
               style={{ paddingLeft: `${8 + (depth + 1) * 14}px` }}
             >
               {entry.isDir ? (

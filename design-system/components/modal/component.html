@@ -48,6 +48,21 @@
     outline: var(--sem-focus-ring);
     outline-offset: var(--sem-focus-ring-offset);
   }
+  /* A stand-in for the item's own mark (a source monogram, an extension
+     icon): the leading slot holds whatever mark the item's row carried. */
+  .demo-monogram {
+    display: grid;
+    place-items: center;
+    width: var(--sem-size-control-md);
+    height: var(--sem-size-control-md);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface-raised);
+    color: var(--sem-color-text-muted);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-body);
+    font-weight: var(--sem-font-weight-emphasis);
+  }
   /* Shells are authored parked — statically visible, no scrim — so the
      anatomy shows with scripts off; the catalog embeds this demo without
      JavaScript. The live examples are opened by the script over the page. */
@@ -82,6 +97,32 @@
         <div class="ds-modal-footer">
           <button type="button" class="ds-button ds-button--ghost">Cancel</button>
           <button type="button" class="ds-button ds-button--primary ds-button--md">Rename</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="demo-label">A dialog opened on an item leads its title with the item's own mark, and its footer holds the item's actions rather than a question's answer.</p>
+
+  <div class="demo-parked">
+    <div class="ds-modal-scrim">
+      <div class="ds-modal" role="dialog" aria-modal="true" aria-labelledby="parked-item-title" tabindex="-1">
+        <div class="ds-modal-header">
+          <div class="ds-modal-header-group">
+            <span class="ds-modal-leading demo-monogram" aria-hidden="true">TD</span>
+            <div>
+              <h2 class="ds-modal-title" id="parked-item-title">tdd</h2>
+              <p class="ds-modal-subtitle">anthropics/skills · 3 files</p>
+            </div>
+          </div>
+          <button type="button" class="ds-button ds-button--icon" aria-label="Close">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="ds-modal-body">Test-driven development: write the failing test first, then the smallest change that passes it.</div>
+        <div class="ds-modal-footer">
+          <button type="button" class="ds-button ds-button--ghost">Open on GitHub</button>
+          <button type="button" class="ds-button ds-button--primary ds-button--md">Install skill</button>
         </div>
       </div>
     </div>

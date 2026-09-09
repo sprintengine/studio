@@ -1085,6 +1085,179 @@ async function linkedPluginsPartial(): Promise<void> {
 }
 
 /**
+ * An infinite budget reads every repository the marketplace names.
+ *
+ * That is what the git transport passes (git-transport ruling, owner
+ * 2026-09-08): a tree listing over git's protocol is not a REST request, so
+ * there is nothing left for a per-scan budget to protect and Sync must read
+ * every plugin. The arithmetic here is the anonymous API budget's — twenty of
+ * sixty repositories, forty left `pending: 'budget'` — beside the same pass
+ * with no ceiling at all.
+ */
+async function anInfiniteBudgetReadsEveryRepository(): Promise<void> {
+  const REPOSITORIES = 60
+  const crowd = await scanPluginTree({
+    entries: [],
+    skills: [],
+    marketplaceManifest: JSON.stringify({
+      name: 'm',
+      plugins: Array.from({ length: REPOSITORIES }, (_, index) => ({
+        name: `linked-${index}`,
+        source: { source: 'github', repo: `owner/repo-${index}`, sha: String(index).padStart(40, '0') },
+      })),
+    }),
+    readFile: async () => null,
+  })
+  assert.equal(crowd.plugins.length, REPOSITORIES)
+
+  /** A reader every repository answers: one skill, no manifest to lose. */
+  const answering = (): LinkedPluginRepoReader & { trees: string[] } => {
+    const trees: string[] = []
+    return {
+      trees,
+      resolveCommit: async () => '0'.repeat(40),
+      readTree: async (repo, sha) => {
+        trees.push(`${repo}@${sha}`)
+        return [{ path: 'skills/demo/SKILL.md', mode: '100644', type: 'blob', sha: 'a' }]
+      },
+      readFile: async () => null,
+    }
+  }
+
+  const budgeted = answering()
+  const rationed = await followLinkedPlugins({
+    plugins: crowd.plugins,
+    reader: budgeted,
+    budget: MAX_LINKED_REPOSITORY_READS_ANONYMOUS,
+    marketplaceManifest: null,
+  })
+  assert.equal(budgeted.trees.length, MAX_LINKED_REPOSITORY_READS_ANONYMOUS)
+  assert.deepEqual(summariseLinkedPlugins({ plugins: rationed.plugins }), {
+    total: REPOSITORIES,
+    read: MAX_LINKED_REPOSITORY_READS_ANONYMOUS,
+    pending: REPOSITORIES - MAX_LINKED_REPOSITORY_READS_ANONYMOUS,
+    unreadable: 0,
+    pendingReasons: { budget: REPOSITORIES - MAX_LINKED_REPOSITORY_READS_ANONYMOUS, rateLimited: 0, offline: 0 },
+  })
+
+  const unbounded = answering()
+  const whole = await followLinkedPlugins({
+    plugins: crowd.plugins,
+    reader: unbounded,
+    budget: Number.POSITIVE_INFINITY,
+    marketplaceManifest: null,
+  })
+  assert.equal(unbounded.trees.length, REPOSITORIES, 'every group is read, none sliced away')
+  assert.equal(whole.repositoriesRead, REPOSITORIES)
+  assert.ok(whole.plugins.every((plugin) => plugin.componentsKnown))
+  assert.equal(
+    whole.plugins.filter((plugin) => plugin.readState?.status === 'pending').length,
+    0,
+    'nothing is left pending, for budget or for anything else',
+  )
+  assert.deepEqual(summariseLinkedPlugins({ plugins: whole.plugins }), {
+    total: REPOSITORIES,
+    read: REPOSITORIES,
+    pending: 0,
+    unreadable: 0,
+    pendingReasons: NO_PENDING,
+  })
+
+  // An unpinned entry charges its resolve against the budget before spending
+  // it, and `spent + cost > Infinity` is never true — so the ref is resolved
+  // and the tree read rather than the group being written off as unaffordable.
+  const unpinned = await scanPluginTree({
+    entries: [],
+    skills: [],
+    marketplaceManifest: JSON.stringify({
+      name: 'm',
+      plugins: [{ name: 'floating', source: { source: 'github', repo: 'owner/floating' } }],
+    }),
+    readFile: async () => null,
+  })
+  const floating = answering()
+  const floated = await followLinkedPlugins({
+    plugins: unpinned.plugins,
+    reader: floating,
+    budget: Number.POSITIVE_INFINITY,
+    marketplaceManifest: null,
+  })
+  assert.equal(floating.trees.length, 1)
+  assert.equal(floated.plugins[0].componentsKnown, true)
+}
+
+/**
+ * The shortfall's remedy over git: Sync, and never the token.
+ *
+ * On the API path a token is what raises 60 requests an hour to 5,000, so
+ * naming it is the one useful thing to say. Over git the limit is not what is
+ * in the way — nothing is rationed — and a machine with no git at all is told
+ * the one thing that would actually change the answer (git-transport ruling,
+ * owner 2026-09-08).
+ */
+function shortfallReadsTheTransport(): void {
+  const pending: LinkedPluginSummary = {
+    total: 238,
+    read: 0,
+    pending: 238,
+    unreadable: 0,
+    pendingReasons: { budget: 238, rateLimited: 0, offline: 0 },
+  }
+  assert.deepEqual(linkedPluginShortfall(pending, false, 'git'), [
+    { text: '238 of 238 linked plugins not yet read — Sync to read the rest', action: null },
+  ])
+  assert.deepEqual(
+    linkedPluginShortfall(pending, true, 'git'),
+    linkedPluginShortfall(pending, false, 'git'),
+    'the token decides nothing over git, so it changes no word of this',
+  )
+
+  // A rate limit cannot be git's problem, so its clause does not appear either.
+  const limited: LinkedPluginSummary = {
+    total: 10,
+    read: 0,
+    pending: 10,
+    unreadable: 0,
+    pendingReasons: { budget: 0, rateLimited: 10, offline: 0 },
+  }
+  assert.deepEqual(linkedPluginShortfall(limited, false, 'git'), [
+    { text: '10 of 10 linked plugins not yet read — Sync to read the rest', action: null },
+  ])
+
+  // A dead network is still a dead network, whichever protocol was speaking.
+  const offline: LinkedPluginSummary = {
+    total: 10,
+    read: 0,
+    pending: 10,
+    unreadable: 0,
+    pendingReasons: { budget: 0, rateLimited: 0, offline: 10 },
+  }
+  assert.deepEqual(linkedPluginShortfall(offline, false, 'git'), [
+    { text: '10 of 10 linked plugins not yet read — GitHub could not be reached', action: null },
+  ])
+
+  // The API fallback keeps every word it had…
+  assert.deepEqual(linkedPluginShortfall(pending, false, 'api'), [
+    { text: '238 of 238 linked plugins not yet read — add a GitHub token', action: 'github-settings' },
+  ])
+  assert.deepEqual(
+    linkedPluginShortfall(pending, false),
+    linkedPluginShortfall(pending, false, 'api'),
+    'and a caller that names no transport gets the API wording it always got',
+  )
+  // …except on the machine that is on the API path because it has no git,
+  // where the token would only widen a limit it should not be meeting at all.
+  assert.deepEqual(linkedPluginShortfall(pending, false, 'api', false), [
+    { text: '238 of 238 linked plugins not yet read — install git', action: null },
+  ])
+  assert.deepEqual(
+    linkedPluginShortfall(pending, true, 'api', false).map((part) => part.action),
+    [null],
+    'and it offers no setting, because no setting installs git',
+  )
+}
+
+/**
  * A read that lost a file the tree listed is not a read plugin.
  *
  * This is the install gate's foundation: `installPlugin` refuses a plugin whose
@@ -1178,6 +1351,8 @@ async function main(): Promise<void> {
   await readBudget()
   await linkedPluginsFollowed()
   await linkedPluginsPartial()
+  await anInfiniteBudgetReadsEveryRepository()
+  shortfallReadsTheTransport()
   await aLostFileIsNotAnAbsentFile()
   await linkedPluginRead()
   await skillsOnlyRepositories()

@@ -95,6 +95,7 @@ run('claude: probed path, scratch cwd, prompt on stdin, auth env stripped, title
   assert.equal(call.timeoutMs, 1234)
   assert.equal(call.env.ANTHROPIC_API_KEY, undefined, 'no API key reaches claude')
   assert.equal(call.env.ANTHROPIC_BASE_URL, undefined)
+  assert.equal(call.env.MAX_THINKING_TOKENS, '0', 'thinking is off: a title is not a reasoning task')
   assert.equal(call.env.PATH, '/bin')
   assert.equal(call.env.HOME, '/home')
   assert.equal(call.args[call.args.indexOf('--model') + 1], 'claude-haiku-4-5')
@@ -124,6 +125,7 @@ run('codex: schema written to scratch, last message read back, env left alone', 
   assert.equal(call.file, '/bin/codex')
   assert.equal(call.args[0], 'exec')
   assert.equal(call.env.ANTHROPIC_API_KEY, 'sk-secret', 'codex has no subscription/API split to guard')
+  assert.equal(call.env.MAX_THINKING_TOKENS, undefined, 'the claude-only thinking switch stays off codex')
   assert.ok(call.args[call.args.indexOf('--output-schema') + 1]!.startsWith(call.cwd), 'schema lives in the scratch dir')
 })
 

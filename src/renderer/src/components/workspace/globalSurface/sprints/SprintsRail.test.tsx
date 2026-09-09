@@ -272,45 +272,28 @@ run('an empty index renders no rows and no chips, leaving the empty state to the
 })
 
 // ── Two doors, two plus buttons (item 2470) ─────────────────────────────────
-// The same rail renders both doors. What must differ is exactly two things: the
-// sentence under the door's name, and the words on its own `+` — and each must
-// carry only its own.
-run('each door states its difference once, under its name', () => {
+// The same rail renders both doors. What differs is the words on its own `+`,
+// and each must carry only its own.
+run('neither door explains itself in prose over the rail', () => {
   const workflows = render({ door: WORKFLOWS_DOOR })
   const sprints = render({ door: SPRINTS_DOOR })
-  assert.ok(
-    workflows.includes('You have a goal. An architect works out what the work is, then a roster does it.'),
-    'the Workflows door says what a workflow is',
-  )
-  assert.ok(
-    sprints.includes('The work is already written down. Agents take what is ready until the graph is empty.'),
-    'the Sprints door says what a sprint is',
-  )
-  assert.ok(
-    !workflows.includes('The work is already written down'),
-    'and neither door explains the other',
-  )
-  assert.ok(!sprints.includes('You have a goal.'))
-  // Once, not twice: the sentence is the rail's intro and appears nowhere else
-  // in the column.
-  const occurrences = sprints.split('The work is already written down').length - 1
-  assert.equal(occurrences, 1, 'the difference is stated once and never again')
+  for (const [name, html] of [['Workflows', workflows], ['Sprints', sprints]] as const) {
+    assert.ok(!html.includes('You have a goal.'), `the ${name} door carries no tagline`)
+    assert.ok(!html.includes('The work is already written down'), `the ${name} door carries no tagline`)
+  }
 })
 
-run('each door renders its own `+` at the end of its list', () => {
+run('each door offers only its own way to start a run, once, in the head', () => {
   const workflows = render({ door: WORKFLOWS_DOOR })
   const sprints = render({ door: SPRINTS_DOOR })
-  assert.ok(workflows.includes('New workflow — say what you want done'), 'the Workflows plus row')
-  assert.ok(sprints.includes('New sprint — pick the work it should run'), 'the Sprints plus row')
-  assert.ok(!workflows.includes('New sprint — '), 'neither door offers to create the other kind')
+  assert.equal(workflows.split('New workflow').length - 1, 1, 'the Workflows door offers new once')
+  assert.equal(sprints.split('New sprint').length - 1, 1, 'the Sprints door offers new once')
+  assert.ok(!workflows.includes('New sprint'), 'neither door offers to create the other kind')
   assert.ok(!sprints.includes('New workflow'))
-  // The plus is at the END of the list, after the rows — the rail's own
-  // New-at-top affordance is a separate, earlier control.
+  // It sits in the head, ABOVE the runs — the second dashed row that used to
+  // follow the list, and opened a form inline, is gone.
   const rowIndex = sprints.indexOf('post-merge-hardening')
-  assert.ok(
-    rowIndex >= 0 && rowIndex < sprints.indexOf('New sprint — pick the work it should run'),
-    'the plus row comes after the runs it follows',
-  )
+  assert.ok(rowIndex >= 0 && sprints.indexOf('New sprint') < rowIndex, 'the way to start one comes first')
 })
 
 console.log('all sprints rail render tests passed')

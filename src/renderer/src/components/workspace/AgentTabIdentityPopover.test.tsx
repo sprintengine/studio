@@ -8,9 +8,9 @@ import type { ConversationPeek } from '../../../../shared/conversation-peek'
 
 // QA for what an agent TAB's hover card now is. The card itself is
 // `ConversationPeekCard` (its own suite covers the message half); this one holds
-// the tab-specific ruling of 2026-09-07: the identity card stopped being six
-// definition rows and became the conversation, and the four rows that were
-// repeating the window are gone for good.
+// the tab-specific rulings: 2026-09-07, when the identity card stopped being six
+// definition rows and became the conversation; and 2026-09-09, when it became
+// ONE agent's card — the tab's own — with no roster to move it elsewhere.
 //
 // The portal/hover half cannot be server-rendered, so this exercises the card
 // with a tab-shaped identity — which is exactly what the popover hands it.
@@ -34,23 +34,22 @@ function run(name: string, fn: () => void): void {
 
 const NOW = 1_800_000_000_000
 
-const SELF = {
+const SELF: AgentTabIdentity['agent'] = {
   sessionId: 'a21ac8e7-548f-6f89',
-  name: 'planner-agent',
-  initials: 'PA',
-  cli: 'claude-code' as const,
+  cli: 'claude-code',
   model: 'claude-opus-4-8',
-  status: { tone: 'good' as const, pulse: true, label: 'Working' },
+  fileChanges: [],
+  activeSubagents: 0,
+  contextUsage: null,
 }
 
 const TAB: AgentTabIdentity = {
   name: 'planner-agent',
   taskId: null,
-  status: { tone: 'good', pulse: true, label: 'Working' },
-  // A tab opens the card on ITS OWN agent, so the tab's agent always leads the
-  // roster it is handed — see `WorkspaceLayout`, which reorders the chat's
-  // roster to put it first.
-  roster: [SELF],
+  status: { kind: 'working', label: 'Working' },
+  // A tab's card is ITS OWN agent's — see `WorkspaceLayout`, which builds this
+  // from the tab's agent record and that agent's session snapshot.
+  agent: SELF,
 }
 
 const PEEK: ConversationPeek = {
@@ -72,6 +71,7 @@ const PEEK: ConversationPeek = {
       truncatedChars: 0,
     },
   ],
+  images: [],
 }
 
 function tabCard(identity: AgentTabIdentity = TAB, peek: ConversationPeek | null = PEEK): string {
@@ -117,30 +117,34 @@ run('a sprint agent still names the task it is claimed on', () => {
 })
 
 run('a tab whose agent has no session yet is still identified', () => {
-  const markup = tabCard({ ...TAB, roster: [] }, null)
+  const markup = tabCard({ ...TAB, agent: { ...SELF, sessionId: '' } }, null)
   assert.match(markup, /planner-agent/, 'the tab is still named')
   assert.equal(markup.includes('Copy session id'), false, 'nothing to copy, so no button')
 })
 
-run('the tab card opens on its own agent, and lists the chat’s others beside it', () => {
+run('the tab card is its own agent’s, with no way to move it to another', () => {
+  const markup = tabCard()
+  assert.equal(/role="radiogroup"/.test(markup), false, 'no roster')
+  assert.equal(/role="radio"/.test(markup), false, 'no discs')
+  assert.equal(markup.includes('agents'), false, 'and the header never counts the chat’s terminals')
+  assert.match(markup, /planner-agent/, 'the tab you hovered is the conversation shown')
+})
+
+run('the tab card draws this agent’s own files, subagents and context', () => {
   const markup = tabCard({
     ...TAB,
-    name: 'Retry budget for stalled sprints',
-    roster: [
-      SELF,
-      {
-        sessionId: 'other-1',
-        name: 'Lir Lynch',
-        initials: 'LL',
-        cli: 'codex',
-        model: 'gpt-5-codex',
-        status: { tone: 'neutral', pulse: false, label: 'Idle' },
-      },
-    ],
+    agent: {
+      ...SELF,
+      activeSubagents: 3,
+      contextUsage: { usedPercentage: 61, at: NOW },
+      fileChanges: [
+        { path: '/repo/src/main/agent-state.ts', additions: 12, deletions: 3, edits: 1, lastEditedAt: NOW },
+      ],
+    },
   })
-  assert.match(markup, /Conversation with planner-agent/, 'the tab you hovered is the conversation shown')
-  assert.match(markup, /aria-label="Lir Lynch — Idle"/, 'the chat’s other terminal is one disc away')
-  assert.match(markup, /2 agents/, 'and the header counts them')
+  assert.match(markup, />3 running</, 'the corner says what it is doing')
+  assert.match(markup, /aria-label="Context 61% used"/, 'the ring reads this session')
+  assert.match(markup, /aria-label="Open the diff for \/repo\/src\/main\/agent-state\.ts"/, 'and its edits open')
 })
 
 process.exit(failures === 0 ? 0 : 1)

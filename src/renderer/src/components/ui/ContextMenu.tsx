@@ -9,6 +9,11 @@ import {
   MENU_SURFACE_CLASS,
 } from './menuClasses'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
+import {
+  PROJECT_COLORS,
+  getProjectColorSwatch,
+  type ProjectColorSetting,
+} from '../../utils/projectColor'
 import type { HighlightColor } from '../../types/workspace'
 
 // Pointer-positioned context menu. Unlike Popover (anchored to a trigger
@@ -341,6 +346,13 @@ type MenuSwatchRowProps = {
 const SWATCH_TARGET_CLASS =
   'flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[color:var(--bg-hover)]'
 
+// The 20px disc inside that target, spelled once for all four swatches in this
+// file — the highlight row's clear control and hue dots, and the project row's
+// below. It is still off the icon ramp (20px sits between `icon-md` 18 and
+// `icon-lg` 22) and still owed; it is now owed in one place instead of four,
+// the same repair WorkspaceLayout's tab chip took on 2026-09-06.
+const SWATCH_DOT_SIZE_CLASS = 'h-5 w-5'
+
 export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: MenuSwatchRowProps) {
   return (
     <>
@@ -370,7 +382,7 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
           >
             <span
               aria-hidden="true"
-              className={`flex h-5 w-5 items-center justify-center rounded-full border border-[color:var(--border-default)] ${
+              className={`flex ${SWATCH_DOT_SIZE_CLASS} items-center justify-center rounded-full border border-[color:var(--border-default)] ${
                 value === null ? 'ring-1 ring-[color:var(--text-default)]' : ''
               }`}
             >
@@ -403,7 +415,7 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
                     treatments the principles rule out. */}
                 <span
                   aria-hidden="true"
-                  className={`block h-5 w-5 rounded-full ${
+                  className={`block ${SWATCH_DOT_SIZE_CLASS} rounded-full ${
                     selected ? 'ring-2 ring-offset-1 ring-offset-[color:var(--bg-surface)]' : ''
                   }`}
                   style={{
@@ -415,6 +427,113 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
             </Tooltip>
           )
         })}
+      </div>
+    </>
+  )
+}
+
+type ProjectColorSwatchRowProps = {
+  /** Section label above the row. Defaults to "Project color", the spelling
+   *  the sibling "Highlight color" row already uses in the same menu. */
+  label?: string
+  /** The colour in force: a hue, `'none'` for a deliberate no-colour, or null
+   *  when this project has not been given one yet. */
+  value: ProjectColorSetting | null
+  /** Picking a hue, or `'none'` from the trailing dashed swatch. */
+  onPick: (color: ProjectColorSetting) => void
+  /** Same roving-focus escape hatch as MenuSwatchRow above. */
+  onItemKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void
+}
+
+// The "Project colour" row: the six identity hues a project can wear on its
+// folder glyph, then a dashed "No colour" swatch (owner, 2026-09-09).
+//
+// Deliberately its own component rather than a mode on MenuSwatchRow. The two
+// rows answer different questions — a highlight is a tint a person puts ON a
+// row, a project colour is what the project IS — and they differ in every part
+// that matters: seven hues against six, hex swatches against theme tokens, and
+// a leading "clear" against a trailing "No colour" that is itself a stored
+// choice rather than the absence of one. Folding them together would have made
+// the highlight row carry a flag for each of those.
+export function ProjectColorSwatchRow({
+  label = 'Project color',
+  value,
+  onPick,
+  onItemKeyDown,
+}: ProjectColorSwatchRowProps) {
+  return (
+    <>
+      {label ? (
+        <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{label}</div>
+      ) : null}
+      <div className="flex items-center gap-1 px-2 pb-1.5">
+        {PROJECT_COLORS.map((color) => {
+          const swatch = getProjectColorSwatch(color)
+          const selected = value === color
+          return (
+            <Tooltip key={color} content={swatch.label}>
+              <button
+                type="button"
+                // A HORIZONTAL radio group of 20px circles, same as the
+                // highlight row above: `menuitemradio` is what ARIA requires of
+                // a menu's children, and the shared full-bleed row would draw
+                // seven stacked lines where this control is one line of dots.
+                // design-tokens-allow: 2026-09-09 (MC-2138) — a swatch, not a menu row: the
+                // colour IS the control, so it cannot wear MENU_ITEM_CLASS's row geometry.
+                role="menuitemradio"
+                aria-checked={selected}
+                data-menu-item="true"
+                tabIndex={-1}
+                onClick={() => onPick(color)}
+                onKeyDown={onItemKeyDown}
+                aria-label={`Project color ${swatch.label}`}
+                className={`${SWATCH_TARGET_CLASS} ${FOCUS_RING_CLASS}`}
+              >
+                {/* The hue is a class, not an inline hex, so a swatch reads on
+                    all eleven themes — and so it is the same value the glyph
+                    wears. The selected mark is a NEUTRAL ring: the swatches are
+                    already six colours, and a seventh colour to say "this one"
+                    would be the only thing on the row that is not a hue. */}
+                <span
+                  aria-hidden="true"
+                  className={`block ${SWATCH_DOT_SIZE_CLASS} rounded-full ${swatch.swatchClass} ${
+                    selected
+                      ? 'ring-2 ring-offset-1 ring-[color:var(--text-strong)] ring-offset-[color:var(--bg-surface)]'
+                      : ''
+                  }`}
+                />
+              </button>
+            </Tooltip>
+          )
+        })}
+        <Tooltip content="No color">
+          <button
+            type="button"
+            // design-tokens-allow: 2026-09-09 (MC-2138) — the trailing swatch of the row
+            // above, same shape and same carve-out from the shared menu row.
+            role="menuitemradio"
+            aria-checked={value === 'none'}
+            data-menu-item="true"
+            tabIndex={-1}
+            onClick={() => onPick('none')}
+            onKeyDown={onItemKeyDown}
+            aria-label="No color"
+            className={`${SWATCH_TARGET_CLASS} ${FOCUS_RING_CLASS} text-[color:var(--text-disabled)] hover:text-[color:var(--text-default)]`}
+          >
+            {/* Dashed and empty, the same "there is deliberately nothing here"
+                mark the Backlog's epic dot uses for an epic with no colour —
+                and the same dash the unfiled folder glyph wears, so the two
+                readings of "no colour" look like each other. */}
+            <span
+              aria-hidden="true"
+              className={`block ${SWATCH_DOT_SIZE_CLASS} rounded-full border border-dashed border-current ${
+                value === 'none'
+                  ? 'ring-2 ring-offset-1 ring-[color:var(--text-strong)] ring-offset-[color:var(--bg-surface)]'
+                  : ''
+              }`}
+            />
+          </button>
+        </Tooltip>
       </div>
     </>
   )

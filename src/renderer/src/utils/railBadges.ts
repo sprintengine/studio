@@ -181,13 +181,15 @@ export function extensionsRowBadge(input: {
   const parts: string[] = []
   if (waiting > 0) parts.push(`${waiting} waiting on you`)
   if (news > 0) parts.push(`${news} new`)
-  return { count, tone, label: `${input.label}: ${parts.join(', ')}` }
+  const detail = parts.join(', ')
+  return { count, tone, label: `${input.label}: ${detail}`, detail }
 }
 
 /**
  * Extensions: the sum of its rows, plus the cards published since the home was
  * last open. The square says how much is under the glyph; each row of the
- * drawer says where. Opening the section reads nothing — a row reads its own
+ * drawer says where — except the cards, which no row wears: the square's own
+ * click opens the home that shows them, so the square is their row. Opening the section reads nothing — a row reads its own
  * count when it opens, and the home reads the cards — so the square keeps
  * counting while the drawer is on screen, the way a workspace icon does above
  * its unread channels.

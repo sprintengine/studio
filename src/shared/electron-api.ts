@@ -57,12 +57,17 @@ import type {
   SkillDiscoveryResult,
   SkillHarness,
   SkillRepoHit,
+  SkillRepoTransport,
   SkillSearchHit,
   SkillSource,
 } from './skills'
 // Re-exported because the harness identity is part of this IPC contract: it
 // rides BuiltinSkill, WorkspaceSkill and every install/uninstall result.
 export type { SkillHarness } from './skills'
+// Which transport the skills service reads repositories over. It rides
+// `SkillSourcesResult` because every surface that says why a cadence or a
+// shortfall applies has to know (git-transport ruling, owner 2026-09-08).
+export type { SkillRepoTransport } from './skills'
 // The capability query's shapes live with the other skill shapes; these are its
 // IPC envelopes, same split as the skill-source calls below.
 export type {
@@ -95,7 +100,7 @@ import type {
   TailnetScope,
 } from './tailnet'
 import type { TailnetPeerScan } from './tailnet-peers'
-import type { RepositoryIdentity } from './repository-identity'
+import type { RepositoryIdentityRead } from './repository-identity'
 import type {
   FleetAttachResult,
   FleetBrowse,
@@ -1394,7 +1399,23 @@ export type AgentSkillWriteResult =
 // envelopes). Sources are app-level; installing is workspace-level, so
 // skillsInstall is the only call here that needs a workspace root.
 export type SkillSourcesResult =
-  | { ok: true; sources: SkillSource[] }
+  | {
+      ok: true
+      sources: SkillSource[]
+      /**
+       * How this build reads repositories: 'git' when a git reader is wired,
+       * 'api' on the GitHub-REST fallback (git-transport ruling, owner
+       * 2026-09-08). The copy about cadences and unread plugins changes with
+       * it, so it travels with the list rather than being guessed at.
+       */
+      transport: SkillRepoTransport
+      /**
+       * False only when this machine has no git at all, which is the one thing
+       * an 'api' reader's shortfall can actually name as the remedy. Absent
+       * means yes.
+       */
+      gitInstalled?: boolean
+    }
   | { ok: false; message: string }
 
 export type SkillAddSourceInput = {
@@ -1754,6 +1775,38 @@ export type SessionPrompt = {
   at: number
 }
 
+// One file this agent session has changed, as its own PostToolUse hooks
+// reported it (Edit / Write / MultiEdit / NotebookEdit). The counts are
+// CUMULATIVE sums of the hook's own diff hunks: a line edited twice counts
+// twice, because the ledger answers "how much did this agent do", not "how far
+// has the tree moved" — that second question is git's, and git is deliberately
+// not consulted here (decision of record 2026-09-09). `edits` is the number of
+// tool calls that touched the path, so a file rewritten ten times is
+// distinguishable from one touched once.
+//
+// A subagent's edits count for the session that spawned it: the work is the
+// session's. (Unlike the observed cwd, which a subagent's isolated worktree
+// would falsify — see the reporter.)
+export type SessionFileChange = {
+  // Absolute path as the tool reported it. Never a patch or file content: the
+  // ledger crosses a 64KB-per-frame socket and is broadcast to every window.
+  path: string
+  additions: number
+  deletions: number
+  edits: number
+  lastEditedAt: number
+}
+
+// How much of the model's context window this session has consumed, as its own
+// status line reports it. `at` is the moment the whole percent LAST MOVED, not
+// the moment of the last reading — the CLI refreshes its status line after
+// every assistant message, and a timestamp that advanced on each one would be
+// a repaint per message for a number that had not changed.
+export type SessionContextUsage = {
+  usedPercentage: number
+  at: number
+}
+
 export type TerminalSessionSnapshot = {
   sessionId: string
   processAlive: boolean
@@ -1821,6 +1874,27 @@ export type TerminalSessionSnapshot = {
   // The last prompt submitted to this session. Absent for plain terminals and
   // for CLIs whose reporter does not forward one.
   lastPrompt?: SessionPrompt
+  // What this session has edited, newest-edited first (by the order the edits
+  // were observed, which differs from their timestamps only by socket delivery
+  // skew). Fed by the CLI's own
+  // PostToolUse hooks, so it is empty for plain terminals, for hookless CLIs,
+  // and for an agent that has not written anything yet — never absent, so a
+  // consumer can count without a guard. Bounded (see MAX_SESSION_FILE_CHANGES);
+  // survives an app restart with the session parked, and starts over when the
+  // pty is respawned.
+  fileChanges: SessionFileChange[]
+  // Subagents this session started and has not seen stop — the count main
+  // already keeps to hold a turn end open while background work runs, surfaced
+  // so a row can say "3 running" instead of a bare spinner. Zero for plain
+  // terminals and for CLIs that report no subagent events.
+  activeSubagents: number
+  // Context-window usage, from the session's own status line. Null for a plain
+  // terminal, for a CLI with no status line, for one whose person's status line
+  // could not be wrapped, and for a session that has not made an API call yet —
+  // never a guess. A /compact does NOT clear it: the CLI reports no percentage
+  // for a moment afterwards, and "not known right now" is not "empty", so the
+  // last known reading stands until a real one replaces it.
+  contextUsage: SessionContextUsage | null
   exitedAt: number | null
   outputBufferLength: number
   retainedOutputBytes: number
@@ -2122,6 +2196,34 @@ export type GitFileBaseResult =
 // Which stored version of a file the diff viewer reads. `head` is the committed
 // version (`git show HEAD:<p>`); `index` is the staged version (`git show :0:<p>`).
 export type GitFileStage = 'head' | 'index'
+
+// Per-hunk staging (git-commit-window T7). The shapes live beside the parser
+// that produces them; they are re-exported here because they are part of this
+// IPC contract like everything else in this file.
+import type { GitFileHunksResult, GitHunkRef, GitHunkScope } from './git/hunks'
+export type {
+  GitFileHunks,
+  GitFileHunksResult,
+  GitHunkRef,
+  GitHunkScope,
+  GitHunkUnsupported,
+  GitHunkView,
+  HunkInclusionSummary,
+} from './git/hunks'
+
+// Changelists (git-commit-window T6): the app's own named sets of paths, one
+// file per repository under the user-data dir. Re-exported here because they
+// cross this boundary, like the hunk shapes above.
+import type { Changelist } from './git/changelists'
+export type { Changelist } from './git/changelists'
+
+/** `git diff` of a selection, as text. `patch` is empty when there was nothing
+ *  to diff, and `message` says which of the two sides was empty. */
+export type GitPatchResult = { ok: boolean; patch: string; message: string | null }
+
+/** Where a patch was written, or `null` when the person dismissed the dialog —
+ *  a cancel is not a failure, so `ok` stays true. */
+export type GitPatchSaveResult = { ok: boolean; path: string | null; message: string | null }
 
 export type GitFileStageResult =
   | { ok: true; exists: boolean; content: string; binary: boolean; tooLarge: boolean }
@@ -2438,6 +2540,26 @@ export type DockFileToWorkspaceInput = {
   path: string
   name: string
 }
+
+// The diff window handing its diff back to the app (git-commit-window T3).
+// Broadcast like a docked file: the window that owns the workspace opens the
+// pane's Diff tab on this repository and flips the sticky preference home.
+export type DockDiffToWorkspaceInput = {
+  workspaceId: string
+  repoRoot: string
+  focusPath: string | null
+  focusKind: 'staged' | 'unstaged' | null
+}
+
+// What the receiving window is handed, and what it acks with. The diff window
+// closes itself on the strength of this hand-off, so the hand-off has to be
+// acknowledged: `requestId` is what the workspace window sends back once it has
+// actually opened the tab.
+export type DockDiffToWorkspacePayload = DockDiffToWorkspaceInput & { requestId: string }
+
+/** `accepted: false` means no open window took the diff — the caller keeps its
+ *  own window up and says so, rather than closing into nothing. */
+export type DockDiffToWorkspaceResult = { accepted: boolean }
 
 export type OpenExternalResult =
   | { ok: true }
@@ -3483,6 +3605,10 @@ export type ElectronApi = {
   onAuxWindowRetarget: (cb: (payload: AuxWindowRetargetPayload) => void) => () => void
   dockFileToWorkspace: (input: DockFileToWorkspaceInput) => Promise<void>
   onDockFileToWorkspace: (cb: (input: DockFileToWorkspaceInput) => void) => () => void
+  dockDiffToWorkspace: (input: DockDiffToWorkspaceInput) => Promise<DockDiffToWorkspaceResult>
+  onDockDiffToWorkspace: (cb: (input: DockDiffToWorkspacePayload) => void) => () => void
+  /** The receiving window's half of the hand-off: "I opened the tab." */
+  ackDockDiffToWorkspace: (requestId: string) => void
   confirmWindowClose: () => Promise<void>
   openExternal: (url: string) => Promise<OpenExternalResult>
   onWindowStateChanged: (cb: (state: WindowState) => void) => () => void
@@ -3907,12 +4033,24 @@ export type ElectronApi = {
   getGitBranches: (repoRoot: string) => Promise<GitBranchSnapshot>
   /**
    * Which repository a folder is a clone of — its primary remote, normalised
-   * (one-project-across-machines). Null for a non-repo or a remote-less one.
+   * (one-project-across-machines). A null `identity` is a non-repo or a
+   * remote-less one; `settled: false` is a read that could not be made at all
+   * (a spun-down volume, git unavailable), which is NOT the same answer and
+   * must not be written down as one. See `RepositoryIdentityRead`.
    */
-  getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentity | null>
+  getGitRepositoryIdentity: (folderPath: string) => Promise<RepositoryIdentityRead>
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions) => Promise<GitGraphSnapshot>
   getGitConflictFile: (repoRoot: string, filePath: string) => Promise<GitConflictFileContent | null>
   resolveGitConflict: (repoRoot: string, filePath: string, content: string) => Promise<GitCommandResult>
+  /**
+   * The hunks of the diff the viewer is showing for one file, plus the whole
+   * file's "N differences, M included" counter (git-commit-window T7).
+   */
+  getGitFileHunks: (repoRoot: string, filePath: string, scope: GitHunkScope) => Promise<GitFileHunksResult>
+  /** Put one hunk of the working tree into the index — `git apply --cached`. */
+  stageGitHunk: (ref: GitHunkRef) => Promise<GitCommandResult>
+  /** Take one hunk back out of the index — the same patch, reversed. */
+  unstageGitHunk: (ref: GitHunkRef) => Promise<GitCommandResult>
   stageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   unstageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   revertGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
@@ -3942,6 +4080,30 @@ export type ElectronApi = {
   createGitWorktree: (input: GitWorktreeCreateInput) => Promise<GitWorktreeOperationResult<GitWorktreeEntry>>
   removeGitWorktree: (input: GitWorktreeRemoveInput) => Promise<GitWorktreeOperationResult<GitCommandResult>>
   pruneGitWorktrees: (repoRoot: string) => Promise<GitWorktreeOperationResult<GitCommandResult>>
+  /**
+   * This repository's changelists, pruned against `git status` before they are
+   * answered (git-commit-window T6). Every call below answers with the whole
+   * reconciled set for the same reason.
+   */
+  getGitChangelists: (repoRoot: string) => Promise<Changelist[]>
+  /** Which list new changes land in. Exactly one is active, always. */
+  setActiveGitChangelist: (repoRoot: string, id: string) => Promise<Changelist[]>
+  createGitChangelist: (
+    repoRoot: string,
+    input: { name: string; comment?: string; activate?: boolean; paths?: string[] }
+  ) => Promise<Changelist[]>
+  renameGitChangelist: (
+    repoRoot: string,
+    id: string,
+    input: { name: string; comment?: string }
+  ) => Promise<Changelist[]>
+  /** Delete a list; its paths return to the default, which cannot be deleted. */
+  deleteGitChangelist: (repoRoot: string, id: string) => Promise<Changelist[]>
+  moveGitChangelistPaths: (repoRoot: string, id: string, paths: string[]) => Promise<Changelist[]>
+  /** `git diff` (or `--cached`) of the named paths, as patch text. */
+  createGitPatch: (repoRoot: string, paths: string[], cached?: boolean) => Promise<GitPatchResult>
+  /** The same text, through the OS save dialog. */
+  saveGitPatch: (repoRoot: string, patch: string, defaultFileName?: string) => Promise<GitPatchSaveResult>
   getGitHubTokenStatus: () => Promise<GitHubTokenStatus>
   setGitHubToken: (token: string) => Promise<GitHubTokenStatus>
   clearGitHubToken: () => Promise<GitHubTokenStatus>

@@ -1,0 +1,295 @@
+/* Check row — the pick-AND-mark row, at the 24px hit-target floor.
+ *
+ * The row a person both chooses and ticks: a Git changes list where the tick
+ * is the index, a file tree where it is a selection set. Two questions on one
+ * 24px line, and the whole component is about keeping them apart — the tick is
+ * a value the row carries, the fill and the edge are where the person is.
+ *
+ * Why it is not one of the two rows the system already has. `list-row` caps at
+ * four visual elements at rest and this row spends five before it has said
+ * anything (box, glyph, name, directory, trailing), and its row IS the
+ * `<button>`, which a checkbox may not sit inside. `row-button` owns no height
+ * at all, and the floor is the point here: a list of four hundred files steps
+ * at one pitch or it reads as noise.
+ *
+ * States are `list-row`'s, verbatim and deliberately: hover is a background,
+ * selection is a neutral fill plus a 2px inset accent edge, the resting tier
+ * drops the edge, the keyboard cursor is a gutter mark that composes over both
+ * fills. A second selection idiom on the row beside the rail would be a second
+ * answer to "where am I". */
+
+.ds-check-row {
+  /* Positioned for the cursor mark, which hangs in the leading gutter. */
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  width: 100%;
+  /* The floor, not a height: a row whose name wraps to two lines is a row that
+     grew, not a row that broke. Nothing here sets a fixed height. */
+  min-height: var(--sem-size-hit-target-min);
+  padding: var(--sem-space-3xs) var(--sem-space-sm);
+  border: 0;
+  /* Full-bleed in a list that reaches its container's edges, so no radius —
+     an inset rounded fill inside a padded surface reads as a card in a card
+     (row-button's `--bleed` makes the same call for the same reason). */
+  border-radius: 0;
+  background: transparent;
+  /* A name longer than the row is clipped here rather than pushing the
+     directory out of the row: the name is `flex: none` on purpose (below). */
+  overflow: hidden;
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  line-height: var(--sem-font-line-tight);
+  text-align: left;
+  /* The row is a listbox option or a tree item, not a link: the pointer says
+     "pick", and picking is what a click does. */
+  cursor: default;
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-check-row:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+/* The ring turns INWARD. The row is full-bleed against its list's edges, so an
+ * outset ring at the shared offset is clipped by them — the carve-out
+ * principles.md already names for a control that touches what clips it. */
+.ds-check-row:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+/* Disabled is `aria-disabled`, never the attribute: the row is a composite
+ * item, it stays in the walk, and a person must be able to reach it and be
+ * told why it cannot be ticked. */
+.ds-check-row[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Selection ───────────────────────────────────────────────────────────
+ * list-row's two tiers, unchanged. `--selected` is the pane being driven:
+ * neutral fill plus a 2px inset accent EDGE. `--resting` is every other pane's
+ * remembered choice: the quieter fill and no edge, so exactly one edge is on
+ * screen. Never an accent fill, never a left bar — the leading gutter belongs
+ * to the cursor. */
+.ds-check-row--selected {
+  background: var(--sem-color-bg-selected);
+  /* THE EDGE IS INDIRECT, and that is the whole point. A host rebinds
+   * `--ds-selection-edge` to `transparent` for the RESTING tier so exactly one
+   * accent edge is on screen at a time — which is what the shipped React
+   * primitive does through the app's own `--selection-edge` alias
+   * (`ui/CheckRow.tsx`, InboxRow's ruling 2026-09-05). Reading the accent token
+   * straight here would have made the framework-neutral row the one row in the
+   * product a theme could not neutralise. The default resolves to the same
+   * value, so a host that rebinds nothing is unchanged. */
+  box-shadow: inset 0 0 0 2px var(--ds-selection-edge, var(--sem-color-accent-primary));
+  color: var(--sem-color-text-primary);
+}
+
+.ds-check-row--selected:hover {
+  background: var(--sem-color-bg-selected);
+}
+
+.ds-check-row--resting {
+  background: var(--sem-color-bg-selected-resting);
+  color: var(--sem-color-text-default);
+}
+
+/* The directory lifts one step on a selected row and no further. The mockup
+ * lifted it to `text.primary` alongside the name; at that point the row's two
+ * halves weigh the same and the filename stops being the thing you find. */
+.ds-check-row--selected .ds-check-row-dir,
+.ds-check-row--resting .ds-check-row-dir {
+  color: var(--sem-color-text-default);
+}
+
+/* ── Cursor ──────────────────────────────────────────────────────────────
+ * The row the keyboard is on, in a list that is one tab stop and walks with
+ * `aria-activedescendant`. A gutter mark rather than a fill, because it has to
+ * stay visible on a row that is already selected and distinct from one merely
+ * hovered — which neither fill can manage over the other. `text.primary`, not
+ * the accent: `border.focus` and `accent.primary` are one value in all but one
+ * theme, so an accent bar here reads as a focus ring that slipped. */
+.ds-check-row-cursor {
+  position: absolute;
+  left: 0;
+  top: var(--sem-space-3xs);
+  bottom: var(--sem-space-3xs);
+  width: var(--sem-space-3xs);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-text-primary);
+  pointer-events: none;
+}
+
+/* ── The box ─────────────────────────────────────────────────────────────
+ * The kit checkbox, as a SIBLING of everything else in the row and never a
+ * descendant of a control: a `<label>` cannot sit inside a `<button>`, which
+ * is the constraint that shaped `list-row`'s `-host` wrapper. Here the row
+ * itself is a `<div>` carrying an ARIA role, so the sibling arrangement is the
+ * row's own children — no wrapper needed, and the box is still never nested in
+ * a control.
+ *
+ * Two spellings, and the surface picks by what owns the state:
+ *
+ *   composite (default) — the row is a `treeitem`/`option` inside a widget
+ *   that is ONE tab stop, so the box must not be a 401st. It is drawn with the
+ *   checkbox component's own box and marks, `aria-hidden`, and the row's
+ *   `aria-checked` is the announced state.
+ *
+ *   standalone — the row is not inside a composite widget; the kit checkbox
+ *   goes in whole, input and all, and the row carries no `aria-checked`.
+ *
+ * The drawing is the checkbox's in both. What is restated below is only the
+ * two declarations that reveal the marked state, because CSS cannot say
+ * "that rule, under a different condition" — the box, its size, its radius,
+ * its border and its ink all still come from `components/checkbox`. */
+.ds-check-row-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-check-row[aria-checked='true'] .ds-checkbox-box,
+.ds-check-row[aria-checked='mixed'] .ds-checkbox-box {
+  border-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-accent-primary);
+}
+
+.ds-check-row[aria-checked='true'] .ds-checkbox-mark--check,
+.ds-check-row[aria-checked='mixed'] .ds-checkbox-mark--dash {
+  display: block;
+}
+
+/* Mixed outranks checked, exactly as the checkbox's own `:indeterminate` rule
+ * does: a row standing for a partly-staged file is showing a mixed set, and
+ * the dash is what says so. */
+.ds-check-row[aria-checked='mixed'] .ds-checkbox-mark--check {
+  display: none;
+}
+
+/* ── Glyph ───────────────────────────────────────────────────────────────
+ * A reserved 16px slot, present whether or not it is filled. Unreserved is
+ * how sibling rows' names come to start at three different x-offsets. */
+.ds-check-row-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-check-row-glyph svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+/* ── Name and directory ──────────────────────────────────────────────────
+ * The name does NOT flex. It is the answer the person is scanning for, so it
+ * is never the part that gets cut; the directory takes what is left and
+ * truncates first, from the end, which is where a path is least informative. */
+.ds-check-row-name {
+  flex: none;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.ds-check-row-dir {
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--sem-color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Trailing ────────────────────────────────────────────────────────────
+ * Display only — a status letter, a size, a count. Never interactive: a row
+ * this dense has no room to reveal an action, and the list's own toolbar or
+ * the row's context menu is where those live. */
+.ds-check-row-trailing {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-muted);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────
+ * For the one surface whose row body must itself be a control — a row outside
+ * a composite widget, where the click target is the row and not the list. The
+ * box stays its SIBLING; that is the whole reason this part exists rather than
+ * the row becoming a `<button>`. */
+.ds-check-row-body {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ds-check-row-body:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+/* ── Tree ────────────────────────────────────────────────────────────────
+ * The File Explorer's shape: a disclosure chevron in a reserved slot ahead of
+ * the box, and a depth indent.
+ *
+ * The indent is a UNITLESS depth, not a pixel value: `--ds-check-row-depth: 2`
+ * multiplies one `space.lg` step, so the tree cannot drift off the scale one
+ * level at a time, and a surface that wants a tighter tree changes one step
+ * rather than every row.
+ *
+ * The chevron is decoration. Expansion is `aria-expanded` on the row itself,
+ * which is what a `treeitem` announces; a second control inside the row would
+ * be a second tab stop per level. */
+.ds-check-row--tree {
+  padding-left: calc(var(--sem-space-sm) + var(--sem-space-lg) * var(--ds-check-row-depth, 0));
+}
+
+.ds-check-row-twisty {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+  color: var(--sem-color-text-subtle);
+  transition: transform var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-check-row-twisty svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+.ds-check-row[aria-expanded='true'] .ds-check-row-twisty {
+  transform: rotate(90deg);
+}
+
+/* A leaf keeps the slot and drops the mark: without the reservation every leaf
+ * row's glyph sits one chevron to the left of its parent's. */
+.ds-check-row-twisty--leaf {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-check-row,
+  .ds-check-row-twisty {
+    transition: none;
+  }
+}

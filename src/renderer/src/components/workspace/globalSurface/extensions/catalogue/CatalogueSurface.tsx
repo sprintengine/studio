@@ -85,7 +85,11 @@ export function CatalogueSurface<T>({
   renderRow?: (item: T, index: number) => React.ReactNode
   /** Singular noun for the pager's sentence: 'plugin', 'skill', 'agent CLI'. */
   noun: string
-  /** The detail pane beside the list; the row click opens it, as before. */
+  /**
+   * What a row opens: a dialog over the list (the skill and plugin detail
+   * modals). Rendered here so the surface owns its open/closed state, but it
+   * is a fixed overlay and takes no room in the row below.
+   */
   detail?: React.ReactNode
 }): JSX.Element {
   const back = useSurfaceBackNav()
@@ -182,16 +186,16 @@ export function CatalogueSurface<T>({
             active
             className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-4"
           >
-            {head ? <div className="mb-4">{head}</div> : null}
-            {notices ? <div className="mb-3 space-y-2">{notices}</div> : null}
+            {head ? <div className="mb-6">{head}</div> : null}
+            {notices ? <div className="mb-4 space-y-2">{notices}</div> : null}
             {body ?? (
               <>
-                <div className="space-y-5">
+                <div className="space-y-8">
                   {view.groups.map((group) => {
                     const section = sectionByKey.get(group.key)
                     if (!section || !renderRow) return null
                     return (
-                      <section key={group.key} className="space-y-2">
+                      <section key={group.key} className="space-y-3">
                         <ConnectorSectionHeading
                           // A group that started on an earlier page says so,
                           // rather than repeating its heading as if the rows
@@ -199,7 +203,12 @@ export function CatalogueSurface<T>({
                           label={group.continued ? `${group.label} (continued)` : group.label}
                           count={group.total}
                         />
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {/* Rows breathe: a column gap wide enough that two
+                            rows' Install buttons and names do not read as
+                            one line, and a row gap that separates rows
+                            without ruling them (extensions review,
+                            2026-09-08). */}
+                        <div className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
                           {section.items
                             .slice(group.start, group.end)
                             .map((item, index) => renderRow(item, group.start + index))}
@@ -283,23 +292,35 @@ function AddSourceMenu({ add }: { add: CatalogueAddMenu }): JSX.Element {
  * rail's source page; they are here now, in one place per tab, rather than on
  * the tab itself where they would be three controls inside a navigation.
  */
+/**
+ * The head of a tab: the source's mark, its name at title weight, and ONE quiet
+ * line under it — where it comes from (the repository, the folder, the
+ * registry). Not what it holds: the tab already carries the count, the section
+ * heading carries it again, and the rows are the holdings. Not what happened
+ * to it either: a sync outcome or a partial read is a notice under the head,
+ * where it can be read once and dismissed, rather than a clause the head
+ * carries forever (extensions review, 2026-09-08 — the head had grown to four
+ * lines of counts, links and caveats, and nobody could find the name in it).
+ */
 export function CatalogueHead({
   monogram,
   name,
   stateLine,
   actions,
 }: {
+  /** The source's mark — an avatar or a monogram chip — at the head's own size. */
   monogram?: React.ReactNode
   name: string
+  /** Where this tab's rows come from. One line; it truncates rather than wraps. */
   stateLine: React.ReactNode
   actions?: React.ReactNode
 }): JSX.Element {
   return (
-    <div className="flex items-start gap-2.5">
+    <div className="flex items-center gap-4">
       {monogram}
       <div className="min-w-0 flex-1">
-        <h3 className="truncate text-body font-semibold text-[color:var(--text-strong)]">{name}</h3>
-        <p className="mt-0.5 max-w-[74ch] text-meta text-[color:var(--text-muted)]">{stateLine}</p>
+        <h3 className="truncate text-title font-semibold tracking-tight text-[color:var(--text-strong)]">{name}</h3>
+        <p className="mt-0.5 truncate text-body text-[color:var(--text-muted)]">{stateLine}</p>
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-1.5">{actions}</div> : null}
     </div>

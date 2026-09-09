@@ -169,13 +169,18 @@ async function resolveBinary(
 
 // The launch PATH (managed runtime shims, the Studio CLI bin dir), minus the
 // variables that would swing `claude` from its subscription login onto API
-// billing or a third-party endpoint. Codex has no such split; it inherits the
-// same PATH untouched.
+// billing or a third-party endpoint, plus thinking switched off. `--effort
+// low` alone still lets `claude` spend ~1,700 thinking tokens on a title
+// (measured 2026-09-08, claude 2.1.265: 10-23 s per call); with
+// `MAX_THINKING_TOKENS=0` the same call answers in ~3 s with the same title.
+// A title is a lookup, not a reasoning task. Codex has no such split; it
+// inherits the same PATH untouched.
 function engineEnv(cli: string, readEnv: (() => Record<string, string>) | undefined): Record<string, string> {
   const base = readEnv ? readEnv() : stringEnv(defaultProbeEnv())
   if (cli !== 'claude-code') return base
   const next = { ...base }
   for (const key of STRIPPED_ANTHROPIC_AUTH_ENV_KEYS) delete next[key]
+  next.MAX_THINKING_TOKENS = '0'
   return next
 }
 

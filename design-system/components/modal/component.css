@@ -85,6 +85,21 @@
   padding: var(--sem-space-3xl) var(--sem-space-3xl) 0;
 }
 
+/* A dialog opened ON an item — a skill, a plugin — leads its title with the
+ * item's own mark (a monogram, an extension icon), so the thing is recognised
+ * by what its row already showed. Only the header's leading group knows about
+ * it; the title and subtitle are unchanged beside it. */
+.ds-modal-header-group {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sem-space-md);
+  min-width: 0;
+}
+
+.ds-modal-leading {
+  flex-shrink: 0;
+}
+
 .ds-modal-title {
   margin: 0;
   min-width: 0;

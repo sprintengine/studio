@@ -45,7 +45,7 @@
 </head>
 <body>
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — arrow keys move the selection itself; the group is one tab stop.</p>
+  <p class="demo-label">Light — arrow keys move the selection itself; the group is one tab stop. The last strip is --icon-only: the label is still there, as each segment's aria-label. Its other half, the tooltip, is the `tooltip` component in the consuming framework — never a native `title`, which this system does not put on a control.</p>
   <div class="demo-row">
     <span class="demo-field">
       <span id="l-scope">Scope</span>
@@ -71,6 +71,15 @@
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Low</button>
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Medium</button>
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">High</button>
+      </div>
+    </span>
+  </div>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="l-view">Diff layout</span>
+      <div class="ds-segmented-control ds-segmented-control--icon-only" role="radiogroup" aria-labelledby="l-view">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0" aria-label="Side by side"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.2h4.2v9.6H2.6zM9.2 3.2h4.2v9.6H9.2z" stroke-width="1.2" stroke-linejoin="round" /></svg></button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1" aria-label="Unified"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.2h10.8v9.6H2.6z" stroke-width="1.2" stroke-linejoin="round" /><path d="M4.6 6.2h6.8M4.6 9.8h6.8" stroke-width="1.2" stroke-linecap="round" /></svg></button>
       </div>
     </span>
   </div>
@@ -103,6 +112,15 @@
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">Low</button>
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0">Medium</button>
         <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1">High</button>
+      </div>
+    </span>
+  </div>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="d-view">Diff layout</span>
+      <div class="ds-segmented-control ds-segmented-control--icon-only" role="radiogroup" aria-labelledby="d-view">
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="true" tabindex="0" aria-label="Side by side"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.2h4.2v9.6H2.6zM9.2 3.2h4.2v9.6H9.2z" stroke-width="1.2" stroke-linejoin="round" /></svg></button>
+        <button type="button" class="ds-segmented-control-segment" role="radio" aria-checked="false" tabindex="-1" aria-label="Unified"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><path d="M2.6 3.2h10.8v9.6H2.6z" stroke-width="1.2" stroke-linejoin="round" /><path d="M4.6 6.2h6.8M4.6 9.8h6.8" stroke-width="1.2" stroke-linecap="round" /></svg></button>
       </div>
     </span>
   </div>

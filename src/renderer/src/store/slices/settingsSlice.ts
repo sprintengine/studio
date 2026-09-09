@@ -8,6 +8,11 @@ import type { TextGenerationSettings } from '../../../../shared/text-generation/
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
+import {
+  isProjectColorSetting,
+  pickProjectColor,
+  type ProjectColorSetting,
+} from '../../utils/projectColor'
 import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import {
   dispatchExtensionsSurfaceTarget,
@@ -377,6 +382,24 @@ export function normalizeDesignSystemSeen(value: unknown): Record<string, string
   const kept = pairs.sort((left, right) => right[2] - left[2]).slice(0, DESIGN_SYSTEM_SEEN_LIMIT)
   const out: Record<string, string> = {}
   for (const [key, stamp] of kept) out[key] = stamp
+  return out
+}
+
+/**
+ * One colour per project (utils/projectColor). Persisted state is other
+ * people's data by the time it is read back — an older build's spelling, a
+ * hand-edited settings file — so a key that is not a non-empty string, and a
+ * value that is not one of the six hues or `'none'`, is dropped rather than
+ * carried into the map the glyph reads.
+ */
+export function normalizeProjectColors(value: unknown): Record<string, ProjectColorSetting> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, ProjectColorSetting> = {}
+  for (const [key, setting] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof key !== 'string' || key.trim() === '') continue
+    if (!isProjectColorSetting(setting)) continue
+    out[key] = setting
+  }
   return out
 }
 
@@ -1024,6 +1047,10 @@ export const defaultAppSettings = (): AppSettings => ({
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
   sprintEngineRunSettings: {},
   projectKnowledgeRoots: {},
+  // Nothing seen yet. Every project in the map got there by being shown once,
+  // so a fresh profile allocates as its first sidebar renders rather than
+  // pre-colouring projects it has never opened.
+  projectColors: {},
   recentWorkspaceFolders: [],
   // Null follows the active workspace, which is what the Design door did before
   // it had a chip at all.
@@ -1093,6 +1120,11 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     // — the same merge-not-only-migrate enforcement as the opt-in reset below.
     sprintEngineRunSettings: normalizeSprintEngineRunSettings(settings?.sprintEngineRunSettings),
     projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
+    // Not pruned against the open workspaces, unlike the knowledge roots above:
+    // a project's colour has to survive closing every chat in it and opening
+    // one again next week, or "it never changes behind your back" is untrue for
+    // exactly the projects a person comes back to.
+    projectColors: normalizeProjectColors(settings?.projectColors),
     recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
       settings?.recentWorkspaceFolders,
       workspaces.map((ws) => ws.folderPath)
@@ -1140,6 +1172,19 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
 // it is sticky thereafter (docking a file back flips it to workspace tabs).
 // Flip this one constant to make tabs the out-of-the-box default instead.
 export const DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW = true
+// Where a Git diff opens (git-commit-window T3). A separate OS window is
+// the default; the
+// pane's Diff tab is the in-app home the person can flip back to. Sticky, like
+// the file preference above: the band's two buttons are what write it.
+export const DEFAULT_DIFF_OPENS_IN_WINDOW = true
+/**
+ * How a diff is drawn (git-commit-window T4): two panes or one. The
+ * default is side by side; the diff window's icon-only toggle is
+ * the only thing that writes it, and it is app-wide rather than per window
+ * because it is how this person reads a diff, not a property of one file.
+ */
+export type DiffViewMode = 'side-by-side' | 'unified'
+export const DEFAULT_DIFF_VIEW: DiffViewMode = 'side-by-side'
 export const DEFAULT_CHECK_CLI_VERSIONS = true
 
 export interface SettingsSliceState {
@@ -1203,6 +1248,16 @@ export interface SettingsSliceState {
   // Set by user action — popping a tab out turns it on, docking a file back
   // turns it off — and remembered so the next file reuses the last surface.
   openFilesInExternalWindow: boolean
+  // Sticky "where does a diff open" preference. True (the default) routes a
+  // Git row to the standalone diff window; false routes it to the workspace
+  // pane's Diff tab. Written by user action alone — the pane band's "Open in
+  // separate window" turns it on, the window's "Show in the app" turns it off
+  // — so the next diff opens where the last one was left.
+  diffOpensInWindow: boolean
+  // How a diff is DRAWN, once it is open: side by side or unified. Persisted in
+  // the settings envelope beside the preference above, applied to Monaco with
+  // `updateOptions` so the toggle never remounts the editor.
+  diffView: DiffViewMode
   // Ask each CLI's package registry for its newest version (the Settings
   // switch "Check for CLI updates"). Mirrored into main, which runs the check.
   checkCliVersions: boolean
@@ -1231,6 +1286,8 @@ export interface SettingsSliceActions {
   setWorkspacePaneWidth: (width: number) => void
   setWorkspacePaneMaximised: (maximised: boolean) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
+  setDiffOpensInWindow: (enabled: boolean) => void
+  setDiffView: (view: DiffViewMode) => void
   setCheckCliVersions: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
@@ -1287,6 +1344,30 @@ export interface SettingsSliceActions {
   setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
   /** The Design door's viewing scope. Null returns it to following the active workspace. */
   setDesignProjectScopePath: (path: string | null) => void
+  /**
+   * Set (or clear) one project's colour, keyed by `projectColorKey`.
+   *
+   * `'none'` is the person choosing no colour and is remembered as such —
+   * without it, the next `assignProjectColors` would treat the project as
+   * unseen and hand it a hue again. `null` deletes the entry entirely, which
+   * returns the project to "not yet seen".
+   */
+  setProjectColor: (key: string, color: ProjectColorSetting | null) => void
+  /**
+   * Give every one of these projects a colour it does not already have.
+   *
+   * `keys` is the set on screen, and it is also the only thing allocation is
+   * measured against: a hue is "taken" when one of THESE projects wears it, not
+   * when some project closed a year ago does. Six hues cannot keep every
+   * project ever opened distinct, and counting the whole stored map would let a
+   * newly opened project collide with a visible one while four hues sat unused
+   * among the handful in front of the person.
+   *
+   * Safe to call from an effect on every render: keys that already have an
+   * entry (a hue OR `'none'`) are left alone, and when nothing is missing the
+   * action writes nothing at all, so it cannot loop a subscriber.
+   */
+  assignProjectColors: (keys: readonly string[]) => void
   /**
    * Stamp a design system as seen, now.
    *
@@ -1438,6 +1519,8 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     workspacePaneWidth: WORKSPACE_ASIDE_DEFAULT_WIDTH,
     workspacePaneMaximised: false,
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
+    diffOpensInWindow: DEFAULT_DIFF_OPENS_IN_WINDOW,
+    diffView: DEFAULT_DIFF_VIEW,
     checkCliVersions: DEFAULT_CHECK_CLI_VERSIONS,
     sprintEngineRoleRegistry: null,
     agentConfigAdoptionResult: null,
@@ -1480,6 +1563,16 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setOpenFilesInExternalWindow: (enabled) =>
       set((state) => {
         state.openFilesInExternalWindow = enabled
+      }),
+
+    setDiffOpensInWindow: (enabled) =>
+      set((state) => {
+        state.diffOpensInWindow = enabled
+      }),
+
+    setDiffView: (view) =>
+      set((state) => {
+        state.diffView = view
       }),
 
     setCheckCliVersions: (enabled) =>
@@ -1687,6 +1780,64 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setDesignProjectScopePath: (path) =>
       set((state) => {
         state.appSettings.designProjectScopePath = normalizeFolderPathSetting(path)
+      }),
+
+    setProjectColor: (key, color) =>
+      set((state) => {
+        const projectKey = key.trim()
+        if (!projectKey) return
+        const current = state.appSettings.projectColors ?? {}
+        if (color === null) {
+          if (!Object.hasOwn(current, projectKey)) return
+          const next = { ...current }
+          delete next[projectKey]
+          state.appSettings.projectColors = next
+          return
+        }
+        if (!isProjectColorSetting(color)) return
+        if (current[projectKey] === color) return
+        state.appSettings.projectColors = { ...current, [projectKey]: color }
+      }),
+
+    assignProjectColors: (keys) =>
+      set((state) => {
+        const current = state.appSettings.projectColors ?? {}
+        // Deduped, and order-independent: the hook hands these over sorted, so
+        // the same set of projects gets the same allocation however the sidebar
+        // happened to lay them out, and calling twice with one set is a no-op
+        // rather than a reshuffle.
+        const onScreen: string[] = []
+        const seen = new Set<string>()
+        for (const raw of keys) {
+          const key = raw.trim()
+          if (!key || seen.has(key)) continue
+          seen.add(key)
+          onScreen.push(key)
+        }
+        const missing = onScreen.filter((key) => !Object.hasOwn(current, key))
+        // The idempotent path, and the reason this is safe in a render effect:
+        // no missing key means no write, so no subscriber is notified.
+        if (missing.length === 0) return
+        const next = { ...current }
+        // Allocation is constrained by the PROJECTS ON SCREEN, not by the whole
+        // stored map. The acceptance is "two open projects never receive the
+        // same hue"; counting a year of closed projects instead would let a new
+        // project collide with an open one while four hues sat unused among the
+        // handful actually visible — six hues cannot keep every project ever
+        // opened distinct, and pretending otherwise spends them on rows nobody
+        // is looking at. History is a record, not a constraint.
+        const inUse = onScreen.flatMap((key) => {
+          const setting = next[key]
+          return setting ? [setting] : []
+        })
+        for (const key of missing) {
+          const picked = pickProjectColor(inUse)
+          next[key] = picked
+          // Counted immediately, so one call that sees six new projects hands
+          // out six different hues rather than six copies of the first.
+          inUse.push(picked)
+        }
+        state.appSettings.projectColors = next
       }),
 
     markDesignSystemSeen: (bundleId, at) =>

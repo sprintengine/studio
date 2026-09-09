@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
-import type { ScanResult, SkillSource } from '../../../../../../../shared/skills'
+import type { ScanResult, SkillRepoTransport, SkillSource } from '../../../../../../../shared/skills'
 import type { SkillScanLoad, SkillSourcesLoad } from './skillsSurfaceModel'
 
 const MISSING_API_MESSAGE = 'Skills need an app restart before they are available.'
@@ -22,6 +22,16 @@ type InstalledSkillsRead =
 
 export type SkillSourcesState = {
   sources: SkillSource[]
+  /**
+   * How the app reads repositories (git-transport ruling, owner 2026-09-08).
+   * The copy about unread plugins changes with it — over git nothing is
+   * rationed and no token is worth naming — so the surfaces that say it read it
+   * from here. 'api' until the list lands, which is what a build with no
+   * transport in its answer means.
+   */
+  transport: SkillRepoTransport
+  /** False only on a machine with no git, which is what the API path's copy names. */
+  gitInstalled: boolean
   sourcesLoad: SkillSourcesLoad
   scans: Record<string, SkillScanLoad>
   installedDirNames: Set<string>
@@ -46,6 +56,8 @@ export type SkillSourcesState = {
 
 export function useSkillSources(workspaceRoot: string | null): SkillSourcesState {
   const [sources, setSources] = useState<SkillSource[]>([])
+  const [transport, setTransport] = useState<SkillRepoTransport>('api')
+  const [gitInstalled, setGitInstalled] = useState(true)
   const [sourcesLoad, setSourcesLoad] = useState<SkillSourcesLoad>({ status: 'loading' })
   const [scans, setScans] = useState<Record<string, SkillScanLoad>>({})
   const [installedDirNames, setInstalledDirNames] = useState<Set<string>>(new Set())
@@ -136,6 +148,8 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
           return
         }
         setSources(result.sources)
+        setTransport(result.transport ?? 'api')
+        setGitInstalled(result.gitInstalled ?? true)
         setSourcesLoad({ status: 'ready' })
         for (const source of result.sources) {
           if (requestedScans.current.has(source.id)) continue
@@ -245,6 +259,8 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
         .then((result) => {
           if (!mounted.current || !result.ok) return
           setSources(result.sources)
+          setTransport(result.transport ?? 'api')
+          setGitInstalled(result.gitInstalled ?? true)
         })
         .catch(() => undefined)
     })
@@ -277,6 +293,8 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
   return useMemo(
     () => ({
       sources,
+      transport,
+      gitInstalled,
       sourcesLoad,
       scans,
       installedDirNames,
@@ -291,6 +309,8 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
     }),
     [
       sources,
+      transport,
+      gitInstalled,
       sourcesLoad,
       scans,
       installedDirNames,

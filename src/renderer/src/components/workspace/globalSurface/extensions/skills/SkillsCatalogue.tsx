@@ -12,13 +12,14 @@
 //     a row installs itself; a checkbox column and a footer "Install 6" is a
 //     second interaction model on the same rows.
 //
-// Reading a skill is unchanged: the row opens `SkillPage` in the detail pane
-// beside the list, which is where Install lives for the skill in hand.
+// Reading a skill: the row opens `SkillPage` as a dialog over the list, which
+// is where Install lives for the skill in hand.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { skillDirName, type SkillSource } from '../../../../../../../shared/skills'
 import { GhostButton, InlineNotice, Spinner, StatusDot, TruncatedText } from '../../../../ui'
+import { ExtensionIcon } from '../../../../ui/ExtensionIcon'
 import { ConnectorRow } from '../../../../panels/ConnectorsPanel/ConnectorRow'
 import { InstalledExtensionsInventory } from '../../../../panels/ConnectorsPanel/InstalledExtensionsInventory'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
@@ -26,7 +27,6 @@ import type { WorkspaceSkill } from '../../../../../../../shared/electron-api'
 import { CatalogueHead, CatalogueSurface, type CatalogueAddMenu, type CatalogueSection } from '../catalogue/CatalogueSurface'
 import {
   catalogueMonogram,
-  catalogueStateLine,
   catalogueTabLabel,
   deriveCatalogueTabs,
   resolveCatalogueTab,
@@ -34,16 +34,16 @@ import {
   type CatalogueCount,
 } from '../catalogue/catalogueTabs'
 import { RecommendedSources } from '../catalogue/RecommendedSources'
+import { SourceAvatar } from '../catalogue/SourceAvatar'
 import { SourceTabActions } from '../catalogue/SourceTabActions'
 import { SkillPage } from './SkillPage'
-import { SourceMonogram } from './SourceMonogram'
 import type { SkillSourcesState } from './useSkillSources'
 import {
   bundledScanLine,
   deriveInstallAvailability,
   deriveSkillCatalogueGroups,
   findSkill,
-  skippedNoDescriptionLine,
+  sourceDisplayName,
   summarizeInstallRun,
   summarizeSyncRun,
   type SkillListItem,
@@ -180,10 +180,15 @@ export function SkillsCatalogue({
     (item: SkillListItem): React.ReactNode => (
       <ConnectorRow
         key={item.skillId}
-        icon={<SourceMonogram monogram={initials(item.name)} size="lg" />}
+        icon={<ExtensionIcon name={item.name} size={36} />}
         name={item.name}
+        // The plugin it ships inside, when that is what tells it apart from
+        // the row above it: "access · discord", "access · telegram".
+        meta={item.plugin || undefined}
         summary={item.description || `${item.fileCount} file${item.fileCount === 1 ? '' : 's'}`}
-        chips={['Skill', ...(item.hasExecutables ? ['Runs scripts'] : [])]}
+        // Not "Skill": every row in the Skills door is one. What a chip is for
+        // is a fact the name does not carry.
+        chips={item.hasExecutables ? ['Runs scripts'] : []}
         // A name the Agent Skills specification would reject is stated on the
         // row: the skill still lists, and still installs. Truncated like the
         // summary above it, because a row is one line per fact — the detail
@@ -232,20 +237,12 @@ export function SkillsCatalogue({
       />
     ) : activeSource ? (
       <CatalogueHead
-        monogram={<SourceMonogram monogram={catalogueMonogram(activeSource)} size="lg" />}
+        monogram={<SourceAvatar source={activeSource} monogram={catalogueMonogram(activeSource)} />}
         name={catalogueTabLabel(activeSource)}
-        stateLine={[
-          catalogueStateLine(counts[activeSource.id] ?? { status: 'loading' }, 'skill'),
-          // Whether this listing came off the network or out of the build.
-          bundledScanLine(scan),
-          // A source can hold directories this does not list, and says so
-          // rather than quietly showing a smaller number than the repository.
-          skippedNoDescriptionLine(scan),
-          activeSource.blurb || null,
-          thisReport?.outcome ?? null,
-        ]
-          .filter(Boolean)
-          .join(' · ')}
+        // Where it comes from, and nothing else: the repository, or the folder
+        // on this machine. What it holds is on the tab and the section heading;
+        // what happened to it last is a notice below.
+        stateLine={activeSource.path || sourceDisplayName(activeSource)}
         actions={
           <SourceTabActions
             source={activeSource}
@@ -270,9 +267,16 @@ export function SkillsCatalogue({
       />
     ) : null
 
+  const bundled = bundledScanLine(scan)
   const notices = (
     <>
       {thisReport?.error ? <InlineNotice tone="error" title="That did not complete." hint={thisReport.error} /> : null}
+      {/* What the last Sync or update check on this source reported, and
+          whether this listing is the copy the build shipped rather than a
+          read of the repository: each a fact about the listing, stated once
+          under the head rather than folded into it. */}
+      {thisReport?.outcome ? <InlineNotice tone="warn">{thisReport.outcome}</InlineNotice> : null}
+      {bundled ? <InlineNotice tone="warn">{bundled}</InlineNotice> : null}
       {addNotice ? (
         <InlineNotice
           tone="error"
@@ -344,20 +348,16 @@ export function SkillsCatalogue({
   const openSkill = scan && openSkillId ? findSkill(scan, openSkillId) : null
   const detail =
     activeSource && openSkill ? (
-      <aside
-        aria-label={openSkill.name}
-        className="min-h-0 w-[420px] shrink-0 overflow-y-auto border-l border-[color:var(--border-subtle)] px-4 py-4"
-      >
-        <SkillPage
-          source={activeSource}
-          skill={openSkill}
-          installed={sources.installedDirNames.has(skillDirName(openSkill.id))}
-          installing={installing !== null}
-          availability={deriveInstallAvailability(workspaceRoot, 1)}
-          onInstall={() => void installSkill(activeSource, openSkill.id)}
-          onBack={() => setOpenSkillId(null)}
-        />
-      </aside>
+      <SkillPage
+        key={`${activeSource.id}::${openSkill.id}`}
+        source={activeSource}
+        skill={openSkill}
+        installed={sources.installedDirNames.has(skillDirName(openSkill.id))}
+        installing={installing !== null}
+        availability={deriveInstallAvailability(workspaceRoot, 1)}
+        onInstall={() => void installSkill(activeSource, openSkill.id)}
+        onClose={() => setOpenSkillId(null)}
+      />
     ) : null
 
   return (
@@ -389,13 +389,6 @@ function LoadingLine({ label }: { label: string }): JSX.Element {
       {label}
     </div>
   )
-}
-
-function initials(name: string): string {
-  const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean)
-  if (words.length === 0) return '?'
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
-  return `${words[0][0]}${words[1][0]}`.toUpperCase()
 }
 
 function describe(error: unknown): string {

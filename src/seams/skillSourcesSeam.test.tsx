@@ -492,7 +492,7 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     return result.scan
   }
 
-  // Every source lists in FULL now, one page of twelve at a time, under the
+  // Every source lists in FULL now, one page of twenty-four at a time, under the
   // headings its own folders give it. The four `sourceLayout()` shapes decided
   // how much of a source to put on screen at once, which is the pager's job
   // since the source-tabs ruling (2026-09-05); what survives of that rule is
@@ -507,7 +507,7 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   assert.equal(mattpocock.groupingSignal, 'folders')
   await openSource('mattpocock/skills')
   assert.ok(markup().includes('>Engineering<'), 'the repository’s folders are the headings')
-  assert.ok(markup().includes('Showing 1–12 of 41'), 'and one pager walks the whole source')
+  assert.ok(markup().includes('Showing 1–24 of 41'), 'and one pager walks the whole source')
 
   // 20 skills the repository's own manifest authors five groups for — the
   // manifest wins over the (flat) folders, and the one directory it does not
@@ -528,19 +528,18 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   assert.equal(anthropics.skills.find((skill) => skill.id === 'template')?.group, 'Everything else')
   await openSource('anthropics/skills')
   assert.ok(markup().includes('>Document skills<'), 'the manifest’s groups are the headings')
-  assert.ok(markup().includes('Showing 1–12 of 20'))
-  // The later groups are on page 2 — the pager walks the source, so a group
-  // that does not fit is reached rather than hidden.
-  await click(buttonLabelled('Page 2'))
-  assert.ok(markup().includes('>Claude api<'), 'and page 2 carries the group page 1 ran out of room for')
+  assert.ok(markup().includes('Showing 1–20 of 20'), 'twenty fit on one page of twenty-four')
+  // Every group is on that page — the pager walks the source, so a group is
+  // reached rather than hidden, and here none has to wait for page 2.
+  assert.ok(markup().includes('>Claude api<'), 'the later groups are on the page too')
   assert.ok(markup().includes('>Everything else<'), 'including the skills the manifest forgot')
 
-  // 103 skills: listed like any other source, twelve at a time, rather than
+  // 103 skills: listed like any other source, twenty-four at a time, rather than
   // withheld behind a search box until it is asked.
   const browserAct = await scanOf('github:browser-act/skills')
   assert.equal(browserAct.skills.length, 103)
   await openSource('browser-act/skills')
-  assert.ok(markup().includes('Showing 1–12 of 103'))
+  assert.ok(markup().includes('Showing 1–24 of 103'))
   assert.equal(markup().includes('Pick a category, or search.'), false)
 
   // One skill across 3,143 tree entries, mirrored per harness and collapsed to
@@ -569,7 +568,7 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   assert.equal(studio.skills.length, SHIPPED_SKILL_COUNT)
   await openSource('SprintEngine Studio')
   assert.ok(
-    markup().includes(`Showing 1–12 of ${SHIPPED_SKILL_COUNT}`),
+    markup().includes(`Showing 1–${Math.min(SHIPPED_SKILL_COUNT, 24)} of ${SHIPPED_SKILL_COUNT}`),
     'the bundled source lists its skills too',
   )
 

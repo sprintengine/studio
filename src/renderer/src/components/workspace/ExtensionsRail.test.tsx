@@ -298,7 +298,7 @@ act(() => {
   useNotificationStore.getState().addNotification(notice('crash', { source: 'terminal', level: 'error' }))
 })
 assert.equal(badgeOf('Plugins')?.textContent, '1', 'the drift notice counts on the Plugins row')
-assert.equal(badgeOf('Plugins')?.getAttribute('aria-label'), 'Plugins: 1 new', 'named for the row, not a bare number')
+assert.equal(badgeOf('Plugins')?.getAttribute('aria-label'), '1 new', 'what is counted; the row beside it already names the place')
 assert.equal(badgeOf('Skills'), null, 'and on no other row')
 assert.equal(badgeOf('Design'), null)
 assert.equal(badgeOf('Agent CLIs'), null)
@@ -334,6 +334,37 @@ act(() => {
   useNotificationStore.getState().clearAll()
 })
 
+// The row that is NOT the surface's default view. The surface used to seed
+// its state on Plugins and publish that for a frame before the deep link
+// landed, so a click on Skills read the Plugins news on that frame (review,
+// 2026-09-09). Two notices, one per row; opening Skills reads only its own.
+act(() => {
+  useNotificationStore.getState().addNotification(notice('drift2', { source: 'marketplace', extensionsRow: 'plugins' }))
+  useNotificationStore.getState().addNotification(notice('skill', { source: 'marketplace', extensionsRow: 'skills' }))
+})
+assert.equal(badgeOf('Plugins')?.textContent, '1')
+assert.equal(badgeOf('Skills')?.textContent, '1')
+assert.equal(badgeOf('Skills')?.getAttribute('aria-label'), '1 new', 'the row names the place; its badge says only what is counted')
+act(() => {
+  row('Skills')?.click()
+})
+const skillsHost = dom.window.document.createElement('div')
+dom.window.document.body.appendChild(skillsHost)
+const skillsRoot = createRoot(skillsHost as unknown as Element)
+act(() => {
+  skillsRoot.render(React.createElement(ExtensionsGlobalSurface))
+})
+assert.equal(getSurfaceView('extensions'), 'skills', 'the surface stands on Skills from its first publish')
+assert.equal(badgeOf('Skills'), null, 'Skills read its own news')
+assert.equal(badgeOf('Plugins')?.textContent, '1', 'and not the Plugins news beside it')
+assert.equal(useNotificationStore.getState().notifications.find((n) => n.id === 'drift2')?.read, false)
+assert.equal(useNotificationStore.getState().notifications.find((n) => n.id === 'skill')?.read, true)
+act(() => {
+  skillsRoot.unmount()
+  useWorkspaceStore.getState().closeGlobalSurface()
+  useNotificationStore.getState().clearAll()
+})
+
 // Collapsed, the count docks on the row's corner rather than trailing a label
 // the column no longer shows.
 act(() => {
@@ -345,8 +376,16 @@ const collapsedRoot = createRoot(collapsedHost as unknown as Element)
 act(() => {
   collapsedRoot.render(React.createElement(ExtensionsRail, { collapsed: true }))
 })
-const collapsedBadge = collapsedHost.querySelector('button[aria-label="Agent CLIs"] [role="status"]')
-assert.equal(collapsedBadge?.textContent, '1', 'a CLI update counts on Agent CLIs, collapsed too')
+// Collapsed, the count rides in the button's own name — the badge's live
+// region speaks only on change, and a person arriving at the row must still
+// hear the number — and the badge itself is decorative.
+const collapsedButton = collapsedHost.querySelector('button[aria-label="Agent CLIs, 1 new"]')
+assert.ok(collapsedButton, 'the collapsed row is named with its count')
+// The glyph is hidden from AT too, so pick the hidden element that carries the number.
+const collapsedBadge = [...(collapsedButton?.querySelectorAll('[aria-hidden="true"]') ?? [])].find(
+  (element) => element.textContent === '1',
+)
+assert.ok(collapsedBadge, 'a CLI update counts on Agent CLIs, collapsed too')
 assert.ok(collapsedBadge?.className.includes('absolute'), 'docked on the corner, as the rail’s squares wear theirs')
 act(() => {
   collapsedRoot.unmount()

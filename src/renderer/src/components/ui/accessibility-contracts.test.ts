@@ -17,6 +17,22 @@ function collectSources(dir: string, out: string[] = []): string[] {
   return out
 }
 
+/**
+ * Source with its comments removed, for the whole-file guards below — a note
+ * ABOUT a retired idiom must not read as a use of it.
+ *
+ * Line comments are stripped only where the `//` OPENS the line. The obvious
+ * spelling (`[^:]//.*$`) truncates any line whose STRING happens to hold a
+ * `//` — `'[role="dialog"][aria-modal="true"]'` is not such a line, but
+ * `'https://…'` is, and a guard that quietly deletes the second half of a line
+ * of real code is a guard that reports on a file nobody wrote. A trailing
+ * comment survives; that costs nothing, because the prose these rules trip on
+ * is written in banners above the code, not at the end of it.
+ */
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[^\S\n]*\/\/.*$/gm, '')
+}
+
 function expectIncludes(source: string, needle: string, message: string): void {
   assert.ok(source.includes(needle), message)
 }
@@ -605,10 +621,7 @@ expectIncludes(settingsPanel, 'End: visibleSettingsTabs.length - 1', 'Settings c
   const componentSources = collectSources(join(root, 'src/renderer/src'))
   const offenders = componentSources.filter((path) => {
     if (/\.test\.tsx?$/.test(path)) return false
-    const code = readFileSync(path, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/(^|[^:])\/\/.*$/gm, '$1')
-    return HAND_ROLLED_FOCUS.test(code)
+    return HAND_ROLLED_FOCUS.test(withoutComments(readFileSync(path, 'utf8')))
   })
   assert.deepEqual(
     offenders.map((path) => relative(root, path)),
@@ -641,6 +654,12 @@ expectIncludes(settingsPanel, 'End: visibleSettingsTabs.length - 1', 'Settings c
   )
 }
 
+/** `aria-modal` as a JSX ATTRIBUTE — never the same characters inside an
+ *  attribute-selector string, which is what the `[` lookbehind rules out. */
+const CLAIMS_MODALITY = /(?<!\[)aria-modal=(?:"true"|\{true\})/
+/** The shared trap, with or without props. */
+const MOUNTS_FOCUS_TRAP = /<FocusTrap[\s/>]/
+
 // No surface claims modality without trapping the keyboard (MC-2109). Before
 // this, not one dialog in the product trapped focus: every overlay did initial
 // focus + Escape and then let Tab walk out into the inert page behind the
@@ -653,19 +672,53 @@ expectIncludes(settingsPanel, 'End: visibleSettingsTabs.length - 1', 'Settings c
 // panel) says so by not claiming `aria-modal="true"`. `Drawer` scrims, traps
 // and locks scroll, and since 2026-09-02 says so — `aria-modal="true"` — so it
 // is covered by this rule like every other dialog rather than exempt from it.
+//
+// The guard reads SOURCE, so it has to tell a JSX attribute from the same
+// characters inside a string. `document.querySelector('[role="dialog"][aria-modal="true"]')`
+// is a surface asking whether a dialog is on screen ABOVE it — the opposite of
+// declaring one — and both `Drawer` and the Git panel do exactly that. Hence
+// the lookbehind: an attribute is preceded by whitespace, never by the `[` that
+// opens an attribute selector. Both of those call sites now spell the selector
+// as `MODAL_SURFACE_SELECTOR` from `ui/Modal`, so the literal appears once; the
+// lookbehind is what keeps the rule honest if a fourth one is ever typed out.
+//
+// The FocusTrap needle is a TAG match rather than the exact string `<FocusTrap>`:
+// a host that passes the trap a prop (`<FocusTrap active={open}>`) mounts the
+// same trap, and a rule that only recognised the bare open tag would fail it for
+// doing the right thing.
 {
-  const CLAIMS_MODALITY = /aria-modal=(?:"true"|\{true\})/
   const modalityHosts = collectSources(join(root, 'src/renderer/src')).filter((path) => {
     if (/\.test\.tsx?$/.test(path)) return false
-    const code = readFileSync(path, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/(^|[^:])\/\/.*$/gm, '$1')
-    return CLAIMS_MODALITY.test(code) && !/<FocusTrap>/.test(code)
+    const code = withoutComments(readFileSync(path, 'utf8'))
+    return CLAIMS_MODALITY.test(code) && !MOUNTS_FOCUS_TRAP.test(code)
   })
   assert.deepEqual(
     modalityHosts.map((path) => relative(root, path)),
     [],
     'every aria-modal surface mounts the shared FocusTrap — no dialog claims modality it does not deliver',
+  )
+
+  // The guard, tested against both directions. A whole-file regex rule that is
+  // never exercised on a known offender and a known non-offender is a rule that
+  // can quietly stop matching anything at all.
+  const TRUE_POSITIVE = '<div role="dialog" aria-modal="true">\n  <p>no trap</p>\n</div>'
+  const FALSE_POSITIVE = "const open = document.querySelector('[role=\"dialog\"][aria-modal=\"true\"]')"
+  const WITH_TRAP = '<FocusTrap active={open}>\n  <div role="dialog" aria-modal={true} />\n</FocusTrap>'
+  assert.ok(
+    CLAIMS_MODALITY.test(TRUE_POSITIVE) && !MOUNTS_FOCUS_TRAP.test(TRUE_POSITIVE),
+    'the guard still catches a dialog that declares modality and mounts no trap',
+  )
+  assert.ok(
+    !CLAIMS_MODALITY.test(FALSE_POSITIVE),
+    'a selector STRING naming aria-modal is a surface reading the document, not one claiming modality',
+  )
+  assert.ok(
+    CLAIMS_MODALITY.test(WITH_TRAP) && MOUNTS_FOCUS_TRAP.test(WITH_TRAP),
+    'a FocusTrap that takes props is still the shared trap',
+  )
+  assert.ok(
+    withoutComments("const s = 'https://example.test/a'").includes('example.test'),
+    'the comment stripper leaves a line whose STRING holds a // intact',
   )
 }
 

@@ -72,49 +72,25 @@ function compareWorkspacesByUserMessage(a: Workspace, b: Workspace): number {
 
 /**
  * Orders workspaces by when the person last messaged each, most recent first,
- * rather than by manual position.
+ * rather than by manual position. Every list of chats uses this and only this:
+ * the sidebar's project groups, Starred band, flat stream and Settled shelves,
+ * and — through `buildSidebarWorkspaceOrder` — the session-manager dropdown,
+ * which reproduces the sidebar's order so the two surfaces never disagree
+ * about where a chat sits.
+ *
+ * There used to be a banding step on top (`sortWorkspacesByAttention`: blocked
+ * first, then finished-while-you-were-away, then running, then at rest), so an
+ * agent finishing lifted its row above chats the person had spoken in more
+ * recently. Owner ruling 2026-09-09, watching three projects: "they keep moving
+ * up and down in my side panel... they should just stay put where they are
+ * based on when I send them a message last". The tints stayed and the banding
+ * went — a finishing or blocked agent recolours its row and never moves it,
+ * which also retired the "held seat" that froze a selected row's band.
  */
 export function sortWorkspacesByUserMessage(workspaces: Workspace[]): Workspace[] {
   // Array.prototype.sort is stable, so rows that tie keep their incoming
   // (stored) order.
   return [...workspaces].sort(compareWorkspacesByUserMessage)
-}
-
-// The bands a folder's rows fall into, top to bottom. Recency alone answers
-// "what did I touch last"; it never answers "what wants me". These four tiers
-// put the rows that want you above the rows that don't, and leave recency to
-// order each band internally.
-//
-//  - `attention`: an agent is blocked on you (permission prompt, a question).
-//  - `done`: an agent finished while you were away and you have not looked yet
-//    — the green row. Gold outranks green, exactly as the row treatment does.
-//  - `running`: an agent is working right now. Below the two bands that want
-//    you: a running agent is a thing to watch, not a thing to answer.
-//  - `resting`: everything else, in the recency order it has always had.
-export type WorkspaceAttentionTier = 'attention' | 'done' | 'running' | 'resting'
-
-const ATTENTION_TIER_RANK: Record<WorkspaceAttentionTier, number> = {
-  attention: 0,
-  done: 1,
-  running: 2,
-  resting: 3,
-}
-
-// Orders workspaces by attention tier first, then — within a tier — by when
-// the person last messaged each. Live status gets a say in position, but only
-// through `tierOf`, which the sidebar deliberately freezes for the row you
-// have selected: a tier that changed under your cursor would reflow the list
-// you are reading, which is the bug this ordering must not reintroduce
-// (`workspace-row-move-on-click`, id 88).
-export function sortWorkspacesByAttention(
-  workspaces: Workspace[],
-  tierOf: (workspace: Workspace) => WorkspaceAttentionTier
-): Workspace[] {
-  return [...workspaces].sort((a, b) => {
-    const byTier = ATTENTION_TIER_RANK[tierOf(a)] - ATTENTION_TIER_RANK[tierOf(b)]
-    if (byTier !== 0) return byTier
-    return compareWorkspacesByUserMessage(a, b)
-  })
 }
 
 // When main's record arrives (a snapshot, or a field patch another window

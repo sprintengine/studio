@@ -83,8 +83,6 @@ export function Checkbox({
     if (inputRef.current) inputRef.current.indeterminate = indeterminate
   }, [indeterminate])
 
-  const marked = checked || indeterminate
-
   // Marker mode drops the label wrapper — see `readOnly`. The box and the input
   // inside it are identical either way; only the element around them changes, so
   // there is one drawing rather than two.
@@ -120,32 +118,72 @@ export function Checkbox({
           // the keyboard with it.
           className="peer absolute inset-0 h-full w-full cursor-[inherit] opacity-0 disabled:cursor-not-allowed"
         />
-        <span
-          aria-hidden="true"
-          className={[
-            'inline-flex size-icon-sm items-center justify-center rounded-[3px] border transition-colors',
-            // The input is the tab stop; this box is what a person sees, so the
-            // shared treatment lands here on the input's focus. An outline's gap
-            // needs no `ring-offset-color`, so it is right on every surface.
-            FOCUS_RING_PEER_CLASS,
-            disabled ? 'opacity-45' : '',
-            marked
-              ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
-              : 'border-[color:var(--border-default)] bg-[color:var(--bg-app)]',
-          ].join(' ')}
-        >
-          {indeterminate ? (
-            <svg viewBox="0 0 16 16" className="size-icon-xs" fill="none" stroke="currentColor" strokeWidth={2.2}>
-              <path d="M4 8h8" strokeLinecap="round" />
-            </svg>
-          ) : checked ? (
-            <svg viewBox="0 0 16 16" className="size-icon-xs" fill="none" stroke="currentColor" strokeWidth={2.2}>
-              <path d="M3.5 8.5 L6.5 11.5 L12.5 5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          ) : null}
-        </span>
+        <CheckboxBox checked={checked} indeterminate={indeterminate} disabled={disabled} peerFocus />
       </span>
       {label}
     </Wrapper>
+  )
+}
+
+/**
+ * THE DRAWN BOX, ALONE — the tick, the dash, the accent fill and the empty
+ * square, with no input under it.
+ *
+ * Extracted 2026-09-09 for `CheckRow`, which cannot use the whole control. A
+ * check row lives in a list that is ONE tab stop and walks with
+ * `aria-activedescendant`; a real `<input>` per row would be the four
+ * hundredth tab stop, and the state a screen reader announces there belongs on
+ * the row (`aria-checked` on the `option` / `treeitem`), not on a second
+ * control inside it. So the row needs the picture without the control.
+ *
+ * It is exported rather than copied for the reason the checkbox entry gives
+ * for existing at all: five surfaces once drew five checkboxes. There is one
+ * drawing, and both callers render it.
+ *
+ * Always `aria-hidden`. Whatever announces the state — this component's own
+ * `<input>`, or the row's `aria-checked` — the box is the picture of it and
+ * must never be met twice.
+ */
+export function CheckboxBox({
+  checked,
+  indeterminate = false,
+  disabled = false,
+  peerFocus = false,
+}: {
+  checked: boolean
+  indeterminate?: boolean
+  disabled?: boolean
+  /** True when a sibling `<input class="peer">` is the tab stop this box shows
+   *  the focus of. False for a decorative box with no input beside it. */
+  peerFocus?: boolean
+}): JSX.Element {
+  // Checked and indeterminate are both "this box is carrying a value", and both
+  // take the accent fill; only the mark inside differs.
+  const marked = checked || indeterminate
+  return (
+    <span
+      aria-hidden="true"
+      className={[
+        'inline-flex size-icon-sm items-center justify-center rounded-[3px] border transition-colors',
+        // The input is the tab stop; this box is what a person sees, so the
+        // shared treatment lands here on the input's focus. An outline's gap
+        // needs no `ring-offset-color`, so it is right on every surface.
+        peerFocus ? FOCUS_RING_PEER_CLASS : '',
+        disabled ? 'opacity-45' : '',
+        marked
+          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+          : 'border-[color:var(--border-default)] bg-[color:var(--bg-app)]',
+      ].join(' ')}
+    >
+      {indeterminate ? (
+        <svg viewBox="0 0 16 16" className="size-icon-xs" fill="none" stroke="currentColor" strokeWidth={2.2}>
+          <path d="M4 8h8" strokeLinecap="round" />
+        </svg>
+      ) : checked ? (
+        <svg viewBox="0 0 16 16" className="size-icon-xs" fill="none" stroke="currentColor" strokeWidth={2.2}>
+          <path d="M3.5 8.5 L6.5 11.5 L12.5 5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : null}
+    </span>
   )
 }

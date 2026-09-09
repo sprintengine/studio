@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DiffEditor, type DiffOnMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
-import { useGitStatus, type GitRepoState } from '../../hooks/useGitStatus'
+import { useGitStatus, useGitTreeRevision, type GitRepoState } from '../../hooks/useGitStatus'
 import { detectLanguage, isImageFile } from '../../utils/files'
 import { joinFilePath } from '../../utils/paths'
 import { BranchStepStrip, BRANCH_STEP_PANEL_ID } from './BranchStepStrip'
@@ -14,11 +14,56 @@ import {
   findDiffFocusIndex,
   type DiffFileItem,
 } from './diffFileList'
-import { nextDiffPosition, resolveEdgeHunkIndex } from './diffNavigation'
-import { EmptyState, IconButton, InlineNotice, Tooltip } from '../ui'
+import { navigateFile, nextDiffPosition, resolveEdgeHunkIndex, takesNavigationKey } from './diffNavigation'
+import {
+  Checkbox,
+  CollapseAllGlyph,
+  EmptyState,
+  FileTypeGlyph,
+  GearGlyph,
+  InlineNotice,
+  MenuItem,
+  NextDifferenceGlyph,
+  OpenInEditorGlyph,
+  Pager,
+  Popover,
+  PreviousDifferenceGlyph,
+  SegmentedControl,
+  SideBySideGlyph,
+  Toolbar,
+  ToolbarButton,
+  ToolbarDivider,
+  ToolbarSpacer,
+  Tooltip,
+  UnifiedGlyph,
+  roveMenuFocus,
+} from '../ui'
+import { MENU_LIST_CLASS } from '../ui/menuClasses'
 import { FOCUS_RING_INSET_CLASS } from '../ui/tokens'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
 import { openDiffWindow } from './openDiffWindow'
+import { openExternalFileWindow } from './openFileWindow'
+import { openFileSurface } from '../../utils/openFileSurface'
+import { useWorkspaceStore } from '../../store/workspaceStore'
+import { writeAuxWindowSetting } from './auxSettingsWrite'
+import { getGitEntry } from '../../hooks/useGitStatus'
+import type { DiffViewMode } from '../../store/slices/settingsSlice'
+import { hunkGutterLine } from '../../../../shared/git/hunks'
+import { HunkGutter, GLYPH_MARGIN_LANE_CENTER, type GlyphMarginHost } from './HunkGutter'
+import { hunkBoxes, hunkFileKey } from './hunkGutterModel'
+import { useFileHunks } from './useFileHunks'
+import {
+  DEFAULT_DIFF_EDITOR_PREFS,
+  diffEditorOptions,
+  differenceCounterLabel,
+  headerStripModel,
+  includeAction,
+  includeBoxState,
+  isIncludable,
+  liveDiffEditorOptions,
+  type DiffEditorPrefs,
+  type IncludeBoxState,
+} from './diffToolbarModel'
 
 // The diff viewer: the changed-file list, a read-only Monaco DiffEditor, and
 // hunk navigation that flows across files. Two hosts render it — the
@@ -27,6 +72,12 @@ import { openDiffWindow } from './openDiffWindow'
 // the window draws a title bar with the traffic-light inset and closes on
 // Escape; the pane draws a panel-header band with an "Open in separate
 // window" action and scopes its arrow keys to itself.
+//
+// Those two band actions are also the sticky preference's only writers
+// (git-commit-window T3): opening a diff in the window says "this is where
+// diffs go", showing it in the app says the opposite, and the next Git row
+// obeys that remembered choice. There is no drag-a-tab-out gesture in
+// the pane strip for any kind, so the buttons ARE the gesture.
 
 export type DiffViewerVariant = 'window' | 'pane'
 
@@ -34,6 +85,13 @@ type Props = {
   repoRoot: string
   focusPath: string | null
   focusKind: 'staged' | 'unstaged' | null
+  /**
+   * The workspace this diff belongs to. The pane host knows it outright; the
+   * window host carries it as a URL param so "Show in the app" can name the
+   * pane it hands the diff back to. Null in a window opened before the param
+   * existed — the action hides rather than guessing a workspace.
+   */
+  workspaceId?: string | null
   variant?: DiffViewerVariant
   /** Pane host only: the canonical count of the view, for the tab strip; null once the viewer is gone. */
   onItemCountChange?: (count: number | null) => void
@@ -54,6 +112,18 @@ type DiffContent =
   | { state: 'ready'; original: string; modified: string; language: string }
 
 const NUL = '\u0000'
+
+// Two reads of the same file that say the same thing. The live re-read below
+// drops a result that matches what is on screen, so an unchanged file costs two
+// file reads and no render — no model reset, no scroll jump, no diff recompute.
+function sameDiffContent(a: DiffContent, b: DiffContent): boolean {
+  if (a.state !== b.state) return false
+  if (a.state === 'ready' && b.state === 'ready') {
+    return a.original === b.original && a.modified === b.modified && a.language === b.language
+  }
+  if (a.state === 'error' && b.state === 'error') return a.message === b.message
+  return true
+}
 
 const STATUS_LABEL: Record<DiffFileItem['status'], string> = {
   new: 'Added',
@@ -148,45 +218,92 @@ async function loadDiffContent(repoRoot: string, item: DiffFileItem): Promise<Di
   return { state: 'ready', original: index.content, modified: worktree.content, language }
 }
 
-function ChevronButton({
-  direction,
-  disabled,
-  onClick,
-}: {
-  direction: 'up' | 'down'
-  disabled: boolean
-  onClick: () => void
-}) {
-  return (
-    <IconButton
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={direction === 'down' ? 'Next change' : 'Previous change'}
-      className="app-no-drag"
-    >
-      <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-        <path
-          d={direction === 'down' ? 'M4 6l4 4 4-4' : 'M4 10l4-4 4 4'}
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </IconButton>
-  )
-}
-
+// The two buttons that write the sticky `diffOpensInWindow` preference
+// (git-commit-window T3). They moved into the toolbar band in T4 and kept
+// everything else: the same handlers, the same tooltips, the same rule that
+// each one is the whole gesture for "diffs belong here now". Losing either
+// would leave the preference with no writer at all.
 function OpenInWindowButton({ onClick }: { onClick: () => void }) {
   return (
     <Tooltip content="Open in separate window" placement="bottom">
-      <IconButton onClick={onClick} aria-label="Open in separate window" className="app-no-drag">
+      <ToolbarButton ariaLabel="Open in separate window" onClick={onClick}>
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <path d="M6.5 3H3v10h10V9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           <path d="M9.5 3H13v3.5M13 3 7.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-      </IconButton>
+      </ToolbarButton>
     </Tooltip>
+  )
+}
+
+// The window's way home: the same diff in the pane's Diff tab, and the sticky
+// preference flipped so the next one opens there too. Its neighbour is Escape,
+// which only closes the window and decides nothing — the tooltip says so,
+// because "close" and "put it back" are different intentions.
+function ShowInAppButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip content="Show in the app (Esc just closes this window)" placement="bottom">
+      <ToolbarButton ariaLabel="Show in the app" onClick={onClick}>
+        <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+          <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M10 3v10" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </ToolbarButton>
+    </Tooltip>
+  )
+}
+
+/**
+ * The gear: the two reading options that are not worth a band item each — word
+ * wrap and whether whitespace-only changes count. Grouping them keeps the
+ * reading controls together. `ToolbarButton menu` draws the corner triangle and says
+ * `aria-haspopup`; the rows are the kit's `menuitemcheckbox`, because each one
+ * is a state and not an action.
+ */
+function DiffSettingsMenu({
+  prefs,
+  onChange,
+}: {
+  prefs: DiffEditorPrefs
+  onChange: (patch: Partial<DiffEditorPrefs>) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const surfaceRef = React.useRef<HTMLElement | null>(null)
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel="Diff settings"
+      popupRole="menu"
+      placement="bottom-end"
+      onOpenAutoFocus={(surface) => {
+        surfaceRef.current = surface
+        surface.querySelector<HTMLButtonElement>('[data-menu-item="true"]')?.focus()
+      }}
+      surfaceClassName={`min-w-[11rem] ${MENU_LIST_CLASS}`}
+      renderTrigger={({ ref, togglePopover }) => (
+        <Tooltip content="Diff settings" placement="bottom">
+          <ToolbarButton ref={ref} ariaLabel="Diff settings" menu expanded={open} onClick={togglePopover}>
+            <GearGlyph />
+          </ToolbarButton>
+        </Tooltip>
+      )}
+    >
+      <MenuItem
+        checked={prefs.wordWrap}
+        onClick={() => onChange({ wordWrap: !prefs.wordWrap })}
+        onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}
+      >
+        Word wrap
+      </MenuItem>
+      <MenuItem
+        checked={prefs.ignoreTrimWhitespace}
+        onClick={() => onChange({ ignoreTrimWhitespace: !prefs.ignoreTrimWhitespace })}
+        onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}
+      >
+        Ignore whitespace
+      </MenuItem>
+    </Popover>
   )
 }
 
@@ -208,12 +325,39 @@ function CenteredError({ message }: { message: string }) {
   )
 }
 
-function DiffBody({
+/**
+ * What the content becomes while the NEXT file's diff is being read.
+ *
+ * The answer is "the file you were looking at", and that is the whole of
+ * finding 13. Routing a file step through `{ state: 'loading' }` made
+ * `DiffBody` return the message component instead of the editor, which is a
+ * different element type — so React unmounted Monaco and mounted it again on
+ * every press of ↓. The live re-read path never did this: it swaps the two
+ * texts under a mounted editor, and a file step is the same move with a
+ * different pair of texts.
+ *
+ * A message is still the right answer where there is no editor to keep: the
+ * first read of a window, and a step into another repository, where the diff on
+ * screen is not merely stale but about somewhere else.
+ */
+export function contentAcrossTargetChange(previous: DiffContent, sameRepo: boolean): DiffContent {
+  return previous.state === 'ready' && sameRepo ? previous : { state: 'loading' }
+}
+
+/**
+ * Exported for `DiffViewer.remount.test.tsx`, which calls it as a plain
+ * function (it holds no hooks, deliberately) and reads the element it returns.
+ * Two calls whose only difference is a view preference must return an element
+ * of the same `type` and the same `key` — that, and nothing else, is what
+ * decides whether React remounts Monaco.
+ */
+export function DiffBody({
   content,
   repoState,
   currentItem,
   onMount,
   monacoTheme,
+  options,
   stepLoading,
 }: {
   content: DiffContent
@@ -221,6 +365,8 @@ function DiffBody({
   currentItem: DiffFileItem | null
   onMount: DiffOnMount
   monacoTheme: 'vs' | 'vs-dark'
+  /** The construction options, already carrying the current preferences. */
+  options: Monaco.editor.IStandaloneDiffEditorConstructionOptions
   /** A branch step's file list is still being read. */
   stepLoading?: boolean
 }) {
@@ -251,17 +397,12 @@ function DiffBody({
       // Keep them, and dispose them after the editor is gone (see onMount).
       keepCurrentOriginalModel
       keepCurrentModifiedModel
-      options={{
-        readOnly: true,
-        renderSideBySide: true,
-        fontSize: 13,
-        fontFamily: MONO_FONT_STACK,
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        automaticLayout: true,
-        contextmenu: false,
-        renderOverviewRuler: true,
-      }}
+      // NO `key` here, and none above: the view preferences reach Monaco
+      // through `options` at construction and through `editor.updateOptions`
+      // afterwards (diffToolbarModel), never through a new element. A key that
+      // moved with the toggle would dispose the models under the diff widget
+      // mid-reset — the exact failure the workaround above exists for.
+      options={options}
       onMount={onMount}
     />
   )
@@ -271,11 +412,16 @@ export function DiffViewer({
   repoRoot,
   focusPath,
   focusKind,
+  workspaceId = null,
   variant = 'window',
   onItemCountChange,
   branchSteps = false,
 }: Props) {
-  const { status, repoState } = useGitStatus(repoRoot)
+  const { status, repoState, repoRoot: gitRoot, refresh: refreshGitStatus } = useGitStatus(repoRoot)
+  // Ticks once per completed status read of this repository — the cue that the
+  // working tree moved under the open file. Given the RESOLVED root so it joins
+  // the subscription the line above already opened.
+  const treeRevision = useGitTreeRevision(gitRoot)
   const isMac = window.api.platform === 'darwin'
   const monacoTheme = useMonacoBaseTheme()
 
@@ -301,6 +447,12 @@ export function DiffViewer({
   const [currentIndex, setCurrentIndex] = useState(-1)
   const initializedRef = useRef(false)
   const currentPathKeyRef = useRef<string | null>(null)
+  // The PATH alone, without the kind. Including a file moves it between the
+  // staged and unstaged groups — the entry the key names disappears and a new
+  // one for the same file appears — so this is what the anchor falls back to
+  // before it gives up and clamps to a neighbour (T4: the include box must not
+  // walk the person off the file they just included).
+  const currentPathRef = useRef<string | null>(null)
 
   // Initialise focus once the first status snapshot arrives, then keep the cursor
   // anchored to the same (path, kind) as the list changes underneath us (file
@@ -309,6 +461,7 @@ export function DiffViewer({
     if (items.length === 0) {
       setCurrentIndex(-1)
       currentPathKeyRef.current = null
+      currentPathRef.current = null
       return
     }
     if (!initializedRef.current) {
@@ -317,24 +470,55 @@ export function DiffViewer({
       initializedRef.current = true
       setCurrentIndex(resolved)
       currentPathKeyRef.current = keyFor(items[resolved])
+      currentPathRef.current = items[resolved]?.path ?? null
       return
     }
     const previousKey = currentPathKeyRef.current
     const keptIndex = previousKey ? items.findIndex((item) => keyFor(item) === previousKey) : -1
     if (keptIndex >= 0) {
       if (keptIndex !== currentIndex) setCurrentIndex(keptIndex)
+      currentPathRef.current = items[keptIndex]?.path ?? null
+      return
+    }
+    // Same file, other group: including or excluding the open file is the one
+    // thing that reliably does this, and following it is what makes the header
+    // strip's checkbox feel like a checkbox rather than a jump.
+    const previousPath = currentPathRef.current
+    const samePathIndex = previousPath ? items.findIndex((item) => item.path === previousPath) : -1
+    if (samePathIndex >= 0) {
+      if (samePathIndex !== currentIndex) setCurrentIndex(samePathIndex)
+      currentPathKeyRef.current = keyFor(items[samePathIndex])
       return
     }
     const clamped = Math.min(Math.max(currentIndex, 0), items.length - 1)
     setCurrentIndex(clamped)
     currentPathKeyRef.current = keyFor(items[clamped])
+    currentPathRef.current = items[clamped]?.path ?? null
   }, [items, focusPath, focusKind, currentIndex])
 
   const currentItem = currentIndex >= 0 ? items[currentIndex] ?? null : null
 
   const [content, setContent] = useState<DiffContent>({ state: 'loading' })
+  // Read by the target effect, which has to know what is on screen without
+  // depending on it — depending on `content` would re-read the diff every time
+  // the diff was read.
+  const contentRef = useRef<DiffContent>(content)
+  contentRef.current = content
   const diffEditorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null)
-  const hunksRef = useRef<Monaco.editor.ILineChange[]>([])
+  // The MODIFIED editor and the lane its glyph margin hangs widgets in — the
+  // two things the per-hunk include boxes need (T7). State rather than a ref
+  // because the boxes are React's to render and must appear when Monaco does.
+  const [gutterHost, setGutterHost] = useState<{ editor: GlyphMarginHost; lane: number } | null>(null)
+  // Where the stepper stops, in order down the file. TWO sources, and which is
+  // authoritative is finding 9: the counter reads git's `-U0` hunks while the
+  // stepper read Monaco's `getLineChanges()`, and with `ignoreTrimWhitespace`
+  // on Monaco can find nothing to step through in a file the counter says has
+  // two differences — so ↓ walked straight past it. git's hunks win whenever
+  // git has answered; Monaco's are the fallback for the files git has no hunks
+  // for (a branch step, a file whose read has not landed).
+  const monacoStepsRef = useRef<DiffStep[]>([])
+  const gitStepsRef = useRef<DiffStep[] | null>(null)
+  const diffSteps = (): DiffStep[] => gitStepsRef.current ?? monacoStepsRef.current
   const hunkIndexRef = useRef(0)
   const pendingEdgeRef = useRef<'first' | 'last' | null>(null)
 
@@ -357,24 +541,58 @@ export function DiffViewer({
     hunkIndexRef.current = 0
     pendingEdgeRef.current = null
     currentPathKeyRef.current = keyFor(items[index])
+    currentPathRef.current = items[index]?.path ?? null
     setCurrentIndex(index)
   }, [focusPath, focusKind, items])
 
+  // One token for every read in flight, target change and live re-read alike:
+  // whoever started last is the only one allowed to land.
+  const loadSeqRef = useRef(0)
+  // A SECOND, monotonic token, taken only by the live re-reads below. They
+  // cannot take `loadSeqRef`'s: incrementing it would cancel the target
+  // effect's own in-flight read, and merely READING it (which is what the live
+  // effect did until this was reviewed) hands two concurrent live re-reads the
+  // same number, so the older one passes the check and lands last — the stale
+  // text this whole effect exists to remove. Two counters, both checked on
+  // resolve: the load token says "no file switch since", the live token says
+  // "no newer live re-read since". Not extractable as a pure function without
+  // lifting the whole read out of the component, so it is asserted here in
+  // words rather than in a test.
+  const liveSeqRef = useRef(0)
+  // The item the live re-read should read, without making that effect depend on
+  // the item (it must fire on the tree moving, and on nothing else).
+  const currentItemRef = useRef<DiffFileItem | null>(null)
+  currentItemRef.current = currentItem
+
+  // Which repository the content on screen came from. A step within one repo
+  // may keep the previous diff on screen; a change of repository may not.
+  const contentRepoRef = useRef(repoRoot)
+
   useEffect(() => {
     if (!currentItem) {
+      loadSeqRef.current += 1
       setContent({ state: 'loading' })
+      monacoStepsRef.current = []
+      setDifferenceCount(0)
       return
     }
-    let cancelled = false
-    setContent({ state: 'loading' })
-    hunksRef.current = []
+    loadSeqRef.current += 1
+    const token = loadSeqRef.current
+    const sameRepo = contentRepoRef.current === repoRoot
+    contentRepoRef.current = repoRoot
+    const next = contentAcrossTargetChange(contentRef.current, sameRepo)
+    if (next.state !== 'ready') {
+      // Only when the editor is going away anyway: leaving these behind while
+      // the previous file is still drawn is what keeps the stepper and the
+      // counter describing what is actually on screen.
+      monacoStepsRef.current = []
+      setDifferenceCount(0)
+    }
+    setContent(next)
     hunkIndexRef.current = 0
     void loadDiffContent(repoRoot, currentItem).then((next) => {
-      if (!cancelled) setContent(next)
+      if (loadSeqRef.current === token) setContent(next)
     })
-    return () => {
-      cancelled = true
-    }
   }, [
     repoRoot,
     currentItem?.path,
@@ -385,44 +603,117 @@ export function DiffViewer({
     (currentItem as BranchDiffItem | null)?.modifiedRev,
   ])
 
+  // Live content. The file LIST re-read when the working tree moved; the open
+  // file's content never did, so a save behind the window (an agent's edit, a
+  // commit, a stash) left yesterday's text on screen until the person clicked
+  // another row and back. This re-reads the same two sides on the status hook's
+  // own debounced tick, WITHOUT going through the loading state: the editor
+  // stays mounted, and the diff-update callback re-reveals the hunk the cursor
+  // was on, so the position survives as well as it can.
+  const appliedRevisionRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (appliedRevisionRef.current === treeRevision) return
+    const previous = appliedRevisionRef.current
+    appliedRevisionRef.current = treeRevision
+    // Nothing to re-read until this viewer has seen a completed read: 0 is
+    // "the hook has not answered yet", and the first real number is the read
+    // the target effect above is already loading from.
+    if (previous === null || previous === 0) return
+    const item = currentItemRef.current
+    if (!item) return
+    const loadToken = loadSeqRef.current
+    liveSeqRef.current += 1
+    const liveToken = liveSeqRef.current
+    void loadDiffContent(repoRoot, item).then((next) => {
+      // A file switch during the read supersedes it: its own load is authoritative.
+      if (loadSeqRef.current !== loadToken) return
+      // And a LATER live re-read supersedes an earlier one: two ticks of the
+      // status hook close together read the same two sides twice, and without
+      // this the slower (older) read is free to land second.
+      if (liveSeqRef.current !== liveToken) return
+      setContent((previous) => (sameDiffContent(previous, next) ? previous : next))
+    })
+  }, [treeRevision, repoRoot])
+
+  // The steppers, reachable from the mount callback above the definitions they
+  // point at. Monaco keybindings are registered ONCE, at mount, and a keybinding
+  // that closed over the first render's `navigate` would step from the file that
+  // was open when the window opened.
+  const navigateRef = useRef<(direction: 'next' | 'prev') => void>(() => {})
+  const navigateWholeFileRef = useRef<(direction: 'next' | 'prev') => void>(() => {})
+
   const revealHunk = useCallback((index: number) => {
     const editor = diffEditorRef.current
-    const hunks = hunksRef.current
-    if (!editor || hunks.length === 0) return
-    const clamped = Math.min(Math.max(index, 0), hunks.length - 1)
-    const hunk = hunks[clamped]
+    const steps = diffSteps()
+    if (!editor || steps.length === 0) return
+    const clamped = Math.min(Math.max(index, 0), steps.length - 1)
+    const step = steps[clamped]
     hunkIndexRef.current = clamped
-    // Pure deletions have modifiedEndLineNumber === 0; reveal the original side
-    // there, otherwise reveal the modified side (the diff editor syncs scroll).
-    if (hunk.modifiedEndLineNumber === 0) {
-      editor.getOriginalEditor().revealLineInCenter(Math.max(1, hunk.originalStartLineNumber))
-    } else {
-      const modified = editor.getModifiedEditor()
-      const line = Math.max(1, hunk.modifiedStartLineNumber)
-      modified.revealLineInCenter(line)
-      modified.setPosition({ lineNumber: line, column: 1 })
+    // A pure deletion has no line on the modified side; reveal the original
+    // there, otherwise the modified one (the diff editor syncs scroll).
+    if (step.side === 'original') {
+      editor.getOriginalEditor().revealLineInCenter(step.line)
+      return
     }
+    const modified = editor.getModifiedEditor()
+    modified.revealLineInCenter(step.line)
+    modified.setPosition({ lineNumber: step.line, column: 1 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleDiffMount = useCallback<DiffOnMount>(
-    (editor) => {
+    (editor, monaco) => {
       diffEditorRef.current = editor
+      // The one editor drawn in BOTH views: side-by-side shows it beside the
+      // original, unified relays both sides into it. Every hunk box goes here,
+      // so the gutter does not half-vanish with the layout toggle.
+      const modified = editor.getModifiedEditor() as unknown as GlyphMarginHost
+      setGutterHost({
+        editor: modified,
+        lane: monaco.editor.GlyphMarginLane?.Center ?? GLYPH_MARGIN_LANE_CENTER,
+      })
       // The models the wrapper created for this mount; it keeps them (see the
       // props), so they are released here once the widget has let go of them.
       const model = editor.getModel()
       editor.onDidDispose(() => {
+        // Let go of the gutter first: its widgets belong to an editor that no
+        // longer exists, and a later effect must not try to remove them from it.
+        // Guarded on identity — a file switch mounts the next editor around the
+        // same time this fires, and clearing unconditionally would blank a
+        // gutter that has already been handed its new home.
+        setGutterHost((current) => (current && current.editor === modified ? null : current))
         window.setTimeout(() => {
           model?.original.dispose()
           model?.modified.dispose()
         }, 0)
       })
+      // The steppers, registered ON THE EDITOR as well as on the window.
+      //
+      // Monaco has the keyboard whenever the diff is focused, and the window
+      // listener deliberately keeps out of it (`takesNavigationKey`), so
+      // without these F7 and ⌘↑ / ⌘↓ would simply stop working the moment a
+      // person clicked into the text they are stepping through. `addCommand`
+      // is how a keybinding is added to the editor that owns them, and it
+      // supersedes nothing Monaco itself binds: F7 is unbound in a read-only
+      // diff, and ⌘↑ / ⌘↓ are only its "cursor to top / bottom", which the
+      // ⌘Home / ⌘End of the same editor still gives.
+      editor.addCommand(monaco.KeyCode.F7, () => navigateRef.current('next'))
+      editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F7, () => navigateRef.current('prev'))
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.DownArrow, () =>
+        navigateWholeFileRef.current('next')
+      )
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.UpArrow, () =>
+        navigateWholeFileRef.current('prev')
+      )
       editor.onDidUpdateDiff(() => {
         const changes = editor.getLineChanges() ?? []
-        hunksRef.current = changes
+        monacoStepsRef.current = changes.map(monacoStep)
+        // The toolbar's counter reads this; the ref alone cannot re-render it.
+        setDifferenceCount(changes.length)
         const pending = pendingEdgeRef.current
         if (pending) {
           pendingEdgeRef.current = null
-          revealHunk(resolveEdgeHunkIndex(pending, changes.length))
+          revealHunk(resolveEdgeHunkIndex(pending, diffSteps().length))
         } else {
           revealHunk(hunkIndexRef.current)
         }
@@ -437,7 +728,7 @@ export function DiffViewer({
       const move = nextDiffPosition(
         { fileIndex: currentIndex, hunkIndex: hunkIndexRef.current },
         direction,
-        hunksRef.current.length,
+        diffSteps().length,
         items.length
       )
       if (move.type === 'none') return
@@ -449,15 +740,61 @@ export function DiffViewer({
       pendingEdgeRef.current = move.edge
       hunkIndexRef.current = 0
       currentPathKeyRef.current = keyFor(items[move.fileIndex])
+      currentPathRef.current = items[move.fileIndex]?.path ?? null
       setCurrentIndex(move.fileIndex)
     },
     [items, currentIndex, revealHunk]
   )
 
-  // The viewer is read-only, so arrows always navigate hunks. F7 / Shift+F7
-  // mirror the usual IDE/Monaco idiom. Returns whether the key was taken.
+  // Land on a file by index — the toolbar's `‹ 2/27 files ›` stepper and
+  // ⌘↑ / ⌘↓. It goes through the SAME pendingEdgeRef the hunk walk uses when it
+  // crosses a boundary, so a file with no hunks at all (binary, mode-only) is
+  // arrived at and shown rather than stepped over.
+  const goToFileIndex = useCallback(
+    (fileIndex: number) => {
+      if (fileIndex < 0 || fileIndex >= items.length || fileIndex === currentIndex) return
+      pendingEdgeRef.current = 'first'
+      hunkIndexRef.current = 0
+      currentPathKeyRef.current = keyFor(items[fileIndex])
+      currentPathRef.current = items[fileIndex]?.path ?? null
+      setCurrentIndex(fileIndex)
+    },
+    [items, currentIndex]
+  )
+
+  const navigateWholeFile = useCallback(
+    (direction: 'next' | 'prev') => {
+      const move = navigateFile(currentIndex, direction, items.length)
+      if (move.type !== 'file') return
+      goToFileIndex(move.fileIndex)
+    },
+    [currentIndex, items.length, goToFileIndex]
+  )
+
+  navigateRef.current = navigate
+  navigateWholeFileRef.current = navigateWholeFile
+
+  // The viewer is read-only, so arrows always navigate hunks — except with the
+  // platform's command modifier held, which steps a whole FILE (⌘↑ / ⌘↓ on
+  // macOS, Ctrl elsewhere). The modifier is tested first: a plain ArrowDown
+  // must never also fire while ⌘ is down, or one press would move twice.
+  // F7 / Shift+F7 mirror the usual IDE/Monaco idiom for hunks. Returns whether
+  // the key was taken.
   const handleNavigationKey = useCallback(
-    (event: { key: string; shiftKey: boolean; preventDefault: () => void }): boolean => {
+    (event: {
+      key: string
+      shiftKey: boolean
+      metaKey?: boolean
+      ctrlKey?: boolean
+      preventDefault: () => void
+    }): boolean => {
+      const fileStep = isMac ? event.metaKey === true : event.ctrlKey === true
+      if (fileStep && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        event.preventDefault()
+        navigateWholeFile(event.key === 'ArrowDown' ? 'next' : 'prev')
+        return true
+      }
+      if (fileStep) return false
       if (event.key === 'ArrowDown' || (event.key === 'F7' && !event.shiftKey)) {
         event.preventDefault()
         navigate('next')
@@ -470,17 +807,26 @@ export function DiffViewer({
       }
       return false
     },
-    [navigate],
+    [navigate, navigateWholeFile, isMac],
   )
 
   // The window owns its whole keyboard, so the keys are window-wide there and
   // Escape closes it. In the pane the same keys are scoped to the viewer's own
-  // focus (a window-wide ArrowDown would hijack every list in the app).
+  // focus (a window-wide ArrowDown would hijack every list in the app). Neither
+  // scope changed in T4; what changed is that the band now contains controls
+  // that own the arrow keys themselves, so `takesNavigationKey` keeps a hunk
+  // step from firing on top of a view change or a menu walk — and MONACO is one
+  // of those controls. With the diff focused the steppers come from the
+  // editor's own keybindings (`handleDiffMount`), never from here, so one press
+  // is one move.
   useEffect(() => {
     if (variant !== 'window') return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (handleNavigationKey(event)) return
-      if (event.key === 'Escape') void window.api.windowClose()
+      const target = event.target as HTMLElement | null
+      if (takesNavigationKey(target) && handleNavigationKey(event)) return
+      // Escape inside the gear menu closes the MENU (the popover's own handler);
+      // it must not also take the window down with it.
+      if (event.key === 'Escape' && !target?.closest?.('[role="menu"]')) void window.api.windowClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -495,20 +841,277 @@ export function DiffViewer({
     // there, so it opens on the unstaged view of the same file rather than
     // carrying a scope the window cannot honour.
     const scope = target?.kind === 'branch' ? 'unstaged' : target?.kind
+    // Asking for the window IS the preference: from here on a Git row opens
+    // one, until the window's "Show in the app" says otherwise.
+    useWorkspaceStore.getState().setDiffOpensInWindow(true)
     void openDiffWindow({
+      ...(workspaceId ? { workspaceId } : {}),
       repoRoot,
       focusPath: target?.path ?? focusPath ?? '',
       scope: scope ?? focusKind ?? 'unstaged',
     })
-  }, [currentItem, focusKind, focusPath, items, repoRoot])
+  }, [currentItem, focusKind, focusPath, items, repoRoot, workspaceId])
 
-  const bandClass =
-    variant === 'window'
-      ? `app-drag relative flex ${TITLE_BAR_HEIGHT} shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pr-2 ${
-          isMac ? TRAFFIC_LIGHT_INSET : 'pl-3'
-        }`
-      // The pane's one band: panel-header geometry (34px, space.lg inset).
-      : 'flex h-control-md shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] pl-3 pr-2'
+  // The window's half of the flip. The preference is NOT written here: this
+  // window's store was hydrated when it opened, and writing the settings
+  // envelope from it would push a snapshot of that moment over whatever the
+  // workspace window has changed since. The workspace window flips it as it
+  // opens the tab (WorkspaceManager), exactly as docking a file back does.
+  // ── The failure band ────────────────────────────────────────────────────
+  // ONE message, and it is the newest one. There were three states here —
+  // the hand-off's, the file box's and the hunk read's — collapsed at the
+  // render with `??`, which is a PRIORITY, not a recency: a "No open workspace"
+  // from ten minutes ago outranked git's reason for refusing the click a person
+  // had just made, and nothing cleared any of them when the file changed, so a
+  // complaint about one file was still on screen over another.
+  const [bandError, setBandError] = useState<string | null>(null)
+  const showInApp = useCallback(() => {
+    if (!workspaceId) return
+    const target = currentItem ?? items[0]
+    const kind = target?.kind === 'branch' ? 'unstaged' : target?.kind
+    void (async () => {
+      setBandError(null)
+      const result = await window.api.dockDiffToWorkspace({
+        workspaceId,
+        repoRoot,
+        focusPath: target?.path ?? focusPath ?? null,
+        focusKind: kind ?? focusKind ?? null,
+      })
+      // Closed only once a window has SAID it took the diff. "On its way" was
+      // not enough: the hand-off is a broadcast that every workspace window is
+      // free to ignore (none of them holds this workspace, or none is open at
+      // all), and closing on the strength of that left the person with neither
+      // the window nor the tab. On a refusal the window stays up and says why.
+      if (!result?.accepted) {
+        setBandError('No open workspace to show this in')
+        return
+      }
+      await window.api.windowClose()
+    })()
+  }, [currentItem, focusKind, focusPath, items, repoRoot, workspaceId])
+
+  // ── How the diff is drawn ───────────────────────────────────────────────
+  // `diffView` is the persisted app setting (settingsSlice); the other three
+  // are this window's own session state. All four reach Monaco through
+  // `liveDiffEditorOptions`, so changing any of them is an `updateOptions`
+  // call and never a remount.
+  // Narrowed on read: the persisted envelope is a JSON blob a previous version
+  // (or a hand edit) could have left anything in, and an unrecognised value
+  // would leave the radiogroup with no checked segment at all.
+  const diffView = useWorkspaceStore((state) =>
+    state.diffView === 'unified' ? 'unified' : 'side-by-side'
+  )
+  const [sessionPrefs, setSessionPrefs] = useState(DEFAULT_DIFF_EDITOR_PREFS)
+  const editorPrefs = useMemo<DiffEditorPrefs>(
+    () => ({ diffView, ...sessionPrefs }),
+    [diffView, sessionPrefs]
+  )
+  const editorOptions = useMemo(
+    () => diffEditorOptions(editorPrefs, MONO_FONT_STACK),
+    [editorPrefs]
+  )
+
+  useEffect(() => {
+    // No editor yet is not a missed update: the construction options above
+    // carry the same values, so a mount that happens later starts correct.
+    // `onDidUpdateDiff` fires after this and re-reveals the hunk the cursor was
+    // on, so toggling the view keeps the person's place.
+    const editor = diffEditorRef.current
+    if (!editor) return
+    editor.updateOptions(liveDiffEditorOptions(editorPrefs))
+    // Switching to unified relays both sides into one editor. Monaco keeps the
+    // scroll offset, which is not the same thing as keeping the HUNK — so the
+    // cursor is re-revealed rather than left to whatever the relayout produced.
+    revealHunk(hunkIndexRef.current)
+  }, [editorPrefs, revealHunk])
+
+  const setDiffView = useCallback((next: DiffViewMode) => {
+    // See auxSettingsWrite: an aux window may only write a setting after
+    // re-reading what the workspace window has persisted since it opened.
+    writeAuxWindowSetting(() => useWorkspaceStore.getState().setDiffView(next))
+  }, [])
+
+  // ── The file include box ────────────────────────────────────────────────
+  // Whole-file stage / unstage of the file on screen, through the same
+  // `git:stage` / `git:unstage` IPC the Git panel's rows use.
+  const gitEntry = getGitEntry(status, currentItem?.path ?? null)
+  const observedInclude = useMemo(
+    () => includeBoxState(gitEntry ? { staged: gitEntry.staged, unstaged: gitEntry.unstaged } : null),
+    [gitEntry?.staged, gitEntry?.unstaged]
+  )
+  // `git status` is debounced by a second under the watcher, so between the
+  // click and the next read the box would still show the old state — and a
+  // second click would compute the OPPOSITE action from it and undo the first.
+  // The optimistic value is what the box shows and what `includeAction` reads
+  // until git agrees; the busy latch refuses a second write while one is in
+  // flight. Keyed on the PATH, not the (kind, path) key, because including a
+  // file is exactly what moves it between the two kinds.
+  const [includeOverride, setIncludeOverride] = useState<
+    { path: string; state: IncludeBoxState } | null
+  >(null)
+  const includeBusyRef = useRef(false)
+
+  const fileInclude =
+    includeOverride && includeOverride.path === currentItem?.path
+      ? includeOverride.state
+      : observedInclude
+
+  useEffect(() => {
+    if (!includeOverride) return
+    if (includeOverride.path !== currentItem?.path) {
+      setIncludeOverride(null)
+      return
+    }
+    if (
+      observedInclude.checked === includeOverride.state.checked
+      && observedInclude.indeterminate === includeOverride.state.indeterminate
+    ) {
+      setIncludeOverride(null)
+    }
+  }, [includeOverride, observedInclude, currentItem?.path])
+
+  const toggleInclude = useCallback(() => {
+    const item = currentItem
+    if (!item || !isIncludable(item) || includeBusyRef.current) return
+    const action = includeAction(fileInclude)
+    includeBusyRef.current = true
+    setIncludeOverride({
+      path: item.path,
+      state: { checked: action === 'stage', indeterminate: false },
+    })
+    void (async () => {
+      try {
+        const result =
+          action === 'stage'
+            ? await window.api.stageGitPaths(repoRoot, [item.relativePath])
+            : await window.api.unstageGitPaths(repoRoot, [item.relativePath])
+        if (!result.ok) {
+          // Let the real state win rather than leaving a box that lies.
+          setIncludeOverride(null)
+          setBandError(result.message ?? result.stderr ?? 'Could not change what is included.')
+        } else {
+          setBandError(null)
+        }
+        await refreshGitStatus()
+      } catch (error) {
+        setBandError(error instanceof Error ? error.message : 'Could not change what is included.')
+      } finally {
+        // The refresh above awaits a completed `git status`, so by here the
+        // truth is on screen: drop the optimistic value unconditionally rather
+        // than leaving a box that disagrees with the index for good if the
+        // write landed somewhere we did not predict.
+        setIncludeOverride(null)
+        includeBusyRef.current = false
+      }
+    })()
+  }, [currentItem, fileInclude, refreshGitStatus, repoRoot])
+
+  // ── The hunk include boxes ──────────────────────────────────────────────
+  // One box per hunk of the diff on screen, in Monaco's glyph margin, and the
+  // file's own "N differences, M included" count. Both come from ONE read in
+  // main, so the boxes and the sentence above them can never be describing two
+  // different moments (useFileHunks / src/main/git-hunks.ts).
+  const fileHunks = useFileHunks({
+    repoRoot,
+    item: currentItem,
+    treeRevision,
+    refreshGitStatus,
+  })
+  const gutterBoxes = useMemo(
+    () =>
+      hunkBoxes({
+        hunks: fileHunks.hunks,
+        key: hunkFileKey(currentItem),
+        override: fileHunks.override,
+        relativePath: currentItem?.relativePath ?? '',
+      }),
+    [fileHunks.hunks, fileHunks.override, currentItem?.kind, currentItem?.path, currentItem?.relativePath]
+  )
+
+  // The stepper's stops, from the same hunks the boxes and the counter come
+  // from — so "2 differences" and two presses of ↓ are the same two. Null when
+  // git has not counted this file (a branch step, a binary, a read still in
+  // flight), and Monaco's changes stand in.
+  gitStepsRef.current = fileHunks.summary
+    ? fileHunks.hunks.map((hunk) => ({ line: hunkGutterLine(hunk), side: 'modified' as const }))
+    : null
+
+  // The band belongs to the FILE on screen. A failure about the last one is not
+  // a fact about this one, and leaving it up made the window look broken on a
+  // file that was perfectly fine. Declared before the mirror below so that a
+  // step which both changes the file and lands a read failure ends on the
+  // failure rather than on the clear.
+  useEffect(() => {
+    setBandError(null)
+  }, [currentItem?.path])
+
+  // The hunk read's own failure, folded into the one band. It clears itself
+  // when a later read succeeds — but only if the band is still showing what it
+  // put there, or a hand-off refusal since would vanish with it.
+  const hunkErrorRef = useRef<string | null>(null)
+  useEffect(() => {
+    const previous = hunkErrorRef.current
+    hunkErrorRef.current = fileHunks.error
+    if (fileHunks.error) {
+      setBandError(fileHunks.error)
+      return
+    }
+    setBandError((current) => (current !== null && current === previous ? null : current))
+  }, [fileHunks.error])
+
+  // ── Open in editor ──────────────────────────────────────────────────────
+  // The pane routes through `openFileSurface`, which honours the person's
+  // "where do files open" preference. The WINDOW cannot: it has no pane to add
+  // a tab to and writing that preference from here is the hazard T3 named, so
+  // it opens the external editor window — the aux window's own sibling.
+  const openInEditor = useCallback(() => {
+    const item = currentItem
+    if (!item) return
+    const name = item.relativePath.split('/').filter(Boolean).pop() ?? item.relativePath
+    if (variant === 'window') {
+      void openExternalFileWindow({ workspaceId: workspaceId ?? '', path: item.path, name })
+      return
+    }
+    if (!workspaceId) return
+    openFileSurface({ workspaceId, path: item.path, name })
+  }, [currentItem, variant, workspaceId])
+
+  // ── The counter ─────────────────────────────────────────────────────────
+  // Monaco's count, mirrored from the ref it writes into a callback so the
+  // sentence has something to re-render on. It is only the FALLBACK total:
+  // `differenceCounterLabel` prefers git's, which is also what the stepper
+  // walks (`gitStepsRef`), so the words and the arrows count the same things.
+  const [differenceCount, setDifferenceCount] = useState(0)
+  const counterLabel = differenceCounterLabel({
+    item: currentItem,
+    differenceCount,
+    fileInclude,
+    hunkSummary: fileHunks.summary,
+  })
+
+  const header = headerStripModel(currentItem)
+
+  // The window's name, editor-style: `Commit: <file>`. ONE string, used by
+  // both the OS title (the window switcher, which T3 set) and the title bar the
+  // person is looking at — they cannot drift apart if there is only one of
+  // them. The pane host never touches the document title: it does not own the
+  // window.
+  const relativePath = currentItem?.relativePath ?? null
+  const fileName = relativePath ? relativePath.split('/').filter(Boolean).pop() ?? relativePath : null
+  const windowTitle = fileName ? `Commit: ${fileName}` : 'Diff'
+  useEffect(() => {
+    if (variant !== 'window') return
+    document.title = windowTitle
+  }, [windowTitle, variant])
+
+  // The window's title bar: the traffic-light inset, the drag region, and the
+  // name — nothing else. Every ACTION lives in the toolbar below it, so the two
+  // hosts differ only by whether this row is there at all.
+  const titleBarClass = `app-drag relative flex ${TITLE_BAR_HEIGHT} shrink-0 items-center justify-center border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-2 ${
+    isMac ? TRAFFIC_LIGHT_INSET : ''
+  }`
+
+  const noFiles = items.length === 0 || currentIndex < 0
 
   return (
     <div
@@ -518,7 +1121,14 @@ export function DiffViewer({
           : `flex h-full w-full flex-col bg-[color:var(--bg-app)] text-[color:var(--text-default)] ${FOCUS_RING_INSET_CLASS}`
       }
       tabIndex={variant === 'pane' ? 0 : undefined}
-      onKeyDown={variant === 'pane' ? (event) => { handleNavigationKey(event) } : undefined}
+      onKeyDown={
+        variant === 'pane'
+          ? (event) => {
+              if (!takesNavigationKey(event.target as HTMLElement | null)) return
+              handleNavigationKey(event)
+            }
+          : undefined
+      }
     >
       {branchSteps ? (
         <BranchStepStrip
@@ -528,28 +1138,164 @@ export function DiffViewer({
           note={stepNote}
         />
       ) : null}
-      <div className={bandClass}>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span
-            className="truncate text-meta font-medium text-[color:var(--text-default)]"
-            title={currentItem?.relativePath}
+
+      {variant === 'window' ? (
+        <div className={titleBarClass}>
+          <span className="truncate text-body font-semibold text-[color:var(--text-strong)]">
+            {windowTitle}
+          </span>
+        </div>
+      ) : null}
+
+      {/* The band belongs to the diff beneath it and would be meaningless
+          without it, which is what lets it hold more than the pane-chrome
+          ceiling of five (design-system/components/toolbar). Grouped, not
+          enumerated: the hunk arrows, the file's editor, the file stepper and
+          the collapse toggle are four things about WHAT you are reading; the
+          counter, the layout toggle and the gear are about HOW. */}
+      <Toolbar ariaLabel="Diff">
+        <Tooltip content={`Previous change (${isMac ? '⇧F7' : 'Shift+F7'})`} placement="bottom">
+          <ToolbarButton
+            ariaLabel="Previous change"
+            disabled={noFiles}
+            onClick={() => navigate('prev')}
           >
-            {currentItem?.relativePath ?? 'Git Diff'}
+            <PreviousDifferenceGlyph />
+          </ToolbarButton>
+        </Tooltip>
+        <Tooltip content="Next change (F7)" placement="bottom">
+          <ToolbarButton ariaLabel="Next change" disabled={noFiles} onClick={() => navigate('next')}>
+            <NextDifferenceGlyph />
+          </ToolbarButton>
+        </Tooltip>
+
+        <ToolbarDivider />
+
+        <Tooltip content="Open in editor" placement="bottom">
+          <ToolbarButton
+            ariaLabel="Open in editor"
+            disabled={!currentItem || (variant === 'pane' && !workspaceId)}
+            onClick={openInEditor}
+          >
+            <OpenInEditorGlyph />
+          </ToolbarButton>
+        </Tooltip>
+
+        <ToolbarDivider />
+
+        {/* The FILE stepper, as opposed to the change stepper on the left.
+            `pager --inline`: the drawn "2/27 files" and the announced sentence
+            are one element, and the chevrons disable at the ends rather than
+            disappearing. */}
+        <Pager
+          inline
+          inlineNoun={items.length === 1 ? 'file' : 'files'}
+          // "0/0 files" when there are none, not "1/1": the band keeps its
+          // width either way, and a stepper claiming one file over an empty
+          // list is the one thing worse than an empty stepper.
+          page={noFiles ? 0 : currentIndex + 1}
+          pageCount={items.length}
+          rangeLabel={positionLabel}
+          // The shortcut goes on the CHEVRONS. `rangeLabel` is a live region,
+          // so a hint folded into it was read out again on every step.
+          stepHint={isMac ? '⌘↑ / ⌘↓' : 'Ctrl+↑ / Ctrl+↓'}
+          ariaLabel="Changed files in this diff"
+          onPageChange={(page) => goToFileIndex(page - 1)}
+        />
+
+        <ToolbarDivider />
+
+        {/* A toggle with no `aria-pressed` to spend: the NAME changes with the
+            state instead, which is what a screen reader reads out either way
+            and what the tooltip already had to say. */}
+        <Tooltip
+          content={sessionPrefs.hideUnchanged ? 'Show unchanged regions' : 'Collapse unchanged regions'}
+          placement="bottom"
+        >
+          <ToolbarButton
+            ariaLabel={sessionPrefs.hideUnchanged ? 'Show unchanged regions' : 'Collapse unchanged regions'}
+            onClick={() => setSessionPrefs((prefs) => ({ ...prefs, hideUnchanged: !prefs.hideUnchanged }))}
+          >
+            <CollapseAllGlyph />
+          </ToolbarButton>
+        </Tooltip>
+
+        <ToolbarSpacer />
+
+        {/* Not a live region: the file stepper beside it already announces every
+            move, and two polite regions in one 30px band means every file change
+            is read out twice. */}
+        {currentItem && content.state === 'ready' ? (
+          <span className="shrink-0 whitespace-nowrap px-1 text-meta tabular-nums text-[color:var(--text-muted)]">
+            {counterLabel}
+          </span>
+        ) : null}
+
+        <SegmentedControl<DiffViewMode>
+          iconOnly
+          ariaLabel="Diff view"
+          value={diffView}
+          onChange={setDiffView}
+          items={[
+            {
+              value: 'side-by-side',
+              label: 'Side by side',
+              icon: <SideBySideGlyph />,
+              tooltip: 'Side by side',
+            },
+            { value: 'unified', label: 'Unified', icon: <UnifiedGlyph />, tooltip: 'Unified' },
+          ]}
+          className="mx-1 shrink-0"
+        />
+
+        <DiffSettingsMenu
+          prefs={editorPrefs}
+          onChange={(patch) => setSessionPrefs((prefs) => ({ ...prefs, ...patch }))}
+        />
+
+        {/* The sticky preference's two writers, absorbed from T3's band. */}
+        {variant === 'pane' ? <OpenInWindowButton onClick={openInWindow} /> : null}
+        {variant === 'window' && workspaceId ? <ShowInAppButton onClick={showInApp} /> : null}
+      </Toolbar>
+
+      {/* THE FIRST CONTENT ROW, not a second chrome band. It names the two
+          things being compared and carries this file's include box; hide the
+          diff and it has nothing to say, which is the test. It scrolls with
+          nothing — the code under it does. Left is what the file is compared
+          AGAINST, right is what you are looking at, and both come from the
+          revisions `loadDiffContent` actually read (diffToolbarModel). */}
+      <div className="flex h-7 shrink-0 items-stretch border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] text-meta">
+        <div className="flex min-w-0 flex-1 items-center gap-2 px-3">
+          {/* The padlock: this side is not yours to edit. Reused from
+              FileTypeGlyph rather than redrawn (glyphs/component.md). */}
+          <FileTypeGlyph kind="lock" className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
+          {header ? (
+            <span
+              className={
+                header.base.mono
+                  ? 'shrink-0 font-mono text-[color:var(--text-default)]'
+                  : 'shrink-0 text-[color:var(--text-default)]'
+              }
+            >
+              {header.base.text}
+            </span>
+          ) : null}
+          <span className="truncate text-[color:var(--text-muted)]" title={relativePath ?? undefined}>
+            {relativePath ?? 'Git Diff'}
           </span>
           {currentItem ? (
             <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">
               {STATUS_LABEL[currentItem.status]}
               {currentItem.kind === 'branch'
-                ? ''
-                : currentItem.kind === 'staged'
-                  ? ' · staged'
-                  : ' · unstaged'}
-              {currentItem.kind === 'branch' && (currentItem as BranchDiffItem).additions + (currentItem as BranchDiffItem).deletions > 0 ? (
+              && (currentItem as BranchDiffItem).additions + (currentItem as BranchDiffItem).deletions > 0 ? (
+                /* One channel for the whole diff surface: +N/−N read --diff-*,
+                   the same tokens the body's ink and the gutter use, not the
+                   status tones they used to borrow. */
                 <span className="ml-1 font-mono tabular-nums">
-                  <span className="text-[color:var(--tone-good)]">
+                  <span className="text-[color:var(--diff-added)]">
                     +{(currentItem as BranchDiffItem).additions}
                   </span>
-                  <span className="ml-1 text-[color:var(--tone-error)]">
+                  <span className="ml-1 text-[color:var(--diff-removed)]">
                     −{(currentItem as BranchDiffItem).deletions}
                   </span>
                 </span>
@@ -557,18 +1303,40 @@ export function DiffViewer({
             </span>
           ) : null}
         </div>
-        <span
-          className="app-no-drag shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
-          aria-live="polite"
-        >
-          {positionLabel}
-        </span>
-        <div className="app-no-drag flex shrink-0 items-center">
-          <ChevronButton direction="up" disabled={items.length === 0} onClick={() => navigate('prev')} />
-          <ChevronButton direction="down" disabled={items.length === 0} onClick={() => navigate('next')} />
-          {variant === 'pane' ? <OpenInWindowButton onClick={openInWindow} /> : null}
+        <div className="flex min-w-0 flex-1 items-center gap-2 border-l border-[color:var(--border-subtle)] px-3">
+          {header?.includable && currentItem ? (
+            <Checkbox
+              checked={fileInclude.checked}
+              indeterminate={fileInclude.indeterminate}
+              onChange={toggleInclude}
+              ariaLabel={`Include ${currentItem.relativePath} in the commit`}
+            />
+          ) : null}
+          {header ? (
+            <span
+              className={
+                header.current.mono
+                  ? 'truncate font-mono text-[color:var(--text-default)]'
+                  : 'truncate text-[color:var(--text-default)]'
+              }
+            >
+              {header.current.text}
+            </span>
+          ) : null}
         </div>
       </div>
+
+      {/* One band for every failure this window can report — the whole file's
+          include, a single hunk's, and a hand-off back to the app that no
+          window took. They are the same sentence to a person ("that did not
+          happen"), and git's own words are what the include failures show. One
+          STATE as well as one band: whichever failed last is what is shown, and
+          changing file clears it. */}
+      {bandError ? (
+        <InlineNotice tone="error" className="mx-3 mt-2 shrink-0">
+          {bandError}
+        </InlineNotice>
+      ) : null}
 
       <div
         className="relative min-h-0 flex-1"
@@ -583,8 +1351,20 @@ export function DiffViewer({
           currentItem={currentItem}
           onMount={handleDiffMount}
           monacoTheme={monacoTheme}
+          options={editorOptions}
           stepLoading={branchSteps && steps.loading}
         />
+        {/* Renders nothing of its own — only portals into the widget nodes it
+            hangs in Monaco's glyph margin — so where it sits in the tree is
+            immaterial, and it sits beside the editor it draws on. */}
+        {content.state === 'ready' ? (
+          <HunkGutter
+            editor={gutterHost?.editor ?? null}
+            lane={gutterHost?.lane ?? GLYPH_MARGIN_LANE_CENTER}
+            boxes={gutterBoxes}
+            onToggle={fileHunks.toggle}
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -592,4 +1372,15 @@ export function DiffViewer({
 
 function keyFor(item: DiffFileItem | undefined): string | null {
   return item ? `${item.kind}:${item.path}` : null
+}
+
+/** One stop for the change stepper: a line, and which editor it is a line of. */
+type DiffStep = { line: number; side: 'original' | 'modified' }
+
+/** Monaco's own idea of a change, as a stop. Used only when git has none to
+ *  give — see `gitStepsRef`. */
+function monacoStep(change: Monaco.editor.ILineChange): DiffStep {
+  return change.modifiedEndLineNumber === 0
+    ? { line: Math.max(1, change.originalStartLineNumber), side: 'original' }
+    : { line: Math.max(1, change.modifiedStartLineNumber), side: 'modified' }
 }

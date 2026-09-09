@@ -96,17 +96,27 @@ function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCount
         : <PaneUnavailable />
     case 'browser':
       return <BrowserTab workspaceId={workspaceId} tab={tab} active={active} />
-    case 'diff':
-      return diffRepoRoot && selectModuleEnabled(moduleOverrides, 'git')
+    case 'diff': {
+      // The opener's repository wins: the Git panel can be showing a worktree
+      // scope that is not the workspace's own checkout, and re-deriving one
+      // here opened the tab on a different repository than the row came from.
+      // The derived root is the fallback for a Diff tab opened from the pane's
+      // own + menu, which names no repository at all.
+      const repoRoot = tab.diff?.repoRoot ?? diffRepoRoot
+      return repoRoot && selectModuleEnabled(moduleOverrides, 'git')
         ? (
           <DiffViewer
             // Keyed on the repo only: a Git row click retargets the mounted
             // viewer through its focus props. Remounting per target (the aux
             // window's rule) disposes Monaco's models under the diff widget.
-            key={diffRepoRoot}
-            repoRoot={diffRepoRoot}
+            key={repoRoot}
+            repoRoot={repoRoot}
             focusPath={tab.diff?.focusPath ?? null}
             focusKind={tab.diff?.focusKind ?? null}
+            // Carried into the window when the band's "Open in separate
+            // window" is used, so that window's "Show in the app" knows the
+            // pane it came from and can hand the diff back.
+            workspaceId={workspaceId}
             variant="pane"
             onItemCountChange={onDiffCountChange}
             // The pane is the only host with a branch to step through; the aux
@@ -115,6 +125,7 @@ function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCount
           />
         )
         : <PaneUnavailable />
+    }
     default:
       return <PaneUnavailable />
   }

@@ -55,6 +55,9 @@ function agentSession(overrides: Partial<TerminalSessionSnapshot> = {}): Termina
     exitedAt: null,
     outputBufferLength: 0,
     retainedOutputBytes: 0,
+    fileChanges: [],
+    activeSubagents: 0,
+    contextUsage: null,
     activity: { kind: 'idle', since: 1 },
     ...overrides,
   }

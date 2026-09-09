@@ -68,8 +68,11 @@ function testFocusFallsBackToPath(): void {
   )
   // Requested unstaged scope but only a staged entry exists → falls back to it.
   assert.equal(findDiffFocusIndex(items, '/repo/a.ts', 'unstaged'), 0)
-  // Unknown path with entries present → first entry.
-  assert.equal(findDiffFocusIndex(items, '/repo/zzz.ts', null), 0)
+  // Unknown path with entries present → NO index. The conversation peek's
+  // changed-files list asks about paths from an agent's own edit ledger, which
+  // can name a file this list does not hold; answering 0 opened an unrelated
+  // file and said nothing about it.
+  assert.equal(findDiffFocusIndex(items, '/repo/zzz.ts', null), -1)
   // No entries → -1.
   assert.equal(findDiffFocusIndex([], '/repo/a.ts', null), -1)
 }

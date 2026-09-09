@@ -10,7 +10,14 @@ import {
   isTerminalSessionStale,
   markTerminalExited,
   markTerminalFailed,
+  listSessionFileChanges,
   materializeTerminalReplay,
+  MAX_SESSION_FILE_CHANGE_PATH_CHARS,
+  MAX_SESSION_FILE_CHANGES,
+  parseSessionContextUsage,
+  parseSessionFileChanges,
+  recordSessionFileChange,
+  recordSessionStatusLine,
   recordTerminalInput,
   recordTerminalVisibility,
   transitionTerminalActivity,
@@ -44,6 +51,211 @@ function main(): void {
   assertStaleRuleUsesMostRecentUserSignal()
   assertSuspendedSessionIsNotAlive()
   assertPlaceholderIdlesSinceTheTurnEnd()
+  assertFileLedgerAccumulatesAndStaysBounded()
+  assertPersistedLedgerIsReadBackAsUntrustedInput()
+  assertStatusLineReadingsMergeAndGateTheBroadcast()
+  assertPersistedContextUsageIsReadBackAsUntrustedInput()
+}
+
+// The per-session file ledger: counts accumulate, the newest edit is at the
+// front, and the whole thing is bounded — it rides every snapshot broadcast.
+function assertFileLedgerAccumulatesAndStaysBounded(): void {
+  const session = createSession({ startedAt: 1_000 })
+  assert.deepEqual(listSessionFileChanges(session), [], 'a session that has edited nothing has an empty ledger')
+  assert.deepEqual(getTerminalSnapshot(session).fileChanges, [])
+  assert.equal(getTerminalSnapshot(session).activeSubagents, 0)
+  assert.equal(getTerminalSnapshot(session).contextUsage, null)
+
+  recordSessionFileChange(session, { path: '/repo/a.ts', additions: 4, deletions: 1 }, 100)
+  recordSessionFileChange(session, { path: '/repo/b.ts', additions: 2, deletions: 0 }, 200)
+  recordSessionFileChange(session, { path: '/repo/a.ts', additions: 3, deletions: 2 }, 300)
+  assert.deepEqual(
+    listSessionFileChanges(session),
+    [
+      { path: '/repo/a.ts', additions: 7, deletions: 3, edits: 2, lastEditedAt: 300 },
+      { path: '/repo/b.ts', additions: 2, deletions: 0, edits: 1, lastEditedAt: 200 },
+    ],
+    'counts accumulate per file and the most recently edited file is first'
+  )
+
+  // An out-of-order frame still counts, and cannot drag the recency backwards.
+  recordSessionFileChange(session, { path: '/repo/a.ts', additions: 1, deletions: 0 }, 250)
+  assert.deepEqual(
+    listSessionFileChanges(session)[0],
+    { path: '/repo/a.ts', additions: 8, deletions: 3, edits: 3, lastEditedAt: 300 },
+    'a late-arriving earlier edit adds its lines without moving the time back'
+  )
+
+  // Bounded by count…
+  const counted = createSession({ startedAt: 1_000 })
+  for (let i = 0; i < MAX_SESSION_FILE_CHANGES + 20; i += 1) {
+    recordSessionFileChange(counted, { path: `/repo/file-${i}.ts`, additions: 1, deletions: 1 }, 1_000 + i)
+  }
+  const countedList = listSessionFileChanges(counted)
+  assert.equal(countedList.length, MAX_SESSION_FILE_CHANGES)
+  assert.equal(countedList[0]?.path, `/repo/file-${MAX_SESSION_FILE_CHANGES + 19}.ts`)
+  assert.deepEqual(
+    countedList[countedList.length - 1],
+    { path: '/repo/file-20.ts', additions: 1, deletions: 1, edits: 1, lastEditedAt: 1_020 },
+    'a survivor keeps its own counts — eviction takes entries, not their contents'
+  )
+
+  // …and by the characters those paths cost, which the count alone does not
+  // bound: a path may be 4096 characters long.
+  const wide = createSession({ startedAt: 1_000 })
+  const longPath = (index: number) => `/repo/${String(index).padStart(6, '0')}/${'x'.repeat(4000)}.ts`
+  for (let i = 0; i < 40; i += 1) {
+    recordSessionFileChange(wide, { path: longPath(i), additions: 1, deletions: 0 }, 2_000 + i)
+  }
+  const wideList = listSessionFileChanges(wide)
+  assert.ok(wideList.length < 40, 'long paths hit the character budget well before the count cap')
+  assert.ok(
+    wideList.reduce((total, change) => total + change.path.length, 0) <= MAX_SESSION_FILE_CHANGE_PATH_CHARS,
+    'the ledger stays inside its character budget'
+  )
+  assert.equal(wideList[0]?.path, longPath(39), 'and the newest edit is what survives')
+}
+
+// The sidecar is a file on disk: no more trusted than the socket, and read back
+// through the same rules.
+function assertPersistedLedgerIsReadBackAsUntrustedInput(): void {
+  assert.equal(parseSessionFileChanges(undefined), undefined)
+  assert.equal(parseSessionFileChanges('not an array'), undefined)
+  assert.equal(parseSessionFileChanges([]), undefined, 'an empty ledger is no ledger')
+
+  const good = { path: '/repo/a.ts', additions: 4, deletions: 1, edits: 2, lastEditedAt: 300 }
+  const rejected = [
+    null,
+    'string',
+    { ...good, path: 'repo/relative.ts' },
+    { ...good, path: '' },
+    { ...good, path: '/repo/\u0000nul.ts' },
+    { ...good, path: '/repo/\u001b[31mescape.ts' },
+    { ...good, path: '/' + 'x'.repeat(9000) },
+    { ...good, additions: -1 },
+    { ...good, deletions: Number.NaN },
+    { ...good, edits: '2' },
+    { ...good, lastEditedAt: undefined },
+  ]
+  for (const entry of rejected) {
+    assert.equal(
+      parseSessionFileChanges([entry, good])?.size,
+      1,
+      `a malformed entry is dropped without taking the ledger with it: ${JSON.stringify(entry)}`
+    )
+  }
+
+  const parsed = parseSessionFileChanges([
+    { path: '/repo/newest.ts', additions: 1.7, deletions: 0, edits: 1, lastEditedAt: 400.5 },
+    good,
+  ])
+  assert.deepEqual(
+    [...(parsed?.values() ?? [])].reverse(),
+    [
+      { path: '/repo/newest.ts', additions: 1, deletions: 0, edits: 1, lastEditedAt: 400 },
+      good,
+    ],
+    'the persisted order survives the round trip, and fractional counts floor'
+  )
+
+  const oversized = Array.from({ length: MAX_SESSION_FILE_CHANGES + 200 }, (_unused, index) => ({
+    path: `/repo/file-${index}.ts`,
+    additions: 1,
+    deletions: 0,
+    edits: 1,
+    lastEditedAt: 1_000 - index,
+  }))
+  const capped = parseSessionFileChanges(oversized)
+  assert.equal(capped?.size, MAX_SESSION_FILE_CHANGES, 'a sidecar cannot grow the ledger past its cap')
+  assert.ok(capped?.has('/repo/file-0.ts'), 'and what it keeps is the head of the newest-first list')
+}
+
+// A status-line reading MERGES into the session and only a moved whole percent
+// is worth a broadcast. The null-after-compact rule is the load-bearing part:
+// the CLI reports no percentage before its first API call and again right after
+// a /compact, and "not known right now" must not erase the number a person was
+// watching a second ago.
+function assertStatusLineReadingsMergeAndGateTheBroadcast(): void {
+  // A session whose first refresh lands before its first API call knows the
+  // cost and the model but not the percentage, and must not invent one.
+  const unread = createSession({ startedAt: 0 })
+  assert.equal(recordSessionStatusLine(unread, { totalCostUsd: 0, model: 'Opus' }, 50), false)
+  assert.equal(unread.contextUsage, undefined, 'no percentage yet is not a percentage of zero')
+  assert.equal(getTerminalSnapshot(unread).contextUsage, null)
+
+  const session = createSession({ startedAt: 0 })
+
+  assert.equal(
+    recordSessionStatusLine(session, { usedPercentage: 8, totalCostUsd: 0.5, model: 'Opus' }, 100),
+    true,
+    'a first reading moves the snapshot'
+  )
+  assert.deepEqual(session.contextUsage, { usedPercentage: 8, at: 100 })
+  assert.equal(session.statusLine?.model, 'Opus')
+
+  assert.equal(
+    recordSessionStatusLine(session, { usedPercentage: 8, totalCostUsd: 0.9, linesAdded: 40 }, 200),
+    false,
+    'the same whole percent is not news, however much the cost moved'
+  )
+  assert.deepEqual(session.contextUsage, { usedPercentage: 8, at: 100 }, 'and the timestamp does not drift')
+  assert.equal(session.statusLine?.totalCostUsd, 0.9, 'but the reading itself is kept current')
+  assert.equal(session.statusLine?.linesAdded, 40)
+
+  // A /compact: no percentage in the payload at all.
+  assert.equal(recordSessionStatusLine(session, { totalCostUsd: 1.1 }, 300), false)
+  assert.deepEqual(
+    session.contextUsage,
+    { usedPercentage: 8, at: 100 },
+    'a reading with no percentage keeps the last known one'
+  )
+  assert.equal(session.statusLine?.model, 'Opus', 'and takes nothing else with it either')
+
+  assert.equal(recordSessionStatusLine(session, { usedPercentage: 3 }, 400), true)
+  assert.deepEqual(session.contextUsage, { usedPercentage: 3, at: 400 }, 'the next real reading replaces it')
+
+  // Out of order: a status-line process is spawned per refresh, so they can
+  // finish in any order, and an older reading carries older facts.
+  assert.equal(recordSessionStatusLine(session, { usedPercentage: 71, totalCostUsd: 0.1 }, 350), false)
+  assert.deepEqual(session.contextUsage, { usedPercentage: 3, at: 400 })
+  assert.equal(session.statusLine?.totalCostUsd, 1.1, 'a stale reading does not roll the cost back either')
+}
+
+// The sidecar is a file on disk here too.
+function assertPersistedContextUsageIsReadBackAsUntrustedInput(): void {
+  assert.equal(parseSessionContextUsage(undefined), undefined)
+  assert.equal(parseSessionContextUsage(null), undefined)
+  assert.equal(parseSessionContextUsage('8%'), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: 8 }), undefined, 'a reading needs its time')
+  assert.equal(parseSessionContextUsage({ at: 5 }), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: -1, at: 5 }), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: 101, at: 5 }), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: Number.NaN, at: 5 }), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: 8, at: -1 }), undefined)
+  assert.equal(parseSessionContextUsage({ usedPercentage: 8, at: '5' }), undefined)
+  assert.deepEqual(parseSessionContextUsage({ usedPercentage: 8.6, at: 400.5 }), { usedPercentage: 9, at: 400 })
+  assert.deepEqual(parseSessionContextUsage({ usedPercentage: 0, at: 0 }), { usedPercentage: 0, at: 0 })
+  // Clamped to arrival like a reporter frame's ts: a hand-edited sidecar timed
+  // in the year 275760 would be written back out on the next suspend and ride
+  // into every window from there.
+  assert.deepEqual(
+    parseSessionContextUsage({ usedPercentage: 8, at: 8.6e15 }, 1_000),
+    { usedPercentage: 8, at: 1_000 },
+    'a far-future sidecar time is clamped, not believed'
+  )
+
+  // And it comes back onto a rehydrated placeholder.
+  const placeholder = createSuspendedPlaceholderSession({
+    sessionId: 'status-line-placeholder',
+    savedAt: 1_000,
+    contextUsage: { usedPercentage: 42, at: 900 },
+  })
+  assert.deepEqual(getTerminalSnapshot(placeholder).contextUsage, { usedPercentage: 42, at: 900 })
+  assert.equal(
+    getTerminalSnapshot(createSuspendedPlaceholderSession({ sessionId: 'no-reading', savedAt: 1_000 })).contextUsage,
+    null,
+    'a session nothing read reports null, never a guess'
+  )
 }
 
 // Owner, 2026-09-05: the quit path writes every agent's sidecar at one moment,

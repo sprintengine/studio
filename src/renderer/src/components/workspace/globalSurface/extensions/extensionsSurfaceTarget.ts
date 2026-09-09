@@ -60,6 +60,18 @@ export function dispatchExtensionsSurfaceTarget(target: ExtensionsSurfaceTarget)
 
 // Drain the pending target (read once, then clear). The surface calls this on
 // mount so a target dispatched before it was listening is not lost.
+/**
+ * The latched target WITHOUT draining it — for a surface seeding its first
+ * render. The mount drain still consumes it (and applies the rest of it), so
+ * StrictMode's double invoke and a later dispatch behave exactly as before.
+ * A surface that seeds from its default instead publishes that default for a
+ * frame before the drain lands, and the host reads the wrong row's news on
+ * that frame (review, 2026-09-09).
+ */
+export function peekPendingExtensionsSurfaceTarget(): ExtensionsSurfaceTarget | null {
+  return pendingTarget
+}
+
 export function consumePendingExtensionsSurfaceTarget(): ExtensionsSurfaceTarget | null {
   const target = pendingTarget
   pendingTarget = null

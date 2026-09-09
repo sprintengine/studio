@@ -1,10 +1,24 @@
 import type { IpcMain } from 'electron'
+import { writeFile } from 'fs/promises'
+import { isAbsolute, join } from 'path'
 import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
-import { readRepositoryIdentity } from '../repository-identity'
+import { readRepositoryIdentityRead } from '../repository-identity'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import type { BranchStepSelection } from '../../shared/electron-api'
 import { checkIgnoredPaths } from '../git-ignore'
+import { readFileHunks, stageGitHunk, unstageGitHunk } from '../git-hunks'
+import type { GitHunkRef, GitHunkScope } from '../../shared/git/hunks'
+// Changelists and patches (git-commit-window T6).
+import {
+  createGitChangelist,
+  deleteGitChangelist,
+  getGitChangelists,
+  moveGitChangelistPaths,
+  renameGitChangelist,
+  setActiveGitChangelist,
+} from '../git-changelists'
+import { createGitPatch, suggestedPatchFileName } from '../git-patch'
 import {
   abortGitOperation,
   applyGitStash,
@@ -57,7 +71,17 @@ type IpcDiagnostics = {
   ): Promise<T>
 }
 
-export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): void {
+/** Where the changelist store writes. Handed in rather than resolved here so
+ *  this module stays free of `electron.app` and the store stays testable —
+ *  and REQUIRED rather than defaulted, because a default of `''` would write
+ *  every repository's changelists into whatever the process cwd happened to be. */
+export type GitIpcPaths = { userDataDir: string }
+
+export function registerGitIpc(
+  ipcMain: IpcMain,
+  diagnostics: IpcDiagnostics,
+  paths: GitIpcPaths
+): void {
   ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () => getGitRepoRoot(folderPath))
   })
@@ -139,10 +163,13 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
   })
 
   // one-project-across-machines: which repository a folder is a clone of, for
-  // the sidebar's grouping and the launch panel's machine filter.
+  // the sidebar's grouping and the launch panel's machine filter. The renderer
+  // gets the full read — identity AND whether the question was answered —
+  // because one-colour-per-project persists a hue off the answer and must not
+  // treat a spun-down volume as "no remote" (RepositoryIdentityRead).
   ipcMain.handle('git:get-repository-identity', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repository-identity', { folderPath }, () =>
-      readRepositoryIdentity(folderPath)
+      readRepositoryIdentityRead(folderPath)
     )
   })
 
@@ -170,6 +197,36 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
 
   ipcMain.handle('git:unstage', async (_, repoRoot: string, paths: string[]) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'unstage', { repoRoot, pathCount: paths.length }, () => unstageGitPaths(repoRoot, paths))
+  })
+
+  // Per-hunk staging (git-commit-window T7). The renderer NAMES a hunk — the
+  // scope it was read in, its position as a hint and a fingerprint of its body
+  // — and never sends a patch: main reads the diff again and writes the patch
+  // itself, so nothing that crossed this boundary reaches `git apply`.
+  //
+  // A repo root is an absolute path or it is not a repo root. `git -C <root>`
+  // resolves a relative one against whatever this process's cwd happens to be,
+  // which for `stage-hunk` means writing to the index of a repository nobody
+  // named — so it is checked here, the way `window:dock-diff` checks its own.
+  ipcMain.handle('git:get-file-hunks', async (_, repoRoot: string, filePath: string, scope: GitHunkScope) => {
+    if (!isRepoRoot(repoRoot)) return { ok: false, message: 'That repository path is not absolute.' }
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-hunks', { repoRoot, filePath, scope }, () =>
+      readFileHunks(repoRoot, filePath, scope)
+    )
+  })
+
+  ipcMain.handle('git:stage-hunk', async (_, ref: GitHunkRef) => {
+    if (!isRepoRoot(ref?.repoRoot)) return refusedHunkWrite()
+    return diagnostics.withIpcDiagnostics('GitIPC', 'stage-hunk', { repoRoot: ref.repoRoot, filePath: ref.filePath, index: ref.index }, () =>
+      stageGitHunk(ref)
+    )
+  })
+
+  ipcMain.handle('git:unstage-hunk', async (_, ref: GitHunkRef) => {
+    if (!isRepoRoot(ref?.repoRoot)) return refusedHunkWrite()
+    return diagnostics.withIpcDiagnostics('GitIPC', 'unstage-hunk', { repoRoot: ref.repoRoot, filePath: ref.filePath, index: ref.index }, () =>
+      unstageGitHunk(ref)
+    )
   })
 
   ipcMain.handle('git:revert', async (_, repoRoot: string, paths: string[]) => {
@@ -299,4 +356,125 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
   ipcMain.handle('git:worktree:prune', async (_, repoRoot: string) => {
     return pruneGitWorktrees(repoRoot)
   })
+
+  // --- Changelists and patches (git-commit-window T6) ------------------------
+  // A changelist is the app's own named set of paths, per repository; the store
+  // (src/main/git-changelists.ts) prunes against `git status` on every one of
+  // these, so every answer below is already reconciled with the working tree.
+  // Each returns the WHOLE list set rather than an ok/error, because the panel
+  // re-renders from it and a partial answer would leave two truths on screen.
+  ipcMain.handle('git:changelists:get', async (_, repoRoot: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-get', { repoRoot }, () =>
+      getGitChangelists(paths.userDataDir, repoRoot)
+    )
+  })
+
+  ipcMain.handle('git:changelists:set-active', async (_, repoRoot: string, id: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-set-active', { repoRoot, id }, () =>
+      setActiveGitChangelist(paths.userDataDir, repoRoot, id)
+    )
+  })
+
+  ipcMain.handle(
+    'git:changelists:create',
+    async (_, repoRoot: string, input: { name: string; comment?: string; activate?: boolean; paths?: string[] }) => {
+      return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-create', { repoRoot }, () =>
+        createGitChangelist(paths.userDataDir, repoRoot, input)
+      )
+    }
+  )
+
+  ipcMain.handle(
+    'git:changelists:rename',
+    async (_, repoRoot: string, id: string, input: { name: string; comment?: string }) => {
+      return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-rename', { repoRoot, id }, () =>
+        renameGitChangelist(paths.userDataDir, repoRoot, id, input)
+      )
+    }
+  )
+
+  ipcMain.handle('git:changelists:delete', async (_, repoRoot: string, id: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-delete', { repoRoot, id }, () =>
+      deleteGitChangelist(paths.userDataDir, repoRoot, id)
+    )
+  })
+
+  ipcMain.handle('git:changelists:move-paths', async (_, repoRoot: string, id: string, filePaths: string[]) => {
+    return diagnostics.withIpcDiagnostics(
+      'GitIPC',
+      'changelists-move-paths',
+      { repoRoot, id, pathCount: filePaths.length },
+      () => moveGitChangelistPaths(paths.userDataDir, repoRoot, id, filePaths)
+    )
+  })
+
+  // The patch text comes from `git diff`, never from the renderer's rows — the
+  // panel has paths and nothing else, and a patch assembled from what a list
+  // was showing is a patch `git apply` refuses.
+  ipcMain.handle('git:create-patch', async (_, repoRoot: string, filePaths: string[], cached?: boolean) => {
+    return diagnostics.withIpcDiagnostics(
+      'GitIPC',
+      'create-patch',
+      { repoRoot, pathCount: filePaths.length, cached: cached === true },
+      () => createGitPatch(repoRoot, filePaths, { cached })
+    )
+  })
+
+  // Save-as for the same text. The dialog belongs to main because the window it
+  // must be modal to does.
+  ipcMain.handle('git:save-patch', async (event, repoRoot: string, patch: string, defaultFileName?: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'save-patch', { repoRoot, length: patch.length }, async () => {
+      const { BrowserWindow, dialog } = await import('electron')
+      const owner = BrowserWindow.fromWebContents(event.sender)
+      // A BARE NAME, or none. This is joined to the repository root, so
+      // `../../.zshrc` or `/etc/hosts` would put the save dialog somewhere the
+      // person did not ask for — and the dialog's default path is what a
+      // hurried Enter accepts.
+      const suggestion = bareFileName(defaultFileName) ?? suggestedPatchFileName(repoRoot)
+      const result = owner
+        ? await dialog.showSaveDialog(owner, {
+            title: 'Create patch',
+            defaultPath: join(repoRoot, suggestion),
+            filters: [{ name: 'Patch', extensions: ['patch', 'diff'] }],
+          })
+        : await dialog.showSaveDialog({
+            title: 'Create patch',
+            defaultPath: join(repoRoot, suggestion),
+            filters: [{ name: 'Patch', extensions: ['patch', 'diff'] }],
+          })
+      if (result.canceled || !result.filePath) return { ok: true, path: null, message: null }
+      try {
+        await writeFile(result.filePath, patch, 'utf-8')
+        return { ok: true, path: result.filePath, message: null }
+      } catch (error) {
+        return { ok: false, path: null, message: error instanceof Error ? error.message : String(error) }
+      }
+    })
+  })
+}
+
+/** A repository root is an absolute path, or it is not one. */
+function isRepoRoot(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && isAbsolute(value)
+}
+
+/** The shape both hunk WRITES answer with, so a refusal reads like git's own. */
+function refusedHunkWrite(): { ok: false; stdout: string; stderr: string; message: string } {
+  return { ok: false, stdout: '', stderr: '', message: 'That repository path is not absolute.' }
+}
+
+/**
+ * A file NAME — no directory in it, no climbing out of one, nothing a shell or
+ * a path join would read as an instruction. Null when the caller gave nothing
+ * usable, so the caller falls back to a name it made itself.
+ */
+export function bareFileName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const name = value.trim()
+  if (!name || name === '.' || name === '..') return null
+  if (/[\\/]/.test(name)) return null
+  // A leading dot is a hidden file, not a traversal; `..anything` is neither,
+  // and a NUL byte is a path the fs layer would refuse anyway.
+  if (name.includes('\0')) return null
+  return name
 }

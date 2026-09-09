@@ -16,6 +16,21 @@
     background: var(--sem-color-bg-app);
     color: var(--sem-color-text-default);
   }
+  .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+  /* A band for the inline stepper to sit in — a toolbar is its host, not a
+     list's foot. */
+  .demo-band {
+    display: flex;
+    align-items: center;
+    max-width: 320px;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-xs);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
   .demo-label {
     margin: 0 0 var(--sem-space-sm);
     font-size: var(--sem-font-size-meta);
@@ -60,6 +75,14 @@
       <span class="ds-pager-range" role="status" aria-live="polite">Showing 1–8 of 8</span>
     </nav>
   </div>
+  <p class="demo-label demo-label--second">--inline — the stepper inside a band: n/m between two 26px chevrons, no sentence drawn and no foot padding. The sentence is still said, as the position's accessible name.</p>
+  <div class="demo-band">
+    <nav class="ds-pager ds-pager--inline" aria-label="Files in this commit">
+      <button type="button" class="ds-pager-step" aria-label="Previous file"><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+      <span class="ds-pager-position" role="status" aria-live="polite" aria-label="File 2 of 27">2/27</span>
+      <button type="button" class="ds-pager-step" aria-label="Next file"><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+    </nav>
+  </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
@@ -80,6 +103,14 @@
           <svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </button>
       </span>
+    </nav>
+  </div>
+  <p class="demo-label demo-label--second">--inline — the stepper inside a band: n/m between two 26px chevrons, no sentence drawn and no foot padding. The sentence is still said, as the position's accessible name.</p>
+  <div class="demo-band">
+    <nav class="ds-pager ds-pager--inline" aria-label="Files in this commit">
+      <button type="button" class="ds-pager-step" aria-label="Previous file" disabled><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+      <span class="ds-pager-position" role="status" aria-live="polite" aria-label="File 1 of 27">1/27</span>
+      <button type="button" class="ds-pager-step" aria-label="Next file"><svg class="ds-pager-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
     </nav>
   </div>
 </div>

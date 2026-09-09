@@ -54,7 +54,9 @@ const line = (over: Partial<TerminalLine> = {}): TerminalLine => ({
   removed: false,
   additions: 0,
   deletions: 0,
+  changedFiles: 0,
   diffScope: 'folder',
+  activeSubagents: 0,
   working: false,
   workingSince: null,
   needsInput: false,
@@ -166,6 +168,20 @@ run('each scope claims exactly what its checkout supports', () => {
   assert.match(shared, /--tone-error/, 'deletions in the danger tone')
   const branchless = view({ branch: null, additions: 5, deletions: 1, diffScope: 'branch' })
   assert.match(branchless, /5 added, 1 removed on this branch/)
+  // The fourth scope (hook-file-ledger): the agent's own edits, counted from
+  // its editor tool calls rather than read out of the checkout. It is the most
+  // attributable of the four — two agents on one checkout finally say
+  // different things — so it draws at full strength and qualifies nothing.
+  const own_edits = view({ additions: 31, deletions: 7, changedFiles: 4, diffScope: 'session' })
+  assert.match(own_edits, /31 added, 7 removed by this agent’s own edits/, 'and the caveat is spoken, not only hovered')
+  assert.doesNotMatch(own_edits, /opacity-60/, 'the agent’s own work is not a degraded reading')
+  assert.doesNotMatch(own_edits, /in this folder|on this branch|by this terminal/, 'it claims the agent, not the checkout')
+  // The ±chip is gated on the NUMBERS, not on the scope: a session reading of
+  // zeros would draw nothing at all, which is why terminalLines refuses to
+  // make one and falls back to the checkout instead (see ledgerTotalsOf).
+  const zeros = view({ additions: 0, deletions: 0, changedFiles: 4, diffScope: 'session' })
+  assert.doesNotMatch(zeros, /added, /, 'no phantom +0 −0 chip, whatever the scope says')
+  assert.match(own_edits, /added, /, 'and the same view does draw one when there are lines')
 })
 
 run('the seat is the line’s own: working dots + how long, or how long idle', () => {

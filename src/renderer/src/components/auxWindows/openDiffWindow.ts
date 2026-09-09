@@ -5,6 +5,10 @@ import { readAuxWindowBounds } from './auxWindowPlacement'
 // is index↔worktree. The viewer loads the full changed-file list itself so arrow
 // navigation flows across files regardless of the entry point.
 export async function openDiffWindow(input: {
+  // The workspace whose pane the window docks back into ("Show in the app").
+  // Carried as a param so the window — which has no workspace shell of its own
+  // — can name the workspace when it hands the diff back.
+  workspaceId?: string
   repoRoot: string
   focusPath: string
   scope: 'staged' | 'unstaged'
@@ -17,6 +21,7 @@ export async function openDiffWindow(input: {
       repoRoot: input.repoRoot,
       focusPath: input.focusPath,
       scope: input.scope,
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
     },
     bounds: readAuxWindowBounds('diff'),
   })

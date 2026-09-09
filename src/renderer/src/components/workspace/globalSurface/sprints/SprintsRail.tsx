@@ -28,7 +28,6 @@ import {
   type SprintRailRow,
   type SprintSort,
 } from './railState'
-import { RunDoorNewRow } from './RunDoorNewRow'
 import { SPRINTS_DOOR, type RunDoorDefinition } from './runDoorCopy'
 
 // Both run doors' rail (MC-1838, two doors since item 2470): the list IS the
@@ -320,9 +319,6 @@ export function SprintsRail({
   return (
     <SurfaceRail
       label={door.label}
-      // The difference between the two doors, stated once, under the door's
-      // name — and never again anywhere on the surface (item 2470).
-      intro={door.tagline}
       rows={rows}
       groups={groups}
       selectedId={selectedStatePath}
@@ -345,19 +341,6 @@ export function SprintsRail({
           ? (search.trim() ? door.emptyRail.searched : door.emptyRail.scoped)
           : undefined
       }
-      // The `+` at the end of the list, opening inline on the row where it was
-      // (owner ruling R7). It rides `afterRows` because that is the slot INSIDE
-      // the rail's one scrollport — a form beside the list would scroll
-      // separately from the list it belongs to.
-      //
-      // Scoped to the LIST, not to the rows: the way to start a run does not
-      // depend on what the search matched. Left at the default it vanished
-      // whenever the empty notice showed — so a search for a run that does not
-      // exist yet removed the one control that would create it, and an open form
-      // with a half-typed goal in it was unmounted the moment the rows behind it
-      // went to zero.
-      afterRowsScope="list"
-      afterRows={<RunDoorNewRow door={door} projectFilter={projectFilter} />}
     />
   )
 }

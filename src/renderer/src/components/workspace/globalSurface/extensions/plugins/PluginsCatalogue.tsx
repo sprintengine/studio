@@ -28,7 +28,6 @@ import {
 } from '../../../../../../../shared/studio-plugin'
 import {
   STUDIO_SKILL_SOURCE_ID,
-  SOURCE_SHAPE_LABEL,
   scanMcpServers,
   scanPlugins,
   linkedPluginShortfall,
@@ -39,9 +38,11 @@ import {
   type ScannedMcpServer,
   type ScannedPlugin,
   type SkillHarness,
+  type SkillRepoTransport,
   type SkillSource,
 } from '../../../../../../../shared/skills'
-import { GhostButton, InlineNotice, LinkButton, Spinner } from '../../../../ui'
+import { GhostButton, InlineNotice, Spinner } from '../../../../ui'
+import { ExtensionIcon } from '../../../../ui/ExtensionIcon'
 import { PluginDetailPanel } from '../../../../settings/BrowseStorefront'
 import { ConnectorEntryRow, ConnectorRow } from '../../../../panels/ConnectorsPanel/ConnectorRow'
 import { CustomMcpServerForm } from '../../../../panels/ConnectorsPanel/CustomMcpServerForm'
@@ -58,15 +59,12 @@ import { mcpServerConfigFromScanned } from '../../../../../../../shared/mcp/serv
 import type { ConnectorSources } from '../../../../panels/ConnectorsPanel/useConnectorSources'
 import type { AgentComposerConnector } from '../../../agentComposer/AgentComposer'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
-import { SourceMonogram } from '../skills/SourceMonogram'
-import { bundledScanLine, summarizeSyncRun } from '../skills/skillsSurfaceModel'
+import { bundledScanLine, sourceDisplayName, summarizeSyncRun } from '../skills/skillsSurfaceModel'
 import type { SkillSourcesState } from '../skills/useSkillSources'
 import { CatalogueHead, CatalogueSurface, type CatalogueAddMenu, type CatalogueSection } from '../catalogue/CatalogueSurface'
-import { EXTENSIONS_DRAWER_VIEWS, dispatchExtensionsSurfaceTarget } from '../extensionsSurfaceTarget'
+import { SourceAvatar } from '../catalogue/SourceAvatar'
 import {
-  catalogueHoldingsLine,
   catalogueMonogram,
-  catalogueStateLine,
   catalogueTabLabel,
   deriveCatalogueTabs,
   resolveCatalogueTab,
@@ -448,10 +446,11 @@ export function PluginsCatalogue({
         return (
           <ConnectorRow
             key="sprintengine-studio-builtin"
-            icon={<SourceMonogram monogram="SS" size="lg" />}
+            icon={<ExtensionIcon name={row.name} size={36} />}
             name={row.name}
             summary={row.summary}
-            chips={row.chips}
+            // "Plugin" says nothing under a Plugins heading; "Built in" does.
+            chips={row.chips.filter((chip) => chip !== 'Plugin')}
             // No onOpen, no Install and no Remove: this plugin is not one a
             // person chose, so there is nothing here for them to undo. What the
             // row is for is saying it is there, and which version.
@@ -481,11 +480,12 @@ export function PluginsCatalogue({
         return (
           <ConnectorRow
             key={row.pluginId}
-            icon={<SourceMonogram monogram={initials(row.name)} size="lg" />}
+            icon={<ExtensionIcon name={row.name} size={36} />}
             name={row.name}
             summary={row.description || row.components}
+            // Not "Plugin": every row under this heading is one. A chip is for
+            // a fact the name does not carry.
             chips={[
-              'Plugin',
               // Said on the row, not only in the pane: the row already shows a
               // description for every linked entry the official marketplace
               // lists, so an unread one is otherwise indistinguishable from a
@@ -520,7 +520,7 @@ export function PluginsCatalogue({
       return (
         <ConnectorRow
           key={server.id}
-          icon={<SourceMonogram monogram={initials(server.name)} size="lg" />}
+          icon={<ExtensionIcon name={server.name} size={36} />}
           name={server.name}
           summary={
             needsPlugin
@@ -574,33 +574,13 @@ export function PluginsCatalogue({
       />
     ) : activeSource ? (
       <CatalogueHead
-        monogram={<SourceMonogram monogram={catalogueMonogram(activeSource)} size="lg" />}
+        monogram={<SourceAvatar source={activeSource} monogram={catalogueMonogram(activeSource)} />}
         name={catalogueTabLabel(activeSource)}
-        stateLine={
-          <>
-            <SourceStateLine
-              source={activeSource}
-              scan={scan}
-              hiddenMcpPlugin={hiddenMcpFor(activeSource.id)}
-              count={counts[activeSource.id] ?? { status: 'loading' }}
-              outcome={thisReport?.outcome ?? null}
-              onOpenUnderSkills={() => {
-                // The tab has to be CHOSEN before the view changes: the open
-                // tab is one piece of state across Plugins and Skills, and
-                // while it is still the default nothing carries this source to
-                // the other view — Skills would open on its own default and
-                // the link would land somewhere else.
-                onSelectTab(activeSource.id)
-                dispatchExtensionsSurfaceTarget({ view: EXTENSIONS_DRAWER_VIEWS.skills })
-              }}
-            />
-            {/* Our own tab also lists the signed registry, which is a second
-                place these rows come from and therefore a second thing that
-                can be unavailable. Named after the scan line, in the order the
-                sections below it appear. */}
-            {isApp ? ` · ${signedEntriesLine(appCount)} · ${registryOrigin(connectors.registryUrl)}` : null}
-          </>
-        }
+        // Where it comes from, and nothing else. What it holds is on the tab
+        // and the section headings; what happened to it last, and whether the
+        // scan read everything, are notices under the head (extensions
+        // review, 2026-09-08 — this line had grown to four).
+        stateLine={activeSource.path || sourceDisplayName(activeSource)}
         actions={
           <SourceTabActions
             source={activeSource}
@@ -628,6 +608,10 @@ export function PluginsCatalogue({
   const notices = (
     <>
       {thisReport?.error ? <InlineNotice tone="error" title="That did not complete." hint={thisReport.error} /> : null}
+      {thisReport?.outcome ? <InlineNotice tone="warn">{thisReport.outcome}</InlineNotice> : null}
+      {scan && !isApp ? (
+        <ScanNotices scan={scan} transport={sources.transport} gitInstalled={sources.gitInstalled} />
+      ) : null}
       {addNotice ? (
         <InlineNotice
           tone="error"
@@ -792,24 +776,6 @@ export function PluginsCatalogue({
 }
 
 /**
- * What a source's tab is showing, in the nouns of the things themselves:
- * "Claude Code plugin marketplace · 292 plugins · 15 MCP servers · 31 skills".
- *
- * The skills are the link, not a number in a sentence: they are real things in
- * this repository that this catalogue does not list, and the tab that does list
- * them is one view away with the same source already open (official-plugins
- * ruling, 2026-09-06). Before it, both were totalled into "292 listings", and
- * "listing" is a word for a row rather than for a thing you can install — the
- * owner read `anthropics/skills`'s five plugin bundles as five skills.
- *
- * The line also admits when the scan was partial. A marketplace whose plugins
- * live in other repositories is read within a budget, and without a GitHub
- * token that budget is twenty repositories a scan — so the shortfall is stated
- * here, and the words that name the fix ARE the button that opens it
- * (linked-plugins ruling, 2026-09-06). A source that read them all says
- * nothing extra: the counts beside it already stand.
- */
-/**
  * Two counts of the same tab's rows, added — and honest about not knowing yet.
  * A tab that speaks a total while half of it is still loading would count up
  * under the person as the second half arrived; a half that failed is stated as
@@ -821,18 +787,6 @@ function sumCounts(left: CatalogueCount, right: CatalogueCount): CatalogueCount 
   if (left.status === 'error') return left
   if (right.status === 'error') return right
   return { status: 'ready', count: left.count + right.count }
-}
-
-/**
- * The signed registry's own count, in a noun that pluralises. `catalogueStateLine`
- * adds an `s`, which turned "signed entry" into "signed entrys" on screen.
- */
-function signedEntriesLine(count: CatalogueCount): string {
-  if (count.status === 'loading') return 'Loading…'
-  if (count.status === 'error') return count.message
-  return count.count === 0
-    ? 'No signed entries here'
-    : `${count.count} signed ${count.count === 1 ? 'entry' : 'entries'}`
 }
 
 /**
@@ -849,74 +803,52 @@ function hiddenMcpFor(sourceId: string): string {
   return sourceId === STUDIO_SKILL_SOURCE_ID ? STUDIO_PLUGIN_ID : ''
 }
 
-function SourceStateLine({
-  source,
+/**
+ * What the scan has to admit about itself, under the head: that the listing is
+ * the copy the build shipped rather than a read of the repository, and — for a
+ * marketplace whose plugins live in other repositories — how many of them the
+ * scan has not read yet, with the words that name the fix as the button that
+ * opens it (linked-plugins ruling, 2026-09-06). On the API fallback, without a
+ * GitHub token, the read budget is twenty repositories a scan, so the shortfall
+ * is real and the remedy is one click; over git there is no budget left to
+ * spend and the remedy is Sync (git-transport ruling, owner 2026-09-08). A
+ * source that read everything shows nothing here.
+ */
+function ScanNotices({
   scan,
-  hiddenMcpPlugin,
-  count,
-  outcome,
-  onOpenUnderSkills,
+  transport,
+  gitInstalled,
 }: {
-  source: SkillSource
-  /** The source's scan once it is in hand; null while loading or failed. */
-  scan: ScanResult | null
-  /** See `hiddenMcpFor`: servers this tab does not draw are not named here either. */
-  hiddenMcpPlugin: string
-  count: CatalogueCount
-  /** What the last Sync on this source reported, when it was this one. */
-  outcome: string | null
-  onOpenUnderSkills: () => void
-}): JSX.Element {
-  // Read before the early return, because it is a hook: null while the answer
-  // is on its way, and the shortfall clause holds its tongue until it lands
-  // rather than telling somebody to add a token they already added.
+  scan: ScanResult
+  transport: SkillRepoTransport
+  gitInstalled: boolean
+}): JSX.Element | null {
+  // Read before any early return, because it is a hook: null while the answer
+  // is on its way, and the shortfall holds its tongue until it lands rather
+  // than telling somebody to add a token they already added.
   const tokenConfigured = useGitHubTokenConfigured()
-  // A count is never spoken while it is unknown: a scan still loading, or one
-  // that failed, says that instead — the tab-row rule, unchanged.
-  if (!scan) {
-    return <>{[catalogueStateLine(count, 'listing'), outcome].filter(Boolean).join(' · ')}</>
-  }
-  const plugins = scanPlugins(scan).length
-  const servers = scanMcpServers(scan).filter((server) => server.declaredBy !== hiddenMcpPlugin).length
-  const skills = scan.skills.length
-  const holdings = catalogueHoldingsLine([
-    [plugins, 'plugin', 'plugins'],
-    [servers, 'MCP server', 'MCP servers'],
-  ])
-  const shortfall =
-    tokenConfigured === null ? [] : linkedPluginShortfall(summariseLinkedPlugins(scan), tokenConfigured)
   const bundled = bundledScanLine(scan)
+  const shortfall =
+    tokenConfigured === null
+      ? []
+      : linkedPluginShortfall(summariseLinkedPlugins(scan), tokenConfigured, transport, gitInstalled)
+  if (!bundled && shortfall.length === 0) return null
   return (
     <>
-      {SOURCE_SHAPE_LABEL[scanShape(scan)]}
-      {bundled ? ` · ${bundled}` : null}
-      {holdings ? ` · ${holdings}` : ` · ${catalogueStateLine({ status: 'ready', count: 0 }, 'plugin')}`}
-      {skills > 0 ? (
-        <>
-          {' · '}
-          // The kit's link button: an action set INSIDE a sentence, which is
-          // exactly where this one sits — a clause of the ` · `-separated state
-          // line. Accent ink underlining on hover is its default, and it keeps
-          // the line's baseline because it spends no box and no height.
-          <LinkButton
-            onClick={onOpenUnderSkills}
-            aria-label={`Open the ${skills} skills in ${catalogueTabLabel(source)} under Skills`}
-          >
-            {catalogueHoldingsLine([[skills, 'skill', 'skills']])}
-          </LinkButton>
-        </>
-      ) : null}
+      {bundled ? <InlineNotice tone="warn">{bundled}</InlineNotice> : null}
       {shortfall.map((part) => (
-        <React.Fragment key={part.text}>
-          {' · '}
-          {part.action === 'github-settings' ? (
-            <LinkButton onClick={openGitHubSettings}>{part.text}</LinkButton>
-          ) : (
-            <span className="text-[color:var(--text-muted)]">{part.text}</span>
-          )}
-        </React.Fragment>
+        <InlineNotice
+          key={part.text}
+          tone="warn"
+          action={
+            part.action === 'github-settings' ? (
+              <GhostButton onClick={openGitHubSettings}>Add a GitHub token</GhostButton>
+            ) : undefined
+          }
+        >
+          {part.text}
+        </InlineNotice>
       ))}
-      {outcome ? ` · ${outcome}` : null}
     </>
   )
 }
@@ -928,21 +860,6 @@ function LoadingLine({ label }: { label: string }): JSX.Element {
       {label}
     </div>
   )
-}
-
-/** Two letters for a row with no artwork of its own — the source-badge rule. */
-function initials(name: string): string {
-  const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean)
-  if (words.length === 0) return '?'
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
-  return `${words[0][0]}${words[1][0]}`.toUpperCase()
-}
-
-/** Where the catalogue is published from, said as a repository rather than a URL. */
-function registryOrigin(url: string | null): string {
-  if (!url) return 'bundled with the app'
-  const repo = url.match(/githubusercontent\.com\/([^/]+\/[^/]+)\//)
-  return repo ? repo[1] : url
 }
 
 function describe(error: unknown): string {

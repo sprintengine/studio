@@ -25,6 +25,18 @@ type SkillSourceKind = 'github' | 'local'
  */
 export type SkillHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'grok' | 'agents'
 
+/**
+ * How this machine reads repositories: over git's own protocol, or over
+ * GitHub's REST API (git-transport ruling, owner 2026-09-08).
+ *
+ * It lives here rather than beside the reader interface because the copy is
+ * what most needs it — a cadence line and a shortfall clause both change
+ * wording with the transport, and neither Settings nor the Extensions door can
+ * import main. `src/main/skills/repo-reader.ts` re-exports it, so the reader
+ * contract stays one file.
+ */
+export type SkillRepoTransport = 'git' | 'api'
+
 /** A place skills come from. `repo` is `owner/name` for github, '' otherwise. */
 export type SkillSource = {
   id: string
@@ -386,20 +398,31 @@ export function summariseLinkedPlugins(scan: Pick<ScanResult, 'plugins'>): Linke
  * plugins, and one whose linked plugins are all read, say nothing extra
  * because the counts beside them already stand.
  *
- * The token is named only when there is not one: at 60 unauthenticated
- * requests an hour the budget is 20 repositories a scan, and "add a GitHub
- * token" is the action that turns twelve scans into one (linked-plugins
- * ruling, 2026-09-06). With a token in place the honest next step is Sync,
- * which resumes from what is already cached. That clause carries `action`, so
- * the head line can make those words the button that opens the setting rather
- * than telling a person to go and find it; the clause about plugins that could
- * not be read carries none, because no setting fixes a repository that is gone.
+ * The token is named only when there is not one AND the API is what is doing
+ * the reading: at 60 unauthenticated requests an hour the budget is 20
+ * repositories a scan, and "add a GitHub token" is the action that turns twelve
+ * scans into one (linked-plugins ruling, 2026-09-06). With a token in place the
+ * honest next step is Sync, which resumes from what is already cached. That
+ * clause carries `action`, so the head line can make those words the button
+ * that opens the setting rather than telling a person to go and find it; the
+ * clause about plugins that could not be read carries none, because no setting
+ * fixes a repository that is gone.
+ *
+ * Over git none of that arithmetic applies (git-transport ruling, owner
+ * 2026-09-08): git's protocol is not what the REST limit counts, there is no
+ * per-scan repository budget left to spend, and a token buys nothing — so the
+ * remedy is Sync and the token is never named. The one thing a person on the
+ * API path may actually be missing is git itself, and `gitInstalled: false`
+ * says so instead of selling them a token that only widens a limit they should
+ * not be hitting at all.
  */
 export type LinkedPluginShortfallPart = { text: string; action: 'github-settings' | null }
 
 export function linkedPluginShortfall(
   summary: LinkedPluginSummary,
-  tokenConfigured: boolean
+  tokenConfigured: boolean,
+  transport: SkillRepoTransport = 'api',
+  gitInstalled = true
 ): LinkedPluginShortfallPart[] {
   const parts: LinkedPluginShortfallPart[] = []
   if (summary.pending > 0) {
@@ -412,11 +435,17 @@ export function linkedPluginShortfall(
     const remedy: LinkedPluginShortfallPart =
       offline > 0
         ? { text: 'GitHub could not be reached', action: null }
-        : !tokenConfigured
-          ? { text: 'add a GitHub token', action: 'github-settings' }
-          : rateLimited > 0
-            ? { text: "Sync once GitHub's rate limit resets", action: null }
-            : { text: 'Sync to read the rest', action: null }
+        : transport === 'git'
+          ? // Nothing here is rationed by the API any more: whatever is left is
+            // left because the pass stopped, and Sync is what resumes it.
+            { text: 'Sync to read the rest', action: null }
+          : !gitInstalled
+            ? { text: 'install git', action: null }
+            : !tokenConfigured
+              ? { text: 'add a GitHub token', action: 'github-settings' }
+              : rateLimited > 0
+                ? { text: "Sync once GitHub's rate limit resets", action: null }
+                : { text: 'Sync to read the rest', action: null }
     parts.push({
       text: `${summary.pending} of ${summary.total} linked plugins not yet read — ${remedy.text}`,
       action: remedy.action,
@@ -1249,11 +1278,17 @@ export function skillSourceMonogram(name: string): string {
 
 // ── Update-check cadence (MC-2519, owner ruling 2026-09-08) ──────────────────
 //
-// How often a repository source is asked for its head depends on whether a
-// GitHub token is configured. Anonymous GitHub allows 60 requests an hour for
-// the whole machine, shared with every other read the app makes and with
-// anything else on the same IP; a source checked hourly spends 24 of those a
-// day on a question whose answer changes far less often, and a person with
+// Over git the cadence is hourly for everyone (git-transport ruling, owner
+// 2026-09-08): a head check is `git ls-remote`, which GitHub's REST limit does
+// not count at all, so there is nothing for a token to buy and nothing to
+// ration. The rest of this block is the API fallback — the machine with no git
+// — where the arithmetic below still holds.
+//
+// On the API path, how often a repository source is asked for its head depends
+// on whether a GitHub token is configured. Anonymous GitHub allows 60 requests
+// an hour for the whole machine, shared with every other read the app makes and
+// with anything else on the same IP; a source checked hourly spends 24 of those
+// a day on a question whose answer changes far less often, and a person with
 // several sources can exhaust the budget on update checks alone and then find a
 // scan or an install refused. With a token the limit is 5,000 an hour, where
 // hourly costs nothing.
@@ -1270,7 +1305,12 @@ export const SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS = HOUR_MS
 /** Without one: 60 an hour for the whole machine, so once a day per source. */
 export const SOURCE_UPDATE_INTERVAL_ANONYMOUS_MS = 24 * HOUR_MS
 
-export function sourceUpdateIntervalMs(hasToken: boolean): number {
+export function sourceUpdateIntervalMs(
+  hasToken: boolean,
+  transport: SkillRepoTransport = 'api'
+): number {
+  // `ls-remote` costs the REST limit nothing, so the token stops deciding.
+  if (transport === 'git') return SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS
   return hasToken ? SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS : SOURCE_UPDATE_INTERVAL_ANONYMOUS_MS
 }
 
@@ -1289,15 +1329,26 @@ export function describeCheckAge(ageMs: number): string {
  * Why a source was not checked, for the person who asked for one. It names the
  * token, because configuring one is the thing that changes the answer.
  */
-export function sourceUpdateSkipMessage(ageMs: number, hasToken: boolean): string {
+export function sourceUpdateSkipMessage(
+  ageMs: number,
+  hasToken: boolean,
+  transport: SkillRepoTransport = 'api'
+): string {
   const age = describeCheckAge(ageMs)
+  if (transport === 'git') return `Checked ${age}; the studio checks each source once an hour over git.`
   return hasToken
     ? `Checked ${age}; the studio checks each source once an hour.`
     : `Checked ${age}; without a GitHub token the studio checks each source once a day.`
 }
 
 /** The cadence in force, for the line beside the token field in Settings. */
-export function sourceUpdateCadenceLine(hasToken: boolean): string {
+export function sourceUpdateCadenceLine(
+  hasToken: boolean,
+  transport: SkillRepoTransport = 'api'
+): string {
+  if (transport === 'git') {
+    return "Plugin sources are checked for updates once an hour, over git. A head check is one git ls-remote, which GitHub's API rate limit does not count, so a GitHub token is not what decides the cadence."
+  }
   return hasToken
     ? 'Plugin sources are checked for updates once an hour, because this GitHub token raises the rate limit to 5,000 requests an hour. Without one the studio checks once a day.'
     : 'No GitHub token: plugin sources are checked for updates once a day. Anonymous GitHub allows 60 requests an hour for this whole machine, which an hourly check would spend on one question. With a token the studio checks hourly.'

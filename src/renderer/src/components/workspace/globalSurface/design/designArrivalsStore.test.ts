@@ -98,8 +98,7 @@ async function main(): Promise<void> {
   // ── A door read merges into the same snapshot ─────────────────────────────
   {
     resetDesignArrivalsForTests()
-    const harness = install()
-    harness.setBundles([bundle('aaaa1111', { 'components:badge': '2026-09-01T10:00:00.000Z' })])
+    install().setBundles([bundle('aaaa1111', { 'components:badge': '2026-09-01T10:00:00.000Z' })])
     const stop = subscribeDesignArrivals(() => {})
     await tick()
 
@@ -149,7 +148,6 @@ async function main(): Promise<void> {
     assert.equal(entry?.addedAt['glyphs:glyphs/check.svg'], '2026-09-08T11:00:00.000Z')
     watch()
     stop()
-    void harness
   }
   console.log('ok - a door read merges into the row`s own snapshot')
 

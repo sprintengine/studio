@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { access, readdir, readFile, stat } from 'fs/promises'
 import { hostname } from 'os'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import { createAgentStateService } from './agent-state-service'
@@ -54,6 +56,8 @@ import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillsService } from './skills'
+import { createGitRepoReader, sweepGitRepoCache } from './skills/git-repo-reader'
+import type { SkillRepoReader } from './skills/repo-reader'
 import { SKILL_SOURCES_UPDATED_CHANNEL } from './skills/source-updates'
 import {
   createAgentCapabilityService,
@@ -115,6 +119,8 @@ import { pathExists } from './filesystem-workspace'
 import { createSprintCreateService } from './sprint-create-service'
 import { createStudioPluginService } from './studio-plugin-service'
 import { resolveInstalledSkillHarnesses } from './marketplace/skill-harness-targets'
+
+const execFileAsync = promisify(execFile)
 
 export function createAppServices(diagnosticsEnabled: boolean) {
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
@@ -194,6 +200,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .loaded()
         .find((plugin) => plugin.manifest.id === cli)?.manifest.agentStateSpec ?? null,
     resolveReporterScriptPath: getBundledAgentStateReporterPath,
+    resolveStatusLineScriptPath: getBundledStatusLineForwarderPath,
     resolveReporterTemplatePath: getBundledAgentStateReporterTemplatePath,
     onFrame: (frame) => terminalRuntime.ingestAgentStateFrame(frame),
     logDiagnostic: (diagnostic) => {
@@ -685,8 +692,42 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // Built after workspace sync because adopting the retired skill packs needs to
   // know which projects are open — that is where a previously installed pack's
   // directory would be.
+  // Repositories are read over git, not the GitHub API (git-transport ruling,
+  // owner 2026-09-08): the API's anonymous limit is what capped a Sync at
+  // twenty linked repositories, and git's protocol is not counted by it. The
+  // probe runs after the app is ready — not in this constructor, which runs at
+  // module load, and not synchronously: on a Mac without the command line
+  // tools `git --version` raises Apple's install dialog, which must never be
+  // the first thing a person sees. A machine without a usable git keeps the
+  // API reader and its cap, and the door says to install git rather than to
+  // add a token; the deps are getters, so the service sees the probe's answer
+  // the moment it lands and again if git turns up later.
+  const skillRepoCacheDir = join(app.getPath('userData'), 'skill-repos')
+  const gitTransport = createGitTransportProbe({
+    cacheDir: skillRepoCacheDir,
+    resolveToken: () => githubTokenStore.resolveToken(),
+  })
+  void app.whenReady().then(async () => {
+    await gitTransport.refresh()
+    // Objects fetched into a promisor clone are never repacked away, so a
+    // repository that keeps moving grows its clone for as long as it is read.
+    // A clone nobody has read in sixty days is not worth the disk, and the
+    // reader rebuilds it from the network on the next read (review,
+    // 2026-09-09).
+    await sweepGitRepoCache(skillRepoCacheDir, SKILL_REPO_CACHE_IDLE_MS).catch(() => undefined)
+  })
   const skillsService = createSkillsService(app.getPath('userData'), {
     resolveToken: () => githubTokenStore.resolveToken(),
+    get repoReader() {
+      return gitTransport.reader
+    },
+    get repoTransport() {
+      return gitTransport.reader ? ('git' as const) : ('api' as const)
+    },
+    get gitInstalled() {
+      return gitTransport.installed
+    },
+    refreshTransport: () => gitTransport.refresh(),
     // The same bundled tree the plugin installer materialises, read here as the
     // offline seed of our marketplace tab (studio-marketplace ruling,
     // 2026-09-06). One resolver, so a build that ships the plugin can never
@@ -1178,6 +1219,12 @@ function getBundledAgentStateReporterPath(): string | null {
   return getBundledHookReporterPath('multicode-agent-state.mjs')
 }
 
+// The status-line forwarder, shipped by the same `resources/hooks` entry. Only
+// the Claude-family specs that declare `statusLine: true` install it.
+function getBundledStatusLineForwarderPath(): string | null {
+  return getBundledHookReporterPath('multicode-status-line.mjs')
+}
+
 // The app's own plugin marketplace, shipped by the `resources/studio-plugin`
 // extraResources entry. Same packaged/dev shape as the reporter resolver above;
 // null when the entry did not ship, which the service reports rather than
@@ -1202,4 +1249,70 @@ function getBundledStudioPluginRoot(): string | null {
 function getBundledAgentStateReporterTemplatePath(template: string): string | null {
   if (!template || template.includes('/') || template.includes('\\') || template.includes('..')) return null
   return getBundledHookReporterPath(template)
+}
+
+/**
+ * Whether this machine's git can do what the reader asks of it, asked once the
+ * app is ready and again — at most once a minute — while the answer is no.
+ *
+ * The floor is 2.19: partial clone (`--filter=blob:none`) arrived there, and a
+ * git that rejects the filter would fail every read with the API reader sitting
+ * unreachable beside it. `git --version` alone proved only that a git exists
+ * (review, 2026-09-09).
+ */
+const GIT_VERSION_FLOOR: readonly [number, number] = [2, 19]
+const GIT_REPROBE_MS = 60_000
+const SKILL_REPO_CACHE_IDLE_MS = 60 * 24 * 60 * 60 * 1000
+
+function createGitTransportProbe(options: { cacheDir: string; resolveToken: () => Promise<string> }): {
+  readonly reader: SkillRepoReader | undefined
+  readonly installed: boolean
+  refresh(): Promise<void>
+} {
+  let reader: SkillRepoReader | undefined
+  let installed = false
+  let probedAt = 0
+  let inFlight: Promise<void> | null = null
+  const probe = async (): Promise<void> => {
+    probedAt = Date.now()
+    const usable = await gitMeetsFloor()
+    installed = usable
+    if (usable && !reader) reader = createGitRepoReader(options)
+    if (!usable) reader = undefined
+  }
+  return {
+    get reader() {
+      return reader
+    },
+    get installed() {
+      return installed
+    },
+    refresh() {
+      // A usable git stays usable for the app's life; only a missing one is
+      // asked again, and not on every call.
+      if (installed) return Promise.resolve()
+      if (inFlight) return inFlight
+      if (probedAt !== 0 && Date.now() - probedAt < GIT_REPROBE_MS) return Promise.resolve()
+      inFlight = probe().finally(() => {
+        inFlight = null
+      })
+      return inFlight
+    },
+  }
+}
+
+async function gitMeetsFloor(): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('git', ['--version'], {
+      windowsHide: true,
+      timeout: 5_000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    })
+    const match = /git version (\d+)\.(\d+)/.exec(String(stdout))
+    if (!match) return false
+    const [major, minor] = [Number(match[1]), Number(match[2])]
+    return major > GIT_VERSION_FLOOR[0] || (major === GIT_VERSION_FLOOR[0] && minor >= GIT_VERSION_FLOOR[1])
+  } catch {
+    return false
+  }
 }

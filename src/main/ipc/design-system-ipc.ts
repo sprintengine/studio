@@ -3,6 +3,7 @@ import type { IpcMain } from 'electron'
 import type { DesignSystemBundleLintRunResult } from '../../shared/design-system/bundle-lint-run'
 import type { DesignSystemRegenResult } from '../../shared/design-system/derived-files'
 import type { DesignSystemScaffoldResult } from '../../shared/design-system/bundle-scaffold'
+import type { DesignSystemArrivalsResult } from '../../shared/design-system/arrivals'
 import type { DesignSystemBundleReadResult } from '../../shared/design-system/bundle-view'
 import type {
   DesignSystemAttachResult,
@@ -108,13 +109,32 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
   ipcMain.handle('design-system:library-list', () => listDesignSystemLibrary(libraryPaths()))
   // The same library, reduced to arrival dates: what the Extensions drawer's
   // Design row counts without paying for a full read of every bundle.
-  ipcMain.handle('design-system:library-arrivals', () => listDesignSystemArrivals(libraryPaths()))
-  ipcMain.handle('design-system:library-register', (_event, folderPath: unknown) =>
-    registerDesignSystemFolder(libraryPaths(), typeof folderPath === 'string' ? folderPath : ''),
-  )
-  ipcMain.handle('design-system:library-forget', (_event, id: unknown) =>
-    forgetDesignSystemFolder(libraryPaths(), typeof id === 'string' ? id : ''),
-  )
+  // One listing serves every window that asks within the window below, and
+  // concurrent askers share one in-flight read: each listing is a `git log`
+  // per registered bundle, and every window's rail hook asks at boot and
+  // hourly (review, 2026-09-09). A library change drops the memo.
+  let arrivalsMemo: { at: number; result: Promise<DesignSystemArrivalsResult> } | null = null
+  const ARRIVALS_MEMO_MS = 10 * 60 * 1000
+  const forgetArrivals = (): void => {
+    arrivalsMemo = null
+  }
+  ipcMain.handle('design-system:library-arrivals', () => {
+    if (arrivalsMemo && Date.now() - arrivalsMemo.at < ARRIVALS_MEMO_MS) return arrivalsMemo.result
+    const result = listDesignSystemArrivals(libraryPaths()).catch((error: unknown) => {
+      forgetArrivals()
+      throw error
+    })
+    arrivalsMemo = { at: Date.now(), result }
+    return result
+  })
+  ipcMain.handle('design-system:library-register', (_event, folderPath: unknown) => {
+    forgetArrivals()
+    return registerDesignSystemFolder(libraryPaths(), typeof folderPath === 'string' ? folderPath : '')
+  })
+  ipcMain.handle('design-system:library-forget', (_event, id: unknown) => {
+    forgetArrivals()
+    return forgetDesignSystemFolder(libraryPaths(), typeof id === 'string' ? id : '')
+  })
   // Attach: one-time copy of a bundle (library entry or browsed
   // folder) into a consuming workspace at design-system/, provenance stamped
   // into the copy. An existing design-system/ is a typed 'conflict' refusal.

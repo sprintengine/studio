@@ -79,6 +79,7 @@ import { installPlugin, readEnabledClaudePlugins, uninstallPlugin } from './inst
 import { listLocalTree, scanLocalSkillSource } from './local-source'
 import type { PluginDirectoryFile } from './plugin-directory'
 import { createPluginInstallStore, type PluginInstallStore } from './plugin-install-store'
+import type { SkillRepoReader, SkillRepoTransport } from './repo-reader'
 import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH } from './scan'
 import {
   dedupeScannedMcpServers,
@@ -117,6 +118,28 @@ export type SkillsServiceDeps = {
   pluginInstallStore?: PluginInstallStore
   /** Where a check's result goes besides the caller — every window, in production. */
   broadcastSourceUpdates?: (check: SkillSourceUpdateCheck) => void
+  /**
+   * The one reader every repository read here goes through (git-transport
+   * ruling, owner 2026-09-08). Production injects the git reader when this
+   * machine has git; with none given the service builds the GitHub-API reader
+   * out of `github-tree.ts` and behaves exactly as it always did.
+   */
+  repoReader?: SkillRepoReader
+  /** What that reader speaks. Defaults to 'git' when a reader is given, 'api' otherwise. */
+  repoTransport?: SkillRepoTransport
+  /**
+   * False when git is not installed on this machine, which is what the copy
+   * names as the remedy instead of the token once the transport is the API
+   * fallback. Absent means yes.
+   */
+  gitInstalled?: boolean
+  /**
+   * Re-ask whether git is usable before a read or a listing. The integrator
+   * probes git after the app is ready and again when it was missing, so a
+   * person who installs git and presses Sync is read over git on that press —
+   * not after a restart. Awaited before the three deps above are read.
+   */
+  refreshTransport?: () => Promise<void>
 }
 
 export type SkillsService = {
@@ -151,11 +174,47 @@ export function createSkillsService(
   const discovery = createSkillDiscoveryClient(deps.discovery)
   const installs = deps.pluginInstallStore ?? createPluginInstallStore(userDataDir)
   const mcpClients = deps.mcpClients ?? (async () => ['claude-code', 'codex'])
+  // Read at call time, never captured: the integrator hands these in as
+  // getters that change once git is probed (after the app is ready) or found
+  // (after the person installs it). A reader is only ever present because this
+  // machine has git, so its presence IS the transport unless told otherwise.
+  const transportNow = (): SkillRepoTransport => deps.repoTransport ?? (deps.repoReader ? 'git' : 'api')
+  const gitInstalledNow = (): boolean => deps.gitInstalled ?? true
+  const refreshTransport = async (): Promise<void> => {
+    await deps.refreshTransport?.()
+  }
   const updateChecker = createSourceUpdateChecker({
     store,
     resolveToken: deps.resolveToken,
     github: deps.github,
+    get repoReader() {
+      return deps.repoReader
+    },
+    get transport() {
+      return transportNow()
+    },
+    refreshTransport,
   })
+
+  /**
+   * The reader this call reads through, and what one pass may spend.
+   *
+   * One place decides both, so nothing below can quietly reach past the reader
+   * to `github-tree.ts` (git-transport ruling, owner 2026-09-08). The budget is
+   * gone on git: a tree listing over git's protocol is not a REST request and
+   * is not counted by the 60-an-hour limit the budget exists to protect, so a
+   * Sync reads every plugin the marketplace lists rather than twenty of them.
+   */
+  async function repoContext(): Promise<RepoContext> {
+    await refreshTransport()
+    const token = await deps.resolveToken()
+    const transport = transportNow()
+    return {
+      reader: deps.repoReader ?? apiSkillRepoReader({ ...deps.github, token }),
+      transport,
+      linkedBudget: transport === 'git' ? Number.POSITIVE_INFINITY : linkedRepositoryBudget(token),
+    }
+  }
 
   const localRootFor = (id: string): string | null =>
     id.startsWith(LOCAL_SKILL_SOURCE_ID_PREFIX) ? id.slice(LOCAL_SKILL_SOURCE_ID_PREFIX.length) : null
@@ -211,7 +270,12 @@ export function createSkillsService(
 
   return {
     async listSources() {
-      return { ok: true, sources: await store.listSources() }
+      // The transport rides the list because every sentence about a cadence or
+      // an unread plugin depends on it, and the renderer has no other way to
+      // learn which reader this build wired (git-transport ruling, owner
+      // 2026-09-08).
+      await refreshTransport()
+      return { ok: true, sources: await store.listSources(), transport: transportNow(), gitInstalled: gitInstalledNow() }
     },
 
     async addSource(input) {
@@ -228,10 +292,10 @@ export function createSkillsService(
         return { ok: false, message: `${ref.owner}/${ref.repo} is already one of your sources.` }
       }
       try {
-        const github = { ...deps.github, token: await deps.resolveToken() }
+        const context = await repoContext()
         // Re-adding a repository already in the list carries its cached scan
         // in, so the linked plugins it already read are not read again.
-        const { source, scan } = await scanGithubSource(ref, id, github, await store.getScan(id))
+        const { source, scan } = await scanGithubSource(ref, id, context, await store.getScan(id))
         await store.putSource(source, scan)
         return { ok: true, source, scan }
       } catch (error) {
@@ -331,8 +395,8 @@ export function createSkillsService(
       const ref = parseSkillRepoRef(source.repo)
       if (!ref) return { ok: false, message: `${source.repo} is not a repository that can be read.` }
       try {
-        const github = { ...deps.github, token: await deps.resolveToken() }
-        const scanned = await scanGithubSource(ref, source.id, github, await store.getScan(source.id))
+        const context = await repoContext()
+        const scanned = await scanGithubSource(ref, source.id, context, await store.getScan(source.id))
         await store.putSource(scanned.source, scanned.scan)
         return { ok: true, source: scanned.source, scan: scanned.scan }
       } catch (error) {
@@ -440,12 +504,12 @@ export function createSkillsService(
       const previous = await store.getScan(source.id)
       let rescan: { source: SkillSource; scan: ScanResult }
       try {
-        const github = { ...deps.github, token: await deps.resolveToken() }
+        const context = await repoContext()
         // `previous` is the cache the follow reads: a linked plugin whose pinned
         // sha has not moved is carried over instead of fetched again, which is
         // what makes the second Sync of a marketplace cost a fraction of the
         // first and what lets a budgeted pass resume where it stopped.
-        rescan = await scanGithubSource(ref, source.id, github, previous)
+        rescan = await scanGithubSource(ref, source.id, context, previous)
         // Synced to head: the head the last check recorded IS this commit now,
         // so the drift mark clears with the scan rather than an hour later.
         rescan.source = { ...rescan.source, headSha: rescan.source.commitSha, headCheckedAt: new Date().toISOString() }
@@ -586,13 +650,12 @@ export function createSkillsService(
     if (plugin.origin.repo === '') {
       return { ok: false, message: `${plugin.name} is hosted outside GitHub (${plugin.origin.url}), which this app cannot read.` }
     }
-    const [owner, repo] = plugin.origin.repo.split('/')
-    const ref: SkillRepoRef = { owner, repo, ref: plugin.origin.ref }
+    const repo = plugin.origin.repo
     try {
-      const github = { ...deps.github, token: await deps.resolveToken() }
-      const commitSha = plugin.origin.sha || (await resolveSkillRepoCommit(ref, github))
-      const tree = await fetchSkillRepoTree(ref, commitSha, github)
-      const skillScan = scanSkillTree({ entries: tree.entries, commitSha })
+      const { reader } = await repoContext()
+      const commitSha = plugin.origin.sha || (await reader.resolveCommit(repo, plugin.origin.ref))
+      const entries = await reader.readTree(repo, commitSha)
+      const skillScan = scanSkillTree({ entries: [...entries], commitSha })
       const dir = plugin.origin.path
       const inDir = skillScan.skills.filter(
         (skill) => dir === '' || skill.id === dir || skill.id.startsWith(`${dir}/`)
@@ -601,17 +664,18 @@ export function createSkillsService(
       // skill listing: dropping one here would shrink a plugin's declared
       // contents with nothing on screen to say why.
       const { all: skills } = await enrichSkills(inDir, (skill) =>
-        fetchSkillRepoFile(ref, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE), github).then((bytes) =>
-          bytes.toString('utf8')
-        )
+        reader
+          .readFile(repo, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE))
+          .then((bytes) => bytes?.toString('utf8') ?? null)
       )
       const read = await readPluginComponents({
         dir,
-        entries: tree.entries,
+        entries: [...entries],
         skills,
         readFile: (path) =>
-          fetchSkillRepoFile(ref, commitSha, path, github)
-            .then((bytes) => bytes.toString('utf8'))
+          reader
+            .readFile(repo, commitSha, path)
+            .then((bytes) => bytes?.toString('utf8') ?? null)
             .catch(() => null),
       })
       const updated: ScannedPlugin = {
@@ -691,12 +755,10 @@ export function createSkillsService(
     // which for a pinned entry IS `origin.sha` and for an unpinned one is the
     // ref's head as of a moment ago.
     const commitSha = origin.kind === 'linked' ? plugin.readCommit || origin.sha : source.commitSha
-    const bytesRef: SkillRepoRef | null =
-      origin.kind === 'linked'
-        ? { owner: origin.repo.split('/')[0] ?? '', repo: origin.repo.split('/')[1] ?? '', ref: '' }
-        : source.kind === 'github'
-          ? githubRefFor(source)
-          : null
+    // `owner/name`, which is the only address a reader takes; '' when this
+    // plugin's bytes are not in a repository at all.
+    const bytesRepo: string =
+      origin.kind === 'linked' ? origin.repo : source.kind === 'github' ? source.repo : ''
     const harnesses = await listHarnesses()
     // The plugin's OWN files, listed only when a server it declares runs out of
     // its directory. The listing is a repository tree request, so asking the
@@ -706,7 +768,7 @@ export function createSkillsService(
     let pluginFiles: PluginDirectoryFile[] = []
     let readPluginFile: ((file: PluginDirectoryFile) => Promise<Buffer>) | undefined
     if (pluginNeedsOwnFiles(plugin)) {
-      const listed = await listPluginDirectory(source, plugin, commitSha, bytesRef)
+      const listed = await listPluginDirectory(source, plugin, commitSha, bytesRepo)
       if (!listed.ok) return listed
       pluginFiles = listed.files
       readPluginFile = listed.readFile
@@ -723,9 +785,10 @@ export function createSkillsService(
         // An in-tree plugin of our own marketplace is on this disk already, so
         // `readSkillBytes` answers it from the seed and the install works with
         // no network; a linked plugin has its own repository and never can.
-        if (bytesRef && origin.kind === 'linked') {
-          const github = { ...deps.github, token: await deps.resolveToken() }
-          return fetchSkillRepoFile(bytesRef, commitSha, joinRepoPath(skill.id, file.path), github)
+        if (bytesRepo !== '' && origin.kind === 'linked') {
+          const { reader } = await repoContext()
+          const path = joinRepoPath(skill.id, file.path)
+          return requiredBytes(await reader.readFile(bytesRepo, commitSha, path), bytesRepo, path)
         }
         return readSkillBytes(source, skill, file)
       },
@@ -784,7 +847,8 @@ export function createSkillsService(
     source: SkillSource,
     plugin: ScannedPlugin,
     commitSha: string,
-    bytesRef: SkillRepoRef | null
+    /** `owner/name` for a plugin whose files are in a repository, '' otherwise. */
+    bytesRepo: string
   ): Promise<
     | { ok: true; files: PluginDirectoryFile[]; readFile: (file: PluginDirectoryFile) => Promise<Buffer> }
     | { ok: false; message: string }
@@ -816,14 +880,14 @@ export function createSkillsService(
         return { ok: false, message: describeFetchError(error) }
       }
     }
-    if (!bytesRef || bytesRef.owner === '' || bytesRef.repo === '') {
+    if (bytesRepo === '' || bytesRepo.split('/').filter(Boolean).length !== 2) {
       return { ok: false, message: `${plugin.name} is not in a repository this app can read its files from.` }
     }
     try {
-      const github = { ...deps.github, token: await deps.resolveToken() }
-      const tree = await fetchSkillRepoTree(bytesRef, commitSha, github)
+      const { reader } = await repoContext()
+      const entries = await reader.readTree(bytesRepo, commitSha)
       const prefix = dir === '' ? '' : `${dir}/`
-      const files = tree.entries
+      const files = entries
         .filter((entry) => entry.type === 'blob' && entry.mode !== '120000')
         .filter((entry) => prefix === '' || entry.path.startsWith(prefix))
         .map((entry) => ({ path: entry.path.slice(prefix.length), size: entry.size ?? 0 }))
@@ -831,11 +895,11 @@ export function createSkillsService(
       return {
         ok: true,
         files,
-        readFile: async (file) =>
-          fetchSkillRepoFile(bytesRef, commitSha, `${prefix}${file.path}`, {
-            ...deps.github,
-            token: await deps.resolveToken(),
-          }),
+        readFile: async (file) => {
+          const path = `${prefix}${file.path}`
+          const { reader } = await repoContext()
+          return requiredBytes(await reader.readFile(bytesRepo, commitSha, path), bytesRepo, path)
+        },
       }
     } catch (error) {
       return { ok: false, message: describeFetchError(error) }
@@ -931,8 +995,8 @@ export function createSkillsService(
     const seeded = await readStudioSeedBytes(source, repoPath)
     if (seeded) return seeded
     if (source.kind === 'github') {
-      const github = { ...deps.github, token: await deps.resolveToken() }
-      return fetchSkillRepoFile(githubRefFor(source), source.commitSha, repoPath, github)
+      const { reader } = await repoContext()
+      return requiredBytes(await reader.readFile(source.repo, source.commitSha, repoPath), source.repo, repoPath)
     }
     const root = localRootFor(source.id)
     if (!root) throw new SkillFetchError(`${source.name} is not available in this build.`)
@@ -973,7 +1037,7 @@ export function createSkillsService(
 async function scanGithubSource(
   ref: SkillRepoRef,
   id: string,
-  github: SkillGithubOptions,
+  context: RepoContext,
   /**
    * This source's previous scan, when there is one. A linked plugin whose
    * pinned sha has not moved is taken from it, so a re-scan reads only what
@@ -981,48 +1045,54 @@ async function scanGithubSource(
    */
   previous?: ScanResult | null
 ): Promise<{ source: SkillSource; scan: ScanResult }> {
-  const commitSha = await resolveSkillRepoCommit(ref, github)
-  const tree = await fetchSkillRepoTree(ref, commitSha, github)
-  const manifest = tree.entries.some(
+  const { reader } = context
+  const repo = `${ref.owner}/${ref.repo}`
+  const commitSha = await reader.resolveCommit(repo, ref.ref)
+  const entries = [...(await reader.readTree(repo, commitSha))]
+  const manifest = entries.some(
     (entry) => entry.type === 'blob' && entry.path === SKILL_MARKETPLACE_MANIFEST_PATH
   )
-    ? await fetchSkillRepoFile(ref, commitSha, SKILL_MARKETPLACE_MANIFEST_PATH, github)
-        .then((bytes) => bytes.toString('utf8'))
+    ? await reader
+        .readFile(repo, commitSha, SKILL_MARKETPLACE_MANIFEST_PATH)
+        .then((bytes) => bytes?.toString('utf8') ?? null)
         .catch(() => null)
     : null
 
-  const scanned = scanSkillTree({ entries: tree.entries, commitSha, marketplaceManifest: manifest })
+  const scanned = scanSkillTree({ entries, commitSha, marketplaceManifest: manifest })
   const { all, skills, skippedNoDescription } = await enrichSkills(scanned.skills, (skill) =>
-    fetchSkillRepoFile(ref, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE), github).then((bytes) =>
-      bytes.toString('utf8')
-    )
+    reader
+      .readFile(repo, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE))
+      .then((bytes) => bytes?.toString('utf8') ?? null)
   )
   // The plugins and MCP servers the same tree declares. Their manifests are a
   // handful of small raw reads at the pinned commit; one that fails leaves its
   // plugin listed under the marketplace's own words.
   const plugins = await scanPluginTree({
-    entries: tree.entries,
+    entries,
     // Every directory, not just the listable ones: a plugin's own manifest is
     // the authority on what that plugin ships, and a skill this scan will not
     // list is still a directory the plugin shipped.
     skills: all,
     marketplaceManifest: manifest,
     readFile: (path) =>
-      fetchSkillRepoFile(ref, commitSha, path, github)
-        .then((bytes) => bytes.toString('utf8'))
+      reader
+        .readFile(repo, commitSha, path)
+        .then((bytes) => bytes?.toString('utf8') ?? null)
         .catch(() => null),
   })
   // …and the plugins that live in OTHER repositories, read at the commits this
   // marketplace pinned (linked-plugins ruling, 2026-09-06). One tree listing
-  // per distinct repository, bounded by a budget the token decides, and every
-  // plugin a previous scan already read at the same sha costs nothing at all.
+  // per distinct repository, and every plugin a previous scan already read at
+  // the same sha costs nothing at all. The budget the token used to decide is
+  // infinite over git, where a listing is not a REST request (git-transport
+  // ruling, owner 2026-09-08).
   const followed = await followLinkedPlugins({
     plugins: plugins.plugins,
     cached: previous ? scanPlugins(previous) : [],
     marketplaceManifest: manifest,
-    budget: linkedRepositoryBudget(github.token),
+    budget: context.linkedBudget,
     extraHosts: parseMarketplaceExtraHosts(process.env[MARKETPLACE_EXTRA_HOSTS_ENV]),
-    reader: githubLinkedPluginReader(github),
+    reader: linkedPluginReaderOver(context),
   })
   // `fileCount` is recounted because a skipped skill takes its files with it.
   const scan: ScanResult = {
@@ -1055,44 +1125,79 @@ async function scanGithubSource(
 }
 
 /**
- * `followLinkedPlugins`'s reader, over GitHub.
- *
- * Its whole job besides fetching is to sort failures into "this minute" and
- * "this repository", because the follow stops the entire pass on the first of
- * the former and carries on past the latter. A `SkillFetchError` carrying NO
- * status code is a request that never reached GitHub at all — the machine is
- * offline, DNS failed, the fetch timed out — and calling that "unreadable"
- * would tell somebody on a train that 238 repositories are gone.
+ * The one reader this service reads a repository through, and what a pass may
+ * spend against it.
  */
-function githubLinkedPluginReader(github: SkillGithubOptions): LinkedPluginRepoReader {
-  const refFor = (repo: string): SkillRepoRef => {
+type RepoContext = {
+  reader: SkillRepoReader
+  transport: SkillRepoTransport
+  /** Linked repositories one follow may read; `Infinity` on git, where a listing is free. */
+  linkedBudget: number
+}
+
+/**
+ * `SkillRepoReader` over GitHub's REST API — the fallback for a machine with no
+ * git (git-transport ruling, owner 2026-09-08).
+ *
+ * `readFile` answers null for a file that is not there, because that is what
+ * the interface means by a missing path and what the git reader answers; every
+ * other failure is still thrown, so a fetch that failed is never mistaken for a
+ * plugin that ships nothing.
+ */
+function apiSkillRepoReader(github: SkillGithubOptions): SkillRepoReader {
+  const refFor = (repo: string, ref = ''): SkillRepoRef => {
     const [owner, name] = repo.split('/')
-    return { owner: owner ?? '', repo: name ?? '', ref: '' }
-  }
-  const rethrow = (error: unknown): never => {
-    throw new LinkedPluginReadError(describeFetchError(error), linkedFailureKind(error))
+    return { owner: owner ?? '', repo: name ?? '', ref }
   }
   return {
-    resolveCommit: (repo, ref) =>
-      resolveSkillRepoCommit({ ...refFor(repo), ref }, github).catch(rethrow),
-    readTree: (repo, sha) =>
-      fetchSkillRepoTree(refFor(repo), sha, github)
-        .then((tree) => tree.entries)
-        .catch(rethrow),
-    // The scan only asks for a path the tree listed, so a null here is a fetch
-    // that FAILED, and the caller now treats it as one: the plugin comes back
-    // partly read rather than as a plugin that ships nothing. A run of the live
-    // marketplace on 2026-09-06 lost seven MCP servers this way — 172 where two
-    // other runs read 179 — out of 386 raw reads.
+    resolveCommit: (repo, ref) => resolveSkillRepoCommit(refFor(repo, ref), github),
+    // Exactly what `fetchSkillRepoTree` returned: the entries, and the caps and
+    // the truncation refusal that came with them.
+    readTree: (repo, sha) => fetchSkillRepoTree(refFor(repo), sha, github).then((tree) => tree.entries),
+    readFile: (repo, sha, path) =>
+      fetchSkillRepoFile(refFor(repo), sha, path, github).catch((error: unknown) => {
+        if (error instanceof SkillFetchError && error.statusCode === 404) return null
+        throw error
+      }),
+  }
+}
+
+/**
+ * `followLinkedPlugins`'s reader, over whichever transport this build uses.
+ *
+ * Its whole job besides reading is to sort failures into "this minute" and
+ * "this repository", because the follow stops the entire pass on the first of
+ * the former and carries on past the latter. Over the API a `SkillFetchError`
+ * carrying NO status code is a request that never reached GitHub at all — the
+ * machine is offline, DNS failed, the fetch timed out — and calling that
+ * "unreadable" would tell somebody on a train that 238 repositories are gone.
+ * Over git the reader says which it is on its own error (`kind`), and only
+ * 'offline' and 'timeout' are facts about the minute; a rate limit is not one
+ * of git's problems at all.
+ */
+function linkedPluginReaderOver(context: RepoContext): LinkedPluginRepoReader {
+  const { reader, transport } = context
+  const rethrow = (error: unknown): never => {
+    throw new LinkedPluginReadError(describeFetchError(error), linkedFailureKind(error, transport))
+  }
+  return {
+    resolveCommit: (repo, ref) => reader.resolveCommit(repo, ref).catch(rethrow),
+    readTree: (repo, sha) => reader.readTree(repo, sha).catch(rethrow),
+    // A null here is a file the repository does not hold, which the scan treats
+    // as an answer. A THROW is a read that failed, and the caller treats it as
+    // one: the plugin comes back partly read rather than as a plugin that ships
+    // nothing. A run of the live marketplace on 2026-09-06 lost seven MCP
+    // servers this way — 172 where two other runs read 179 — out of 386 raw
+    // reads.
     //
-    // So it is tried twice, and the second attempt WAITS. An immediate retry at
-    // twenty-wide is what turns throttling into more throttling, which GitHub's
-    // own guidance says not to do; `retry-after` is honoured when the reply
-    // carried one and is capped, because a plugin's manifest is not worth
+    // So a failure is tried twice, and the second attempt WAITS. An immediate
+    // retry at twenty-wide is what turns throttling into more throttling, which
+    // GitHub's own guidance says not to do; `retry-after` is honoured when the
+    // reply carried one and is capped, because a plugin's manifest is not worth
     // holding a scan open for a minute.
     readFile: async (repo, sha, path) => {
       const read = (): Promise<string | null> =>
-        fetchSkillRepoFile(refFor(repo), sha, path, github).then((bytes) => bytes.toString('utf8'))
+        reader.readFile(repo, sha, path).then((bytes) => bytes?.toString('utf8') ?? null)
       return read().catch(async (error: unknown) => {
         const wait = retryDelayMs(error)
         if (wait === null) return null
@@ -1101,6 +1206,17 @@ function githubLinkedPluginReader(github: SkillGithubOptions): LinkedPluginRepoR
       })
     },
   }
+}
+
+/**
+ * A file the caller cannot do without. The readers answer null for a path a
+ * repository does not hold, and every one of these asks for a path a tree
+ * listing already named — so null here is a repository that changed under the
+ * scan, and saying which file beats handing back an empty install.
+ */
+function requiredBytes(bytes: Buffer | null, repo: string, path: string): Buffer {
+  if (bytes) return bytes
+  throw new SkillFetchError(`${path} is no longer in ${repo}.`)
 }
 
 /**
@@ -1179,11 +1295,6 @@ async function enrichSkills(
   }
 }
 
-function githubRefFor(source: SkillSource): SkillRepoRef {
-  const [owner, repo] = source.repo.split('/')
-  return { owner: owner ?? '', repo: repo ?? '', ref: '' }
-}
-
 function joinRepoPath(skillId: string, relativePath: string): string {
   return skillId === '' ? relativePath : `${skillId}/${relativePath}`
 }
@@ -1208,7 +1319,7 @@ function isUtf8Text(bytes: Buffer): boolean {
 }
 
 /**
- * Which of the three a GitHub failure is — see `githubLinkedPluginReader`.
+ * Which of the three a read failure is — see `linkedPluginReaderOver`.
  *
  * The headers decide, not the status. GitHub answers 403 both for a spent hour
  * and for a repository that is private, DMCA-blocked or behind an org's SSO,
@@ -1218,7 +1329,22 @@ function isUtf8Text(bytes: Buffer): boolean {
  * one too, so the follow could never finish (linked-plugins review,
  * 2026-09-06).
  */
-function linkedFailureKind(error: unknown): 'rate-limited' | 'offline' | 'unreadable' {
+function linkedFailureKind(
+  error: unknown,
+  transport: SkillRepoTransport
+): 'rate-limited' | 'offline' | 'unreadable' {
+  if (transport === 'git') {
+    // The git reader names the kind itself. A throttle from the git host is
+    // a fact about the minute exactly as the API's was, so it halts the pass
+    // and leaves the rest pending; a timeout is a fact about ONE repository —
+    // a slow tree, not a dead network — so it is that repository's verdict and
+    // the pass carries on (review, 2026-09-09: one 60 s fetch used to mark
+    // two hundred repositories "GitHub could not be reached").
+    const kind = (error as { kind?: unknown } | null)?.kind
+    if (kind === 'rate-limited') return 'rate-limited'
+    if (kind === 'offline') return 'offline'
+    return 'unreadable'
+  }
   if (!(error instanceof SkillFetchError)) return 'unreadable'
   if (error.rateLimit?.exhausted === true) return 'rate-limited'
   return error.statusCode === undefined ? 'offline' : 'unreadable'

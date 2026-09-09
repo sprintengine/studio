@@ -19,6 +19,9 @@ type SharedGitStatusSnapshot = {
 export type GitRepoState = 'idle' | 'loading' | 'ready' | 'not-git' | 'error'
 
 type GitStatusSubscriber = (snapshot: SharedGitStatusSnapshot) => void
+// Told about every COMPLETED read, not only the ones that changed the file
+// list. See `revision` on the subscription below.
+type GitStatusRevisionSubscriber = (revision: number) => void
 type GitStatusRefreshCause = 'initial' | 'watch' | 'recovery' | 'manual' | 'coalesced'
 type GitStatusScheduledRefreshCause = Exclude<GitStatusRefreshCause, 'coalesced'>
 
@@ -28,7 +31,16 @@ type GitStatusSubscription = {
   directoryStatus: Record<string, GitFileStatus>
   errorMessage: string | null
   signature: string
+  /**
+   * Ticks once per completed `git status` read. The signature above answers
+   * "did the file LIST change"; this answers "was the tree read again", which
+   * is the only honest cue for content that moved without moving status — a
+   * save that leaves a file modified is invisible to the signature, and a diff
+   * of that file is stale from the moment it lands.
+   */
+  revision: number
   subscribers: Set<GitStatusSubscriber>
+  revisionSubscribers: Set<GitStatusRevisionSubscriber>
   refreshTimer: number | null
   recoveryTimer: number | null
   recoveryDelayMs: number
@@ -161,7 +173,13 @@ function backOffGitStatusRecovery(subscription: GitStatusSubscription): void {
 
 function scheduleGitStatusRecovery(subscription: GitStatusSubscription): void {
   clearGitStatusRecovery(subscription)
-  if (!subscription.subscribers.size || document.hidden) return
+  // The same guard `releaseGitStatusSubscription` uses, and it has to be: that
+  // one keeps the subscription alive while EITHER set has a listener, so a
+  // revision-only subscription (the diff window's live re-read, with no status
+  // reader beside it) would otherwise be kept alive and then never tick again
+  // after its first failure.
+  const listening = subscription.subscribers.size > 0 || subscription.revisionSubscribers.size > 0
+  if (!listening || document.hidden) return
 
   subscription.recoveryTimer = window.setTimeout(() => {
     subscription.recoveryTimer = null
@@ -220,6 +238,11 @@ async function refreshGitStatusSubscription(
         subscription.errorMessage = null
         notifyGitStatusSubscribers(subscription)
       }
+      // Every completed read moves the revision, changed list or not; the
+      // listeners are few (an open diff) and each one guards its own work.
+      subscription.revision += 1
+      const revision = subscription.revision
+      subscription.revisionSubscribers.forEach((subscriber) => subscriber(revision))
       logPerfEvent('GitStatus', 'refresh', {
         cause,
         repoRoot: subscription.repoRoot,
@@ -349,7 +372,9 @@ function getGitStatusSubscription(repoRoot: string): GitStatusSubscription {
     directoryStatus: {},
     errorMessage: null,
     signature: '',
+    revision: 0,
     subscribers: new Set(),
+    revisionSubscribers: new Set(),
     refreshTimer: null,
     recoveryTimer: null,
     recoveryDelayMs: GIT_STATUS_RECOVERY_INITIAL_MS,
@@ -377,17 +402,36 @@ function subscribeGitStatus(repoRoot: string, subscriber: GitStatusSubscriber): 
 
   return () => {
     subscription.subscribers.delete(subscriber)
-    if (subscription.subscribers.size > 0) return
+    releaseGitStatusSubscription(subscription, key)
+  }
+}
 
-    if (subscription.refreshTimer !== null) {
-      window.clearTimeout(subscription.refreshTimer)
-      subscription.refreshTimer = null
-    }
-    clearGitStatusRecovery(subscription)
-    if (subscription.stopWatching) {
-      void subscription.stopWatching()
-    }
-    gitStatusSubscriptions.delete(key)
+// The shared subscription lives as long as ANY listener wants it — a status
+// reader or a revision watcher. Dropping it while the other kind is still
+// listening would stop the watcher under it.
+function releaseGitStatusSubscription(subscription: GitStatusSubscription, key: string): void {
+  if (subscription.subscribers.size > 0 || subscription.revisionSubscribers.size > 0) return
+
+  if (subscription.refreshTimer !== null) {
+    window.clearTimeout(subscription.refreshTimer)
+    subscription.refreshTimer = null
+  }
+  clearGitStatusRecovery(subscription)
+  if (subscription.stopWatching) {
+    void subscription.stopWatching()
+  }
+  gitStatusSubscriptions.delete(key)
+}
+
+function subscribeGitStatusRevision(repoRoot: string, subscriber: GitStatusRevisionSubscriber): () => void {
+  const key = normalizePathKey(repoRoot)
+  const subscription = getGitStatusSubscription(repoRoot)
+  subscription.revisionSubscribers.add(subscriber)
+  subscriber(subscription.revision)
+
+  return () => {
+    subscription.revisionSubscribers.delete(subscriber)
+    releaseGitStatusSubscription(subscription, key)
   }
 }
 
@@ -408,6 +452,31 @@ function resolveSharedGitRepoRoot(rootPath: string): Promise<string | null> {
     })
   gitRepoRootLookups.set(key, lookup)
   return lookup
+}
+
+/**
+ * How many times this repository's status has been read, for a view that has to
+ * re-read something ELSE when the tree moves — the open diff's file content.
+ * Pass the RESOLVED repo root (`useGitStatus(...).repoRoot`), so this joins the
+ * subscription that already exists rather than starting a second watcher.
+ *
+ * It ticks inside the status hook's own debounce, so a burst of saves is one
+ * tick, and it is deliberately not part of `useGitStatus`'s result: every panel
+ * in the app reads that, and none of them should re-render because a poll came
+ * back identical.
+ */
+export function useGitTreeRevision(repoRoot: string | null): number {
+  const [revision, setRevision] = useState(0)
+
+  useEffect(() => {
+    if (!repoRoot) {
+      setRevision(0)
+      return
+    }
+    return subscribeGitStatusRevision(repoRoot, setRevision)
+  }, [repoRoot])
+
+  return revision
 }
 
 export function useGitStatus(rootPath: string | null): UseGitStatusResult {

@@ -35,6 +35,14 @@ doubled border, never a gap.
 - `ds-segmented-control--sm` — `size.control.xs` height, `font.size.micro`
   labels. The dense variant for an inline sub-control inside a compact
   popover; never the default on a form.
+- `ds-segmented-control--icon-only` (2026-09-09) — square `size.control.xs`
+  segments carrying a glyph at `icon.size.sm` instead of a word, and the label
+  becomes the segment's `aria-label` **and** its tooltip. For a strip on a band
+  that cannot spend width on labels: the diff window's side-by-side / unified
+  toggle, which shares its row with the file stepper and the include counter.
+  The square matches the `button --icon` items beside it in a
+  [toolbar](../toolbar/component.md) band rather than standing a step taller.
+  Every item must carry an icon.
 - **No accent variant.** The selected segment is a *selection*, and selection
   is neutral: `bg.selected` with the label lifted to `text.primary`. An
   accent-filled segment would spend the one solid accent on a state display.
@@ -43,7 +51,7 @@ doubled border, never a gap.
 
 | State | Treatment |
 |---|---|
-| Selected | `bg.selected`, label at `text.primary`. Exactly one, always |
+| Selected | `bg.selected`, label at `text.primary`. Exactly one, always. On `--icon-only` the glyph takes the ink lift; the fill is the same |
 | Unselected | `bg.surface`, label at `text.muted` |
 | Hover (unselected) | `bg.hover`, label lifts to `text.primary` |
 | Focus | `focus.ring` outline on the segment, on `:focus-visible` only |
@@ -72,8 +80,22 @@ are separate steps.
 
 ## Usage
 
-- Labels are one or two words, sentence case, no glyphs-as-labels. If a label
-  needs truncation the control is overloaded.
+- Labels are one or two words, sentence case, and a glyph is not a label. **One
+  carve-out, added 2026-09-09** — the same one [tabs](../tabs/component.md)
+  already carries: the `--icon-only` variant may draw the glyph *instead of* the
+  word, and only because the word is still there. It becomes the segment's
+  `aria-label` and its tooltip, so the name is one hover or one focus away and
+  unchanged for assistive tech, and the accessible name is identical in both
+  variants.
+
+  What the line forbids is unchanged and is a different thing: a glyph
+  **beside** a label, or a glyph standing in for a name that was never written.
+  The condition is load-bearing — a segment with no label and no tooltip is a
+  blank button, and it is the only thing this variant can get wrong. Reach for
+  it only where the band genuinely cannot spend the width; two words are always
+  more legible than two pictures.
+
+  If a label needs truncation the control is overloaded.
 - Segments get equal visual weight from the strip itself; do not stretch one
   segment wider to make it look primary. If one option is primary, the choice
   is not a segmented control.
@@ -97,6 +119,10 @@ are separate steps.
   luminance step, not a hue.
 - Disabled segments stay in the DOM and visible: which options *exist* is
   information even when one is unavailable.
+- On `--icon-only`, the glyph is `aria-hidden` and the label moves to the
+  segment's `aria-label`, so the accessible name is identical to the labelled
+  variant's; the tooltip is the sighted user's version of that same string, and
+  it opens on focus as well as hover.
 
 ## Known drift
 

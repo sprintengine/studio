@@ -1320,11 +1320,6 @@ export function createRendererHost(): RendererKernel {
           if (definition.id === 'settings') {
             throw new Error('Modal surface id "settings" is reserved for the app\'s own Settings.')
           }
-          // Same reservation for the Diff popout (the pane-to-popup mechanism,
-          // 2026-09-05): core, opened from the pane strip, never a trigger.
-          if (definition.id === 'diff') {
-            throw new Error('Modal surface id "diff" is reserved for the app\'s own Diff popout.')
-          }
           if (definition.label.trim().length === 0) {
             throw new Error(`Modal surface "${definition.id}" must have a non-empty label.`)
           }
