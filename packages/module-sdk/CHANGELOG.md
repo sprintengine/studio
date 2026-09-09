@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **An MCP tool can say that it writes.** `McpToolRegistration.mutates?: boolean`.
+  The Studio gateway used to classify mutations from a table of core tool names,
+  which a module's tool could never be in — so a module tool that wrote to disk
+  was served to a remote caller holding only the read scope, and left no audit
+  entry. Declare `mutates: true` and the gateway requires `<family>:operate`
+  from a tailnet caller and records every call, refusals included. Omitted means
+  a read, as before.
+
 - **A door surface names and places itself** (Extensions drawer ruling,
   2026-09-05). `GlobalSurfaceDefinition` was `{ id, Component }` while the host
   grew five presentation fields around it, so an SDK module could register a

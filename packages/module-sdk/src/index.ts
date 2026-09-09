@@ -260,6 +260,16 @@ export type McpToolRegistration = {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /**
+   * Declares that the tool CHANGES state. The Studio gateway reads it for two
+   * decisions: a remote (tailnet) caller must hold `<family>:operate` rather
+   * than the read-only `<family>:read` to invoke it, and every call — including
+   * one refused for want of that scope — is written to the gateway audit with
+   * the calling device. Omitted or false means a read: advertised to every
+   * paired device on the read scope and not audited. Declare it on anything
+   * that writes to disk, spawns a process, or reconfigures the machine.
+   */
+  mutates?: boolean
   handler: (args: Record<string, unknown>, context?: McpConnectionContext) => Promise<McpToolResult>
 }
 

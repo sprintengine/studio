@@ -22,6 +22,7 @@ import { loadMainModules, type CapabilityModule } from '../module-host/load-modu
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
 import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME } from './gateway-audit'
 import { createStudioGatewayTools, isStudioGatewayMutation } from './studio-gateway-tools'
+import { requiredScopeForTool } from './tailnet/tailnet-scopes'
 import { createReviewGatewayTools } from '../review/gateway-tools'
 import { reviewChangeSetDir } from '../review/changeset-service'
 import type { BriefRunEvent } from '../review/brief-run-service'
@@ -3093,6 +3094,53 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
   assert.equal(isStudioGatewayMutation('browser.click'), true)
   assert.equal(isStudioGatewayMutation('browser.open'), true)
   assert.equal(isStudioGatewayMutation('browser.snapshot'), false)
+
+  // A module's tool classifies itself (D11): core has no table it could appear
+  // in, so `mutates: true` on the registration is what makes a remote caller
+  // need `<family>:operate` and what puts the call in the audit. Read live from
+  // the gateway's own resolver, so a module enabled mid-session is honoured.
+  const moduleWrites: McpToolRegistration = {
+    name: 'widget_write',
+    description: 'writes',
+    inputSchema: { type: 'object' },
+    mutates: true,
+    handler: async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }),
+  }
+  const moduleReads: McpToolRegistration = {
+    name: 'widget_read',
+    description: 'reads',
+    inputSchema: { type: 'object' },
+    handler: async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }),
+  }
+  const resolveWidgetTools = createStudioGatewayTools({
+    appTools: [],
+    sprintEngineMcpHub: { callRunTool: async () => ({}) },
+    resolveModuleTools: () => [
+      { moduleId: 'widgets', moduleDisplayName: 'Widgets', registration: moduleWrites },
+      { moduleId: 'widgets', moduleDisplayName: 'Widgets', registration: moduleReads },
+    ],
+    isModuleEnabled: () => true,
+  })
+  assert.equal(isStudioGatewayMutation('widget_write', resolveWidgetTools), true)
+  assert.equal(isStudioGatewayMutation('widget_read', resolveWidgetTools), false)
+  assert.equal(
+    isStudioGatewayMutation('widget_write'),
+    false,
+    'without a resolver only the core tables answer — nothing is invented'
+  )
+  assert.equal(
+    requiredScopeForTool('widget_write', isStudioGatewayMutation('widget_write', resolveWidgetTools)),
+    'workspace:operate',
+    'a declared write needs the operate scope a remote device must be granted'
+  )
+  assert.equal(
+    requiredScopeForTool('widget_read', isStudioGatewayMutation('widget_read', resolveWidgetTools)),
+    'workspace:read',
+    'and an undeclared one stays on the read scope'
+  )
+  // The review module's one writer rides the same declaration, now that
+  // `review_submit_brief` has left core's table.
+  assert.equal(isStudioGatewayMutation('review_submit_brief'), false, 'core no longer classifies it by name')
 }
 
 // MC-1855: two modules registering the same tool name → the second is rejected

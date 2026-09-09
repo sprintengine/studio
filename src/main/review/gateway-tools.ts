@@ -162,6 +162,10 @@ export function createReviewGatewayTools(backends: ReviewGatewayBackends): McpTo
 
   const reviewSubmitBrief: McpToolRegistration = {
     name: 'review_submit_brief',
+    // The one review tool that writes: it persists brief.json. A remote caller
+    // therefore needs `review:operate`, and every submission is audited. The
+    // three review reads (list/get-changeset/get-brief) declare nothing.
+    mutates: true,
     description:
       'Persist a walkthrough (brief) for a review. Pass the brief as an object (never a JSON string). It is validated '
       + 'server-side in order — schema (the annotation-kind enum is the no-verdicts firewall), then a cross-check '

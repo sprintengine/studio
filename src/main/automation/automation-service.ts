@@ -157,10 +157,10 @@ export function createAutomationService(options: AutomationServiceOptions) {
       serverName: STUDIO_MCP_SERVER_ID,
       serverVersion: options.appVersion,
       resolveTools: options.resolveGatewayTools,
-      isMutation: isStudioGatewayMutation,
+      isMutation: (tool) => isStudioGatewayMutation(tool, options.resolveGatewayTools),
       terminals: options.resolveTerminalHost?.(),
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
-        if (!isStudioGatewayMutation(tool)) return
+        if (!isStudioGatewayMutation(tool, options.resolveGatewayTools)) return
         auditStore().record({ connection: context.metadata, tool, args, durationMs, result, error })
       },
       onEvent: options.onTailnetEvent,
@@ -203,7 +203,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
       serverVersion: options.appVersion,
       resolveTools: options.resolveGatewayTools,
       onToolCall: ({ context, tool, args, durationMs, result, error }) => {
-        if (!isStudioGatewayMutation(tool)) return
+        if (!isStudioGatewayMutation(tool, options.resolveGatewayTools)) return
         audit.record({ connection: context.metadata, tool, args, durationMs, result, error })
       },
       log: (text) => warn('Automation server', text),

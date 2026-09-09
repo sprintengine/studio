@@ -57,9 +57,6 @@ const APP_MUTATION_TOOLS = new Set([
   // `workspace.snapshot` deliberately is NOT here: it is the phone's read
   // model and maps to `workspace:read` like every other read.
   'workspace.mobile_command',
-  // The one review tool that writes: it persists brief.json. The three review
-  // reads (list/get-changeset/get-brief) are not mutations.
-  'review_submit_brief',
 ])
 const RUN_MUTATION_TOOLS = new Set<string>(SPRINTENGINE_MUTATING_TOOL_NAMES)
 
@@ -150,8 +147,24 @@ function gateOnModuleEnablement(
   }
 }
 
-export function isStudioGatewayMutation(toolName: string): boolean {
-  return APP_MUTATION_TOOLS.has(toolName) || RUN_MUTATION_TOOLS.has(toolName)
+// Does this tool change state? Two decisions read it: the tailnet scope a
+// remote caller must hold (`<family>:operate` rather than `<family>:read`) and
+// whether the call lands in the gateway audit.
+//
+// Core tools are classified by the tables above. A module-contributed tool
+// classifies itself, by declaring `mutates: true` on its registration — core
+// cannot know what a module's tool does, and a module that ships after this
+// build must still be able to say. `resolveTools` is the gateway's own live
+// tool resolver, called per question and never captured: a module enabled
+// mid-session changes the answer. Callers with no resolver to hand (tests, and
+// the run-tool tables) get the core classification alone.
+export function isStudioGatewayMutation(
+  toolName: string,
+  resolveTools?: () => ReadonlyArray<Pick<McpToolRegistration, 'name' | 'mutates'>>
+): boolean {
+  if (APP_MUTATION_TOOLS.has(toolName) || RUN_MUTATION_TOOLS.has(toolName)) return true
+  if (!resolveTools) return false
+  return resolveTools().some((tool) => tool.name === toolName && tool.mutates === true)
 }
 async function callRunTool(
   hub: Pick<SprintEngineMcpHubService, 'callRunTool'>,
