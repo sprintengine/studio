@@ -82,16 +82,16 @@ run('a GHES host on a non-default port keeps the port', () => {
   // those points at a host that does not answer (or is not the one gh has auth
   // for, which never settles).
   const parsed = parsePullRequestUrl('https://github.example.com:8443/acme/app/pull/77')
-  assert.deepEqual(parsed, {
-    provider: 'github-enterprise',
-    host: 'github.example.com',
-    port: '8443',
-    owner: 'acme',
-    repo: 'app',
-    number: 77,
-  })
-  assert.ok(parsed && 'provider' in parsed)
+  assert.ok(parsed && 'provider' in parsed, 'a ported GHES URL still parses')
   if (parsed && 'provider' in parsed) {
+    assert.deepEqual(parsed, {
+      provider: 'github-enterprise',
+      host: 'github.example.com',
+      port: '8443',
+      owner: 'acme',
+      repo: 'app',
+      number: 77,
+    })
     assert.equal(canonicalPullRequestUrl(parsed), 'https://github.example.com:8443/acme/app/pull/77')
   }
   // The default port is not a port: every github.com URL is untouched.
