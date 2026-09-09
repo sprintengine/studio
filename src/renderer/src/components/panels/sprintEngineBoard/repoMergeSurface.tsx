@@ -19,6 +19,7 @@ import { parsePullRequestUrl } from '../../../../../shared/review/pr-url'
 import type { SprintEnginePullRequestState, SprintEngineVcsRepo } from '../../../../../shared/sprintengine/run-types'
 import type { RepoMergeBlockers } from '../../../../../shared/sprintengine/repo-merge-blockers'
 import { sprintEngineRepoDisplayName } from '../../../../../shared/backlog/sprintengine-links'
+import { pullRequestTone } from '../../../../../shared/git/pull-request'
 import { OutlineButton, useConfirmDialog } from '../../ui'
 import type { StatusTone } from '../../ui/tokens'
 
@@ -40,13 +41,20 @@ export const REPO_PR_STATE_LABEL: Record<RepoPullRequestState, string> = {
 }
 
 // The one status dot's tone per PR state (the shared StatusDot vocabulary, no
-// competing pills). Merged is the app-wide merged purple — the same tone the rest
-// of the app uses for a landed PR, never the "good" green a live-but-open PR would
-// read as. Open is the product accent; closed/none are muted neutral.
+// competing pills). The three real pull request states come from the app's ONE
+// tone map, `pullRequestTone` (epic pull-request-marks, decision 2), so this
+// surface cannot disagree with any other about what a state looks like: open in
+// the product accent, merged in the app-wide merged purple a landed branch
+// wears — never the "good" green a live-but-open PR would read as — and closed
+// in the danger red GitHub itself uses. Closed was muted neutral here, which
+// read as "nothing happened" for the state that means the work was thrown away.
+//
+// `none` is NOT a fourth state and takes no tone from that map: it means there
+// is no pull request to have a state, so it stays neutral (decision 3).
 export const REPO_PR_STATE_TONE: Record<RepoPullRequestState, StatusTone> = {
-  merged: 'merged',
-  open: 'accent',
-  closed: 'neutral',
+  merged: pullRequestTone('merged'),
+  open: pullRequestTone('open'),
+  closed: pullRequestTone('closed'),
   none: 'neutral',
 }
 

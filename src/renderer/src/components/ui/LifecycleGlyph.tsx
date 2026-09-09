@@ -1,11 +1,17 @@
 import type { TooltipChildProps } from './Tooltip'
+import { PULL_REQUEST_SHAPES } from './PullRequestGlyph'
 import type { LifecycleState } from '../../../../shared/sprintengine/run-types'
 
 // One shape-coded lifecycle vocabulary shared by Backlog readiness and Sprint
 // Engine task state. State reads by shape (ring / dashed / spinner / inner-dot /
-// "!" / check / slash / "×"), never by color alone — color only reinforces. The
-// 6 px StatusDot stays the app's "live right now" idiom; this glyph carries the
-// richer lifecycle that a worklist needs, replacing per-row status dots there.
+// "!" / check / slash / "×" / the pull request marks), never by color alone —
+// color only reinforces, with no exception left (2026-09-09: `done_unmerged`
+// and `done_merged` were the last pair told apart by tone, and they now draw
+// the open and merged pull request marks).
+//
+// The 6 px StatusDot stays the app's "live right now" idiom; this glyph carries
+// the richer lifecycle that a worklist needs, replacing per-row status dots
+// there.
 // Domain-agnostic: callers map their own status enum to a LifecycleState. The
 // union's declaration moved to `src/shared/sprintengine/run-types.ts` (the
 // shared Sprint Engine state module maps board columns to it); this re-export
@@ -139,26 +145,24 @@ export function LifecycleGlyph({
         />
       </>
     ) : state === 'done_unmerged' || state === 'done_merged' ? (
-      // Complete on a branch: a git-branch fork mark (the header Git idiom) rather
-      // than a check, so it reads as "work sitting on a branch / PR" the way
-      // GitHub's own iconography does. Shape stays constant across both states;
-      // the TONE map carries merged-ness — green (--tone-good) while unmerged,
-      // merged-purple (--tone-merged) once the PR lands. On-main completions have
-      // no branch and render the filled `done` disc+check instead. A distinct
-      // merge glyph read as noise at 16px, so color differentiates merged here.
-      <>
-        <circle cx="5" cy="3.6" r="1.55" stroke="currentColor" strokeWidth="1.3" />
-        <circle cx="5" cy="12.4" r="1.55" stroke="currentColor" strokeWidth="1.3" />
-        <circle cx="11" cy="4.2" r="1.55" stroke="currentColor" strokeWidth="1.3" />
-        <path d="M5 5.15v5.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-        <path
-          d="M11 5.75v.7a3.1 3.1 0 0 1-3.1 3.1H6.5"
-          stroke="currentColor"
-          strokeWidth="1.3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </>
+      // Complete on a branch: the PULL REQUEST marks, not a check, so it reads
+      // as "work sitting on a branch / PR" the way GitHub's own iconography
+      // does. Unmerged draws the open mark and merged draws the merged one —
+      // one drawing per state, taken from `PullRequestGlyph` rather than copied,
+      // so the app has one picture of a pull request and not two.
+      //
+      // Until 2026-09-09 both states shared one fork and the TONE map alone told
+      // them apart, on a ruling that a distinct merge shape read as noise at
+      // 16 px. The pull request family disproved it, and that ruling and its
+      // sanctioned exception in the glyphs entry are both retired. The tones
+      // stay exactly as they were — green (--tone-good) while unmerged,
+      // merged-purple (--tone-merged) once it lands — because those are
+      // LIFECYCLE tones, not the pull request tone map; what changed is that
+      // they now reinforce a difference the shape already carries.
+      //
+      // On-main completions have no branch and render the filled `done`
+      // disc+check instead.
+      PULL_REQUEST_SHAPES[state === 'done_merged' ? 'merged' : 'open']
     ) : arc ? (
       <>
         <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.22" />

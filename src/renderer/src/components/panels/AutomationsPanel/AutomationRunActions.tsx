@@ -1,4 +1,4 @@
-import { FOCUS_RING_CLASS, GhostButton, Tooltip } from '../../ui'
+import { FOCUS_RING_CLASS, GhostButton, PullRequestGlyph, Tooltip } from '../../ui'
 import type { AutomationRun } from '../../../../../shared/automations/contracts'
 import { extractReportPaths } from '../../automations/reportPaths'
 
@@ -46,6 +46,12 @@ export function AutomationRunActions({
             rel="noreferrer"
             className={`inline-flex h-5 items-center gap-1 rounded-sm px-1.5 text-micro font-medium text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
           >
+            {/* The mark, not just the words (epic pull-request-marks decision
+                12). A run record carries the URL and no state, and a pull
+                request the app has captured is OPEN until GitHub says otherwise
+                (decision 3) — so it wears the open mark, in the accent the link
+                already had. Decorative: the words beside it say what it is. */}
+            <PullRequestGlyph state="open" className="icon-xs" />
             Pull request
           </a>
         </Tooltip>

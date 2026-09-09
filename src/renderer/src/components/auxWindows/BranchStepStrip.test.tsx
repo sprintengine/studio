@@ -89,8 +89,18 @@ run('a merge chip is marked, and a commit shows its hash beside its subject', ()
   const markup = strip(snapshot())
   assert.match(markup, /aaaaaa/, 'short hash')
   assert.match(markup, /Merge main/, 'subject')
-  // The merge glyph is the only svg inside a chip when there is no note.
+  // The merge glyph is the only svg inside a chip when there is no note, and it
+  // is the SYSTEM's merged mark now (epic pull-request-marks, decision 12) —
+  // this file used to keep a private fork of its own. Matched by the drawing,
+  // not by "there is an svg": the node at cy 8.5 is what makes the merged mark
+  // the merged one, and a chip that quietly went back to a hand-rolled fork
+  // would still have rendered an svg.
   assert.match(markup, /<svg[^>]*viewBox="0 0 16 16"/)
+  assert.match(markup, /cy="8\.5"/, 'the merged pull request mark, not a private fork')
+  assert.match(markup, /d="M4\.5 5\.2c\.4 2\.2 2 3\.3 5\.4 3\.3"/, 'the branch curving cleanly into main')
+  assert.equal((markup.match(/<svg/g) ?? []).length, 1, 'only the merge commit wears a mark')
+  // Decorative: the chip's own hash and subject name the commit.
+  assert.match(markup, /<svg[^>]*aria-hidden="true"/)
 })
 
 run('with no commits there is no strip to operate — and no fake choice', () => {

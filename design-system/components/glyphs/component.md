@@ -130,7 +130,7 @@ survives grayscale — with ink only reinforcing:
 | Ring + inner mark | `blocked` (bar), `paused` (pause bars), `needs_input` (!), `changes_requested` (return arrow), `archived` (slash), `failed` (×) |
 | Filling gauge arc | `in_progress` ¼ (spins when `live`), `review` ½, `testing` ¾, `product` ⅞ |
 | Disc / ring + check | `done` (filled), `approved_auto` (outline) |
-| Branch fork | `done_unmerged` (`--tone-good`), `done_merged` (`--tone-merged`) — same shape, tone carries merged-ness |
+| Pull request mark | `done_unmerged` (the open drawing, `--tone-good`), `done_merged` (the merged drawing, `--tone-merged`) — two shapes out of the Pull request family below; the lifecycle tones only reinforce them |
 | Document + tick | `recorded` |
 
 Held states (`blocked`, `paused`) are neutral ink, never the accent — the
@@ -170,6 +170,12 @@ surface inks the same state the same way:
 
 The primitive takes `state` and an optional `label`; the caller owns the size
 (`icon-xs` beside meta copy, `icon-sm` in a row's leading slot) and the ink.
+
+**Every pull request in the product is drawn from here.** `LifecycleGlyph`'s
+`done_unmerged` / `done_merged` pair takes the open and merged drawings (keeping
+its own lifecycle tones, which are not pull request tones), the branch step
+strip's merge commits take the merged one, and the sprint and automation pull
+request chips lead with the mark for their state. Nothing draws its own.
 
 ### Role (24-grid drawings, 16-grid wrappers)
 

@@ -4,7 +4,8 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { sprintEngineRepoDisplayName } from '../../../../shared/backlog/sprintengine-links'
 import type { SprintEngineVcs } from '../../types/workspace'
-import { FOCUS_RING_CLASS, PrimaryButton, Tooltip } from '../ui'
+import { FOCUS_RING_CLASS, PrimaryButton, PullRequestGlyph, Tooltip } from '../ui'
+import { PULL_REQUEST_TONE_VAR, pullRequestTone } from '../../../../shared/git/pull-request'
 
 // Pull the freshly-written projection into the store after a vcs mutation so the
 // header chip, the summary row, and the run glyph all reflect the new state.
@@ -134,15 +135,26 @@ type RunPrState = 'open' | 'merged' | 'closed' | null
 // and project their own state onto these props.
 // ----------------------------------------------------------------------------
 
-// Ink for a chip that carries its PR's merge state (`tone="state"`): merged in the
-// merged-purple the run glyph already uses for a landed branch, closed dimmed to
-// muted (terminal, but nothing landed), still-open in the link accent. Only a
-// surface showing SEVERAL pull requests at once opts in — one chip has no sibling
-// to be distinguished from, and its state is already the run's own glyph.
-function runPullRequestChipInk(prState: RunPrState): string {
-  if (prState === 'merged') return 'text-[color:var(--tone-merged)]'
-  if (prState === 'closed') return 'text-[color:var(--text-muted)]'
-  return 'text-[color:var(--accent-primary)]'
+// Ink for a chip carrying its pull request's state, from the ONE shared tone map
+// (`pullRequestTone`, epic pull-request-marks decision 2) rather than a
+// per-surface guess: open in the accent, merged in the violet a landed branch
+// already wears, closed in the danger red GitHub itself uses. Closed used to be
+// dimmed to `--text-muted` here, which read as "not important" for a state that
+// means the work was thrown away, and disagreed with what GitHub shows.
+//
+// EVERY chip takes it now, including the single-project one that used to stay a
+// flat link accent whatever its state. That opt-out predates the marks: once the
+// chip draws its state's shape, inking a merged one in the accent — which IS the
+// open tone — makes the colour contradict the shape, and decision 2 has colour
+// agreeing with shape, never arguing with it.
+//
+// A run with no pull request at all never reaches here — the chip renders
+// nothing without a URL, because nothing is drawn unless a pull request
+// definitely exists (decision 3). `null` here therefore means a pull request
+// that exists and has not been read back yet, which is OPEN, not a fourth
+// state: it takes the open tone, the same way it takes the open mark.
+export function runPullRequestChipInk(prState: RunPrState): string {
+  return PULL_REQUEST_TONE_VAR[pullRequestTone(prState ?? 'open')]
 }
 
 // The calm "view" chip: links to an existing PR. Renders nothing until there is a
@@ -150,27 +162,41 @@ function runPullRequestChipInk(prState: RunPrState): string {
 // and aria-label are caller-supplied so each surface keeps its own wording
 // (SprintEngine: "View pull request"; automations: "Open PR").
 //
-// `tone` defaults to the flat link accent every single-PR surface has always
-// rendered; `"state"` colors the chip by merge state for the per-project row a
-// multi-project run shows (MC-1613).
+// One chip, one appearance: the state's mark, then the caller's label, inked by
+// the state. The per-project row a multi-project run shows (MC-1613) and the
+// single "View pull request" chip differ only in their words.
 function RunPullRequestLinkChip({
   url,
   prState,
   label,
   ariaLabel,
-  tone = 'accent',
 }: {
   url: string | null
   prState: RunPrState
   label: string
   ariaLabel: string
-  tone?: 'accent' | 'state'
 }): JSX.Element | null {
   if (!url) return null
-  const ink = tone === 'state' ? runPullRequestChipInk(prState) : 'text-[color:var(--accent-primary)]'
+  // A pull request the app has a URL for exists, and one that exists is open
+  // until GitHub says otherwise (decision 3) — so the mark is drawn for every
+  // chip, and it is the shape, not the ink, that carries the state. The chip's
+  // own label names the project or the action, so the glyph is decorative.
+  const state = prState ?? 'open'
+  // Inline, like every other tone-driven ink in the kit (`StatusDot`): the value
+  // comes from the shared map at render time, so there is no per-state class
+  // literal here to fall out of step with it.
+  const ink = runPullRequestChipInk(prState)
   return (
     <Tooltip content={prState === 'merged' ? 'Pull request merged — open it' : prState === 'closed' ? 'Pull request closed — open it' : url}>
-      <a href={url} target="_blank" rel="noreferrer" aria-label={ariaLabel} className={`${CHIP_CLASS} ${ink} ${FOCUS_RING_CLASS}`}>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={ariaLabel}
+        style={{ color: ink }}
+        className={`${CHIP_CLASS} gap-1 ${FOCUS_RING_CLASS}`}
+      >
+        <PullRequestGlyph state={state} className="icon-xs" />
         {label}
       </a>
     </Tooltip>
@@ -288,7 +314,6 @@ export function RunPullRequestViewChip({
             prState={repo.pullRequestState ?? null}
             label={name}
             ariaLabel={`View the ${name} pull request for this sprint`}
-            tone="state"
           />
         ) : (
           <RunPullRequestPendingChip

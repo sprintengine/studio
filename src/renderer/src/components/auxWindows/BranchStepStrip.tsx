@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { ChipButton, Tooltip } from '../ui'
+import { ChipButton, PullRequestGlyph, Tooltip } from '../ui'
 import { sameSelection, type StripEntry } from './branchSteps'
 import type { BranchStepSelection } from '../../../../shared/electron-api'
 
@@ -10,17 +10,6 @@ import type { BranchStepSelection } from '../../../../shared/electron-api'
 // Left to right: the whole branch, then the uncommitted tail, then the commits
 // oldest first — the order the work happened in. A step is a commit, so the
 // strip is the branch's own history and needs nothing recorded as it happens.
-
-function MergeGlyph() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="size-icon-xs shrink-0">
-      <circle cx="4.5" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="4.5" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="11.5" cy="8" r="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M4.5 5.5v5M6 4h1.5A2.5 2.5 0 0 1 10 6.5M6 12h1.5A2.5 2.5 0 0 0 10 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  )
-}
 
 /** The diff body this strip drives, for `aria-controls`. */
 export const BRANCH_STEP_PANEL_ID = 'branch-step-panel'
@@ -97,7 +86,12 @@ export function BranchStepStrip({
                 onClick={() => onSelect(entry.selection)}
                 className="shrink-0 whitespace-nowrap"
               >
-                {entry.isMerge ? <MergeGlyph /> : null}
+                {/* A merge commit is a branch that went into this one, so it
+                    wears the system's merged mark — the same drawing every
+                    other merged pull request in the app wears, rather than the
+                    private fork this file used to keep. Decorative: the chip's
+                    own label names the commit. */}
+                {entry.isMerge ? <PullRequestGlyph state="merged" className="icon-xs" /> : null}
                 {entry.hash ? (
                   <span className="font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
                     {entry.hash}
