@@ -6,6 +6,7 @@ import { focusOrAddGitConflictTab, focusOrAddTerminalTab } from '../../utils/mod
 import { isImageFile } from '../../utils/files'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { openGitDiff } from '../../utils/openGitDiff'
+import { openDiffWindow } from '../auxWindows/openDiffWindow'
 import { basename, samePath, trimPath } from '../../utils/paths'
 import {
   fileExplorerSelectionFromVerticalRange,
@@ -14,66 +15,29 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees, workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { ContextMenu, EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, MenuDivider, MenuItem, OverflowMenu, PrimaryButton, RefreshIcon, Select, Skeleton, StashGlyph, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type OverflowMenuItem, type TabItem } from '../ui'
+import { EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, PrimaryButton, RefreshIcon, Select, Skeleton, StashGlyph, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type TabItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
+import { buildChangeRowMenu } from './git/changeRowMenu'
+import { GitChangesList } from './git/GitChangesList'
+import { GitChangesToolbar, type ShowDiffPlacement } from './git/GitChangesToolbar'
+import {
+  buildGitChangeGroups,
+  commitCounts,
+  formatCommitCounts,
+  groupToggleAction,
+  nextCheckIntent,
+  nextCursorPath,
+  splitGitPath,
+  visibleChangeRows,
+  type GitChangeGroup,
+  type GitChangeRow,
+} from './git/gitChangesModel'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
-
-// Status is conveyed by colour-coded filename text (see getGitStatusAppearance);
-// this supplies the non-visual equivalent for the row's accessible name, since
-// colour alone is not an accessible signal.
-function gitStatusWord(status: GitFileStatus | null): string | null {
-  switch (status) {
-    case 'new':
-      return 'added'
-    case 'modified':
-      return 'modified'
-    case 'renamed':
-      return 'renamed'
-    case 'deleted':
-      return 'deleted'
-    case 'conflicted':
-      return 'conflicted'
-    default:
-      return null
-  }
-}
 
 type GitPanelMessage = {
   tone: 'neutral' | 'error' | 'success'
   text: string
-}
-
-type GitChangeGroup = {
-  title: string
-  // Which diff the viewer shows for rows in this group: the Staged group shows
-  // HEAD↔index, the Unstaged group index↔worktree. A partially-staged file
-  // appears in both groups, so the group — not the entry — decides the scope.
-  scope: 'staged' | 'unstaged'
-  empty: string
-  // The verb a row's right-click menu leads with: Stage on unstaged rows,
-  // Unstage on staged rows. Discard is the same on both.
-  primaryVerb: 'Stage' | 'Unstage'
-  // Whole-group actions (stage all, stash, discard all). They sit behind the
-  // heading's one overflow control and at the foot of every row's menu — never
-  // as a button strip beside the title, which squeezed the heading to a wrap at
-  // sidebar widths and left the file paths truncated to nothing.
-  groupActions: GitGroupAction[]
-  entries: GitStatusEntry[]
-  omittedCount: number
-}
-
-// Selection key for a change row. A partially-staged file shows in both the
-// Staged and Unstaged groups, so path alone is ambiguous; the scope keeps the
-// two rows independently selectable. The NUL separator can't collide with a path.
-function changeSelectionKey(scope: 'staged' | 'unstaged', path: string): string {
-  return `${scope}\u0000${path}`
-}
-
-type GitGroupAction = {
-  label: string
-  danger?: boolean
-  action: () => Promise<unknown>
 }
 
 type GitScopeKind = 'main' | 'worktree'
@@ -102,7 +66,6 @@ const OPERATION_LABELS: Record<GitRepoOperation, string> = {
   revert: 'Revert',
 }
 
-const MAX_RENDERED_GIT_CHANGES_PER_GROUP = 500
 const GIT_PANEL_AUTO_REFRESH_MS = 10_000
 const GIT_GRAPH_PAGE_SIZE = 200
 const STANDARD_BASE_BRANCHES = ['main', 'master', 'develop', 'trunk']
@@ -268,18 +231,6 @@ function scopeHealthGlyph(label: string): { state: LifecycleState; label: string
   if (label === 'Prunable') return { state: 'archived', label: 'Prunable' }
   if (label === 'Locked') return { state: 'paused', label: 'Locked' }
   return null
-}
-
-function splitGitPath(relativePath: string): { directory: string; filename: string } {
-  const lastSlashIndex = relativePath.lastIndexOf('/')
-  if (lastSlashIndex === -1) {
-    return { directory: '', filename: relativePath }
-  }
-
-  return {
-    directory: relativePath.slice(0, lastSlashIndex),
-    filename: relativePath.slice(lastSlashIndex + 1),
-  }
 }
 
 function resultMessage(result: GitCommandResult, fallback: string): GitPanelMessage {
@@ -694,19 +645,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     () => sortedEntries(statusEntries.filter((entry) => entry.status === 'conflicted')),
     [statusEntries]
   )
-  const nonConflictEntries = useMemo(
-    () => statusEntries.filter((entry) => entry.status !== 'conflicted'),
-    [statusEntries]
-  )
-  const stagedEntries = useMemo(
-    () => sortedEntries(nonConflictEntries.filter((entry) => entry.staged)),
-    [nonConflictEntries]
-  )
-  const unstagedEntries = useMemo(
-    () => sortedEntries(nonConflictEntries.filter((entry) => entry.unstaged)),
-    [nonConflictEntries]
-  )
   const allEntries = useMemo(() => sortedEntries(statusEntries), [statusEntries])
+  // The checklist. `buildGitChangeGroups` returns the conflicts group too; the
+  // panel renders those through `ConflictGroup` above the list, because a
+  // conflicted file is resolved rather than ticked. Everything else is the
+  // checklist — one "Changes" group today, one per changelist once T6 lands,
+  // and nothing below this line knows which.
+  const changeGroups = useMemo(() => buildGitChangeGroups(statusEntries), [statusEntries])
+  const checklistGroups = useMemo(
+    () => changeGroups.filter((group) => group.checked !== null),
+    [changeGroups]
+  )
+  const changeCounts = useMemo(() => commitCounts(statusEntries), [statusEntries])
   const branchOptions = branches?.branches ?? []
   const worktreeCount = scopeOptions.filter((scope) => scope.kind === 'worktree').length
   const totalCommitCount = graph.status === 'ready' ? graph.snapshot.totalCount : 0
@@ -716,7 +666,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     const standard = named.find((branch) => STANDARD_BASE_BRANCHES.includes(branch.name))
     return standard?.name ?? named[0]?.name ?? null
   }, [branchOptions])
-  const readyToCommit = stagedEntries.length > 0 && Boolean(commitMessage.trim())
+  // "Checked" is exactly "in the index", and commit is index-only — so the
+  // button is live when the line above it reads more than zero.
+  const readyToCommit = changeCounts.checked > 0 && Boolean(commitMessage.trim())
   const activeScopeLabel = activeScope?.label ?? 'Current checkout'
   const activeScopePath = repoRoot ?? activeRootPath ?? ''
   const activeScopeAppearance = getGitScopeStatusAppearance(activeScope)
@@ -767,9 +719,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       () => window.api.unstageGitPaths(repoRoot!, paths),
       paths.length > 1 ? `Unstaged ${paths.length} files.` : 'Unstaged file.'
     )
-  const revertEntries = async (entries: GitStatusEntry[]) => {
-    // A partially-staged file appears in both change groups, so the same path can
-    // arrive twice from a cross-group selection; revert each path once.
+  // Discard. Takes rows rather than status entries because the checklist is what
+  // asks for it now, and a row already carries both spellings of the path.
+  const revertEntries = async (entries: Array<{ path: string; relativePath: string }>) => {
     const seen = new Set<string>()
     const unique = entries.filter((entry) => {
       if (seen.has(entry.path)) return false
@@ -799,117 +751,66 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       many ? `Discarded changes in ${unique.length} files.` : 'Discarded changes.'
     )
   }
-  const discardUnstagedChanges = async () => {
-    const confirmed = await dialog.confirm({
-      title: 'Discard unstaged changes?',
-      body: (
-        <>
-          This rolls back every unstaged edit in {activeScopeLabel} and removes untracked files. The action cannot be undone from here.
-          <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
-        </>
-      ),
-      confirmLabel: 'Discard changes',
-      tone: 'danger',
-    })
-    if (!confirmed) return null
 
-    return runAction(
-      'Rolling back unstaged changes',
-      () => window.api.discardUnstagedGitChanges(repoRoot!, []),
-      'Rolled back unstaged changes.'
-    )
-  }
-
-  const groups: GitChangeGroup[] = [
-    {
-      title: `Staged (${stagedEntries.length})`,
-      scope: 'staged',
-      empty: 'No staged changes',
-      primaryVerb: 'Unstage',
-      groupActions: [
-        {
-          label: 'Unstage all',
-          action: () => runAction('Unstaging all', () => window.api.unstageGitPaths(repoRoot!, []), 'Unstaged all files.'),
-        },
-      ],
-      entries: stagedEntries.slice(0, MAX_RENDERED_GIT_CHANGES_PER_GROUP),
-      omittedCount: Math.max(0, stagedEntries.length - MAX_RENDERED_GIT_CHANGES_PER_GROUP),
-    },
-    {
-      title: `Unstaged (${unstagedEntries.length})`,
-      scope: 'unstaged',
-      empty: 'No unstaged changes',
-      primaryVerb: 'Stage',
-      groupActions: [
-        {
-          label: 'Stage all',
-          action: () => runAction('Staging all', () => window.api.stageGitPaths(repoRoot!, []), 'Staged all changes.'),
-        },
-        {
-          // Stashes everything: staged, unstaged, and untracked.
-          label: 'Stash all changes',
-          action: () => handleStashPush(),
-        },
-        {
-          label: 'Discard all unstaged changes',
-          danger: true,
-          action: discardUnstagedChanges,
-        },
-      ],
-      entries: unstagedEntries.slice(0, MAX_RENDERED_GIT_CHANGES_PER_GROUP),
-      omittedCount: Math.max(0, unstagedEntries.length - MAX_RENDERED_GIT_CHANGES_PER_GROUP),
-    },
-  ]
-
-  // --- Change-row selection (multi-select + drag marquee) --------------------
-  // Mirrors the FileExplorer selection model so batch stage/unstage/revert works
-  // the same way. A partially-staged file appears in both groups, so selection is
-  // keyed by scope+path (not path alone) to keep the two rows independent.
-  const selectableRows = useMemo<Array<{ key: string; scope: 'staged' | 'unstaged'; entry: GitStatusEntry }>>(
-    () => [
-      ...stagedEntries
-        .slice(0, MAX_RENDERED_GIT_CHANGES_PER_GROUP)
-        .map((entry) => ({ key: changeSelectionKey('staged', entry.path), scope: 'staged' as const, entry })),
-      ...unstagedEntries
-        .slice(0, MAX_RENDERED_GIT_CHANGES_PER_GROUP)
-        .map((entry) => ({ key: changeSelectionKey('unstaged', entry.path), scope: 'unstaged' as const, entry })),
-    ],
-    [stagedEntries, unstagedEntries]
+  // --- The checklist: groups, cursor, selection ------------------------------
+  // Collapsed rather than expanded is what is remembered, so a group that
+  // appears later (T6's changelists) arrives OPEN — the alternative is a new
+  // changelist that silently starts folded because nobody had expanded it yet.
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set())
+  const expandedGroupIds = useMemo(
+    () => new Set(checklistGroups.filter((group) => !collapsedGroupIds.has(group.id)).map((group) => group.id)),
+    [checklistGroups, collapsedGroupIds]
   )
-  const selectableRowsRef = useRef(selectableRows)
+  // Every row on screen, in visual order: the keyboard walk, the marquee's
+  // geometry and the shift range are all this one list.
+  const visibleRows = useMemo(
+    () => visibleChangeRows(checklistGroups, (id) => expandedGroupIds.has(id)),
+    [checklistGroups, expandedGroupIds]
+  )
+  const visibleRowsRef = useRef(visibleRows)
   const changeRowNodesRef = useRef<Record<string, HTMLElement | null>>({})
-  const selectionAnchorKeyRef = useRef<string | null>(null)
+  const selectionAnchorPathRef = useRef<string | null>(null)
   const changeDragRef = useRef<{ startY: number } | null>(null)
   const changeDragCompletedRef = useRef(false)
-  const [selectedChangeKeys, setSelectedChangeKeys] = useState<Set<string>>(() => new Set())
+  // Keyed by PATH alone. The old key was `scope\0path`, because a partially
+  // staged file had a row in the Staged section and another in the Unstaged one;
+  // it is one row with a dashed box now, so the path is the whole identity.
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() => new Set())
+  const [cursorPath, setCursorPath] = useState<string | null>(null)
 
-  // Keep the geometry snapshot fresh and drop selection for rows that vanished
-  // (committed, staged away, refreshed) so stale keys never drive a batch action.
+  // Keep the geometry snapshot fresh, drop selection for rows that vanished
+  // (committed, discarded, refreshed away) so a stale path never drives a batch
+  // action, and hand the cursor to whatever took the row's place rather than
+  // dropping it — the list is the tab stop, and a cursor that evaporates on
+  // every stage is a keyboard user starting from the top each time.
   useEffect(() => {
-    selectableRowsRef.current = selectableRows
-    setSelectedChangeKeys((current) => {
+    const previousOrder = visibleRowsRef.current.map((row) => row.path)
+    const nextOrder = visibleRows.map((row) => row.path)
+    visibleRowsRef.current = visibleRows
+    setSelectedPaths((current) => {
       if (current.size === 0) return current
-      const valid = new Set(selectableRows.map((row) => row.key))
+      const valid = new Set(nextOrder)
       const next = new Set<string>()
-      for (const key of current) if (valid.has(key)) next.add(key)
+      for (const path of current) if (valid.has(path)) next.add(path)
       return next.size === current.size ? current : next
     })
-  }, [selectableRows])
+    setCursorPath((current) => nextCursorPath(previousOrder, nextOrder, current))
+  }, [visibleRows])
 
   useEffect(() => {
     const updateDragSelection = (clientY: number) => {
       if (!changeDragRef.current) return
-      const bounds = selectableRowsRef.current
+      const bounds = visibleRowsRef.current
         .map((row) => {
-          const node = changeRowNodesRef.current[row.key]
+          const node = changeRowNodesRef.current[row.path]
           if (!node) return null
           const rect = node.getBoundingClientRect()
-          return { path: row.key, top: rect.top, bottom: rect.bottom }
+          return { path: row.path, top: rect.top, bottom: rect.bottom }
         })
         .filter((row): row is { path: string; top: number; bottom: number } => Boolean(row))
       const keys = fileExplorerSelectionFromVerticalRange(bounds, changeDragRef.current.startY, clientY)
       changeDragCompletedRef.current = keys.length > 0
-      setSelectedChangeKeys(new Set(keys))
+      setSelectedPaths(new Set(keys))
     }
     const handleMouseMove = (event: MouseEvent) => updateDragSelection(event.clientY)
     const handleMouseUp = () => {
@@ -930,102 +831,148 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const beginChangeMarquee = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
-    if (event.target instanceof Element && event.target.closest('[data-git-change-row="true"]')) return
+    // A drag that starts on a row or on a group's band is that control's, not
+    // the marquee's — a band click that cleared the selection would make the
+    // group checkbox unusable with a selection in hand.
+    if (
+      event.target instanceof Element
+      && event.target.closest('[data-git-change-row="true"], [data-git-group-header="true"]')
+    ) {
+      return
+    }
     event.preventDefault()
     changeDragRef.current = { startY: event.clientY }
     changeDragCompletedRef.current = false
-    selectionAnchorKeyRef.current = null
-    setSelectedChangeKeys(new Set())
+    selectionAnchorPathRef.current = null
+    setSelectedPaths(new Set())
+  }
+
+  const registerChangeRowNode = (path: string, node: HTMLElement | null) => {
+    if (node) changeRowNodesRef.current[path] = node
+    else delete changeRowNodesRef.current[path]
   }
 
   // Returns true when the click was consumed as a selection gesture (marquee
-  // suppression, shift-range, or meta-toggle) and must not also open the diff.
-  const handleChangeRowSelect = (
-    entry: GitStatusEntry,
-    scope: 'staged' | 'unstaged',
-    event: React.MouseEvent
-  ): boolean => {
+  // suppression, shift-range, or cmd-toggle) and must not also open the diff.
+  const handleChangeRowClick = (row: GitChangeRow, event: React.MouseEvent): boolean => {
     if (changeDragCompletedRef.current) return true
-    const key = changeSelectionKey(scope, entry.path)
-    if (event.shiftKey && selectionAnchorKeyRef.current) {
+    const anchor = selectionAnchorPathRef.current
+    if (event.shiftKey && anchor) {
       const keys = fileExplorerSelectionRange(
-        selectableRowsRef.current.map((row) => row.key),
-        selectionAnchorKeyRef.current,
-        key
+        visibleRowsRef.current.map((visible) => visible.path),
+        anchor,
+        row.path
       )
-      if (keys.length) setSelectedChangeKeys(new Set(keys))
+      if (keys.length) setSelectedPaths(new Set(keys))
+      setCursorPath(row.path)
       return true
     }
     if (event.metaKey || event.ctrlKey) {
-      selectionAnchorKeyRef.current = key
-      setSelectedChangeKeys((current) => {
+      selectionAnchorPathRef.current = row.path
+      setSelectedPaths((current) => {
         const next = new Set(current)
-        if (next.has(key) && next.size > 1) next.delete(key)
-        else next.add(key)
+        if (next.has(row.path) && next.size > 1) next.delete(row.path)
+        else next.add(row.path)
         return next
       })
+      setCursorPath(row.path)
       return true
     }
-    selectionAnchorKeyRef.current = key
-    setSelectedChangeKeys(new Set([key]))
+    selectionAnchorPathRef.current = row.path
+    setSelectedPaths(new Set([row.path]))
+    setCursorPath(row.path)
     return false
   }
 
-  const registerChangeRowNode = (key: string, node: HTMLElement | null) => {
-    if (node) changeRowNodesRef.current[key] = node
-    else delete changeRowNodesRef.current[key]
+  const handleMoveCursor = (path: string, mode: 'replace' | 'extend') => {
+    const anchor = selectionAnchorPathRef.current
+    if (mode === 'extend' && anchor) {
+      const keys = fileExplorerSelectionRange(
+        visibleRowsRef.current.map((visible) => visible.path),
+        anchor,
+        path
+      )
+      setSelectedPaths(new Set(keys.length ? keys : [path]))
+    } else {
+      selectionAnchorPathRef.current = path
+      setSelectedPaths(new Set([path]))
+    }
+    setCursorPath(path)
+    changeRowNodesRef.current[path]?.scrollIntoView?.({ block: 'nearest' })
   }
 
   // A right-click on a row outside the current selection makes that row the
   // selection first, so the menu's batch labels describe exactly the rows the
   // actions will touch. A right-click inside the selection leaves it alone.
-  const handleChangeRowContextSelect = (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
-    const key = changeSelectionKey(scope, entry.path)
-    if (selectedChangeKeys.has(key)) return
-    selectionAnchorKeyRef.current = key
-    setSelectedChangeKeys(new Set([key]))
+  const handleChangeRowContextSelect = (row: GitChangeRow) => {
+    if (selectedPaths.has(row.path)) return
+    selectionAnchorPathRef.current = row.path
+    setSelectedPaths(new Set([row.path]))
+    setCursorPath(row.path)
   }
 
-  // Primary action (stage on unstaged rows, unstage on staged rows). Batches
-  // across the selection only when the clicked row is part of a multi-selection.
-  const handleChangeRowPrimary = (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
-    const key = changeSelectionKey(scope, entry.path)
-    const batching = selectedChangeKeys.has(key) && selectedChangeKeys.size > 1
-    const paths = batching
-      ? selectableRows.filter((row) => row.scope === scope && selectedChangeKeys.has(row.key)).map((row) => row.entry.path)
-      : [entry.path]
+  // The tick IS the index: unchecked and mixed both stage (mixed stages the
+  // rest, never unstages the part already in), checked unstages.
+  const handleToggleChangeRow = (row: GitChangeRow) => {
+    const paths = [row.path]
+    void (nextCheckIntent(row.checked) === 'stage' ? stagePaths(paths) : unstagePaths(paths))
+  }
+
+  const handleToggleChangeGroup = (group: GitChangeGroup, next: boolean) => {
+    // Every row the group holds, not the five hundred on screen: the box
+    // governs the group.
+    const { action, paths } = groupToggleAction(group.allRows, next)
     if (paths.length === 0) return
-    const result = scope === 'staged' ? unstagePaths(paths) : stagePaths(paths)
-    if (batching) setSelectedChangeKeys(new Set())
+    void (action === 'stage' ? stagePaths(paths) : unstagePaths(paths))
+  }
+
+  // The rows an action acts on: the selection when the row is part of it (a
+  // right-click has already made it so), otherwise the row alone.
+  const changeActionRows = (row?: GitChangeRow): GitChangeRow[] => {
+    if (row && !selectedPaths.has(row.path)) return [row]
+    const selected = visibleRows.filter((visible) => selectedPaths.has(visible.path))
+    if (selected.length > 0) return selected
+    return row ? [row] : []
+  }
+
+  // The row the toolbar's single-file actions mean: the cursor, or the first
+  // row of the selection when the cursor is off the list.
+  const toolbarTargetRow =
+    (cursorPath ? visibleRows.find((row) => row.path === cursorPath) : undefined)
+    ?? visibleRows.find((row) => selectedPaths.has(row.path))
+    ?? null
+
+  const handleChangeRowsRevert = async (rows: GitChangeRow[]) => {
+    if (rows.length === 0) return null
+    const batching = rows.length > 1
+    const result = await revertEntries(rows)
+    if (batching && result !== null) setSelectedPaths(new Set())
     return result
   }
 
-  const handleChangeRowRevert = async (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
-    const key = changeSelectionKey(scope, entry.path)
-    const batching = selectedChangeKeys.has(key) && selectedChangeKeys.size > 1
-    const entries = batching
-      ? selectableRows.filter((row) => selectedChangeKeys.has(row.key)).map((row) => row.entry)
-      : [entry]
-    const result = await revertEntries(entries)
-    if (batching && result !== null) setSelectedChangeKeys(new Set())
-    return result
-  }
-
-  const handleCommit = async () => {
-    if (!repoRoot) return
+  // Returns whether the commit actually landed, which is what `Commit & Push…`
+  // needs: a push after a refused commit pushes whatever was already there and
+  // reports success for a commit that never happened.
+  const handleCommit = async (): Promise<boolean> => {
+    if (!repoRoot) return false
     const result = await runAction(
       'Committing',
       () => window.api.commitGitChanges(repoRoot, commitMessage),
       'Committed changes.'
     )
-    if (result?.ok) {
-      if (commitDraftTimerRef.current) {
-        window.clearTimeout(commitDraftTimerRef.current)
-        commitDraftTimerRef.current = null
-      }
-      setCommitMessage('')
-      clearGitCommitDraft(workspaceId, activeScopeId)
+    if (!result?.ok) return false
+    if (commitDraftTimerRef.current) {
+      window.clearTimeout(commitDraftTimerRef.current)
+      commitDraftTimerRef.current = null
     }
+    setCommitMessage('')
+    clearGitCommitDraft(workspaceId, activeScopeId)
+    return true
+  }
+
+  const handleCommitAndPush = async () => {
+    if (!(await handleCommit())) return
+    await handlePush()
   }
 
   const handlePush = async () => {
@@ -1573,12 +1520,26 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // panel's own status hook — and it travels with the request. The pane used to
   // re-derive one from the workspace, which is a different repository whenever
   // the panel is showing a worktree scope.
-  const handleOpenFile = async (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
+  const openChangeDiff = (row: GitChangeRow, placement: ShowDiffPlacement = 'default') => {
     if (!repoRoot) return
-    openGitDiff({ workspaceId, repoRoot, focusPath: entry.path, scope })
+    const request = { workspaceId, repoRoot, focusPath: row.path, scope: row.diffScope }
+    if (placement === 'app') {
+      // The two explicit placements bypass the preference rather than flipping
+      // it: "show it there this once" is not "show it there from now on".
+      useWorkspaceStore.getState().openPaneTab(workspaceId, {
+        kind: 'diff',
+        diff: { repoRoot, focusPath: row.path, focusKind: row.diffScope },
+      })
+      return
+    }
+    if (placement === 'window') {
+      void openDiffWindow(request)
+      return
+    }
+    openGitDiff(request)
   }
 
-  const handleOpenFileInEditor = async (entry: GitStatusEntry) => {
+  const handleOpenFileInEditor = async (entry: { path: string; relativePath: string }) => {
     const name = entry.relativePath.split('/').filter(Boolean).pop() ?? entry.relativePath
     let content = ''
 
@@ -1867,32 +1828,75 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           top; only the bodies live here. */}
       <div className="flex min-h-0 flex-1 flex-col">
         <TabPanel idPrefix={gitTabsIdPrefix} tabId="changes" active={activeView === 'changes'} className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" onMouseDown={beginChangeMarquee}>
+            {/* This band belongs to the list beneath it rather
+                than to the pane — which is why it is borderless under the view
+                strip's own hairline. */}
+            <GitChangesToolbar
+              busy={Boolean(busy)}
+              hasTarget={Boolean(toolbarTargetRow)}
+              onRefresh={() => void refreshAll()}
+              onDiscard={() => void handleChangeRowsRevert(changeActionRows(toolbarTargetRow ?? undefined))}
+              onStash={() => void handleStashPush()}
+              onShowDiff={(placement) => {
+                if (toolbarTargetRow) openChangeDiff(toolbarTargetRow, placement)
+              }}
+              onExpandAll={() => setCollapsedGroupIds(new Set())}
+              onCollapseAll={() => setCollapsedGroupIds(new Set(checklistGroups.map((group) => group.id)))}
+            />
+            {/* Full-bleed: the rows carry their own 8px inset and their fill
+                runs to the pane's edges, the way a file list's does. */}
+            <div className="min-h-0 flex-1 overflow-y-auto py-1" onMouseDown={beginChangeMarquee}>
               {allEntries.length === 0 ? (
-                <div className="py-2 text-meta text-[color:var(--text-subtle)]">Working tree clean</div>
+                <div className="px-3 py-2 text-meta text-[color:var(--text-subtle)]">Working tree clean</div>
               ) : (
                 <>
-                  <ConflictGroup
-                    entries={conflictEntries}
-                    busy={busy}
-                    onOpenFile={handleOpenFileInEditor}
-                    onResolve={handleResolveConflict}
+                  {conflictEntries.length > 0 ? (
+                    <div className="px-3 pt-1">
+                      <ConflictGroup
+                        entries={conflictEntries}
+                        busy={busy}
+                        onOpenFile={handleOpenFileInEditor}
+                        onResolve={handleResolveConflict}
+                      />
+                    </div>
+                  ) : null}
+                  <GitChangesList
+                    listId={`git-changes-${workspaceId}`}
+                    groups={checklistGroups}
+                    visibleRows={visibleRows}
+                    expandedGroupIds={expandedGroupIds}
+                    onExpandedChange={(groupId, next) =>
+                      setCollapsedGroupIds((current) => {
+                        const updated = new Set(current)
+                        if (next) updated.delete(groupId)
+                        else updated.add(groupId)
+                        return updated
+                      })
+                    }
+                    selectedPaths={selectedPaths}
+                    cursorPath={cursorPath}
+                    busy={Boolean(busy)}
+                    onToggleRow={handleToggleChangeRow}
+                    onToggleGroup={handleToggleChangeGroup}
+                    onRowClick={handleChangeRowClick}
+                    onActivateRow={(row) => openChangeDiff(row)}
+                    onMoveCursor={handleMoveCursor}
+                    onSelectAll={() => setSelectedPaths(new Set(visibleRows.map((row) => row.path)))}
+                    onContextSelect={handleChangeRowContextSelect}
+                    registerRowNode={registerChangeRowNode}
+                    buildMenu={(row) =>
+                      buildChangeRowMenu({
+                        row,
+                        selectedCount: changeActionRows(row).length,
+                        busy: Boolean(busy),
+                        onDiscard: () => void handleChangeRowsRevert(changeActionRows(row)),
+                        onShowDiff: () => openChangeDiff(row),
+                        onOpenInEditor: () => void handleOpenFileInEditor(row),
+                        onStash: () => void handleStashPush(),
+                        onRefresh: () => void refreshAll(),
+                      })
+                    }
                   />
-                  {groups.map((group) => (
-                    <ChangeGroup
-                      key={group.title}
-                      group={group}
-                      busy={busy}
-                      onOpenFile={handleOpenFile}
-                      onOpenFileInEditor={handleOpenFileInEditor}
-                      selectedKeys={selectedChangeKeys}
-                      onRowSelect={handleChangeRowSelect}
-                      onRowContextSelect={handleChangeRowContextSelect}
-                      onRowPrimaryAction={handleChangeRowPrimary}
-                      onRowRevert={handleChangeRowRevert}
-                      registerRowNode={registerChangeRowNode}
-                    />
-                  ))}
                 </>
               )}
             </div>
@@ -1901,12 +1905,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               busy={busy}
               commitMessage={commitMessage}
               readyToCommit={readyToCommit}
-              stagedCount={stagedEntries.length}
+              countsLabel={formatCommitCounts(changeCounts)}
               onCommit={handleCommit}
+              onCommitAndPush={handleCommitAndPush}
               onCommitMessageChange={handleCommitMessageChange}
-              onFetch={handleFetch}
-              onPull={handlePull}
-              onPush={handlePush}
               scopeLabel={activeScopeLabel}
               scopePath={activeScopePath}
             />
@@ -2179,250 +2181,25 @@ function StashList({
   )
 }
 
-// The change row's right-click menu (MC-2104). It used to be a native Electron
-// popup, which put two menu systems inside one panel: change rows opened an
-// OS-drawn, Title-Cased menu while the log rows next door opened the in-app
-// `OverflowMenu`. Same panel, same kind of row, two registers.
-//
-// It is also where stage and discard live now. They used to be a strip of
-// three ghost buttons beside the group title plus a pair of hover icons on
-// every row — at sidebar width the strip wrapped the heading and the icons ate
-// the path column, so every file read as `…l/ConnectorRow.tsx`. A row is a
-// file; what you can do to it is asked for, not paraded (design-system menu).
-type ChangeRowMenuState = { x: number; y: number; entry: GitStatusEntry; scope: 'staged' | 'unstaged' }
-
-function ChangeGroup({
-  group,
-  busy,
-  onOpenFile,
-  onOpenFileInEditor,
-  selectedKeys,
-  onRowSelect,
-  onRowContextSelect,
-  onRowPrimaryAction,
-  onRowRevert,
-  registerRowNode,
-}: {
-  group: GitChangeGroup
-  busy: string | null
-  onOpenFile: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => Promise<void>
-  onOpenFileInEditor: (entry: GitStatusEntry) => Promise<void>
-  selectedKeys: Set<string>
-  onRowSelect: (entry: GitStatusEntry, scope: 'staged' | 'unstaged', event: React.MouseEvent) => boolean
-  onRowContextSelect: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
-  onRowPrimaryAction: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
-  onRowRevert: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
-  registerRowNode: (key: string, node: HTMLElement | null) => void
-}) {
-  const [rowMenu, setRowMenu] = useState<ChangeRowMenuState | null>(null)
-  const selectedInGroup = group.entries.reduce(
-    (count, entry) => (selectedKeys.has(changeSelectionKey(group.scope, entry.path)) ? count + 1 : count),
-    0
-  )
-  const selectedTotal = selectedKeys.size
-  const disabled = Boolean(busy)
-
-  // The heading's one trailing control (design-system section: a ceiling of
-  // one). The same actions close every row menu, so a reader who only ever
-  // right-clicks still finds them.
-  const headingMenuItems: OverflowMenuItem[] = group.groupActions.map((action) => ({
-    id: action.label,
-    label: action.label,
-    destructive: action.danger,
-    disabled,
-    onSelect: () => void action.action(),
-  }))
-
-  // Batch labels describe the rows the menu will act on. The primary verb
-  // batches within this group; discard batches across both groups, because a
-  // partially-staged file is one file however many rows it occupies.
-  const menuRowSelected = rowMenu ? selectedKeys.has(changeSelectionKey(group.scope, rowMenu.entry.path)) : false
-  const primaryCount = menuRowSelected && selectedInGroup > 1 ? selectedInGroup : 1
-  const discardCount = menuRowSelected && selectedTotal > 1 ? selectedTotal : 1
-  const primaryLabel = primaryCount > 1 ? `${group.primaryVerb} ${primaryCount} selected files` : `${group.primaryVerb} file`
-  const discardLabel = discardCount > 1 ? `Discard changes in ${discardCount} selected files` : 'Discard changes'
-
-  return (
-    <section className="mb-4">
-      <div className="mb-1 flex h-6 items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-meta font-semibold text-[color:var(--text-strong)]">{group.title}</div>
-        {group.entries.length > 0 ? (
-          <OverflowMenu
-            ariaLabel={`${group.scope === 'staged' ? 'Staged' : 'Unstaged'} changes actions`}
-            triggerTooltip="More actions"
-            items={headingMenuItems}
-          />
-        ) : null}
-      </div>
-      {group.entries.length === 0 ? (
-        <div className="py-1.5 text-micro text-[color:var(--text-muted)]">{group.empty}</div>
-      ) : (
-        <>
-          <div className="space-y-1">
-            {group.entries.map((entry) => {
-              const appearance = getGitStatusAppearance(entry.status)
-              const pathParts = splitGitPath(entry.relativePath)
-              const statusWord = gitStatusWord(entry.status)
-              // Status reads from the colour-coded filename (green added / amber
-              // modified / red + strikethrough deleted) rather than a leading
-              // dot, so the row stays a single status idiom. The leading slot
-              // is the file-type glyph — identity, not status — and the name
-              // comes first with its directory after it in muted ink (the editor's
-              // Commit list, owner 2026-09-05): the eye lands on the thing that
-              // changed, and the path is there to disambiguate, not to lead.
-              const title = (
-                <span className="flex min-w-0 items-baseline gap-2 font-mono">
-                  <span className={`min-w-0 max-w-full shrink-0 truncate ${appearance.textClass}`}>
-                    {pathParts.filename}
-                  </span>
-                  {pathParts.directory ? (
-                    <span className="min-w-0 shrink truncate text-micro font-normal text-[color:var(--text-muted)]">
-                      {pathParts.directory}
-                    </span>
-                  ) : null}
-                </span>
-              )
-              const leading = <FileTypeGlyph name={pathParts.filename} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
-              const trailing = appearance.badge ? (
-                <span className="font-mono text-micro font-semibold opacity-80">{appearance.badge}</span>
-              ) : null
-              const rowKey = changeSelectionKey(group.scope, entry.path)
-              const rowSelected = selectedKeys.has(rowKey)
-              return (
-                <div
-                  key={`${group.title}:${entry.path}`}
-                  ref={(node) => registerRowNode(rowKey, node)}
-                  data-git-change-row="true"
-                  onContextMenu={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onRowContextSelect(entry, group.scope)
-                    // A keyboard-summoned menu (Shift+F10, the Menu key) carries
-                    // no pointer; open it on the row rather than at the viewport
-                    // corner.
-                    const rect = event.currentTarget.getBoundingClientRect()
-                    setRowMenu({
-                      x: event.clientX || rect.left,
-                      y: event.clientY || rect.bottom,
-                      entry,
-                      scope: group.scope,
-                    })
-                  }}
-                >
-                  <InboxRow
-                    leading={leading}
-                    title={title}
-                    trailing={trailing}
-                    selected={rowSelected}
-                    onSelect={(event) => {
-                      // Modifier/marquee clicks are consumed for selection; a
-                      // plain click selects the single row and opens its diff.
-                      if (onRowSelect(entry, group.scope, event)) return
-                      void onOpenFile(entry, group.scope)
-                    }}
-                    ariaLabel={statusWord ? `Open ${entry.relativePath}, ${statusWord}` : `Open ${entry.relativePath}`}
-                  />
-                </div>
-              )
-            })}
-          </div>
-          {group.omittedCount > 0 ? (
-            <div className="mt-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2 py-1.5 text-micro text-[color:var(--text-subtle)]">
-              {group.omittedCount} more changes hidden to keep the panel responsive. Use the heading menu or the Git CLI for bulk actions.
-            </div>
-          ) : null}
-        </>
-      )}
-      {rowMenu ? (
-        <ContextMenu
-          x={rowMenu.x}
-          y={rowMenu.y}
-          ariaLabel={`Actions for ${rowMenu.entry.relativePath}`}
-          onClose={() => setRowMenu(null)}
-          surfaceClassName="min-w-[220px]"
-        >
-          <MenuItem
-            disabled={disabled}
-            onClick={() => {
-              const { entry, scope } = rowMenu
-              setRowMenu(null)
-              void onRowPrimaryAction(entry, scope)
-            }}
-          >
-            {primaryLabel}
-          </MenuItem>
-          <MenuItem
-            variant="danger"
-            disabled={disabled}
-            onClick={() => {
-              const { entry, scope } = rowMenu
-              setRowMenu(null)
-              void onRowRevert(entry, scope)
-            }}
-          >
-            {discardLabel}
-          </MenuItem>
-          <MenuDivider />
-          <MenuItem
-            onClick={() => {
-              const { entry, scope } = rowMenu
-              setRowMenu(null)
-              void onOpenFile(entry, scope)
-            }}
-          >
-            View Git diff
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              const { entry } = rowMenu
-              setRowMenu(null)
-              void onOpenFileInEditor(entry)
-            }}
-          >
-            Open file in editor
-          </MenuItem>
-          <MenuDivider />
-          {group.groupActions.map((action) => (
-            <MenuItem
-              key={action.label}
-              variant={action.danger ? 'danger' : undefined}
-              disabled={disabled}
-              onClick={() => {
-                setRowMenu(null)
-                void action.action()
-              }}
-            >
-              {action.label}
-            </MenuItem>
-          ))}
-        </ContextMenu>
-      ) : null}
-    </section>
-  )
-}
-
 function CommitComposer({
   busy,
   commitMessage,
   readyToCommit,
-  stagedCount,
+  countsLabel,
   onCommit,
+  onCommitAndPush,
   onCommitMessageChange,
-  onFetch,
-  onPull,
-  onPush,
   scopeLabel,
   scopePath,
 }: {
   busy: string | null
   commitMessage: string
   readyToCommit: boolean
-  stagedCount: number
-  onCommit: () => Promise<void>
+  /** `N of M files` — checked of total. The line the mockup's foot carries. */
+  countsLabel: string
+  onCommit: () => Promise<boolean>
+  onCommitAndPush: () => Promise<void>
   onCommitMessageChange: (value: string) => void
-  onFetch: () => Promise<void>
-  onPull: () => Promise<void>
-  onPush: () => Promise<void>
   scopeLabel: string
   scopePath: string
 }) {
@@ -2449,27 +2226,29 @@ function CommitComposer({
         className="h-16"
       />
       <div className="mt-2 flex items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]">
-          {stagedCount > 0 ? `${stagedCount} staged` : 'Nothing staged'}
-        </div>
+        {/*
+         * `11 of 26 files` — what the index holds, of what the list shows. It
+         * replaces "3 staged", and the difference is not wording: the checkbox
+         * IS the index now, so the line states the same fact the boxes do and
+         * the Commit button beside it turns on at exactly the same moment.
+         *
+         * Fetch / Pull / Push left with it. Both counts already ride the panel's
+         * chrome row as the arrow buttons that appear when there is anything to
+         * pull or push, and a foot with five controls in a 340px pane had none
+         * of them readable. What a commit needs is here: commit, or commit and
+         * send it.
+         */}
+        <div className="min-w-0 truncate text-micro text-[color:var(--text-subtle)]">{countsLabel}</div>
         <div className="flex shrink-0 items-center gap-2">
-          <GhostButton size="md" onClick={() => void onFetch()} disabled={Boolean(busy)}>
-            Fetch
-          </GhostButton>
-          <GhostButton size="md" onClick={() => void onPull()} disabled={Boolean(busy)}>
-            Pull
-          </GhostButton>
-          <GhostButton size="md" onClick={() => void onPush()} disabled={Boolean(busy)}>
-            Push
-          </GhostButton>
-          {/* The panel's most important action, and until MC-2113 the one place
-              in the product that painted a primary as an INVERTED fill — the ink
-              colour used as a background, hovering toward a per-theme hex the
-              design system never published. It is the accent fill now, like
-              every other primary. */}
           <PrimaryButton size="md" onClick={() => void onCommit()} disabled={Boolean(busy) || !readyToCommit}>
             Commit
           </PrimaryButton>
+          {/* The ellipsis is honest: the push half can still ask (an upstream
+              to set, a confirmation), and the commit half runs first — a push
+              never follows a commit git refused. */}
+          <GhostButton size="md" onClick={() => void onCommitAndPush()} disabled={Boolean(busy) || !readyToCommit}>
+            Commit &amp; Push…
+          </GhostButton>
         </div>
       </div>
     </section>
