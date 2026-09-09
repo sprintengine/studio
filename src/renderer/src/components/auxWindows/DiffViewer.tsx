@@ -48,6 +48,9 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { writeAuxWindowSetting } from './auxSettingsWrite'
 import { getGitEntry } from '../../hooks/useGitStatus'
 import type { DiffViewMode } from '../../store/slices/settingsSlice'
+import { HunkGutter, GLYPH_MARGIN_LANE_CENTER, type GlyphMarginHost } from './HunkGutter'
+import { hunkBoxes, hunkFileKey } from './hunkGutterModel'
+import { useFileHunks } from './useFileHunks'
 import {
   DEFAULT_DIFF_EDITOR_PREFS,
   diffEditorOptions,
@@ -477,6 +480,10 @@ export function DiffViewer({
 
   const [content, setContent] = useState<DiffContent>({ state: 'loading' })
   const diffEditorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null)
+  // The MODIFIED editor and the lane its glyph margin hangs widgets in — the
+  // two things the per-hunk include boxes need (T7). State rather than a ref
+  // because the boxes are React's to render and must appear when Monaco does.
+  const [gutterHost, setGutterHost] = useState<{ editor: GlyphMarginHost; lane: number } | null>(null)
   const hunksRef = useRef<Monaco.editor.ILineChange[]>([])
   const hunkIndexRef = useRef(0)
   const pendingEdgeRef = useRef<'first' | 'last' | null>(null)
@@ -507,6 +514,17 @@ export function DiffViewer({
   // One token for every read in flight, target change and live re-read alike:
   // whoever started last is the only one allowed to land.
   const loadSeqRef = useRef(0)
+  // A SECOND, monotonic token, taken only by the live re-reads below. They
+  // cannot take `loadSeqRef`'s: incrementing it would cancel the target
+  // effect's own in-flight read, and merely READING it (which is what the live
+  // effect did until this was reviewed) hands two concurrent live re-reads the
+  // same number, so the older one passes the check and lands last — the stale
+  // text this whole effect exists to remove. Two counters, both checked on
+  // resolve: the load token says "no file switch since", the live token says
+  // "no newer live re-read since". Not extractable as a pure function without
+  // lifting the whole read out of the component, so it is asserted here in
+  // words rather than in a test.
+  const liveSeqRef = useRef(0)
   // The item the live re-read should read, without making that effect depend on
   // the item (it must fire on the tree moving, and on nothing else).
   const currentItemRef = useRef<DiffFileItem | null>(null)
@@ -555,10 +573,16 @@ export function DiffViewer({
     if (previous === null || previous === 0) return
     const item = currentItemRef.current
     if (!item) return
-    const token = loadSeqRef.current
+    const loadToken = loadSeqRef.current
+    liveSeqRef.current += 1
+    const liveToken = liveSeqRef.current
     void loadDiffContent(repoRoot, item).then((next) => {
       // A file switch during the read supersedes it: its own load is authoritative.
-      if (loadSeqRef.current !== token) return
+      if (loadSeqRef.current !== loadToken) return
+      // And a LATER live re-read supersedes an earlier one: two ticks of the
+      // status hook close together read the same two sides twice, and without
+      // this the slower (older) read is free to land second.
+      if (liveSeqRef.current !== liveToken) return
       setContent((previous) => (sameDiffContent(previous, next) ? previous : next))
     })
   }, [treeRevision, repoRoot])
@@ -583,12 +607,26 @@ export function DiffViewer({
   }, [])
 
   const handleDiffMount = useCallback<DiffOnMount>(
-    (editor) => {
+    (editor, monaco) => {
       diffEditorRef.current = editor
+      // The one editor drawn in BOTH views: side-by-side shows it beside the
+      // original, unified relays both sides into it. Every hunk box goes here,
+      // so the gutter does not half-vanish with the layout toggle.
+      const modified = editor.getModifiedEditor() as unknown as GlyphMarginHost
+      setGutterHost({
+        editor: modified,
+        lane: monaco.editor.GlyphMarginLane?.Center ?? GLYPH_MARGIN_LANE_CENTER,
+      })
       // The models the wrapper created for this mount; it keeps them (see the
       // props), so they are released here once the widget has let go of them.
       const model = editor.getModel()
       editor.onDidDispose(() => {
+        // Let go of the gutter first: its widgets belong to an editor that no
+        // longer exists, and a later effect must not try to remove them from it.
+        // Guarded on identity — a file switch mounts the next editor around the
+        // same time this fires, and clearing unconditionally would blank a
+        // gutter that has already been handed its new home.
+        setGutterHost((current) => (current && current.editor === modified ? null : current))
         window.setTimeout(() => {
           model?.original.dispose()
           model?.modified.dispose()
@@ -874,6 +912,28 @@ export function DiffViewer({
     })()
   }, [currentItem, fileInclude, refreshGitStatus, repoRoot])
 
+  // ── The hunk include boxes ──────────────────────────────────────────────
+  // One box per hunk of the diff on screen, in Monaco's glyph margin, and the
+  // file's own "N differences, M included" count. Both come from ONE read in
+  // main, so the boxes and the sentence above them can never be describing two
+  // different moments (useFileHunks / src/main/git-hunks.ts).
+  const fileHunks = useFileHunks({
+    repoRoot,
+    item: currentItem,
+    treeRevision,
+    refreshGitStatus,
+  })
+  const gutterBoxes = useMemo(
+    () =>
+      hunkBoxes({
+        hunks: fileHunks.hunks,
+        key: hunkFileKey(currentItem),
+        override: fileHunks.override,
+        relativePath: currentItem?.relativePath ?? '',
+      }),
+    [fileHunks.hunks, fileHunks.override, currentItem?.kind, currentItem?.path, currentItem?.relativePath]
+  )
+
   // ── Open in editor ──────────────────────────────────────────────────────
   // The pane routes through `openFileSurface`, which honours the person's
   // "where do files open" preference. The WINDOW cannot: it has no pane to add
@@ -900,6 +960,7 @@ export function DiffViewer({
     item: currentItem,
     differenceCount,
     fileInclude,
+    hunkSummary: fileHunks.summary,
   })
 
   const header = headerStripModel(currentItem)
@@ -1131,9 +1192,12 @@ export function DiffViewer({
         </div>
       </div>
 
-      {includeError ? (
+      {/* One band for both include failures — the whole file's and a single
+          hunk's. They are the same sentence to a person ("that did not go into
+          the commit") and git's own words are what either one shows. */}
+      {(includeError ?? fileHunks.error) ? (
         <InlineNotice tone="error" className="mx-3 mt-2 shrink-0">
-          {includeError}
+          {includeError ?? fileHunks.error}
         </InlineNotice>
       ) : null}
 
@@ -1153,6 +1217,17 @@ export function DiffViewer({
           options={editorOptions}
           stepLoading={branchSteps && steps.loading}
         />
+        {/* Renders nothing of its own — only portals into the widget nodes it
+            hangs in Monaco's glyph margin — so where it sits in the tree is
+            immaterial, and it sits beside the editor it draws on. */}
+        {content.state === 'ready' ? (
+          <HunkGutter
+            editor={gutterHost?.editor ?? null}
+            lane={gutterHost?.lane ?? GLYPH_MARGIN_LANE_CENTER}
+            boxes={gutterBoxes}
+            onToggle={fileHunks.toggle}
+          />
+        ) : null}
       </div>
     </div>
   )
