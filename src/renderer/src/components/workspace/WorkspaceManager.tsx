@@ -405,7 +405,7 @@ function showCliUpdateToast(advisory: CliVersionAdvisory): void {
     level: 'info',
     source: 'cli',
     title: notice.title,
-    message: advisory.currentVersion ? `Installed ${advisory.currentVersion}` : notice.description,
+    message: advisory.currentVersion ? `Installed ${advisory.currentVersion}` : 'Installed version unknown',
     navigationTarget: { kind: 'settings', ref: 'agents' },
   })
   const dismiss = (): void => useToastStore.getState().dismissToast(id)
@@ -414,7 +414,6 @@ function showCliUpdateToast(advisory: CliVersionAdvisory): void {
     tone: 'neutral',
     cli: advisory.cli,
     title: notice.title,
-    description: notice.description,
     autoDismissMs: false,
     actions: [
       {
