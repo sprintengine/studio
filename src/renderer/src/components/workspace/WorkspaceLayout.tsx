@@ -50,7 +50,6 @@ import { RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, Workspa
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
-import { agentInitials, rowConversationPeekRoster } from './conversationPeekRow'
 import { useRemoteAttachedSessions } from './topbar/useTailnetPresence'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
@@ -303,11 +302,10 @@ function renderTerminalRecencyIndicator(
 function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, renderNewAgentPanel }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
-  // The chat's own name, for the conversation peek's header. A tab card that
-  // holds a roster names the CHAT there and each agent on the roster's identity
-  // line; with one agent the two are the same question and the agent's name
-  // still wins, exactly as the tab itself is labelled.
   const workspaceName = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name ?? '')
+  // A file the peek card lists opens in the workspace pane's Diff tab, the same
+  // tab and the same focus a Git panel row opens (see GitPanel.handleOpenFile).
+  const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
   const workspaceRemoteOrigin = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.remoteOrigin ?? null,
   )
@@ -1380,66 +1378,57 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then sprint lifecycle, then the honest
       // recency source (Idle / Last activity / Exited) — never a blanket "Idle".
+      // The corner's state, in the card's own three kinds. `working` is the
+      // pulsing green dot the tab wears; `attention` is Waiting, Failed and
+      // Paused, which are worth the same weight without claiming motion; every
+      // other answer is a chat at rest. The card draws the sidebar's working
+      // dots for `working` and never a status dot — the row and the card have
+      // to say "working" the same way (mockup frame 2).
       const identityStatus: AgentTabIdentity['status'] = agentSession?.suspended
         ? {
-            tone: 'neutral',
-            pulse: false,
+            kind: 'attention',
             label: agentRecencyText ? `Paused · ${agentRecencyText}` : 'Paused',
           }
         : activityDot
-          ? { tone: activityDot.tone, pulse: Boolean(activityDot.pulse), label: activityDot.label }
+          ? {
+              kind: activityDot.tone === 'good' && activityDot.pulse
+                ? 'working'
+                : activityDot.tone === 'neutral'
+                  ? 'idle'
+                  : 'attention',
+              label: activityDot.label,
+            }
           : sprintEngineLifecycle
             ? {
-                tone: sprintEngineLifecycle.state === 'needs_input' ? 'warn' : 'neutral',
-                pulse: false,
+                kind: sprintEngineLifecycle.state === 'needs_input' ? 'attention' : 'idle',
                 label: sprintEngineLifecycle.label,
               }
             : agentRecency !== null && agentRecencyText
               ? {
-                  tone: 'neutral',
-                  pulse: false,
+                  kind: 'idle',
                   label: `${tabRecencyLabel(agentRecency.source)} · ${agentRecencyText}`,
                 }
-              : { tone: 'neutral', pulse: false, label: 'Idle' }
-      // The chat's roster, with THIS tab's agent moved to the front so the card
-      // opens on the conversation you actually hovered (mockup frame 9). The
-      // rest of the chat's terminals stay on the roster, so the card can be
-      // moved to them without leaving the tab.
-      const chatRoster = rowConversationPeekRoster({
-        workspace: { agents: workspaceAgents, remoteOrigin: workspaceRemoteOrigin },
-        sessions: terminalSessions.filter((session) => session.workspaceId === workspaceId),
-      })
-      const tabRoster = agentSessionId
-        ? [
-            ...chatRoster.filter((entry) => entry.sessionId === agentSessionId),
-            ...chatRoster.filter((entry) => entry.sessionId !== agentSessionId),
-          ]
-        : chatRoster
-      // A tab whose agent main has no session or record for still gets a card
-      // for itself, built from what the tab already knows.
-      const roster: AgentTabIdentity['roster'] =
-        tabRoster.length > 0 || !agentSessionId
-          ? tabRoster
-          : [
-              {
-                sessionId: agentSessionId,
-                name: agent?.name ?? node.getName(),
-                initials: agentInitials(agent?.name ?? node.getName()),
-                cli: agent?.cli ?? null,
-                model: agent?.cliModel ?? null,
-                status: identityStatus,
-              },
-            ]
+              : { kind: 'idle', label: 'Idle' }
+      // The tab's card is about the tab's OWN agent, so the session snapshot it
+      // reads is that agent's — the ledger, the subagent count and the context
+      // reading all belong to one session and none of them merge.
+      const agentSnapshot = agentSessionId
+        ? terminalSessions.find((session) => session.sessionId === agentSessionId)
+        : undefined
       const agentIdentity: AgentTabIdentity = {
-        // One agent: the tab's card is about that agent, and it is named the
-        // way the tab is. Several: the header names the chat and the roster's
-        // identity line names whichever agent the body is currently showing,
-        // because that half changes as the discs are swept and the header
-        // must not.
-        name: roster.length > 1 ? workspaceName || node.getName() : (agent?.name ?? node.getName()),
+        name: agent?.name ?? node.getName(),
         taskId: currentTaskId ?? null,
         status: identityStatus,
-        roster,
+        agent: {
+          // A tab whose agent main has no session for still gets a card, built
+          // from what the tab already knows; the empty id simply asks nothing.
+          sessionId: agentSessionId ?? '',
+          cli: agent?.cli ?? null,
+          model: agent?.cliModel ?? null,
+          fileChanges: agentSnapshot?.fileChanges ?? [],
+          activeSubagents: agentSnapshot?.activeSubagents ?? 0,
+          contextUsage: agentSnapshot?.contextUsage ?? null,
+        },
       }
 
       // The identity card IS the conversation peek, so the agent tab takes the
@@ -1448,7 +1437,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // the same pointer. Plain terminal tabs, which have no identity card,
       // keep that peek as their only reveal.
       renderValues.content = (
-        <AgentTabIdentityPopover identity={agentIdentity}>
+        <AgentTabIdentityPopover
+          identity={agentIdentity}
+          onOpenDiff={(path) =>
+            openPaneTab(workspaceId, {
+              kind: 'diff',
+              diff: { focusPath: path, focusKind: path ? 'unstaged' : null },
+            })
+          }
+        >
           {tabNameSpan}
           {remoteMark}
           {trailing}

@@ -1,19 +1,32 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
 
 import CliIcon from '../CliIcon'
-import { Badge, ChipButton, IconButton, MediaButton, Skeleton, StatusDot, Tooltip, TruncatedText, type Tone } from '../ui'
+import {
+  AgentWorkingDots,
+  Badge,
+  ContextRing,
+  IconButton,
+  LinkButton,
+  MediaButton,
+  Skeleton,
+  Tooltip,
+  TruncatedText,
+} from '../ui'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
-import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
+import { formatRelativeMs } from '../../utils/relativeTime'
 import type { AgentCli } from '../../types/workspace'
+import type { SessionContextUsage, SessionFileChange } from '../../../../shared/electron-api'
 import type {
   ConversationPeek,
   ConversationPeekAttachment,
+  ConversationPeekImage,
   ConversationPeekMessage,
 } from '../../../../shared/conversation-peek'
 
 // The conversation peek — one hover surface for "what is this chat", opened
 // from a sidebar row and from an agent tab. Design:
-// `backlog/mockups/2026-09-07-conversation-peek.html`.
+// `backlog/mockups/2026-09-09-conversation-peek-one-thread.html`, which revises
+// the 2026-09-07 sheet.
 //
 // This file is the PRESENTATIONAL half: identity in, markup out, no portal, no
 // hover mechanics, no IPC — so it server-renders under the repo's static-markup
@@ -21,72 +34,97 @@ import type {
 // they already own. `ConversationPeekPopover` and `AgentTabIdentityPopover` are
 // the two shells; neither draws any of this itself.
 //
+// ONE AGENT PER CARD (owner, 2026-09-09). The roster of discs is gone: the
+// sidebar already lists a chat's agents as its own sub-lines, so the person
+// points at the one they mean and the card is that agent's — its files, its
+// images, its thread, its corner. A selector inside a hover surface was solving
+// a problem the surface it opens from had already solved.
+//
 // What is deliberately NOT here, because the design cut it: a footer, a "click
-// to open · Esc dismisses" hint, and a message count. The card is the messages;
-// counting them told the reader nothing the list did not, and a keyboard hint
-// on a hover surface is chrome explaining chrome.
+// to open · Esc dismisses" hint, a message count, the quoted first message
+// under its own heading, and the "Since then" heading under that. The thread is
+// one list with the first message as row one; two headings over one
+// conversation were chrome explaining chrome.
 
 /**
- * Identity behind the conversation — everything the card says that is not a
- * message. Assembled by the caller (a tab knows its agent record, a sidebar row
- * knows its session) so this component stays presentational.
+ * The chat's live state, in the corner's voice.
  *
- * Role, Runtime and Checkout are gone on purpose (mockup frame 1): "No role"
- * was the answer for almost every agent, the runtime repeated the mark already
- * on the tab, and the checkout repeated the branch already on the topbar. Model
- * and session id earned their place and stayed.
+ * `kind` and not a `Tone`, because the corner is not a status dot and never
+ * was: it is the SIDEBAR's own mark — the working dots — and one word beside
+ * them. Three kinds are all the corner can draw differently: dots and muted
+ * ink, no dots and subtle ink, no dots and muted ink.
  */
+export type ConversationPeekStatus = {
+  /**
+   * - `working` — the dots, and the word.
+   * - `idle` — no dots, and the quieter ink: nothing is happening, and a chat
+   *   at rest should not be as loud as one that is running.
+   * - `attention` — no dots, muted ink. Waiting, Failed, Paused: states worth
+   *   the same weight as Working without claiming motion that is not there.
+   */
+  kind: 'working' | 'idle' | 'attention'
+  /** The one word (or short phrase) the corner says: "Working", "Idle · 12m", "Failed". */
+  label: string
+}
+
 /**
- * One terminal the card can be moved to. The highlighted disc owns the WHOLE
- * body — that terminal's first message, its messages since, its model and its
- * session id. Nothing is merged.
+ * The agent this card is about. One, always — see the file header.
+ *
+ * The three session figures below ride the identity rather than being read here
+ * because the card is presentational and the shells already hold a session
+ * snapshot (the sidebar) or an agent record (the tab). A component that fetched
+ * its own would be a second source for facts the anchor is already drawing.
  */
 export type ConversationPeekAgent = {
   /** What `readConversationPeek` is asked about. Already the unit of the contract. */
   sessionId: string
-  /** The agent's name — the disc's accessible name, never its face. */
-  name: string
-  /** The disc's face: two letters. */
-  initials: string
   /** Runtime id; null when unknown. */
   cli: AgentCli | null
   /** Launch model id; null → the CLI's own default. */
   model: string | null
-  /** This terminal's own state, docked on its disc. */
-  status: { tone: Tone; pulse: boolean; label: string } | null
+  /**
+   * What this session has edited, newest-edited first, from its own hooks.
+   * Empty for a hookless runtime and for an agent that has written nothing —
+   * and then the card draws no file list at all rather than an empty one.
+   */
+  fileChanges: SessionFileChange[]
+  /** Subagents out right now. Replaces the corner's word while it is above zero. */
+  activeSubagents: number
+  /** Context-window usage, or null when nothing has reported any. Null draws no ring. */
+  contextUsage: SessionContextUsage | null
 }
 
 export type ConversationPeekIdentity = {
-  /** The CHAT's name — the tab's or the row's title. Constant across the roster. */
+  /** The chat's name — the tab's or the row's title. */
   name: string
   /** Sprint task the agent is claimed on, when applicable. */
   taskId: string | null
-  /** The chat's live state, mirroring the dot the anchor already wears; null to omit. */
-  status: { tone: Tone; pulse: boolean; label: string } | null
-  /**
-   * Every terminal this chat can be moved to, the one selected at rest first.
-   * Never empty — a chat with nothing to peek at is not offered a card at all.
-   *
-   * One entry is the ordinary case and draws no roster: the chat IS the
-   * terminal, and a selector over one thing is chrome. Two or more draws the
-   * discs, and then the selected disc owns the whole body.
-   */
-  roster: ConversationPeekAgent[]
+  /** The corner's state; null to omit it entirely. */
+  status: ConversationPeekStatus | null
+  /** The one agent whose conversation this card shows. */
+  agent: ConversationPeekAgent
 }
 
 /**
- * Images shown as thumbnails before the rest are counted. The wire cap is
- * `MAX_PEEK_ATTACHMENTS` (8); three is what fits the card's measure beside a
+ * Images shown in the strip before the rest are counted. The wire cap is
+ * `MAX_PEEK_ATTACHMENTS` (8); six is what fits the card's measure beside a
  * "+N" without the strip wrapping into a second row.
  */
-const MAX_THUMBNAILS = 3
+const MAX_THUMBNAILS = 6
 
 /**
  * Thread rows before the list is masked at its top edge. The list scrolls at
- * `108px` — about four rows — so a fifth row is the first one that hides
+ * `164px` — about six rows — so a seventh row is the first one that hides
  * something, and the fade is the only honest way to say so without a count.
  */
-const THREAD_ROWS_BEFORE_FADE = 4
+const THREAD_ROWS_BEFORE_FADE = 6
+
+/**
+ * Files listed as rows. Past this the list is not drawn at all: one quiet line
+ * says how many there are and hands the whole thing to the diff, because a
+ * hover is a glance and twenty-four rows is a review (mockup frame 4).
+ */
+const MAX_FILE_ROWS = 20
 
 const CopyGlyph = ({ done }: { done: boolean }) =>
   done ? (
@@ -129,12 +167,6 @@ function ageOf(at: number, now: number): string | null {
   return formatRelativeMs(at, now) || 'now'
 }
 
-/** The same rule for the first message's "3h ago" label. */
-function agoOf(at: number, now: number): string | null {
-  if (!Number.isFinite(at) || at <= 0) return null
-  return formatRelativeMsAgo(at, now) || 'just now'
-}
-
 /**
  * The session id as the mockup draws it: `e4b3d55c…4687`. A chip that merely
  * truncates clips at whatever the measure happens to be, which throws away the
@@ -147,22 +179,187 @@ export function elideSessionId(sessionId: string): string {
 }
 
 /**
- * The section labels, which are how the card says which of the three shapes it
- * is in rather than looking broken (mockup frame 8). A `live` peek is prompts
- * seen since this app launched — not the chat's history — and a reader who is
- * not told that reads a truncated conversation as the whole one.
+ * A path split for the file row: the name that carries the link, and the folder
+ * that stays quiet behind it.
+ *
+ * Both separators, because a path off a hook on Windows carries backslashes and
+ * a row that showed the whole of `C:\repo\src\main\thing.ts` as one "basename"
+ * would be the row saying nothing. Exported for the tests, which is also the
+ * only way to assert the Windows case from a suite that runs on posix.
  */
-function labelsFor(source: ConversationPeek['source']): { first: string; since: string } {
-  return source === 'live'
-    ? { first: 'First message since launch', since: 'Since then' }
-    : { first: 'First message', since: 'Since then' }
+export function splitChangedPath(path: string): { name: string; folder: string } {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  if (cut < 0) return { name: path, folder: '' }
+  return { name: path.slice(cut + 1), folder: path.slice(0, cut) }
 }
 
 /**
- * A thumbnail button, or a file chip. Both open the thing they name — the image
- * in a viewer, the file the way a path in the terminal already does — which is
- * why attachments live on the card and never in the thread tooltip: a tooltip
- * may hold nothing clickable, and a control needs a focus ring.
+ * The corner: the sidebar's own working mark and one word, and nothing else
+ * added for a state (mockup frame 2).
+ *
+ * Never a `StatusDot` — that was the shipped card's mistake and it is the whole
+ * point of this revision. The row says "working" with three staggered dots; the
+ * card saying it with a pulsing green disc six pixels away made two vocabularies
+ * for one fact, and the reader has to learn both.
+ *
+ * Subagents REPLACE the word rather than adding to it: "2 running" is strictly
+ * more than "Working" — it says the agent is working AND what it is doing — so
+ * a card that said both would be spending a line on the weaker half.
+ */
+function LiveCorner({
+  status,
+  activeSubagents,
+}: {
+  status: ConversationPeekStatus
+  activeSubagents: number
+}) {
+  const working = status.kind === 'working'
+  const label = working && activeSubagents > 0
+    ? `${activeSubagents} running`
+    : status.label
+  return (
+    <span
+      className={`ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap text-meta ${
+        status.kind === 'idle'
+          ? 'text-[color:var(--text-subtle)]'
+          : 'text-[color:var(--text-muted)]'
+      }`}
+    >
+      {working ? (
+        <>
+          {/* The dots carry the accessible name and the word beside them is
+              decorative, so the state is announced once rather than twice.
+              (`AgentWorkingDots` is `role="img"` with a label by construction —
+              it is the sidebar's mark, and this is the same mark.) */}
+          <AgentWorkingDots label={label} />
+          <span aria-hidden="true">{label}</span>
+        </>
+      ) : (
+        <span>{label}</span>
+      )}
+    </span>
+  )
+}
+
+/**
+ * One file this agent changed, as a link that opens its diff.
+ *
+ * `LinkButton` and not a row button: this is a name inside a list of names, and
+ * the kit's link is the one member of the button family with no box, no control
+ * height and no ground — which is what lets six of them read as a list rather
+ * than as six controls. `underline="never"` because the underline collides with
+ * the glyphs of a mono path (the primitive documents that exact case).
+ *
+ * The accessible name is the WHOLE path and the action: "Open the diff for
+ * src/…/scheduler.ts". The visible row splits the path so the eye lands on the
+ * basename, but "scheduler.ts" alone is not a name a person can act on when
+ * three files in the list share it.
+ */
+function ChangedFileRow({
+  change,
+  onOpenDiff,
+}: {
+  change: SessionFileChange
+  onOpenDiff: ((path: string | null) => void) | undefined
+}) {
+  const { name, folder } = splitChangedPath(change.path)
+  return (
+    <LinkButton
+      underline="never"
+      className="flex w-full min-w-0 items-baseline gap-1"
+      aria-label={`Open the diff for ${change.path}`}
+      onClick={(event) => {
+        event.stopPropagation()
+        onOpenDiff?.(change.path)
+      }}
+      disabled={!onOpenDiff}
+    >
+      <FileGlyph className="icon-xs shrink-0 self-center text-[color:var(--text-subtle)]" />
+      <span className="max-w-[60%] shrink-0 truncate font-mono text-micro tracking-wide">{name}</span>
+      {/* Truncated from the LEFT: the front of an absolute path is the part
+          every row shares, and the end is the part that tells them apart.
+          `dir="rtl"` with a left text-align is the one way to move an ellipsis
+          to the head of a line that the browser will do for us.
+          The LRMs are not decoration. In an RTL paragraph the neutral
+          characters at the edges of an LTR run — the leading `/` of an
+          absolute path, a trailing `.` — resolve to the paragraph direction
+          and jump to the other end, so `/repo/src/main` renders as
+          `repo/src/main/`. A left-to-right mark either side pins them to the
+          run they belong to; the ellipsis still follows the element's own
+          direction, which is the whole reason for the `rtl`. */}
+      <span
+        dir="rtl"
+        className="min-w-0 flex-1 truncate text-left font-mono text-micro text-[color:var(--text-subtle)]"
+      >
+        {`‎${folder}‎`}
+      </span>
+      <span className="shrink-0 font-mono text-micro tabular-nums">
+        <span className="text-[color:var(--tone-good)]">+{change.additions}</span>
+        <span className="ml-1 text-[color:var(--tone-error)]">−{change.deletions}</span>
+      </span>
+    </LinkButton>
+  )
+}
+
+/**
+ * The files this agent changed, newest first — the ledger its own hooks kept,
+ * not git's reading of the checkout, which several agents and the person all
+ * share (see `SessionFileChange`).
+ *
+ * Nothing is drawn when nothing has been edited: a heading over an empty list
+ * is the card describing its own absence.
+ */
+function ChangedFiles({
+  changes,
+  onOpenDiff,
+}: {
+  changes: SessionFileChange[]
+  onOpenDiff: ((path: string | null) => void) | undefined
+}) {
+  if (changes.length === 0) return null
+  if (changes.length > MAX_FILE_ROWS) {
+    // Past the ceiling the list is not drawn at all. Twenty-four rows inside a
+    // hover surface is a review, and the diff is the place a review happens —
+    // so this is one quiet line that says how many and opens all of them.
+    //
+    // The count is the LEDGER's, which is itself capped
+    // (MAX_SESSION_FILE_CHANGES), so a session that has touched more files than
+    // that reports the cap. The line still points at the diff, which counts for
+    // itself; what it must never do is claim a number smaller than the ledger's
+    // and pass it off as the whole.
+    return (
+      <div className="px-3 pt-2">
+        <LinkButton
+          ink="quiet"
+          className="text-micro"
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpenDiff?.(null)
+          }}
+          disabled={!onOpenDiff}
+        >
+          {changes.length} files changed · open the diff
+        </LinkButton>
+      </div>
+    )
+  }
+  return (
+    <div className="px-3 pt-2" role="group" aria-label="Files changed in this session">
+      {/* Scrolls past about five rows rather than growing the card. The card
+          must not resize while a pointer is travelling across it. */}
+      <div className="flex max-h-[92px] flex-col gap-0.5 overflow-y-auto">
+        {changes.map((change) => (
+          <ChangedFileRow key={change.path} change={change} onOpenDiff={onOpenDiff} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A thumbnail button. It opens the image the way a path in the terminal already
+ * does — which is why images live on the card and never in the thread tooltip:
+ * a tooltip may hold nothing clickable, and a control needs a focus ring.
  */
 function AttachmentThumbnail({
   attachment,
@@ -204,76 +401,31 @@ function AttachmentThumbnail({
   )
 }
 
-function AttachmentChip({
-  attachment,
-  onOpen,
-}: {
-  attachment: Extract<ConversationPeekAttachment, { kind: 'file' }>
-  onOpen: ((attachmentId: string) => void) | undefined
-}) {
-  // A file the transcript named but could not resolve to a readable path has
-  // nothing to open. It still appears — the message DID carry it — as a chip
-  // that says so instead of a button that does nothing.
-  const openable = attachment.path !== null && onOpen !== undefined
-  const chip = (
-    // The kit's chip: content height (the line box), `px-1.5 py-0.5`, `gap-1`
-    // and `radius.chip`, all of which this spelled by hand. `outline` is the
-    // variant with the hairline it needs to be findable on the message row, and
-    // `neutral` is the ink of a chip whose label is the row's own information
-    // rather than a qualifier. The mono face stays a caller class — a path is
-    // mono, and the primitive spells no font family.
-    <ChipButton
-      variant="outline"
-      tone="neutral"
-      className="max-w-full font-mono leading-4"
-      aria-label={openable ? `Open ${attachment.label}` : `${attachment.label} — no readable path`}
-      onClick={(event) => {
-        event.stopPropagation()
-        onOpen?.(attachment.id)
-      }}
-      disabled={!openable}
-    >
-      <FileGlyph className="icon-xs shrink-0" />
-      <span className="truncate">{attachment.label}</span>
-    </ChipButton>
-  )
-  // The chip shows a basename; where the file has a path, the kit's Tooltip
-  // shows which one — the app's own answer for a control that needs a hint,
-  // and never the native `title`, which cannot be styled or dismissed. A chip
-  // with no path has nothing to add, so it gets no tooltip either.
-  return attachment.path ? (
-    <Tooltip content={attachment.path} layer="menu">
-      {chip}
-    </Tooltip>
-  ) : (
-    chip
-  )
-}
-
 /**
- * The first message's attachments. Images lead it (they are the message's
- * subject when there are any) and files follow the text, exactly as the mockup
- * places them — and they sit on the FIRST message alone, because that is the
- * one being quoted in full. A later message carries a count on its row instead:
- * a strip of thumbnails inside a one-line row would either wrap it or shrink to
- * nothing.
+ * Every image sent in the conversation, in one strip (mockup frame 3) — not
+ * only the first message's, which is what the shipped card drew and which meant
+ * the screenshot someone pasted five minutes ago was unreachable while one from
+ * yesterday sat at the top.
+ *
+ * Six, then a count. The strip must never wrap: a second row of thumbnails is
+ * the card resizing under a pointer that is on its way to one of them.
  */
-function FirstMessageThumbnails({
-  attachments,
+function ImageStrip({
+  images,
   onOpen,
 }: {
-  attachments: ConversationPeekAttachment[]
+  images: ConversationPeekImage[]
   onOpen: ((attachmentId: string) => void) | undefined
 }) {
-  const images = attachments.filter(
-    (attachment): attachment is Extract<ConversationPeekAttachment, { kind: 'image' }> =>
-      attachment.kind === 'image',
-  )
   if (images.length === 0) return null
   const shown = images.slice(0, MAX_THUMBNAILS)
   const remainder = images.length - shown.length
   return (
-    <div className="mb-2 flex items-center gap-1.5">
+    <div
+      className="flex items-center gap-1.5 px-3 pt-2"
+      role="group"
+      aria-label="Images in this conversation"
+    >
       {shown.map((image) => (
         <AttachmentThumbnail key={image.id} attachment={image} onOpen={onOpen} />
       ))}
@@ -286,27 +438,6 @@ function FirstMessageThumbnails({
           +{remainder}
         </span>
       ) : null}
-    </div>
-  )
-}
-
-function FirstMessageFiles({
-  attachments,
-  onOpen,
-}: {
-  attachments: ConversationPeekAttachment[]
-  onOpen: ((attachmentId: string) => void) | undefined
-}) {
-  const files = attachments.filter(
-    (attachment): attachment is Extract<ConversationPeekAttachment, { kind: 'file' }> =>
-      attachment.kind === 'file',
-  )
-  if (files.length === 0) return null
-  return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      {files.map((file) => (
-        <AttachmentChip key={file.id} attachment={file} onOpen={onOpen} />
-      ))}
     </div>
   )
 }
@@ -438,231 +569,53 @@ function ThreadRow({
 }
 
 /**
- * The thread. `since` is oldest-first and the list scrolls, so it has to be
- * scrolled to its END on arrival: left alone it opened at `scrollTop = 0`,
- * showing the four OLDEST messages while the one marked "now" sat off-screen
- * below — under a fade drawn across the top edge, which then claimed there was
- * more above when the hidden half was all below. Newest last and in view is the
- * ruling (mockup frame 4); the fade means "older messages are up there", and
- * this is what makes that true.
+ * The thread: ONE list, oldest first, with the message that started the chat as
+ * row one (owner, 2026-09-09). The card used to quote that message in full
+ * under a "First message" heading and then start a second list under a "Since
+ * then" heading, which spent a third of the surface on two labels and made the
+ * conversation read as two things.
+ *
+ * The list scrolls, so it has to be scrolled to its END on arrival: left alone
+ * it opened at `scrollTop = 0`, showing the oldest messages while the one
+ * marked "now" sat off-screen below — under a fade drawn across the top edge,
+ * which then claimed there was more above when the hidden half was all below.
+ * Newest last and in view is the ruling; the fade means "older messages are up
+ * there", and this is what makes that true.
  *
  * `useLayoutEffect`, so the jump happens before the first paint rather than as
  * a visible scroll.
  */
-function Thread({ since, now }: { since: ConversationPeekMessage[]; now: number }) {
+function Thread({ messages, now }: { messages: ConversationPeekMessage[]; now: number }) {
   const listRef = useRef<HTMLOListElement>(null)
   useLayoutEffect(() => {
     const list = listRef.current
     if (!list) return
     list.scrollTop = list.scrollHeight
-  }, [since])
+  }, [messages])
   return (
     <ol
       ref={listRef}
-      className={`conversation-peek-thread m-0 mt-1 flex max-h-[108px] list-none flex-col gap-1.5 overflow-y-auto p-0 ${
-        since.length > THREAD_ROWS_BEFORE_FADE ? 'conversation-peek-thread--faded' : ''
+      className={`conversation-peek-thread m-0 flex max-h-[164px] list-none flex-col gap-1.5 overflow-y-auto px-3 pb-2.5 pt-2 ${
+        messages.length > THREAD_ROWS_BEFORE_FADE ? 'conversation-peek-thread--faded' : ''
       }`}
     >
-      {since.map((message, index) => (
+      {messages.map((message, index) => (
         <ThreadRow
           key={message.id}
           message={message}
           now={now}
-          newest={index === since.length - 1}
+          newest={index === messages.length - 1}
         />
       ))}
     </ol>
   )
 }
 
-/**
- * Discs shown before the rest are counted. The strip must never wrap: a second
- * line of discs is the card resizing, which is the one thing this surface may
- * not do while a pointer is travelling across it. The earlier agent-stack
- * mockup wrapped at seven and got tall.
- */
-const MAX_ROSTER_DISCS = 6
-
-/**
- * The roster — the card's SELECTOR, and why it is discs rather than tabs. This
- * surface opens under a pointer that was on its way somewhere else, so its
- * selector has to answer to a hover; a tab is a thing you click. The discs also
- * cost one line instead of a row of chrome above the thread that is the point,
- * and they are the same marks already sitting on the row you hovered.
- *
- * SEMANTICS. Not a tablist, whatever the mockup's sketch markup said: the body
- * is not a panel a tab owns, and `aria-selected` on something that also moves
- * on hover would lie. Not the kit's `SegmentedControl` either — that is a
- * bordered strip of word labels, and this is a row of discs — but its CONTRACT
- * is the exact fit and is taken wholesale from
- * `design-system/components/segmented-control`: `role="radiogroup"` with real
- * `role="radio"` button children — the kit's `IconButton` in its `circle`
- * shape, which is the disc — one tab stop for the group, roving `tabindex`,
- * arrows wrapping, and SELECTION FOLLOWS FOCUS. That last clause is
- * the spec's own, and it is allowed here for the spec's own reason: the values
- * are cheap and reversible — arrowing reads a conversation, it does not start
- * one.
- *
- * Which makes the two input paths agree rather than diverge:
- * - Pointer hover PREVIEWS. The body moves; nothing is committed; leaving the
- *   strip returns it to the pinned agent. That is what lets the pointer travel
- *   down to a file chip without the card changing underneath it.
- * - A press PINS.
- * - An arrow key moves focus and PINS, because a keyboard has no "leave without
- *   clicking" — so focus moving the body and selection following focus are the
- *   same act, and `aria-checked` never describes something the eye cannot see.
- */
-function AgentRoster({
-  roster,
-  shownSessionId,
-  pinnedSessionId,
-  onPreview,
-  onEndPreview,
-  onPin,
-}: {
-  roster: ConversationPeekAgent[]
-  /** Whose conversation the body is showing right now — hover included. */
-  shownSessionId: string | null
-  /** The committed choice, which is what `aria-checked` reports. */
-  pinnedSessionId: string | null
-  onPreview: ((sessionId: string) => void) | undefined
-  onEndPreview: (() => void) | undefined
-  onPin: ((sessionId: string) => void) | undefined
-}) {
-  const shown = roster.slice(0, MAX_ROSTER_DISCS)
-  const remainder = roster.length - shown.length
-  const pinnedIndex = Math.max(
-    0,
-    shown.findIndex((agent) => agent.sessionId === pinnedSessionId),
-  )
-
-  const onKeyDown = (event: React.KeyboardEvent, index: number): void => {
-    const forward = event.key === 'ArrowRight' || event.key === 'ArrowDown'
-    const back = event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-    if (!forward && !back) return
-    event.preventDefault()
-    const next = (index + (forward ? 1 : -1) + shown.length) % shown.length
-    const target = shown[next]
-    if (!target) return
-    onPin?.(target.sessionId)
-    // Focus follows the selection, per the radiogroup contract. The roving
-    // tabindex has already moved with `pinnedIndex`, so this is what carries
-    // the caret with it.
-    const strip = event.currentTarget.parentElement
-    const button = strip?.querySelectorAll<HTMLElement>('[role="radio"]')[next]
-    button?.focus()
-  }
-
+/** The body's non-thread arms — a sentence, in the body's own inset. */
+function BodyNote({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className="flex items-center gap-1.5"
-      role="radiogroup"
-      aria-label="Terminals in this chat"
-      // One `mouseleave` for the whole strip, not one per disc: moving between
-      // two discs must not flick the body back to the pinned agent on the way.
-      onMouseLeave={onEndPreview}
-    >
-      {shown.map((agent, index) => {
-        const showing = agent.sessionId === shownSessionId
-        return (
-          // The kit's 22px icon step (`icon.size.lg`) in its `circle` shape: the
-          // `radius.pill` hairline in `--border-default` lifting to
-          // `--border-strong`, which is the disc this drew by hand. `pressed`
-          // paints the NEUTRAL selection fill — per
-          // design-system/components/segmented-control, "an accent-filled
-          // segment would spend the one solid accent on a state display" — and
-          // the role, its `aria-checked` and the roving `tabIndex` all pass
-          // through, because a disc in a radiogroup is the caller's semantics,
-          // not the primitive's.
-          <IconButton
-            key={agent.sessionId}
-            size="2xs"
-            shape="circle"
-            pressed={showing}
-            role="radio"
-            aria-checked={agent.sessionId === pinnedSessionId}
-            // The name, never the initials: "DS" tells a screen reader nothing,
-            // and the state has to travel in words because colour may not carry
-            // it alone.
-            aria-label={agent.status ? `${agent.name} — ${agent.status.label}` : agent.name}
-            tabIndex={index === pinnedIndex ? 0 : -1}
-            onMouseEnter={() => onPreview?.(agent.sessionId)}
-            onFocus={() => onPreview?.(agent.sessionId)}
-            onClick={() => onPin?.(agent.sessionId)}
-            onKeyDown={(event) => onKeyDown(event, index)}
-            className="shrink-0 font-medium"
-          >
-            <span aria-hidden="true">{agent.initials}</span>
-            {agent.status ? (
-              // Docked bottom-right with a ring in the surface behind it, so it
-              // reads as sitting ON the disc — the agent-stack idiom, and the
-              // same trick Badge's corner mode uses.
-              <span className="absolute -bottom-px -right-px rounded-full ring-2 ring-[color:var(--bg-surface-raised)]">
-                <StatusDot tone={agent.status.tone} pulse={agent.status.pulse} />
-              </span>
-            ) : null}
-          </IconButton>
-        )
-      })}
-      {remainder > 0 ? (
-        <span
-          role="img"
-          aria-label={`${remainder} more ${remainder === 1 ? 'terminal' : 'terminals'}`}
-          className="shrink-0 font-mono text-micro text-[color:var(--text-subtle)]"
-        >
-          +{remainder}
-        </span>
-      ) : null}
-    </div>
-  )
-}
-
-/**
- * Who the body belongs to, and the two facts that used to be badge chips. One
- * line, and it MUST stay one line: `flex-nowrap` with the model truncating,
- * because a wrapped model name is the card growing a row while the pointer is
- * on a disc — the same resize the body's reserve exists to prevent.
- */
-function AgentIdentityLine({
-  agent,
-  taskId,
-  copied,
-  onCopySession,
-}: {
-  agent: ConversationPeekAgent
-  taskId: string | null
-  copied: boolean
-  onCopySession: () => void
-}) {
-  return (
-    <div className="mt-1.5 flex min-w-0 flex-nowrap items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
-      <span className="shrink-0 font-medium text-[color:var(--text-strong)]">{agent.name}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-[color:var(--text-subtle)]">
-        {agent.model ?? 'CLI default'}
-      </span>
-      {taskId ? (
-        <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-subtle)]">{taskId}</span>
-      ) : null}
-      <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-subtle)]">
-        {elideSessionId(agent.sessionId)}
-      </span>
-      <IconButton
-        size="sm"
-        aria-label={copied ? 'Session id copied' : `Copy session id for ${agent.name}`}
-        onClick={onCopySession}
-        className="shrink-0"
-      >
-        <CopyGlyph done={copied} />
-      </IconButton>
-    </div>
-  )
-}
-
-function SectionLabel({ children, trailing }: { children: React.ReactNode; trailing?: React.ReactNode }) {
-  return (
-    <p className="m-0 mb-1 flex items-baseline justify-between gap-2 text-micro text-[color:var(--text-subtle)]">
-      <span>{children}</span>
-      {trailing ? <span className="shrink-0 font-mono tabular-nums">{trailing}</span> : null}
+    <p className="m-0 px-3 pb-2.5 pt-2 text-meta leading-relaxed text-[color:var(--text-subtle)]">
+      {children}
     </p>
   )
 }
@@ -681,11 +634,7 @@ export function ConversationPeekCard({
   copied,
   onCopySession,
   onOpenAttachment,
-  selectedSessionId,
-  pinnedSessionId,
-  onPreviewAgent,
-  onEndPreview,
-  onPinAgent,
+  onOpenDiff,
 }: {
   identity: ConversationPeekIdentity
   peek: ConversationPeek | null
@@ -693,33 +642,25 @@ export function ConversationPeekCard({
   now: number
   copied: boolean
   onCopySession: () => void
-  /** Absent when the preload has no opener — the chips then render inert rather than lying. */
+  /** Absent when the preload has no opener — the thumbnails then render inert rather than lying. */
   onOpenAttachment?: (attachmentId: string) => void
   /**
-   * Which terminal the body is showing. The shell owns this because it also
-   * owns the hover/pin state and the read that follows it; the card only says
-   * what it was handed.
+   * Open the diff for one path, or — with `null` — the whole diff. The shell
+   * wires this to the workspace's pane, because a path only means something
+   * against a workspace and this component knows of none.
    */
-  selectedSessionId?: string | null
-  /** The PINNED terminal, which is what `aria-checked` follows. */
-  pinnedSessionId?: string | null
-  /** Pointer or focus landed on a disc: move the body, commit nothing. */
-  onPreviewAgent?: (sessionId: string) => void
-  /** The pointer left the roster: fall back to the pinned selection. */
-  onEndPreview?: () => void
-  /** A press, or an arrow key: commit. */
-  onPinAgent?: (sessionId: string) => void
+  onOpenDiff?: (path: string | null) => void
 }) {
-  const labels = labelsFor(peek?.source ?? 'none')
-  const since = peek?.since ?? []
-  const roster = identity.roster
-  const multi = roster.length > 1
-  const selected = roster.find((agent) => agent.sessionId === selectedSessionId) ?? roster[0] ?? null
+  const agent = identity.agent
+  // One list, first message included. `first` is still its own field on the
+  // wire (main pairs it with a longer character cap), so this is where the two
+  // halves become the one thread the design asks for.
+  const messages = peek ? (peek.first ? [peek.first, ...peek.since] : peek.since) : []
   return (
     <>
       <div className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2.5">
-        {selected?.cli ? (
-          <CliIcon cli={selected.cli} className="icon-sm shrink-0 text-[color:var(--text-strong)]" />
+        {agent.cli ? (
+          <CliIcon cli={agent.cli} className="icon-sm shrink-0 text-[color:var(--text-strong)]" />
         ) : null}
         {/* The name in full is what the row's own truncation tooltip used to
             show; this header takes that job, which is how the row keeps to one
@@ -731,156 +672,108 @@ export function ConversationPeekCard({
           text={identity.name}
           className="min-w-0 flex-1 text-heading font-semibold text-[color:var(--text-strong)]"
         />
-        {/* A chat with a roster counts its terminals here instead of naming one
-            state: each terminal's own state is on its own disc, and the header
-            is about the chat. */}
-        {multi ? (
-          <span className="flex shrink-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
-            {identity.status ? (
-              <StatusDot tone={identity.status.tone} pulse={identity.status.pulse} />
-            ) : null}
-            {roster.length} agents
-          </span>
-        ) : identity.status ? (
-          <span className="flex shrink-0 items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
-            <StatusDot tone={identity.status.tone} pulse={identity.status.pulse} />
-            {identity.status.label}
+        {/* Beside the title, before the corner. Absent — not zero — when
+            nothing has reported a reading: a ring at 0% and a ring for a
+            runtime that reports none are the same picture. */}
+        {agent.contextUsage ? (
+          <ContextRing usedPercentage={agent.contextUsage.usedPercentage} layer="menu" />
+        ) : null}
+        {identity.status ? (
+          <LiveCorner status={identity.status} activeSubagents={agent.activeSubagents} />
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5 px-3 pb-1 pt-2.5">
+        <Badge className="max-w-full">
+          <span className="truncate font-mono">{agent.model ?? 'CLI default'}</span>
+        </Badge>
+        {identity.taskId ? (
+          <Badge>
+            <span className="font-mono tabular-nums">{identity.taskId}</span>
+          </Badge>
+        ) : null}
+        {agent.sessionId ? (
+          // The copy control sits BESIDE the chip, not inside it: a badge is
+          // display-only by spec (design-system/components/badge — "never
+          // interactive"), and the one thing on this card you press to take a
+          // value away with you should be a real button with a real focus ring.
+          <span className="inline-flex min-w-0 max-w-full items-center gap-0.5">
+            <Badge ariaLabel={`Session ${agent.sessionId}`}>
+              <span className="font-mono tabular-nums">{elideSessionId(agent.sessionId)}</span>
+            </Badge>
+            <IconButton
+              size="sm"
+              aria-label={copied ? 'Session id copied' : 'Copy session id'}
+              onClick={onCopySession}
+              className="shrink-0"
+            >
+              <CopyGlyph done={copied} />
+            </IconButton>
           </span>
         ) : null}
       </div>
 
-      {multi ? (
-        <div className="px-3 pb-1 pt-2.5">
-          <AgentRoster
-            roster={roster}
-            shownSessionId={selected?.sessionId ?? null}
-            pinnedSessionId={pinnedSessionId ?? null}
-            onPreview={onPreviewAgent}
-            onEndPreview={onEndPreview}
-            onPin={onPinAgent}
-          />
-          {selected ? (
-            <AgentIdentityLine
-              agent={selected}
-              taskId={identity.taskId}
-              copied={copied}
-              onCopySession={onCopySession}
-            />
-          ) : null}
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-1.5 px-3 pb-1 pt-2.5">
-          <Badge className="max-w-full">
-            <span className="truncate font-mono">{selected?.model ?? 'CLI default'}</span>
-          </Badge>
-          {identity.taskId ? (
-            <Badge>
-              <span className="font-mono tabular-nums">{identity.taskId}</span>
-            </Badge>
-          ) : null}
-          {selected ? (
-            // The copy control sits BESIDE the chip, not inside it: a badge is
-            // display-only by spec (design-system/components/badge — "never
-            // interactive"), and the one thing on this card you press to take a
-            // value away with you should be a real button with a real focus ring.
-            <span className="inline-flex min-w-0 max-w-full items-center gap-0.5">
-              <Badge ariaLabel={`Session ${selected.sessionId}`}>
-                <span className="font-mono tabular-nums">{elideSessionId(selected.sessionId)}</span>
-              </Badge>
-              <IconButton
-                size="sm"
-                aria-label={copied ? 'Session id copied' : 'Copy session id'}
-                onClick={onCopySession}
-                className="shrink-0"
-              >
-                <CopyGlyph done={copied} />
-              </IconButton>
-            </span>
-          ) : null}
-        </div>
-      )}
+      <ChangedFiles changes={agent.fileChanges} onOpenDiff={onOpenDiff} />
+      <ImageStrip images={peek?.images ?? []} onOpen={onOpenAttachment} />
 
-      {/* THE BODY IS THE SELECTED TERMINAL'S, whole. It reserves a fixed height
-          whenever there is a roster, so sweeping the discs never resizes the
-          card — the 2026-09-02 agent-stack ruling, and not a cosmetic one: a
-          card that grows under the pointer moves the disc out from under it,
-          which un-hovers what you were pointing at and can flip between two
-          states forever. A short conversation ends in space instead.
-
-          Named for whoever it belongs to, so a reader arriving here is never
-          left guessing which of the three they landed in. */}
-      <div
-        className={`px-3 pb-2.5 pt-2 ${multi ? 'min-h-[196px]' : ''}`}
-        role={multi ? 'group' : undefined}
-        aria-label={multi && selected ? `Conversation with ${selected.name}` : undefined}
-      >
-        {loading && !peek ? (
-          <div className="flex flex-col gap-1.5" aria-label="Reading the conversation" role="status">
-            <Skeleton className="h-2.5 w-full rounded-sm bg-[color:var(--bg-hover)]" />
-            <Skeleton className="h-2.5 w-4/5 rounded-sm bg-[color:var(--bg-hover)]" />
-            <Skeleton className="h-2.5 w-2/3 rounded-sm bg-[color:var(--bg-hover)]" />
-          </div>
-        ) : peek && peek.first ? (
-          <>
-            <SectionLabel trailing={agoOf(peek.first.at, now)}>{labels.first}</SectionLabel>
-            <FirstMessageThumbnails attachments={peek.first.attachments} onOpen={onOpenAttachment} />
-            {/* Four lines, then it clips. The first message runs to any length
-                and a card that grew with it would cover the work it describes;
-                the message itself is a click away in the chat. */}
-            <p className="conversation-peek-line m-0 line-clamp-4 whitespace-pre-wrap break-words text-meta leading-relaxed text-[color:var(--text-strong)]">
-              {peek.first.text}
+      {loading && !peek ? (
+        <div className="flex flex-col gap-1.5 px-3 pb-2.5 pt-2" aria-label="Reading the conversation" role="status">
+          <Skeleton className="h-2.5 w-full rounded-sm bg-[color:var(--bg-hover)]" />
+          <Skeleton className="h-2.5 w-4/5 rounded-sm bg-[color:var(--bg-hover)]" />
+          <Skeleton className="h-2.5 w-2/3 rounded-sm bg-[color:var(--bg-hover)]" />
+        </div>
+      ) : messages.length > 0 ? (
+        <>
+          <Thread messages={messages} now={now} />
+          {/* A `live` peek is prompts seen since this app launched, not the
+              chat's history, and a reader who is not told that reads a
+              truncated conversation as the whole one. One quiet line under the
+              thread — never a heading, which is what the two labels this
+              revision removed were. */}
+          {peek?.source === 'live' ? (
+            <p className="m-0 px-3 pb-2.5 text-micro text-[color:var(--text-subtle)]">
+              Since this app launched — this runtime hands us no transcript.
             </p>
-            <FirstMessageFiles attachments={peek.first.attachments} onOpen={onOpenAttachment} />
-            {since.length > 0 ? (
-              <>
-                <div className="mt-2.5">
-                  <SectionLabel>{labels.since}</SectionLabel>
-                </div>
-                <Thread since={since} now={now} />
-              </>
-            ) : null}
-          </>
-        ) : peek && peek.source === 'unknown' ? (
-          // We hold no record of this chat at all — the app was killed rather
-          // than quit, or it was parked past the sidecar's TTL. Deliberately
-          // NOT the `none` line below: that one is about the runtime, and
-          // saying it here would tell someone their Claude Code chat cannot
-          // report messages. This says what is actually true — the messages are
-          // gone from OUR records, not from the chat.
-          <p className="m-0 text-meta leading-relaxed text-[color:var(--text-subtle)]">
-            No record of this chat’s messages any more. Open it and the next one will be here.
-          </p>
-        ) : peek && peek.source === 'none' ? (
-          // Identity only (mockup frame 8): OpenCode, Muse and a plain shell
-          // report neither a prompt nor a transcript.
-          //
-          // This arm is LAST of the three, and the order is the whole point. It
-          // used to be first, which meant a brand-new Claude Code chat — every
-          // chat, for the seconds before its first prompt — was told its runtime
-          // could not report messages, which is false and unfixable-looking. The
-          // question the card answers in order is: are there messages? no —
-          // then, is this runtime able to have any? Only a "no" to the second
-          // is a statement about the runtime.
-          <p className="m-0 text-meta leading-relaxed text-[color:var(--text-subtle)]">
-            This runtime doesn’t report its messages. The model and session id above are everything it can say.
-          </p>
-        ) : peek ? (
-          // A runtime that CAN report and simply has not yet. `source` is
-          // `transcript` or `live` here, so this is an empty chat, not a
-          // limited one.
-          <p className="m-0 text-meta leading-relaxed text-[color:var(--text-subtle)]">
-            {peek.source === 'live'
-              ? 'Nothing sent since this app launched. This runtime hands us no transcript, so anything said before that is not ours to show.'
-              : 'No messages yet. This chat opens on the composer — the first thing you send becomes its title.'}
-          </p>
-        ) : (
-          // No answer and not loading: the preload has no reader (an older
-          // main, a window that never got the API). Identity still stands.
-          <p className="m-0 text-meta leading-relaxed text-[color:var(--text-subtle)]">
-            The conversation isn’t readable from here.
-          </p>
-        )}
-      </div>
+          ) : null}
+        </>
+      ) : peek && peek.source === 'unknown' ? (
+        // We hold no record of this chat at all — the app was killed rather
+        // than quit, or it was parked past the sidecar's TTL. Deliberately
+        // NOT the `none` line below: that one is about the runtime, and
+        // saying it here would tell someone their Claude Code chat cannot
+        // report messages. This says what is actually true — the messages are
+        // gone from OUR records, not from the chat.
+        <BodyNote>
+          No record of this chat’s messages any more. Open it and the next one will be here.
+        </BodyNote>
+      ) : peek && peek.source === 'none' ? (
+        // Identity only: OpenCode, Muse and a plain shell report neither a
+        // prompt nor a transcript.
+        //
+        // This arm is LAST of the three, and the order is the whole point. It
+        // used to be first, which meant a brand-new Claude Code chat — every
+        // chat, for the seconds before its first prompt — was told its runtime
+        // could not report messages, which is false and unfixable-looking. The
+        // question the card answers in order is: are there messages? no —
+        // then, is this runtime able to have any? Only a "no" to the second
+        // is a statement about the runtime.
+        <BodyNote>
+          This runtime doesn’t report its messages. The model and session id above are everything it can say.
+        </BodyNote>
+      ) : peek ? (
+        // A runtime that CAN report and simply has not yet. `source` is
+        // `transcript` or `live` here, so this is an empty chat, not a
+        // limited one.
+        <BodyNote>
+          {peek.source === 'live'
+            ? 'Nothing sent since this app launched. This runtime hands us no transcript, so anything said before that is not ours to show.'
+            : 'No messages yet. This chat opens on the composer — the first thing you send becomes its title.'}
+        </BodyNote>
+      ) : (
+        // No answer and not loading: the preload has no reader (an older
+        // main, a window that never got the API). Identity still stands.
+        <BodyNote>The conversation isn’t readable from here.</BodyNote>
+      )}
     </>
   )
 }

@@ -7,7 +7,7 @@ import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
-import { peekStatusOf, rowConversationPeekIdentity } from './conversationPeekRow'
+import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import type { AgentCli } from '../../../../shared/electron-api'
 import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMap } from './useFolderRepositoryIdentities'
@@ -1207,6 +1207,9 @@ export default function WorkspaceSidebar({
   const clearWorkspaceHighlight = useWorkspaceStore((s) => s.clearWorkspaceHighlight)
   const addWorkspaceFromStore = useWorkspaceStore((s) => s.addWorkspace)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
+  // A file on the conversation peek's changed-files list opens in the workspace
+  // pane's Diff tab — the same tab, and the same focus, a Git panel row opens.
+  const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const moveAgentToWorkspace = useWorkspaceStore((s) => s.moveAgentToWorkspace)
   const moveOpenFileToWorkspace = useWorkspaceStore((s) => s.moveOpenFileToWorkspace)
@@ -2420,11 +2423,15 @@ export default function WorkspaceSidebar({
     // Note the map: every session main knows about, running or not, and then
     // the row's own agent records. Whether the PROCESS is alive is not the
     // question — whether there is an id to ask about is.
-    const peekIdentity = rowConversationPeekIdentity({
+    // One identity per agent (2026-09-09): the card opens from the agent line
+    // the pointer is on, and a chat with a single agent opens from its row.
+    const peekIdentities = rowConversationPeekIdentities({
       workspace,
       sessions: peekSessionsByWorkspaceId.get(workspace.id) ?? [],
       status: peekStatusOf(activity, idleRecencyText),
+      now,
     })
+    const hasPeek = peekIdentities.length > 0
     // The whole row is the peek's hover target (owner ruling 2026-09-07), which
     // costs the title its own tooltip. `TruncatedText` opens one the moment a
     // title is clipped, and with the card opening from the same row that would
@@ -2470,7 +2477,7 @@ export default function WorkspaceSidebar({
         {workspace.mode === 'sprintengine' ? (
           <SprintEngineMarkIcon className="icon-xs shrink-0 text-[color:var(--tool-sprintengine-ink)]" />
         ) : null}
-        {peekIdentity ? (
+        {hasPeek ? (
           <span className={`${titleClass} truncate`}>{workspace.name}</span>
         ) : (
           <TruncatedText as="span" text={workspace.name} className={titleClass} />
@@ -2483,8 +2490,18 @@ export default function WorkspaceSidebar({
         {options?.settled ? <span className="sr-only"> (settled)</span> : null}
       </>
     )
-    const titleCluster = peekIdentity ? (
-      <ConversationPeekPopover identity={peekIdentity} now={now} className={titleClusterClass}>
+    const titleCluster = hasPeek ? (
+      <ConversationPeekPopover
+        identities={peekIdentities}
+        now={now}
+        className={titleClusterClass}
+        onOpenDiff={(path) =>
+          openPaneTab(workspace.id, {
+            kind: 'diff',
+            diff: { focusPath: path, focusKind: path ? 'unstaged' : null },
+          })
+        }
+      >
         {titleClusterContent}
       </ConversationPeekPopover>
     ) : (

@@ -3,8 +3,8 @@ import { PointerPopover } from '../ui'
 import type { ConversationPeekIdentity } from './ConversationPeekCard'
 import { useConversationPeek, useCopyValue } from './useConversationPeek'
 
-// The peek card itself — the transcript excerpt, the roster heads, the
-// attachment chips — behind a `React.lazy` boundary at this call site (bundle-
+// The peek card itself — the thread, the file list, the image strip — behind a
+// `React.lazy` boundary at this call site (bundle-
 // budget ratchet). It is only ever rendered inside an OPEN popover, so the
 // hover that opens one fetches it; nothing on first paint reads it. The named
 // export stays where it was, so anything importing the card directly is
@@ -25,7 +25,8 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 // answer for almost every agent, the runtime repeated the mark already on the
 // tab, and the checkout repeated the branch already on the topbar — and the
 // label column went with them. See ConversationPeekCard for the rest of the
-// ruling and backlog/mockups/2026-09-07-conversation-peek.html for the design.
+// ruling and backlog/mockups/2026-09-09-conversation-peek-one-thread.html for
+// the design.
 export type AgentTabIdentity = ConversationPeekIdentity
 
 // Hover opens after a beat so a quick sweep across the tab strip never flickers
@@ -52,20 +53,24 @@ const ANCHOR_GAP = 6
 export function AgentTabIdentityPopover({
   identity,
   children,
+  onOpenDiff,
 }: {
   identity: AgentTabIdentity
   children: React.ReactNode
+  /** Open the diff for one of this agent's changed paths, or the whole diff for `null`. */
+  onOpenDiff?: (path: string | null) => void
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null)
   const tabButtonRef = useRef<HTMLElement | null>(null)
 
   const [point, setPoint] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
-  // A tab opens the card ON ITS OWN AGENT, whichever position that agent takes
-  // in the chat's roster: you hovered this tab, so this is the conversation you
-  // asked about. The roster still lists the chat's other terminals, so the card
-  // can be moved to them without leaving the tab.
-  const hover = useConversationPeek(identity.roster[0]?.sessionId ?? null)
-  const { copied, copy } = useCopyValue(hover.selectedSessionId)
+  // A tab's card is ITS OWN AGENT's, always: you hovered this tab, so this is
+  // the conversation you asked about. The chat's other terminals have tabs of
+  // their own, and sub-lines on the sidebar row — a selector inside this card
+  // would be a third way to reach them.
+  const sessionId = identity.agent.sessionId || null
+  const hover = useConversationPeek(sessionId)
+  const { copied, copy } = useCopyValue(sessionId)
   // The ages on the card have to keep moving while it is open — a `Date.now()`
   // read inline froze them at the moment the card mounted, so a card left up
   // still said "2m" ten minutes later. Gated on `open`, so a tab that is not
@@ -145,11 +150,7 @@ export function AgentTabIdentityPopover({
                 copied={copied}
                 onCopySession={copy}
                 onOpenAttachment={hover.openAttachment}
-                selectedSessionId={hover.selectedSessionId}
-                pinnedSessionId={hover.pinnedSessionId}
-                onPreviewAgent={hover.previewAgent}
-                onEndPreview={hover.endPreview}
-                onPinAgent={hover.pinAgent}
+                onOpenDiff={onOpenDiff}
               />
             </React.Suspense>
           </div>
