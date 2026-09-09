@@ -23,6 +23,7 @@ import {
   MAX_STATUS_LINE_COST_USD,
   MAX_STATUS_LINE_COUNT,
   MAX_STATUS_LINE_NAME_LENGTH,
+  MAX_TOOL_USE_ID_LENGTH,
   MAX_TRANSCRIPT_PATH_LENGTH,
   MAX_WAKEUP_DELAY_SECONDS,
   mergeAgentStateHooks,
@@ -679,6 +680,31 @@ async function run(): Promise<void> {
   )
   assert.equal(badPrFrame?.cwd, '/repo', 'a malformed capture never costs the frame the rest of its truth')
   assert.equal(badPrFrame?.pullRequest, undefined)
+  // …the tool-call id — the duplicate-registration guard's key — rides the same
+  // rules again. It is only ever compared for equality, so an oversized one is
+  // DROPPED rather than truncated: a truncated id could collide with a real
+  // other call's, which would silently swallow a genuine edit…
+  const idOf = (toolUseId: unknown) =>
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, toolUseId }, 999)
+      ?.toolUseId
+  assert.equal(idOf('toolu_01PEv1LG8ZsV17KL86fXpeAx'), 'toolu_01PEv1LG8ZsV17KL86fXpeAx')
+  assert.equal(idOf('  toolu_padded  '), 'toolu_padded', 'trimmed, like every other id off this socket')
+  assert.equal(idOf('x'.repeat(MAX_TOOL_USE_ID_LENGTH)), 'x'.repeat(MAX_TOOL_USE_ID_LENGTH), 'exactly the cap is fine')
+  assert.equal(idOf('x'.repeat(MAX_TOOL_USE_ID_LENGTH + 1)), undefined, 'over the cap the id is dropped, never truncated')
+  assert.equal(idOf('toolu\u0000forged'), undefined, 'a control character would let one id forge another`s ring key')
+  assert.equal(idOf('toolu\nnewline'), undefined)
+  assert.equal(idOf(''), undefined)
+  assert.equal(idOf('   '), undefined)
+  assert.equal(idOf(42), undefined)
+  assert.equal(idOf({ id: 'toolu_x' }), undefined)
+  assert.equal(
+    parseAgentStateFrame(
+      { type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, toolUseId: 'x'.repeat(9000), cwd: '/repo' },
+      999
+    )?.cwd,
+    '/repo',
+    'a malformed id drops the FIELD and never the frame'
+  )
   // …the status discriminator rides the same validation (capped, optional)…
   assert.equal(
     parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'stop', status: 'error', ts: 5 }, 999)?.status,

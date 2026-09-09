@@ -147,6 +147,39 @@ export const CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH = '.claude/settings.local.json'
  * plugin's hooks itself, and two registrations fire the reporter twice per
  * event) — `installStudioPlugin` already skips it on this flag, and
  * `studio-plugin.test.ts` holds that to it.
+ *
+ * THE FLAG NO LONGER DECIDES, measured against 2.1.266 on 2026-09-09. Claude
+ * Code now writes a directory marketplace named under a PROJECT's
+ * `extraKnownMarketplaces` into its own user-global
+ * `~/.claude/plugins/known_marketplaces.json` — the entry appears by itself, the
+ * second a workspace is opened, and this app has never written that file. That
+ * is exactly the user-global write measurement one said was missing, so the
+ * gate measurement one found is gone: for a DIRECTORY source, native loading of
+ * hooks and MCP is effectively ON whatever this flag says, and no
+ * `claude plugin install` is needed (measurement two's extra step is a github
+ * source's, not a directory's).
+ *
+ * The bug that found it: the hover card's per-file ledger read exactly 2x the
+ * agent's edits, because both registrations fired the reporter on every tool
+ * call — which is the doubling this comment predicted, arriving without the
+ * flag ever being flipped. Reproduced 2026-09-09 by rewriting each registration
+ * to a distinguishable command: every event landed twice, and the two
+ * PostToolUse frames carried the SAME `tool_use_id`.
+ *
+ * So the two halves are now decided separately, and this flag governs only the
+ * half it can still govern:
+ *
+ *   - HOOKS: the materialised `hooks/hooks.json` is written EMPTY while this
+ *     flag is false (see `materialiseStudioPlugin`), so a natively-loaded
+ *     plugin registers no hook and the by-hand merge is the only one. The
+ *     template's declaration stays the authority for WHAT to merge; it is read
+ *     from the template, not from the neutered copy.
+ *   - MCP: still double-registered, and deliberately left alone here. The
+ *     plugin's own `.mcp.json` declares a server named `sprintengine-studio`,
+ *     and `mcp-config-service.ts` independently writes the same id into the
+ *     workspace `.mcp.json` and into `enabledMcpjsonServers`. Two loads of one
+ *     stdio bridge is a wasted process, not a wrong number, so it is filed
+ *     rather than fixed under this bug.
  */
 export const STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT = false
 
@@ -294,6 +327,7 @@ async function materialiseStudioPlugin(input: {
     await rm(staging, { recursive: true, force: true })
     await mkdir(dirname(destination), { recursive: true })
     await copyTree(input.template.root, staging, input.tokens)
+    if (!STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT) await neuterMaterialisedHooks(staging)
     await rm(destination, { recursive: true, force: true })
     await rename(staging, destination)
     return { ok: true, root: destination }
@@ -301,6 +335,45 @@ async function materialiseStudioPlugin(input: {
     await rm(staging, { recursive: true, force: true }).catch(() => undefined)
     return { ok: false, message: `The SprintEngine Studio plugin could not be written: ${describe(error)}` }
   }
+}
+
+/**
+ * Blank the materialised plugin's hook declaration.
+ *
+ * Claude Code loads this plugin's hooks natively whether or not the app asks it
+ * to (see STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT), so while the app is ALSO
+ * merging the same reporter into `.claude/settings.local.json` by hand, the
+ * declaration in the copy on disk is a second registration and every tool call
+ * fires the reporter twice.
+ *
+ * The file is written as `{ "hooks": {} }` rather than deleted. Claude Code
+ * accepts both — its plugin reference makes `hooks/hooks.json` optional, and an
+ * empty `hooks` object registers nothing — but a present, empty file says "this
+ * plugin deliberately declares no hook" where a missing one is indistinguishable
+ * from a botched copy, and `parsePluginHookRegistration` reads it as "no
+ * registration" either way.
+ *
+ * The TEMPLATE is untouched and stays the authority for what the by-hand merge
+ * registers; `installStudioPlugin` reads the declaration from there rather than
+ * from the copy this blanks. When the flag flips, this stops running and the
+ * substituted declaration is materialised as before.
+ */
+async function neuterMaterialisedHooks(pluginRoot: string): Promise<void> {
+  const hooksPath = join(pluginRoot, STUDIO_PLUGIN_ID, 'hooks', 'hooks.json')
+  if (!existsSync(hooksPath)) return
+  await writeFile(
+    hooksPath,
+    `${JSON.stringify(
+      {
+        $comment:
+          'Emptied at install: SprintEngine Studio registers the agent-state reporter itself, in this workspace\u2019s .claude/settings.local.json. Claude Code loads this plugin natively, so a declaration here would be a SECOND registration and would fire the reporter twice per tool call. The declaration lives in the app\u2019s template (resources/studio-plugin/\u2026/hooks/hooks.json), which is what the merge reads.',
+        hooks: {},
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  )
 }
 
 /** Files above this are copied byte-for-byte; nothing in the template is close. */
@@ -489,11 +562,20 @@ export async function installStudioPlugin(
   // The hook, from the plugin's own declaration. Skipped when Claude Code loads
   // the plugin itself — it would then register these same hooks, and two
   // registrations spawn the reporter twice for every event.
+  //
+  // Read from the TEMPLATE, not from the materialised copy: while this flag is
+  // false `materialiseStudioPlugin` blanks the copy's `hooks/hooks.json`
+  // precisely so the natively-loaded plugin registers nothing, and reading the
+  // blank back would leave the workspace with no reporter at all. The template
+  // carries the tokens unsubstituted, so the same substitution the copy got is
+  // applied to the text here — one function, so the command that is registered
+  // and the command that would be materialised can never differ.
   let hookSettingsPath = ''
   if (!STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT && options.hooksAcknowledged) {
-    const hooksPath = join(materialised.root, STUDIO_PLUGIN_ID, 'hooks', 'hooks.json')
+    const hooksPath = join(template.root, STUDIO_PLUGIN_ID, 'hooks', 'hooks.json')
     const raw = await readFile(hooksPath, 'utf8').catch(() => null)
-    const registration = raw === null ? null : parsePluginHookRegistration(raw)
+    const registration =
+      raw === null ? null : parsePluginHookRegistration(substituteStudioPluginTokens(raw, options.tokens))
     if (registration === null) {
       warnings.push('The plugin declares no hook command this app can register, so agent state was left to the CLI installer.')
     } else {

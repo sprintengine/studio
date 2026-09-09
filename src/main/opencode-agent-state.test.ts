@@ -286,6 +286,29 @@ async function run(): Promise<void> {
   }
   console.log('ok - every emitted frame parses as an agent-state frame main accepts')
 
+  // OpenCode's own id for the tool call rides every frame as `toolUseId` — the
+  // key main's duplicate guard uses to tell a second REGISTRATION of a reporter
+  // apart from a second edit. Asserted here in the same shape main reads it,
+  // through main's own parser.
+  assert.deepEqual(
+    parsed.map((frame) => frame.toolUseId),
+    // c0 read nothing but still carries its id; the three `editCall` helpers
+    // share one canned callID; c9's apply_patch rewrote TWO files and so sent
+    // TWO frames under ONE id — which is exactly the case main's ring keys on
+    // (id, path) to survive. The calls with no frame here (c10 onward, bar the
+    // capture) were eaten by the plugin's own repeated-event dedup, not by this.
+    ['c0', 'call_1', 'call_1', 'c3', 'c4', 'call_1', 'c6', 'call_1', 'c8', 'c9', 'c9', 'c13'],
+    'every frame carries the callID of the tool call that produced it'
+  )
+  assert.equal(parsed[0].toolUseId, 'c0', 'a frame that claims no file carries the id too')
+  assert.equal(
+    parsed[9].toolUseId,
+    parsed[10].toolUseId,
+    'a multi-file apply_patch sends one frame per file under a single call id — the PATH is what separates them'
+  )
+  console.log('ok - OpenCode`s callID rides every frame as toolUseId, one id across a multi-file patch')
+  console.log('ok - OpenCode`s callID rides every frame as toolUseId, one id across a multi-file patch')
+
   const changes = parsed.map((frame) => frame.fileChange)
   assert.equal(changes[0], undefined, 'a tool that writes nothing claims no file')
   console.log('ok - a non-writing tool reports the phase and claims no file')

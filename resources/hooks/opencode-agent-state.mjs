@@ -397,6 +397,10 @@ function deriveFileChanges(toolName, args, output, directory) {
 // read from the tool's RESULT only, never from its arguments: an agent that
 // merely typed a pull request URL has not opened one.
 // ---------------------------------------------------------------------------
+// OpenCode's `callID` is a short opaque token; longer than this is an anomaly
+// and the id is dropped rather than truncated (a truncated id could collide).
+const MAX_TOOL_USE_ID_LENGTH = 256
+
 const MAX_PULL_REQUEST_URL_LENGTH = 2048
 const MAX_PULL_REQUEST_SCAN_LENGTH = 64 * 1024
 const PULL_REQUEST_URL_RE = /https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+(?![\w])/
@@ -528,7 +532,7 @@ let lastEvent = null
 // a worktree it did not create.
 let launchDirectory = null
 
-async function report(phase, event, sessionId, fileChanges = [], pullRequest = null) {
+async function report(phase, event, sessionId, fileChanges = [], pullRequest = null, toolUseId = null) {
   if (!phase) return
   // Seed the lock before the dedup early-return, so the root id is captured even
   // from a frame we suppress (the first frame, `starting`, is never a dup).
@@ -560,6 +564,12 @@ async function report(phase, event, sessionId, fileChanges = [], pullRequest = n
   // against this conversation under the URL's OWN repository, so a
   // `cd ../website && gh pr create` is captured where it actually landed.
   if (pullRequest) frame.pullRequest = pullRequest
+  // OpenCode's own id for this tool call (`callID`), forwarded so main can tell
+  // a duplicate REGISTRATION of a reporter apart from a second edit — the same
+  // job Claude's `tool_use_id` does on the stdin-filter reporter. A multi-file
+  // apply_patch sends N frames under this one id, and main's ring keys on
+  // `(toolUseId, path)`, so every file still folds exactly once.
+  if (toolUseId) frame.toolUseId = toolUseId
   // One frame per changed FILE (an apply_patch can rewrite several in one
   // call), all carrying the identical event and ts so the phase fold stays
   // idempotent and the ledger reads each file once. No file change: the phase
@@ -624,7 +634,15 @@ export const MulticodeAgentState = async (context) => {
         } catch {
           pullRequest = null
         }
-        await report('thinking', 'tool.execute.after', sessionId, changes, pullRequest)
+        const callId = input && typeof input.callID === 'string' ? input.callID.trim() : ''
+        await report(
+          'thinking',
+          'tool.execute.after',
+          sessionId,
+          changes,
+          pullRequest,
+          callId !== '' && callId.length <= MAX_TOOL_USE_ID_LENGTH ? callId : null
+        )
       } catch {
         // Never let a reporter error break OpenCode.
       }

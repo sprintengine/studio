@@ -128,6 +128,26 @@ export type TerminalSession = {
   // its ledger through the snapshot sidecar, which is the only place it is
   // written down.
   fileChanges?: Map<string, SessionFileChange>
+  // The file-change folds this session has already applied, newest last, so a
+  // DUPLICATE frame is not counted twice.
+  //
+  // The app registers the agent-state reporter twice — merged by hand into
+  // `.claude/settings.local.json`, and declared again by the studio plugin's
+  // own `hooks/hooks.json` — and Claude Code 2.1.266 loads the plugin natively
+  // whether or not this app asks it to, so both registrations fire on every
+  // tool call. The two frames are identical, so without this the ledger read
+  // exactly 2x the agent's edits and the changelist line tracker applied every
+  // insert and delete twice, corrupting its spans.
+  //
+  // Keys are `noteFoldedFileChange`'s, values the frame ts they were folded at
+  // (the no-id key needs it for its window). Bounded to
+  // MAX_FOLDED_FILE_CHANGE_KEYS and evicted oldest-first: this is a duplicate
+  // guard for frames seconds apart, not a history.
+  //
+  // In memory only, and deliberately not on the snapshot: a rehydrated session
+  // is not going to receive the duplicate of a frame the pty that sent it no
+  // longer exists to send.
+  foldedFileChanges?: Map<string, FoldedFileChange>
   // The last reading from this session's own status line (the status-line
   // forwarder's `StatusLine` frames). Only `contextUsage` below is on the
   // snapshot today; the cost, the line counts, the model and the session name
@@ -565,6 +585,90 @@ export const MAX_SESSION_FILE_CHANGE_PATH_CHARS = 64 * 1024
  * call site reads like the other observations, and so a future no-op case has
  * somewhere to live.
  */
+/**
+ * How many recent folds the duplicate ring remembers. A duplicate arrives
+ * within milliseconds of its twin (two hook processes on one tool call), so the
+ * window only has to outlive the burst of frames one call produces — a Codex
+ * multi-file patch is the widest, at one frame per file. 128 covers that many
+ * times over and costs a few KB.
+ */
+/** One fold the ring remembers: when, and which tool call (null for an id-less reporter). */
+export type FoldedFileChange = { at: number; toolUseId: string | null }
+
+export const MAX_FOLDED_FILE_CHANGE_KEYS = 128
+
+/**
+ * How far apart two IDENTICAL file changes with no tool-call id may be and
+ * still be read as one edit reported twice. Cursor's `afterFileEdit` is the
+ * only reporter shape with no id; a second registration's copy of a frame
+ * arrives in the same instant, while a person's agent genuinely re-making the
+ * identical edit to the identical file is seconds of model output away.
+ */
+export const DUPLICATE_FILE_CHANGE_WINDOW_MS = 3000
+
+/**
+ * Whether this file change is one this session has NOT already folded — true
+ * for a first sighting (which it records), false for a duplicate.
+ *
+ * Two keys, because not every reporter has an id to give:
+ *
+ *   - With a `toolUseId`, the key is `(toolUseId, path)`. The id is the CLI's,
+ *     so both registrations of the reporter forward the SAME one for one tool
+ *     call, and a genuinely second edit is a second call with a different id.
+ *     The PATH is in the key because one call legitimately reports several
+ *     files — a MultiEdit across files, a Codex multi-file patch — as N frames
+ *     under one id, and every one of them must fold. No time window on this
+ *     key: a duplicate registration's copy is a duplicate however late it
+ *     lands, and a reporter RETRYING a socket write that failed is safe either
+ *     way — the failed write never reached this ring, so the retry is the
+ *     first arrival and folds; a retry of one that did land is caught.
+ *   - Without one, the key is the change's whole shape — path, both counts and
+ *     the edit regions — and it only counts as a duplicate inside
+ *     DUPLICATE_FILE_CHANGE_WINDOW_MS of the fold it matches. A second
+ *     identical edit that fast is a second registration; the same edit made
+ *     again ten seconds later is a real one, and re-folds (and re-stamps the
+ *     key, so a third arrival is measured from the second).
+ *
+ * Claude Code's parallel edits share no id BETWEEN calls — each tool call has
+ * its own — so two concurrent edits to different files both fold on either key.
+ */
+export function noteFoldedFileChange(
+  session: TerminalSession,
+  change: { path: string; additions: number; deletions: number; edits?: unknown },
+  toolUseId: string | undefined,
+  at: number
+): boolean {
+  const ring = (session.foldedFileChanges ??= new Map<string, FoldedFileChange>())
+  // BOTH keys, always. The two registrations of one edit need not agree on
+  // whether they carry an id: a stale plugin copy left over from before the
+  // reporter forwarded tool-call ids fires an id-less frame beside the current
+  // reporter's id-bearing one (seen live, 2026-09-09), and two keys that never
+  // meet fold the edit twice. So the shape key is checked and stamped on every
+  // frame, and the id key in addition when there is one. The shape match only
+  // counts when at least one of the two frames is id-less: two frames with two
+  // DIFFERENT ids are two tool calls by the CLI's own word, however alike.
+  const shapeKey = `shape\u0000${change.path}\u0000${change.additions}\u0000${change.deletions}\u0000${
+    change.edits ? JSON.stringify(change.edits) : ''
+  }`
+  const idKey = toolUseId ? `id\u0000${toolUseId}\u0000${change.path}` : null
+  const byShape = ring.get(shapeKey)
+  const shapeSaysDuplicate =
+    byShape !== undefined &&
+    Math.abs(at - byShape.at) <= DUPLICATE_FILE_CHANGE_WINDOW_MS &&
+    (!toolUseId || !byShape.toolUseId || byShape.toolUseId === toolUseId)
+  if ((idKey !== null && ring.has(idKey)) || shapeSaysDuplicate) return false
+  if (byShape !== undefined) ring.delete(shapeKey)
+  const entry: FoldedFileChange = { at, toolUseId: toolUseId ?? null }
+  ring.set(shapeKey, entry)
+  if (idKey !== null) ring.set(idKey, entry)
+  while (ring.size > MAX_FOLDED_FILE_CHANGE_KEYS) {
+    const oldest = ring.keys().next().value
+    if (oldest === undefined) break
+    ring.delete(oldest)
+  }
+  return true
+}
+
 export function recordSessionFileChange(
   session: TerminalSession,
   change: { path: string; additions: number; deletions: number },

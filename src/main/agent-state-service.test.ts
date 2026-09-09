@@ -390,6 +390,9 @@ async function run(): Promise<void> {
     const editServer = await listenLines(editSockPath, editFrames)
     type FileChangeFrame = {
       event?: string
+      // The CLI's own id for the tool call, forwarded so main can tell a second
+      // REGISTRATION of this reporter from a second edit.
+      toolUseId?: string
       fileChange?: {
         path?: string
         additions?: number
@@ -1090,6 +1093,93 @@ async function run(): Promise<void> {
       event: 'change',
     })
     assert.equal((await nextVocabFrame(15)).fileChange, undefined, 'a watcher event with no path names nothing')
+
+    // === The tool-call id rides the frame (the duplicate-registration guard) =
+    // The app registers this reporter TWICE — merged into
+    // `.claude/settings.local.json`, and declared again by the studio plugin's
+    // `hooks/hooks.json`, which Claude Code 2.1.266 loads natively by itself —
+    // so both fire on one tool call and send byte-identical frames. Identical
+    // INCLUDING this id, because it is the CLI's and not the hook process's,
+    // which is exactly what lets main tell the copy apart from a second edit.
+    // Three payload spellings, one field on the way out.
+    const idFile = join(vocabDir, 'ids.txt')
+    await writeFile(idFile, 'one\ntwo\nthree\n', 'utf8')
+
+    // Claude Code: snake_case `tool_use_id` beside an Edit.
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      session_id: 'id-claude',
+      cwd: vocabDir,
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Edit',
+      tool_input: { file_path: idFile, old_string: 'two', new_string: 'TWO' },
+      tool_response: { filePath: idFile },
+      tool_use_id: 'toolu_01PEv1LG8ZsV17KL86fXpeAx',
+    })
+    const claudeIdFrame = await nextVocabFrame(16)
+    assert.equal(claudeIdFrame.toolUseId, 'toolu_01PEv1LG8ZsV17KL86fXpeAx', 'Claude`s tool_use_id rides the frame')
+    assert.equal(claudeIdFrame.fileChange?.path, idFile, 'and the edit it identifies still rides with it')
+
+    // Codex: the same spelling, and a multi-file patch — ONE id, N frames, N
+    // paths. Main keys on (id, path), so all of them fold.
+    const idPatchA = join(vocabDir, 'patch-a.txt')
+    const idPatchB = join(vocabDir, 'patch-b.txt')
+    await writeFile(idPatchA, 'a1\na2\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      session_id: 'id-codex',
+      cwd: vocabDir,
+      hook_event_name: 'PostToolUse',
+      tool_name: 'apply_patch',
+      tool_input: {
+        command: [
+          '*** Begin Patch',
+          `*** Update File: ${idPatchA}`,
+          '@@',
+          '-a2',
+          '+A TWO',
+          `*** Add File: ${idPatchB}`,
+          '+fresh',
+          '*** End Patch',
+        ].join('\n'),
+      },
+      tool_response: `Exit code: 0\nOutput:\nSuccess. Updated the following files:\nM ${idPatchA}\nA ${idPatchB}\n`,
+      tool_use_id: 'exec-08e5ecf6-8c44-429d-9598-8028ee8c8d67',
+    })
+    const codexIdA = await nextVocabFrame(17)
+    const codexIdB = await nextVocabFrame(18)
+    assert.equal(codexIdA.toolUseId, 'exec-08e5ecf6-8c44-429d-9598-8028ee8c8d67', 'Codex`s tool_use_id rides the frame')
+    assert.equal(codexIdB.toolUseId, codexIdA.toolUseId, 'both files of one patch carry the SAME id — the path is what separates them')
+    assert.deepEqual(
+      [codexIdA.fileChange?.path, codexIdB.fileChange?.path].sort(),
+      [idPatchA, idPatchB].sort(),
+      'one call, two files, two frames'
+    )
+
+    // Grok Build: camelCase `toolUseId`, on its own event spelling.
+    const idGrok = join(vocabDir, 'grok-id.txt')
+    await writeFile(idGrok, 'g1\ng2\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hookEventName: 'post_tool_use',
+      sessionId: 'id-grok',
+      cwd: vocabDir,
+      toolName: 'search_replace',
+      toolInput: { file_path: idGrok, old_string: 'g2', new_string: 'G TWO' },
+      toolUseId: 'toolu_grok_dup_guard',
+    })
+    assert.equal((await nextVocabFrame(19)).toolUseId, 'toolu_grok_dup_guard', 'Grok`s camelCase toolUseId rides the frame')
+
+    // Cursor's own edit event has no tool wrapper and so no id at all: the
+    // field is ABSENT rather than empty, and main falls back to its
+    // timestamp-windowed key for those frames.
+    const idCursor = join(vocabDir, 'cursor-id.txt')
+    await writeFile(idCursor, 'c1\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'afterFileEdit',
+      conversation_id: 'id-cursor',
+      workspace_roots: [vocabDir],
+      file_path: idCursor,
+      edits: [{ old_string: 'c1', new_string: 'C ONE' }],
+    })
+    assert.equal((await nextVocabFrame(20)).toolUseId, undefined, 'Cursor`s afterFileEdit carries no tool-call id')
 
     vocabServer.close()
 

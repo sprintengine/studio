@@ -69,6 +69,7 @@ import {
   materializeTerminalReplay,
   parseSessionContextUsage,
   parseSessionFileChanges,
+  noteFoldedFileChange,
   recordSessionFileChange,
   recordSessionStatusLine,
   recordTerminalInput,
@@ -2382,20 +2383,36 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   //
   // A subagent's edit counts too: the work is the session's, and the reporter's
   // subagent suppression is a cwd rule only.
-  const ledgerChanged = frame.fileChange
-    ? recordSessionFileChange(session, frame.fileChange, frame.ts)
-    : false
+  //
+  // A DUPLICATE is dropped before either fold. The app registers this reporter
+  // twice — merged by hand into `.claude/settings.local.json`, and declared
+  // again by the studio plugin's own `hooks/hooks.json` — and Claude Code
+  // 2.1.266 auto-registers our directory marketplace into its user-global
+  // registry and loads the plugin's hooks itself, so both fire on every tool
+  // call and send byte-identical frames. Counted twice, the ledger reads 2x the
+  // agent's edits; fed twice, `recordEdit` applies every insert and delete
+  // twice and the changelist's span coordinates go wrong. `noteFoldedFileChange`
+  // keys a small per-session ring on the CLI's own tool-call id and the path
+  // (and, for the reporters that have no id, on the change's shape inside a
+  // three-second window). Only the file change is guarded: the phase, cwd,
+  // status line and pull request the same frame carries are idempotent on
+  // re-ingest and still fold as they always did.
+  const fileChange =
+    frame.fileChange && noteFoldedFileChange(session, frame.fileChange, frame.toolUseId, frame.ts)
+      ? frame.fileChange
+      : null
+  const ledgerChanged = fileChange ? recordSessionFileChange(session, fileChange, frame.ts) : false
   // The same edit, handed to the agent changelist feed. Here rather than after
   // the guards below for exactly the reason the ledger fold is: the edit already
   // happened, and a frame dropped as stale or as an unnamed event still carries
   // a true one. Only an AGENT session claims lines — a plain terminal has no
   // list to put them in — and the feed can never throw into the runtime.
-  if (frame.fileChange && session.agentId && onAgentFileEdit) {
+  if (fileChange && session.agentId && onAgentFileEdit) {
     try {
       onAgentFileEdit({
         session,
-        path: frame.fileChange.path,
-        ...(frame.fileChange.edits ? { edits: frame.fileChange.edits } : {}),
+        path: fileChange.path,
+        ...(fileChange.edits ? { edits: fileChange.edits } : {}),
         ts: frame.ts,
       })
     } catch (error) {

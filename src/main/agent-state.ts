@@ -443,6 +443,22 @@ export type AgentStateFrame = {
   // integer counts — a bad value drops the FIELD, never the frame, so a
   // malformed count cannot cost the session its phase transition.
   fileChange?: AgentStateFrameFileChange
+  // The CLI's OWN id for the tool call this frame reports, forwarded on every
+  // PostToolUse-shaped frame that carries one (Claude/Codex/Kimi `tool_use_id`,
+  // Grok `toolUseId`, OpenCode `callID`; Cursor's `afterFileEdit` has none).
+  //
+  // It exists for exactly one job: telling a SECOND registration of the same
+  // reporter apart from a second edit. Two registrations — the by-hand merge in
+  // `.claude/settings.local.json` and the plugin's own `hooks/hooks.json` —
+  // fire the same hook on the same tool call, and the two frames are identical
+  // down to this id, because it is the CLI's, not the reporter's. A genuinely
+  // second edit is a second tool call and carries a different one. See the ring
+  // in terminal-session.ts (`noteFoldedFileChange`).
+  //
+  // Untrusted like the rest: bounded, control-character-free, and a bad value
+  // drops the FIELD, never the frame — a frame without it falls back to the
+  // ring's timestamp-windowed key rather than losing its edit.
+  toolUseId?: string
   // What the session's own status line last said about itself, forwarded by the
   // status-line forwarder on `event: 'StatusLine'` — an event no manifest names,
   // so the frame's phase resolution DROPS it and the status line is folded in
@@ -502,6 +518,12 @@ function optionalString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+// Cap on the forwarded tool-call id. Every CLI's is a short opaque token
+// (Claude's `toolu_…` is 29 chars); anything longer is a payload anomaly, and
+// the value is only ever compared for equality, so an oversized string is
+// dropped rather than truncated — a truncated id could collide with another.
+export const MAX_TOOL_USE_ID_LENGTH = 256
+
 // Cap on the forwarded discriminator value: documented notification types are
 // short tokens; anything longer is a payload anomaly, and the value is compared
 // against manifest allow-lists so an oversized string is dropped, not truncated.
@@ -557,6 +579,8 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
   if (cwd) frame.cwd = cwd
   const fileChange = parseFrameFileChange(raw.fileChange)
   if (fileChange) frame.fileChange = fileChange
+  const toolUseId = parseFrameToolUseId(raw.toolUseId)
+  if (toolUseId) frame.toolUseId = toolUseId
   const statusLine = parseFrameStatusLine(raw.statusLine)
   if (statusLine) frame.statusLine = statusLine
   const pullRequest = parseFramePullRequest(raw.pullRequest)
@@ -634,6 +658,17 @@ function parseStatusLineCount(raw: unknown): number | null {
 function parseStatusLineName(raw: unknown): string | null {
   const value = optionalString(raw)?.trim()
   if (!value || value.length > MAX_STATUS_LINE_NAME_LENGTH) return null
+  if (hasControlCharacters(value)) return null
+  return value
+}
+
+// The CLI's tool-call id, or nothing. Bounded and free of control characters
+// like every other string off this socket; it is keyed on in a per-session ring
+// and never rendered, so it is compared, never truncated. A bad value drops the
+// FIELD and never the frame — the ring simply falls back to its no-id key.
+function parseFrameToolUseId(raw: unknown): string | null {
+  const value = optionalString(raw)?.trim()
+  if (!value || value.length > MAX_TOOL_USE_ID_LENGTH) return null
   if (hasControlCharacters(value)) return null
   return value
 }

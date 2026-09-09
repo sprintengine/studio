@@ -178,12 +178,36 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
   const server = (JSON.parse(mcp) as { mcpServers: Record<string, { command: string; args: string[] }> })
     .mcpServers['sprintengine-studio']
   assert.equal(server.args[0].endsWith('mcp-stdio-bridge.mjs'), true)
+  // The materialised hook declaration is EMPTY while native loading is off.
+  // Claude Code 2.1.266 registers our directory marketplace into its own
+  // user-global registry and loads this plugin's hooks itself, so a declaration
+  // here would be a SECOND registration beside the by-hand merge below — and
+  // both would fire the reporter on every tool call, which is what doubled the
+  // hover card's per-file ledger. It is written rather than deleted so the file
+  // says the silence is deliberate.
   const hooksJson = await readFile(join(materialised, STUDIO_PLUGIN_ID, 'hooks', 'hooks.json'), 'utf8')
   assert.equal(hasUnsubstitutedTokens(hooksJson), false)
+  const materialisedHooks = JSON.parse(hooksJson) as { hooks: Record<string, unknown>; $comment?: string }
+  assert.deepEqual(materialisedHooks.hooks, {}, 'a natively-loaded copy of this plugin must register NOTHING')
+  assert.match(materialisedHooks.$comment ?? '', /second registration/i, 'and must say why it is empty')
+  assert.equal(
+    hooksJson.includes('agent-state.mjs'),
+    false,
+    'no reporter command may survive in the copy Claude Code loads'
+  )
+  // The TEMPLATE still carries the real declaration: it is the authority for
+  // what the by-hand merge registers, and blanking the copy must not blank it.
+  const templateHooks = JSON.parse(
+    await readFile(join(TEMPLATE_ROOT, STUDIO_PLUGIN_ID, 'hooks', 'hooks.json'), 'utf8')
+  ) as { hooks: Record<string, unknown> }
+  assert.equal(Object.keys(templateHooks.hooks).length >= 8, true, 'the template keeps the declaration the merge reads')
+
   // Substitution is textual, so a `$comment` that spelled a token name would be
   // rewritten into a sentence naming a path — which is what it said the first
   // time this was run against the live app. The prose must survive verbatim.
-  for (const relative of [['.mcp.json'], ['hooks', 'hooks.json']]) {
+  // Only `.mcp.json` is checked: the hook declaration's copy is replaced
+  // wholesale above, comment and all.
+  for (const relative of [['.mcp.json']]) {
     const before = JSON.parse(
       await readFile(join(TEMPLATE_ROOT, STUDIO_PLUGIN_ID, ...relative), 'utf8')
     ) as { $comment?: string }
@@ -434,6 +458,23 @@ async function nativeEnablementIsOffAndSaysSo(): Promise<void> {
     source,
     /if \(!STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT && options\.hooksAcknowledged\) \{/,
     'the hook merge must be gated on the flag, so flipping it stops the double registration'
+  )
+  // The other half of the same coupling, measured against 2.1.266 on
+  // 2026-09-09: Claude Code writes a directory marketplace named in a PROJECT's
+  // settings into its own user-global registry and then loads the plugin's
+  // hooks natively, whatever this flag says. So while the flag is false the
+  // materialised declaration must be blanked, or both registrations fire —
+  // which is the bug that found this. Gated on the same flag from the other
+  // side, so flipping it restores the real declaration in one move.
+  assert.match(
+    source,
+    /if \(!STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT\) await neuterMaterialisedHooks\(staging\)/,
+    'the materialised hooks file must be blanked while the by-hand merge is the registration'
+  )
+  assert.match(
+    source,
+    /2\.1\.266/,
+    'the finding that made native loading unavoidable belongs in the constant`s own comment'
   )
 }
 

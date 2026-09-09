@@ -4115,6 +4115,86 @@ async function assertAgentChangelistSeamsFire(runtimeModule: RuntimeModule): Pro
       'and the session survived it'
     )
 
+    // The duplicate-registration guard. The app registers the agent-state
+    // reporter twice — merged into `.claude/settings.local.json`, and declared
+    // again by the studio plugin's `hooks/hooks.json`, which Claude Code
+    // 2.1.266 loads natively of its own accord — so both fire on one tool call
+    // and send byte-identical frames. Counted twice, the hover card's ledger
+    // read exactly 2x the agent's edits; fed twice, `recordEdit` applied every
+    // insert and delete twice and the changelist's spans went wrong. Both must
+    // see each edit ONCE.
+    const ledgerOf = (path: string) =>
+      runtime.ipcHandlers
+        .listTerminals()
+        .find((session) => session.sessionId === 'sess-changelists')
+        ?.fileChanges.find((change) => change.path === path)
+
+    edits.length = 0
+    const dupChange = {
+      path: '/repo/src/dup.ts',
+      additions: 4,
+      deletions: 2,
+      edits: [{ oldStart: 3, oldLines: 2, newStart: 3, newLines: 4 }],
+    }
+    runtime.ingestAgentStateFrame(frame({ ts: base + 500, toolUseId: 'toolu_same', fileChange: dupChange }))
+    runtime.ingestAgentStateFrame(frame({ ts: base + 500, toolUseId: 'toolu_same', fileChange: dupChange }))
+    assert.equal(edits.length, 1, 'the second registration`s copy never reaches the changelist feed')
+    assert.deepEqual(
+      [ledgerOf('/repo/src/dup.ts')?.additions, ledgerOf('/repo/src/dup.ts')?.deletions, ledgerOf('/repo/src/dup.ts')?.edits],
+      [4, 2, 1],
+      'and it is counted once in the ledger — +4/-2, not +8/-4'
+    )
+
+    // A genuinely second edit is a second tool CALL, with its own id, and both
+    // fold. (Claude Code's parallel edits share no id either — each call has
+    // its own — so two concurrent edits both land.)
+    edits.length = 0
+    runtime.ingestAgentStateFrame(frame({ ts: base + 600, toolUseId: 'toolu_a', fileChange: { path: '/repo/src/twice.ts', additions: 1, deletions: 0 } }))
+    runtime.ingestAgentStateFrame(frame({ ts: base + 601, toolUseId: 'toolu_b', fileChange: { path: '/repo/src/twice.ts', additions: 1, deletions: 0 } }))
+    assert.equal(edits.length, 2, 'two different tool calls are two edits')
+    assert.deepEqual([ledgerOf('/repo/src/twice.ts')?.additions, ledgerOf('/repo/src/twice.ts')?.edits], [2, 2])
+
+    // One call, several FILES — a MultiEdit across files, a Codex multi-file
+    // patch — arrives as N frames under ONE id. The key includes the path, so
+    // every one of them folds.
+    edits.length = 0
+    runtime.ingestAgentStateFrame(frame({ ts: base + 700, toolUseId: 'toolu_patch', fileChange: { path: '/repo/src/multi-a.ts', additions: 2, deletions: 0 } }))
+    runtime.ingestAgentStateFrame(frame({ ts: base + 700, toolUseId: 'toolu_patch', fileChange: { path: '/repo/src/multi-b.ts', additions: 3, deletions: 0 } }))
+    assert.deepEqual(
+      edits.map((edit) => edit.path),
+      ['/repo/src/multi-a.ts', '/repo/src/multi-b.ts'],
+      'one tool call, two files: the path is what separates them'
+    )
+
+    // A reporter with no id at all (Cursor's `afterFileEdit`) falls back to the
+    // change's own shape inside a three-second window: a second identical frame
+    // that fast is a second registration, not a second edit…
+    edits.length = 0
+    const idlessChange = { path: '/repo/src/idless.ts', additions: 5, deletions: 1 }
+    runtime.ingestAgentStateFrame(frame({ ts: base + 800, fileChange: idlessChange }))
+    runtime.ingestAgentStateFrame(frame({ ts: base + 900, fileChange: idlessChange }))
+    assert.equal(edits.length, 1, 'two identical id-less frames 100ms apart are one edit reported twice')
+    assert.deepEqual([ledgerOf('/repo/src/idless.ts')?.additions, ledgerOf('/repo/src/idless.ts')?.edits], [5, 1])
+
+    // …while the same edit made again ten seconds later is a real one.
+    runtime.ingestAgentStateFrame(frame({ ts: base + 10_900, fileChange: idlessChange }))
+    assert.equal(edits.length, 2, 'ten seconds apart is a second edit, not a duplicate')
+    assert.deepEqual([ledgerOf('/repo/src/idless.ts')?.additions, ledgerOf('/repo/src/idless.ts')?.edits], [10, 2])
+
+    // MIXED: one registration forwards the tool-call id and the other does not
+    // (a stale plugin copy from before the reporter carried ids — seen live).
+    // The id-bearing frame stamps the shape too, so the id-less twin that
+    // lands beside it is caught on the shape, in either order.
+    edits.length = 0
+    const mixedChange = { path: '/repo/src/mixed.ts', additions: 2, deletions: 2 }
+    runtime.ingestAgentStateFrame(frame({ ts: base + 20_000, toolUseId: 'toolu_mixed', fileChange: mixedChange }))
+    runtime.ingestAgentStateFrame(frame({ ts: base + 20_005, fileChange: mixedChange }))
+    assert.equal(edits.length, 1, 'an id-less twin of an id-bearing frame is the same edit')
+    runtime.ingestAgentStateFrame(frame({ ts: base + 21_000, fileChange: { ...mixedChange, path: '/repo/src/mixed2.ts' } }))
+    runtime.ingestAgentStateFrame(frame({ ts: base + 21_004, toolUseId: 'toolu_mixed2', fileChange: { ...mixedChange, path: '/repo/src/mixed2.ts' } }))
+    assert.equal(edits.length, 2, 'and the other way round')
+    assert.deepEqual([ledgerOf('/repo/src/mixed.ts')?.edits, ledgerOf('/repo/src/mixed2.ts')?.edits], [1, 1])
+
     // Exactly once, on the pty that died on its own.
     agentPty.emitExit({ exitCode: 0 })
     assert.deepEqual(exited, ['agent-changelists'], 'the agent’s list is marked exited once, on exit')

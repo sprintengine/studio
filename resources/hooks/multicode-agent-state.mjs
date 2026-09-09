@@ -68,6 +68,11 @@ const MAX_EDITS_PER_FRAME = 200
 // Mirrors MAX_PULL_REQUEST_URL_LENGTH in src/main/agent-state.ts. Over the cap
 // the field is DROPPED rather than sliced — half a URL is a different pull
 // request, and the reader would refuse it anyway.
+// The CLI's own tool-call id is a short opaque token (Claude's `toolu_…` is 29
+// chars). Longer than this is a payload anomaly and the id is dropped rather
+// than truncated — a truncated id could collide with another call's.
+const MAX_TOOL_USE_ID_LENGTH = 256
+
 const MAX_PULL_REQUEST_URL_LENGTH = 2048
 // How much of one tool result is scanned for that URL. The result itself is
 // NEVER forwarded (the reader's frame line cap is 64KB); this only bounds the
@@ -1091,6 +1096,27 @@ async function main() {
   // `afterFileEdit` event (its `postToolUse` payload carries no edit at all).
   // See deriveFileChanges for the per-CLI vocabulary table.
   const fileChanges = deriveFileChanges(event, toolName, payload)
+
+  // The CLI's OWN id for this tool call, forwarded on the PostToolUse-shaped
+  // events so the app can tell a second REGISTRATION of this reporter apart
+  // from a second edit. The app installs the reporter twice — merged by hand
+  // into `.claude/settings.local.json`, and declared again by the studio
+  // plugin's `hooks/hooks.json` — and once Claude Code loads the plugin
+  // natively both fire on the same tool call. The two frames are then identical
+  // in every field including this one, because the id belongs to the CLI, not
+  // to the hook process; a genuinely second edit is a second tool call with a
+  // different id. Main keys a small per-session ring on `(toolUseId, path)`
+  // (see ingestAgentStateFrame) and folds each pair exactly once.
+  //
+  // Claude/Codex/Kimi spell it `tool_use_id`, Grok `toolUseId`. The payload is
+  // the gate: only the PostToolUse-shaped events carry one at all. Cursor's
+  // `afterFileEdit` has no tool wrapper and so no id — those frames fall back
+  // to main's timestamp-windowed key.
+  const toolUseId = str(payload?.tool_use_id) ?? str(payload?.toolUseId)
+  if (toolUseId) {
+    const trimmed = toolUseId.trim()
+    if (trimmed && trimmed.length <= MAX_TOOL_USE_ID_LENGTH) frame.toolUseId = trimmed
+  }
 
   // The pull request the agent just opened, forwarded on the same PostToolUse
   // (epic `pull-request-marks`, decision 8b): the app files it against this
