@@ -105,6 +105,36 @@
   height: var(--sem-icon-size-xs);
 }
 
+/* Quiet — the same split action with its chrome taken away, for a row's meta
+ * line: a card head, a list row's trailing slot, anywhere the bordered 30px
+ * group would out-weigh the line it sits on. It drops the outer border and the
+ * raised ground and comes down to the hit-target floor, but it keeps the one
+ * internal hairline, so it is still visibly ONE object with two halves rather
+ * than two glyphs that happen to be adjacent. That hairline is the whole
+ * reason there is a variant here instead of two bare buttons on the meta line.
+ *
+ * Everything that says which half is live — the per-half hover fill, the held
+ * `[aria-expanded="true"]` chevron, the inset focus ring — is inherited
+ * unchanged from the base, because those are what make a split button
+ * operable and a quiet control is not a less accessible one. */
+.ds-split-button--quiet {
+  height: var(--sem-size-hit-target-min);
+  border: none;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+}
+
+/* Tighter than the bordered group: with no border and no ground, the padding is
+ * the only thing standing between the label and its neighbours on the line, and
+ * the bordered group's `space.md` would open a gap the eye reads as a break. */
+.ds-split-button--quiet .ds-split-button__primary {
+  padding: 0 var(--sem-space-xs);
+}
+
+.ds-split-button--quiet .ds-split-button__chevron {
+  padding: 0 var(--sem-space-3xs);
+}
+
 /* Size step for surfaces on the md control row (overlay footers, forms). */
 .ds-split-button--md {
   height: var(--sem-size-control-md);

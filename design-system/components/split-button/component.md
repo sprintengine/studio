@@ -33,6 +33,18 @@ different target*. Two unrelated actions welded together are two buttons.
 - `ds-split-button--md` — the `size.control.md` step, with the label on
   `font.size.body`. For overlay footers and forms, where the surrounding
   controls sit on that row.
+- `ds-split-button--quiet` — the same control with its chrome taken away: no
+  outer border, no raised ground, and `size.hit-target-min` (24px) instead of
+  the `size.control.sm` step. **For a split action on a row's meta line** — a
+  card's head line, a list row's trailing slot — where the bordered 30px group
+  out-weighs the line it sits on and reads as a form control dropped into a
+  sentence. It keeps the single internal hairline, and that is deliberate: it
+  is what still says *one object, two halves* once the border is gone. Without
+  it this would be two bare buttons side by side, which is a different control
+  and a worse one. Everything that resolves which half is live is inherited
+  unchanged — per-half hover fill, the held `[aria-expanded="true"]` chevron,
+  the inset focus ring — because quiet is a chrome level, not a lower
+  accessibility bar.
 - **No accent-filled variant, deliberately.** A view gets one primary button
   (see `foundations/principles.md`); a control whose whole point is that its
   action is ambiguous until you read its glyph is not it.

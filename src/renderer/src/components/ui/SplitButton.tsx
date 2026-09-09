@@ -45,6 +45,19 @@ export type SplitButtonProps = {
   onMenuOpenChange?: (open: boolean) => void
   /** Forwarded to the primary half — for anchoring feedback to the control. */
   primaryRef?: React.Ref<HTMLButtonElement>
+  /**
+   * The `ds-split-button--quiet` variant: no outer border, no raised ground,
+   * and the hit-target floor (24px) instead of the sm control step, for a split
+   * action sitting on a row's META LINE — a card's head line, a row's trailing
+   * slot — where the bordered 30px group out-weighs the line and reads as a
+   * form control dropped into a sentence.
+   *
+   * It keeps the single internal hairline, which is the point: without it this
+   * would be two bare buttons that happen to be adjacent, and the halves would
+   * stop reading as one control. Hover, the held-open chevron and the inset
+   * focus ring are unchanged — quiet is a chrome level, not a lower bar.
+   */
+  quiet?: boolean
   disabled?: boolean
   className?: string
 }
@@ -97,6 +110,7 @@ export function SplitButton({
   onPrimary,
   onMenuOpenChange,
   primaryRef,
+  quiet = false,
   disabled = false,
   className,
 }: SplitButtonProps) {
@@ -154,8 +168,15 @@ export function SplitButton({
       renderTrigger={({ ref, togglePopover, triggerProps }) => (
         <span
           className={[
-            'inline-flex h-control-sm items-stretch overflow-hidden rounded-sm',
-            'border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
+            'inline-flex items-stretch overflow-hidden',
+            // Quiet: the chrome comes off and the group comes down to the
+            // hit-target floor, for a meta line the bordered group would
+            // out-weigh. The overflow clip stays — it is what keeps each half's
+            // hover fill inside the corners — and so does the halves' internal
+            // hairline, which is what still says one object with two halves.
+            quiet
+              ? 'h-[var(--hit-target-min)] rounded-xs'
+              : 'h-control-sm rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]',
             // The GROUP carries the elevation, not the halves: it already owns
             // the border and the radius, and two sunken halves inside one
             // outline would read as two controls. `:active` matches an
@@ -165,7 +186,9 @@ export function SplitButton({
             // Conditional because the group is a <span>: `.control-edge:disabled`
             // cannot match it the way it matches the kit's <button>s, so a
             // disabled split button would otherwise keep standing off the page.
-            disabled ? '' : 'control-edge',
+            // A quiet group has no edge to press: the raised ground it would
+            // sink is exactly what the variant takes away.
+            disabled || quiet ? '' : 'control-edge',
           ].join(' ')}
         >
           <button
@@ -174,7 +197,7 @@ export function SplitButton({
             onClick={onPrimary}
             disabled={disabled}
             aria-label={primaryAriaLabel}
-            className={`${HALF} gap-1.5 px-2.5`}
+            className={`${HALF} gap-1.5 ${quiet ? 'px-1.5' : 'px-2.5'}`}
           >
             {glyph}
             {label}
@@ -191,7 +214,8 @@ export function SplitButton({
             aria-controls={triggerProps['aria-controls']}
             className={[
               HALF,
-              'border-l border-[color:var(--border-subtle)] px-1 text-[color:var(--text-muted)]',
+              'border-l border-[color:var(--border-subtle)] text-[color:var(--text-muted)]',
+              quiet ? 'px-0.5' : 'px-1',
               open ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : '',
             ].join(' ')}
           >

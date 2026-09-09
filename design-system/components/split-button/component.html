@@ -67,6 +67,23 @@
     font-family: var(--sem-font-family-mono);
     font-size: var(--sem-font-size-micro);
   }
+  /* The line the quiet variant exists for: a row's meta line, where the
+     bordered group would out-weigh the words beside it. */
+  .demo-meta-line {
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  .demo-meta-text {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-meta-trail {
+    margin-left: auto;
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
 </style>
 </head>
 <body>
@@ -105,6 +122,35 @@
         <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </span>
+  </div>
+  <p class="demo-label">Light quiet — the same control on a row's meta line: at rest, held open, disabled. No outer border and no ground; the one internal hairline stays, and it is what still says one object with two halves.</p>
+  <div class="demo-row demo-meta-line">
+    <span class="demo-meta-text">SplitButton.tsx</span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in VS Code">
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in IntelliJ IDEA">
+        <span class="ds-split-button__glyph" aria-hidden="true">IJ</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="true">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in VS Code" disabled>
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" disabled>
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="demo-meta-trail">edited 2h ago</span>
   </div>
   <div class="demo-row">
     <div class="demo-menu" role="menu" aria-label="Open in">
@@ -157,6 +203,35 @@
         <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </span>
+  </div>
+  <p class="demo-label">Dark quiet — the same control on a row's meta line: at rest, held open, disabled. No outer border and no ground; the one internal hairline stays, and it is what still says one object with two halves.</p>
+  <div class="demo-row demo-meta-line">
+    <span class="demo-meta-text">SplitButton.tsx</span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in VS Code">
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in IntelliJ IDEA">
+        <span class="ds-split-button__glyph" aria-hidden="true">IJ</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="true">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in VS Code" disabled>
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" disabled>
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="demo-meta-trail">edited 2h ago</span>
   </div>
   <div class="demo-row">
     <div class="demo-menu" role="menu" aria-label="Open in">

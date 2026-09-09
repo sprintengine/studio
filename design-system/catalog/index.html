@@ -6395,6 +6395,36 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   height: var(--sem-icon-size-xs);
 }
 
+/* Quiet — the same split action with its chrome taken away, for a row's meta
+ * line: a card head, a list row's trailing slot, anywhere the bordered 30px
+ * group would out-weigh the line it sits on. It drops the outer border and the
+ * raised ground and comes down to the hit-target floor, but it keeps the one
+ * internal hairline, so it is still visibly ONE object with two halves rather
+ * than two glyphs that happen to be adjacent. That hairline is the whole
+ * reason there is a variant here instead of two bare buttons on the meta line.
+ *
+ * Everything that says which half is live — the per-half hover fill, the held
+ * `[aria-expanded="true"]` chevron, the inset focus ring — is inherited
+ * unchanged from the base, because those are what make a split button
+ * operable and a quiet control is not a less accessible one. */
+.ds-split-button--quiet {
+  height: var(--sem-size-hit-target-min);
+  border: none;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+}
+
+/* Tighter than the bordered group: with no border and no ground, the padding is
+ * the only thing standing between the label and its neighbours on the line, and
+ * the bordered group's `space.md` would open a gap the eye reads as a break. */
+.ds-split-button--quiet .ds-split-button__primary {
+  padding: 0 var(--sem-space-xs);
+}
+
+.ds-split-button--quiet .ds-split-button__chevron {
+  padding: 0 var(--sem-space-3xs);
+}
+
 /* Size step for surfaces on the md control row (overlay footers, forms). */
 .ds-split-button--md {
   height: var(--sem-size-control-md);
@@ -9302,6 +9332,21 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     font-family: var(--sem-font-family-mono);
     font-size: var(--sem-font-size-micro);
   }
+.ds-embed-component-split-button .demo-meta-line {
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+.ds-embed-component-split-button .demo-meta-text {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-split-button .demo-meta-trail {
+    margin-left: auto;
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
 .ds-embed-component-status-dot {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -10727,6 +10772,28 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <path d="M8 13V6.25M4.9 9.4 8 6.25l3.1 3.15" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M3.5 3.1h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
 </svg><figcaption>previous-difference</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <circle cx="11.5" cy="12.5" r="1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <path d="M4.5 5.1v5.8M11.5 10.9V8.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="m9.6 3.2 3.8 3.8M13.4 3.2 9.6 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+</svg><figcaption>pull-request-closed</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <circle cx="11.5" cy="8.5" r="1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <path d="M4.5 5.1v5.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M4.5 5.2c.4 2.2 2 3.3 5.4 3.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>pull-request-merged</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <circle cx="4.5" cy="3.5" r="1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <circle cx="4.5" cy="12.5" r="1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <circle cx="11.5" cy="12.5" r="1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <path d="M4.5 5.1v5.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M11.5 10.9V6.2a1.9 1.9 0 0 0-1.9-1.9H7.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M9.6 2.6 7.9 4.3l1.7 1.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg><figcaption>pull-request-open</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
   <rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
@@ -18454,11 +18521,11 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 </div>
 </div>
 <div class="catalog-doc">
-<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The thirty-one SVGs in <code>glyphs/</code> (close, search, spinner, multicode-mark, git-branch, remote-machine, commit, worktree, history, folder, file-typescript, file-generic, and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
+<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The thirty-four SVGs in <code>glyphs/</code> (close, search, spinner, multicode-mark, git-branch, remote-machine, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
 <p>A glyph is not decoration and not a status pill. It answers exactly one question — *which thing is this* (identity), *where is it in its pipeline* (lifecycle), *who is working on it* (role), *what kind of capability* (capability), *which runtime* (CLI), or *what will this control do* (action) — and each question has its own family below. A surface that reaches for two families to answer one question has the wrong hierarchy, not the wrong icon.</p>
 <h4>Anatomy</h4>
 <p>Two drawing grids, each with its own stroke discipline:</p>
-<p>| Grid | Primary stroke | Drawn by | |---|---|---| | 24 × 24 | <code>1.7</code> (the <code>iconStroke</code> constant) | <code>AppIcons.tsx</code> — every action, identity, status, and settings icon; <code>CliIcon.tsx</code> tile marks (1.7 frame, 1.9 letterform) | | 16 × 16 | <code>1.2 – 1.5</code> | the <code>ui/</code> primitives — <code>LifecycleGlyph</code> (1.4–1.5), <code>CapabilityGlyphs</code> (1.3), <code>RefreshIcon</code> (1.35), <code>StarGlyph</code> (1.4), <code>FileTypeGlyph</code> (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in <code>glyphs/</code> |</p>
+<p>| Grid | Primary stroke | Drawn by | |---|---|---| | 24 × 24 | <code>1.7</code> (the <code>iconStroke</code> constant) | <code>AppIcons.tsx</code> — every action, identity, status, and settings icon; <code>CliIcon.tsx</code> tile marks (1.7 frame, 1.9 letterform) | | 16 × 16 | <code>1.2 – 1.5</code> | the <code>ui/</code> primitives — <code>LifecycleGlyph</code> (1.4–1.5), <code>PullRequestGlyph</code> (1.4), <code>CapabilityGlyphs</code> (1.3), <code>RefreshIcon</code> (1.35), <code>StarGlyph</code> (1.4), <code>FileTypeGlyph</code> (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in <code>glyphs/</code> |</p>
 <p>The 24-grid stroke flexes deliberately and narrowly: secondary strokes step *down* by 0.1–0.3 (<code>iconStroke - 0.3</code> on the <code>RoleGenericIcon</code> inner ring), and a check or emphasis stroke steps *up* to 1.8–1.9 (the shield tick, the tile letterforms). Anything outside that band is drift, not a variant.</p>
 <ul><li><strong><code>currentColor</code>, always.</strong> A glyph inherits the ink of the text beside it and never carries its own palette. The whole list of self-coloring exceptions: <code>PriorityIcon</code> urgent/high (<code>--tone-error</code> / <code>--tone-warn</code>), <code>StatusIcon</code> done and the in-progress wedge family (<code>--tone-good</code> / <code>--tone-accent</code>), the role tone applied by <code>RoleGlyph</code> / <code>RoleAvatar</code> (see Variants), and the two <strong>identity-colour</strong> families ruled 2026-09-06 (principles.md → &quot;Identity colour&quot;): vendor marks in their vendors' colours (<code>CliIcon</code>, <code>brand/EditorMarks</code>), and <code>FileTypeGlyph</code> under <code>tone=&quot;kind&quot;</code>, which inks by language from the <code>--sem-color-mark-*</code> ramp.</li><li><strong>Drawn for 16 px.</strong> Every glyph must read at <code>--sem-icon-size-sm</code>; detail that only resolves at 22 px is detail the glyph cannot afford.</li><li><strong>Named by grid.</strong> 24-grid components end in <code>Icon</code>; 16-grid primitives end in <code>Glyph</code>. (<code>RefreshIcon</code> predates the rule — see Known drift.)</li><li><strong>Never its own hit area.</strong> An interactive glyph pads out to <code>--sem-size-control-xs</code> (26 px) with a transparent hit area; the glyph itself never grows to fill the target.</li></ul>
 <p><strong>The size ramp</strong> — these four steps are the sanctioned sizes, and 16 px is the rail canon (the leading-glyph slot of every sidebar and door-rail row):</p>
@@ -18479,6 +18546,13 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>The shape-coded lifecycle vocabulary shared by Backlog readiness and Sprint Engine task state. Eighteen states, read by shape first — every state survives grayscale — with ink only reinforcing:</p>
 <p>| Shape | States | |---|---| | Ring (plain / dashed) | <code>todo</code>, <code>ready</code> (heavier stroke), <code>idea</code> (dashed) | | Ring + inner mark | <code>blocked</code> (bar), <code>paused</code> (pause bars), <code>needs_input</code> (!), <code>changes_requested</code> (return arrow), <code>archived</code> (slash), <code>failed</code> (×) | | Filling gauge arc | <code>in_progress</code> ¼ (spins when <code>live</code>), <code>review</code> ½, <code>testing</code> ¾, <code>product</code> ⅞ | | Disc / ring + check | <code>done</code> (filled), <code>approved_auto</code> (outline) | | Branch fork | <code>done_unmerged</code> (<code>--tone-good</code>), <code>done_merged</code> (<code>--tone-merged</code>) — same shape, tone carries merged-ness | | Document + tick | <code>recorded</code> |</p>
 <p>Held states (<code>blocked</code>, <code>paused</code>) are neutral ink, never the accent — the accent means *startable or live right now*, and never <code>--tone-error</code> — waiting is calm, not a defect.</p>
+<h5>Pull request (16-grid — <code>ui/PullRequestGlyph.tsx</code>)</h5>
+<p>*Where did this work go* — the state of a pull request, in the three marks GitHub itself has taught people to read (epic <code>pull-request-marks</code>, decision 1, 2026-09-09). 16-grid, stroke 1.4, <code>currentColor</code>, <code>fill=&quot;none&quot;</code>. All three are the same branch-and-node armature, so the family reads as one set; what differs is where the branch ends, and that difference is the state.</p>
+<p>| State | Drawing | Asset | |---|---|---| | <code>open</code> | The branch beside main with an arrow that has NOT gone in: two nodes on the left rail, a third down on the right, and the connector turning back into an arrowhead that stops short of it | <code>glyphs/pull-request-open.svg</code> | | <code>merged</code> | The branch gone into main: the right-hand node sits at the middle and the connector curves cleanly into it | <code>glyphs/pull-request-merged.svg</code> | | <code>closed</code> | The branch ending in a cross: the same three nodes, the right-hand connector cut short, and an × where the merge would have been | <code>glyphs/pull-request-closed.svg</code> |</p>
+<p><strong>Three states and no more.</strong> A draft is an *open* pull request and wears the open mark — the word &quot;draft&quot; belongs in the tooltip, not in a fourth drawing. There is no &quot;unknown&quot; mark either: nothing is drawn unless a pull request definitely exists, so a lookup that could not be made draws exactly what no pull request draws (decision 3).</p>
+<p><strong>Shape first, tone second.</strong> The three shapes are distinguishable in grayscale; the tone only agrees with the shape. The tone map is shared — one function, <code>pullRequestTone</code> in <code>src/shared/git/pull-request.ts</code> — so every surface inks the same state the same way:</p>
+<p>| State | Tone | CSS variable | |---|---|---| | <code>open</code> | <code>accent</code> — the one you can still act on | <code>--accent-primary</code> | | <code>merged</code> | <code>merged</code> — the violet a landed branch already wears | <code>--tone-merged</code> (<code>--sem-color-status-merged</code>) | | <code>closed</code> | <code>error</code> — GitHub's own red for a pull request that ended without landing | <code>--tone-error</code> (<code>--sem-color-status-danger</code>) |</p>
+<p>The primitive takes <code>state</code> and an optional <code>label</code>; the caller owns the size (<code>icon-xs</code> beside meta copy, <code>icon-sm</code> in a row's leading slot) and the ink.</p>
 <h5>Role (24-grid drawings, 16-grid wrappers)</h5>
 <p><code>SprintEngineRoleIcon(role, registry)</code> dispatches to module-private drawings (architect, product, developer, frontend and ui/ux reviewer, tester, security, performance, production-readiness, cross-platform) and falls back to a neutral disc for an absent or unrecognised role. <code>SpecialistActionIcon(icon)</code> keys the same drawings by specialist-action id (adding writing, spaghetti, nuclear, infra, shield and the two design ids). The drawings are private on purpose: going through the dispatcher is what makes unknown ids degrade instead of crash.</p>
 <p>Two wrappers apply role *tone* — the documented exception to the one-accent rule, and the only one:</p>
@@ -18514,10 +18588,10 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h4>Usage</h4>
 <ul><li><strong>Pick the family by the question, then the glyph by the table.</strong> Never answer a lifecycle question with a status dot *and* a glyph, or an identity question with an action icon.</li><li><strong>Size from the ramp, nothing else.</strong> Rails and toolbars at <code>sm</code>; chips and inline-with-meta at <code>xs</code>; button-paired and panel-header at <code>md</code>; empty states at <code>lg</code>. A 28 px icon button is not a size the system has (Known drift, MC-2119).</li><li><strong>Reserve the slot.</strong> A rail row's leading glyph slot is a fixed <code>--sem-icon-size-sm</code> box; a smaller glyph centers in it rather than narrowing it.</li><li><strong>One meaning per shape.</strong> The plus belongs to create; compose gets the pencil-in-square; a second surface wanting &quot;add&quot; reuses <code>PlusIcon</code>, it does not redraw it. Duplicating a path into a second file is how the title-bar chrome ended up with two divergent copies of the same four glyphs (Known drift).</li><li><strong>Drawing a new glyph:</strong> 24-grid, <code>iconStroke</code> 1.7, <code>currentColor</code>, one concept, <code>fill=&quot;none&quot;</code> line work, legible at 16 px. Name it <code>&lt;Concept&gt;Icon</code> (24-grid) or <code>&lt;Concept&gt;Glyph</code> (16-grid); a framework-neutral copy contributed to <code>glyphs/</code> takes a kebab-case concept name per the naming grammar in <code>design-system.json</code>.</li><li><strong>Rebuilding in a framework:</strong> React consumers import from <code>AppIcons.tsx</code> and the <code>ui/</code> primitives — never paste paths inline. Framework-neutral consumers take the <code>glyphs/</code> assets. Both size via the ramp tokens and ink via <code>currentColor</code>.</li></ul>
 <h4>Accessibility</h4>
-<ul><li><strong>Decorative is the default.</strong> A glyph whose meaning is carried by adjacent text is <code>aria-hidden=&quot;true&quot;</code> — every core action, identity, and settings icon ships that way.</li><li><strong>Meaning-bearing glyphs label themselves.</strong> <code>PriorityIcon</code>, <code>StatusIcon</code>, a labelled <code>LifecycleGlyph</code>, <code>StarGlyph</code> with <code>label</code>, and <code>RoleGlyph</code>/<code>RoleAvatar</code> carry <code>role=&quot;img&quot;</code> + <code>aria-label</code> (and a <code>&lt;title&gt;</code> where hover should confirm). Omit the label only when the row's text already announces the state.</li><li><strong>Icon-only buttons carry <code>aria-label</code></strong> on the button; the glyph inside stays hidden. Pair with a tooltip that says the consequence, not the name.</li><li><strong>Shape first, color second.</strong> Every status and lifecycle state is distinguishable in grayscale; ink only reinforces. Color is never the sole differentiator — the one narrow exception is merged-vs-unmerged on the branch fork, where a distinct merge shape read as noise at 16 px and the label carries the difference.</li><li><strong>Hit targets.</strong> Nothing interactive below <code>--sem-size-hit-target-min</code>; the glyph pads out, it does not grow.</li></ul>
+<ul><li><strong>Decorative is the default.</strong> A glyph whose meaning is carried by adjacent text is <code>aria-hidden=&quot;true&quot;</code> — every core action, identity, and settings icon ships that way.</li><li><strong>Meaning-bearing glyphs label themselves.</strong> <code>PriorityIcon</code>, <code>StatusIcon</code>, a labelled <code>LifecycleGlyph</code>, <code>StarGlyph</code> with <code>label</code>, and <code>RoleGlyph</code>/<code>RoleAvatar</code> carry <code>role=&quot;img&quot;</code> + <code>aria-label</code> (and a <code>&lt;title&gt;</code> where hover should confirm). Omit the label only when the row's text already announces the state.</li><li><strong>Icon-only buttons carry <code>aria-label</code></strong> on the button; the glyph inside stays hidden. Pair with a tooltip that says the consequence, not the name.</li><li><strong>Shape first, color second.</strong> Every status and lifecycle state is distinguishable in grayscale; ink only reinforces. Color is never the sole differentiator, with no exception. The one that used to stand here — merged-vs-unmerged on the branch fork, on the ruling that a distinct merge shape read as noise at 16 px — was retired on 2026-09-09: the Pull request family draws merged, open and closed as three different shapes at 16 px, so the ruling's premise is gone and nothing in the system needs colour to carry a state on its own.</li><li><strong>Hit targets.</strong> Nothing interactive below <code>--sem-size-hit-target-min</code>; the glyph pads out, it does not grow.</li></ul>
 <h4>Known drift</h4>
 <p>Shipped divergences from the conventions above, with their backlog homes. Cite these rather than matching the code you happen to be nearest.</p>
-<p>1. <strong>Four icon-button sizes in the chrome strips</strong> — 22 px (<code>WorkspaceIdentity</code> star toggle), 26 px (<code>SidebarChrome</code> <code>BRAND_ROW_BUTTON</code>), 28 px (<code>AppTitleBar</code> / <code>WorkspaceHeader</code> <code>STRIP_BUTTON</code> — off the 26/30/34 control ramp entirely, and with no radius or hover fill where SidebarChrome's 26 px button has both), and 30 px (<code>AppMenuButton</code>). Canon is <code>--sem-size-control-xs</code> (26 px). Tracked as <strong>MC-2119</strong> (icon-size conformance axis). *2026-09-02:* the kit's own off-ramp sites are resolved — <code>CursorErrorPopover</code>'s two 20 px reveal buttons are <code>IconButton</code> / <code>CloseIconButton</code>, and <code>MenuSwatchRow</code>'s 20 px swatches pad out to the 24 px hit-target floor. <strong>Resolved 2026-09-02</strong> for the app chrome too: <code>STRIP_BUTTON</code> is deleted from <code>WorkspaceHeader</code> and <code>AppTitleBar</code>, and every strip, popover-trigger and row glyph button in the renderer is <code>IconButton</code> / <code>CloseIconButton</code> at <code>--sem-size-control-xs</code> (backlog <code>icon-buttons-off-the-control-ramp</code>); the conformance guard's <code>focus-ring-missing</code> rule keeps a bare button from returning. 2. <strong>Per-door rail glyph sizes 16 / 13 / 12 px</strong> — Sprints and Automations lead rows with 16 px glyphs (titles at x = 42 px), Extensions with bare 13 px <code>icon-xs</code> glyphs and no fixed-width wrapper (39 px), the Design door with a 12 px chip (38 px) — so sibling doors' titles start at three different offsets in the same column. <code>AutomationTypeGlyph</code> compounds it: an 18 px <code>icon-md</code> SVG inside a 16 px box, overflowing by 2 px. Canon: <code>sm</code> glyph in a reserved 16 px slot. Tracked as <strong>MC-2098</strong> (door glyph normalization). 3. <strong>Copy-pasted chrome SVGs.</strong> The back / forward / search / panel-left paths are duplicated between <code>AppTitleBar.tsx</code> and <code>SidebarChrome.tsx</code> rather than shared, and the two copies get different hit areas and hover treatments (item 1). One export, two consumers, is the fix. 4. <strong>Stroke drift at the edges.</strong> The chrome strips draw bespoke 16-grid glyphs at 1.5 with a one-off 1.6 &quot;+&quot;; window controls sit at 1.2–1.4; a backlog toggle at 1.3 beside a skills glyph at 1.5. The 16-grid band is 1.2–1.5, so most of these pass individually — the drift is per-surface inconsistency, resolved by consuming the shared exports (item 3). 5. <strong><code>RefreshIcon</code> is a 16-grid primitive named <code>Icon</code></strong> where the family convention is <code>Glyph</code>. Rename when it next moves. 6. <strong>The <code>glyphs/</code> folder holds twenty-nine assets</strong> against a shipped vocabulary of roughly sixty. This entry closes the documentation gap; extracting framework-neutral SVGs for the core-action set into <code>glyphs/</code> (and registering them in <code>design-system.json</code>) remains open. *2026-09-05:* the Git view marks, the folder and two file-type samples joined the folder. *2026-09-09:* the seventeen Commit-window and diff-window action marks joined it (Git and diff actions, above), <code>previous-difference</code> among them as a shipped mirror rather than a transform the reader has to apply.</p>
+<p>1. <strong>Four icon-button sizes in the chrome strips</strong> — 22 px (<code>WorkspaceIdentity</code> star toggle), 26 px (<code>SidebarChrome</code> <code>BRAND_ROW_BUTTON</code>), 28 px (<code>AppTitleBar</code> / <code>WorkspaceHeader</code> <code>STRIP_BUTTON</code> — off the 26/30/34 control ramp entirely, and with no radius or hover fill where SidebarChrome's 26 px button has both), and 30 px (<code>AppMenuButton</code>). Canon is <code>--sem-size-control-xs</code> (26 px). Tracked as <strong>MC-2119</strong> (icon-size conformance axis). *2026-09-02:* the kit's own off-ramp sites are resolved — <code>CursorErrorPopover</code>'s two 20 px reveal buttons are <code>IconButton</code> / <code>CloseIconButton</code>, and <code>MenuSwatchRow</code>'s 20 px swatches pad out to the 24 px hit-target floor. <strong>Resolved 2026-09-02</strong> for the app chrome too: <code>STRIP_BUTTON</code> is deleted from <code>WorkspaceHeader</code> and <code>AppTitleBar</code>, and every strip, popover-trigger and row glyph button in the renderer is <code>IconButton</code> / <code>CloseIconButton</code> at <code>--sem-size-control-xs</code> (backlog <code>icon-buttons-off-the-control-ramp</code>); the conformance guard's <code>focus-ring-missing</code> rule keeps a bare button from returning. 2. <strong>Per-door rail glyph sizes 16 / 13 / 12 px</strong> — Sprints and Automations lead rows with 16 px glyphs (titles at x = 42 px), Extensions with bare 13 px <code>icon-xs</code> glyphs and no fixed-width wrapper (39 px), the Design door with a 12 px chip (38 px) — so sibling doors' titles start at three different offsets in the same column. <code>AutomationTypeGlyph</code> compounds it: an 18 px <code>icon-md</code> SVG inside a 16 px box, overflowing by 2 px. Canon: <code>sm</code> glyph in a reserved 16 px slot. Tracked as <strong>MC-2098</strong> (door glyph normalization). 3. <strong>Copy-pasted chrome SVGs.</strong> The back / forward / search / panel-left paths are duplicated between <code>AppTitleBar.tsx</code> and <code>SidebarChrome.tsx</code> rather than shared, and the two copies get different hit areas and hover treatments (item 1). One export, two consumers, is the fix. 4. <strong>Stroke drift at the edges.</strong> The chrome strips draw bespoke 16-grid glyphs at 1.5 with a one-off 1.6 &quot;+&quot;; window controls sit at 1.2–1.4; a backlog toggle at 1.3 beside a skills glyph at 1.5. The 16-grid band is 1.2–1.5, so most of these pass individually — the drift is per-surface inconsistency, resolved by consuming the shared exports (item 3). 5. <strong><code>RefreshIcon</code> is a 16-grid primitive named <code>Icon</code></strong> where the family convention is <code>Glyph</code>. Rename when it next moves. 6. <strong>The <code>glyphs/</code> folder holds thirty-four assets</strong> against a shipped vocabulary of roughly sixty. This entry closes the documentation gap; extracting framework-neutral SVGs for the core-action set into <code>glyphs/</code> (and registering them in <code>design-system.json</code>) remains open. *2026-09-05:* the Git view marks, the folder and two file-type samples joined the folder. *2026-09-09:* the seventeen Commit-window and diff-window action marks joined it (Git and diff actions, above), <code>previous-difference</code> among them as a shipped mirror rather than a transform the reader has to apply, and the three pull-request marks with them (Pull request, above).</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/glyphs/component.css</summary><pre><code>/* Glyphs — the sizing and ink contract for the icon vocabulary.
@@ -30052,6 +30126,35 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
       </button>
     </span>
   </div>
+  <p class="demo-label">Light quiet — the same control on a row's meta line: at rest, held open, disabled. No outer border and no ground; the one internal hairline stays, and it is what still says one object with two halves.</p>
+  <div class="demo-row demo-meta-line">
+    <span class="demo-meta-text">SplitButton.tsx</span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in VS Code">
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in IntelliJ IDEA">
+        <span class="ds-split-button__glyph" aria-hidden="true">IJ</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="true">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in VS Code" disabled>
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" disabled>
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="demo-meta-trail">edited 2h ago</span>
+  </div>
   <div class="demo-row">
     <div class="demo-menu" role="menu" aria-label="Open in">
       <button type="button" class="demo-item" role="menuitemcheckbox" aria-checked="true">
@@ -30104,6 +30207,35 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
       </button>
     </span>
   </div>
+  <p class="demo-label">Dark quiet — the same control on a row's meta line: at rest, held open, disabled. No outer border and no ground; the one internal hairline stays, and it is what still says one object with two halves.</p>
+  <div class="demo-row demo-meta-line">
+    <span class="demo-meta-text">SplitButton.tsx</span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in VS Code">
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in IntelliJ IDEA">
+        <span class="ds-split-button__glyph" aria-hidden="true">IJ</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="true">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button ds-split-button--quiet">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in VS Code" disabled>
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" disabled>
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="demo-meta-trail">edited 2h ago</span>
+  </div>
   <div class="demo-row">
     <div class="demo-menu" role="menu" aria-label="Open in">
       <button type="button" class="demo-item" role="menuitemcheckbox" aria-checked="true">
@@ -30127,7 +30259,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <h4>Anatomy</h4>
 <ul><li><code>ds-split-button</code> — the group. It owns the border, the radius, the height, and the overflow clip; the halves own nothing structural. One object, not two buttons that touch.</li><li><code>ds-split-button__primary</code> — the default-action half: optional target glyph, then the verb. Padding <code>sem.space.md</code>, label in <code>font.size.meta</code> at <code>font.weight.medium</code>.</li><li><code>ds-split-button__chevron</code> — the menu half, carrying the single internal hairline (<code>color.border.subtle</code>) on its left edge and a chevron at <code>icon.size.xs</code>. Narrower than the label half (<code>sem.space.2xs</code>).</li><li><code>ds-split-button__glyph</code> — the target mark leading the label: a two-letter mono mark or a small glyph, boxed at <code>icon.size.sm</code> on <code>color.bg.active</code> so every target reads at one weight whichever form it takes.</li><li>The menu itself is a standard popover surface, <strong>not</strong> part of this component. It carries one checkable row per target, the current default checked, and any keyboard hint right-aligned.</li></ul>
 <h4>Variants</h4>
-<ul><li>Default (no modifier) — the neutral outlined group at <code>size.control.sm</code>. This is the only tone the system offers.</li><li><code>ds-split-button--md</code> — the <code>size.control.md</code> step, with the label on <code>font.size.body</code>. For overlay footers and forms, where the surrounding controls sit on that row.</li><li><strong>No accent-filled variant, deliberately.</strong> A view gets one primary button (see <code>foundations/principles.md</code>); a control whose whole point is that its action is ambiguous until you read its glyph is not it.</li></ul>
+<ul><li>Default (no modifier) — the neutral outlined group at <code>size.control.sm</code>. This is the only tone the system offers.</li><li><code>ds-split-button--md</code> — the <code>size.control.md</code> step, with the label on <code>font.size.body</code>. For overlay footers and forms, where the surrounding controls sit on that row.</li><li><code>ds-split-button--quiet</code> — the same control with its chrome taken away: no outer border, no raised ground, and <code>size.hit-target-min</code> (24px) instead of the <code>size.control.sm</code> step. <strong>For a split action on a row's meta line</strong> — a card's head line, a list row's trailing slot — where the bordered 30px group out-weighs the line it sits on and reads as a form control dropped into a sentence. It keeps the single internal hairline, and that is deliberate: it is what still says *one object, two halves* once the border is gone. Without it this would be two bare buttons side by side, which is a different control and a worse one. Everything that resolves which half is live is inherited unchanged — per-half hover fill, the held <code>[aria-expanded=&quot;true&quot;]</code> chevron, the inset focus ring — because quiet is a chrome level, not a lower accessibility bar.</li><li><strong>No accent-filled variant, deliberately.</strong> A view gets one primary button (see <code>foundations/principles.md</code>); a control whose whole point is that its action is ambiguous until you read its glyph is not it.</li></ul>
 <h4>States</h4>
 <ul><li>Hover: the hovered half alone takes <code>bg.hover</code> and lifts to <code>text.primary</code>. The other half does not move — the halves are separately clickable and must say so.</li><li>Open: while the menu is on screen the chevron half stays at <code>bg.hover</code> via <code>[aria-expanded=&quot;true&quot;]</code>, tying the surface to the half that opened it.</li><li>Focus-visible: the shared <code>focus.ring</code> outline, at a <strong>negative</strong> <code>focus.ring-offset</code> because the group clips its overflow — an outward gap would be cut off on the joined edge. Each half draws independently.</li><li>Disabled: 45% opacity and <code>not-allowed</code> on both halves. Disable the whole group or neither: a live primary beside a dead menu reads as a bug.</li><li>No press-scale. The group would scale as one object while only one half was pressed.</li></ul>
 <h4>Usage</h4>
@@ -30243,6 +30375,36 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
   height: var(--sem-icon-size-xs);
 }
 
+/* Quiet — the same split action with its chrome taken away, for a row's meta
+ * line: a card head, a list row's trailing slot, anywhere the bordered 30px
+ * group would out-weigh the line it sits on. It drops the outer border and the
+ * raised ground and comes down to the hit-target floor, but it keeps the one
+ * internal hairline, so it is still visibly ONE object with two halves rather
+ * than two glyphs that happen to be adjacent. That hairline is the whole
+ * reason there is a variant here instead of two bare buttons on the meta line.
+ *
+ * Everything that says which half is live — the per-half hover fill, the held
+ * `[aria-expanded=&quot;true&quot;]` chevron, the inset focus ring — is inherited
+ * unchanged from the base, because those are what make a split button
+ * operable and a quiet control is not a less accessible one. */
+.ds-split-button--quiet {
+  height: var(--sem-size-hit-target-min);
+  border: none;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+}
+
+/* Tighter than the bordered group: with no border and no ground, the padding is
+ * the only thing standing between the label and its neighbours on the line, and
+ * the bordered group's `space.md` would open a gap the eye reads as a break. */
+.ds-split-button--quiet .ds-split-button__primary {
+  padding: 0 var(--sem-space-xs);
+}
+
+.ds-split-button--quiet .ds-split-button__chevron {
+  padding: 0 var(--sem-space-3xs);
+}
+
 /* Size step for surfaces on the md control row (overlay footers, forms). */
 .ds-split-button--md {
   height: var(--sem-size-control-md);
@@ -30329,6 +30491,23 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
     font-family: var(--sem-font-family-mono);
     font-size: var(--sem-font-size-micro);
   }
+  /* The line the quiet variant exists for: a row's meta line, where the
+     bordered group would out-weigh the words beside it. */
+  .demo-meta-line {
+    gap: var(--sem-space-sm);
+    padding: var(--sem-space-2xs) var(--sem-space-sm);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface);
+  }
+  .demo-meta-text {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-meta-trail {
+    margin-left: auto;
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
@@ -30367,6 +30546,35 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
         &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
       &lt;/button&gt;
     &lt;/span&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light quiet — the same control on a row's meta line: at rest, held open, disabled. No outer border and no ground; the one internal hairline stays, and it is what still says one object with two halves.&lt;/p&gt;
+  &lt;div class=&quot;demo-row demo-meta-line&quot;&gt;
+    &lt;span class=&quot;demo-meta-text&quot;&gt;SplitButton.tsx&lt;/span&gt;
+    &lt;span class=&quot;ds-split-button ds-split-button--quiet&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; aria-label=&quot;Open in VS Code&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;false&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;ds-split-button ds-split-button--quiet&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; aria-label=&quot;Open in IntelliJ IDEA&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;IJ&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;true&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;ds-split-button ds-split-button--quiet&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; aria-label=&quot;Open in VS Code&quot; disabled&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; disabled&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-meta-trail&quot;&gt;edited 2h ago&lt;/span&gt;
   &lt;/div&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;div class=&quot;demo-menu&quot; role=&quot;menu&quot; aria-label=&quot;Open in&quot;&gt;
@@ -30419,6 +30627,35 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
         &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
       &lt;/button&gt;
     &lt;/span&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark quiet — the same control on a row's meta line: at rest, held open, disabled. No outer border and no ground; the one internal hairline stays, and it is what still says one object with two halves.&lt;/p&gt;
+  &lt;div class=&quot;demo-row demo-meta-line&quot;&gt;
+    &lt;span class=&quot;demo-meta-text&quot;&gt;SplitButton.tsx&lt;/span&gt;
+    &lt;span class=&quot;ds-split-button ds-split-button--quiet&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; aria-label=&quot;Open in VS Code&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;false&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;ds-split-button ds-split-button--quiet&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; aria-label=&quot;Open in IntelliJ IDEA&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;IJ&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;true&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;ds-split-button ds-split-button--quiet&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; aria-label=&quot;Open in VS Code&quot; disabled&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; disabled&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-meta-trail&quot;&gt;edited 2h ago&lt;/span&gt;
   &lt;/div&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;div class=&quot;demo-menu&quot; role=&quot;menu&quot; aria-label=&quot;Open in&quot;&gt;
