@@ -437,6 +437,7 @@ type WorkspacesSliceCarrier = WorkspacesSliceState & {
   appSettings: AppSettings
   activeGlobalSurface: string | null
   activeModalSurface: string | null
+  activeModalSurfaceWorkspaceId: string | null
 }
 type WorkspacesSliceSet = (mutator: (state: WorkspacesSliceCarrier) => void) => void
 
@@ -447,6 +448,8 @@ type WorkspacesSliceSet = (mutator: (state: WorkspacesSliceCarrier) => void) => 
 function clearRoutedSurfaces(state: WorkspacesSliceCarrier): void {
   state.activeGlobalSurface = null
   state.activeModalSurface = null
+  // The opener workspace is part of the modal, and goes when it does.
+  state.activeModalSurfaceWorkspaceId = null
 }
 
 function findWorkspaceWindow(state: WorkspacesSliceCarrier, workspaceId: WorkspaceId): WorkspaceWindowState | undefined {

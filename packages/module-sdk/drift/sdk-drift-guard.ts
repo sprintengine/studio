@@ -86,7 +86,9 @@ import type {
   BacklogLinkProvider as AppBacklogLinkProvider,
   BacklogLinkProviderInput as AppBacklogLinkProviderInput,
   GlobalSurfaceDefinition as AppGlobalSurfaceDefinition,
+  ModalSurfaceComponentProps as AppModalSurfaceComponentProps,
   ModalSurfaceDefinition as AppModalSurfaceDefinition,
+  ModalSurfaceLauncher as AppModalSurfaceLauncher,
   ModuleCommandDefinition as AppModuleCommandDefinition,
   RendererHost as AppRendererHost,
   SettingsSectionDefinition as AppSettingsSectionDefinition,
@@ -110,7 +112,9 @@ import type { CommandAvailability as AppCommandAvailability, CommandScope as App
 import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
 import type { WorkspaceFileWatchEvent as AppWorkspaceFileWatchEvent } from '../../../src/renderer/src/modules/workspace-file-watch'
 import type { ModuleAgentSessionView as AppModuleAgentSessionView } from '../../../src/renderer/src/modules/agent-session-watch'
+import type { ModuleColorScheme as AppModuleColorScheme } from '../../../src/renderer/src/modules/color-scheme-watch'
 import type {
+  ModuleAgentRuntimeModelOption as AppModuleAgentRuntimeModelOption,
   ModuleAgentRuntimeOption as AppModuleAgentRuntimeOption,
   ModuleFocusTabInput as AppModuleFocusTabInput,
   ModuleSpawnAgentInput as AppModuleSpawnAgentInput,
@@ -157,7 +161,9 @@ import type {
   JsonSchema as SdkJsonSchema,
   FileDropPayload as SdkFileDropPayload,
   GlobalSurfaceDefinition as SdkGlobalSurfaceDefinition,
+  ModalSurfaceComponentProps as SdkModalSurfaceComponentProps,
   ModalSurfaceDefinition as SdkModalSurfaceDefinition,
+  ModalSurfaceLauncher as SdkModalSurfaceLauncher,
   MainHost as SdkMainHost,
   McpConnectionContext as SdkMcpConnectionContext,
   McpConnectionMetadata as SdkMcpConnectionMetadata,
@@ -173,8 +179,10 @@ import type {
   ModuleNotifyInput as SdkModuleNotifyInput,
   ModuleSignature as SdkModuleSignature,
   ModuleSource as SdkModuleSource,
+  ModuleAgentRuntimeModelOption as SdkModuleAgentRuntimeModelOption,
   ModuleAgentRuntimeOption as SdkModuleAgentRuntimeOption,
   ModuleAgentSessionView as SdkModuleAgentSessionView,
+  ModuleColorScheme as SdkModuleColorScheme,
   ModuleFocusTabInput as SdkModuleFocusTabInput,
   ModuleSpawnAgentInput as SdkModuleSpawnAgentInput,
   ModuleSpawnAgentResult as SdkModuleSpawnAgentResult,
@@ -270,7 +278,12 @@ expectType<IsExact<AppModuleWorkspaceContextService, SdkWorkspaceContextService>
 // AppRendererHost extends SdkRendererHost assertion below.
 expectType<IsExact<AppWorkspaceFileWatchEvent, SdkWorkspaceFileWatchEvent>>()
 expectType<IsExact<AppModuleAgentSessionView, SdkModuleAgentSessionView>>()
+expectType<IsExact<AppModuleAgentRuntimeModelOption, SdkModuleAgentRuntimeModelOption>>()
 expectType<IsExact<AppModuleAgentRuntimeOption, SdkModuleAgentRuntimeOption>>()
+// The published 'light' | 'dark' must stay the app's own resolved scheme: the
+// module host's watchColorScheme republishes exactly what useResolvedColorScheme
+// resolves, and a third value added app-side has to be published or refused.
+expectType<IsExact<AppModuleColorScheme, SdkModuleColorScheme>>()
 expectType<IsExact<AppModuleSpawnAgentInput, SdkModuleSpawnAgentInput>>()
 expectType<IsExact<AppModuleSpawnAgentResult, SdkModuleSpawnAgentResult>>()
 expectType<IsExact<AppModuleFocusTabInput, SdkModuleFocusTabInput>>()
@@ -367,9 +380,26 @@ expectType<IsExact<AppGlobalSurfaceDefinition, SdkGlobalSurfaceDefinition>>()
 expectType<IsExact<AppTopBarItemDefinition, SdkTopBarItemDefinition>>()
 expectType<IsExact<AppRendererHost['registerGlobalSurface'], SdkRendererHost['registerGlobalSurface']>>()
 expectType<IsExact<AppRendererHost['registerTopBarItem'], SdkRendererHost['registerTopBarItem']>>()
-// Modal surfaces (doors→modals, 2026-09-01): same exact-pin discipline.
+// Modal surfaces (doors→modals, 2026-09-01): same exact-pin discipline. The
+// contributed pane row and the props the shell mounts the body with are pinned
+// beside the definition (D7, 2026-09-10) — a launcher field the app validates
+// but the SDK does not publish is a registration error module authors cannot
+// see coming, and a prop the shell passes but the SDK omits is context a
+// module cannot type.
 expectType<IsExact<AppModalSurfaceDefinition, SdkModalSurfaceDefinition>>()
+expectType<IsExact<AppModalSurfaceLauncher, SdkModalSurfaceLauncher>>()
+expectType<IsExact<AppModalSurfaceComponentProps, SdkModalSurfaceComponentProps>>()
 expectType<IsExact<AppRendererHost['registerModalSurface'], SdkRendererHost['registerModalSurface']>>()
+
+// Renderer host additions for module-owned surfaces (WP-C, 2026-09-10). Pinned
+// exactly for the reason the whole file gives: the one-directional host
+// assertion compares method parameters bivariantly, so a widened parameter or
+// a dropped optional would ride through unnoticed.
+expectType<IsExact<AppRendererHost['listWorkspaces'], SdkRendererHost['listWorkspaces']>>()
+expectType<IsExact<AppRendererHost['watchWorkspaces'], SdkRendererHost['watchWorkspaces']>>()
+expectType<IsExact<AppRendererHost['watchColorScheme'], SdkRendererHost['watchColorScheme']>>()
+expectType<IsExact<AppRendererHost['watchAgentSessions'], SdkRendererHost['watchAgentSessions']>>()
+expectType<IsExact<AppRendererHost['listAgentRuntimes'], SdkRendererHost['listAgentRuntimes']>>()
 
 // ── The four module-boundary surfaces (MC-2090) ──────────────────────────────
 // Each is pinned exactly rather than by `Extends`, for the reason spelled out

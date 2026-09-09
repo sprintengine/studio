@@ -87,7 +87,15 @@ contracts, so a published version always matches the app version it ships with.
   `React.lazy()`; while your module is uninstalled or disabled the shell
   shows an explicit "not installed" door in its place and keeps the user's
   spot, and an id already claimed by another module is reported as a module
-  load error), `registerTopBarItem` (a control in the app's top-bar
+  load error), `registerModalSurface` (a body the shell mounts in its modal
+  shell, floated over whatever the window is showing — for a pick-and-close
+  task over work that stays put. The shell draws no trigger for it unless you
+  declare `launcher: { label, letter, Glyph }`, which puts your row in the
+  workspace pane's kind list beside Browser, Terminal and Diff; `letter` must
+  be exactly one character and the shell's own kinds win a collision, in which
+  case your row keeps its label and glyph and has no shortcut. Your body is
+  handed `{ workspaceId }` — the workspace its opener acted from, which for a
+  pane row is the workspace it was picked in), `registerTopBarItem` (a control in the app's top-bar
   title-strip cluster — a `TopBarItemDefinition` of `{ id, order, Component }`;
   the zero-prop `Component` owns its full behavior and may be eager or
   `React.lazy()`, the bar shows it only while your module is enabled and
@@ -101,15 +109,24 @@ contracts, so a published version always matches the app version it ships with.
   `getWorkspace(workspaceId)` — the workspace's read-only
   `ModuleWorkspaceView` (`{ id, name, folderPath, mode }`; unknown ids
   resolve `null`, never a throw; declare `ipc:workspace-read`; the
-  `entry.main` twin is `WorkspaceContextToken`), and the live runtime
+  `entry.main` twin is `WorkspaceContextToken`) with
+  `listWorkspaces()` / `watchWorkspaces(cb)` beside it for a surface that is
+  not mounted inside one workspace (same view shape, same permission; the
+  watch fires once with the current list, then on change), and
+  `watchColorScheme(cb)` — the app's resolved `'light' | 'dark'`, immediately
+  and on every change, for a themed runtime you host (Monaco, a chart
+  library); ordinary UI reads `THEME_TOKENS` instead — and the live runtime
   surfaces — `getWorkingRoot` (the *effective working root*: the worktree a
   worktree-backed workspace does live work under, else the primary checkout;
   the methods below resolve workspace-relative paths against it; declare
   `ipc:workspace-read`), `watchAgentSessions` (read-only session views,
-  snapshot + deduped changes), `spawnAgent` (through the app's shared
-  session runtime, structured failures), `focusTab` (agent or
-  workspace-relative file tab), `listAgentRuntimes` (ids + labels from the
-  availability-filtered catalog), and `watchWorkspaceFile` (debounced
+  snapshot + deduped changes; a workspace id watches that workspace,
+  `undefined` watches every workspace narrowed to the agent-id namespaces
+  you claimed — claim none and it reports nothing), `spawnAgent` (through the
+  app's shared session runtime, structured failures), `focusTab` (agent or
+  workspace-relative file tab), `listAgentRuntimes` (`{ id, label, available,
+  models, isDefault }` from the availability-filtered catalog the shell's own
+  pickers read), and `watchWorkspaceFile` (debounced
   content watch; declare `ipc:agents` / `filesystem:read-workspace`
   respectively — each fails with a named cause when the Agent Runtime
   module is disabled), and per-module workspace state —
@@ -273,6 +290,7 @@ or cache resolved values in JS, and never hard-code a hex.
 | Text | `--text-strong`, `--text-default`, `--text-muted`, `--text-subtle`, `--text-disabled`, `--text-on-accent` | Headings → body → secondary → hints → disabled; text on accent fills |
 | Accent | `--accent-primary`, `--accent-primary-soft`, `--focus-ring` | Primary actions/selection, soft accent fills; `--focus-ring` is a full box-shadow value |
 | Tone | `--tone-neutral`, `--tone-accent`, `--tone-warn`, `--tone-good`, `--tone-error`, `--tone-merged` | Semantic status: idle/neutral, active/info, caution, success, failure, merged/PR-purple |
+| Motion | `--motion-normal`, `--motion-ease` | The app's standard transition duration and easing — use them as a pair (`transition: opacity var(--motion-normal) var(--motion-ease)`) so module UI moves at the app's pace |
 
 ## UI kit, surface shell and Monaco
 

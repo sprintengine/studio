@@ -40,6 +40,63 @@
   purpose: it is a versioned contract pinned in both directions by the drift
   guard, so a component that is not on it is cheaper copied into your module
   than frozen here forever.
+- **A modal surface contributes the row that opens it** (D7, 2026-09-10).
+  `ModalSurfaceDefinition.launcher = { label, letter, Glyph }` puts your
+  surface in the workspace pane's kind list — the strip's "+" menu and the
+  pane's empty-state launcher, beside Browser, Terminal, Files, Diff, Git and
+  Backlog. It is the one trigger the shell draws for a modal, and it exists
+  because Reviews was hard-coded into that list: the entry above says
+  "contribute that trigger yourself", which a module reaching for the pane
+  could not do. `letter` must be exactly one character (uppercased for you) and
+  a malformed launcher is a registration error. The shell's own kinds win a
+  letter collision, as does an earlier-registered module: the losing row keeps
+  its label and glyph and simply has no shortcut, rather than taking a key the
+  person already knows.
+
+- **A modal body is told which workspace opened it.** `Component` is now
+  `ComponentType<{ workspaceId?: string }>` (`ModalSurfaceComponent`), and the
+  shell passes the workspace its opener acted from — for a pane row, the
+  workspace the row was picked in. A modal floats over the window rather than
+  mounting inside a workspace card, so it had no way to know what it was acting
+  on but "the active workspace", which can change under an open modal. A
+  zero-prop component still satisfies the type, so an app-level surface needs
+  no change.
+
+- **The open workspaces, not just one.** `RendererHost.listWorkspaces()` and
+  `watchWorkspaces(cb)` return the same `ModuleWorkspaceView` rows
+  `getWorkspace` resolves, for a surface that is not mounted inside any one
+  workspace and so has no id to ask about. The watch fires once with the
+  current list, then on change (deduped by value). Declare
+  `ipc:workspace-read`. Empty — never a throw — before the shell wires
+  workspace state.
+
+- **`RendererHost.watchColorScheme(cb)`** reports the app's resolved
+  `'light' | 'dark'` immediately and on every change (an explicit theme switch,
+  or an OS switch while the preference follows the system). For a themed
+  runtime you HOST and must hand a concrete value — Monaco's base theme, a
+  chart palette. Ordinary module UI should keep reading `THEME_TOKENS` and
+  re-skin without JavaScript. New published type: `ModuleColorScheme`.
+
+- **`watchAgentSessions` takes `undefined` for "every workspace"**, narrowed to
+  the agent-id namespaces your module claimed with `registerAgentIdNamespace`.
+  A module whose `entry.main` spawns agents without a window's knowledge had no
+  workspace id to watch and no way to follow them; this is that watch. Claim no
+  namespace and the unscoped call reports an empty list — it is never a window
+  onto other modules' sessions. A workspace id behaves exactly as before.
+
+- **`listAgentRuntimes()` answers what a picker needs.**
+  `ModuleAgentRuntimeOption` widens from `{ id, label }` to
+  `{ id, label, available, models, isDefault }` (`models` being
+  `ModuleAgentRuntimeModelOption[]` — the manifest, discovered and user-added
+  ids merged, exactly the rows the shell's own model picker shows). A module
+  building a CLI + model picker previously had ids and labels and nothing else
+  to preselect or disable with.
+
+- **`THEME_TOKENS` gains `--motion-normal` and `--motion-ease`** — the app's
+  standard transition duration and easing, guaranteed in every theme by the
+  same per-theme repo gate as the rest. Use them as a pair
+  (`transition: opacity var(--motion-normal) var(--motion-ease)`) so module UI
+  moves at the app's pace instead of inventing its own.
 
 - **A door surface names and places itself** (Extensions drawer ruling,
   2026-09-05). `GlobalSurfaceDefinition` was `{ id, Component }` while the host

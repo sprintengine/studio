@@ -680,6 +680,76 @@ assert.deepEqual(
   're-enabling restores the modal surface without re-registration',
 )
 
+// --- The contributed pane row (D7) --------------------------------------------
+// A modal surface may carry the workspace-pane row that opens it. That row is
+// the ONE trigger the shell draws for a modal, so its fields are validated at
+// registration: a malformed launcher would otherwise be a row whose shortcut
+// silently never fires, or a card with nothing drawn in it.
+{
+  const launcherHost = createRendererHost()
+  const glyph = () => {
+    throw new Error('launcher glyph should not be evaluated during registration')
+  }
+  launcherHost.hostFor('acme.reviews').registerModalSurface({
+    id: 'reviews',
+    label: 'Reviews',
+    launcher: { label: '  Reviews  ', letter: 'r', Glyph: glyph },
+    Component: modalComponent,
+  })
+  launcherHost.hostFor('design').registerModalSurface({
+    id: 'design', order: 30, label: 'Design', Component: modalComponent,
+  })
+
+  assert.deepEqual(
+    launcherHost.getModalSurfaceLaunchers().map((launcher) => ({
+      surfaceId: launcher.surfaceId,
+      moduleId: launcher.moduleId,
+      label: launcher.label,
+      letter: launcher.letter,
+    })),
+    [{ surfaceId: 'reviews', moduleId: 'acme.reviews', label: 'Reviews', letter: 'R' }],
+    'a launcher is normalised (trimmed label, uppercased letter) and carries its surface + module; a surface without one contributes no row',
+  )
+  assert.deepEqual(
+    launcherHost.getModalSurfaceLaunchers((moduleId) => moduleId !== 'acme.reviews'),
+    [],
+    'a disabled module\'s row leaves the pane with the module',
+  )
+  assert.equal(
+    launcherHost.getModalSurfaceLaunchers()[0]?.Glyph,
+    glyph,
+    'the glyph is handed through by reference — the pane draws the module\'s own mark',
+  )
+
+  const bad = (launcher: unknown): (() => void) => () =>
+    launcherHost.hostFor('acme.reviews').registerModalSurface({
+      id: `bad-${Math.random()}`,
+      label: 'Bad',
+      launcher: launcher as { label: string; letter: string; Glyph: typeof glyph },
+      Component: modalComponent,
+    })
+  assert.throws(
+    bad({ label: '   ', letter: 'X', Glyph: glyph }),
+    /launcher with an empty label/,
+    'a row with no name is refused — the label IS the row',
+  )
+  assert.throws(
+    bad({ label: 'Bad', letter: 'XY', Glyph: glyph }),
+    /must be exactly one character/,
+    'a multi-character letter is refused: the menu compares a single keypress',
+  )
+  assert.throws(
+    bad({ label: 'Bad', letter: '', Glyph: glyph }),
+    /must be exactly one character/,
+    'and so is an empty one — losing the shortcut is the host\'s call on collision, not the module\'s',
+  )
+  assert.throws(
+    bad({ label: 'Bad', letter: 'X' }),
+    /without a Glyph/,
+    'a row with no mark is refused',
+  )
+}
+
 console.log('renderer host modal surface tests passed')
 
 // --- Workspace aside (single-slot right column seam, MC-1766) -----------------
@@ -1176,3 +1246,89 @@ function testModuleBoundarySurfaces(): void {
 }
 
 testModuleBoundarySurfaces()
+
+// --- The whole workspace list, and the app's light/dark surface (WP-C) -------
+// Both are for a module surface that is NOT mounted inside one workspace — a
+// modal floating over the window. Both answer before the shell wires them
+// rather than throwing or hanging: a module renders its empty state at early
+// boot instead of waiting for a first delivery that cannot come.
+
+async function testWorkspaceListAndColorScheme(): Promise<void> {
+  const kernel = createRendererHost()
+  const host = kernel.hostFor('acme.reviews')
+
+  assert.deepEqual(await host.listWorkspaces(), [], 'unwired, the list reads empty')
+  const earlyLists: unknown[] = []
+  const stopEarly = host.watchWorkspaces((workspaces) => earlyLists.push(workspaces))
+  assert.deepEqual(earlyLists, [[]], 'and an unwired watch still fires once, with nothing')
+  stopEarly()
+  const earlySchemes: string[] = []
+  const stopEarlyScheme = host.watchColorScheme((scheme) => earlySchemes.push(scheme))
+  assert.deepEqual(earlySchemes, ['dark'], 'an unwired colour watch answers once with the app default')
+  stopEarlyScheme()
+
+  let workspaces = [
+    { id: 'ws-1', name: 'Studio', folderPath: '/repo', mode: 'default' },
+    { id: 'ws-2', name: 'Docs', folderPath: null, mode: 'default' },
+  ]
+  const listListeners = new Set<() => void>()
+  kernel.setWorkspaceListSource({
+    list: () => workspaces.map((workspace) => ({ ...workspace })),
+    watch: (cb) => {
+      let last = ''
+      const emit = (): void => {
+        const next = JSON.stringify(workspaces)
+        if (next === last) return
+        last = next
+        cb(workspaces.map((workspace) => ({ ...workspace })))
+      }
+      listListeners.add(emit)
+      emit()
+      return () => listListeners.delete(emit)
+    },
+  })
+
+  assert.deepEqual(
+    (await host.listWorkspaces()).map((workspace) => workspace.id),
+    ['ws-1', 'ws-2'],
+    'wired, the list is the open workspaces in shell order',
+  )
+  const lists: Array<Array<{ id: string }>> = []
+  const stopList = host.watchWorkspaces((next) => lists.push(next))
+  assert.equal(lists.length, 1, 'a watch fires once with the current list')
+  listListeners.forEach((emit) => emit())
+  assert.equal(lists.length, 1, 'an unchanged list does not re-fire')
+  workspaces = [...workspaces, { id: 'ws-3', name: 'Spike', folderPath: '/spike', mode: 'default' }]
+  listListeners.forEach((emit) => emit())
+  assert.deepEqual(lists[1]?.map((workspace) => workspace.id), ['ws-1', 'ws-2', 'ws-3'], 'a change delivers the new list')
+  stopList()
+  assert.equal(listListeners.size, 0, 'the returned closure detaches the watch')
+
+  let scheme: 'light' | 'dark' = 'light'
+  const schemeListeners = new Set<() => void>()
+  kernel.setColorSchemeWatcher((cb) => {
+    let last: string | null = null
+    const emit = (): void => {
+      if (scheme === last) return
+      last = scheme
+      cb(scheme)
+    }
+    schemeListeners.add(emit)
+    emit()
+    return () => schemeListeners.delete(emit)
+  })
+  const schemes: string[] = []
+  const stopScheme = host.watchColorScheme((next) => schemes.push(next))
+  assert.deepEqual(schemes, ['light'], 'fires immediately with the current scheme')
+  scheme = 'dark'
+  schemeListeners.forEach((emit) => emit())
+  assert.deepEqual(schemes, ['light', 'dark'], 'then on every change')
+  stopScheme()
+  assert.equal(schemeListeners.size, 0, 'and the closure detaches it')
+  console.log('renderer host workspace-list + colour-scheme tests passed')
+}
+
+void testWorkspaceListAndColorScheme().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
