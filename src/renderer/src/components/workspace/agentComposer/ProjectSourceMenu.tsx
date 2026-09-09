@@ -209,6 +209,11 @@ export function ProjectSourceMenu({
       // The leading slot is all-or-nothing per the menu spec, and Browse… and
       // Import from Git already fill it — the project rows were the ones
       // leaving it empty. The folder glyph closes that and carries the colour.
+      //
+      // The bare glyph, NOT `FolderIdentityIcon`: the logo lookup is one probe
+      // per folder, and a list of every project this app has ever opened would
+      // fire the lot of them to decorate rows the person is scrolling past. The
+      // chip that opened this menu is the one place the logo is worth the probe.
       icon={<FolderTypeIcon className="mt-0.5 icon-xs shrink-0" color={colorOf?.(option.path) ?? null} />}
     >
       <span className="block truncate text-body font-medium">{option.label}</span>

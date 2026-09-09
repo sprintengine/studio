@@ -1692,6 +1692,155 @@ async function main(): Promise<void> {
       'and it wears the SAME hue: the machine is a glyph on the line, never a second colour',
     )
     assert.equal(glyphIsUnfiled(remoteTrigger), false, 'a picked remote project is a project')
+
+    // The machine's own list is where a person picks one project out of a
+    // dozen, so its rows carry the hues too — and the row for the repository
+    // open here is the colour it is here.
+    await click(remoteTrigger)
+    await settle()
+    const remoteMenu = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')!
+    const rows = [...remoteMenu.querySelectorAll('[role="menuitemradio"]')]
+    const twinRow = rows.find((row) => (row.textContent ?? '').includes('multicode-air'))
+    const strangerRow = rows.find((row) => (row.textContent ?? '').includes('other'))
+    assert.equal(glyphMark(twinRow), localMark, 'the row for the repository open here wears the hue it wears here')
+    assert.equal(glyphMark(strangerRow), null, 'a repository this app has never seen has no hue to show yet')
+    view.unmount()
+    localIdentityAnswer = () => null
+    fleetConnections = []
+  })
+
+  await check('every state of the scope line wears the hue: the plain line, a folder with no remote, and a recent clone of the open project', async () => {
+    seedStore()
+    seedColours()
+    resetRememberedMachineForTests()
+    fleetConnections = []
+    const multicode = { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
+    localIdentityAnswer = (folderPath) =>
+      folderPath === '/proj' || folderPath === '/clone' ? multicode : null
+
+    // The tab strip's "+": the project is a fact rather than a choice, so the
+    // line is a `<p>` and not a control — and it still wears the colour, or the
+    // hue stops being how you tell one project from another.
+    const fixed = await render({ folderPath: '/proj' })
+    await settle()
+    await settle()
+    const line = [...fixed.container.querySelectorAll('p')].find((el) => (el.textContent ?? '').includes('proj'))
+    assert.ok(line, 'the plain scope line is there')
+    assert.equal(
+      fixed.container.querySelector('[data-project-trigger="true"]'),
+      null,
+      'and it is a line, not a chip — this host offers no choice it cannot honour',
+    )
+    const fixedMark = glyphMark(line)
+    assert.ok(fixedMark, `the plain line carries the hue too; got ${line?.querySelector('svg')?.getAttribute('class')}`)
+    assert.equal(glyphIsUnfiled(line), false, 'and a solid folder')
+    fixed.unmount()
+
+    // A folder with no remote is still a project — keyed by its path, because
+    // that is the only identity it has. It must not stay colourless.
+    seedColours()
+    const noRemote = await render({
+      folderPath: '/plain',
+      projectOptions: [{ path: '/plain', label: 'plain' }],
+      onSelectProject: () => {},
+    })
+    await settle()
+    await settle()
+    const noRemoteMark = glyphMark(noRemote.container.querySelector('[data-project-trigger="true"]'))
+    assert.ok(noRemoteMark, 'a folder with no remote gets a hue once its identity read has ANSWERED')
+    assert.equal(
+      (useWorkspaceStore.getState().appSettings.projectColors ?? {})['folder:/plain'],
+      noRemoteMark.replace('project-mark-', ''),
+      'and it is stored under the folder key, since there is no repository to key by',
+    )
+    noRemote.unmount()
+
+    // A recent clone of the OPEN project is the same project, so it is the same
+    // hue — a grey row beside its blue twin is exactly the confusion the colour
+    // exists to end. The recents are the picker's own rows, so it asks for
+    // their identities itself.
+    seedColours()
+    useWorkspaceStore.setState((state) => ({
+      appSettings: { ...state.appSettings, recentWorkspaceFolders: ['/clone'] },
+    }) as never)
+    const view = await render({
+      folderPath: '/proj',
+      projectOptions: [{ path: '/proj', label: 'proj' }],
+      onSelectProject: () => {},
+      onBrowseProject: () => {},
+    })
+    await settle()
+    await settle()
+    const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
+    const mark = glyphMark(trigger)
+    assert.ok(mark, 'the open clone has a hue')
+    await click(trigger)
+    await settle()
+    await settle()
+    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Project this agent runs in"]')!
+    const recentRow = [...menu.querySelectorAll('[role="menuitemradio"]')].find((row) =>
+      (row.textContent ?? '').includes('/clone'),
+    )
+    assert.ok(recentRow, 'the recent folder is offered')
+    assert.equal(
+      glyphMark(recentRow),
+      mark,
+      'and it wears the same hue as the open clone: one repository is one project',
+    )
+    assert.deepEqual(
+      Object.keys(useWorkspaceStore.getState().appSettings.projectColors ?? {}),
+      ['repo:github.com/acme/multicode'],
+      'and both clones read ONE key, so the second spends no second hue',
+    )
+    view.unmount()
+    useWorkspaceStore.setState((state) => ({
+      appSettings: { ...state.appSettings, recentWorkspaceFolders: [] },
+    }) as never)
+    localIdentityAnswer = () => null
+  })
+
+  await check('a remote project the machine could not identify takes no hue and no key', async () => {
+    seedStore()
+    seedColours()
+    resetRememberedMachineForTests()
+    // No identity on this disk either, so the machine list has no project to
+    // filter by and the Air is pickable; the point of the check is what happens
+    // to the REMOTE key, not to the local one.
+    localIdentityAnswer = () => null
+    fleetConnections = [machine('m1', 'Air')]
+    // One workspace, so it is picked without a click — and its machine reported
+    // no repository, which is what an older peer and a non-repo folder both do.
+    fleetBrowseAnswer = (id) => ({
+      connectionId: id,
+      reachable: true,
+      unreachableReason: null,
+      unauthorized: false,
+      scopes: ['workspace:operate'],
+      terminalAccess: 'control',
+      workspaces: [{ ...workspace('w1', 'mystery', '/srv/mystery'), repository: null }],
+      terminals: [],
+      gaps: [],
+    })
+    const view = await remoteRender()
+    await settle()
+    await settle()
+    const before = { ...(useWorkspaceStore.getState().appSettings.projectColors ?? {}) }
+    await pickMachine(view, 'Air')
+    await settle()
+    await settle()
+    const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
+    assert.ok(trigger?.textContent?.includes('mystery'), `the lone project is picked; got ${trigger?.textContent}`)
+    assert.equal(glyphMark(trigger), null, 'with no hue: its path is a path on ANOTHER disk, never a key this one can match')
+    assert.equal(
+      glyphIsUnfiled(trigger),
+      false,
+      'and a solid glyph, not the dashed one — there IS a folder, we just cannot say which repository it is',
+    )
+    assert.deepEqual(
+      useWorkspaceStore.getState().appSettings.projectColors,
+      before,
+      'and no hue was burned on a key nothing will ever resolve to again',
+    )
     view.unmount()
     localIdentityAnswer = () => null
     fleetConnections = []
