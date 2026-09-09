@@ -7,6 +7,7 @@ import type { RepoTaskSourceFrontDoors } from '../automations/repo-task-source'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { ModuleStorageRegistry } from './module-storage'
+import type { AgentSessionsModuleRegistry } from '../agent-sessions-module-service'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import type { ReviewChangeSetService } from '../review/changeset-service'
 import type { ReviewGuideTerminalService } from '../review/guide-terminal-service'
@@ -123,6 +124,13 @@ export const CompanionAgentServiceToken = createServiceToken<CompanionAgentServi
 // so a third-party module resolves the instance the app provides here.
 export const CompanionAgentsModuleServiceToken = createServiceToken<CompanionAgentsModuleRegistry>(
   'companion-agents.module-service'
+)
+// The moduleId-scoped agent-sessions registry: terminal agents a module spawns,
+// prompts, stops and lists under its own agent-id namespaces (D5). Key mirrors
+// the private token behind the SDK's getAgentSessionService helper, and every
+// method on it checks the module's `agents:session` permission.
+export const AgentSessionsModuleServiceToken = createServiceToken<AgentSessionsModuleRegistry>(
+  'agent-sessions.module-service'
 )
 // The review change-set ingestion service (MC-1676). Provided by the `review`
 // capability module so the GitHub PR provider (MC-1678) can register its source
