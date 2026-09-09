@@ -27,7 +27,6 @@ import type {
   AppSettings,
   CliRuntimeSettings,
   KeybindingSettings,
-  LearningSettings,
   McpServerConfig,
   McpSettings,
   NewChatAgentChoice,
@@ -80,46 +79,6 @@ export const MAX_RECENT_WORKSPACE_FOLDERS = 50
 export type SettingsOverlayState = {
   initialTab: string | null
   checkForUpdatesRequestId: number | null
-}
-
-export const defaultLearningSettings = (): LearningSettings => ({
-  showTipsOnStartup: true,
-  lastShownTipId: null,
-  seenTipIds: [],
-  completedLessonIds: [],
-})
-
-function normalizeLearningStringList(value: unknown, max = 200): string[] {
-  if (!Array.isArray(value)) return []
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const entry of value) {
-    if (typeof entry !== 'string') continue
-    const trimmed = entry.trim()
-    if (!trimmed || seen.has(trimmed)) continue
-    seen.add(trimmed)
-    out.push(trimmed)
-    if (out.length >= max) break
-  }
-  return out
-}
-
-export function normalizeLearningSettings(input: unknown): LearningSettings {
-  const defaults = defaultLearningSettings()
-  if (!input || typeof input !== 'object') return defaults
-  const candidate = input as Partial<LearningSettings>
-  return {
-    showTipsOnStartup:
-      typeof candidate.showTipsOnStartup === 'boolean'
-        ? candidate.showTipsOnStartup
-        : defaults.showTipsOnStartup,
-    lastShownTipId:
-      typeof candidate.lastShownTipId === 'string' && candidate.lastShownTipId.trim()
-        ? candidate.lastShownTipId.trim()
-        : null,
-    seenTipIds: normalizeLearningStringList(candidate.seenTipIds),
-    completedLessonIds: normalizeLearningStringList(candidate.completedLessonIds),
-  }
 }
 
 export function defaultAppearanceSettings(): AppearanceSettings {
@@ -1058,7 +1017,6 @@ export const defaultAppSettings = (): AppSettings => ({
   // Nothing opened yet. A bundle absent from the map has never been seen, which
   // the marker rule treats as "already seen, except the last thirty days".
   designSystemSeen: {},
-  learning: defaultLearningSettings(),
   appearance: defaultAppearanceSettings(),
   voiceDictation: defaultVoiceDictationSettings(),
   modules: {},
@@ -1131,7 +1089,6 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     ),
     designProjectScopePath: normalizeFolderPathSetting(settings?.designProjectScopePath),
     designSystemSeen: normalizeDesignSystemSeen(settings?.designSystemSeen),
-    learning: normalizeLearningSettings(settings?.learning),
     appearance: normalizeAppearanceSettings(settings?.appearance),
     voiceDictation: normalizeVoiceDictationSettings(settings?.voiceDictation),
     modules: normalizeModuleOverrides(settings?.modules),
@@ -1464,10 +1421,6 @@ export interface SettingsSliceActions {
   /** Keep the app (and its sprint runs) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
-  setLearningShowTipsOnStartup: (enabled: boolean) => void
-  markLearningTipSeen: (tipId: string) => void
-  markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void
-  resetLearningProgress: () => void
   setAppearanceTheme: (theme: AppTheme) => void
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
 }
@@ -2231,47 +2184,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           ...(state.appSettings.voiceDictation ?? defaultVoiceDictationSettings()),
           ...update,
         })
-      }),
-
-    setLearningShowTipsOnStartup: (enabled) =>
-      set((state) => {
-        state.appSettings.learning ??= defaultLearningSettings()
-        state.appSettings.learning.showTipsOnStartup = enabled
-      }),
-
-    markLearningTipSeen: (tipId) =>
-      set((state) => {
-        const id = tipId?.trim()
-        if (!id) return
-        state.appSettings.learning ??= defaultLearningSettings()
-        const learning = state.appSettings.learning
-        if (!learning.seenTipIds.includes(id)) {
-          learning.seenTipIds = [...learning.seenTipIds, id]
-        }
-        learning.lastShownTipId = id
-      }),
-
-    markLearningLessonCompleted: (lessonId, completed = true) =>
-      set((state) => {
-        const id = lessonId?.trim()
-        if (!id) return
-        state.appSettings.learning ??= defaultLearningSettings()
-        const learning = state.appSettings.learning
-        const already = learning.completedLessonIds.includes(id)
-        if (completed && !already) {
-          learning.completedLessonIds = [...learning.completedLessonIds, id]
-        } else if (!completed && already) {
-          learning.completedLessonIds = learning.completedLessonIds.filter((entry) => entry !== id)
-        }
-      }),
-
-    resetLearningProgress: () =>
-      set((state) => {
-        const current = state.appSettings.learning ?? defaultLearningSettings()
-        state.appSettings.learning = {
-          ...defaultLearningSettings(),
-          showTipsOnStartup: current.showTipsOnStartup,
-        }
       }),
 
     setAppearanceTheme: (theme) =>

@@ -35,7 +35,6 @@ import {
   Tooltip,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import LearnCenter from '../learn/LearnCenter'
 import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
 import { RemoteTailnetSettingsTab } from './RemoteTailnetSettingsTab'
@@ -70,7 +69,6 @@ import {
   ModulesSettingsIcon,
   MobileSettingsIcon,
   RemoteSettingsIcon,
-  LearnSettingsIcon,
   FolderPlusIcon,
   ReleaseNotesIcon,
 } from '../AppIcons'
@@ -87,7 +85,6 @@ interface Props {
   checkForUpdatesOnOpen?: boolean
   checkForUpdatesRequestId?: number
   initialTab?: string | null
-  onOpenSettingsTab?: (tabId: string) => void
   /**
    * `'panel'` (default) wraps the content in `WorkspacePanel` chrome.
    * `'overlay'` is how Settings actually opens (doors→modals, 2026-09-01): the
@@ -118,7 +115,6 @@ type SettingsTabId =
   | 'providers'
   | 'knowledge-graph'
   | 'design-system'
-  | 'learn'
   | 'mobile'
   | 'remote'
 
@@ -149,7 +145,6 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
   { id: 'mobile', label: 'Mobile', icon: MobileSettingsIcon },
   { id: 'remote', label: 'Remote', icon: RemoteSettingsIcon },
-  { id: 'learn', label: 'Learn', icon: LearnSettingsIcon },
 ]
 
 // Rail groups. Labels are internal keys only — the rail separates groups by
@@ -159,7 +154,7 @@ const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
   { label: 'agents', ids: ['agents', 'providers'] },
   { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'design-system', 'modules'] },
-  { label: 'companion', ids: ['mobile', 'remote', 'learn'] },
+  { label: 'companion', ids: ['mobile', 'remote'] },
 ]
 
 // A rail entry: a built-in tab, or a module-contributed section rendered after
@@ -196,7 +191,6 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'providers'
     || value === 'knowledge-graph'
     || value === 'design-system'
-    || value === 'learn'
     || value === 'mobile'
     || value === 'remote'
   )
@@ -214,7 +208,7 @@ function resolveInitialSettingsTab(initialTab: string | null | undefined): strin
   if (initialTab === 'updates') return 'general'
   if (initialTab === 'specialist-packs') return 'modules'
   // Voice dictation moved onto the module-contributed section path (MC-1861);
-  // legacy deep-links (Learn center, persisted routes) land on its section tab.
+  // legacy deep-links (persisted routes) land on its section tab.
   if (initialTab === 'voice-dictation') return moduleSectionTabId('voice-dictation')
   return initialTab ?? null
 }
@@ -814,7 +808,6 @@ export default function SettingsPanel({
   checkForUpdatesOnOpen = false,
   checkForUpdatesRequestId,
   initialTab = null,
-  onOpenSettingsTab,
   chrome = 'panel',
 }: Props) {
   const activeWorkspace = useWorkspaceStore((s) =>
@@ -1387,8 +1380,8 @@ export default function SettingsPanel({
   )
 
   // Form tabs read in a capped measure; catalog/table tabs (tile grids, the
-  // shortcuts editor, Learn) keep the full panel width.
-  const fullWidthTab = activeTab.id === 'shortcuts' || activeTab.id === 'learn'
+  // shortcuts editor) keep the full panel width.
+  const fullWidthTab = activeTab.id === 'shortcuts'
 
   const bodyContent = (
     <div className={fullWidthTab ? undefined : 'mx-auto max-w-[720px]'}>
@@ -2010,17 +2003,6 @@ export default function SettingsPanel({
           />
 
           <DesignSystemSettings workspaceRoot={activeSprintEngineRoot} />
-        </div>
-      ) : null}
-
-      {activeSettingsTab === 'learn' ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-learn"
-          aria-labelledby="settings-tab-learn"
-        >
-          <SettingsPageHeader title="Learn" />
-          <LearnCenter onSettingsTab={onOpenSettingsTab} />
         </div>
       ) : null}
 

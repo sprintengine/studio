@@ -252,10 +252,6 @@ const startupWriteSurfaces: Array<{ label: string; mutate: () => void }> = [
       message: 'startup auth refresh',
     }),
   },
-  {
-    label: 'markLearningTipSeen',
-    mutate: () => useWorkspaceStore.getState().markLearningTipSeen('any-tip'),
-  },
 ]
 
 for (const surface of startupWriteSurfaces) {
@@ -595,7 +591,7 @@ assert.equal(
 //
 // Evidence shape mirrors the production incident: 4 projectKnowledgeRoots
 // keyed by absolute paths + non-empty recentWorkspaceFolders + a populated
-// learning record.
+// mcp record.
 diagnosticLog.length = 0
 useWorkspaceStore.setState({
   workspaces: [],
@@ -628,12 +624,6 @@ const legacyBackupAppSettings = {
     '/Users/dev/workspace/multicode',
     '/Users/dev/workspace/multicode-mobile',
   ],
-  learning: {
-    showTipsOnStartup: false,
-    lastShownTipId: 'tip-12',
-    seenTipIds: ['tip-1', 'tip-2', 'tip-12'],
-    completedLessonIds: ['lesson-a'],
-  },
   mcp: { syncEnabled: true, servers: {} },
 }
 
@@ -678,8 +668,6 @@ assert.equal(salvagedRoots['/Users/dev/workspace/multicode-mobile'], '../multico
 
 // Other non-workspace app-settings survive too.
 assert.equal(salvaged.appSettings.recentWorkspaceFolders.length, 2)
-assert.equal(salvaged.appSettings.learning.lastShownTipId, 'tip-12')
-assert.deepEqual(salvaged.appSettings.learning.seenTipIds, ['tip-1', 'tip-2', 'tip-12'])
 assert.equal(salvaged.appSettings.mcp.syncEnabled, true)
 assert.equal(salvaged.sidebarCollapsed, false, 'salvaged sidebarCollapsed honored')
 

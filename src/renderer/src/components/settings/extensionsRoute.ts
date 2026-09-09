@@ -1,5 +1,5 @@
 // Pure settings-routing constants, kept free of any component imports so callers
-// (first-run onboarding, the store, the learn center) can reference them without
+// (first-run onboarding, the store) can reference them without
 // pulling the lazy SettingsPanel/Browse component graph into their bundle.
 
 // Legacy settings-overlay `initialTab` value that used to open the Extensions
@@ -13,8 +13,8 @@ export const EXTENSIONS_BROWSE_DEEPLINK = 'extensions:browse'
 //
 // `skill-packs` is kept deliberately. Skill packs themselves are gone — Skills
 // is the only concept now — but deep links carrying that value are still on
-// disk in older installs and in saved learn-centre actions, and they must land
-// somewhere real rather than on nothing.
+// disk in older installs, and they must land somewhere real rather than on
+// nothing.
 const CONNECTORS_FOLDED_SETTINGS_TABS = ['mcps', 'skill-packs', 'extensions'] as const
 
 // The folded tab that asked for skills. It routes to the Skills rail row rather

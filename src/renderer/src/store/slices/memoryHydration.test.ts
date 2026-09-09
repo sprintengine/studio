@@ -53,19 +53,18 @@ assert.ok(
   'workspaces survive setAuthState',
 )
 
-useWorkspaceStore.getState().markLearningTipSeen('hydration-tip')
-useWorkspaceStore.getState().setLearningShowTipsOnStartup(false)
+useWorkspaceStore.getState().setAppearanceTheme('dark')
 assert.ok(
   useWorkspaceStore.getState().workspaces.length > 0,
-  'workspaces survive learning writes',
+  'workspaces survive app-settings writes',
 )
-const persistedAfterLearning = readPersistedWorkspaces()
+const persistedAfterSettings = readPersistedWorkspaces()
 assert.ok(
-  persistedAfterLearning.length > 0,
-  'persisted workspaces still non-empty after learning writes',
+  persistedAfterSettings.length > 0,
+  'persisted workspaces still non-empty after app-settings writes',
 )
 assert.equal(
-  (persistedAfterLearning[0] as { id?: string }).id,
+  (persistedAfterSettings[0] as { id?: string }).id,
   hydrationWorkspaceId,
   'persisted workspace id is still the seeded fixture',
 )

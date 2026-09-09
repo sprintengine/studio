@@ -17,7 +17,6 @@ const SettingsPanel = React.lazy(() => import('./SettingsPanel'))
 
 export default function SettingsModalSurface(): JSX.Element {
   const request = useWorkspaceStore((state) => state.settingsOverlay)
-  const openSettingsOverlay = useWorkspaceStore((state) => state.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((state) => state.closeSettingsOverlay)
 
   return (
@@ -25,9 +24,6 @@ export default function SettingsModalSurface(): JSX.Element {
       chrome="overlay"
       initialTab={request.initialTab}
       checkForUpdatesRequestId={request.checkForUpdatesRequestId ?? undefined}
-      // A settings deep-link from inside settings (a section pointing at
-      // another) re-requests the modal rather than stacking anything.
-      onOpenSettingsTab={(tabId) => openSettingsOverlay({ initialTab: tabId })}
       onClose={closeSettingsOverlay}
     />
   )

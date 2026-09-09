@@ -358,7 +358,7 @@ working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
 `TrackersSettingsIcon` (tagged file), `KnowledgeGraphSettingsIcon` (node
 triangle), `DesignSystemSettingsIcon` (disc, square and triangle),
 `ModulesSettingsIcon` (2 × 2 grid), `MobileSettingsIcon` (phone),
-`RemoteSettingsIcon` (two linked machines), `LearnSettingsIcon` (open book).
+`RemoteSettingsIcon` (two linked machines).
 All at `iconStroke` so the rail reads as one set.
 
 ## States

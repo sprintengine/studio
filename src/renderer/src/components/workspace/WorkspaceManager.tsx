@@ -216,9 +216,9 @@ const NewAgentPanel = React.lazy(() => import('./agentComposer/NewAgentPanel'))
 const NewSprintDialog = React.lazy(() => import('./newSprint/NewSprintDialog'))
 
 // On-demand overlays kept off the eager boot chunk: each mounts only when the
-// user reaches for it (Cmd-K palette, the diagnostics overlay, the startup-tip
-// modal), so its subtree — and the diagnostics report formatter / learning
-// catalog it pulls — is fetched at open time, not at boot.
+// user reaches for it (Cmd-K palette, the diagnostics overlay), so its subtree —
+// and the diagnostics report formatter it pulls — is fetched at open time, not
+// at boot.
 const CommandPalette = React.lazy(() => import('../ui/CommandPalette'))
 // Settings rides the modal shell but belongs to the app, not to a module —
 // see the resolution below for why it can never be module-gated. Shaped like a
@@ -274,9 +274,6 @@ const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOv
 // shares with the lazy Settings panel) mounts on machines with no CLI installed,
 // so it stays out of the eager boot chunk (bundle-budget ratchet).
 const FirstRunCliCard = React.lazy(() => import('../onboarding/FirstRunCliCard'))
-const TipStartupModal = React.lazy(() =>
-  import('../learn/TipStartupModal').then((m) => ({ default: m.TipStartupModal })),
-)
 
 // Display name for a New Chat project scope: the folder's last path segment.
 function newChatFolderLabel(path: string): string {
@@ -290,7 +287,6 @@ function newChatFolderLabel(path: string): string {
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
 const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentCliModelSelection>> = {}
-const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 
 // Where a spawn should land, and what it should start with. Present only when
 // the spawn came from the tab strip's "+" (MC-2147): `tabId` names that tab's
@@ -760,13 +756,9 @@ export default function WorkspaceManager() {
     setNewSprintDialogState(null)
     releaseSprintCreationDoorClaim()
   }, [])
-  const [tipModalOpen, setTipModalOpen] = useState(false)
-  const tipModalDecidedRef = useRef(false)
   // Guards the async adoption against a second workspace creation landing before
   // the persisted `hasAdoptedAgentConfig` flag has been written.
   const adoptionInFlightRef = useRef(false)
-  const showTipsOnStartup = useWorkspaceStore((s) => s.appSettings.learning?.showTipsOnStartup ?? true)
-  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   const [showPalette, setShowPalette] = useState(false)
   // Which groups the palette opens filtered to. ⌘K raises the full launcher;
   // ⌘⇧F raises the same overlay narrowed to files and their contents. Held here
@@ -1669,10 +1661,6 @@ export default function WorkspaceManager() {
     setAccountOpen(false)
   }, [closeNewSprintDialog, openSettingsOverlay])
 
-  const openLearnCenter = useCallback(() => {
-    openSettings(false, 'learn')
-  }, [openSettings])
-
   const openFuturePlanWorkspace = useCallback((source: FuturePlanWorkspaceSource) => {
     openNewSprintDialog({ source })
   }, [openNewSprintDialog])
@@ -1693,30 +1681,6 @@ export default function WorkspaceManager() {
       }),
     [closeGlobalSurface, openFuturePlanWorkspace, openNewSprintDialog],
   )
-
-  useEffect(() => {
-    // The one-shot startup tip. It used to wait for the onboarding wizard to
-    // finish, then suppress itself for the session that walked it — the wizard is
-    // gone, but the reason for that suppression is not: a profile with no
-    // workspaces yet is mid-setup, with New chat open over everything,
-    // and the tip modal (which has no focus trap) would stack on top of it and
-    // leak Tab to the surface behind. So a first-run session decides "no tip" and
-    // stays decided; the tip returns on the next launch, once a workspace exists.
-    if (tipModalDecidedRef.current) return
-    if (railWorkspaces.length === 0) {
-      tipModalDecidedRef.current = true
-      return
-    }
-    // Hold the decision until the CLI probe has said something. It resolves
-    // AFTER hydration, so deciding now would always decide "no card yet" and
-    // then pop the tip on top of the card a second later.
-    if (cliAvailabilityStatus === 'loading') return
-    tipModalDecidedRef.current = true
-    // The one question the app cannot answer for itself outranks a generic tip.
-    if (showFirstRunCliCard) return
-    if (!showTipsOnStartup) return
-    setTipModalOpen(true)
-  }, [showTipsOnStartup, railWorkspaces.length, cliAvailabilityStatus, showFirstRunCliCard])
 
   useEffect(() => {
     registerWorkspaceWindow(
@@ -1921,16 +1885,6 @@ export default function WorkspaceManager() {
     const projectName = activeWorkspace?.folderPath ? folderName(activeWorkspace.folderPath) : null
     document.title = [windowName, projectName, 'Sprint Engine Studio'].filter(Boolean).join(' - ')
   }, [activeWorkspace?.folderPath, activeWorkspace?.name])
-
-  const learningContext = useMemo(() => ({
-    activeWorkspace,
-    hasAnyTerminal: terminalSessions.length > 0,
-    hasKnowledgeRoot:
-      Boolean(
-        activeWorkspace?.memory?.relativeRoot
-        || (activeWorkspace?.folderPath && projectKnowledgeRoots[activeWorkspace.folderPath])
-      ),
-  }), [activeWorkspace, projectKnowledgeRoots, terminalSessions.length])
 
   useEffect(() => {
     if (!windowActiveWorkspaceId) return
@@ -4899,24 +4853,6 @@ export default function WorkspaceManager() {
             commandAvailability={commandAvailability}
             moduleCommandContext={moduleCommandContext}
             initialScope={paletteScope}
-          />
-        </React.Suspense>
-      )}
-
-      {tipModalOpen && (
-        <React.Suspense fallback={null}>
-          <TipStartupModal
-            open
-            context={learningContext}
-            onClose={() => setTipModalOpen(false)}
-            onOpenLearnCenter={() => {
-              setTipModalOpen(false)
-              openLearnCenter()
-            }}
-            onSettingsTab={(tabId) => {
-              setTipModalOpen(false)
-              openSettings(false, tabId)
-            }}
           />
         </React.Suspense>
       )}

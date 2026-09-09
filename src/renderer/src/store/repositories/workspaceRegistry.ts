@@ -2,7 +2,7 @@
 //
 // Owns the persisted workspace-registry storage key. The custom storage adapter
 // in workspaceStore.ts is the only consumer that calls into this module; every
-// other surface (settings, learning, auth, sidebar, terminal reconciliation)
+// other surface (settings, auth, sidebar, terminal reconciliation)
 // reaches localStorage through a separate app-settings key and physically cannot
 // modify the registry by construction.
 //

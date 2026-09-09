@@ -103,12 +103,6 @@ const normalized = normalizeAppSettings(
       '/Users/example/bad': '/absolute',
     },
     recentWorkspaceFolders: [' /Users/example/project ', '/Users/example/project/', '', '/Users/example/other'],
-    learning: {
-      showTipsOnStartup: false,
-      lastShownTipId: ' tip-intro ',
-      seenTipIds: [' tip-intro ', 'tip-intro', '', 'tip-next'],
-      completedLessonIds: [' lesson-a ', 'lesson-a'],
-    },
   },
   [workspaceWithMemoryRoot],
 )
@@ -130,12 +124,6 @@ assert.deepEqual(normalized.recentWorkspaceFolders, [
   '/Users/example/project',
   '/Users/example/other',
 ])
-assert.deepEqual(normalized.learning, {
-  showTipsOnStartup: false,
-  lastShownTipId: 'tip-intro',
-  seenTipIds: ['tip-intro', 'tip-next'],
-  completedLessonIds: ['lesson-a'],
-})
 assert.deepEqual(normalized.keybindings, defaultKeybindingSettings())
 
 // --- Keybinding settings --------------------------------------------------

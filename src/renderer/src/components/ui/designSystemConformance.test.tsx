@@ -1903,7 +1903,6 @@ async function main(): Promise<void> {
   // THESE files', and a tree-wide rule would be a repo-wide field sweep wearing
   // this item's name — asserting a convergence that did not happen.
   const SWEPT_FIELD_SURFACES = [
-    'components/learn/LearnCenter.tsx',
     'components/panels/AutomationsPanel/AutomationEditor.tsx',
     'components/panels/AutomationsPanel/TriggerFields.tsx',
     'components/panels/BacklogCreateDialog.tsx',

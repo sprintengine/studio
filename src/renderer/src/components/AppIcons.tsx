@@ -760,12 +760,3 @@ export function RemoteSettingsIcon({ className }: IconProps) {
     </svg>
   )
 }
-
-export function LearnSettingsIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 6.5C10.5 5 7.5 4.5 5 5v13c2.5-.5 5.5 0 7 1.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-      <path d="M12 6.5C13.5 5 16.5 4.5 19 5v13c-2.5-.5-5.5 0-7 1.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-    </svg>
-  )
-}

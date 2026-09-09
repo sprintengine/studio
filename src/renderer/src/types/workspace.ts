@@ -309,13 +309,6 @@ export type WorkspaceWindowState = {
   lastFocusedAt: number
 }
 
-export type LearningSettings = {
-  showTipsOnStartup: boolean
-  lastShownTipId: string | null
-  seenTipIds: string[]
-  completedLessonIds: string[]
-}
-
 // Whisper model ids understood by a Multivoice transcription host (the lowercase
 // WhisperModel enum from multivoice-tauri). The host loads/downloads the model.
 export type VoiceDictationModel =
@@ -528,7 +521,6 @@ export type AppSettings = {
    * pointed at a five-year-old repo surfaces this week rather than every week.
    */
   designSystemSeen: Record<string, string>
-  learning: LearningSettings
   appearance: AppearanceSettings
   /** Voice dictation transcription server + model configuration. */
   voiceDictation: VoiceDictationSettings

@@ -346,10 +346,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   // line in Settings → Agents. Not persisted (see extractSettingsFields).
   agentConfigAdoptionResult: AgentConfigAdoptionResult | null
   setAgentConfigAdoptionResult: (result: AgentConfigAdoptionResult | null) => void
-  setLearningShowTipsOnStartup: (enabled: boolean) => void
-  markLearningTipSeen: (tipId: string) => void
-  markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void
-  resetLearningProgress: () => void
   setAppearanceTheme: (theme: AppTheme) => void
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
   addWorkspace: (
@@ -980,7 +976,7 @@ const workspaceStateStorage: StateStorage = {
     //
     // The backup includes both split envelopes so recovery does not restore
     // workspaces while silently dropping app settings such as Knowledge Graph
-    // roots, CLI defaults, MCP, skill packs, learning state, or sidebar state.
+    // roots, CLI defaults, MCP, skill packs, or sidebar state.
     if (Array.isArray(registryFields.workspaces) && registryFields.workspaces.length > 0) {
       scheduleBackupWrite(registryEnvelopeSerialized, settingsEnvelopeSerialized)
     }
@@ -1154,7 +1150,7 @@ async function attemptBackupRecovery(): Promise<void> {
     // appSettings/sidebarCollapsed inside the recovered registry envelope.
     // In both cases, recovery must not bring the workspace list back while
     // silently dropping Knowledge Graph roots, CLI defaults, MCP, skill packs,
-    // learning state, or sidebar state.
+    // or sidebar state.
     const legacyState = envelope!.state as Partial<WorkspaceMigrationState> & {
       sidebarCollapsed?: boolean
     }
@@ -1222,7 +1218,7 @@ async function attemptBackupRecovery(): Promise<void> {
     })
 
     // Mirror the recovered app-settings to multicode-app-settings now so the
-    // next persist write doesn't clobber projectKnowledgeRoots / learning /
+    // next persist write doesn't clobber projectKnowledgeRoots /
     // recentWorkspaceFolders with the current empty state.
     if (
       legacyAppSettings !== undefined

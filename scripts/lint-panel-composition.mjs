@@ -51,10 +51,6 @@ const ALLOW_LIST = new Map([
   ['BacklogCreateDialog.tsx', 'Modal-based "New backlog item" capture dialog; chrome is owned by Modal + ModalHeader, not a PanelHeader. It is a dialog rendered by BacklogPanel, not an operational panel.'],
   ['AgentPanel.tsx', 'Hosts an agent terminal (TerminalView); chrome is the terminal surround, not a PanelHeader.'],
   ['AgentChatView.tsx', 'Agent-tab body for conversation agents (sibling of AgentPanel/TerminalView); the FlexLayout tab owns identity, so the surface uses a compact composer + session-status bar, not a PanelHeader.'],
-  // Note: LearnCenter lives at src/renderer/src/components/learn/LearnCenter.tsx
-  // and falls outside this script's PANELS_DIR scope. Recorded here so future
-  // relocations into panels/ inherit the rationale instead of being flagged.
-  ['LearnCenter.tsx', 'Settings tab body (mounted inside SettingsPanel); chrome is provided by the parent settings shell, not a PanelHeader. Currently lives at components/learn/LearnCenter.tsx, outside this guard\'s scope.'],
   ['EditorPanel.tsx', 'Hosts Monaco; chrome is the editor surround, not a PanelHeader.'],
   ['TerminalView.tsx', 'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.'],
   ['PlainTerminalPanel.tsx', 'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.'],
