@@ -119,6 +119,24 @@ export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]
       // would notice. -1 for absent, which no reading can be: the parser
       // refuses anything outside 0..100, so zero is a reading, not an absence.
       session.contextUsage?.usedPercentage ?? -1,
+      // The conversation's pull request marks, for the same reason again: a
+      // pull request lands on GitHub, or a lookup finally answers, and NO other
+      // field on the snapshot moves — so without this term a mark that was blue
+      // stayed blue for ever, and a captured one only appeared when some
+      // unrelated field happened to twitch. The sidebar line and the peek head
+      // both read this off the SEMANTIC channel (`useTerminalSessions()`
+      // defaults to `live: false`), which is exactly the channel this signature
+      // gates.
+      //
+      // The four fields that are drawn: the URL says which pull request it is
+      // (and a new one joining the list is news), the state and the draft flag
+      // decide the shape and the tone, and the TITLE is what the peek's tooltip
+      // leads with — a captured pull request is filed with an empty title and
+      // learns it seconds later from GitHub, and that arrival has to repaint.
+      // `stateAt` is deliberately excluded, like `contextUsage.at` above: it is
+      // re-stamped on every poll whether or not anything was read, so including
+      // it would repaint every window on every backoff tick.
+      session.pullRequests?.map((pr) => `${pr.url}:${pr.state}:${pr.isDraft}:${pr.title}`).join('|') ?? '',
     ])
   return JSON.stringify(rows)
 }

@@ -239,6 +239,60 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
     getTerminalSessionsSignature(withContext({ usedPercentage: 0, at: 0 })),
     'zero percent is a reading, not an absence'
   )
+  // The pull request marks, for the same reason as the context reading above: a
+  // pull request lands on GitHub, or a branch lookup finally answers, and no
+  // other field on the snapshot moves. Without this term the sidebar's mark and
+  // the peek's head — both on the SEMANTIC channel — never heard about it.
+  const withPullRequests = (pullRequests: TerminalSessionSnapshot['pullRequests']) => [
+    session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, pullRequests }),
+    base[1],
+  ]
+  const mark = (
+    over: Partial<NonNullable<TerminalSessionSnapshot['pullRequests']>[number]> & { number: number }
+  ): NonNullable<TerminalSessionSnapshot['pullRequests']>[number] => ({
+    url: `https://github.com/acme/multicode/pull/${over.number}`,
+    repoKey: 'github.com/acme/multicode',
+    repoName: 'multicode',
+    number: over.number,
+    title: over.title ?? '',
+    state: over.state ?? 'open',
+    isDraft: over.isDraft ?? false,
+    openedAt: over.openedAt ?? 10,
+    stateAt: over.stateAt ?? 20,
+  })
+  assert.notEqual(
+    getTerminalSessionsSignature(base),
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418 })])),
+    'a first pull request re-renders — the mark has to appear'
+  )
+  assert.notEqual(
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418 })])),
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418, state: 'merged' })])),
+    'a pull request landing on GitHub re-renders: the shape and the tone both change'
+  )
+  assert.notEqual(
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418 })])),
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418, isDraft: true })])),
+    'a draft says so in the tooltip, so the flag is rendered'
+  )
+  assert.notEqual(
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418 })])),
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418, title: 'Gate OSC 52' })])),
+    'a captured pull request learning its title re-renders: the peek leads with it'
+  )
+  assert.notEqual(
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418 })])),
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418 }), mark({ number: 421 })])),
+    'a second pull request re-renders: the peek grows its chevron'
+  )
+  // `stateAt` held out, like `contextUsage.at`: the watch re-stamps it on every
+  // backoff tick whether or not GitHub said anything new, and a repaint per
+  // tick per window is exactly what this signature exists to prevent.
+  assert.equal(
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418, stateAt: 20 })])),
+    getTerminalSessionsSignature(withPullRequests([mark({ number: 418, stateAt: 9_000 })])),
+    'a re-read that changed nothing is not news'
+  )
   const subagentRunning = [
     session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, activeSubagents: 2 }),
     base[1],
@@ -254,10 +308,11 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   delete partial.fileChanges
   delete partial.activeSubagents
   delete partial.contextUsage
+  delete partial.pullRequests
   assert.equal(
     getTerminalSessionsSignature([partial as TerminalSessionSnapshot, base[1]]),
     getTerminalSessionsSignature(base),
-    'a snapshot missing the new fields reads as an empty ledger, no subagents and no reading, not a crash'
+    'a snapshot missing the new fields reads as an empty ledger, no subagents, no reading and no pull requests, not a crash'
   )
 }
 
@@ -694,6 +749,33 @@ async function assertSharedStoreDedupsSemanticUpdatesButKeepsLive(): Promise<voi
   assert.equal(semanticNotifications, 1, 'semantic subscribers receive lifecycle/activity changes')
   assert.equal(liveNotifications, 2)
 
+  // A pull-request-only broadcast: nothing else on the snapshot moves when a
+  // branch lookup answers or a pull request lands, and the sidebar line and the
+  // peek head both read the semantic channel. Before this term the store's
+  // `apply` early-returned here and the mark never appeared.
+  semanticNotifications = 0
+  ipcListener?.([
+    session({
+      sessionId: 'session_a',
+      activity: { kind: 'working', since: 2 },
+      lastOutputAt: 1000,
+      pullRequests: [
+        {
+          url: 'https://github.com/acme/multicode/pull/418',
+          repoKey: 'github.com/acme/multicode',
+          repoName: 'multicode',
+          number: 418,
+          title: '',
+          state: 'open',
+          isDraft: false,
+          openedAt: 10,
+          stateAt: 20,
+        },
+      ],
+    }),
+  ])
+  assert.equal(semanticNotifications, 1, 'a pull request arriving is semantic news')
+
   unsubscribeSemantic()
   unsubscribeLive()
   unsubscribeLiveSnapshot()
@@ -920,6 +1002,7 @@ function session(
     fileChanges: input.fileChanges ?? [],
     activeSubagents: input.activeSubagents ?? 0,
     contextUsage: input.contextUsage ?? null,
+    pullRequests: input.pullRequests,
     exitedAt: input.exitedAt ?? null,
     outputBufferLength: input.outputBufferLength ?? 0,
     retainedOutputBytes: input.retainedOutputBytes ?? 0,
