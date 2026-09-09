@@ -10,6 +10,7 @@ export { DefinitionList } from './DefinitionList'
 export type { DefinitionItem } from './DefinitionList'
 export { StatusDot } from './StatusDot'
 export { AgentWorkingDots } from './AgentWorkingDots'
+export { ContextRing, CONTEXT_RING_WARN_PERCENTAGE } from './ContextRing'
 export { Spinner } from './Spinner'
 export { LifecycleGlyph, LIFECYCLE_LABEL, type LifecycleState } from './LifecycleGlyph'
 export {
