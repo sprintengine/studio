@@ -137,9 +137,37 @@ exceeds one, model the domain again rather than adding chrome.
 | Font sizes per view | 3, repeating title / body / meta |
 | Border radii per view | 2 |
 | Controls above the first content row of a panel | 5 — but see the amendment below |
-| Visual elements per repeated row at rest | 4 |
+| Visual elements per repeated row at rest | 4 — but see the amendment below |
 | Trailing actions a row may reveal on hover | 2 |
 | Motion treatments animating at any moment | 1 |
+
+**The four-element ceiling counts what a row SAYS, not what it lets you do**
+(amended 2026-09-09, the Commit-window epic). `components/check-row` carries
+five at rest: the checkbox, the file glyph, the name, the directory, and the
+trailing status mark.
+
+The ceiling exists because a row with five things to *read* is a row carrying
+work that belongs in the detail pane — `list-row`'s entry says exactly that.
+That is a statement about how much a person has to take in before they can
+choose. A checkbox is not something taken in; it is the row's one control, and
+it answers in 16px a question the row would otherwise need a whole second
+surface to answer — the Staged / Unstaged split the Commit window deletes, or a
+right-click menu. A control is not work carried, it is work saved.
+
+Two conditions, both load-bearing:
+
+1. **The fifth element is a CONTROL, and there is exactly one of it.** The
+   things a row is *read* for still cap at four: glyph, name, supporting line,
+   trailing mark. A row with five facts on it is over the ceiling as before, and
+   a second control on a repeated row is over it too.
+2. **The row reveals nothing on hover.** The ceiling and the two-trailing-actions
+   allowance are not additive — a row already spending its fifth slot on a
+   control has none left to reveal into. At the 24px floor there is no room
+   anyway, which is the honest version of the same rule.
+
+A group header is not a repeated row and the ceiling does not reach it; it
+holds itself to one chip and one revealed control for its own reasons
+(`components/group-header`).
 
 **The five-controls ceiling counts PANE CHROME, not a region's own header**
 (amended 2026-09-09, owner's ruling, mockup 2522). The Git panel's glyph band

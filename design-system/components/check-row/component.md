@@ -34,12 +34,17 @@ at one pitch or the list reads as noise.
 | Body | `.ds-check-row-body` | no — a `<button>` wrapping glyph/name/directory, for a row outside a composite widget |
 | Depth | `--ds-check-row-depth` | `--tree` only — a unitless level, multiplying one `space.lg` step |
 
-**Five elements at rest, and that is the ceiling this row is allowed.** The
-four-element ceiling in `principles.md` is a rule about a row a person *reads*;
-this row is one they *operate*, and the box is the operation. Nothing else goes
-in: no second glyph, no chip, no revealed action. A row this dense has no room
-to reveal anything — the list's toolbar and the row's context menu are where
-actions live.
+**Five elements at rest, under a recorded amendment.** `principles.md` caps a
+repeated row at four, and this row spends five. The amendment is dated
+2026-09-09 and lives beside the ceiling itself, not here: the ceiling counts
+what a row *says*, and the fifth element here is a **control**, which answers in
+16px a question the row would otherwise need a whole second surface for. Its two
+conditions bind this row — the things it is *read* for still cap at four (glyph,
+name, directory, trailing mark), and it reveals nothing on hover, because the
+ceiling and the two-trailing-actions allowance are not additive.
+
+So nothing else goes in: no second glyph, no chip, no revealed action. The
+list's toolbar and the row's context menu are where actions live.
 
 ## The box is a sibling, never a descendant
 
@@ -141,7 +146,11 @@ elements, and the row would move under the pointer.
   never met twice.
 - Selection is `aria-selected`, which is a different question from
   `aria-checked` and must not be conflated: a person can stage a file they are
-  not looking at, and look at a file they have not staged.
+  not looking at, and look at a file they have not staged. An `option` always
+  declares it — that is what a listbox is — while a `treeitem` declares it only
+  when it *is* selected, because a tree emitting `aria-selected="false"` on
+  every node announces itself as selectable even when nothing in it can be
+  picked.
 - A `treeitem` carries `aria-level`, and `aria-expanded` when it has children.
   A leaf declares neither `aria-expanded` nor a chevron mark, but keeps the
   chevron's slot.
@@ -155,4 +164,13 @@ elements, and the row would move under the pointer.
 
 ## Shipped implementation
 
-`src/renderer/src/components/ui/CheckRow.tsx`, exporting `CheckRow`.
+`src/renderer/src/components/ui/CheckRow.tsx`, exporting `CheckRow`. The box it
+draws is `CheckboxBox` — [checkbox](../checkbox/component.md)'s own drawing,
+exported from `ui/Checkbox.tsx` on 2026-09-09 so the decorative box and the
+control are one picture rather than two.
+
+**Not shipped: `.ds-check-row-body`.** The React primitive implements the
+composite mode only, which is what both consuming surfaces need. The body
+button is the framework-neutral spelling for the standalone case and is
+specified here so a surface that needs it does not invent one; it grows a
+primitive when a surface actually asks for it, not before.

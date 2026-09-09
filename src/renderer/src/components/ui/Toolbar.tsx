@@ -19,7 +19,7 @@
 
 import React from 'react'
 
-import { FOCUS_RING_CLASS } from './tokens'
+import { IconButton } from './Buttons'
 
 const ITEM_ATTR = 'data-toolbar-item'
 
@@ -138,10 +138,14 @@ export type ToolbarButtonProps = {
 export const ToolbarButton = React.forwardRef<HTMLButtonElement, ToolbarButtonProps>(
   function ToolbarButton({ ariaLabel, menu = false, expanded, disabled = false, onClick, children, className }, ref) {
     return (
-      <button
+      // The item IS `button --icon` — `IconButton` at `sm`, which is the 26px
+      // square, the ghost tone and the shared ring. The band composes rather
+      // than restyles: a toolbar item that hovered differently from a button
+      // would be a second button.
+      <IconButton
         {...{ [ITEM_ATTR]: '' }}
         ref={ref}
-        type="button"
+        size="sm"
         aria-label={ariaLabel}
         aria-haspopup={menu ? 'menu' : undefined}
         aria-expanded={menu ? expanded ?? false : undefined}
@@ -151,21 +155,18 @@ export const ToolbarButton = React.forwardRef<HTMLButtonElement, ToolbarButtonPr
         // the safe default for an item rendered outside a Toolbar.
         tabIndex={-1}
         className={[
-          'relative grid size-control-xs shrink-0 place-items-center rounded-xs',
-          'text-[color:var(--text-muted)] transition-colors',
-          'hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-          'disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent',
-          FOCUS_RING_CLASS,
           // The corner mark: two borders of a zero-size box, which is the one
           // spelling of a triangle that needs no asset and no path.
+          // `relative` is the mark's positioning context: IconButton's `sm`
+          // step draws no hit-target pseudo-element, so it does not bring one.
           menu
-            ? 'after:pointer-events-none after:absolute after:right-0.5 after:bottom-0.5 after:border-2 after:border-transparent after:border-r-current after:border-b-current after:content-[""]'
+            ? 'relative after:pointer-events-none after:absolute after:right-0.5 after:bottom-0.5 after:border-2 after:border-transparent after:border-r-current after:border-b-current after:content-[""]'
             : '',
           className ?? '',
         ].join(' ')}
       >
         {children}
-      </button>
+      </IconButton>
     )
   },
 )

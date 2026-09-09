@@ -149,6 +149,29 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  run('the cursor is a gutter mark, and it composes over the selection fill', () => {
+    // A third channel: it has to stay visible on a row that is already selected
+    // and distinct from one merely hovered, which neither fill can do over the
+    // other. `--text-strong`, not the accent, because --border-focus and
+    // --accent-primary are the same value in 18 of the 19 themes.
+    const view = mount(<CheckRow checked selected cursor name="swap2-top.png" />)
+    const mark = view.row.querySelector('[aria-hidden="true"][class*="absolute"]')
+    assert.ok(mark, 'the cursor is drawn even on a row that is already selected')
+    const classes = mark.getAttribute('class') ?? ''
+    assert.match(classes, /bg-\[color:var\(--text-strong\)\]/, 'never the accent — that reads as a slipped focus ring')
+    assert.match(classes, /pointer-events-none/)
+    assert.match(view.row.getAttribute('class') ?? '', /relative/, 'the row is the mark\'s positioning context')
+
+    const without = mount(<CheckRow checked name="swap2-top.png" />)
+    assert.equal(
+      without.row.querySelectorAll('[aria-hidden="true"][class*="absolute"]').length,
+      0,
+      'a list that moves real focus with its cursor draws no mark at all',
+    )
+    view.unmount()
+    without.unmount()
+  })
+
   run('a disabled row stays in the walk and refuses both', () => {
     const events: string[] = []
     const view = mount(
@@ -174,6 +197,11 @@ async function main(): Promise<void> {
     assert.equal(branch.row.getAttribute('role'), 'treeitem')
     assert.equal(branch.row.getAttribute('aria-expanded'), 'true')
     assert.equal(branch.row.getAttribute('aria-level'), '1')
+    assert.equal(
+      branch.row.hasAttribute('aria-selected'),
+      false,
+      'a tree announces itself as selectable only when something in it is selected',
+    )
 
     const leaf = mount(<CheckRow checked={false} role="treeitem" level={2} depth={1} name="tokens.ts" />)
     assert.equal(leaf.row.hasAttribute('aria-expanded'), false, 'a leaf declares no expansion state')

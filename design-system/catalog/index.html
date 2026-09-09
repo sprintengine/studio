@@ -10575,7 +10575,12 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>Selection is neutral.</strong> A selected row uses <code>bg.selected</code> — a neutral fill — and lifts its title to <code>text.primary</code>. It does not use the accent, and it does not carry a left bar, a border box, or a glow. A row that is merely *chosen* must never outrank the one action worth taking. The Backlog rows' epic-colour left bar was retired on 2026-09-02 under this rule: the <code>EpicColorDot</code> carries epic identity, and the skeleton no longer reserves the bar.</p>
 <h4>Quantified restraint</h4>
 <p>Ceilings, not guidelines. Exceeding one signals missing hierarchy; when a view exceeds one, model the domain again rather than adding chrome.</p>
-<p>| Ceiling | Limit | |---|---| | Product accents visible per view | 1 | | Status idioms | 1 — the 6px dot or a lifecycle glyph, never both | | Font families | 2 — <code>font.family.ui</code>, <code>font.family.mono</code> | | Font weights per view | 3 | | Font sizes per view | 3, repeating title / body / meta | | Border radii per view | 2 | | Controls above the first content row of a panel | 5 — but see the amendment below | | Visual elements per repeated row at rest | 4 | | Trailing actions a row may reveal on hover | 2 | | Motion treatments animating at any moment | 1 |</p>
+<p>| Ceiling | Limit | |---|---| | Product accents visible per view | 1 | | Status idioms | 1 — the 6px dot or a lifecycle glyph, never both | | Font families | 2 — <code>font.family.ui</code>, <code>font.family.mono</code> | | Font weights per view | 3 | | Font sizes per view | 3, repeating title / body / meta | | Border radii per view | 2 | | Controls above the first content row of a panel | 5 — but see the amendment below | | Visual elements per repeated row at rest | 4 — but see the amendment below | | Trailing actions a row may reveal on hover | 2 | | Motion treatments animating at any moment | 1 |</p>
+<p><strong>The four-element ceiling counts what a row SAYS, not what it lets you do</strong> (amended 2026-09-09, the Commit-window epic). <code>components/check-row</code> carries five at rest: the checkbox, the file glyph, the name, the directory, and the trailing status mark.</p>
+<p>The ceiling exists because a row with five things to *read* is a row carrying work that belongs in the detail pane — <code>list-row</code>'s entry says exactly that. That is a statement about how much a person has to take in before they can choose. A checkbox is not something taken in; it is the row's one control, and it answers in 16px a question the row would otherwise need a whole second surface to answer — the Staged / Unstaged split the Commit window deletes, or a right-click menu. A control is not work carried, it is work saved.</p>
+<p>Two conditions, both load-bearing:</p>
+<p>1. <strong>The fifth element is a CONTROL, and there is exactly one of it.</strong> The things a row is *read* for still cap at four: glyph, name, supporting line, trailing mark. A row with five facts on it is over the ceiling as before, and a second control on a repeated row is over it too. 2. <strong>The row reveals nothing on hover.</strong> The ceiling and the two-trailing-actions allowance are not additive — a row already spending its fifth slot on a control has none left to reveal into. At the 24px floor there is no room anyway, which is the honest version of the same rule.</p>
+<p>A group header is not a repeated row and the ceiling does not reach it; it holds itself to one chip and one revealed control for its own reasons (<code>components/group-header</code>).</p>
 <p><strong>The five-controls ceiling counts PANE CHROME, not a region's own header</strong> (amended 2026-09-09, owner's ruling, mockup 2522). The Git panel's glyph band carries nine: refresh, discard, move to changelist, stash, write commit message, show diff | group by, expand all, collapse all. The owner accepted this arrangement because the band belongs to one region rather than the pane.</p>
 <p>The ceiling exists because chrome stacked above a region pushes the content down and makes a person read a row of unrelated affordances before reaching what they came for. That is a statement about <strong>pane</strong> chrome — a strip that belongs to the window, sits above everything in it, and would be there whatever the pane were showing. A band that belongs to ONE region, acts only on that region, and would disappear with it is that region's own header, and it counts against the region rather than against the pane. The nine here are nine verbs about the changes list and nothing else: hide the list and every one of them is meaningless.</p>
 <p>Two conditions, and both are load-bearing:</p>
@@ -12839,7 +12844,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-stage ds-embed-component-check-row">
 <div class="demo-stage" data-mode="light">
   <p class="demo-label">Light — checked, unchecked, mixed, selected with the keyboard cursor, resting, disabled.</p>
-  <div class="demo-list" role="listbox" aria-label="Changed files" aria-multiselectable="true" tabindex="0">
+  <div class="demo-list" role="listbox" aria-label="Changed files" aria-multiselectable="true" tabindex="0" aria-activedescendant="l-4">
       <div class="ds-check-row" role="option" aria-checked="true" id="l-1" aria-selected="false">
               <span class="ds-check-row-check" aria-hidden="true">
           <span class="ds-checkbox-box">
@@ -12974,7 +12979,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   </div>
   <p class="demo-label demo-label--second">The same row as a tree: a chevron slot, a unitless depth indent.</p>
   <div class="demo-list" role="tree" aria-label="Project files" tabindex="0">
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="mixed" id="lt-1" aria-expanded="true" aria-selected="false" style="--ds-check-row-depth: 0">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="1" aria-checked="mixed" id="lt-1" aria-expanded="true" style="--ds-check-row-depth: 0">
               <span class="ds-check-row-twisty" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -12998,7 +13003,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               <span class="ds-check-row-name">design-system</span>
               <span class="ds-check-row-dir"></span>
             </div>
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="true" id="lt-2" aria-selected="false" style="--ds-check-row-depth: 1">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="2" aria-checked="true" id="lt-2" style="--ds-check-row-depth: 1">
               <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -13022,7 +13027,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               <span class="ds-check-row-name">component.css</span>
               <span class="ds-check-row-dir"></span>
             </div>
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="false" id="lt-3" aria-selected="false" style="--ds-check-row-depth: 1">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="2" aria-checked="false" id="lt-3" style="--ds-check-row-depth: 1">
               <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -13053,7 +13058,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 <div class="demo-stage" data-mode="dark">
   <p class="demo-label">Dark — the same rows from the same tokens.</p>
-  <div class="demo-list" role="listbox" aria-label="Changed files" aria-multiselectable="true" tabindex="0">
+  <div class="demo-list" role="listbox" aria-label="Changed files" aria-multiselectable="true" tabindex="0" aria-activedescendant="d-4">
       <div class="ds-check-row" role="option" aria-checked="true" id="d-1" aria-selected="false">
               <span class="ds-check-row-check" aria-hidden="true">
           <span class="ds-checkbox-box">
@@ -13188,7 +13193,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   </div>
   <p class="demo-label demo-label--second">The same row as a tree: a chevron slot, a unitless depth indent.</p>
   <div class="demo-list" role="tree" aria-label="Project files" tabindex="0">
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="mixed" id="dt-1" aria-expanded="true" aria-selected="false" style="--ds-check-row-depth: 0">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="1" aria-checked="mixed" id="dt-1" aria-expanded="true" style="--ds-check-row-depth: 0">
               <span class="ds-check-row-twisty" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -13212,7 +13217,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               <span class="ds-check-row-name">design-system</span>
               <span class="ds-check-row-dir"></span>
             </div>
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="true" id="dt-2" aria-selected="false" style="--ds-check-row-depth: 1">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="2" aria-checked="true" id="dt-2" style="--ds-check-row-depth: 1">
               <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -13236,7 +13241,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               <span class="ds-check-row-name">component.css</span>
               <span class="ds-check-row-dir"></span>
             </div>
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="false" id="dt-3" aria-selected="false" style="--ds-check-row-depth: 1">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="2" aria-checked="false" id="dt-3" style="--ds-check-row-depth: 1">
               <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -13271,7 +13276,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>Why neither existing row could be it.</strong> [list-row](../list-row/component.md) caps at four visual elements at rest, and this row spends five before it has said anything — box, glyph, name, directory, trailing — and its row *is* the <code>&lt;button&gt;</code>, which a checkbox may not sit inside. [row-button](../row-button/component.md) owns no height at all, and the floor is the point here: four hundred files step at one pitch or the list reads as noise.</p>
 <h4>Anatomy</h4>
 <p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-check-row</code> | yes — a <code>&lt;div&gt;</code> with <code>role=&quot;option&quot;</code> or <code>role=&quot;treeitem&quot;</code>, never a <code>&lt;button&gt;</code> | | Cursor | <code>.ds-check-row-cursor</code> | no — the keyboard cursor mark, <code>aria-hidden</code> | | Twisty | <code>.ds-check-row-twisty</code> | <code>--tree</code> only — the disclosure chevron, <code>aria-hidden</code> | | Twisty (leaf) | <code>.ds-check-row-twisty--leaf</code> | <code>--tree</code> only — the slot kept, the mark dropped | | Check | <code>.ds-check-row-check</code> | yes — the 16px box slot, holding <code>components/checkbox</code>'s box | | Glyph | <code>.ds-check-row-glyph</code> | yes — a reserved 16px slot, present whether or not it is filled | | Name | <code>.ds-check-row-name</code> | yes — <code>flex: none</code>; never the part that truncates | | Directory | <code>.ds-check-row-dir</code> | no — <code>text.muted</code>, takes the remaining width, truncates first | | Trailing | <code>.ds-check-row-trailing</code> | no — display only: a status letter, a size, a count | | Body | <code>.ds-check-row-body</code> | no — a <code>&lt;button&gt;</code> wrapping glyph/name/directory, for a row outside a composite widget | | Depth | <code>--ds-check-row-depth</code> | <code>--tree</code> only — a unitless level, multiplying one <code>space.lg</code> step |</p>
-<p><strong>Five elements at rest, and that is the ceiling this row is allowed.</strong> The four-element ceiling in <code>principles.md</code> is a rule about a row a person *reads*; this row is one they *operate*, and the box is the operation. Nothing else goes in: no second glyph, no chip, no revealed action. A row this dense has no room to reveal anything — the list's toolbar and the row's context menu are where actions live.</p>
+<p><strong>Five elements at rest, under a recorded amendment.</strong> <code>principles.md</code> caps a repeated row at four, and this row spends five. The amendment is dated 2026-09-09 and lives beside the ceiling itself, not here: the ceiling counts what a row *says*, and the fifth element here is a <strong>control</strong>, which answers in 16px a question the row would otherwise need a whole second surface for. Its two conditions bind this row — the things it is *read* for still cap at four (glyph, name, directory, trailing mark), and it reveals nothing on hover, because the ceiling and the two-trailing-actions allowance are not additive.</p>
+<p>So nothing else goes in: no second glyph, no chip, no revealed action. The list's toolbar and the row's context menu are where actions live.</p>
 <h4>The box is a sibling, never a descendant</h4>
 <p>A <code>&lt;label&gt;</code> cannot sit inside a <code>&lt;button&gt;</code>; that constraint is what shaped <code>list-row</code>'s <code>-host</code> wrapper, where the actions are the row's sibling because the row is the control. This row solves it upstream instead: <strong>the row is a <code>&lt;div&gt;</code> carrying an ARIA role</strong>, so the box is simply one of its children, beside the name rather than inside a control.</p>
 <p>Two spellings, and what owns the state picks between them:</p>
@@ -13290,9 +13296,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>Two colour channels, never three</strong> (<code>principles.md</code> → &quot;Identity colour&quot;, amended 2026-09-09). The glyph may wear its language's kind hue and the name may wear a status tint, because the hue identifies and the tint grades — the glyph is the same blue on a modified, added and deleted <code>.ts</code> row. Nothing else in the row takes a colour, and interaction state paints over both.</p>
 <p><strong>Do not put anything interactive in the trailing slot</strong>, and do not add a hover-revealed action. At this density the reveal would be the fifth and sixth elements, and the row would move under the pointer.</p>
 <h4>Accessibility</h4>
-<ul><li>The row is a <code>&lt;div role=&quot;option&quot;&gt;</code> (a flat list) or <code>&lt;div role=&quot;treeitem&quot;&gt;</code> (a tree), never a <code>&lt;button&gt;</code> — so the box may sit inside it, and so the list can be one tab stop.</li><li><strong>The list is one tab stop.</strong> It carries <code>tabindex=&quot;0&quot;</code>, drives the row with <code>aria-activedescendant</code>, and each row carries a stable <code>id</code>. Arrow keys move the cursor, Space toggles the cursored row's <code>aria-checked</code>, and Enter opens.</li><li><code>aria-checked</code> is <code>true</code> / <code>false</code> / <code>&quot;mixed&quot;</code> and is the *only* announced form of the tick in composite mode; the drawn box is <code>aria-hidden</code>, so it is never met twice.</li><li>Selection is <code>aria-selected</code>, which is a different question from <code>aria-checked</code> and must not be conflated: a person can stage a file they are not looking at, and look at a file they have not staged.</li><li>A <code>treeitem</code> carries <code>aria-level</code>, and <code>aria-expanded</code> when it has children. A leaf declares neither <code>aria-expanded</code> nor a chevron mark, but keeps the chevron's slot.</li><li>The glyph is <code>aria-hidden</code>; the name carries the meaning. Where the glyph's kind is information a person needs, it goes in the row's accessible name or a tooltip, not in the hue alone.</li><li>The status tint on a name is never the only carrier of the status: the trailing slot's letter, or a visually-hidden clause, says &quot;modified&quot; in text.</li><li>Reduced motion removes the ground transition and the chevron's rotation; it never removes the state change.</li></ul>
+<ul><li>The row is a <code>&lt;div role=&quot;option&quot;&gt;</code> (a flat list) or <code>&lt;div role=&quot;treeitem&quot;&gt;</code> (a tree), never a <code>&lt;button&gt;</code> — so the box may sit inside it, and so the list can be one tab stop.</li><li><strong>The list is one tab stop.</strong> It carries <code>tabindex=&quot;0&quot;</code>, drives the row with <code>aria-activedescendant</code>, and each row carries a stable <code>id</code>. Arrow keys move the cursor, Space toggles the cursored row's <code>aria-checked</code>, and Enter opens.</li><li><code>aria-checked</code> is <code>true</code> / <code>false</code> / <code>&quot;mixed&quot;</code> and is the *only* announced form of the tick in composite mode; the drawn box is <code>aria-hidden</code>, so it is never met twice.</li><li>Selection is <code>aria-selected</code>, which is a different question from <code>aria-checked</code> and must not be conflated: a person can stage a file they are not looking at, and look at a file they have not staged. An <code>option</code> always declares it — that is what a listbox is — while a <code>treeitem</code> declares it only when it *is* selected, because a tree emitting <code>aria-selected=&quot;false&quot;</code> on every node announces itself as selectable even when nothing in it can be picked.</li><li>A <code>treeitem</code> carries <code>aria-level</code>, and <code>aria-expanded</code> when it has children. A leaf declares neither <code>aria-expanded</code> nor a chevron mark, but keeps the chevron's slot.</li><li>The glyph is <code>aria-hidden</code>; the name carries the meaning. Where the glyph's kind is information a person needs, it goes in the row's accessible name or a tooltip, not in the hue alone.</li><li>The status tint on a name is never the only carrier of the status: the trailing slot's letter, or a visually-hidden clause, says &quot;modified&quot; in text.</li><li>Reduced motion removes the ground transition and the chevron's rotation; it never removes the state change.</li></ul>
 <h4>Shipped implementation</h4>
-<p><code>src/renderer/src/components/ui/CheckRow.tsx</code>, exporting <code>CheckRow</code>.</p>
+<p><code>src/renderer/src/components/ui/CheckRow.tsx</code>, exporting <code>CheckRow</code>. The box it draws is <code>CheckboxBox</code> — [checkbox](../checkbox/component.md)'s own drawing, exported from <code>ui/Checkbox.tsx</code> on 2026-09-09 so the decorative box and the control are one picture rather than two.</p>
+<p><strong>Not shipped: <code>.ds-check-row-body</code>.</strong> The React primitive implements the composite mode only, which is what both consuming surfaces need. The body button is the framework-neutral spelling for the standalone case and is specified here so a surface that needs it does not invent one; it grows a primitive when a surface actually asks for it, not before.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/check-row/component.css</summary><pre><code>/* Check row — the pick-AND-mark row, at the 24px hit-target floor.
@@ -13637,7 +13644,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 &lt;body&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
   &lt;p class=&quot;demo-label&quot;&gt;Light — checked, unchecked, mixed, selected with the keyboard cursor, resting, disabled.&lt;/p&gt;
-  &lt;div class=&quot;demo-list&quot; role=&quot;listbox&quot; aria-label=&quot;Changed files&quot; aria-multiselectable=&quot;true&quot; tabindex=&quot;0&quot;&gt;
+  &lt;div class=&quot;demo-list&quot; role=&quot;listbox&quot; aria-label=&quot;Changed files&quot; aria-multiselectable=&quot;true&quot; tabindex=&quot;0&quot; aria-activedescendant=&quot;l-4&quot;&gt;
       &lt;div class=&quot;ds-check-row&quot; role=&quot;option&quot; aria-checked=&quot;true&quot; id=&quot;l-1&quot; aria-selected=&quot;false&quot;&gt;
               &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
           &lt;span class=&quot;ds-checkbox-box&quot;&gt;
@@ -13772,7 +13779,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   &lt;/div&gt;
   &lt;p class=&quot;demo-label demo-label--second&quot;&gt;The same row as a tree: a chevron slot, a unitless depth indent.&lt;/p&gt;
   &lt;div class=&quot;demo-list&quot; role=&quot;tree&quot; aria-label=&quot;Project files&quot; tabindex=&quot;0&quot;&gt;
-      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;mixed&quot; id=&quot;lt-1&quot; aria-expanded=&quot;true&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 0&quot;&gt;
+      &lt;div class=&quot;ds-check-row ds-check-row--tree&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;mixed&quot; id=&quot;lt-1&quot; aria-expanded=&quot;true&quot; style=&quot;--ds-check-row-depth: 0&quot;&gt;
               &lt;span class=&quot;ds-check-row-twisty&quot; aria-hidden=&quot;true&quot;&gt;
           &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
             &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
@@ -13796,7 +13803,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               &lt;span class=&quot;ds-check-row-name&quot;&gt;design-system&lt;/span&gt;
               &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
             &lt;/div&gt;
-      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;true&quot; id=&quot;lt-2&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
+      &lt;div class=&quot;ds-check-row ds-check-row--tree&quot; role=&quot;treeitem&quot; aria-level=&quot;2&quot; aria-checked=&quot;true&quot; id=&quot;lt-2&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
               &lt;span class=&quot;ds-check-row-twisty ds-check-row-twisty--leaf&quot; aria-hidden=&quot;true&quot;&gt;
           &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
             &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
@@ -13820,7 +13827,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               &lt;span class=&quot;ds-check-row-name&quot;&gt;component.css&lt;/span&gt;
               &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
             &lt;/div&gt;
-      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;false&quot; id=&quot;lt-3&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
+      &lt;div class=&quot;ds-check-row ds-check-row--tree&quot; role=&quot;treeitem&quot; aria-level=&quot;2&quot; aria-checked=&quot;false&quot; id=&quot;lt-3&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
               &lt;span class=&quot;ds-check-row-twisty ds-check-row-twisty--leaf&quot; aria-hidden=&quot;true&quot;&gt;
           &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
             &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
@@ -13851,7 +13858,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
   &lt;p class=&quot;demo-label&quot;&gt;Dark — the same rows from the same tokens.&lt;/p&gt;
-  &lt;div class=&quot;demo-list&quot; role=&quot;listbox&quot; aria-label=&quot;Changed files&quot; aria-multiselectable=&quot;true&quot; tabindex=&quot;0&quot;&gt;
+  &lt;div class=&quot;demo-list&quot; role=&quot;listbox&quot; aria-label=&quot;Changed files&quot; aria-multiselectable=&quot;true&quot; tabindex=&quot;0&quot; aria-activedescendant=&quot;d-4&quot;&gt;
       &lt;div class=&quot;ds-check-row&quot; role=&quot;option&quot; aria-checked=&quot;true&quot; id=&quot;d-1&quot; aria-selected=&quot;false&quot;&gt;
               &lt;span class=&quot;ds-check-row-check&quot; aria-hidden=&quot;true&quot;&gt;
           &lt;span class=&quot;ds-checkbox-box&quot;&gt;
@@ -13986,7 +13993,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   &lt;/div&gt;
   &lt;p class=&quot;demo-label demo-label--second&quot;&gt;The same row as a tree: a chevron slot, a unitless depth indent.&lt;/p&gt;
   &lt;div class=&quot;demo-list&quot; role=&quot;tree&quot; aria-label=&quot;Project files&quot; tabindex=&quot;0&quot;&gt;
-      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;mixed&quot; id=&quot;dt-1&quot; aria-expanded=&quot;true&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 0&quot;&gt;
+      &lt;div class=&quot;ds-check-row ds-check-row--tree&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;mixed&quot; id=&quot;dt-1&quot; aria-expanded=&quot;true&quot; style=&quot;--ds-check-row-depth: 0&quot;&gt;
               &lt;span class=&quot;ds-check-row-twisty&quot; aria-hidden=&quot;true&quot;&gt;
           &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
             &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
@@ -14010,7 +14017,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               &lt;span class=&quot;ds-check-row-name&quot;&gt;design-system&lt;/span&gt;
               &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
             &lt;/div&gt;
-      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;true&quot; id=&quot;dt-2&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
+      &lt;div class=&quot;ds-check-row ds-check-row--tree&quot; role=&quot;treeitem&quot; aria-level=&quot;2&quot; aria-checked=&quot;true&quot; id=&quot;dt-2&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
               &lt;span class=&quot;ds-check-row-twisty ds-check-row-twisty--leaf&quot; aria-hidden=&quot;true&quot;&gt;
           &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
             &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
@@ -14034,7 +14041,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               &lt;span class=&quot;ds-check-row-name&quot;&gt;component.css&lt;/span&gt;
               &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
             &lt;/div&gt;
-      &lt;div class=&quot;ds-check-row&quot; role=&quot;treeitem&quot; aria-level=&quot;1&quot; aria-checked=&quot;false&quot; id=&quot;dt-3&quot; aria-selected=&quot;false&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
+      &lt;div class=&quot;ds-check-row ds-check-row--tree&quot; role=&quot;treeitem&quot; aria-level=&quot;2&quot; aria-checked=&quot;false&quot; id=&quot;dt-3&quot; style=&quot;--ds-check-row-depth: 1&quot;&gt;
               &lt;span class=&quot;ds-check-row-twisty ds-check-row-twisty--leaf&quot; aria-hidden=&quot;true&quot;&gt;
           &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot;&gt;
             &lt;path d=&quot;M6.2 3.8 10.4 8l-4.2 4.2&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
@@ -32421,7 +32428,7 @@ for (const button of document.querySelectorAll('.demo-parked .ds-toast-dismiss')
 <p>1. <strong>Every control acts on the region beneath it.</strong> One item that opens a pane-level or app-level surface makes the band pane chrome again, and the ceiling of five applies to the whole thing. 2. <strong>The band is grouped, not enumerated.</strong> Nine identical squares in a row is a search problem; the divider is what turns it into &quot;six about the files, three about the view&quot;. A band that needs a *third* group probably needs an overflow menu instead.</p>
 <p>Unchanged: two stacked bands of chrome above one region is still a reject on sight. The ruling is that this band is not chrome — not that a pane may have two chrome strips.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Band | <code>.ds-toolbar</code> | yes — <code>role=&quot;toolbar&quot;</code> with an <code>aria-label</code> naming what it acts on | | Item | <code>.ds-button.ds-button--icon</code> | yes — the button component's icon variant, unchanged | | Menu item | <code>.ds-toolbar-item--menu</code> | no — an item that opens a menu rather than acting | | Divider | <code>.ds-toolbar-divider</code> | no — the system's first vertical divider, <code>aria-hidden</code> | | Spacer | <code>.ds-toolbar-spacer</code> | no — pushes what follows to the trailing end |</p>
+<p>| Part | Class | Required | |---|---|---| | Band | <code>.ds-toolbar</code> | yes — <code>role=&quot;toolbar&quot;</code> with an <code>aria-label</code> naming what it acts on | | Item | <code>.ds-button.ds-button--icon.ds-toolbar-item</code> | yes — the button component's icon variant, unchanged; <code>.ds-toolbar-item</code> is the hook the modifier below hangs off and adds nothing on its own | | Menu item | <code>.ds-toolbar-item--menu</code> | no — an item that opens a menu rather than acting | | Divider | <code>.ds-toolbar-divider</code> | no — the system's first vertical divider, <code>aria-hidden</code> | | Spacer | <code>.ds-toolbar-spacer</code> | no — pushes what follows to the trailing end |</p>
 <p>Geometry: <code>size.control.sm</code> (30px) tall, <code>space.3xs</code> between items, <code>space.xs</code> of inline padding, and one <code>border.subtle</code> hairline along the bottom.</p>
 <h4>Variants</h4>
 <ul><li><strong>Default</strong> — the bottom hairline. The band's whole separation: no fill, no shadow, no second rule above it. A toolbar that painted its own ground would read as a second surface stacked on the pane.</li><li><strong><code>--borderless</code></strong> — for a band that already sits under a hairline (directly beneath a tab strip or a <code>panel-header</code>, which draw their own). Two rules 30px apart is a ladder, not a structure.</li></ul>

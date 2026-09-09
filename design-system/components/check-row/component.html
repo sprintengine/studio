@@ -52,7 +52,7 @@
 <body>
 <div class="demo-stage" data-mode="light">
   <p class="demo-label">Light — checked, unchecked, mixed, selected with the keyboard cursor, resting, disabled.</p>
-  <div class="demo-list" role="listbox" aria-label="Changed files" aria-multiselectable="true" tabindex="0">
+  <div class="demo-list" role="listbox" aria-label="Changed files" aria-multiselectable="true" tabindex="0" aria-activedescendant="l-4">
       <div class="ds-check-row" role="option" aria-checked="true" id="l-1" aria-selected="false">
               <span class="ds-check-row-check" aria-hidden="true">
           <span class="ds-checkbox-box">
@@ -187,7 +187,7 @@
   </div>
   <p class="demo-label demo-label--second">The same row as a tree: a chevron slot, a unitless depth indent.</p>
   <div class="demo-list" role="tree" aria-label="Project files" tabindex="0">
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="mixed" id="lt-1" aria-expanded="true" aria-selected="false" style="--ds-check-row-depth: 0">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="1" aria-checked="mixed" id="lt-1" aria-expanded="true" style="--ds-check-row-depth: 0">
               <span class="ds-check-row-twisty" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -211,7 +211,7 @@
               <span class="ds-check-row-name">design-system</span>
               <span class="ds-check-row-dir"></span>
             </div>
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="true" id="lt-2" aria-selected="false" style="--ds-check-row-depth: 1">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="2" aria-checked="true" id="lt-2" style="--ds-check-row-depth: 1">
               <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -235,7 +235,7 @@
               <span class="ds-check-row-name">component.css</span>
               <span class="ds-check-row-dir"></span>
             </div>
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="false" id="lt-3" aria-selected="false" style="--ds-check-row-depth: 1">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="2" aria-checked="false" id="lt-3" style="--ds-check-row-depth: 1">
               <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -266,7 +266,7 @@
 
 <div class="demo-stage" data-mode="dark">
   <p class="demo-label">Dark — the same rows from the same tokens.</p>
-  <div class="demo-list" role="listbox" aria-label="Changed files" aria-multiselectable="true" tabindex="0">
+  <div class="demo-list" role="listbox" aria-label="Changed files" aria-multiselectable="true" tabindex="0" aria-activedescendant="d-4">
       <div class="ds-check-row" role="option" aria-checked="true" id="d-1" aria-selected="false">
               <span class="ds-check-row-check" aria-hidden="true">
           <span class="ds-checkbox-box">
@@ -401,7 +401,7 @@
   </div>
   <p class="demo-label demo-label--second">The same row as a tree: a chevron slot, a unitless depth indent.</p>
   <div class="demo-list" role="tree" aria-label="Project files" tabindex="0">
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="mixed" id="dt-1" aria-expanded="true" aria-selected="false" style="--ds-check-row-depth: 0">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="1" aria-checked="mixed" id="dt-1" aria-expanded="true" style="--ds-check-row-depth: 0">
               <span class="ds-check-row-twisty" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -425,7 +425,7 @@
               <span class="ds-check-row-name">design-system</span>
               <span class="ds-check-row-dir"></span>
             </div>
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="true" id="dt-2" aria-selected="false" style="--ds-check-row-depth: 1">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="2" aria-checked="true" id="dt-2" style="--ds-check-row-depth: 1">
               <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
@@ -449,7 +449,7 @@
               <span class="ds-check-row-name">component.css</span>
               <span class="ds-check-row-dir"></span>
             </div>
-      <div class="ds-check-row" role="treeitem" aria-level="1" aria-checked="false" id="dt-3" aria-selected="false" style="--ds-check-row-depth: 1">
+      <div class="ds-check-row ds-check-row--tree" role="treeitem" aria-level="2" aria-checked="false" id="dt-3" style="--ds-check-row-depth: 1">
               <span class="ds-check-row-twisty ds-check-row-twisty--leaf" aria-hidden="true">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor">
             <path d="M6.2 3.8 10.4 8l-4.2 4.2" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />

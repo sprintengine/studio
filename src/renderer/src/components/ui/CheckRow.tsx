@@ -127,7 +127,11 @@ export const CheckRow = React.forwardRef<HTMLDivElement, CheckRowProps>(function
       ref={ref}
       role={role}
       aria-checked={mixed ? 'mixed' : isChecked}
-      aria-selected={selected || resting}
+      // An `option` always says whether it is selected — that is what a listbox
+      // is. A `treeitem` says so only when it IS: a tree emitting
+      // `aria-selected="false"` on every node announces itself as selectable
+      // even when nothing in it can be picked.
+      aria-selected={selected || resting ? true : tree ? undefined : false}
       aria-level={tree ? level : undefined}
       aria-expanded={tree ? expanded : undefined}
       aria-disabled={disabled || undefined}

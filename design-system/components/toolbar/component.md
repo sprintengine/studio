@@ -49,7 +49,7 @@ two chrome strips.
 | Part | Class | Required |
 |---|---|---|
 | Band | `.ds-toolbar` | yes — `role="toolbar"` with an `aria-label` naming what it acts on |
-| Item | `.ds-button.ds-button--icon` | yes — the button component's icon variant, unchanged |
+| Item | `.ds-button.ds-button--icon.ds-toolbar-item` | yes — the button component's icon variant, unchanged; `.ds-toolbar-item` is the hook the modifier below hangs off and adds nothing on its own |
 | Menu item | `.ds-toolbar-item--menu` | no — an item that opens a menu rather than acting |
 | Divider | `.ds-toolbar-divider` | no — the system's first vertical divider, `aria-hidden` |
 | Spacer | `.ds-toolbar-spacer` | no — pushes what follows to the trailing end |

@@ -80,6 +80,17 @@ async function main(): Promise<void> {
     )
   }
 
+  run('an item IS the kit\'s icon button, at the 26px step', () => {
+    // The band composes rather than restyles: an item that hovered differently
+    // from a button would be a second button.
+    const view = mount(band())
+    const classes = view.band.querySelector('button')?.getAttribute('class') ?? ''
+    assert.match(classes, /size-control-xs/, 'IconButton size sm — the 26px square')
+    assert.match(classes, /interactive/, 'and the button family\'s own press behaviour')
+    assert.match(classes, /focus-visible:focus-ring/, 'and the one shared focus treatment')
+    view.unmount()
+  })
+
   run('the band names the region it acts on, not itself', () => {
     const view = mount(band())
     assert.equal(view.band.getAttribute('role'), 'toolbar')
@@ -181,6 +192,7 @@ async function main(): Promise<void> {
     assert.equal(item.getAttribute('aria-expanded'), 'false')
     const classes = item.getAttribute('class') ?? ''
     assert.match(classes, /after:border-r-current/, 'the corner mark is drawn, and it is decoration')
+    assert.match(classes, /(^| )relative( |$)/, 'and it has a positioning context to be drawn in')
     assert.ok(!/rotate|chevron/.test(classes), 'not a chevron beside the glyph — it would push the glyph off centre')
     view.unmount()
   })
