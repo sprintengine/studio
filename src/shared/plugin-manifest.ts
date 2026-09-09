@@ -344,6 +344,14 @@ type PluginAgentStateRegistrationSpec = (
 export type PluginAgentStateSpec = {
   registration: PluginAgentStateRegistrationSpec
   events: PluginAgentStateEventSpec[]
+  // Opt in to the status-line forwarder: this CLI supports Claude Code's
+  // `statusLine` setting, so the install also writes one into the same
+  // settings file, wrapping whatever status line the person already had. It is
+  // how the app learns a session's context-window usage — no hook event
+  // carries that number. Only meaningful for a `settings-json` registration
+  // (the setting is Claude's), and declared per plugin rather than inferred
+  // from the CLI id so a future Claude-contract runtime opts in as data.
+  statusLine?: boolean
 }
 
 export type PluginManifest = {

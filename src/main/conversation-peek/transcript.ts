@@ -49,8 +49,9 @@ import {
  * fifty-one of them took the main process to hundreds of megabytes of transient
  * garbage to produce three thumbnails. So the reader keeps only what it will
  * answer with as rows arrive — the head message, a rolling window of the last
- * {@link MAX_PEEK_MESSAGES}, and image payloads for the head alone, each of
- * them capped.
+ * {@link MAX_PEEK_MESSAGES}, and image payloads for at most
+ * {@link MAX_PEEK_ATTACHMENTS} images across the whole of it, each of them
+ * capped.
  */
 
 /**
@@ -71,9 +72,17 @@ const TRANSCRIPT_CACHE_ENTRIES = 8
 
 /**
  * Total base64 image bytes retained per transcript so a thumbnail can be made
- * and the full image opened. Only the FIRST message's images are retained: the
- * card renders thumbnails there and a bare count on every later row, so
- * retaining the rest would be megabytes held for a control that does not exist.
+ * and the full image opened.
+ *
+ * Images are now retained ACROSS the conversation rather than for the first
+ * message alone (2026-09-09): the card draws one strip of the chat's images, so
+ * a screenshot pasted on the fortieth message is as openable as one pasted on
+ * the first. The COUNT is what usually bounds this — at most
+ * {@link MAX_PEEK_ATTACHMENTS} payloads are ever held, since that is all the
+ * strip can list — and this byte ceiling is the second bound, for the case
+ * where those eight are each enormous. Both are enforced by eviction rather
+ * than refusal, so the payloads held are always the newest ones (see
+ * {@link RetainedImages}).
  */
 const MAX_RETAINED_IMAGE_BYTES = 16 * 1024 * 1024
 
@@ -131,6 +140,28 @@ type TranscriptRow = {
 
 /** A base64 image block off a person's row, plus the name a later meta line gave it. */
 type RawImage = { mediaType: string; data: string; label?: string }
+
+/**
+ * The image payloads the stream is currently holding, oldest first.
+ *
+ * A QUEUE and not a counter, because the rule is "the newest
+ * {@link MAX_PEEK_ATTACHMENTS} images", which needs eviction. A counter that
+ * simply refused everything past the eighth image gave the payloads to the
+ * eight OLDEST images in the file, and then — as the rolling window released
+ * those — to whatever happened to arrive next. Neither is the set the card
+ * draws, so the strip listed images with no bytes behind them: live-looking
+ * buttons that did nothing.
+ *
+ * Newest-wins is the honest rule for a hover surface, and it is the one that
+ * can be implemented in a single pass over a file too big to hold: a payload
+ * once dropped can never be recovered, so the only freedom the reader has is
+ * which of the ones it is holding to let go of.
+ *
+ * Payloads are also released when the message carrying them falls out of the
+ * rolling window, so the retained set is always a subset of the messages the
+ * answer will contain.
+ */
+type RetainedImages = { bytes: number; queue: RawImage[] }
 
 type RawMessage = {
   id: string
@@ -220,6 +251,14 @@ async function streamTranscriptPeek(
   let head: RawMessage | null = null
   const tail: RawMessage[] = []
   let sawAnyRow = false
+  const retained: RetainedImages = { bytes: 0, queue: [] }
+  // Ids in the ANSWER, so a transcript that repeats a row uuid — it is another
+  // process's file, and nothing stops it — cannot give two messages the same
+  // attachment ids. Two colliding ids meant one payload silently overwrote the
+  // other in the map below, so a thumbnail showed, and a click opened, the
+  // wrong picture. Bounded by the answer itself: entries leave with their
+  // message.
+  const usedIds = new Set<string>()
 
   // A pasted image arrives as a base64 block on the person's row, and the CLI
   // writes the file it came from a few rows later as a meta line
@@ -246,19 +285,26 @@ async function streamTranscriptPeek(
       }
       const message = personMessageFromRow(row)
       if (!message) return
+      if (usedIds.has(message.id)) message.id = anonymousRowId()
+      usedIds.add(message.id)
 
+      // Every message's images are candidates for the strip, and retention is
+      // applied at CAPTURE so the budget bounds the peak rather than describing
+      // what survived.
+      retainImages(message, retained)
       if (!head) {
         head = message
-        // Only the head keeps its image bytes: the card draws thumbnails there
-        // and a bare count on every later row. Applied at capture, so the budget
-        // bounds the PEAK rather than describing what survived.
-        retainHeadImages(message)
       } else {
-        // Every later message drops its payloads immediately. The attachment
-        // still exists — the label and the count are what the row shows.
-        for (const image of message.images) image.data = ''
         tail.push(message)
-        if (tail.length > MAX_PEEK_MESSAGES) tail.shift()
+        if (tail.length > MAX_PEEK_MESSAGES) {
+          // The message just left the answer, so its bytes leave the budget with
+          // it and the next image down the file can take its place.
+          const dropped = tail.shift()
+          if (dropped) {
+            releaseImages(dropped, retained)
+            usedIds.delete(dropped.id)
+          }
+        }
       }
       if (message.images.length > 0) {
         awaitingLabels = { message, rowsLeft: IMAGE_LABEL_LOOKAHEAD_ROWS }
@@ -277,19 +323,48 @@ async function streamTranscriptPeek(
 }
 
 /**
- * Keep the head message's image bytes, within the per-image and per-message
- * budgets. An image over budget keeps its place in the attachment list and
- * loses its payload, so the count the card shows stays true while the memory
- * does not follow the transcript.
+ * Keep this message's image bytes, evicting the oldest payloads held to make
+ * room. An image whose payload is dropped keeps its place in the attachment
+ * list — the count on its thread row stays true — it simply has nothing to
+ * thumbnail or open, and the strip does not list it.
+ *
+ * A non-empty `data` is exactly "this payload is in the queue", which is what
+ * makes {@link releaseImages} the reverse of this: an image the per-image
+ * ceiling already emptied (see `readImageBlock`) was never queued.
  */
-function retainHeadImages(message: RawMessage): void {
-  let retained = 0
+function retainImages(message: RawMessage, retained: RetainedImages): void {
   for (const image of message.images) {
-    if (retained + image.data.length > MAX_RETAINED_IMAGE_BYTES) {
+    if (!image.data) continue
+    // One image bigger than the whole budget can never be held, and trying
+    // would empty the queue to make room for something that still does not fit.
+    if (image.data.length > MAX_RETAINED_IMAGE_BYTES) {
       image.data = ''
       continue
     }
-    retained += image.data.length
+    while (
+      retained.queue.length >= MAX_PEEK_ATTACHMENTS
+      || retained.bytes + image.data.length > MAX_RETAINED_IMAGE_BYTES
+    ) {
+      const oldest = retained.queue.shift()
+      // Cannot happen after the ceiling check above — an empty queue always has
+      // room — but the loop must not be able to spin if it ever could.
+      if (!oldest) break
+      retained.bytes -= oldest.data.length
+      oldest.data = ''
+    }
+    retained.queue.push(image)
+    retained.bytes += image.data.length
+  }
+}
+
+/** Give a dropped message's payloads back to the budget. */
+function releaseImages(message: RawMessage, retained: RetainedImages): void {
+  for (const image of message.images) {
+    if (!image.data) continue
+    const at = retained.queue.indexOf(image)
+    if (at >= 0) retained.queue.splice(at, 1)
+    retained.bytes -= image.data.length
+    image.data = ''
   }
 }
 
@@ -300,16 +375,10 @@ async function assemblePeek(
 ): Promise<TranscriptPeek> {
   const images = new Map<string, PeekImagePayload>()
   const first = head
-    ? await toPeekMessage(head, {
-        maxChars: MAX_PEEK_FIRST_CHARS,
-        home,
-        // Only the quoted message gets its images retained: the card draws
-        // thumbnails here and a count everywhere else.
-        retainImages: images,
-      })
+    ? await toPeekMessage(head, { maxChars: MAX_PEEK_FIRST_CHARS, home, retainImages: images })
     : null
   const since = await Promise.all(
-    tail.map((message) => toPeekMessage(message, { maxChars: MAX_PEEK_MESSAGE_CHARS, home, retainImages: null })),
+    tail.map((message) => toPeekMessage(message, { maxChars: MAX_PEEK_MESSAGE_CHARS, home, retainImages: images })),
   )
   return { first, since, images }
 }
@@ -335,7 +404,7 @@ async function toPeekMessage(
     if (attachments.length >= imageSlots) return
     const id = `${message.id}:image:${index}`
     attachments.push({ kind: 'image', id, label: image.label ?? `Image ${index + 1}` })
-    // No payload means the image was over budget while streaming. It still
+    // No payload means the image was past the streaming budget. It still
     // counts; it just has nothing to thumbnail or open.
     if (!options.retainImages || !image.data) return
     options.retainImages.set(id, { id, mediaType: image.mediaType, data: image.data })
@@ -447,7 +516,7 @@ function personMessageFromRow(row: TranscriptRow): RawMessage | null {
     // transcript and a hover started before it keeps pointing at the same image.
     // A row with no uuid is given one off its own position in the window rather
     // than off a running count, which the reader no longer keeps.
-    id: typeof row.uuid === 'string' && row.uuid ? row.uuid : `row-${anonymousRowSeq += 1}`,
+    id: typeof row.uuid === 'string' && row.uuid ? row.uuid : anonymousRowId(),
     text,
     overflowChars: parsed.text.length - text.length,
     at: readTimestamp(row.timestamp),
@@ -456,9 +525,15 @@ function personMessageFromRow(row: TranscriptRow): RawMessage | null {
   }
 }
 
-// Monotonic within the process, for the rare transcript row that carries no
-// uuid: an attachment id only has to be unique inside one peek.
+// Monotonic within the process, for the transcript row that carries no uuid —
+// and for the one whose uuid another row in the answer already used. An
+// attachment id only has to be unique inside one peek, and this shape cannot
+// collide with a real uuid.
 let anonymousRowSeq = 0
+function anonymousRowId(): string {
+  anonymousRowSeq += 1
+  return `row-${anonymousRowSeq}`
+}
 
 type ParsedContent = { text: string; images: RawImage[] }
 

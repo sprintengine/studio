@@ -1775,6 +1775,38 @@ export type SessionPrompt = {
   at: number
 }
 
+// One file this agent session has changed, as its own PostToolUse hooks
+// reported it (Edit / Write / MultiEdit / NotebookEdit). The counts are
+// CUMULATIVE sums of the hook's own diff hunks: a line edited twice counts
+// twice, because the ledger answers "how much did this agent do", not "how far
+// has the tree moved" — that second question is git's, and git is deliberately
+// not consulted here (decision of record 2026-09-09). `edits` is the number of
+// tool calls that touched the path, so a file rewritten ten times is
+// distinguishable from one touched once.
+//
+// A subagent's edits count for the session that spawned it: the work is the
+// session's. (Unlike the observed cwd, which a subagent's isolated worktree
+// would falsify — see the reporter.)
+export type SessionFileChange = {
+  // Absolute path as the tool reported it. Never a patch or file content: the
+  // ledger crosses a 64KB-per-frame socket and is broadcast to every window.
+  path: string
+  additions: number
+  deletions: number
+  edits: number
+  lastEditedAt: number
+}
+
+// How much of the model's context window this session has consumed, as its own
+// status line reports it. `at` is the moment the whole percent LAST MOVED, not
+// the moment of the last reading — the CLI refreshes its status line after
+// every assistant message, and a timestamp that advanced on each one would be
+// a repaint per message for a number that had not changed.
+export type SessionContextUsage = {
+  usedPercentage: number
+  at: number
+}
+
 export type TerminalSessionSnapshot = {
   sessionId: string
   processAlive: boolean
@@ -1842,6 +1874,27 @@ export type TerminalSessionSnapshot = {
   // The last prompt submitted to this session. Absent for plain terminals and
   // for CLIs whose reporter does not forward one.
   lastPrompt?: SessionPrompt
+  // What this session has edited, newest-edited first (by the order the edits
+  // were observed, which differs from their timestamps only by socket delivery
+  // skew). Fed by the CLI's own
+  // PostToolUse hooks, so it is empty for plain terminals, for hookless CLIs,
+  // and for an agent that has not written anything yet — never absent, so a
+  // consumer can count without a guard. Bounded (see MAX_SESSION_FILE_CHANGES);
+  // survives an app restart with the session parked, and starts over when the
+  // pty is respawned.
+  fileChanges: SessionFileChange[]
+  // Subagents this session started and has not seen stop — the count main
+  // already keeps to hold a turn end open while background work runs, surfaced
+  // so a row can say "3 running" instead of a bare spinner. Zero for plain
+  // terminals and for CLIs that report no subagent events.
+  activeSubagents: number
+  // Context-window usage, from the session's own status line. Null for a plain
+  // terminal, for a CLI with no status line, for one whose person's status line
+  // could not be wrapped, and for a session that has not made an API call yet —
+  // never a guess. A /compact does NOT clear it: the CLI reports no percentage
+  // for a moment afterwards, and "not known right now" is not "empty", so the
+  // last known reading stands until a real one replaces it.
+  contextUsage: SessionContextUsage | null
   exitedAt: number | null
   outputBufferLength: number
   retainedOutputBytes: number

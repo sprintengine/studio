@@ -47,8 +47,18 @@ export function buildDiffFileList(status: GitStatusSnapshot | null): DiffFileIte
 }
 
 // Finds the list index matching a focus request. Prefers an exact (path, kind)
-// match; falls back to the first entry for the path so a stale focus scope still
-// lands somewhere sensible.
+// match, then any entry for that path so a stale focus SCOPE still lands
+// somewhere sensible.
+//
+// A focus PATH that matches nothing answers -1, not the first entry. Every
+// caller used to hand over a path taken from this very list, so the difference
+// was unobservable; the conversation peek's changed-files list is the first
+// caller whose path comes from somewhere else — an agent's own edit ledger,
+// which can name a file in a different worktree, or one this checkout has
+// since had committed away. Answering 0 there opened an UNRELATED file with no
+// signal at all, which is worse than not moving. Callers already handle -1: the
+// first open resolves it to the top of the list, and a later focus change stays
+// where it is.
 export function findDiffFocusIndex(
   items: DiffFileItem[],
   focusPath: string | null,
@@ -62,7 +72,5 @@ export function findDiffFocusIndex(
     const exact = items.findIndex((item) => samePath(item) && item.kind === focusKind)
     if (exact >= 0) return exact
   }
-  const anyMatch = items.findIndex(samePath)
-  if (anyMatch >= 0) return anyMatch
-  return items.length > 0 ? 0 : -1
+  return items.findIndex(samePath)
 }

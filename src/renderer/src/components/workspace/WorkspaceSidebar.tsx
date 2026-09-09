@@ -4,10 +4,10 @@ import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
-import { checkoutPathsOf, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
+import { checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
-import { peekStatusOf, rowConversationPeekIdentity } from './conversationPeekRow'
+import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import type { AgentCli } from '../../../../shared/electron-api'
 import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMap } from './useFolderRepositoryIdentities'
@@ -1035,6 +1035,10 @@ export function TerminalLineView({
   // title already implies. A shell, whose name IS its runtime, says it once.
   const markLabel = line.name && line.name !== runtimeLabel ? `${line.name} · ${runtimeLabel}` : runtimeLabel
   const hasDiff = line.additions > 0 || line.deletions > 0
+  // What the ±lines may claim, from the line's scope: the words on hover, the
+  // words for a screen reader, and whether they step back. The sentences live
+  // beside the scope they belong to (terminalLines), not in this render.
+  const diffCopy = diffScopeCopy(line)
   const idleText = line.idleSince !== null ? formatRelativeMs(line.idleSince, now) : ''
   return (
     <div
@@ -1088,39 +1092,25 @@ export function TerminalLineView({
         </Tooltip>
       ) : null}
       {hasDiff ? (
-        // Beside the branch, not at the far edge: the two are one fact —
-        // "this branch, this much changed" — and the trailing seat is spoken
-        // for by the status. The kit's Tooltip, not a native title, says
-        // whose changes they are on hover.
-        <Tooltip
-          content={
-            line.diffScope === 'worktree'
-              ? 'Changed by this terminal — it has its own worktree'
-              : line.diffScope === 'branch'
-                ? `Changed on ${line.branch ?? 'this branch'} — this terminal shares the checkout, so a person or another terminal may have made some of it`
-                : 'Uncommitted changes in this folder — this terminal has no branch of its own'
-          }
-          wrapperClassName="inline-flex shrink-0"
-        >
+        // Beside the branch, not at the far edge: for a git reading the two
+        // are one fact — "this branch, this much changed" — and the trailing
+        // seat is spoken for by the status. A `session` reading is a fact
+        // about the AGENT rather than about the branch beside it, and keeps
+        // the seat by layout convention alone; the words on hover and the
+        // spoken label are what say which of the two you are reading. The
+        // kit's Tooltip, not a native title, carries them.
+        <Tooltip content={diffCopy.tooltip} wrapperClassName="inline-flex shrink-0">
           <span
-            className={`shrink-0 font-mono text-micro tabular-nums ${
-              // A folder-scoped reading is the repo's state, not this
-              // terminal's work, so it is drawn quieter and says which it is
-              // on hover. A `branch` reading IS attributable work — to the
-              // branch rather than to this terminal alone — so it draws at
-              // full strength and carries the qualification in its words.
-              line.diffScope === 'folder' ? 'opacity-60' : ''
-            }`}
+            // Only a folder reading dims (see diffScopeCopy): a `branch`
+            // reading IS attributable work — to the branch rather than to this
+            // terminal alone — and a `session` reading is the most
+            // attributable of the four, this agent's own edits and nobody
+            // else's, so both draw at full strength.
+            className={`shrink-0 font-mono text-micro tabular-nums ${diffCopy.dim ? 'opacity-60' : ''}`}
           >
             <span className="text-[color:var(--tone-good)]">+{line.additions}</span>
             <span className="ml-1 text-[color:var(--tone-error)]">−{line.deletions}</span>
-            <span className="sr-only">
-              {line.diffScope === 'worktree'
-                ? `${line.additions} added, ${line.deletions} removed by this terminal`
-                : line.diffScope === 'branch'
-                  ? `${line.additions} added, ${line.deletions} removed on ${line.branch ?? 'this branch'}`
-                  : `${line.additions} added, ${line.deletions} removed in this folder`}
-            </span>
+            <span className="sr-only">{diffCopy.srText}</span>
           </span>
         </Tooltip>
       ) : null}
@@ -1218,6 +1208,9 @@ export default function WorkspaceSidebar({
   const setProjectColor = useWorkspaceStore((s) => s.setProjectColor)
   const addWorkspaceFromStore = useWorkspaceStore((s) => s.addWorkspace)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
+  // A file on the conversation peek's changed-files list opens in the workspace
+  // pane's Diff tab — the same tab, and the same focus, a Git panel row opens.
+  const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
   const updateLayout = useWorkspaceStore((s) => s.updateLayout)
   const moveAgentToWorkspace = useWorkspaceStore((s) => s.moveAgentToWorkspace)
   const moveOpenFileToWorkspace = useWorkspaceStore((s) => s.moveOpenFileToWorkspace)
@@ -2338,7 +2331,7 @@ export default function WorkspaceSidebar({
           fleetPanes: fleetPanesOf(workspace),
           summaries: gitSummaries,
         })
-      : { lines: [], overflow: 0 }
+      : { lines: [], overflow: 0, rowDiff: null }
     // A band row names its machine on the title glyph, so its lines do not
     // say it again; a local row that holds a remote pane still marks it there.
     if (options?.remoteMachine) for (const line of rowLines.lines) line.machineName = null
@@ -2548,11 +2541,15 @@ export default function WorkspaceSidebar({
     // Note the map: every session main knows about, running or not, and then
     // the row's own agent records. Whether the PROCESS is alive is not the
     // question — whether there is an id to ask about is.
-    const peekIdentity = rowConversationPeekIdentity({
+    // One identity per agent (2026-09-09): the card opens from the agent line
+    // the pointer is on, and a chat with a single agent opens from its row.
+    const peekIdentities = rowConversationPeekIdentities({
       workspace,
       sessions: peekSessionsByWorkspaceId.get(workspace.id) ?? [],
       status: peekStatusOf(activity, idleRecencyText),
+      now,
     })
+    const hasPeek = peekIdentities.length > 0
     // The whole row is the peek's hover target (owner ruling 2026-09-07), which
     // costs the title its own tooltip. `TruncatedText` opens one the moment a
     // title is clipped, and with the card opening from the same row that would
@@ -2598,7 +2595,7 @@ export default function WorkspaceSidebar({
         {workspace.mode === 'sprintengine' ? (
           <SprintEngineMarkIcon className="icon-xs shrink-0 text-[color:var(--tool-sprintengine-ink)]" />
         ) : null}
-        {peekIdentity ? (
+        {hasPeek ? (
           <span className={`${titleClass} truncate`}>{workspace.name}</span>
         ) : (
           <TruncatedText as="span" text={workspace.name} className={titleClass} />
@@ -2611,8 +2608,18 @@ export default function WorkspaceSidebar({
         {options?.settled ? <span className="sr-only"> (settled)</span> : null}
       </>
     )
-    const titleCluster = peekIdentity ? (
-      <ConversationPeekPopover identity={peekIdentity} now={now} className={titleClusterClass}>
+    const titleCluster = hasPeek ? (
+      <ConversationPeekPopover
+        identities={peekIdentities}
+        now={now}
+        className={titleClusterClass}
+        onOpenDiff={(path) =>
+          openPaneTab(workspace.id, {
+            kind: 'diff',
+            diff: { focusPath: path, focusKind: path ? 'unstaged' : null },
+          })
+        }
+      >
         {titleClusterContent}
       </ConversationPeekPopover>
     ) : (

@@ -42,6 +42,10 @@ export type AgentStateServiceOptions = {
   // (used by every command-hook registration kind). Returns null when the
   // script is missing from the build (install then no-ops, safely).
   resolveReporterScriptPath: () => string | null
+  // Resolves the bundled status-line forwarder — the second stdin filter, for
+  // the Claude-family specs that declare `statusLine: true`. Optional: a build
+  // (or a test harness) without it installs hooks only.
+  resolveStatusLineScriptPath?: () => string | null
   // Resolves a bundled plugin-file reporter TEMPLATE by the filename a
   // manifest's plugin-file registration names (e.g. OpenCode's in-process
   // plugin). Returns null when missing.
@@ -216,6 +220,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
       const result = await installAgentStateReporter(workspaceRoot, spec, {
         sourceScriptPath,
         socketPath: getSocketPath(),
+        statusLineScriptPath: options.resolveStatusLineScriptPath?.() ?? null,
         ...(options.resolveHomeDir ? { homeDir: options.resolveHomeDir() } : {}),
       })
       if (result.ok) {

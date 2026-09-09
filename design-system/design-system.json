@@ -28,6 +28,7 @@
       "checkbox",
       "chip-button",
       "command-palette",
+    "context-ring",
       "definition-list",
       "drawer",
       "empty-state",

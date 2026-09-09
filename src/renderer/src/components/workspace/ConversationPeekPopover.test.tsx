@@ -36,24 +36,25 @@ anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
     source: 'transcript' as const,
     first: { id: 'm1', text: 'Fix the retry budget', at: Date.now() - 3_600_000, attachments: [], truncatedChars: 0 },
     since: [],
+    images: [],
   }),
 }
 
-const identity = {
-  name: 'Retry budget for stalled sprints',
-  taskId: null,
-  status: null,
-  roster: [
-    {
+const identities = [
+  {
+    name: 'Retry budget for stalled sprints',
+    taskId: null,
+    status: null,
+    agent: {
       sessionId: 'session-1',
-      name: 'Deara Shea',
-      initials: 'DS',
       cli: null,
       model: 'claude-opus-5',
-      status: null,
+      fileChanges: [],
+      activeSubagents: 0,
+      contextUsage: null,
     },
-  ],
-}
+  },
+]
 
 const failures: string[] = []
 function run(name: string, body: () => void | Promise<void>): Promise<void> {
@@ -93,9 +94,9 @@ async function main(): Promise<void> {
           // `children` rides the props object: the popover declares it as a
           // required prop, and createElement's rest children do not satisfy one.
           React.createElement(ConversationPeekPopover, {
-            identity,
+            identities,
             now: Date.now(),
-            children: React.createElement('span', null, identity.name),
+            children: React.createElement('span', null, identities[0]!.name),
           }),
         ),
       )

@@ -65,7 +65,12 @@ import {
   getTerminalIdleTimeoutMs,
   isTerminalProcessAlive,
   isTerminalSessionStale,
+  listSessionFileChanges,
   materializeTerminalReplay,
+  parseSessionContextUsage,
+  parseSessionFileChanges,
+  recordSessionFileChange,
+  recordSessionStatusLine,
   recordTerminalInput,
   recordTerminalVisibility,
   transitionTerminalActivity,
@@ -1083,6 +1088,15 @@ function writeTerminalSnapshotSidecar(
     worktreeId: session.worktreeId,
     worktreePath: session.worktreePath,
     observedCheckout: session.observedCheckout,
+    // The file ledger dies with the pty, so the sidecar is the only place it
+    // survives a restart — a parked chat must still say what it changed. It
+    // rides the painted screen rather than being persisted on its own: a
+    // session with nothing painted is never rehydrated, so there would be
+    // nothing to read the ledger back onto.
+    ...(session.fileChanges?.size ? { fileChanges: listSessionFileChanges(session) } : {}),
+    // The context reading rides the same sidecar and for the same reason: a
+    // parked chat that says nothing about how full it is looks like a fresh one.
+    ...(session.contextUsage ? { contextUsage: session.contextUsage } : {}),
     lastTurnEndedAt: session.lastTurnEndedAt ?? undefined,
     snapshot: payload.snapshot,
     rawReplay: payload.rawReplay,
@@ -1127,6 +1141,8 @@ async function rehydrateSuspendedTerminalFromSidecar(
     worktreeId: sidecar.worktreeId,
     worktreePath: sidecar.worktreePath,
     observedCheckout: parseObservedCheckout(sidecar.observedCheckout) ?? undefined,
+    fileChanges: parseSessionFileChanges(sidecar.fileChanges),
+    contextUsage: parseSessionContextUsage(sidecar.contextUsage),
     lastTurnEndedAt: typeof sidecar.lastTurnEndedAt === 'number' ? sidecar.lastTurnEndedAt : null,
     replaySnapshot: snapshot,
     rawReplay: snapshot ? undefined : sidecar.rawReplay,
@@ -2271,9 +2287,48 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
 
   if (!isTerminalProcessAlive(session)) return
 
+  // What the agent just edited, folded into the session's ledger ahead of BOTH
+  // guards below. An edit is order-independent by construction — the counts are
+  // summed and the timestamp is a max — so unlike a phase, it does not care
+  // which of two frames arrives first, and it must not be thrown away by a
+  // guard that exists to stop the PHASE rolling backward. Claude Code spawns a
+  // hook process per tool call and runs edits in parallel, so a later-stamped
+  // frame landing first is ordinary, and a ledger that silently undercounted
+  // when it did would be worth less than no ledger.
+  //
+  // A subagent's edit counts too: the work is the session's, and the reporter's
+  // subagent suppression is a cwd rule only.
+  const ledgerChanged = frame.fileChange
+    ? recordSessionFileChange(session, frame.fileChange, frame.ts)
+    : false
+  // How full the context window is, from the session's own status line — folded
+  // in here for the same reason and in the same place as the edit above. It
+  // arrives on `event: 'StatusLine'`, which is in no manifest's agentStateSpec
+  // and therefore always resolves to a DROP: a status-line refresh is not a
+  // lifecycle event and must move no phase. Folding it before the drop is what
+  // makes the reading arrive at all.
+  //
+  // Only a change in the whole-percent reading counts as a change worth
+  // broadcasting; the cost and line counts move on every refresh and nothing
+  // renders them yet.
+  const contextUsageChanged = frame.statusLine
+    ? recordSessionStatusLine(session, frame.statusLine, frame.ts)
+    : false
+  // Every path out of this function that does not reach the broadcast at the
+  // end still has to publish an edit or a context reading: they are rendered,
+  // and this is the only place they would be.
+  const publishLedgerChange = (): void => {
+    if ((ledgerChanged || contextUsageChanged) && terminals.get(session.sessionId) === session) {
+      broadcastTerminalSessionsChanged()
+    }
+  }
+
   // A stale frame (older than the phase we already recorded) is ignored so
   // out-of-order socket delivery can't roll the phase backward.
-  if (session.agentState && session.agentState.since > frame.ts) return
+  if (session.agentState && session.agentState.since > frame.ts) {
+    publishLedgerChange()
+    return
+  }
 
   // Where the session is (MC-2440) rides every frame that carries a cwd and
   // is applied BEFORE the phase drop below: an informational Notification or an
@@ -2289,16 +2344,24 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // A frame whose event the spec does not name (or whose discriminator value
   // is not allow-listed — Claude's informational Notification types) drops
   // here: the prior phase stands, exactly as when the reporter used to filter
-  // these client-side.
-  if (resolved.action !== 'apply') return
+  // these client-side. A ledger entry it carried is still published: it is
+  // rendered, and this is the only place it would be.
+  if (resolved.action !== 'apply') {
+    publishLedgerChange()
+    return
+  }
 
   // Background work the session still owns (agent-state.ts): a session start
   // owns nothing from its previous life; a `background` event opens or closes
   // one piece; and a turn end that arrives with work still open is held as
   // working — Claude fires Stop when it parks the model on "waiting for N
   // background agents", and re-invokes it when they finish.
+  const previousBackgroundWork = session.backgroundWork ?? 0
   if (resolved.phase === 'starting') session.backgroundWork = 0
   session.backgroundWork = applyBackgroundWork(session.backgroundWork ?? 0, resolved.background)
+  // The count is rendered ("2 running"), so a subagent starting or stopping is
+  // a broadcast-worthy change even though it moves no phase.
+  const backgroundWorkChanged = session.backgroundWork !== previousBackgroundWork
   const resolution = holdTurnEndForBackgroundWork(resolved, session.backgroundWork)
 
   const previousPhase = session.agentState?.phase
@@ -2399,9 +2462,15 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // the awaiting_input boundary. The frequent thinking ↔ tool_use churn within
   // "working" updates `agentState` in place but does not re-broadcast — matching
   // the renderer's dedupe signature and avoiding a snapshot IPC per tool call.
+  //
+  // The file ledger and the subagent count are the exceptions that DO ride
+  // every frame that moves them: unlike the phase churn, they change at most
+  // once per edit or per subagent, and each carries a number a person is
+  // reading. The 16ms coalescing above (TERMINAL_SESSIONS_BROADCAST_COALESCE_MS)
+  // folds a burst of them into one send.
   const attentionChanged = (previousPhase === 'awaiting_input') !== (resolution.phase === 'awaiting_input')
   if (
-    (activityChanged || attentionChanged || cliSessionIdChanged || promptChanged)
+    (activityChanged || attentionChanged || cliSessionIdChanged || promptChanged || ledgerChanged || contextUsageChanged || backgroundWorkChanged)
     && terminals.get(session.sessionId) === session
   ) {
     broadcastTerminalSessionsChanged()
@@ -2756,6 +2825,11 @@ function attachTerminalSession(
     if (terminalSession.suspending || terminalSession.suspended) {
       terminalSession.suspending = false
       terminalSession.suspended = true
+      // Whatever the session was still waiting on died with the process. The
+      // count is rendered ("2 running"), so leaving it standing would have a
+      // frozen row claim live subagents forever — and it is not persisted, so a
+      // restart would answer differently for the same parked chat.
+      terminalSession.backgroundWork = 0
       if (terminals.get(sessionId) === terminalSession) {
         broadcastTerminalSessionsChanged()
       }
@@ -2800,6 +2874,10 @@ function attachTerminalSession(
       terminalSession.kind === 'agent'
         ? { phase: 'exited', since: Date.now(), source: 'lifecycle' }
         : undefined
+    // Nothing survives the process it ran under: a subagent count left standing
+    // would render as live work on a dead session (the stall watchdog that
+    // otherwise clears it is disarmed on this path).
+    terminalSession.backgroundWork = 0
     setTerminalActivity(terminalSession, { kind: 'exited', at: Date.now(), exitCode: event.exitCode })
     const agentSession = terminalSession.agentSession
     if (agentSession?.executionId && agentSessionExitListeners.size > 0) {

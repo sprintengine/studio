@@ -31,6 +31,9 @@ function agentSession(overrides: Partial<TerminalSessionSnapshot> = {}): Termina
     agentState: { phase: 'idle', since: 0, source: 'hook' },
     exitedAt: null,
     outputBufferLength: 0,
+    fileChanges: [],
+    activeSubagents: 0,
+    contextUsage: null,
     retainedOutputBytes: 0,
     ...overrides,
   }

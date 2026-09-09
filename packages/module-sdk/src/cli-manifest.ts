@@ -274,6 +274,14 @@ type CliAgentStateRegistrationSpec = (
 type CliAgentStateSpec = {
   registration: CliAgentStateRegistrationSpec
   events: CliAgentStateEventSpec[]
+  /**
+   * Opt in to the status-line forwarder: this CLI supports Claude Code's
+   * `statusLine` setting, so the install also writes one into the same settings
+   * file, wrapping whatever status line the person already configured. It is
+   * how Multicode learns a session's context-window usage; no hook event
+   * carries that number. Only meaningful for a `settings-json` registration.
+   */
+  statusLine?: boolean
 }
 
 /**
@@ -690,6 +698,26 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
       issues.push({
         path: 'agentStateSpec.registration.scope',
         message: `registration.scope must be one of: ${AGENT_STATE_REGISTRATION_SCOPES.join(', ')}.`,
+      })
+    }
+  }
+  if (value.statusLine !== undefined) {
+    if (typeof value.statusLine !== 'boolean') {
+      issues.push({ path: 'agentStateSpec.statusLine', message: 'statusLine must be a boolean when present.' })
+    } else if (value.statusLine && isObject(registration) && registration.scope === 'user') {
+      // A user-global registration has no project `.claude/` to read the
+      // person's own status line out of, so the install skips it entirely.
+      issues.push({
+        path: 'agentStateSpec.statusLine',
+        message: 'statusLine is not supported for a user-scoped registration.',
+      })
+    } else if (value.statusLine && isObject(registration) && registration.kind !== 'settings-json') {
+      // The setting being written is Claude Code's `statusLine`, which lives in
+      // the same settings JSON the hooks do. Declaring it against any other
+      // registration kind is an authoring error, not a silent no-op.
+      issues.push({
+        path: 'agentStateSpec.statusLine',
+        message: 'statusLine is only supported for a settings-json registration.',
       })
     }
   }
