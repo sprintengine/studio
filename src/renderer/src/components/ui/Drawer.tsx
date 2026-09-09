@@ -15,6 +15,7 @@ import React, { useEffect, useId, useRef, useState } from 'react'
 import { CloseIconButton } from './Buttons'
 import { FocusTrap } from './FocusTrap'
 import { TruncatedText } from './TruncatedText'
+import { MODAL_SURFACE_SELECTOR } from './Modal'
 import { FOCUS_RING_INSET_CLASS } from './tokens'
 
 type DrawerLifecycle = 'closed' | 'entering' | 'open' | 'closing'
@@ -157,7 +158,7 @@ function DrawerRoot({ open, onClose, title, ariaLabel, closeLabel, width = 360, 
         if (event.defaultPrevented) return
         const panel = panelRef.current
         const surfaceAbove = Array.from(
-          document.querySelectorAll('[role="dialog"][aria-modal="true"]'),
+          document.querySelectorAll(MODAL_SURFACE_SELECTOR),
         ).some(
           (node) =>
             node !== panel &&

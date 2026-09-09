@@ -17,6 +17,7 @@ import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import { EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, PrimaryButton, RefreshIcon, Select, Skeleton, StashGlyph, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type TabItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
+import { MODAL_SURFACE_SELECTOR } from '../ui/Modal'
 import { buildChangeGroupMenu, buildChangeRowMenu, type ChangelistActions, type CopyPathKind } from './git/changeRowMenu'
 import { ChangelistDialog, type ChangelistDialogValue } from './git/ChangelistDialog'
 import { GitChangesList } from './git/GitChangesList'
@@ -1330,7 +1331,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     // (The composer needs no guard — the shell already suppresses global
     // shortcuts inside an editable target.)
     const dialogOpen =
-      changelistDialogOpenRef.current || Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'))
+      changelistDialogOpenRef.current || Boolean(document.querySelector(MODAL_SURFACE_SELECTOR))
     switch (detail.id) {
       case 'git.refresh':
         void refreshAll()

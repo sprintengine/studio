@@ -64,6 +64,17 @@ type ModalProps = {
 
 // The one workbench height. Was 720px fixed (New sprint), 90vh (Diagnostics)
 // and content-fit under 80vh (Rosters) — three answers to one question.
+/**
+ * The one selector that finds a live modal surface in the document. Exported
+ * because three files ask the same question — "is a dialog on screen above me?"
+ * — and three hand-typed copies of an attribute pair is how a rename to
+ * `role="alertdialog"` would silently unhook two of them. It is also the
+ * spelling the accessibility guard has to be able to tell apart from a real
+ * JSX `aria-modal` attribute, which is why it lives here rather than being
+ * retyped at each call site.
+ */
+export const MODAL_SURFACE_SELECTOR = '[role="dialog"][aria-modal="true"]'
+
 const PANEL_LAYOUT_CLASS = 'flex h-[min(760px,85vh)] flex-col overflow-hidden'
 const SCROLL_LAYOUT_CLASS = 'max-h-[92vh] overflow-y-auto'
 
