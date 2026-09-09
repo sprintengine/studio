@@ -135,7 +135,15 @@ function filesPhrase(count: number): string {
  * wherever it was asked for, and two spellings of one list of actions is how
  * two menus start to disagree.
  */
-function changelistEntries(context: ChangelistActions, busy: boolean): ChangeRowMenuEntry[] {
+function changelistEntries(
+  context: ChangelistActions,
+  busy: boolean,
+  // F2 is a key the changes LIST owns, so it only fires with a row under the
+  // cursor. On the band's own menu it would name a key that does nothing from
+  // where the person is standing, which is the same defect as a hint for a
+  // shortcut that belongs to another command.
+  options: { showEditHint: boolean },
+): ChangeRowMenuEntry[] {
   const lists = orderedChangelists(context.changelists)
   const current = lists.find((list) => list.id === context.currentChangelistId) ?? null
   const others = lists.filter((list) => list.id !== context.currentChangelistId)
@@ -166,7 +174,7 @@ function changelistEntries(context: ChangelistActions, busy: boolean): ChangeRow
       id: 'edit-changelist',
       label: 'Edit changelist…',
       icon: <EditChangelistGlyph className="icon-xs" />,
-      shortcut: 'F2',
+      ...(options.showEditHint ? { shortcut: 'F2' } : {}),
       disabled: busy || !current,
       onSelect: () => context.onEditChangelist(context.currentChangelistId),
     },
@@ -273,27 +281,27 @@ export function buildChangeRowMenu(context: ChangeRowMenuContext): ChangeRowMenu
     {
       kind: 'submenu',
       id: 'copy-path',
-      label: 'Copy path / reference',
+      label: many ? `Copy ${context.selectedCount} paths / references` : 'Copy path / reference',
       icon: menuIconSlot(),
       items: [
         {
           kind: 'item',
           id: 'copy-absolute',
-          label: 'Absolute path',
+          label: many ? 'Absolute paths' : 'Absolute path',
           icon: menuIconSlot(),
           onSelect: () => context.onCopyPath('absolute'),
         },
         {
           kind: 'item',
           id: 'copy-relative',
-          label: 'Path from repository root',
+          label: many ? 'Paths from repository root' : 'Path from repository root',
           icon: menuIconSlot(),
           onSelect: () => context.onCopyPath('relative'),
         },
         {
           kind: 'item',
           id: 'copy-filename',
-          label: 'File name',
+          label: many ? 'File names' : 'File name',
           icon: menuIconSlot(),
           onSelect: () => context.onCopyPath('filename'),
         },
@@ -326,7 +334,7 @@ export function buildChangeRowMenu(context: ChangeRowMenuContext): ChangeRowMenu
         ]
       : []),
     { kind: 'divider', id: 'after-changelists' },
-    ...changelistEntries(context, context.busy),
+    ...changelistEntries(context, context.busy, { showEditHint: true }),
     {
       kind: 'item',
       id: 'create-patch',
@@ -388,7 +396,7 @@ export function buildChangeGroupMenu(context: ChangeGroupMenuContext): ChangeRow
       ? [
           { kind: 'divider' as const, id: 'after-group-files' },
           moveEntry(context, context.busy, `Move ${count === 1 ? 'the file' : 'these files'} to another changelist…`),
-          ...changelistEntries(context, context.busy),
+          ...changelistEntries(context, context.busy, { showEditHint: false }),
         ]
       : []
   return [

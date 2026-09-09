@@ -72,13 +72,15 @@ type IpcDiagnostics = {
 }
 
 /** Where the changelist store writes. Handed in rather than resolved here so
- *  this module stays free of `electron.app` and the store stays testable. */
+ *  this module stays free of `electron.app` and the store stays testable —
+ *  and REQUIRED rather than defaulted, because a default of `''` would write
+ *  every repository's changelists into whatever the process cwd happened to be. */
 export type GitIpcPaths = { userDataDir: string }
 
 export function registerGitIpc(
   ipcMain: IpcMain,
   diagnostics: IpcDiagnostics,
-  paths: GitIpcPaths = { userDataDir: '' }
+  paths: GitIpcPaths
 ): void {
   ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () => getGitRepoRoot(folderPath))

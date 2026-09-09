@@ -1090,12 +1090,17 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
     const list = changelists.find((entry) => entry.id === changelistId)
     if (!list) return
+    // Count what the PANEL shows for this list, not what the store holds: an
+    // untracked file is filed in a changelist but drawn in the untracked group,
+    // so `list.paths.length` would name files the person cannot see there.
+    const shownCount =
+      changeGroups.find((group) => group.changelistId === changelistId)?.totalCount ?? list.paths.length
     const confirmed = await dialog.confirm({
       title: `Delete the changelist “${list.name}”?`,
       body: (
         <>
-          The list goes; the {list.paths.length === 1 ? 'file' : `${list.paths.length} files`} in it{' '}
-          {list.paths.length === 1 ? 'returns' : 'return'} to Changes. Nothing on disk is touched and nothing
+          The list goes; the {shownCount === 1 ? 'file' : `${shownCount} files`} in it{' '}
+          {shownCount === 1 ? 'returns' : 'return'} to Changes. Nothing on disk is touched and nothing
           is unstaged.
         </>
       ),
@@ -1126,11 +1131,20 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     composerRef.current?.focus()
   }
 
-  const handleCopyPath = async (row: GitChangeRow, kind: CopyPathKind): Promise<void> => {
-    const text = kind === 'absolute' ? row.path : kind === 'relative' ? row.relativePath : row.filename
+  // Copies every row the menu named, one per line — not just the row under the
+  // pointer. A menu whose labels say "3 selected files" and whose clipboard
+  // holds one of them is the worst kind of wrong: it looks like it worked.
+  const handleCopyPath = async (rows: GitChangeRow[], kind: CopyPathKind): Promise<void> => {
+    if (rows.length === 0) return
+    const spell = (row: GitChangeRow): string =>
+      kind === 'absolute' ? row.path : kind === 'relative' ? row.relativePath : row.filename
+    const text = rows.map(spell).join('\n')
     try {
       await window.api.clipboardWriteText(text)
-      setMessage({ tone: 'success', text: `Copied ${text}` })
+      setMessage({
+        tone: 'success',
+        text: rows.length === 1 ? `Copied ${text}` : `Copied ${rows.length} paths.`,
+      })
     } catch (error) {
       // A clipboard write that fails silently is a person pasting the last
       // thing they copied and not noticing for ten minutes.
@@ -1142,7 +1156,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     // `git:stage` runs `git add -- <paths>`, which is exactly what adding an
     // untracked file is; there is no second channel to reach for.
     const additions = rows.filter((row) => untrackedPaths.has(row.relativePath))
-    if (additions.length === 0) return
+    if (additions.length === 0) {
+      // Reachable by ⌥⌘A on a tracked row, where the menu item is not offered.
+      // Saying so beats a key that appears to do nothing.
+      setMessage({ tone: 'neutral', text: 'Only untracked files can be added to git.' })
+      return
+    }
     await stagePaths(additions.map((row) => row.path))
   }
 
@@ -2228,7 +2247,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                         onDiscard: () => void handleChangeRowsRevert(rows),
                         onShowDiff: () => openChangeDiff(row),
                         onOpenInEditor: () => void handleOpenFileInEditor(row),
-                        onCopyPath: (kind) => void handleCopyPath(row, kind),
+                        onCopyPath: (kind) => void handleCopyPath(rows, kind),
                         onDeleteFiles: () => void handleDeleteFiles(rows),
                         onAddToGit: () => void handleAddToGit(rows),
                         onCreatePatch: () => void handleCreatePatch(rows),
