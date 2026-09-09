@@ -22,6 +22,7 @@
 // transient family beats modal; toast beats everything. Consuming the token
 // removes the second ladder this file used to carry.
 import React, { useEffect, useRef } from 'react'
+import { acquireTerminalRepaintPause } from '../../utils/terminalRepaintPause'
 import { CloseIconButton, DangerButton, GhostButton, PrimaryButton } from './Buttons'
 import { FocusTrap } from './FocusTrap'
 import { TruncatedText } from './TruncatedText'
@@ -106,6 +107,27 @@ export function Modal({
     }
   }, [open])
 
+  // While this dialog covers the app, terminal panes stop writing. A streaming
+  // pane under an overlay re-invalidates the covered region on every PTY chunk,
+  // and the compositor redoes that region every time — the cost is
+  // `repaint rate x covered area`, which is why the scrim below carries no
+  // backdrop-filter and why a GPU renderer would not have fixed this either
+  // (it makes the pane's own paint cheaper, not rarer). Output is withheld at
+  // `createXtermOutputQueue` and flushed in order when the last dialog closes.
+  //
+  // The signal is refcounted, so a confirm opened over a workbench does not
+  // resume the panes when only IT closes. `isAlive` is the self-heal: a hold
+  // whose dialog is no longer in the document is reclaimed by the store's
+  // watchdog, so no abnormal unmount can leave every terminal in the product
+  // frozen. See `terminalRepaintPause.ts`.
+  useEffect(() => {
+    if (!open) return
+    return acquireTerminalRepaintPause({
+      label: 'Modal',
+      isAlive: () => ref.current?.isConnected === true,
+    })
+  }, [open])
+
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => {
@@ -131,7 +153,27 @@ export function Modal({
       // now draw `OVERLAY_SHELL_CLASS` and a step of the width scale, so the
       // comment describes the whole surface (MC-2110). No backdrop-filter — see
       // the class definition for the framerate cliff it causes.
-      className={`overlay-scrim ${contained ? 'absolute' : 'fixed'} inset-0 z-[var(--z-modal)] flex items-center justify-center p-6`}
+      //
+      // `contain: paint` on the full-window scrim, and deliberately not on the
+      // shell inside it. It promises the compositor that nothing in the overlay
+      // subtree paints outside this box, so an invalidation raised inside the
+      // dialog (a spinner, a hover, a caret) is bounded by the overlay instead
+      // of being reasoned about against the whole document — which, under this
+      // overlay, is a live terminal. It is behaviour-neutral HERE, which is the
+      // whole reason it goes on this element: the scrim is already positioned
+      // and already a stacking context, so it is already the containing block
+      // for what it holds; the new clip is the viewport, which nothing inside a
+      // 92vh/95vw shell can reach; and every transient surface a dialog opens
+      // (popover, menu, tooltip) portals to <body>, so containment never sees
+      // it at all.
+      //
+      // The shell would be the wrong site for the same property: it hosts
+      // arbitrary panel surfaces through `ModalSurfaceFrame`, and containment
+      // there would both clip and re-anchor any absolutely positioned chrome
+      // those panels bring with them. The `contained` variant is excluded for
+      // the same reason in miniature — its scrim is only as big as the panel it
+      // sits in, which a 92vh dialog can legitimately exceed.
+      className={`overlay-scrim ${contained ? 'absolute' : 'fixed [contain:paint]'} inset-0 z-[var(--z-modal)] flex items-center justify-center p-6`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}

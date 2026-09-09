@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
 import { Terminal } from '@xterm/headless'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
+import {
+  TERMINAL_CELL_GEOMETRY_OPTIONS,
+  TERMINAL_UNICODE_VERSION,
+} from '../shared/terminal-options'
 import { buildReplaySnapshot } from './terminal-replay-snapshot'
 
 const ESC = '\x1b'
@@ -8,7 +13,9 @@ const ESC = '\x1b'
 // visible buffer lines — used to assert what a serialized snapshot reconstructs.
 function visibleLines(data: string, cols = 80, rows = 24): Promise<string[]> {
   return new Promise((resolve) => {
-    const term = new Terminal({ cols, rows, allowProposedApi: true, scrollback: 1000 })
+    // The same geometry block the snapshot renderer uses, or this verifier would
+    // measure a stream laid out one way against a snapshot laid out another.
+    const term = createPaneLikeTerminal(cols, rows)
     term.write(data, () => {
       const buffer = term.buffer.active
       const lines: string[] = []
@@ -20,6 +27,65 @@ function visibleLines(data: string, cols = 80, rows = 24): Promise<string[]> {
       }
       term.dispose()
       resolve(lines)
+    })
+  })
+}
+
+/**
+ * A terminal built the way a LIVE PANE is built — the shared cell-geometry
+ * block plus the two lines that put it on the shared Unicode version.
+ *
+ * `createStudioTerminal.ts` does exactly this against `@xterm/xterm` and
+ * `terminal-replay-snapshot.ts` does it against `@xterm/headless`. The whole
+ * point of `shared/terminal-options.ts` is that those two cannot drift, and
+ * these tests are where that is checked: a verifier built any other way would
+ * measure a stream laid out one way against a snapshot laid out another.
+ */
+function createPaneLikeTerminal(cols: number, rows: number): Terminal {
+  const term = new Terminal({
+    ...TERMINAL_CELL_GEOMETRY_OPTIONS,
+    cols,
+    rows,
+    scrollback: 1000,
+  })
+  term.loadAddon(new Unicode11Addon())
+  term.unicode.activeVersion = TERMINAL_UNICODE_VERSION
+  return term
+}
+
+/** Each row's text and whether it is a soft-wrap continuation — i.e. the layout
+ *  the user is looking at, not just the words. */
+function rowLayout(term: Terminal): Array<{ text: string; wrapped: boolean }> {
+  const buffer = term.buffer.active
+  const rows: Array<{ text: string; wrapped: boolean }> = []
+  for (let y = 0; y < term.rows; y += 1) {
+    const line = buffer.getLine(y)
+    if (!line) continue
+    rows.push({ text: line.translateToString(true), wrapped: line.isWrapped })
+  }
+  return rows
+}
+
+/**
+ * Render a stream and read back its layout. `paneWidths: false` deliberately
+ * leaves the terminal on xterm's default Unicode 6 table — the negative control
+ * that shows the wrap agreement below is caused by the shared version rather
+ * than by the fixture being too easy.
+ */
+function layoutOf(
+  data: string,
+  cols: number,
+  rows: number,
+  { paneWidths = true }: { paneWidths?: boolean } = {}
+): Promise<Array<{ text: string; wrapped: boolean }>> {
+  return new Promise((resolve) => {
+    const term = paneWidths
+      ? createPaneLikeTerminal(cols, rows)
+      : new Terminal({ ...TERMINAL_CELL_GEOMETRY_OPTIONS, cols, rows, scrollback: 1000 })
+    term.write(data, () => {
+      const layout = rowLayout(term)
+      term.dispose()
+      resolve(layout)
     })
   })
 }
@@ -74,6 +140,50 @@ async function main(): Promise<void> {
 
   await run('returns null for empty input so the caller falls back to raw replay', async () => {
     assert.equal(await buildReplaySnapshot('', 80, 24), null)
+  })
+
+  await run('an emoji-heavy agent frame wraps identically live and on replay', async () => {
+    // The item this test exists for: under xterm's default Unicode 6 table an
+    // emoji is ONE column, under 11 it is two. A snapshot rendered on a
+    // different table than the pane wraps the frame somewhere else, and the
+    // replayed screen looks corrupted rather than merely misconfigured.
+    const cols = 24
+    const rows = 10
+    const frame =
+      '🙂 Reading src/app.ts…\r\n' +
+      '✅ 🙂 🙂 🙂 done in 12s\r\n' +
+      '世界 wide text that has to wrap somewhere\r\n' +
+      '🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂 tail\r\n'
+
+    const live = await layoutOf(frame, cols, rows)
+    const snapshot = await buildReplaySnapshot(frame, cols, rows)
+    assert.ok(snapshot, 'expected a snapshot for an emoji frame')
+    const replayed = await layoutOf(snapshot as string, cols, rows)
+
+    assert.deepEqual(replayed, live, 'replayed rows must wrap exactly as the live pane did')
+    // Not vacuous: the frame really does soft-wrap at this width.
+    assert.ok(live.some((row) => row.wrapped), 'the fixture must actually wrap')
+  })
+
+  await run('the wrap agreement is the Unicode version, not a coincidence', async () => {
+    // Negative control for the test above. Replay the same snapshot into a
+    // terminal left on xterm's default table and the layout must come apart —
+    // otherwise the previous assertion would still pass with the version
+    // removed from either process.
+    const cols = 24
+    const rows = 10
+    const frame = '🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂 tail\r\n'
+
+    const live = await layoutOf(frame, cols, rows)
+    const snapshot = await buildReplaySnapshot(frame, cols, rows)
+    assert.ok(snapshot)
+    const onDefaultWidths = await layoutOf(snapshot as string, cols, rows, { paneWidths: false })
+
+    assert.notDeepEqual(
+      onDefaultWidths,
+      live,
+      'a Unicode 6 reader must NOT reproduce a Unicode 11 layout, or this suite proves nothing'
+    )
   })
 
   await run('clamps degenerate dimensions instead of throwing', async () => {

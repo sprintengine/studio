@@ -16,6 +16,23 @@ export type TerminalFileLinkSegment = {
   startIndex: number
   startColumn: number
   text: string
+  /**
+   * The terminal column (1-based) each UTF-16 code unit of `text` was read
+   * from.
+   *
+   * Not derivable from `startColumn + offset`, which is what this replaced: a
+   * cell is not a code unit. Under Unicode 11 an emoji is TWO columns and two
+   * code units (accidentally aligned), while a CJK character is two columns
+   * and ONE code unit, and a plain empty cell is one column and one code unit
+   * — so a single `世` in a line shifts every link range after it left by a
+   * cell. The user then sees the underline on the wrong characters and clicks
+   * a path that is not there.
+   *
+   * Optional because `readWrappedLogicalLine` is not the only way a segment is
+   * built in tests; absent, `positionForOffset` falls back to the old
+   * arithmetic, which is exact for any line of narrow BMP characters.
+   */
+  columns?: number[]
 }
 
 type TerminalFileLinkActivateInput = {
@@ -30,10 +47,56 @@ type TerminalFileLinkActivateInput = {
  *  is reported as missing, which routes to `onOpenError` rather than a menu. */
 type TerminalFileLinkPathInfo = { exists: boolean; isDirectory: boolean }
 
+/**
+ * Why a path the pattern DID match never became a link.
+ *
+ * Both are invisible by construction — the text just stays un-underlined — so
+ * they are reported to the host, which counts them in terminal diagnostics.
+ * That is the only way a pane that quietly linkifies nothing can be told apart
+ * from a pane whose output happens to contain no paths.
+ *
+ * - `no-root`: a relative path arrived with neither an execution root nor a
+ *   workspace root to resolve it against. This is the one that actually
+ *   happens, and the one the counter exists for.
+ * - `no-range`: the reference resolved but its offsets did not land inside the
+ *   buffer segments the logical line was read from. Through
+ *   `createTerminalFileLinkProvider` this should be UNREACHABLE — the
+ *   references are matched against the very text those segments tile, so every
+ *   offset maps — which is exactly why it is worth counting: a non-zero
+ *   `no-range` means the segment tiling and the match offsets have come apart,
+ *   and every link on that line is silently gone.
+ */
+export type TerminalFileLinkDropReason = 'no-root' | 'no-range'
+
+export type TerminalFileLinkDrop = {
+  reason: TerminalFileLinkDropReason
+  /** The matched text, for a diagnostic log line — never shown to the user. */
+  text: string
+}
+
+/**
+ * A root the provider resolves relative paths against, or a thunk read afresh
+ * on every `provideLinks` call.
+ *
+ * The thunk exists because a pane's real root is not known when the provider is
+ * registered. Registration is synchronous, immediately after `term.open`; the
+ * spawn cwd is settled later behind an async `pathExists` (a worktree redirect),
+ * and a shell's cwd changes for the rest of the session every time the user
+ * types `cd` (OSC 7). A value baked in at registration is therefore a guess that
+ * silently ages, and the failure mode is the worst kind: the same relative path
+ * exists in the stale tree too, so the link opens the WRONG COPY rather than
+ * failing. Reading it late costs nothing — `provideLinks` runs on hover.
+ */
+export type TerminalFileLinkRoot = string | null | (() => string | null)
+
+function readTerminalFileLinkRoot(root: TerminalFileLinkRoot | undefined): string | null {
+  return typeof root === 'function' ? root() : root ?? null
+}
+
 export type TerminalFileLinkProviderOptions = {
   terminal: Terminal
-  workspaceRoot?: string | null
-  executionRoot?: string | null
+  workspaceRoot?: TerminalFileLinkRoot
+  executionRoot?: TerminalFileLinkRoot
   inspectPath: (path: string) => Promise<TerminalFileLinkPathInfo>
   /** Hands the verified click up to the host (MC-1899): the provider no longer
    *  decides what a click DOES, it only resolves what was clicked. */
@@ -41,6 +104,8 @@ export type TerminalFileLinkProviderOptions = {
   /** Reports a failed open, anchored to the click that triggered it so the UI
    *  can surface the error next to the pointer. */
   onOpenError?: (message: string, anchor: { x: number; y: number }) => void
+  /** Reports a match that was discarded before it could become a link. */
+  onDrop?: (drop: TerminalFileLinkDrop) => void
 }
 
 const FILE_REFERENCE_PATTERN =
@@ -82,7 +147,17 @@ function isRemoteOrShellReference(value: string): boolean {
   return false
 }
 
-function normalizePath(pathValue: string): string {
+/**
+ * Collapses `.`, `..` and repeated separators, keeping the root (a leading
+ * separator, or a `C:` drive) so `..` can never climb out of it.
+ *
+ * Exported because `terminalOscLinks.ts` needs the SAME answer: a path that
+ * arrives as an OSC 8 `file:` URI and one the heuristic provider matched in the
+ * output both end up in `projectRelativePath`, which is a prefix comparison —
+ * two normalisations would mean a `..` that reads as inside the workspace
+ * through one route and outside it through the other.
+ */
+export function normalizePath(pathValue: string): string {
   const separator = pathSeparatorFor(pathValue)
   const normalized = pathValue.replace(/[\\/]+/gu, separator)
   const drive = /^[A-Za-z]:[\\/]/u.exec(normalized)?.[0]?.slice(0, 2) ?? ''
@@ -107,6 +182,23 @@ function normalizePath(pathValue: string): string {
   return `${root}${segments.join(separator)}` || root || '.'
 }
 
+/**
+ * Decision of record (2026-09-08, item `terminal-relative-links-dropped`):
+ * with neither root known we leave a relative path UNLINKED rather than guess
+ * a base for it. A guessed root produces links that open the wrong file — or,
+ * worse, a same-named file in an unrelated tree — and a terminal pane is the
+ * one place where "that is not the file I clicked" is unrecoverable.
+ *
+ * The roots are both null exactly when the workspace has no configured folder:
+ * `TerminalView` derives them from `folderReadyPath`/`savedFolderPath`, and its
+ * terminal effect deliberately runs for a folder-less workspace. Such an agent
+ * runs in the app's default path, which only main knows — the renderer has
+ * nothing to resolve against. Reading the agent's real cwd off the wire is
+ * [[terminal-osc7-cwd]]'s job, not a guess this function should make.
+ *
+ * Until then the drop is at least COUNTED: callers pass `onDrop` and the count
+ * reaches terminal diagnostics.
+ */
 export function resolveTerminalFileReferencePath(
   filePath: string,
   roots: { executionRoot?: string | null; workspaceRoot?: string | null }
@@ -121,7 +213,8 @@ export function resolveTerminalFileReferencePath(
 
 export function findTerminalFileReferences(
   lineText: string,
-  roots: { executionRoot?: string | null; workspaceRoot?: string | null }
+  roots: { executionRoot?: string | null; workspaceRoot?: string | null },
+  onDrop?: (drop: TerminalFileLinkDrop) => void
 ): TerminalFileReference[] {
   const references: TerminalFileReference[] = []
 
@@ -134,8 +227,20 @@ export function findTerminalFileReferences(
     if (!text || isRemoteOrShellReference(text)) continue
 
     const parsed = parseLineSuffix(text)
+    // A URL or a `~/…` path is a deliberate NON-match, not a drop: counting it
+    // would fire the diagnostic on every `https://…` an agent prints. Screened
+    // on `text` above and re-screened here on the suffix-stripped path, so the
+    // reason recorded below stays a fact about this branch rather than an
+    // argument about which prefixes `parseLineSuffix` can and cannot remove.
+    if (isRemoteOrShellReference(parsed.path)) continue
+
     const resolvedPath = resolveTerminalFileReferencePath(parsed.path, roots)
-    if (!resolvedPath) continue
+    if (!resolvedPath) {
+      // Only one way left to get here: a relative path with no root to hang it
+      // on. See the decision of record on `resolveTerminalFileReferencePath`.
+      onDrop?.({ reason: 'no-root', text })
+      continue
+    }
 
     references.push({
       text,
@@ -171,8 +276,12 @@ function positionForOffset(
   for (const segment of segments) {
     const segmentEnd = segment.startIndex + segment.text.length
     if (offset >= segment.startIndex && offset < segmentEnd) {
+      const withinSegment = offset - segment.startIndex
       return {
-        x: offset - segment.startIndex + segment.startColumn,
+        // The cell the character actually came from, when the segment was read
+        // off real buffer cells. The arithmetic fallback is only correct while
+        // every character is one column wide — see `columns`.
+        x: segment.columns?.[withinSegment] ?? withinSegment + segment.startColumn,
         y: segment.y,
       }
     }
@@ -192,6 +301,74 @@ function lineReachesRightEdge(line: IBufferLine, cols: number): boolean {
 function trailingTokenHasSeparator(lineText: string): boolean {
   const trailingToken = lineText.trimEnd().split(/\s+/u).at(-1) ?? ''
   return PATH_SEPARATOR_PATTERN.test(trailingToken)
+}
+
+/**
+ * A row's text, and the 1-based terminal column each of its UTF-16 code units
+ * was read from.
+ *
+ * Why this is not `startColumn + offset`: a cell is not a code unit, and under
+ * Unicode 11 the two come apart in both directions. An emoji is two columns and
+ * two code units; a CJK character is two columns and ONE; a blank cell is one
+ * column and one. So a single wide character earlier in a line shifts every
+ * later link range by a cell, and the user sees the underline on the wrong
+ * characters and clicks a path that is not there.
+ *
+ * Why this is not xterm's own mapping: `BufferLine.translateToString` does take
+ * a fourth `outColumns` argument and fills it with exactly this — but the
+ * public `IBufferLine` an addon receives is an API view whose
+ * `translateToString(trimRight, start, end)` forwards only three arguments, so
+ * the parameter is unreachable from here and passing it silently yields an
+ * empty array. The walk below is therefore a deliberate reimplementation of
+ * that loop, and `terminalWideCharacterLinks.test.ts` pins it against the real
+ * `translateToString` — over wide, astral, combining, blank and trailing-blank
+ * rows of a live xterm buffer — so the two cannot drift apart unnoticed.
+ */
+function readLineWithColumns(
+  line: IBufferLine,
+  trimRight: boolean,
+  startColumn: number,
+  endColumn: number
+): { text: string; columns: number[] } {
+  const cell = line.getCell(startColumn)
+  const end = trimRight ? Math.min(endColumn, trimmedCellLength(line, endColumn)) : endColumn
+
+  const chunks: string[] = []
+  const columns: number[] = []
+  let x = startColumn
+  while (x < end) {
+    const current = line.getCell(x, cell)
+    if (!current) break
+    // A cell the stream never wrote has no codepoint and renders as a space,
+    // exactly as xterm does. Advancing by the cell's WIDTH is what steps over
+    // the placeholder cell that follows a wide character; `|| 1` keeps a
+    // zero-width cell reached head-on from looping forever.
+    const chars = current.getChars() || WHITESPACE_CELL
+    const width = current.getWidth()
+    chunks.push(chars)
+    for (let unit = 0; unit < chars.length; unit += 1) columns.push(x + 1)
+    x += width || 1
+  }
+
+  return { text: chunks.join(''), columns }
+}
+
+const WHITESPACE_CELL = ' '
+
+/**
+ * Where a row's content ends, in CELLS — xterm's `getTrimmedLength`, which is
+ * what `translateToString(true)` clamps to and which the public `IBufferLine`
+ * does not expose. Note it is the index plus the character's WIDTH, so a row
+ * ending in a wide character reports both of its columns.
+ */
+function trimmedCellLength(line: IBufferLine, cols: number): number {
+  const cell = line.getCell(0)
+  for (let x = cols - 1; x >= 0; x -= 1) {
+    const current = line.getCell(x, cell)
+    if (!current) continue
+    if (current.getChars() !== '') return x + current.getWidth()
+  }
+  return 0
 }
 
 export function readWrappedLogicalLine(
@@ -218,16 +395,15 @@ export function readWrappedLogicalLine(
     const line = buffer.getLine(y - 1)
     if (!line) break
     const isLast = y === endY
-    const segmentText = isLast
-      ? line.translateToString(true)
-      : line.translateToString(false, 0, terminal.cols)
+    const row = readLineWithColumns(line, isLast, 0, terminal.cols)
     segments.push({
       y,
       startIndex: text.length,
       startColumn: 1,
-      text: segmentText,
+      text: row.text,
+      columns: row.columns,
     })
-    text += segmentText
+    text += row.text
   }
 
   for (const continuation of readHangingWrapContinuations(terminal, endY, segments.at(-1)?.text ?? '')) {
@@ -262,13 +438,23 @@ function readHangingWrapContinuations(
   while (bottomLine && lineReachesRightEdge(bottomLine, cols)) {
     const nextLine = buffer.getLine(bottomY)
     if (!nextLine || nextLine.isWrapped) break
-    const nextText = nextLine.translateToString(true)
+    const nextRow = readLineWithColumns(nextLine, true, 0, cols)
+    const nextText = nextRow.text
     const continuation = HANGING_CONTINUATION_PATTERN.exec(nextText)
     if (!continuation) break
 
     const indent = continuation[1] ?? ''
     const token = continuation[2] ?? ''
-    continuations.push({ y: bottomY + 1, startColumn: indent.length + 1, text: token })
+    // The token starts after the indent in CODE UNITS; where that lands in
+    // COLUMNS is only the same thing while the indent is plain spaces. Slice
+    // the row's column map rather than counting characters.
+    const tokenColumns = nextRow.columns.slice(indent.length, indent.length + token.length)
+    continuations.push({
+      y: bottomY + 1,
+      startColumn: tokenColumns[0] ?? indent.length + 1,
+      text: token,
+      columns: tokenColumns,
+    })
     bottomY += 1
     bottomLine = nextLine
 
@@ -288,6 +474,7 @@ export function createTerminalFileLinkProvider({
   inspectPath,
   onActivate,
   onOpenError,
+  onDrop,
 }: TerminalFileLinkProviderOptions): ILinkProvider {
   return {
     provideLinks(bufferLineNumber, callback) {
@@ -297,7 +484,17 @@ export function createTerminalFileLinkProvider({
         return
       }
 
-      const references = findTerminalFileReferences(logicalLine.text, { executionRoot, workspaceRoot })
+      // Read on every call, not captured at registration: see
+      // `TerminalFileLinkRoot`. For a plain root this is the same value it
+      // always was.
+      const references = findTerminalFileReferences(
+        logicalLine.text,
+        {
+          executionRoot: readTerminalFileLinkRoot(executionRoot),
+          workspaceRoot: readTerminalFileLinkRoot(workspaceRoot),
+        },
+        onDrop
+      )
       if (references.length === 0) {
         callback(undefined)
         return
@@ -305,7 +502,15 @@ export function createTerminalFileLinkProvider({
 
       const links: ILink[] = references.flatMap((reference) => {
         const range = rangeForTerminalFileReference(reference, logicalLine.segments)
-        if (!range) return []
+        if (!range) {
+          // Invariant tripwire, not an expected branch: `reference` was matched
+          // against `logicalLine.text`, which `logicalLine.segments` tile
+          // exactly, so every offset must map to a cell. Counted rather than
+          // ignored because the failure mode is a line that silently stops
+          // linkifying.
+          onDrop?.({ reason: 'no-range', text: reference.text })
+          return []
+        }
 
         return [{
           text: reference.text,

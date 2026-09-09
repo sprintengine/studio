@@ -643,6 +643,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
                 // stream. The remote terminal port is multi-viewer; two panes
                 // are two healthy attachments (remote-sessions-ux review).
                 attachId={`${workspaceId}:${node.getId()}`}
+                workspaceId={workspaceId}
                 connectionId={config.connectionId}
                 machineName={config.machineName ?? 'Remote machine'}
                 sessionId={config.remoteSessionId}

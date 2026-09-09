@@ -194,7 +194,7 @@ import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
 // deferred chunk.
 import type { PaletteScope } from '../commandPaletteSearch'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRoleRegistry, computeSprintEngineFocusAgentAvailability } from '../../utils/sprintengine'
-import { isGlobalShortcutSuppressedTarget } from '../../utils/keyboard'
+import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
 
 // The pre-creation New Chat panel — agent + engine chooser that creates nothing
 // until the user starts the chat. Code-split out of the eager boot chunk;
@@ -4059,8 +4059,16 @@ export default function WorkspaceManager() {
         : window.api.platform === 'win32'
           ? 'windows'
           : 'linux'
+      // The `terminal` scope is per-KEYSTROKE, not per-workspace: it is active
+      // exactly when this key came from inside a terminal surface. Deriving it
+      // from the event rather than from the active tab is what keeps ⌘F inside
+      // a Monaco editor as Monaco's own find — the shell never claims a key it
+      // did not receive from a terminal.
+      const activeScopes = isTerminalKeyTarget(event.target)
+        ? [...activeCommandScopes, 'terminal' as const]
+        : activeCommandScopes
       const result = commandDispatcherRef.current.resolve(event, {
-        activeScopes: activeCommandScopes,
+        activeScopes,
         commands: commandContributions,
         disabledCommandIds,
         keybindingOverrides: keybindingSettings?.overrides,

@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import '@xterm/xterm/css/xterm.css'
 
 import type { FleetLinkState, FleetTerminalAccess } from '../../../../shared/tailnet-fleet'
-import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
-import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
+import { waitForMonoFontReady } from '../../utils/fonts'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
+import { createStudioTerminal, type StudioTerminal } from '../../utils/createStudioTerminal'
+import { useTerminalFind } from '../../hooks/useTerminalFind'
+import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
+import { TerminalFindBar } from '../terminal/TerminalFindBar'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
-import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { StatusDot } from '../ui'
+import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
+import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
+import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { fleetInputState, fleetLinkBadge } from './fleet/fleetModel'
 
 // One terminal on ANOTHER machine, in a pane of this one (MC-2167).
@@ -33,18 +35,33 @@ interface Props {
   /** Local id for this attachment, stable for the pane's life. The event channel is keyed by it. */
   attachId: string
   connectionId: string
+  /**
+   * The workspace this pane is rendered in. Not a resolution root — a fleet
+   * pane resolves no local path at all — only where a chosen link action lands
+   * (a browser tab, the clipboard).
+   */
+  workspaceId: string
   /** The machine's name, for the badge. Passed in so the pane paints before any call returns. */
   machineName: string
   /** The remote session to attach to. */
   sessionId: string
 }
 
-export default function FleetTerminalPanel({ attachId, connectionId, machineName, sessionId }: Props) {
+export default function FleetTerminalPanel({ attachId, connectionId, machineName, sessionId, workspaceId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // The live terminal, for anything outside the mount effect that needs it —
+  // today `useTerminalFind`, which loads the search addon on the first find.
+  const studioTerminalRef = useRef<StudioTerminal | null>(null)
+  // No workspace id: this pane is attached to a MACHINE, not to a folder. It
+  // answers Find only while it holds focus, never through the active-workspace
+  // fallback, which would be answering for a workspace it is not part of.
+  const find = useTerminalFind({ workspaceId: null, containerRef, terminalRef: studioTerminalRef })
   const [link, setLink] = useState<FleetLinkState>('connecting')
   const [linkDetail, setLinkDetail] = useState<string | null>(null)
   const [access, setAccess] = useState<FleetTerminalAccess>('none')
   const [failure, setFailure] = useState<string | null>(null)
+  const [linkMenu, setLinkMenu] = useState<{ target: TerminalLinkTarget; x: number; y: number } | null>(null)
+  const [linkError, setLinkError] = useState<{ message: string; x: number; y: number } | null>(null)
   // The terminal's onData handler is installed once; these refs are how it reads
   // the CURRENT permission instead of the one captured at mount.
   const accessRef = useRef<FleetTerminalAccess>('none')
@@ -54,21 +71,47 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
     const container = containerRef.current
     if (!container) return
 
-    const term = new Terminal({
-      theme: getTerminalTheme(),
-      fontFamily: MONO_FONT_STACK,
-      fontSize: 13,
-      cursorBlink: true,
-      scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
+    // `kind: 'fleet'` carries no roots, and that is the point: this pane is
+    // attached to a terminal on another machine, so a path printed in it names
+    // a file over there. The surface type is what stops a later change from
+    // resolving it against this machine's filesystem and opening a same-named
+    // local file.
+    const studioTerminal = createStudioTerminal({
+      surface: { kind: 'fleet' },
       // Closed until the far end says this socket may type. Nothing is known
       // about the grant until the attach header arrives, and a cursor that
       // accepts keystrokes it will not send is a lie for that whole window.
       disableStdin: true,
+      // A pane with no `oscLinks` used to be a pane with no gate: xterm
+      // registers its `OscLinkProvider` unconditionally, and with no
+      // `linkHandler` to consult it falls back to its own `defaultActivate` —
+      // a raw browser confirmation dialog and a `window.open()`, which this
+      // app's `setWindowOpenHandler` turns into `shell.openExternal`. An http(s)
+      // hyperlink printed by the REMOTE machine therefore opened in the user's
+      // real browser without passing `resolveTerminalOscLink` or this chooser.
+      // `createStudioTerminal` now derives the gate from `surface`, so the
+      // fleet rule holds here by construction rather than by remembering.
+      oscLinks: {
+        // Unreachable: a fleet surface has no link roots, so
+        // `resolveTerminalOscLink` never returns a `file` target for it. Kept
+        // fail-closed rather than thrown, so a future surface change degrades
+        // to "that file does not exist" instead of opening a same-named local
+        // file.
+        inspectPath: async () => ({ exists: false, isDirectory: false }),
+        onActivateFile: () => {},
+        onActivateUrl: (url, anchor) => {
+          setLinkMenu({ target: { kind: 'url', url }, x: anchor.x, y: anchor.y })
+        },
+        onOpenError: (message, anchor) => setLinkError({ message, x: anchor.x, y: anchor.y }),
+      },
     })
-    const unbindTerminalTheme = bindTerminalTheme(term)
-    const fitAddon = new FitAddon()
-    term.loadAddon(fitAddon)
+    studioTerminalRef.current = studioTerminal
+    const term = studioTerminal.terminal
+    const fitAddon = studioTerminal.fitAddon
     term.open(container)
+    // Immediately after `open()`: the WebGL addon reads `term.element`, and a
+    // GPU failure loaded before that point escapes through `open()` itself.
+    studioTerminal.loadWebglRenderer()
 
     const fitTerminal = () => {
       if (container.clientWidth === 0 || container.clientHeight === 0) return
@@ -177,8 +220,15 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
     const fitScheduler = createTerminalFitScheduler(fitTerminal, container)
     const resizeObserver = new ResizeObserver(() => fitScheduler.requestFit())
     resizeObserver.observe(container)
-    container.addEventListener('mousedown', focusTerminal)
-    container.addEventListener('click', focusTerminal)
+    // A pointer landing on the pane's own chrome (the find bar) is not a click
+    // on the terminal: focusing here would take the keyboard straight back out
+    // of the find field.
+    const focusTerminalFromPointer = (event: Event) => {
+      if (isTerminalChromeTarget(event.target)) return
+      focusTerminal()
+    }
+    container.addEventListener('mousedown', focusTerminalFromPointer)
+    container.addEventListener('click', focusTerminalFromPointer)
     const disposeClipboardHandlers = bindTerminalClipboardHandlers({
       container,
       term,
@@ -195,16 +245,18 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
       disposed = true
       resizeObserver.disconnect()
       fitScheduler.dispose()
-      container.removeEventListener('mousedown', focusTerminal)
-      container.removeEventListener('click', focusTerminal)
+      container.removeEventListener('mousedown', focusTerminalFromPointer)
+      container.removeEventListener('click', focusTerminalFromPointer)
       disposeClipboardHandlers()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
       disposeEvents()
       replayGate.dispose()
       outputQueue.dispose()
-      unbindTerminalTheme()
-      term.dispose()
+      studioTerminalRef.current = null
+      // Last: it unbinds the theme and disposes the terminal itself, so nothing
+      // above may still be reading `term`.
+      studioTerminal.dispose()
       // The socket is main's, and it is this pane's alone: closing the pane ends
       // the attachment rather than leaving a remote pty narrating to nobody.
       void window.api.fleetDetachTerminal(attachId).catch(() => {})
@@ -237,7 +289,30 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
           ref={containerRef}
           tabIndex={0}
           className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 cursor-text overflow-hidden p-2 pb-4`}
-        />
+          // Marks this as a terminal surface, so a ⌘F pressed anywhere in it —
+          // including in the find bar — activates the `terminal` command scope.
+          {...{ [TERMINAL_SURFACE_ATTRIBUTE]: '' }}
+        >
+          <TerminalFindBar find={find} />
+        </div>
+        {linkError ? (
+          <CursorErrorPopover
+            key={`${linkError.x},${linkError.y},${linkError.message}`}
+            message={linkError.message}
+            anchor={{ x: linkError.x, y: linkError.y }}
+            onDismiss={() => setLinkError(null)}
+          />
+        ) : null}
+        {linkMenu ? (
+          <TerminalLinkMenu
+            workspaceId={workspaceId}
+            target={linkMenu.target}
+            x={linkMenu.x}
+            y={linkMenu.y}
+            onClose={() => setLinkMenu(null)}
+            onError={(message) => setLinkError({ message, x: linkMenu.x, y: linkMenu.y })}
+          />
+        ) : null}
       </div>
     </div>
   )

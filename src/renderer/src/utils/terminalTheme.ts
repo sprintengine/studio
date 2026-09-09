@@ -62,6 +62,18 @@ function isLightBackground(color: string): boolean {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6
 }
 
+/**
+ * Whether the pane's own background is a light one.
+ *
+ * Exported for the search decorations (`terminalSearch.ts`): xterm's decoration
+ * API takes literal `#RRGGBB`, not CSS variables, so a match highlight has to
+ * pick its pair the same way the ANSI palette above does — by asking what it
+ * will be painted on.
+ */
+export function isLightTerminalBackground(): boolean {
+  return isLightBackground(readVar('--terminal-bg', readVar('--bg-app', '#08090b')))
+}
+
 export function getTerminalTheme(): ITheme {
   // Terminals read from dedicated --terminal-* tokens so they can sit deeper
   // than the panel chrome. Fall back to the surface scale tokens for any theme

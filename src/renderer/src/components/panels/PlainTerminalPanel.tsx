@@ -1,21 +1,28 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import '@xterm/xterm/css/xterm.css'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
+import { createStudioTerminal, terminalSurfaceLinkRoots, type StudioTerminal, type TerminalSurface } from '../../utils/createStudioTerminal'
+import { useTerminalFind } from '../../hooks/useTerminalFind'
+import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
+import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
+import { parseTerminalOscCwd } from '../../utils/terminalOscLinks'
+import { registerMountedTerminalPromptNavigation } from '../../utils/terminalPromptNavigation'
+import {
+  createTerminalShellMarkTracker,
+  terminalPromptSearchAnchor,
+  type TerminalShellMarkTracker,
+} from '../../utils/terminalShellMarks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
 import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
-import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import {
   hasCommitDropData,
   hasFileDropData,
@@ -23,10 +30,12 @@ import {
   pasteDroppedCommitIntoTerminal,
   pasteDroppedFilesIntoTerminal,
 } from '../../utils/terminalDrop'
-import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
+import { waitForMonoFontReady } from '../../utils/fonts'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
-import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
+import { TerminalFindBar } from '../terminal/TerminalFindBar'
+import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
+import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 
 interface Props {
   workspaceId: string
@@ -45,10 +54,23 @@ export default function PlainTerminalPanel({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(`terminal-${terminalId}`)
+  // The live terminal, for anything outside the mount effect that needs it —
+  // today `useTerminalFind`, which loads the search addon on the first find.
+  const studioTerminalRef = useRef<StudioTerminal | null>(null)
+  const find = useTerminalFind({ workspaceId, containerRef, terminalRef: studioTerminalRef })
   const [isFileDragOver, setIsFileDragOver] = useState(false)
-  // A failed file drop, anchored to the pointer that raised it so the error
-  // surfaces next to the cursor instead of a corner toast.
-  const [dropError, setDropError] = useState<{ message: string; x: number; y: number } | null>(null)
+  // A failed file drop or a dead link, anchored to the pointer that raised it so
+  // the error surfaces next to the cursor instead of a corner toast.
+  const [cursorError, setCursorError] = useState<{ message: string; x: number; y: number } | null>(null)
+  // A clicked link awaiting a destination (MC-1899), exactly as an agent pane
+  // does it: the click opens a chooser rather than firing one hard-wired action.
+  const [linkMenu, setLinkMenu] = useState<{
+    target: TerminalLinkTarget
+    x: number
+    y: number
+    line?: number
+    column?: number
+  } | null>(null)
   const {
     folderPath: savedFolderPath,
     folderReadyPath,
@@ -76,16 +98,151 @@ export default function PlainTerminalPanel({
     if (!cwdOverride && savedFolderPath && !folderReadyPath) return
 
     const sessionId = sessionIdRef.current
-    const term = new Terminal({
-      theme: getTerminalTheme(),
-      fontFamily: MONO_FONT_STACK,
-      fontSize: 13,
-      cursorBlink: true,
-      scrollback: TERMINAL_RECENT_SCROLLBACK_LINES,
+    // A shell pane carries its workspace root and no launch-time execution root:
+    // unlike an agent, nothing here resolves a cwd of its own up front. The live
+    // one arrives over the wire instead — see the OSC 7 handler below.
+    const terminalSurface: TerminalSurface = {
+      kind: 'shell',
+      workspaceRoot: folderReadyPath ?? savedFolderPath ?? null,
+    }
+    // Read here rather than off `studioTerminal` because the OSC 8 handler is a
+    // CONSTRUCTION option (xterm's OscLinkProvider reads `options.linkHandler`),
+    // so this surface's permission to resolve a local path must be known before
+    // the terminal exists. Same function the factory calls.
+    const surfaceLinkRoots = terminalSurfaceLinkRoots(terminalSurface)
+    // Where this shell actually IS, in two layers, newest first.
+    //
+    // `launchExecutionRoot` is the directory the pty was spawned in, which is
+    // only known after the async worktree probe below — so it is written there
+    // rather than captured here, and the link provider reads both through a
+    // thunk.
+    //
+    // `oscExecutionRoot` is what the shell itself reports over OSC 7, and it is
+    // the only one that stays true: the launch directory stops being the cwd the
+    // first time the user types `cd`, and every relative path printed afterwards
+    // then resolves into a tree the shell left. That failure is invisible —
+    // the same relative path usually exists in the old tree too — so the link
+    // opens the wrong copy instead of failing.
+    let launchExecutionRoot: string | null = null
+    let oscExecutionRoot: string | null = null
+    const inspectPath = async (path: string): Promise<{ exists: boolean; isDirectory: boolean }> => {
+      try {
+        const stat = await window.api.statPath(path)
+        return { exists: true, isDirectory: stat.isDirectory }
+      } catch {
+        return { exists: false, isDirectory: false }
+      }
+    }
+    const openFileLinkMenu = (
+      { resolvedPath, isDirectory, line, column }: {
+        resolvedPath: string
+        isDirectory: boolean
+        line?: number
+        column?: number
+      },
+      anchor: { x: number; y: number },
+    ): void => {
+      setLinkMenu({
+        target: {
+          kind: 'file',
+          resolvedPath,
+          isDirectory,
+          workspaceRoot: surfaceLinkRoots?.workspaceRoot ?? null,
+        },
+        x: anchor.x,
+        y: anchor.y,
+        line,
+        column,
+      })
+    }
+    // OSC 133 — the shell's own prompt/command marks, emitted by the same
+    // generated shell integration that emits OSC 7 (`terminal-launch.ts`), for
+    // `shell` panes only. What they buy is shell ergonomics: prompt boundaries
+    // to jump between and a per-command exit status.
+    //
+    // They are NOT an agent status source and must never become one. Agent
+    // phase comes from `agent-state.ts` over the state socket (decision of
+    // record 2026-08-31, hooks only); an agent pane is `TerminalView`, which
+    // constructs no tracker and registers no 133 handler.
+    //
+    // The handler is a CONSTRUCTION option and the tracker needs the terminal it
+    // marks, so the two are tied together through this binding rather than one
+    // waiting on the other. Nothing can be written to a terminal that does not
+    // exist yet, so `?? true` is a guard against a future reordering, not a
+    // live case.
+    let markTracker: TerminalShellMarkTracker | null = null
+    const studioTerminal = createStudioTerminal({
+      surface: terminalSurface,
+      oscLinks: {
+        inspectPath,
+        onActivateFile: openFileLinkMenu,
+        onActivateUrl: (url, anchor) => {
+          setLinkMenu({ target: { kind: 'url', url }, x: anchor.x, y: anchor.y })
+        },
+        onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
+      },
+      onWebLink: (event, uri) => {
+        setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
+      },
+      // OSC 7 — the shell reporting its working directory. xterm registers
+      // handlers for 0,1,2,4,8,10-12,104,110-112 and NOT 7, so without this the
+      // sequence the startup script now emits (`terminal-launch.ts`) would be
+      // parsed and thrown away.
+      oscHandlers: {
+        7: (data) => {
+          // Same gate as an OSC 8 payload, and for the same reason: this is a
+          // sequence any program with a pane can print. A payload naming
+          // another host, or any local path at all on a surface with no link
+          // roots, leaves the previous value standing.
+          const cwd = parseTerminalOscCwd(data, { allowLocalPaths: surfaceLinkRoots !== null })
+          if (cwd) oscExecutionRoot = cwd
+          // Handled either way: nothing else in the app wants OSC 7, and
+          // reporting it unhandled would only put it back on xterm's floor.
+          return true
+        },
+        // OSC 133 — prompt start/end, pre-execution, command finished. xterm
+        // registers no handler for it either. Registered here through the
+        // factory's slot rather than on the terminal by hand, so it is torn
+        // down with everything else the factory owns.
+        133: (data) => markTracker?.handleOsc133(data) ?? true,
+      },
     })
-    const unbindTerminalTheme = bindTerminalTheme(term)
+    studioTerminalRef.current = studioTerminal
+    const term = studioTerminal.terminal
+    markTracker = createTerminalShellMarkTracker(term)
+    // Jump to the previous or next prompt — `terminal.promptPrevious` and
+    // `terminal.promptNext`. The viewport's top line is the cursor for this,
+    // not the text cursor: the user is navigating what they are LOOKING at.
+    //
+    // `lastPromptJump` is what the last jump AIMED at, which is not always where
+    // the viewport ended up: `scrollToLine` clamps at the bottom of the buffer,
+    // so without it a second Next inside the last screenful finds the same
+    // prompt again and nothing moves. `terminalPromptSearchAnchor` drops it
+    // again as soon as the user scrolls the target off screen.
+    let lastPromptJump: number | null = null
+    const disposePromptNavigation = registerMountedTerminalPromptNavigation({
+      workspaceId,
+      isFocused: () => {
+        const active = document.activeElement
+        return Boolean(active && container.contains(active))
+      },
+      scrollToPrompt: (direction) => {
+        const from = terminalPromptSearchAnchor({
+          viewportY: term.buffer.active.viewportY,
+          rows: term.rows,
+          lastJumpLine: lastPromptJump,
+        })
+        const line = direction === 'previous'
+          ? markTracker?.previousPromptLine(from) ?? null
+          : markTracker?.nextPromptLine(from) ?? null
+        if (line === null) return false
+        term.scrollToLine(line)
+        lastPromptJump = line
+        return true
+      },
+    })
     registerTerminalInstance(sessionId, term)
-    const fitAddon = new FitAddon()
+    const fitAddon = studioTerminal.fitAddon
     const terminalDiagnostics = createTerminalDiagnostics({
       scope: 'PlainTerminalPanel',
       sessionId,
@@ -107,7 +264,6 @@ export default function PlainTerminalPanel({
       term.focus()
     }
 
-    term.loadAddon(fitAddon)
     term.attachCustomKeyEventHandler((event) => {
       if (event.type === 'keydown') {
         terminalDiagnostics.recordKeydown(event)
@@ -115,6 +271,33 @@ export default function PlainTerminalPanel({
       return true
     })
     term.open(container)
+    // Immediately after `open()`: the WebGL addon reads `term.element`, and a
+    // GPU failure loaded before that point escapes through `open()` itself.
+    studioTerminal.loadWebglRenderer()
+
+    // Non-null for every shell surface; the guard is what keeps a surface that
+    // must not resolve local paths (fleet) from ever registering this provider.
+    const fileLinkDisposable = surfaceLinkRoots ? term.registerLinkProvider(createTerminalFileLinkProvider({
+      terminal: term,
+      workspaceRoot: surfaceLinkRoots.workspaceRoot,
+      // A thunk, so a `cd` (or the async spawn-cwd resolution below) reaches the
+      // links already on screen without re-registering the provider.
+      executionRoot: () => oscExecutionRoot ?? launchExecutionRoot,
+      inspectPath,
+      onActivate: openFileLinkMenu,
+      onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
+      // A matched path that never became a link leaves no trace on screen, so
+      // count it — a workspace with no configured folder drops every relative
+      // path in the pane and looks identical to a pane containing none.
+      onDrop: terminalDiagnostics.recordFileLinkDrop,
+    })) : null
+
+    // Loaded AFTER the file-link provider on purpose: xterm resolves link
+    // providers in registration order and the earlier one's links suppress the
+    // later one's on the same row, so a path that is also a valid URL fragment
+    // must reach the file provider first.
+    studioTerminal.loadWebLinks()
+
     fitTerminal()
     focusTerminal()
     let disposed = false
@@ -202,9 +385,17 @@ export default function PlainTerminalPanel({
       fitScheduler.requestFit()
     })
     resizeObserver.observe(container)
-    container.addEventListener('mousedown', focusTerminal)
-    container.addEventListener('mouseup', focusTerminal)
-    container.addEventListener('click', focusTerminal)
+    // A pointer landing on the pane's own chrome (the find bar) is not a click
+    // on the terminal: focusing here would take the keyboard back out of the
+    // find field on the mouseup of the click that just entered it.
+    const focusTerminalFromPointer = (event: Event) => {
+      if (isTerminalChromeTarget(event.target)) return
+      focusTerminal()
+    }
+    container.addEventListener('mousedown', focusTerminalFromPointer)
+    container.addEventListener('mouseup', focusTerminalFromPointer)
+    container.addEventListener('click', focusTerminalFromPointer)
+    // `focus` does not bubble, so this only ever fires for the container itself.
     container.addEventListener('focus', focusTerminal)
     const disposeClipboardHandlers = bindTerminalClipboardHandlers({
       container,
@@ -231,6 +422,11 @@ export default function PlainTerminalPanel({
         )
         if (disposed) return
         const terminalCwd = cwdOverride ?? resolved.cwd ?? folderReadyPath ?? undefined
+        // The directory the pty is about to start in — the resolution base for
+        // relative paths until the shell reports one of its own. It matters most
+        // for a pane with a `cwdOverride` or a worktree redirect, where it is
+        // NOT the workspace root the surface carries.
+        launchExecutionRoot = terminalCwd ?? null
         const sprintEngineStatePath = cwdOverride ? undefined : folderReadyPath ? sprintEngineContext?.statePath : undefined
         if (resolved.missing) {
           term.write(
@@ -313,9 +509,9 @@ export default function PlainTerminalPanel({
       window.clearTimeout(settleTimer)
       resizeObserver.disconnect()
       fitScheduler.dispose()
-      container.removeEventListener('mousedown', focusTerminal)
-      container.removeEventListener('mouseup', focusTerminal)
-      container.removeEventListener('click', focusTerminal)
+      container.removeEventListener('mousedown', focusTerminalFromPointer)
+      container.removeEventListener('mouseup', focusTerminalFromPointer)
+      container.removeEventListener('click', focusTerminalFromPointer)
       container.removeEventListener('focus', focusTerminal)
       disposeClipboardHandlers()
       disposeFocusRequest()
@@ -325,12 +521,17 @@ export default function PlainTerminalPanel({
       disposeError()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()
+      fileLinkDisposable?.dispose()
+      disposePromptNavigation()
+      markTracker?.dispose()
       terminalDiagnostics.dispose()
       replayGate.dispose()
       outputQueue.dispose()
-      unbindTerminalTheme()
       unregisterTerminalInstance(sessionId)
-      term.dispose()
+      studioTerminalRef.current = null
+      // Last: it unbinds the theme and disposes the terminal itself, so nothing
+      // above may still be reading `term`.
+      studioTerminal.dispose()
       if (killOnUnmount || shouldKillOnUnmount?.(sessionId)) {
         void window.api.terminalKill(sessionId).catch(() => {})
       } else {
@@ -377,7 +578,7 @@ export default function PlainTerminalPanel({
 
     const dropAnchor = { x: event.clientX, y: event.clientY }
     const showDropError = (message: string) =>
-      setDropError({ message, x: dropAnchor.x, y: dropAnchor.y })
+      setCursorError({ message, x: dropAnchor.x, y: dropAnchor.y })
 
     // Normally unreachable — the refusal above ends the drag — but it is what
     // stops a skill that did reach here falling through to the file path and
@@ -420,19 +621,37 @@ export default function PlainTerminalPanel({
         onDragLeave={handleDragLeave}
         onDrop={(event) => void handleDrop(event)}
         className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 cursor-text overflow-hidden p-2 pb-4`}
+        // Marks this as a terminal surface, so a ⌘F pressed anywhere in it —
+        // including in the find bar — activates the `terminal` command scope.
+        {...{ [TERMINAL_SURFACE_ATTRIBUTE]: '' }}
       >
+        <TerminalFindBar find={find} />
         {/* No replay skeleton on terminals (see TerminalView): xterm renders
             its own content; keep the skeleton only for the folder check. */}
         {folderBlocked && checkingFolder ? <TerminalReplaySkeleton /> : null}
         {isFileDragOver ? (
           <div className="pointer-events-none absolute inset-2 z-10 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]" />
         ) : null}
-        {dropError ? (
+        {cursorError ? (
           <CursorErrorPopover
-            key={`${dropError.x},${dropError.y},${dropError.message}`}
-            message={dropError.message}
-            anchor={{ x: dropError.x, y: dropError.y }}
-            onDismiss={() => setDropError(null)}
+            key={`${cursorError.x},${cursorError.y},${cursorError.message}`}
+            message={cursorError.message}
+            anchor={{ x: cursorError.x, y: cursorError.y }}
+            onDismiss={() => setCursorError(null)}
+          />
+        ) : null}
+        {linkMenu ? (
+          <TerminalLinkMenu
+            workspaceId={workspaceId}
+            target={linkMenu.target}
+            x={linkMenu.x}
+            y={linkMenu.y}
+            line={linkMenu.line}
+            column={linkMenu.column}
+            onClose={() => setLinkMenu(null)}
+            // A failed destination reports through the same pointer-anchored
+            // error surface the link click already used, at the click point.
+            onError={(message) => setCursorError({ message, x: linkMenu.x, y: linkMenu.y })}
           />
         ) : null}
         {folderBlocked && folderMissing ? (

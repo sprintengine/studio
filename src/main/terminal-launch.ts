@@ -1,6 +1,6 @@
 import { app } from 'electron'
-import { createHash } from 'crypto'
-import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
+import { createHash, randomUUID } from 'crypto'
+import { chmodSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
@@ -43,6 +43,18 @@ export function getTerminalEnv(): Record<string, string> {
 
   delete env.ELECTRON_RUN_AS_NODE
   env.TERM = env.TERM || 'xterm-256color'
+  // Put us on the hyperlink allowlist. Claude Code (and every other CLI using
+  // `supports-hyperlinks`) only emits the OSC 8 escape when its probe passes,
+  // and that probe is a list of terminal identities — FORCE_HYPERLINK first,
+  // then TERM_PROGRAM against a fixed set of emulator names, then
+  // TERMINAL_EMULATOR, then WT_SESSION. TERM alone fails every branch, so a
+  // `[file] …` line arrived as inert text no matter what the renderer did.
+  // FORCE_HYPERLINK is the honest branch to take: we DO render them (see
+  // `terminalOscLinks.ts`), and claiming to be iTerm by setting TERM_PROGRAM
+  // would tell every other CLI a lie about a dozen unrelated capabilities.
+  // Left alone when the user already exported it, so `FORCE_HYPERLINK=0`
+  // remains a way to turn the escapes off.
+  env.FORCE_HYPERLINK = env.FORCE_HYPERLINK || '1'
 
   // Surface CLIs installed into the managed npm prefix (e.g. Codex) on PATH so
   // launched agent sessions can find them. The shims themselves stay out of the
@@ -129,6 +141,12 @@ const PROTECTED_LAUNCH_ENV_KEYS = new Set<string>([
   ...AGENT_IDENTITY_ENV_KEYS,
   'TERM',
   'COLORTERM',
+  // Same reasoning as TERM: whether this terminal renders OSC 8 hyperlinks is a
+  // fact about the pane, which a CLI manifest is in no position to know. A
+  // manifest that set it to '0' would silently un-click every `[file] …` line;
+  // one that set it to '1' for a pane that could not render them would print
+  // raw escapes.
+  'FORCE_HYPERLINK',
 ])
 
 // True when the provider env redirects the Anthropic endpoint (a different
@@ -647,6 +665,389 @@ function buildUserShellStartup(): string {
   ].join('; ')
 }
 
+// ── Shell integration: OSC 7 (cwd) and OSC 133 (prompt marks) ───────────────
+//
+// A pane's `executionRoot` is the directory it was LAUNCHED in, so the moment a
+// user types `cd` every relative path printed afterwards resolves against the
+// wrong tree — silently, because the wrong tree usually holds a file by that
+// name too. OSC 7 (`ESC ] 7 ; file://<host>/<path> ST`) is the standard way a
+// shell keeps its terminal up to date, and xterm registers no handler for it,
+// so both halves are ours: emit it here, read it in
+// `terminalOscLinks.ts`/`PlainTerminalPanel`.
+//
+// Neither macOS shell emits it unprompted. The awkward part is that our startup
+// script does its work and then `exec`s the user's real interactive shell —
+// which is the right thing to do, and it means a function or a hook defined in
+// the script is gone by the time there is a prompt to hook. Only the
+// ENVIRONMENT survives the exec, so each shell is reached the one way it can be
+// reached through env alone:
+//
+// - **bash** imports `PROMPT_COMMAND` from the environment and runs it before
+//   every prompt, so the whole emitter travels as one exported string.
+// - **zsh** has no such variable (`precmd_functions` is an array, and arrays do
+//   not travel in env), but it does read its startup files from `$ZDOTDIR`. So
+//   we point that at a generated directory whose files hand straight back to
+//   the user's own and then add the hook. The user's files still see their own
+//   `$ZDOTDIR` while they run, and the shell is left holding it afterwards.
+//
+// A user who has already set `PROMPT_COMMAND` or `ZDOTDIR` keeps it: both are
+// captured into a `MULTICODE_USER_…` variable before they are replaced, and
+// theirs is run behind ours (`PROMPT_COMMAND`) or handed back to them
+// (`ZDOTDIR`). Both captures are guarded against a relaunch inside one of our
+// own terminals, where the inherited value is already ours. A rc file that
+// appends to `PROMPT_COMMAND` (the common case) keeps ours as well. A rc that
+// ASSIGNS `PROMPT_COMMAND` outright wins and no OSC 7 arrives — which is the
+// same as any other shell that does not emit it, and the renderer falls back
+// to the launch directory rather than breaking.
+//
+// The host is deliberately empty (`file:///Users/…`, not `file://mymac/…`):
+// the renderer refuses any `file:` URI that names a host, because a pane
+// attached to another machine must never resolve a local path, and a payload
+// carrying THIS machine's hostname is indistinguishable from one carrying
+// someone else's.
+//
+// OSC 133 rides the SAME two mechanisms — one exported `PROMPT_COMMAND`, one
+// generated `$ZDOTDIR` — because a second injection would be a second thing to
+// keep working. Four marks: `133;A` prompt start, `133;B` prompt end, `133;C`
+// pre-execution, `133;D;<status>` command finished. A and D come from the
+// pre-prompt hook (which is why the hook now captures `$?` before it does
+// anything else, and restores it afterwards so a prompt that shows the last
+// exit status still sees the real one). B is appended to `PS1` and C to bash's
+// `PS0`/zsh's `preexec`, both idempotently and both re-checked every prompt, so
+// a theme that rebuilds `PS1` costs at most one prompt's mark rather than
+// stacking copies.
+//
+// Three honest limitations, each degrading to "fewer marks", never to
+// breakage. `PS0` arrived in bash 4.4, so macOS's system bash 3.2 emits no C
+// and the renderer therefore attributes no exit status to it (see
+// `terminalShellMarks.ts`: a D with no C before it is ignored, which is also
+// what an empty Enter and the very first prompt emit). A prompt theme that
+// regenerates `PS1` AFTER our hook runs — powerlevel10k, or a user
+// `PROMPT_COMMAND` appended behind ours — drops B for as long as it keeps
+// doing so. And a zsh with `PROMPT_PERCENT` off has no zero-width prompt
+// escape at all, so it is given no B rather than a literal `%{` in its
+// prompt.
+//
+// Nothing here reaches agent state. Agent phase comes from `agent-state.ts`
+// over the state socket (decision of record 2026-08-31, hooks only), and these
+// marks are armed for `shell` panes alone — an agent pane runs a CLI, not a
+// prompt, and never sees this setup.
+
+/** The path characters that would change what the URI means if left raw. */
+const OSC7_PATH_ESCAPES: Array<[string, string]> = [
+  // `%` first: every replacement below introduces one, and re-escaping those
+  // would turn `%5C` into `%255C`.
+  ['%', '%25'],
+  // `#` starts a fragment and `?` a query — either would TRUNCATE the path at
+  // that point rather than corrupt it, which is the failure that looks like a
+  // working link to the wrong directory.
+  ['#', '%23'],
+  ['?', '%3F'],
+  // The URL parser folds `\` to `/` for file URIs, so a directory named with
+  // one would come back as an extra path segment.
+  ['\\', '%5C'],
+]
+
+/**
+ * One OSC sequence (`ESC ] <payload> ESC \`) as the literal text a shell needs
+ * in a `printf` format or in `PS1`/`PS0`.
+ *
+ * Written once because the escaping is three layers deep — a TypeScript string
+ * literal, a single-quoted shell word, then the shell's own `\nnn` decoding —
+ * and a hand-copied version that got one layer wrong would read correctly in
+ * the source and put garbage on the wire.
+ */
+function oscSequenceLiteral(payload: string): string {
+  return `\\033]${payload}\\033\\\\`
+}
+
+/**
+ * bash's emitter, as one self-contained line.
+ *
+ * It has to be self-contained because it travels as an environment variable
+ * through an `exec` — there is no function definition on the far side to call.
+ */
+export const OSC7_BASH_PROMPT_COMMAND: string = [
+  '__multicode_osc7=${PWD}',
+  ...OSC7_PATH_ESCAPES.map(([from, to]) => `__multicode_osc7=\${__multicode_osc7//\\${from}/${to}}`),
+  `printf '\\033]7;file://%s\\033\\\\' "$__multicode_osc7"`,
+].join('; ')
+
+/**
+ * The first thing the exported `PROMPT_COMMAND` does, and it has to be first.
+ *
+ * `$?` is the status of the command the user just ran, and ANY command replaces
+ * it — a plain assignment included, which is exactly what the OSC 7 emitter
+ * opens with.
+ */
+export const OSC133_BASH_STATUS_CAPTURE: string = '__multicode_status=$?'
+
+/**
+ * The variable name above, on its own: `buildShellIntegrationSetup` matches on
+ * it to tell an inherited `PROMPT_COMMAND` that is ALREADY ours from a user's.
+ * Named here so the two cannot drift.
+ */
+export const OSC133_BASH_STATUS_CAPTURE_VARIABLE: string = '__multicode_status'
+
+/**
+ * bash's OSC 133 marks, appended to the same exported `PROMPT_COMMAND`.
+ *
+ * Four lines, in the order they have to run:
+ *
+ * 1. `133;D;<status>` for the command that just finished, then `133;A` for the
+ *    prompt about to be drawn. One `printf`, because two would let a slow pipe
+ *    interleave something between them.
+ * 2. `133;B` (prompt end) appended to `PS1`, guarded so it lands once. The
+ *    guard is re-run every prompt rather than once at setup: a theme that
+ *    rebuilds `PS1` per prompt would otherwise lose the mark permanently, and
+ *    one that does not would otherwise gain a copy per prompt. `\[`…`\]` is
+ *    what stops readline counting the escape as columns — without it the shell
+ *    mis-measures the prompt and wraps the user's typing in the wrong place.
+ * 3. `133;C` (pre-execution) appended to `PS0`, which bash expands after
+ *    reading a command and before running it. bash 4.4+; on macOS's system
+ *    bash 3.2 the variable is simply unused, so no C is emitted and the
+ *    renderer attributes no exit status. Fewer marks, never a broken prompt.
+ * 4. `$?` put back, so a user `PROMPT_COMMAND` appended behind ours — or a
+ *    `PS1` that reads `$?` through `promptvars` — still sees the real status.
+ *    The subshell is skipped on success, which is the common case.
+ */
+export const OSC133_BASH_PROMPT_COMMAND: string = [
+  `printf '${oscSequenceLiteral('133;D;%s')}${oscSequenceLiteral('133;A')}' "$__multicode_status"`,
+  `case \${PS1-} in *'${oscSequenceLiteral('133;B')}'*) ;; *) PS1=\${PS1-}'\\[${oscSequenceLiteral('133;B')}\\]' ;; esac`,
+  `case \${PS0-} in *'${oscSequenceLiteral('133;C')}'*) ;; *) PS0=\${PS0-}'${oscSequenceLiteral('133;C')}' ;; esac`,
+  'case $__multicode_status in 0) ;; *) ( exit $__multicode_status ) ;; esac',
+].join('; ')
+
+/**
+ * Everything bash's `PROMPT_COMMAND` carries: capture the status, report the
+ * directory, emit the marks. One variable because only one survives the `exec`.
+ */
+export const SHELL_INTEGRATION_BASH_PROMPT_COMMAND: string = [
+  OSC133_BASH_STATUS_CAPTURE,
+  OSC7_BASH_PROMPT_COMMAND,
+  OSC133_BASH_PROMPT_COMMAND,
+].join('; ')
+
+/** zsh's emitter plus the `precmd` hook that runs it, appended to our `.zshrc`. */
+const OSC7_ZSH_HOOK: string = [
+  '__multicode_osc7_cwd() {',
+  // The user's option set is theirs; this function should not depend on it.
+  '  emulate -L zsh',
+  '  local d=$PWD',
+  ...OSC7_PATH_ESCAPES.map(([from, to]) => `  d=\${d//\\${from}/${to}}`),
+  `  printf '\\033]7;file://%s\\033\\\\' "$d"`,
+  '}',
+  'typeset -ag precmd_functions',
+  // Idempotent: a nested zsh reads this file again and must not stack the hook.
+  'if (( ! ${precmd_functions[(I)__multicode_osc7_cwd]} )); then',
+  '  precmd_functions+=(__multicode_osc7_cwd)',
+  'fi',
+  // The first prompt has no `cd` before it, so report the launch directory too.
+  '__multicode_osc7_cwd',
+].join('\n')
+
+/**
+ * zsh's OSC 133 marks: one `precmd` hook, one `preexec` hook, appended to the
+ * same generated `.zshrc` OSC 7's hook lives in.
+ *
+ * The precmd hook is PREPENDED to `precmd_functions` rather than appended, and
+ * that is the whole subtlety: only the first hook in the list sees the real
+ * `$?`, because every hook before it has already replaced it with its own last
+ * command's status. It therefore captures the status on its first line and
+ * `return`s it, so the hooks behind it — the user's prompt theme included —
+ * still see what they saw before we were here.
+ *
+ * `__multicode_osc133_active` is what keeps a bare Enter from being reported as
+ * a command: D is emitted only when a C opened one. (The renderer applies the
+ * same rule independently — see `terminalShellMarks.ts` — because the marks are
+ * attacker-controlled and this hook is not the only thing that can print them.)
+ */
+const OSC133_ZSH_HOOK: string = [
+  '__multicode_osc133_precmd() {',
+  // Before `emulate`, before anything: any command at all replaces `$?`.
+  '  local __multicode_ret=$?',
+  '  emulate -L zsh',
+  '  if (( __multicode_osc133_active )); then',
+  `    printf '${oscSequenceLiteral('133;D;%s')}' "$__multicode_ret"`,
+  '    __multicode_osc133_active=0',
+  '  fi',
+  `  printf '${oscSequenceLiteral('133;A')}'`,
+  // Prompt end. `%{`…`%}` is zsh's "these bytes occupy no columns"; without it
+  // the shell mis-measures the prompt and wraps the user's typing early.
+  // Re-checked every prompt so a theme that rebuilds PS1 costs one mark rather
+  // than losing it for the session, and guarded so one that does not rebuild it
+  // does not collect a copy per prompt.
+  `  if (( __multicode_osc133_prompt_percent )) && [[ $PS1 != *$'\\e]133;B'* ]]; then`,
+  `    PS1=$PS1$'%{\\e]133;B\\e\\\\%}'`,
+  '  fi',
+  // The status the rest of the prompt machinery expects to find.
+  '  return $__multicode_ret',
+  '}',
+  '__multicode_osc133_preexec() {',
+  '  emulate -L zsh',
+  '  __multicode_osc133_active=1',
+  `  printf '${oscSequenceLiteral('133;C')}'`,
+  '}',
+  'typeset -g __multicode_osc133_active=0',
+  // Whether `%{`…`%}` means anything in this shell, read HERE rather than in the
+  // hook: `emulate -L zsh` inside a function reports zsh's default option set,
+  // not the user's, and a user who turned PROMPT_PERCENT off would otherwise
+  // get a literal `%{` printed into their prompt. Read after their own .zshrc
+  // has run, which is the state the prompt will actually be rendered under.
+  'typeset -g __multicode_osc133_prompt_percent=0',
+  'if [[ -o promptpercent ]]; then __multicode_osc133_prompt_percent=1; fi',
+  'typeset -ag precmd_functions',
+  // Idempotent prepend: the filter drops any copy a nested zsh already added,
+  // then puts exactly one back at the front.
+  'precmd_functions=(__multicode_osc133_precmd "${(@)precmd_functions:#__multicode_osc133_precmd}")',
+  'typeset -ag preexec_functions',
+  'if (( ! ${preexec_functions[(I)__multicode_osc133_preexec]} )); then',
+  '  preexec_functions+=(__multicode_osc133_preexec)',
+  'fi',
+].join('\n')
+
+/**
+ * One of the four files zsh reads out of `$ZDOTDIR`, as a shim in front of the
+ * user's own copy.
+ *
+ * All four exist because zsh takes the WHOLE set from `$ZDOTDIR`: shim only
+ * `.zshrc` and a login shell silently loses its `.zprofile`.
+ */
+export function buildShellIntegrationZshShim(fileName: '.zshenv' | '.zprofile' | '.zshrc' | '.zlogin'): string {
+  const lines = [
+    '# SprintEngine Studio shell integration (OSC 7 working directory, OSC 133 prompt marks).',
+    '# Generated — rewritten on every terminal launch, so do not edit.',
+    '#',
+    '# This directory stands in front of the user\'s $ZDOTDIR and hands each stage',
+    '# straight back to it, so their own files run with their own $ZDOTDIR set.',
+    'MULTICODE_ZDOTDIR_SELF=${ZDOTDIR}',
+    'ZDOTDIR=${MULTICODE_USER_ZDOTDIR:-$HOME}',
+    '# A nested launch could point us at ourselves; $HOME is the shell\'s own default.',
+    // The right side of `==` inside `[[ ]]` is a GLOB PATTERN unless it is
+    // quoted, and this path is `~/Library/Application Support/<productName>/…`
+    // — one `[`, `*`, `?` or `(` in the product name or the user's home and the
+    // self-reference guard either stops firing or fires against a directory
+    // that merely matched, throwing away a real `~/.config/zsh`.
+    'if [[ $ZDOTDIR == "$MULTICODE_ZDOTDIR_SELF" ]]; then ZDOTDIR=$HOME; fi',
+    // Quoted for the same reason one layer down: these run with the USER'S
+    // options in effect (their .zshenv has already been sourced by the shim
+    // above), so `SH_WORD_SPLIT` or `GLOB_SUBST` would otherwise reach an
+    // unquoted expansion of a path we do not control.
+    `if [[ -f "$ZDOTDIR/${fileName}" ]]; then source "$ZDOTDIR/${fileName}"; fi`,
+    '# Their file may have moved $ZDOTDIR itself; that is the value to keep.',
+    'export MULTICODE_USER_ZDOTDIR="$ZDOTDIR"',
+  ]
+
+  if (fileName === '.zshrc') {
+    // Interactive shells end here, so this is where the shell gets its own
+    // $ZDOTDIR back for good and where the hook goes.
+    lines.push(
+      'ZDOTDIR=$MULTICODE_USER_ZDOTDIR',
+      'unset MULTICODE_ZDOTDIR_SELF',
+      '',
+      OSC7_ZSH_HOOK,
+      '',
+      OSC133_ZSH_HOOK,
+    )
+  } else {
+    lines.push('ZDOTDIR=$MULTICODE_ZDOTDIR_SELF', 'unset MULTICODE_ZDOTDIR_SELF')
+  }
+
+  return `${lines.join('\n')}\n`
+}
+
+/**
+ * The generated `$ZDOTDIR`, or null when it could not be written (a read-only
+ * profile directory, say). Null simply means no OSC 7 from zsh.
+ *
+ * Stable rather than per-session: the contents do not vary, and a per-session
+ * directory would need reaping on a path where a crashed app leaves it behind.
+ */
+function ensureShellIntegrationZshZdotdir(): string | null {
+  try {
+    const directory = join(app.getPath('userData'), 'shell-integration', 'zsh')
+    mkdirSync(directory, { recursive: true })
+    for (const fileName of ['.zshenv', '.zprofile', '.zshrc', '.zlogin'] as const) {
+      replaceFileAtomically(join(directory, fileName), buildShellIntegrationZshShim(fileName))
+    }
+    return directory
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Write, then rename into place — never `O_TRUNC` over a file something else
+ * may be reading.
+ *
+ * This directory is STABLE and SHARED, and these four files are rewritten on
+ * every shell-pane launch. Restoring a saved layout starts several panes at
+ * once: a plain `writeFileSync` truncates `.zshrc` to nothing and refills it,
+ * so the zsh one pane just spawned can read the empty middle of another pane's
+ * write. The user's own `.zshrc` then silently never sources, and `$ZDOTDIR`
+ * is left pointing at the shim for the life of that shell. `rename(2)` is
+ * atomic within a filesystem, so a reader sees either the old file or the new
+ * one and never a half of either.
+ *
+ * The temporary name carries the pid and a UUID so two processes writing the
+ * same target cannot collide on the temporary either.
+ *
+ * Exported for terminal-launch.test.ts, which holds a descriptor open across a
+ * replace — the one observation that tells `rename` apart from `O_TRUNC`.
+ */
+export function replaceFileAtomically(filePath: string, contents: string): void {
+  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`
+  try {
+    writeFileSync(temporaryPath, contents, { encoding: 'utf8', mode: 0o600 })
+    renameSync(temporaryPath, filePath)
+  } catch (error) {
+    // A failed rename leaves the temporary behind; a failed write may too.
+    try {
+      unlinkSync(temporaryPath)
+    } catch {
+      // Nothing to clean up, or nothing we can do about it.
+    }
+    throw error
+  }
+}
+
+/**
+ * The startup-script line that arms OSC 7 for this shell, or null for a shell
+ * we have no env-only way to reach (`sh`, `fish`, a login shell we do not know).
+ */
+export function buildShellIntegrationSetup(shellName: string | undefined, zdotdir: string | null): string | null {
+  if (shellName === 'bash') {
+    return [
+      // The user's own exported `PROMPT_COMMAND`, captured before it is
+      // replaced — the same shape the zsh branch below uses for `$ZDOTDIR`.
+      // A bare `export PROMPT_COMMAND=…` destroyed an inherited value outright,
+      // which is what the header of this section always claimed it did not do.
+      //
+      // The `case` is the self-reference guard: relaunching inside one of our
+      // own terminals inherits `<ours>; <theirs>`, and re-capturing THAT would
+      // append our emitter to itself once per nesting level. `__multicode_status`
+      // appears only in our string, and `MULTICODE_USER_PROMPT_COMMAND` is
+      // exported, so the nested shell keeps the value the outer one captured.
+      `case "\${PROMPT_COMMAND:-}" in *${OSC133_BASH_STATUS_CAPTURE_VARIABLE}*) ;; *) MULTICODE_USER_PROMPT_COMMAND=\${PROMPT_COMMAND:-}; export MULTICODE_USER_PROMPT_COMMAND ;; esac`,
+      // Theirs runs AFTER ours, which is the order the emitter is built for:
+      // its last act is to put `$?` back, so a command appended behind it still
+      // reads the real exit status. A plain assignment rather than
+      // `export NAME=…` so no shell can field-split the joined value.
+      `PROMPT_COMMAND=${quotePosix(SHELL_INTEGRATION_BASH_PROMPT_COMMAND)}\${MULTICODE_USER_PROMPT_COMMAND:+"; \$MULTICODE_USER_PROMPT_COMMAND"}`,
+      'export PROMPT_COMMAND',
+    ].join('; ')
+  }
+  if (shellName === 'zsh' && zdotdir) {
+    return [
+      // Captured before it is replaced, and guarded so a relaunch inside one of
+      // our own terminals does not record the shim directory as "the user's".
+      `if [ "\${ZDOTDIR:-}" != ${quotePosix(zdotdir)} ]; then export MULTICODE_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"; fi`,
+      `export ZDOTDIR=${quotePosix(zdotdir)}`,
+    ].join('; ')
+  }
+  return null
+}
+
 function isLoginShell(shellName: string | undefined): boolean {
   return shellName === 'bash' || shellName === 'zsh'
 }
@@ -1109,8 +1510,19 @@ export function getPlainShellLaunchConfig(
 
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
+  // Only a shell pane gets shell integration — OSC 7 and OSC 133 alike. An
+  // agent pane runs a CLI rather than a prompt (nothing would fire the hook),
+  // and a fleet pane must not resolve a local path at all — so this is the one
+  // launcher that arms it. The 133 marks are shell ergonomics and nothing else:
+  // agent phase comes from `agent-state.ts` over the state socket, and no pane
+  // ever derives it from what a shell printed.
+  const shellIntegrationSetup = buildShellIntegrationSetup(
+    shellName,
+    shellName === 'zsh' ? ensureShellIntegrationZshZdotdir() : null,
+  )
   const launchCommand = [
     buildSprintEngineShellBootstrap(sprintEngineStatePath),
+    ...(shellIntegrationSetup ? [shellIntegrationSetup] : []),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
   const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)

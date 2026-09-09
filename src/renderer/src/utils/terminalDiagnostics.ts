@@ -1,5 +1,6 @@
 import { logPerfEvent, perfDiagnosticsEnabled } from './perfDiagnostics'
 import { recordTerminalWrite } from './diagnostics/terminalThroughputStore'
+import type { TerminalFileLinkDrop } from './terminalFileLinks'
 
 type TerminalDiagnosticsInput = {
   scope: string
@@ -33,6 +34,8 @@ type TerminalDiagnosticsCounters = {
   outputWriteSlowCount: number
   outputWriteMaxMs: number
   outputWriteTotalMs: number
+  fileLinkDropNoRootCount: number
+  fileLinkDropNoRangeCount: number
 }
 
 const TERMINAL_DIAGNOSTIC_FLUSH_MS = 1_000
@@ -62,6 +65,8 @@ function emptyCounters(): TerminalDiagnosticsCounters {
     outputWriteSlowCount: 0,
     outputWriteMaxMs: 0,
     outputWriteTotalMs: 0,
+    fileLinkDropNoRootCount: 0,
+    fileLinkDropNoRangeCount: 0,
   }
 }
 
@@ -87,6 +92,7 @@ export function createTerminalDiagnostics(input: TerminalDiagnosticsInput) {
       recordInputDispatch: (_data: string) => {},
       recordInputWrite: (_data: string, _startedAt: number, _ok: boolean) => {},
       recordOutputWrite: (_data: string, _elapsedMs: number) => {},
+      recordFileLinkDrop: (_drop: TerminalFileLinkDrop) => {},
       flush: () => {},
       dispose: () => {},
     }
@@ -142,6 +148,8 @@ export function createTerminalDiagnostics(input: TerminalDiagnosticsInput) {
       outputWriteSlowCount: counters.outputWriteSlowCount,
       outputWriteAvgMs: round(outputWriteAvgMs),
       outputWriteMaxMs: round(counters.outputWriteMaxMs),
+      fileLinkDropNoRootCount: counters.fileLinkDropNoRootCount,
+      fileLinkDropNoRangeCount: counters.fileLinkDropNoRangeCount,
     })
 
     counters = emptyCounters()
@@ -199,6 +207,26 @@ export function createTerminalDiagnostics(input: TerminalDiagnosticsInput) {
       counters.outputWriteMaxMs = Math.max(counters.outputWriteMaxMs, elapsedMs)
       if (elapsedMs >= SLOW_TERMINAL_OUTPUT_WRITE_MS) {
         counters.outputWriteSlowCount += 1
+      }
+    },
+    // A path the link pattern matched that never became a link. Silent by
+    // construction — the text simply is not underlined — so the counter is the
+    // only evidence that a pane is linkifying nothing. `no-root` means the pane
+    // has neither an execution nor a workspace root, which is what a
+    // folder-less workspace looks like from here; `no-range` should never fire
+    // at all and means the link geometry has come apart.
+    //
+    // Switched exhaustively rather than `if/else`: a reason added later must
+    // land in its own counter, not silently inflate whichever one caught the
+    // fallthrough.
+    recordFileLinkDrop: (drop: TerminalFileLinkDrop) => {
+      switch (drop.reason) {
+        case 'no-root':
+          counters.fileLinkDropNoRootCount += 1
+          break
+        case 'no-range':
+          counters.fileLinkDropNoRangeCount += 1
+          break
       }
     },
     flush,
