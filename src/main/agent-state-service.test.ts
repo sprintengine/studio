@@ -729,6 +729,370 @@ async function run(): Promise<void> {
 
     editServer.close()
 
+    // --- reporter file ledger: the other CLIs' edit vocabularies ------------
+    // Claude Code hands the reporter a diff. Codex hands it the V4A patch TEXT
+    // it applied; Cursor, Kimi and Grok hand it the old/new STRINGS of a
+    // search-replace. None of them carries a line number, so the reporter reads
+    // the file the CLI just wrote and locates the post-image in it — which is
+    // why these cases run against REAL files on disk.
+    //
+    // The Codex payloads below are the shapes captured live from codex-cli
+    // 0.153.3 (2026-09-09), trimmed to the fields the reporter reads. Cursor,
+    // Kimi and Grok could not be run on this machine (each refuses headless
+    // without an account), so those payloads are built from vendor docs —
+    // Grok's from the hook documentation embedded in its own binary.
+    const vocabDir = await mkdtemp(join(tmpdir(), 'multicode-agent-state-vocab-'))
+    const vocabSockPath = join(sockDir, 'vocab-instance.sock')
+    const vocabFrames: string[] = []
+    const vocabServer = await listenLines(vocabSockPath, vocabFrames)
+    const nextVocabFrame = async (index: number): Promise<FileChangeFrame> => {
+      await waitFor(() => vocabFrames.length >= index + 1)
+      return JSON.parse(vocabFrames[index]) as FileChangeFrame
+    }
+
+    // === Codex: one apply_patch call, two files (VERIFIED payload) =========
+    // The captured patch replaced line 5 of a 20-line file and created a new
+    // one in the SAME call. `tool_input.command` is the raw patch; there is no
+    // file_path field and no line number anywhere; `tool_response` is the exec
+    // result STRING. Two files means TWO frames, phase-identical.
+    const codexSample = join(vocabDir, 'sample.txt')
+    const codexGreeting = join(vocabDir, 'greeting.txt')
+    await writeFile(
+      codexSample,
+      Array.from({ length: 20 }, (_unused, index) =>
+        index === 4 ? 'hello' : `line ${index + 1}: original content number ${index + 1}`
+      ).join('\n') + '\n',
+      'utf8'
+    )
+    await writeFile(codexGreeting, 'hello\nworld\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      session_id: '01a0863a-f119-7ae3-b988-f30e7d306232',
+      cwd: vocabDir,
+      hook_event_name: 'PostToolUse',
+      tool_name: 'apply_patch',
+      tool_input: {
+        command: [
+          '*** Begin Patch',
+          `*** Update File: ${codexSample}`,
+          '@@',
+          '-line 5: original content number 5',
+          '+hello',
+          ' line 6: original content number 6',
+          `*** Add File: ${codexGreeting}`,
+          '+hello',
+          '+world',
+          '*** End Patch',
+        ].join('\n'),
+      },
+      tool_response: `Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nA ${codexGreeting}\nM ${codexSample}\n`,
+      tool_use_id: 'exec-08e5ecf6-8c44-429d-9598-8028ee8c8d67',
+    })
+    const codexUpdateFrame = await nextVocabFrame(0)
+    const codexAddFrame = await nextVocabFrame(1)
+    assert.deepEqual(
+      codexUpdateFrame.fileChange,
+      {
+        path: codexSample,
+        additions: 1,
+        deletions: 1,
+        // The hunk has no header and no numbers: line 5 comes from finding the
+        // hunk's post-image ('hello' + the context line) in the file on disk,
+        // and the context line is then walked off the region.
+        edits: [{ oldStart: 5, oldLines: 1, newStart: 5, newLines: 1 }],
+      },
+      'a V4A hunk is located in the file the CLI just wrote'
+    )
+    assert.deepEqual(
+      codexAddFrame.fileChange,
+      { path: codexGreeting, additions: 2, deletions: 0, edits: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2 }] },
+      'an Add File section is a whole-file creation, git`s `@@ -0,0 +1,N @@`'
+    )
+    assert.equal(codexAddFrame.event, codexUpdateFrame.event, 'both frames carry the identical event so the phase fold stays idempotent')
+    assert.equal(codexAddFrame.ts, codexUpdateFrame.ts, 'and the identical ts, so re-ingesting the second is a no-op')
+    assert.equal(
+      JSON.stringify(codexUpdateFrame).includes('original content'),
+      false,
+      'the patch text never rides the socket'
+    )
+
+    // Two hunks in ONE file: the second hunk sat two lines higher before the
+    // first one inserted, and its OLD-side coordinates must say so — that is
+    // the number recordEdit walks every other agent`s spans through.
+    const codexMulti = join(vocabDir, 'multi.txt')
+    await writeFile(codexMulti, 'alpha\ninserted one\ninserted two\nbeta\ngamma\ndelta\nreplaced epsilon\nzeta\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      session_id: 'codex-multi',
+      cwd: vocabDir,
+      hook_event_name: 'PostToolUse',
+      tool_name: 'apply_patch',
+      tool_input: {
+        command: [
+          '*** Begin Patch',
+          '*** Update File: ./multi.txt',
+          '@@',
+          ' alpha',
+          '+inserted one',
+          '+inserted two',
+          ' beta',
+          '@@',
+          ' delta',
+          '-epsilon',
+          '+replaced epsilon',
+          ' zeta',
+          '*** End Patch',
+        ].join('\n'),
+      },
+      tool_response: 'Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nM ./multi.txt\n',
+    })
+    assert.deepEqual(
+      (await nextVocabFrame(2)).fileChange,
+      {
+        // A V4A path is whatever the model wrote: `./multi.txt` is legal and
+        // the reader requires absolute, so it resolves against the payload cwd.
+        path: codexMulti,
+        additions: 3,
+        deletions: 1,
+        edits: [
+          { oldStart: 1, oldLines: 0, newStart: 2, newLines: 2 },
+          { oldStart: 5, oldLines: 1, newStart: 7, newLines: 1 },
+        ],
+      },
+      'the second hunk`s old-side start is corrected by the lines the first one added'
+    )
+
+    // A patch that FAILED reports nothing: Codex`s response is the exec result,
+    // so a non-zero exit is the tool saying it changed nothing.
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      session_id: 'codex-fail',
+      cwd: vocabDir,
+      hook_event_name: 'PostToolUse',
+      tool_name: 'apply_patch',
+      tool_input: { command: `*** Begin Patch\n*** Update File: ${codexSample}\n@@\n-nope\n+never\n*** End Patch` },
+      tool_response: 'Exit code: 1\nWall time: 0 seconds\nOutput:\ninvalid patch: context not found\n',
+    })
+    const codexFailFrame = await nextVocabFrame(3)
+    assert.equal(codexFailFrame.fileChange, undefined, 'a non-zero apply_patch exit is not an edit')
+    assert.equal(codexFailFrame.event, 'PostToolUse', 'the phase frame still goes')
+
+    // === Cursor: afterFileEdit ============================================
+    // Its postToolUse payload carries no edit at all, so the manifest registers
+    // afterFileEdit too. Entries apply IN ORDER, so the second edit`s old-side
+    // coordinates must account for the line the first one added.
+    const cursorFile = join(vocabDir, 'cursor.txt')
+    await writeFile(cursorFile, 'one\nTWO\nEXTRA\nthree\nfour\nFIVE CHANGED\nsix\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'afterFileEdit',
+      conversation_id: 'cursor-chat',
+      workspace_roots: [vocabDir],
+      file_path: cursorFile,
+      edits: [
+        { old_string: 'two', new_string: 'TWO\nEXTRA' },
+        { old_string: 'five', new_string: 'FIVE CHANGED' },
+      ],
+    })
+    assert.deepEqual(
+      (await nextVocabFrame(4)).fileChange,
+      {
+        path: cursorFile,
+        additions: 3,
+        deletions: 2,
+        edits: [
+          { oldStart: 2, oldLines: 1, newStart: 2, newLines: 2 },
+          { oldStart: 5, oldLines: 1, newStart: 6, newLines: 1 },
+        ],
+      },
+      'each Cursor edit is located in the FINAL file and its old-side start rolled back through the earlier ones'
+    )
+
+    // An AMBIGUOUS new string (the replacement text already occurs elsewhere in
+    // the file) costs the whole call its ranges: a region located at the wrong
+    // copy would hand another agent`s lines to this one.
+    const cursorDupe = join(vocabDir, 'dupe.txt')
+    await writeFile(cursorDupe, 'dup\nother\ndup\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'afterFileEdit',
+      conversation_id: 'cursor-chat',
+      workspace_roots: [vocabDir],
+      file_path: cursorDupe,
+      edits: [{ old_string: 'x', new_string: 'dup' }],
+    })
+    assert.deepEqual(
+      (await nextVocabFrame(5)).fileChange,
+      { path: cursorDupe, additions: 1, deletions: 1 },
+      'two matches is no match: the file is still claimed, the lines are not'
+    )
+
+    // A file OUTSIDE the workspace root is reported as itself — it is absolute,
+    // it is what the agent changed, and the ledger hands a person a file to open.
+    const outsideDir = await mkdtemp(join(tmpdir(), 'multicode-agent-state-outside-'))
+    const outsideFile = join(outsideDir, 'outside.txt')
+    await writeFile(outsideFile, 'a\nOUTSIDE\nc\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'afterFileEdit',
+      conversation_id: 'cursor-chat',
+      workspace_roots: [vocabDir],
+      file_path: outsideFile,
+      edits: [{ old_string: 'b', new_string: 'OUTSIDE' }],
+    })
+    assert.deepEqual(
+      (await nextVocabFrame(6)).fileChange,
+      { path: outsideFile, additions: 1, deletions: 1, edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 }] },
+      'an edit outside the workspace root is still that agent`s edit'
+    )
+
+    // Cursor`s postToolUse is deliberately NOT read for edits: its payload
+    // carries none, and accepting the spelling would imply a support it cannot
+    // deliver.
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'postToolUse',
+      conversation_id: 'cursor-chat',
+      workspace_roots: [vocabDir],
+      tool_name: 'Edit',
+      tool_input: { file_path: cursorFile, old_string: 'two', new_string: 'TWO' },
+    })
+    assert.equal((await nextVocabFrame(7)).fileChange, undefined, 'Cursor`s postToolUse never carries a file change')
+
+    // === Kimi Code 0.42: Edit / Write, named like Claude`s ================
+    // Kimi reuses Claude`s tool NAMES with its own input (`path`, not
+    // `file_path`) and a plain-text result with no structuredPatch, so the
+    // field that names the file is what picks the reader. The file here is
+    // CRLF: a line ENDING is not a line, so a \n-spelled tool argument must
+    // still match it.
+    const kimiFile = join(vocabDir, 'crlf.txt')
+    await writeFile(kimiFile, 'alpha\r\nBETA\r\ngamma\r\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'kimi-session',
+      cwd: vocabDir,
+      tool_name: 'Edit',
+      tool_input: { path: 'crlf.txt', old_string: 'beta', new_string: 'BETA', replace_all: false },
+      tool_response: 'The file crlf.txt has been updated. 1 occurrence replaced.',
+    })
+    assert.deepEqual(
+      (await nextVocabFrame(8)).fileChange,
+      { path: kimiFile, additions: 1, deletions: 1, edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 }] },
+      'a CRLF file locates the same way: the ending is normalized, the line numbers are not'
+    )
+
+    // A whole-file write claims the FILE, never a line range: without the
+    // previous content there is no honest old-side range to give. A write whose
+    // payload carries no content at all still records the touch.
+    const kimiWrite = join(vocabDir, 'written.txt')
+    await writeFile(kimiWrite, 'x\ny\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'kimi-session',
+      cwd: vocabDir,
+      tool_name: 'Write',
+      tool_input: { path: kimiWrite },
+    })
+    assert.deepEqual(
+      (await nextVocabFrame(9)).fileChange,
+      { path: kimiWrite, additions: 0, deletions: 0 },
+      'a write with no content field is a file-level claim with nothing guessed'
+    )
+
+    // === Grok Build: post_tool_use / search_replace ========================
+    // Grok`s envelope is camelCase and its payload spells the event
+    // `post_tool_use` (its CONFIG stays PascalCase). search_replace is Grok`s
+    // own name for Edit/Write/MultiEdit.
+    const grokFile = join(vocabDir, 'grok.txt')
+    await writeFile(grokFile, 'g1\nG TWO\ng3\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hookEventName: 'post_tool_use',
+      sessionId: 'grok-session',
+      cwd: vocabDir,
+      workspaceRoot: vocabDir,
+      permissionMode: 'default',
+      toolName: 'search_replace',
+      toolInput: { file_path: 'grok.txt', old_string: 'g2', new_string: 'G TWO' },
+      toolUseId: 'toolu_grok',
+      toolInputTruncated: false,
+    })
+    const grokEditFrame = await nextVocabFrame(10)
+    assert.equal(grokEditFrame.event, 'post_tool_use', 'the raw event spelling is forwarded unmodified — main folds the case')
+    assert.deepEqual(
+      grokEditFrame.fileChange,
+      { path: grokFile, additions: 1, deletions: 1, edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 }] },
+      'the file-edit gate accepts the snake_case event spelling'
+    )
+
+    // An edit whose file was changed AGAIN before the hook ran: the new string
+    // is no longer in the file, so there is nothing to locate — the file is
+    // still claimed, which is what the app falls back to anyway.
+    const racedFile = join(vocabDir, 'raced.txt')
+    await writeFile(racedFile, 'someone else wrote this\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hookEventName: 'post_tool_use',
+      sessionId: 'grok-session',
+      cwd: vocabDir,
+      toolName: 'search_replace',
+      toolInput: { file_path: racedFile, old_string: 'before', new_string: 'after' },
+    })
+    assert.deepEqual(
+      (await nextVocabFrame(11)).fileChange,
+      { path: racedFile, additions: 1, deletions: 1 },
+      'a file already rewritten under us degrades to a file-level claim, not a wrong range'
+    )
+
+
+    // A Kimi call that FAILED (`isError`) is not an edit, even though the file
+    // it names is real and its input reads exactly like a successful one.
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'PostToolUse',
+      session_id: 'kimi-session',
+      cwd: vocabDir,
+      tool_name: 'Edit',
+      tool_input: { path: 'crlf.txt', old_string: 'nowhere', new_string: 'BETA' },
+      tool_response: { isError: true, output: 'old_string not found in crlf.txt' },
+    })
+    assert.equal((await nextVocabFrame(12)).fileChange, undefined, 'a Kimi isError result is not an edit')
+
+    // === Claude Code: FileChanged (the file watcher) ======================
+    // Claude Code 2.1.266's watcher event carries file_path and event
+    // (change | add | unlink) and no diff at all — it is how an edit made
+    // through Bash, a formatter or a codegen step reaches the changelist. It is
+    // recorded as a TOUCH: path only, no counts, no ranges, so a FileChanged
+    // that follows the Edit that caused it adds nothing to the ledger's numbers.
+    const watchedFile = join(vocabDir, 'formatted.txt')
+    await writeFile(watchedFile, 'formatted\n', 'utf8')
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'FileChanged',
+      session_id: 'watch-session',
+      cwd: vocabDir,
+      file_path: watchedFile,
+      event: 'change',
+    })
+    const watchedFrame = await nextVocabFrame(13)
+    assert.equal(watchedFrame.event, 'FileChanged', 'the watcher event is forwarded under its own name')
+    assert.deepEqual(
+      watchedFrame.fileChange,
+      { path: watchedFile, additions: 0, deletions: 0 },
+      'a watched-file change is a touch: the file, no counts, no ranges'
+    )
+    // A relative watcher path still resolves, and an unlink is still a touch.
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'FileChanged',
+      session_id: 'watch-session',
+      cwd: vocabDir,
+      file_path: 'formatted.txt',
+      event: 'unlink',
+    })
+    assert.deepEqual(
+      (await nextVocabFrame(14)).fileChange,
+      { path: watchedFile, additions: 0, deletions: 0 },
+      'a deleted file is a change the agent made, and its path is still absolute'
+    )
+    await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
+      hook_event_name: 'FileChanged',
+      session_id: 'watch-session',
+      cwd: vocabDir,
+      event: 'change',
+    })
+    assert.equal((await nextVocabFrame(15)).fileChange, undefined, 'a watcher event with no path names nothing')
+
+    vocabServer.close()
+
     // --- status-line forwarder ---------------------------------------------
     // Executes the REAL bundled forwarder: the payload below is Claude Code's
     // documented status-line document, and what comes back over the socket must

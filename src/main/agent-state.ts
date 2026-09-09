@@ -57,6 +57,35 @@ export type AgentStateEventResolution =
 
 export type AppliedAgentStateEvent = Extract<AgentStateEventResolution, { action: 'apply' }>
 
+/**
+ * Fold an event name to the form event matching compares on: lower-cased with
+ * `_` and `-` removed, so `PreToolUse`, `pre_tool_use`, `pre-tool-use` and
+ * `preToolUse` are all one event.
+ *
+ * Why this exists (MC-2520): a CLI's CONFIG spelling and its PAYLOAD spelling
+ * need not agree. Grok Build reads `PreToolUse` in `.grok/hooks/*.json` (and
+ * accepts the snake_case and Cursor camelCase spellings there too) but stamps
+ * the payload `"hookEventName": "pre_tool_use"`. Matching the manifest's
+ * PascalCase against that frame exactly dropped EVERY Grok frame, so a Grok
+ * agent never left `starting` until the stall watch flagged it.
+ *
+ * One fold, not per-event aliases: an alias table is a second vocabulary to
+ * maintain per CLI, and it is silently wrong for the next event nobody listed.
+ * The manifests keep the CLI's own written spelling (Grok/Claude PascalCase,
+ * Cursor camelCase, OpenCode dotted) — this only decides EQUALITY.
+ *
+ * `.` is deliberately NOT stripped: OpenCode's `session.idle` /
+ * `tool.execute.before` are structured names whose dots separate real segments,
+ * and folding them would collapse distinct events.
+ *
+ * Collision safety is a per-manifest property (two entries in ONE spec must not
+ * fold together); every shipped manifest is checked by test, since the first
+ * canonical match wins.
+ */
+export function canonicalEventName(event: string): string {
+  return event.replace(/[_-]/g, '').toLowerCase()
+}
+
 // Read the frame field a discriminator NAMES, never a hardcoded one, so a
 // widened field enum can't silently misread.
 function discriminatorValue(
@@ -71,7 +100,11 @@ export function resolveAgentStateEvent(
   frame: Pick<AgentStateFrame, 'event' | 'phase' | 'notificationType' | 'status'>
 ): AgentStateEventResolution {
   if (spec && frame.event) {
-    const entry = spec.events.find((candidate) => candidate.event === frame.event)
+    // Canonical, not exact: the frame carries the CLI's PAYLOAD spelling, which
+    // can differ in case/underscores from the manifest's written form (see
+    // canonicalEventName). An exact compare dropped every Grok frame.
+    const frameEvent = canonicalEventName(frame.event)
+    const entry = spec.events.find((candidate) => canonicalEventName(candidate.event) === frameEvent)
     // An event the spec does not name carries no phase for this CLI — the
     // prior phase stands. (This is also what makes a discriminator allow-list
     // fail SAFE: see below.)
@@ -174,8 +207,15 @@ export function holdTurnEndForBackgroundWork(
  * Claude/Codex/Kimi vocabulary; Cursor spells the same moment
  * `beforeSubmitPrompt`. Named here because the reporter's list and any reader's
  * idea of "does this runtime report messages" have to be the same list.
+ *
+ * Held canonically (see canonicalEventName) and compared canonically, for the
+ * same reason resolveAgentStateEvent does: a manifest that writes the moment
+ * `user_prompt_submit` names the same event as one that writes
+ * `UserPromptSubmit`, and this question must not turn on the spelling.
  */
-const PROMPT_REPORTING_EVENTS: ReadonlySet<string> = new Set(['UserPromptSubmit', 'beforeSubmitPrompt'])
+const PROMPT_REPORTING_EVENTS: ReadonlySet<string> = new Set(
+  ['UserPromptSubmit', 'beforeSubmitPrompt'].map(canonicalEventName)
+)
 
 /**
  * True when this CLI's manifest declares an event that carries what the person
@@ -186,7 +226,7 @@ const PROMPT_REPORTING_EVENTS: ReadonlySet<string> = new Set(['UserPromptSubmit'
 export function agentStateSpecReportsPrompts(
   spec: Pick<PluginAgentStateSpec, 'events'> | null | undefined
 ): boolean {
-  return Boolean(spec?.events.some((entry) => PROMPT_REPORTING_EVENTS.has(entry.event)))
+  return Boolean(spec?.events.some((entry) => PROMPT_REPORTING_EVENTS.has(canonicalEventName(entry.event))))
 }
 
 export function registeredAgentStateEvents(
@@ -1436,6 +1476,26 @@ async function readTextIfExists(path: string): Promise<string | null> {
 // plain write, uninstall a plain remove — no merge/unmerge bookkeeping. The
 // per-event structure ({ matcher?, hooks: [{ type: 'command', command }] })
 // mirrors Claude Code's settings hooks, which is the format Grok documents.
+//
+// SPELLING (MC-2520). Event names are written here EXACTLY as the manifest
+// spells them — no folding on the way out. Config spelling is a property of the
+// registration kind and is not the same question as frame matching
+// (canonicalEventName), which is deliberately spelling-blind because a CLI's
+// payload spelling need not match its config spelling.
+//
+// Verified against grok 1.0.13 on 2026-09-09 by writing candidate
+// `.grok/hooks/*.json` files and counting what `grok inspect` loaded (its
+// loader filters unknown event names — a file of invented names loads 0):
+//   PascalCase  `PreToolUse`    loaded (all 15 events)  <- what we emit
+//   snake_case  `pre_tool_use`  loaded
+//   camelCase   `preToolUse`    loaded (documented Cursor-compat alias)
+//   kebab-case  `pre-tool-use`  SKIPPED
+//   SCREAMING   `PRETOOLUSE`    SKIPPED
+// So Grok accepts a fixed alias SET, not arbitrary case folding, and the
+// manifest's PascalCase is inside it: this emitter needs no per-kind rule
+// today. If a future owned-json CLI reads only one spelling, convert HERE
+// (keyed off the registration kind) and leave both the manifest's written form
+// and canonical matching alone.
 // =============================================================================
 
 export function renderOwnedJsonAgentStateHooksConfig(

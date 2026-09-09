@@ -10,6 +10,7 @@ import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import {
   AGENT_STATE_HOOK_TAG,
   applyBackgroundWork,
+  canonicalEventName,
   buildAgentStateReporterCommand,
   deriveActivityFromPhase,
   evaluateAgentStall,
@@ -116,6 +117,11 @@ async function run(): Promise<void> {
   const codexSpec = await loadBundledSpec('codex')
   const grokSpec = await loadBundledSpec('grok')
   const opencodeSpec = await loadBundledSpec('opencode')
+  // Every bundled manifest that declares an agentStateSpec (the canonical-fold
+  // collision sweep below must see all of them, not just the ones named above).
+  const BUNDLED_AGENT_STATE_PLUGINS = [
+    'claude-code', 'codex', 'cursor', 'grok', 'kimi-claude', 'kimi-code', 'opencode', 'zai',
+  ] as const
 
   // zai and kimi-claude run the same `claude` binary; their operative spec
   // (registration + events; $comment aside) must stay identical to claude-code
@@ -128,6 +134,11 @@ async function run(): Promise<void> {
     const resolution = resolveAgentStateEvent(spec, { event, notificationType })
     return resolution.action === 'apply' ? resolution.phase : null
   }
+  const flagsFor = (spec: PluginAgentStateSpec, event: string) => {
+    const r = resolveAgentStateEvent(spec, { event, notificationType: undefined })
+    return r.action === 'apply' ? { turnEnd: r.turnEnd, turnFailure: r.turnFailure } : null
+  }
+  const cursorSpecForSpelling = await loadBundledSpec('cursor')
 
   // --- event → phase mapping (manifest-driven) ----------------------------
   assert.equal(resolvePhase(claudeSpec, 'SessionStart'), 'starting')
@@ -213,6 +224,61 @@ async function run(): Promise<void> {
   // An event-less legacy frame with a phase still applies.
   assert.equal(resolveAgentStateEvent(claudeSpec, { event: null, phase: 'idle' }).action, 'apply')
 
+  // --- event-name spelling is canonical, not exact (MC-2520) ---------------
+  // Grok Build reads `PreToolUse` in .grok/hooks/*.json but stamps the payload
+  // `"hookEventName": "pre_tool_use"`, so an exact compare dropped EVERY Grok
+  // frame and a Grok agent never left `starting`. The manifest keeps the CLI's
+  // written PascalCase; matching folds case and _/- on both sides.
+  assert.equal(canonicalEventName('PreToolUse'), 'pretooluse')
+  assert.equal(canonicalEventName('pre_tool_use'), 'pretooluse')
+  assert.equal(canonicalEventName('pre-tool-use'), 'pretooluse')
+  assert.equal(
+    canonicalEventName('session.idle'),
+    'session.idle',
+    'dots are structure (OpenCode), never folded away'
+  )
+
+  // Both spellings of every Grok event resolve to the SAME phase.
+  for (const entry of grokSpec.events) {
+    const snake = entry.event.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+    assert.notEqual(snake, entry.event, `${entry.event} should have a distinct snake_case spelling`)
+    const notificationType = entry.when ? entry.when.oneOf[0] : undefined
+    assert.equal(
+      resolvePhase(grokSpec, snake, notificationType),
+      resolvePhase(grokSpec, entry.event, notificationType),
+      `grok ${snake} must resolve like ${entry.event}`
+    )
+    assert.equal(
+      resolvePhase(grokSpec, entry.event, notificationType),
+      entry.phase,
+      `grok ${entry.event} must still match its manifest phase exactly`
+    )
+  }
+  // The real bug, end to end: the payload spelling now carries turn end too.
+  assert.deepEqual(flagsFor(grokSpec, 'stop'), { turnEnd: true, turnFailure: false })
+  assert.equal(resolvePhase(grokSpec, 'pre_tool_use'), 'tool_use')
+  assert.equal(resolvePhase(grokSpec, 'session_end'), 'exited')
+  // PascalCase manifests still match their own exact spelling (no regression).
+  assert.equal(resolvePhase(claudeSpec, 'PreToolUse'), 'tool_use')
+  assert.equal(resolvePhase(cursorSpecForSpelling, 'sessionStart'), 'starting')
+  // Folding must not turn an unrelated name into a match.
+  assert.deepEqual(resolveAgentStateEvent(grokSpec, { event: 'pre_tool_used', phase: 'thinking' }), { action: 'drop' })
+  assert.deepEqual(resolveAgentStateEvent(grokSpec, { event: 'not_an_event', phase: 'thinking' }), { action: 'drop' })
+  assert.deepEqual(resolveAgentStateEvent(grokSpec, { event: 'stopping', phase: 'idle' }), { action: 'drop' })
+
+  // ADVERSARIAL: canonical matching makes the FIRST canonical match win, so no
+  // shipped manifest may declare two events that fold to the same name.
+  for (const pluginId of BUNDLED_AGENT_STATE_PLUGINS) {
+    const spec = await loadBundledSpec(pluginId)
+    const seen = new Map<string, string>()
+    for (const entry of spec.events) {
+      const key = canonicalEventName(entry.event)
+      const prior = seen.get(key)
+      assert.equal(prior, undefined, `${pluginId}: ${prior} and ${entry.event} fold to the same event`)
+      seen.set(key, entry.event)
+    }
+  }
+
   // --- turn-end / turn-failure flags (manifest-declared) -------------------
   // SubagentStop is a subagent finishing, not the session's turn end, and
   // session.error maps to `idle` like session.idle but is a crash — either one
@@ -277,7 +343,13 @@ async function run(): Promise<void> {
   const claudeRegistered = registeredAgentStateEvents(claudeSpec)
   assert.ok(!claudeRegistered.some((e) => e.event === 'PreToolUse'), 'PreToolUse must not be registered')
   assert.ok(claudeRegistered.some((e) => e.event === 'PostToolUse' && e.matcher === '*'), 'PostToolUse * missing')
-  assert.equal(claudeRegistered.length, claudeSpec.events.length - 1)
+  // FileChanged is the second map-only event (agent changelists): the reporter
+  // reads it, but nothing arms its watch paths yet, so it is not written either.
+  assert.ok(!claudeRegistered.some((e) => e.event === 'FileChanged'), 'FileChanged must not be registered')
+  assert.equal(
+    claudeRegistered.length,
+    claudeSpec.events.filter((e) => e.register !== false).length,
+  )
   const codexRegistered = registeredAgentStateEvents(codexSpec)
   assert.ok(!codexRegistered.some((e) => e.event === 'PreToolUse'))
   assert.ok(codexRegistered.some((e) => e.event === 'PermissionRequest'))
@@ -948,6 +1020,22 @@ async function run(): Promise<void> {
   }
   assert.equal(grokConfig.hooks?.PreToolUse, undefined, 'PreToolUse must not be registered for grok')
   assert.ok(grokConfig.hooks?.Notification, 'Notification must be registered for grok')
+
+  // SPELLING (MC-2520): the config file keeps the manifest's PascalCase, which
+  // is NOT folded on the way out — canonical matching is for incoming frames
+  // only. Verified against grok 1.0.13 on 2026-09-09: `grok inspect` loads a
+  // PascalCase .grok/hooks/*.json (all 15 events) and drops unknown names, so
+  // this is a spelling the binary actually reads.
+  for (const key of Object.keys(grokConfig.hooks ?? {})) {
+    assert.match(key, /^[A-Z][A-Za-z]*$/, `grok config event ${key} must stay PascalCase`)
+  }
+  assert.ok(grokConfig.hooks?.SessionStart, 'grok config must spell SessionStart, not session_start')
+  assert.equal(grokConfig.hooks?.session_start, undefined, 'grok config must not emit snake_case')
+  assert.deepEqual(
+    Object.keys(JSON.parse(renderOwnedJsonAgentStateHooksConfig('cmd', [{ event: 'SessionStart' }, { event: 'session_end' }])).hooks),
+    ['SessionStart', 'session_end'],
+    'the emitter writes each event exactly as given — no folding, no rewriting'
+  )
 
   // --- owned-json install round-trip on disk (grok spec) -------------------
   // Writes .grok/hooks/multicode-agent-state.json, copies the shared reporter,
