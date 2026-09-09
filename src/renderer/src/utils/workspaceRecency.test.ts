@@ -140,33 +140,75 @@ run('sortWorkspacesByUserMessage is stable for exact ties and does not mutate in
 // 2026-09-09). What an agent is doing decides how a row looks, never where it
 // sits, so the three cases below all assert the same thing from different
 // angles: only a message moves a row.
-run('a row that finishes keeps its seat between the same two neighbours', () => {
-  // "Finished while you were away" used to lift a row into the green band.
-  // The comparator never sees that state now, so the list it deals is the same
-  // list before and after — which is exactly the assertion.
-  const newest = makeWorkspace('newest', { createdAt: NOW - 5 * DAY, lastUserMessageAt: NOW - 40 * MINUTE })
-  const finished = makeWorkspace('finished', { createdAt: NOW - 5 * DAY, lastUserMessageAt: NOW - HOUR })
-  const oldest = makeWorkspace('oldest', { createdAt: NOW - 5 * DAY, lastUserMessageAt: NOW - 5 * DAY })
-
-  const before = sortWorkspacesByUserMessage([oldest, newest, finished])
-  assert.deepEqual(before.map((w) => w.id), ['newest', 'finished', 'oldest'])
-
-  // The agent finishing changes no stored clock the order reads, so re-sorting
-  // the same records lands the row back between the same two neighbours.
-  const after = sortWorkspacesByUserMessage([oldest, newest, finished])
-  assert.deepEqual(after.map((w) => w.id), ['newest', 'finished', 'oldest'], 'the green row stays put')
-})
-
-run('a row that becomes blocked keeps its seat too', () => {
-  // A permission prompt used to outrank everything. Gold now tints in place.
-  const fresh = makeWorkspace('fresh', { createdAt: NOW - 5 * DAY, lastUserMessageAt: NOW })
-  const blocked = makeWorkspace('blocked', { createdAt: NOW - 5 * DAY, lastUserMessageAt: NOW - 5 * DAY })
+run('a finished agent does not lift its row: the turn-end clock is not read', () => {
+  // What "finished" is, to the stored record: `lastTurnEndedAt` moves. That
+  // clock used to reach the order through the done band, which lifted the green
+  // row over chats spoken in more recently. The comparator must not see it.
+  const spokenInRecently = makeWorkspace('spoken-in-recently', {
+    createdAt: NOW - 5 * DAY,
+    lastUserMessageAt: NOW - 40 * MINUTE,
+    lastTurnEndedAt: NOW - 5 * DAY,
+  })
+  const justFinished = makeWorkspace('just-finished', {
+    createdAt: NOW - 5 * DAY,
+    lastUserMessageAt: NOW - HOUR,
+    lastTurnEndedAt: NOW,
+  })
 
   assert.deepEqual(
-    sortWorkspacesByUserMessage([fresh, blocked]).map((w) => w.id),
-    ['fresh', 'blocked'],
-    'a stale row waiting on you does not jump the row you just spoke in',
+    sortWorkspacesByUserMessage([spokenInRecently, justFinished]).map((w) => w.id),
+    ['spoken-in-recently', 'just-finished'],
+    'the row whose agent just finished stays below the one spoken in more recently',
   )
+})
+
+run('an agent working in a chat does not lift its row either', () => {
+  // A working or blocked agent writes to the pty, which moves
+  // `lastTerminalActivityAt`. That clock is the fallback only — a row that has
+  // a message stamp never reads it, so nothing the agent does can outrank what
+  // the person said.
+  const spokenInRecently = makeWorkspace('spoken-in-recently', {
+    createdAt: NOW - 5 * DAY,
+    lastTerminalActivityAt: NOW - 5 * DAY,
+    lastUserMessageAt: NOW - 40 * MINUTE,
+  })
+  const busy = makeWorkspace('busy', {
+    createdAt: NOW - 5 * DAY,
+    lastTerminalActivityAt: NOW,
+    lastUserMessageAt: NOW - HOUR,
+  })
+
+  assert.deepEqual(
+    sortWorkspacesByUserMessage([spokenInRecently, busy]).map((w) => w.id),
+    ['spoken-in-recently', 'busy'],
+    'a live pty does not outrank the message clock',
+  )
+})
+
+run('the order is a pure function of the message clock, whatever order it arrives in', () => {
+  // Nothing about where a row sits may depend on where it sat: the store hands
+  // the sidebar its rows in creation order, a folder regroups them, a drag
+  // reorders them. Every permutation of the same three records must deal the
+  // same list.
+  const a = makeWorkspace('a', { createdAt: NOW - 5 * DAY, lastUserMessageAt: NOW - 40 * MINUTE })
+  const b = makeWorkspace('b', { createdAt: NOW - 5 * DAY, lastUserMessageAt: NOW - HOUR })
+  const c = makeWorkspace('c', { createdAt: NOW - 5 * DAY, lastUserMessageAt: NOW - 5 * DAY })
+  const permutations = [
+    [a, b, c],
+    [a, c, b],
+    [b, a, c],
+    [b, c, a],
+    [c, a, b],
+    [c, b, a],
+  ]
+
+  for (const input of permutations) {
+    assert.deepEqual(
+      sortWorkspacesByUserMessage(input).map((w) => w.id),
+      ['a', 'b', 'c'],
+      `input order ${input.map((w) => w.id).join('')} deals the same list`,
+    )
+  }
 })
 
 run('a newer last message moves the row to the top of its group', () => {

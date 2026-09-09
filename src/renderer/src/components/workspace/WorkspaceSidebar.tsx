@@ -2757,10 +2757,10 @@ export default function WorkspaceSidebar({
     )
   }
 
-  // Renders a folder's workspace rows: the active rows in attention order,
-  // then — only when the folder has any — its Settled shelf (settled-chats,
-  // 2026-09-07): one fold row carrying the count, closed by default, over the
-  // resting rows in compact form, most recently messaged first. The shelf
+  // Renders a folder's workspace rows: the active rows, most recently messaged
+  // first, then — only when the folder has any — its Settled shelf
+  // (settled-chats, 2026-09-07): one fold row carrying the count, closed by
+  // default, over the resting rows in compact form, in that same order. The shelf
   // replaces the old "Show N older" recency fold: a chat now rests by the
   // settle rule (`utils/workspaceSettle.ts`), never by a fold that hid it.
   // `folderBodyId` lets the folder header's toggle button own an

@@ -422,12 +422,14 @@ export function groupSessionItems(
  * once. Both the starred section and each folder's rows are ordered by when
  * the person last messaged each (`workspaceLastUserMessageAt`).
  *
- * The sidebar additionally bands its rows by attention (blocked, just
- * finished, running, at rest) before applying this recency order. The
- * dropdown does not: the unseen-done mark is sidebar-local session state with
- * no home in the store, so a shared banding would be right about two tiers and
- * silently wrong about the third. Recency is the part both surfaces can agree
- * on, so it is the part they share.
+ * That is now the whole order on both surfaces. The sidebar used to band its
+ * rows by attention (blocked, just finished, running, at rest) on top of this
+ * recency order, and the dropdown never could — the unseen-done mark is
+ * sidebar-local session state with no home in the store, so the two surfaces
+ * disagreed about where a row sat. The banding is gone (owner ruling
+ * 2026-09-09: a finishing or blocked agent tints its row and never moves it),
+ * so the sidebar and this dropdown now deal exactly the same order from
+ * exactly the same clock.
  */
 export function buildSidebarWorkspaceOrder(
   workspaces: Workspace[],

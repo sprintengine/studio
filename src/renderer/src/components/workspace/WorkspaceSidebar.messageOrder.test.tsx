@@ -96,11 +96,14 @@ async function main(): Promise<void> {
       ...(starred ? { highlight: { starred: true } } : {}),
     }) as unknown as Workspace
 
+  // Declared deliberately out of message order, so an assertion below can only
+  // pass if something actually sorted: stored order alone would read
+  // Delta, Bravo, Alpha, Charlie.
   const workspaces = [
-    workspace('w1', 'Alpha', 1),
-    workspace('w2', 'Bravo', 2, true),
-    workspace('w3', 'Charlie', 3),
     workspace('w4', 'Delta', 4, true),
+    workspace('w2', 'Bravo', 2, true),
+    workspace('w1', 'Alpha', 1),
+    workspace('w3', 'Charlie', 3),
   ]
 
   const recency = (workingSince: number | null) => ({
@@ -198,6 +201,16 @@ async function main(): Promise<void> {
 
   const starredOrder = (): string[] => namesIn(container.querySelector('#ws-starred-body'))
 
+  // The folder's row element for one chat, for reading the classes its state
+  // paints on it.
+  const rowFor = (name: string): Element | undefined => {
+    const starredBody = container.querySelector('#ws-starred-body')
+    const starred = new Set(starredBody ? [...starredBody.querySelectorAll('[role="treeitem"]')] : [])
+    return [...container.querySelectorAll('[role="treeitem"]')].find(
+      (row) => !starred.has(row) && row.textContent?.includes(name)
+    )
+  }
+
   try {
     await render(whileBravoWorks)
     assert.deepEqual(
@@ -211,6 +224,13 @@ async function main(): Promise<void> {
       rowOrder(),
       ['Alpha', 'Bravo', 'Charlie', 'Delta'],
       'the row that just finished goes green in place: same row above it, same row below'
+    )
+    // "In place" is only half of it — the other half is that the row goes
+    // green at all. Losing the tint with the banding would satisfy every
+    // order assertion in this file, so check the mark is really on the row.
+    assert.ok(
+      rowFor('Bravo')?.className.includes('tone-good-faint'),
+      'the finished row wears the unseen-done tint (doneRowClass)'
     )
 
     // Selecting Bravo clears its green mark. Nothing moved when the mark

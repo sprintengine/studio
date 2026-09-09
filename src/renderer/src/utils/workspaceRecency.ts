@@ -72,8 +72,11 @@ function compareWorkspacesByUserMessage(a: Workspace, b: Workspace): number {
 
 /**
  * Orders workspaces by when the person last messaged each, most recent first,
- * rather than by manual position. Every list of chats uses this and only this
- * — project groups, Starred, the flat stream, the Settled shelf.
+ * rather than by manual position. Every list of chats uses this and only this:
+ * the sidebar's project groups, Starred band, flat stream and Settled shelves,
+ * and — through `buildSidebarWorkspaceOrder` — the session-manager dropdown,
+ * which reproduces the sidebar's order so the two surfaces never disagree
+ * about where a chat sits.
  *
  * There used to be a banding step on top (`sortWorkspacesByAttention`: blocked
  * first, then finished-while-you-were-away, then running, then at rest), so an
