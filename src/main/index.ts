@@ -261,6 +261,7 @@ registerAppLifecycle({
   automationService: services.automationService,
   agentStateService: services.agentStateService,
   workspaceSyncService: services.workspaceSyncService,
+  pullRequestRecord: services.pullRequestRecord,
   sprintRuntime: services.sprintRuntime,
   moduleKernel: moduleLoad.kernel,
   updateService: services.updateService,

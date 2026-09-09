@@ -43,6 +43,15 @@ type RegisterAppLifecycleOptions = {
     /** Persist the debounced workspace registry write before the app exits. */
     flush(): Promise<void>
   }
+  // The conversation pull request record (epic `pull-request-marks`). It holds
+  // a chained write per repository and a watch timer per open pull request, so
+  // quit has to settle the writes — a capture in the last seconds before quit
+  // is otherwise lost — and tear the timers down with the runtime that owns the
+  // sessions they were armed for.
+  pullRequestRecord?: {
+    flush(): Promise<void>
+    dispose(): void
+  }
   // The main-process sprint scheduler (sprint-runtime-ownership Phase 2):
   // stopped before the terminal runtime tears down so no tick spawns into a
   // dying process table; its shutdown also releases the power-save blocker.
@@ -80,6 +89,7 @@ export function registerAppLifecycle({
   automationService,
   agentStateService,
   workspaceSyncService,
+  pullRequestRecord,
   sprintRuntime,
   moduleKernel,
   updateService,
@@ -312,6 +322,11 @@ export function registerAppLifecycle({
       await automationService?.shutdown()
       await agentStateService?.shutdown()
       await terminalRuntime.shutdown()
+      // In the same leg as the terminal service, and after it: the last frames
+      // it ingests can still file a captured pull request, and this is what
+      // gets that write to disk and stops the watch timers.
+      await pullRequestRecord?.flush()
+      pullRequestRecord?.dispose()
       await conversationRuntime?.shutdown()
       await workspaceSyncService?.flush()
       // Module-owned shutdown runs here via each module's onShutdown hook —
