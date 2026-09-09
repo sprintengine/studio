@@ -44,7 +44,6 @@ export type GitChangesListProps = {
   onExpandedChange: (groupId: string, next: boolean) => void
   selectedPaths: ReadonlySet<string>
   cursorPath: string | null
-  busy: boolean
   /** Tick or untick one row. The panel decides which way from the row's state. */
   onToggleRow: (row: GitChangeRow) => void
   /** Tick or untick a whole group. */
@@ -75,7 +74,6 @@ export function GitChangesList({
   onExpandedChange,
   selectedPaths,
   cursorPath,
-  busy,
   onToggleRow,
   onToggleGroup,
   onRowClick,
@@ -90,6 +88,7 @@ export function GitChangesList({
   // Which fill a picked row takes: the accent edge belongs to the pane the
   // person is driving, and exactly one edge may be on screen at a time.
   const [listFocused, setListFocused] = React.useState(false)
+  const listRef = React.useRef<HTMLDivElement | null>(null)
 
   const cursorIndex = cursorPath ? visibleRows.findIndex((row) => row.path === cursorPath) : -1
 
@@ -125,7 +124,7 @@ export function GitChangesList({
       // a drawing — there is nothing else for the keyboard to press.
       event.preventDefault()
       const row = visibleRows[cursorIndex]
-      if (row && !busy) onToggleRow(row)
+      if (row) onToggleRow(row)
     } else if (event.key === 'Enter') {
       event.preventDefault()
       const row = visibleRows[cursorIndex]
@@ -135,12 +134,21 @@ export function GitChangesList({
 
   return (
     <div
+      ref={listRef}
       role="listbox"
       aria-multiselectable="true"
       aria-label="Changed files"
       aria-activedescendant={cursorPath ? changeRowDomId(listId, cursorPath) : undefined}
       tabIndex={0}
       onKeyDown={handleKeyDown}
+      onMouseDown={(event) => {
+        // The rows are not focusable — the LIST is the tab stop — so a click on
+        // a row has to hand focus to the list, or the arrow keys do nothing
+        // until the person has tabbed to it. A group header owns its own
+        // controls and keeps their focus.
+        if (event.target instanceof Element && event.target.closest('[data-git-group-header="true"]')) return
+        listRef.current?.focus()
+      }}
       onFocus={() => setListFocused(true)}
       onBlur={(event) => {
         if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
@@ -163,8 +171,12 @@ export function GitChangesList({
                 onExpandedChange={(next) => onExpandedChange(group.id, next)}
                 controls={regionId}
                 checked={group.checked ?? undefined}
+                // Handed over even while a command is in flight: the panel's
+                // `runAction` already refuses a second one, and withholding the
+                // handler here would make the box a dead area that the row
+                // underneath answers for.
                 onCheckedChange={
-                  group.checked === null || busy ? undefined : (next) => onToggleGroup(group, next)
+                  group.checked === null ? undefined : (next) => onToggleGroup(group, next)
                 }
                 checkLabel={`Stage every file in ${group.title}`}
               />
@@ -183,7 +195,11 @@ export function GitChangesList({
                     data-git-change-row="true"
                     role="option"
                     checked={row.checked}
-                    onCheckedChange={busy ? undefined : () => onToggleRow(row)}
+                    // Always present. `check-row` only swallows the click when
+                    // it has a handler to run, so a box that dropped its
+                    // handler while busy would let the click through to the row
+                    // and OPEN THE DIFF — a tick that shows a diff instead.
+                    onCheckedChange={() => onToggleRow(row)}
                     glyph={<FileTypeGlyph name={row.filename} tone="kind" className="icon-sm" />}
                     name={
                       // The status tint travels with the name, and the word

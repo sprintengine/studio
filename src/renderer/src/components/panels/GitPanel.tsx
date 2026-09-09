@@ -1875,7 +1875,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                     }
                     selectedPaths={selectedPaths}
                     cursorPath={cursorPath}
-                    busy={Boolean(busy)}
                     onToggleRow={handleToggleChangeRow}
                     onToggleGroup={handleToggleChangeGroup}
                     onRowClick={handleChangeRowClick}
