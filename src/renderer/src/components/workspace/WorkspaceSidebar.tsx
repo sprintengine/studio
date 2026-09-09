@@ -93,7 +93,7 @@ import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengine
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
-import { isSettledWorkspace, workspaceLastActiveAt } from '../../utils/workspaceSettle'
+import { isSettledWorkspace } from '../../utils/workspaceSettle'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
@@ -137,9 +137,9 @@ type WorkspaceSidebarProps = {
   activityByWorkspaceId: Record<WorkspaceId, Activity>
   // Workspaces whose agents are resident (live PTY) right now — instant to
   // switch into, versus suspended/exited rows that re-launch on open. Said in
-  // words on the row for a screen reader; it is no longer what bolds a row
-  // (see `workspaceRowEmphasis`), because a live pty on a chat nobody has
-  // touched since this morning is not the same claim as a chat in motion.
+  // words on the row for a screen reader, and what bolds a row
+  // (see `workspaceRowEmphasis`): a chat with an agent still in it is one you
+  // can walk back into and speak to, which is what the foreground is for.
   residentWorkspaceIds: Set<WorkspaceId>
   terminalRecencyByWorkspaceId: Record<WorkspaceId, TerminalRecency>
   // The unseen-completion marks, as they change — the app rail's Home badge
@@ -2345,23 +2345,18 @@ export default function WorkspaceSidebar({
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     // "Hot": at least one resident (live-PTY) agent — instant to switch into.
-    // Said in words for a screen reader; it no longer claims a visual channel.
-    // Weight now belongs to the row that is MOVING (see `emphasis` below), and
-    // residency is not movement: a chat whose CLI process happens to still be
-    // up, untouched since this morning, is background whatever its pty is
-    // doing (owner, 2026-09-07).
+    // Said in words for a screen reader, and since 2026-09-09 it is also what
+    // lights the row: an agent alive in a chat is what makes it a place you can
+    // work, whatever its clock says (owner).
     const resident = residentWorkspaceIds.has(workspace.id)
-    // How loudly this row is drawn — weight for the row you are in and the
-    // rows that are working, muted ink for everything that has gone quiet.
-    // Reads the same clock the row's own idle label shows, falling back to the
-    // record when there is no terminal recency to read (a parked chat).
+    // How loudly this row is drawn — weight for the rows with an agent in them,
+    // the row you are in, and the rows asking for you; muted ink for the rest.
+    // No clock: the row's idle label reports time, and weight reports use.
     const emphasis = workspaceRowEmphasis({
+      resident,
       selected: active,
       working: activity === 'working',
       wantsYou: needsAttention || unseenDone,
-      settled: options?.settled === true,
-      lastActiveAt: recency?.idleSince ?? workspaceLastActiveAt(workspace),
-      now,
     })
     const highlighted = hasHighlightOverride(workspace.highlight)
     const dropMark =

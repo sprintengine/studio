@@ -2,9 +2,10 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-// Row contrast (contrast-for-quiet-chats, 2026-09-07). A sidebar where every
-// chat is drawn at full ink has no foreground: weight goes to every chat
-// someone is using, dim ink to the ones nobody is.
+// Row contrast (contrast-for-quiet-chats, 2026-09-07; residency replacing the
+// clock, 2026-09-09). A sidebar where every chat is drawn at full ink has no
+// foreground: weight goes to the chats with an agent alive in them, dim ink to
+// the ones that are only a record.
 // `workspaceRowEmphasis.test.ts` holds which tier a row is in; this holds how
 // the row draws it.
 
@@ -75,8 +76,9 @@ async function main(): Promise<void> {
     workspace('w1', 'Selected'),
     workspace('w2', 'Working'),
     workspace('w3', 'Waiting'),
-    workspace('w4', 'Recent'),
-    workspace('w5', 'Quiet'),
+    workspace('w4', 'Resident'),
+    workspace('w5', 'Recent'),
+    workspace('w6', 'Quiet'),
   ]
 
   const noop = () => {}
@@ -86,9 +88,10 @@ async function main(): Promise<void> {
     isDetachedWindow: false,
     sidebarCollapsed: false,
     chromeSlot: null,
-    // Every row is resident: residency used to be what bolded a row, and the
-    // point of the assertions below is that it no longer is.
-    residentWorkspaceIds: new Set<string>(['w1', 'w2', 'w3', 'w4', 'w5']),
+    // Residency is what bolds a row now, so it is what separates these rows:
+    // the working one and the idle-but-resident one have an agent in them, and
+    // nothing else does.
+    residentWorkspaceIds: new Set<string>(['w2', 'w4']),
     activeWorkspaceId: 'w1',
     activityByWorkspaceId: {
       w1: 'idle',
@@ -96,15 +99,21 @@ async function main(): Promise<void> {
       w3: 'needs-input',
       w4: 'idle',
       w5: 'idle',
+      w6: 'idle',
     },
     terminalRecencyByWorkspaceId: {
-      // The selected row has been sitting for a day; selection outranks the
-      // clock, so it still leads.
+      // The selected row has been sitting for a day with no agent left in it;
+      // selection outranks residency, so it still leads.
       w1: { hasRunning: false, idleSince: now - 24 * HOUR, lastInputAt: now - 24 * HOUR, workingSince: null },
       w2: { hasRunning: true, idleSince: null, lastInputAt: now - 3 * HOUR, workingSince: now - MINUTE },
       w3: { hasRunning: false, idleSince: now - 5 * HOUR, lastInputAt: now - 5 * HOUR, workingSince: null },
-      w4: { hasRunning: false, idleSince: now - 22 * MINUTE, lastInputAt: now - 22 * MINUTE, workingSince: null },
-      w5: { hasRunning: false, idleSince: now - 2 * HOUR, lastInputAt: now - 2 * HOUR, workingSince: null },
+      // An agent sitting in a chat nobody has typed into for three hours: the
+      // row the 2026-09-09 ruling turned back on.
+      w4: { hasRunning: false, idleSince: now - 3 * HOUR, lastInputAt: now - 3 * HOUR, workingSince: null },
+      // Touched 22 minutes ago, agent gone: the row the hour clock used to
+      // keep lit for no one.
+      w5: { hasRunning: false, idleSince: now - 22 * MINUTE, lastInputAt: now - 22 * MINUTE, workingSince: null },
+      w6: { hasRunning: false, idleSince: now - 2 * HOUR, lastInputAt: now - 2 * HOUR, workingSince: null },
     },
     onSelectWorkspace: noop,
     onMoveWorkspaceToNewWindow: noop,
@@ -141,16 +150,18 @@ async function main(): Promise<void> {
     }
   }
 
-  // The row's title element: the one node inside the row whose whole text is
-  // the chat's name. That is where weight and ink land.
+  // The row's title element: the LEAF node inside the row whose whole text is
+  // the chat's name. Innermost matters — on a row carrying nothing but its
+  // title, the cluster that wraps the title reads as the same string and comes
+  // first in document order, and the weight lands on the leaf inside it.
   const titleOf = (name: string): HTMLElement => {
     const row = [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((el) =>
       el.textContent?.includes(name)
     )
     assert.ok(row, `row ${name} is rendered`)
-    const title = [...row.querySelectorAll<HTMLElement>('span')].find(
-      (el) => el.textContent?.trim() === name
-    )
+    const title = [...row.querySelectorAll<HTMLElement>('span')]
+      .filter((el) => el.textContent?.trim() === name)
+      .at(-1)
     assert.ok(title, `row ${name} has a title element`)
     return title
   }
@@ -168,18 +179,19 @@ async function main(): Promise<void> {
     assert.equal(bold('Selected'), true, 'the selected row is bold')
     assert.equal(bold('Working'), true, 'a working agent bolds its row')
     assert.equal(bold('Waiting'), true, 'so does a row blocked on you')
-    assert.equal(bold('Recent'), true, 'and one touched inside the hour')
+    assert.equal(bold('Resident'), true, 'and one with an agent still alive in it, idle three hours')
 
-    // And the background tier, which is where residency stopped mattering:
-    // every row here is resident, and the untouched one is still dim.
-    assert.equal(bold('Quiet'), false, 'two hours untouched is not bold, resident or not')
+    // And the background tier: no agent in the chat, whatever its clock says.
+    assert.equal(bold('Recent'), false, 'touched 22 minutes ago but nobody home is not bold')
+    assert.equal(bold('Quiet'), false, 'nor is two hours untouched')
 
-    // Ink: the hour line, and only the background tier moves off the row's own
-    // ink. Selection's lift lives on the row class, not here.
-    assert.equal(dim('Quiet'), true, 'two hours untouched drops to the dim ink')
-    assert.equal(dim('Recent'), false, 'touched 22 minutes ago keeps full ink')
+    // Ink: only the background tier moves off the row's own ink. Selection's
+    // lift lives on the row class, not here.
+    assert.equal(dim('Quiet'), true, 'an agentless chat drops to the dim ink')
+    assert.equal(dim('Recent'), true, 'and the clock does not lift it back')
+    assert.equal(dim('Resident'), false, 'an agent in the room keeps full ink')
     assert.equal(dim('Waiting'), false, 'a waiting row never dims, however long it has been waiting')
-    assert.equal(dim('Selected'), false, 'the row you are in never dims, whatever its clock says')
+    assert.equal(dim('Selected'), false, 'the row you are in never dims, agent or no agent')
 
     // A dim row lifts back on hover, so reaching for one is never reading dim
     // text.
