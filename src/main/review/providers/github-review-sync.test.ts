@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import type { ReviewChangeSet, ReviewComment } from '../../../shared/review'
-import type { GhRunner } from './github-pr-provider'
+import type { GhRunner } from '../../github/gh'
 import {
   postReview,
   type GithubReviewSyncDeps,

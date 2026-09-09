@@ -36,7 +36,7 @@ import {
 } from '../../../shared/review'
 import type { ReviewCommentPostOutcome, ReviewPostReviewResult } from '../../../shared/electron-api'
 import { parsePatch } from '../patch-parse'
-import { createDefaultGhRunner, defaultResolveToken, type GhRunner } from './github-pr-provider'
+import { createDefaultGhRunner, defaultResolveToken, type GhRunner } from '../../github/gh'
 import { isRecord } from '../../../shared/records'
 
 const JSON_ACCEPT = 'application/vnd.github+json'

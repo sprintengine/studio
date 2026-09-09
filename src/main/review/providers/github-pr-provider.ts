@@ -56,17 +56,6 @@ export type FetchLike = (
   init?: { headers?: Record<string, string>; signal?: AbortSignal }
 ) => Promise<FetchResponseLike>
 
-// The gh runner is THE one in `src/main/github/gh.ts` (decision 11). Re-exported
-// here because this module was its old home: the review paths, the review-sync
-// write path and the version-control probe all import it from here, and one
-// runner is the point — not one import path.
-export {
-  createDefaultGhRunner,
-  defaultResolveToken,
-  type GhResult,
-  type GhRunner,
-} from '../../github/gh'
-
 export interface GithubPrProviderDeps {
   gh: GhRunner
   fetchImpl: FetchLike

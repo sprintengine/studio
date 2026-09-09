@@ -5,16 +5,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parsePullRequestUrl, validateReviewChangeSet } from '../../../shared/review'
 import { registerReviewSourceProvider, ReviewChangeSetService } from '../changeset-service'
+import { defaultResolveToken, type GhRunner } from '../../github/gh'
 import {
   createGithubPrProvider,
-  defaultResolveToken,
   matchPrProjectRoots,
   parseGitRemoteRef,
   readProjectRemoteUrls,
   remoteMatchesPullRequest,
   type FetchLike,
   type FetchResponseLike,
-  type GhRunner,
   type GithubPrProviderDeps,
 } from './github-pr-provider'
 
