@@ -50,6 +50,9 @@ function session(input: Partial<TerminalSessionSnapshot>): TerminalSessionSnapsh
     retainedOutputBytes: 0,
     visible: true,
     suspended: false,
+    fileChanges: [],
+    activeSubagents: 0,
+    contextUsage: null,
     reapExempt: false,
     ...input,
   }

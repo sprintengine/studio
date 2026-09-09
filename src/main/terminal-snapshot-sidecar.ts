@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, rmSync, statSync } from 'fs'
 import { mkdir, rename, rm, writeFile } from 'fs/promises'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { join } from 'path'
-import type { AgentCli, AgentExecutionMode, TerminalKind } from '../shared/electron-api'
+import type { AgentCli, AgentExecutionMode, SessionFileChange, TerminalKind } from '../shared/electron-api'
 
 // Durable freeze-the-view: per-terminal snapshot sidecars under
 // `<userData>/terminal-snapshots/<sessionId>.json`.
@@ -58,6 +58,11 @@ export type TerminalSnapshotSidecar = {
   // agent keeps saying where it is across suspend / resume / an app restart.
   // Read back through parseObservedCheckout — the file is untrusted input.
   observedCheckout?: ObservedCheckout
+  // What the parked session edited, newest-edited first, so the ledger a person
+  // saw before quitting is still there when the app comes back. Bounded by
+  // MAX_SESSION_FILE_CHANGES on the way in; read back through
+  // parseSessionFileChanges, since this file is untrusted input too.
+  fileChanges?: SessionFileChange[]
   // Exactly one of these carries the painted content: `snapshot` is a
   // headless-xterm serialized screen (replays faithfully, incl. alt-screen
   // TUIs); `rawReplay` is the retained pty byte stream captured on the quit

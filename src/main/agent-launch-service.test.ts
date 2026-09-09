@@ -42,6 +42,9 @@ function liveSession(overrides: Partial<TerminalSessionSnapshot> = {}): Terminal
     activity: { kind: 'idle', since: 0 },
     exitedAt: null,
     outputBufferLength: 0,
+    fileChanges: [],
+    activeSubagents: 0,
+    contextUsage: null,
     retainedOutputBytes: 0,
     ...overrides,
   }

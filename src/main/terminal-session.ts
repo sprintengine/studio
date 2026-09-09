@@ -7,12 +7,14 @@ import type {
   AgentSessionIdentity,
   AgentState,
   SessionActivity,
+  SessionFileChange,
   SessionPrompt,
   TerminalKind,
   TerminalPathStyle,
   TerminalSessionSnapshot,
 } from '../shared/electron-api'
 import type { AgentLaunchRecord } from '../shared/agent-launch'
+import { isValidFileChangePath, MAX_FILE_CHANGE_COUNT } from './agent-state'
 import {
   getTerminalHistoryTier,
   getTerminalReplayLimitBytes,
@@ -112,6 +114,17 @@ export type TerminalSession = {
   // stop frame, a SessionStart frame (a fresh/resumed process has no timer
   // from its previous life), or naturally by expiry.
   pendingWakeupAt?: number | null
+  // What this session has edited, keyed by absolute path. Fed by the
+  // reporter's PostToolUse `fileChange` frames (ingestAgentStateFrame) and read
+  // out newest-first for the snapshot. Insertion order IS the recency order:
+  // every observation re-inserts its entry at the end (see
+  // recordSessionFileChange), so the newest edit is always the last key.
+  //
+  // Lives and dies with the pty: a fresh session starts empty, and a resume
+  // respawns the pty, so its ledger starts over too. A parked session keeps
+  // its ledger through the snapshot sidecar, which is the only place it is
+  // written down.
+  fileChanges?: Map<string, SessionFileChange>
   // Background work the agent still owns — subagents started and not yet
   // stopped, per the manifest's `background` events. A turn end that arrives
   // while this is above zero is held as working (agent-state.ts,
@@ -388,6 +401,9 @@ type SuspendedPlaceholderSessionInput = {
   worktreeId?: string
   worktreePath?: string
   observedCheckout?: ObservedCheckout
+  // The file ledger the sidecar persisted, newest-edited first, so a session
+  // parked across an app restart still says what it changed.
+  fileChanges?: Map<string, SessionFileChange>
   replaySnapshot?: string
   // Raw retained pty stream, used only when no serialized snapshot could be
   // built — seeds the replay buffer so reveal still paints something.
@@ -443,6 +459,7 @@ export function createSuspendedPlaceholderSession(
     worktreeId: input.worktreeId,
     worktreePath: input.worktreePath,
     observedCheckout: input.observedCheckout,
+    fileChanges: input.fileChanges,
     agentSession: undefined,
     visible: false,
     // The rehydration moment, NOT savedAt: getTerminalLastSeenAt feeds the 24h
@@ -505,6 +522,114 @@ export function materializeTerminalReplay(session: TerminalSession): string {
   return session.outputChunks.slice(session.outputChunkStart).join('')
 }
 
+// What one session's ledger is allowed to cost. It rides every snapshot
+// broadcast to every window, so it cannot be unbounded: a run that touches
+// thousands of files would turn each IPC send into a large one. Two bounds,
+// because either alone is a lie — a path is capped at 4096 characters, so five
+// hundred of them is megabytes, while five hundred ordinary paths is tens of
+// kilobytes. Past either bound the LEAST recently edited entry is dropped: the
+// list is read newest-first, so what falls off the end is what nobody was
+// looking at.
+export const MAX_SESSION_FILE_CHANGES = 500
+export const MAX_SESSION_FILE_CHANGE_PATH_CHARS = 64 * 1024
+
+/**
+ * Fold one reported edit into the session's ledger. Counts ACCUMULATE (a line
+ * edited twice counts twice — see SessionFileChange), `edits` counts the tool
+ * calls, and the entry is re-inserted so the map's last key is always the most
+ * recent edit.
+ *
+ * Returns whether anything changed, which is what decides whether the caller
+ * broadcasts. An edit always changes something (`edits` at minimum), so this is
+ * true whenever a well-formed change arrives — the return value exists so the
+ * call site reads like the other observations, and so a future no-op case has
+ * somewhere to live.
+ */
+export function recordSessionFileChange(
+  session: TerminalSession,
+  change: { path: string; additions: number; deletions: number },
+  at: number
+): boolean {
+  const ledger = (session.fileChanges ??= new Map<string, SessionFileChange>())
+  const existing = ledger.get(change.path)
+  // Delete before set so the entry moves to the end of the insertion order:
+  // that order is the recency order the snapshot reads back. Only when this
+  // observation is actually the newest one for the file — a late-arriving
+  // earlier edit adds its lines where the file already sits rather than
+  // promoting it past files edited after it. (`set` on an existing key keeps
+  // its position.)
+  if (existing && at >= existing.lastEditedAt) ledger.delete(change.path)
+  ledger.set(change.path, {
+    path: change.path,
+    additions: (existing?.additions ?? 0) + change.additions,
+    deletions: (existing?.deletions ?? 0) + change.deletions,
+    edits: (existing?.edits ?? 0) + 1,
+    // A frame that arrives out of order must not move the ledger backwards.
+    lastEditedAt: Math.max(existing?.lastEditedAt ?? 0, at),
+  })
+  evictOldestFileChangesPastBudget(ledger)
+  return true
+}
+
+/** Drop least-recently-edited entries until the ledger is inside both bounds. */
+function evictOldestFileChangesPastBudget(ledger: Map<string, SessionFileChange>): void {
+  let pathChars = 0
+  for (const path of ledger.keys()) pathChars += path.length
+  while (ledger.size > MAX_SESSION_FILE_CHANGES || pathChars > MAX_SESSION_FILE_CHANGE_PATH_CHARS) {
+    const oldest = ledger.keys().next().value
+    if (oldest === undefined) break
+    // Never evict the only entry: the newest edit is the one thing the ledger
+    // must always be able to state, however long its path.
+    if (ledger.size === 1) break
+    ledger.delete(oldest)
+    pathChars -= oldest.length
+  }
+}
+
+/** The ledger as the renderer reads it: newest-edited first. */
+export function listSessionFileChanges(session: TerminalSession): SessionFileChange[] {
+  if (!session.fileChanges || session.fileChanges.size === 0) return []
+  return [...session.fileChanges.values()].reverse()
+}
+
+/**
+ * Rebuild a ledger from a persisted (newest-first) list — the snapshot sidecar,
+ * which is a file on disk and therefore untrusted input like any other. Shape
+ * is checked here; the entries are re-inserted oldest-first so the recency
+ * order survives the round trip.
+ */
+export function parseSessionFileChanges(raw: unknown): Map<string, SessionFileChange> | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const ledger = new Map<string, SessionFileChange>()
+  const isCount = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0
+  // Read the head of the list — it is newest-first — rather than reversing the
+  // whole thing: a corrupt file naming a million entries must not buy itself a
+  // million iterations on the main thread during rehydration. Inserted in
+  // reverse so the map's insertion order comes back as the recency order.
+  const head = raw.slice(0, MAX_SESSION_FILE_CHANGES).reverse()
+  for (const entry of head) {
+    if (!entry || typeof entry !== 'object') continue
+    const candidate = entry as Partial<SessionFileChange>
+    // The same rules the socket applies (agent-state.ts): a sidecar is a file on
+    // disk, no more trusted than a reporter frame, and this path is broadcast to
+    // every window and keyed on.
+    if (typeof candidate.path !== 'string' || !isValidFileChangePath(candidate.path)) continue
+    if (!isCount(candidate.additions) || !isCount(candidate.deletions) || !isCount(candidate.edits)) continue
+    if (!isCount(candidate.lastEditedAt)) continue
+    ledger.delete(candidate.path)
+    ledger.set(candidate.path, {
+      path: candidate.path,
+      additions: Math.min(Math.floor(candidate.additions), MAX_FILE_CHANGE_COUNT),
+      deletions: Math.min(Math.floor(candidate.deletions), MAX_FILE_CHANGE_COUNT),
+      edits: Math.min(Math.floor(candidate.edits), MAX_FILE_CHANGE_COUNT),
+      lastEditedAt: Math.floor(candidate.lastEditedAt),
+    })
+    evictOldestFileChangesPastBudget(ledger)
+  }
+  return ledger.size > 0 ? ledger : undefined
+}
+
 export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSnapshot {
   compactTerminalReplayToLimit(session)
   return {
@@ -540,6 +665,14 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     // plain terminals carry none.
     agentState: session.agentState,
     lastPrompt: session.lastPrompt,
+    // What this agent has edited, newest first, and how many subagents it still
+    // owns. Both are hook truth; a session with no hooks reports an empty
+    // ledger and zero, never absence.
+    fileChanges: listSessionFileChanges(session),
+    activeSubagents: session.backgroundWork ?? 0,
+    // Phase 2 (the status-line forwarder) is what will fill this; until then
+    // every session reports "not known" rather than a guess.
+    contextUsage: null,
     lastTurnEndedAt: session.lastTurnEndedAt ?? null,
     exitedAt: session.exitedAt,
     outputBufferLength: session.outputLength,

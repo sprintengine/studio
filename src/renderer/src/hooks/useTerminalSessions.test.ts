@@ -131,6 +131,7 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
     session({ sessionId: 'b', activity: { kind: 'idle', since: 2 }, lastOutputAt: 200 }),
   ]
   assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(executionChanged))
+
 }
 
 // The sidebar row's "working for 4m" clock. Owner report 2026-09-04: resuming a
@@ -789,6 +790,9 @@ function session(
     agentState: input.agentState,
     lastPrompt: input.lastPrompt,
     observedCheckout: input.observedCheckout,
+    fileChanges: input.fileChanges ?? [],
+    activeSubagents: input.activeSubagents ?? 0,
+    contextUsage: input.contextUsage ?? null,
     exitedAt: input.exitedAt ?? null,
     outputBufferLength: input.outputBufferLength ?? 0,
     retainedOutputBytes: input.retainedOutputBytes ?? 0,

@@ -10,7 +10,12 @@ import {
   isTerminalSessionStale,
   markTerminalExited,
   markTerminalFailed,
+  listSessionFileChanges,
   materializeTerminalReplay,
+  MAX_SESSION_FILE_CHANGE_PATH_CHARS,
+  MAX_SESSION_FILE_CHANGES,
+  parseSessionFileChanges,
+  recordSessionFileChange,
   recordTerminalInput,
   recordTerminalVisibility,
   transitionTerminalActivity,
@@ -44,6 +49,121 @@ function main(): void {
   assertStaleRuleUsesMostRecentUserSignal()
   assertSuspendedSessionIsNotAlive()
   assertPlaceholderIdlesSinceTheTurnEnd()
+  assertFileLedgerAccumulatesAndStaysBounded()
+  assertPersistedLedgerIsReadBackAsUntrustedInput()
+}
+
+// The per-session file ledger: counts accumulate, the newest edit is at the
+// front, and the whole thing is bounded — it rides every snapshot broadcast.
+function assertFileLedgerAccumulatesAndStaysBounded(): void {
+  const session = createSession({ startedAt: 1_000 })
+  assert.deepEqual(listSessionFileChanges(session), [], 'a session that has edited nothing has an empty ledger')
+  assert.deepEqual(getTerminalSnapshot(session).fileChanges, [])
+  assert.equal(getTerminalSnapshot(session).activeSubagents, 0)
+  assert.equal(getTerminalSnapshot(session).contextUsage, null)
+
+  recordSessionFileChange(session, { path: '/repo/a.ts', additions: 4, deletions: 1 }, 100)
+  recordSessionFileChange(session, { path: '/repo/b.ts', additions: 2, deletions: 0 }, 200)
+  recordSessionFileChange(session, { path: '/repo/a.ts', additions: 3, deletions: 2 }, 300)
+  assert.deepEqual(
+    listSessionFileChanges(session),
+    [
+      { path: '/repo/a.ts', additions: 7, deletions: 3, edits: 2, lastEditedAt: 300 },
+      { path: '/repo/b.ts', additions: 2, deletions: 0, edits: 1, lastEditedAt: 200 },
+    ],
+    'counts accumulate per file and the most recently edited file is first'
+  )
+
+  // An out-of-order frame still counts, and cannot drag the recency backwards.
+  recordSessionFileChange(session, { path: '/repo/a.ts', additions: 1, deletions: 0 }, 250)
+  assert.deepEqual(
+    listSessionFileChanges(session)[0],
+    { path: '/repo/a.ts', additions: 8, deletions: 3, edits: 3, lastEditedAt: 300 },
+    'a late-arriving earlier edit adds its lines without moving the time back'
+  )
+
+  // Bounded by count…
+  const counted = createSession({ startedAt: 1_000 })
+  for (let i = 0; i < MAX_SESSION_FILE_CHANGES + 20; i += 1) {
+    recordSessionFileChange(counted, { path: `/repo/file-${i}.ts`, additions: 1, deletions: 1 }, 1_000 + i)
+  }
+  const countedList = listSessionFileChanges(counted)
+  assert.equal(countedList.length, MAX_SESSION_FILE_CHANGES)
+  assert.equal(countedList[0]?.path, `/repo/file-${MAX_SESSION_FILE_CHANGES + 19}.ts`)
+  assert.deepEqual(
+    countedList[countedList.length - 1],
+    { path: '/repo/file-20.ts', additions: 1, deletions: 1, edits: 1, lastEditedAt: 1_020 },
+    'a survivor keeps its own counts — eviction takes entries, not their contents'
+  )
+
+  // …and by the characters those paths cost, which the count alone does not
+  // bound: a path may be 4096 characters long.
+  const wide = createSession({ startedAt: 1_000 })
+  const longPath = (index: number) => `/repo/${String(index).padStart(6, '0')}/${'x'.repeat(4000)}.ts`
+  for (let i = 0; i < 40; i += 1) {
+    recordSessionFileChange(wide, { path: longPath(i), additions: 1, deletions: 0 }, 2_000 + i)
+  }
+  const wideList = listSessionFileChanges(wide)
+  assert.ok(wideList.length < 40, 'long paths hit the character budget well before the count cap')
+  assert.ok(
+    wideList.reduce((total, change) => total + change.path.length, 0) <= MAX_SESSION_FILE_CHANGE_PATH_CHARS,
+    'the ledger stays inside its character budget'
+  )
+  assert.equal(wideList[0]?.path, longPath(39), 'and the newest edit is what survives')
+}
+
+// The sidecar is a file on disk: no more trusted than the socket, and read back
+// through the same rules.
+function assertPersistedLedgerIsReadBackAsUntrustedInput(): void {
+  assert.equal(parseSessionFileChanges(undefined), undefined)
+  assert.equal(parseSessionFileChanges('not an array'), undefined)
+  assert.equal(parseSessionFileChanges([]), undefined, 'an empty ledger is no ledger')
+
+  const good = { path: '/repo/a.ts', additions: 4, deletions: 1, edits: 2, lastEditedAt: 300 }
+  const rejected = [
+    null,
+    'string',
+    { ...good, path: 'repo/relative.ts' },
+    { ...good, path: '' },
+    { ...good, path: '/repo/\u0000nul.ts' },
+    { ...good, path: '/repo/\u001b[31mescape.ts' },
+    { ...good, path: '/' + 'x'.repeat(9000) },
+    { ...good, additions: -1 },
+    { ...good, deletions: Number.NaN },
+    { ...good, edits: '2' },
+    { ...good, lastEditedAt: undefined },
+  ]
+  for (const entry of rejected) {
+    assert.equal(
+      parseSessionFileChanges([entry, good])?.size,
+      1,
+      `a malformed entry is dropped without taking the ledger with it: ${JSON.stringify(entry)}`
+    )
+  }
+
+  const parsed = parseSessionFileChanges([
+    { path: '/repo/newest.ts', additions: 1.7, deletions: 0, edits: 1, lastEditedAt: 400.5 },
+    good,
+  ])
+  assert.deepEqual(
+    [...(parsed?.values() ?? [])].reverse(),
+    [
+      { path: '/repo/newest.ts', additions: 1, deletions: 0, edits: 1, lastEditedAt: 400 },
+      good,
+    ],
+    'the persisted order survives the round trip, and fractional counts floor'
+  )
+
+  const oversized = Array.from({ length: MAX_SESSION_FILE_CHANGES + 200 }, (_unused, index) => ({
+    path: `/repo/file-${index}.ts`,
+    additions: 1,
+    deletions: 0,
+    edits: 1,
+    lastEditedAt: 1_000 - index,
+  }))
+  const capped = parseSessionFileChanges(oversized)
+  assert.equal(capped?.size, MAX_SESSION_FILE_CHANGES, 'a sidecar cannot grow the ledger past its cap')
+  assert.ok(capped?.has('/repo/file-0.ts'), 'and what it keeps is the head of the newest-first list')
 }
 
 // Owner, 2026-09-05: the quit path writes every agent's sidecar at one moment,

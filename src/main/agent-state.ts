@@ -452,14 +452,23 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
 function parseFrameFileChange(raw: unknown): AgentStateFrameFileChange | null {
   if (!isRecord(raw)) return null
   const path = optionalString(raw.path)?.trim()
-  if (!path) return null
-  if (path.length > MAX_FILE_CHANGE_PATH_LENGTH) return null
-  if (hasControlCharacters(path)) return null
-  if (!isAbsoluteObservedPath(path)) return null
+  if (!path || !isValidFileChangePath(path)) return null
   const additions = parseFileChangeCount(raw.additions)
   const deletions = parseFileChangeCount(raw.deletions)
   if (additions === null || deletions === null) return null
   return { path, additions, deletions }
+}
+
+// What a file path in the ledger has to be, wherever it arrives from — a
+// reporter frame over the socket, or a snapshot sidecar read back off disk.
+// Absolute (a relative path is meaningless off the process that reported it, and
+// the ledger hands a person a file to open), bounded, and free of control
+// characters: `isAbsoluteObservedPath` only inspects a prefix, and this value is
+// retained per session, written to disk, keyed on and painted in every window.
+export function isValidFileChangePath(path: string): boolean {
+  if (path.length === 0 || path.length > MAX_FILE_CHANGE_PATH_LENGTH) return false
+  if (hasControlCharacters(path)) return false
+  return isAbsoluteObservedPath(path)
 }
 
 // Counts are whole lines: a fractional value is rounded down rather than

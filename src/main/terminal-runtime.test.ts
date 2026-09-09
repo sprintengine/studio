@@ -161,6 +161,7 @@ async function main(): Promise<void> {
     await assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule)
     await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
     await assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule)
+    await assertFileLedgerFollowsHookReportedEdits(runtimeModule)
     await assertTerminalReattachUsesReplayChannel(runtimeModule)
     await assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule)
     await assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule)
@@ -3495,6 +3496,290 @@ async function assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule: Runti
     unregister()
     runtime.ipcHandlers.killTerminal('sess-background')
     await runtime.shutdown()
+  }
+}
+
+// The per-session file ledger: what this agent edited, summed from its own
+// PostToolUse hooks and never from git (the checkout is shared; the ledger is
+// the agent's own work). Counts accumulate — a line edited twice counts twice —
+// the list reads newest-edited first, and a change is broadcast-worthy on its
+// own, because nothing else about the session need have moved.
+async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-ledger-'))
+  const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-ledger-data-'))
+  const sidecarStore = createTerminalSnapshotSidecarStore({ resolveUserDataDir: () => userDataDir })
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtimeOptions = {
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+    snapshotSidecars: sidecarStore,
+  }
+  const runtime = runtimeModule.createTerminalRuntime(runtimeOptions)
+  const snapshot = () =>
+    runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-ledger')
+  const base = Date.now()
+  const frame = (overrides: Partial<AgentStateFrame>): AgentStateFrame => ({
+    type: 'agent_state',
+    agentId: 'agent-ledger',
+    workspaceId: 'ws-ledger',
+    sessionId: null,
+    event: 'PostToolUse',
+    ts: base,
+    ...overrides,
+  })
+  // A broadcast is coalesced behind a frame's timer, so "did it send" is only
+  // answerable after that window.
+  const sentSessionsChanges = async (): Promise<number> => {
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
+    return mockSender.sent.filter((event) => event.channel === 'terminal:sessions-changed').length
+  }
+
+  const spawnLedgerAgent = async (): Promise<MockPtyProcess> => {
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'sess-ledger',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-ledger',
+      agentId: 'agent-ledger',
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, 'expected a pty for sess-ledger')
+    return spawned
+  }
+
+  try {
+    const ledgerPty = await spawnLedgerAgent()
+    assert.deepEqual(snapshot()?.fileChanges, [], 'a fresh session has edited nothing — empty, never absent')
+    assert.equal(snapshot()?.activeSubagents, 0)
+    assert.equal(snapshot()?.contextUsage, null, 'context usage is the next phase\'s to fill')
+
+    // Two edits of the same file SUM: the ledger measures the work, not the
+    // tree's distance from HEAD, so a line edited twice counts twice.
+    await sentSessionsChanges()
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(frame({ ts: base + 100, fileChange: { path: '/repo/src/app.ts', additions: 12, deletions: 3 } }))
+    assert.equal(await sentSessionsChanges(), 1, 'an edit alone is worth a broadcast: it is rendered')
+    runtime.ingestAgentStateFrame(frame({ ts: base + 200, fileChange: { path: '/repo/src/app.ts', additions: 5, deletions: 1 } }))
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
+    assert.deepEqual(
+      snapshot()?.fileChanges,
+      [{ path: '/repo/src/app.ts', additions: 17, deletions: 4, edits: 2, lastEditedAt: base + 200 }],
+      'a second edit of the same file accumulates onto the first'
+    )
+
+    // Newest-edited first, and re-editing an older file moves it back to the top.
+    runtime.ingestAgentStateFrame(frame({ ts: base + 300, fileChange: { path: '/repo/README.md', additions: 2, deletions: 0 } }))
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
+    assert.deepEqual(
+      snapshot()?.fileChanges.map((change) => change.path),
+      ['/repo/README.md', '/repo/src/app.ts'],
+      'the ledger reads newest-edited first'
+    )
+    runtime.ingestAgentStateFrame(frame({ ts: base + 400, fileChange: { path: '/repo/src/app.ts', additions: 1, deletions: 0 } }))
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
+    assert.deepEqual(
+      snapshot()?.fileChanges.map((change) => change.path),
+      ['/repo/src/app.ts', '/repo/README.md'],
+      're-editing a file moves it back to the front'
+    )
+
+    // A subagent's edit is the session's work. The reporter suppresses a
+    // subagent's CWD (an isolated worktree is not where the session is) but
+    // never its edits, and the runtime folds them in like any other.
+    runtime.ingestAgentStateFrame(frame({ ts: base + 500, fileChange: { path: '/repo/src/subagent.ts', additions: 40, deletions: 0 } }))
+    // …including on a frame whose event this CLI's manifest does not name, which
+    // drops before any phase is applied: the edit still happened.
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(frame({
+      ts: base + 600,
+      event: 'Notification',
+      notificationType: 'idle_prompt',
+      fileChange: { path: '/repo/src/dropped-event.ts', additions: 7, deletions: 2 },
+    }))
+    assert.equal(await sentSessionsChanges(), 1, 'a dropped-phase frame still publishes the edit it carried')
+    assert.deepEqual(
+      snapshot()?.fileChanges.map((change) => [change.path, change.additions, change.deletions]),
+      [
+        ['/repo/src/dropped-event.ts', 7, 2],
+        ['/repo/src/subagent.ts', 40, 0],
+        ['/repo/src/app.ts', 18, 4],
+        ['/repo/README.md', 2, 0],
+      ],
+      'every reported edit lands, whatever fired it'
+    )
+
+    // The subagent count main already keeps, surfaced for the renderer: it
+    // changes with no phase change of its own, so it is broadcast on its own.
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(frame({ ts: base + 700, event: 'SubagentStart' }))
+    assert.equal(await sentSessionsChanges(), 1, 'a subagent starting is a broadcast: the count is rendered')
+    assert.equal(snapshot()?.activeSubagents, 1)
+    runtime.ingestAgentStateFrame(frame({ ts: base + 800, event: 'SubagentStart' }))
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
+    assert.equal(snapshot()?.activeSubagents, 2)
+    runtime.ingestAgentStateFrame(frame({ ts: base + 900, event: 'SubagentStop' }))
+    runtime.ingestAgentStateFrame(frame({ ts: base + 1000, event: 'SubagentStop' }))
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
+    assert.equal(snapshot()?.activeSubagents, 0)
+
+    // An out-of-order frame still counts. Claude spawns a hook process per tool
+    // call and runs edits in parallel, so a later-stamped frame landing first is
+    // ordinary — and the guard that stops a stale frame rolling the PHASE back
+    // must not take the edit with it, because an edit has no order to roll back.
+    mockSender.sent = []
+    runtime.ingestAgentStateFrame(frame({
+      ts: base + 500,
+      fileChange: { path: '/repo/src/late.ts', additions: 3, deletions: 1 },
+    }))
+    assert.equal(await sentSessionsChanges(), 1, 'a stale-phase frame still publishes the edit it carried')
+    assert.deepEqual(
+      snapshot()?.fileChanges.find((change) => change.path === '/repo/src/late.ts'),
+      { path: '/repo/src/late.ts', additions: 3, deletions: 1, edits: 1, lastEditedAt: base + 500 },
+      'the edit lands even though the frame is older than the recorded phase'
+    )
+
+    // The ledger is bounded: it rides every snapshot broadcast to every window,
+    // so a run that touches thousands of files must not turn each send into
+    // hundreds of kilobytes. Past the cap the LEAST recently edited entry is
+    // the one that falls off — the list is read newest-first. On a session of
+    // its own, so the ledger asserted above stays the one the edits built.
+    const bulk = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'sess-ledger-bulk',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-ledger',
+      agentId: 'agent-ledger-bulk',
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(bulk.ok, true, JSON.stringify(bulk))
+    for (let i = 0; i < 600; i += 1) {
+      runtime.ingestAgentStateFrame(frame({
+        agentId: 'agent-ledger-bulk',
+        ts: base + 2000 + i,
+        fileChange: { path: `/repo/bulk/file-${i}.ts`, additions: 1, deletions: 0 },
+      }))
+    }
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
+    const capped =
+      runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-ledger-bulk')?.fileChanges
+      ?? []
+    assert.equal(capped.length, 500, 'the ledger is capped')
+    assert.equal(capped[0]?.path, '/repo/bulk/file-599.ts', 'the newest edit is still at the front')
+    assert.deepEqual(
+      capped[capped.length - 1],
+      { path: '/repo/bulk/file-100.ts', additions: 1, deletions: 0, edits: 1, lastEditedAt: base + 2100 },
+      'the least recent edits fell off the end, and a survivor keeps its own counts'
+    )
+
+    // Nothing outlives the process it ran under: a session that dies owing
+    // subagents must not keep rendering them as live work.
+    const bulkPty = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(bulkPty, 'expected a pty for sess-ledger-bulk')
+    runtime.ingestAgentStateFrame(frame({ agentId: 'agent-ledger-bulk', ts: base + 3000, event: 'SubagentStart' }))
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
+    const bulkSnapshot = () =>
+      runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-ledger-bulk')
+    assert.equal(bulkSnapshot()?.activeSubagents, 1)
+    bulkPty.emitExit({ exitCode: 0 })
+    await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
+    assert.equal(bulkSnapshot()?.processAlive, false)
+    assert.equal(bulkSnapshot()?.activeSubagents, 0, 'a dead session owns no subagents')
+    assert.equal(
+      bulkSnapshot()?.fileChanges.length,
+      500,
+      'but what it edited is still what it edited — the ledger outlives the turn, not the count of live work'
+    )
+    runtime.ipcHandlers.killTerminal('sess-ledger-bulk')
+
+    // Parked across an app restart: the ledger is in the snapshot sidecar, the
+    // only place it is ever written down, so a frozen chat still says what it
+    // changed.
+    // A sidecar is only written for a session with something painted on it.
+    ledgerPty.emitData('ledger painted output\r\n')
+    await delay(20)
+    runtime.ipcHandlers.suspendTerminal('sess-ledger')
+    ledgerPty.emitExit({ exitCode: 0 })
+    const waitForSidecar = async (): Promise<void> => {
+      const start = Date.now()
+      while (!sidecarStore.read('sess-ledger')) {
+        if (Date.now() - start > 5_000) throw new Error('timed out waiting for the ledger sidecar')
+        await delay(20)
+      }
+    }
+    await waitForSidecar()
+    assert.deepEqual(
+      sidecarStore.read('sess-ledger')?.fileChanges?.map((change) => change.path),
+      [
+        '/repo/src/late.ts',
+        '/repo/src/dropped-event.ts',
+        '/repo/src/subagent.ts',
+        '/repo/src/app.ts',
+        '/repo/README.md',
+      ],
+      'the sidecar persists the ledger newest-first'
+    )
+  } finally {
+    await runtime.shutdown()
+  }
+
+  // A fresh runtime, as after a relaunch: the rehydrated placeholder carries
+  // the ledger back, and a RESUME (which respawns the pty) starts a new one —
+  // the ledger lives and dies with the process that earned it.
+  const runtime2 = runtimeModule.createTerminalRuntime(runtimeOptions)
+  try {
+    await runtime2.ipcHandlers.getTerminalStatus('sess-ledger', mockSender as unknown as WebContents)
+    const rehydrated = runtime2.ipcHandlers
+      .listTerminals()
+      .find((session) => session.sessionId === 'sess-ledger')
+    assert.deepEqual(
+      rehydrated?.fileChanges,
+      [
+        { path: '/repo/src/late.ts', additions: 3, deletions: 1, edits: 1, lastEditedAt: base + 500 },
+        { path: '/repo/src/dropped-event.ts', additions: 7, deletions: 2, edits: 1, lastEditedAt: base + 600 },
+        { path: '/repo/src/subagent.ts', additions: 40, deletions: 0, edits: 1, lastEditedAt: base + 500 },
+        { path: '/repo/src/app.ts', additions: 18, deletions: 4, edits: 3, lastEditedAt: base + 400 },
+        { path: '/repo/README.md', additions: 2, deletions: 0, edits: 1, lastEditedAt: base + 300 },
+      ],
+      'a session parked across a restart keeps its ledger, counts and order intact'
+    )
+    assert.equal(rehydrated?.activeSubagents, 0, 'a placeholder owns no background work')
+
+    mockPty.spawnCalls = []
+    const resumed = await runtime2.ipcHandlers.resumeTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'sess-ledger',
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-ledger',
+      agentId: 'agent-ledger',
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(resumed.ok, true, JSON.stringify(resumed))
+    assert.deepEqual(
+      runtime2.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-ledger')?.fileChanges,
+      [],
+      'a respawned pty starts a fresh ledger — the count belongs to the process that did the work'
+    )
+  } finally {
+    await runtime2.shutdown()
   }
 }
 
