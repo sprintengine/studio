@@ -91,6 +91,7 @@
       "glyphs/move-to-changelist.svg",
       "glyphs/multicode-mark.svg",
       "glyphs/next-difference.svg",
+      "glyphs/open-in-editor.svg",
       "glyphs/remote-machine.svg",
       "glyphs/rollback.svg",
       "glyphs/search.svg",
@@ -98,7 +99,8 @@
       "glyphs/spinner.svg",
       "glyphs/stash.svg",
       "glyphs/unified.svg",
-      "glyphs/worktree.svg"
+      "glyphs/worktree.svg",
+      "glyphs/write-commit-message.svg"
     ],
     "assets": []
   },
