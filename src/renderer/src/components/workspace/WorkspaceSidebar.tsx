@@ -3346,8 +3346,15 @@ export default function WorkspaceSidebar({
        * and on win/linux the app menu) that used to sit in the full-width title
        * bar. The Files / Git / Backlog panel switches live in the workspace
        * header over the content, not here.
+       *
+       * `window-chrome` on the strip and NOT on the card below it: the strip is
+       * made of the OS frost under the glass window material, so the neutral
+       * fills its controls wear — hover, press — are tints of the frost rather
+       * than opaque slabs over it (assets/index.css, the glass block). The card
+       * is an opaque surface and keeps the opaque ramp. On a solid window the
+       * class carries nothing.
        */}
-      {chromeSlot}
+      <div className="window-chrome shrink-0">{chromeSlot}</div>
       {/* Everything below the chrome strip is ONE card (owner, 2026-09-09): the
           sidebar reads like the pane column on the other side of the workspace —
           a rounded opaque surface with a thin frost gap beside it — so the shell

@@ -223,6 +223,26 @@
      block below re-points this at a translucent tint. Normal windows are
      untouched — this token resolves to exactly what the field painted before. */
   --bg-field: var(--bg-surface-raised);
+  /* The neutral fills a ROW in the chrome wears — the pointer's hover, the
+     press, the selection and its resting rung, and the raised tone the
+     sidebar's chat rows hover to — each captured under a second name. Same
+     case as --bg-field directly above, and the same answer: on an opaque
+     window every one of these resolves to the ramp token it copies and nothing
+     changes, while the glass block at the end of this file mixes THESE with
+     transparent so a hovered or selected row in the chrome tints the frost
+     instead of laying a slab over it.
+     Two names rather than re-pointing the ramp tokens themselves, for two
+     reasons. The ramp is NOT chrome-only — the panels inside the workspace card
+     paint --bg-hover and --bg-selected too and must stay opaque — so the tinted
+     values are handed back to the chrome columns alone, through the
+     `.window-chrome` scope in that block. And a custom property whose value
+     reads its own name is a cycle, which computes to nothing: the mix has to be
+     written against a different name to exist at all. */
+  --bg-chrome-raised: var(--bg-surface-raised);
+  --bg-chrome-hover: var(--bg-hover);
+  --bg-chrome-active: var(--bg-active);
+  --bg-chrome-selected: var(--bg-selected);
+  --bg-chrome-selected-resting: var(--bg-selected-resting);
   /* Modal / dialog scrim above panel chrome. */
   --surface-overlay-backdrop: var(--sem-color-overlay-scrim);
 
@@ -3187,6 +3207,35 @@ body:has([data-selection-pane]:focus-within)
      transparent: one alpha step over the body tint is the depth, and it is the
      only layer allowed to stack there. */
   --bg-field: color-mix(in srgb, var(--bg-app) 45%, transparent);
+  /* A row's fills, by exactly the same argument as the field above: the column
+     the row sits in went transparent for the frost, so an OPAQUE hover or
+     selection is not a state drawn ON the chrome, it is a slab laid over it —
+     which is what a hovered chat row in the sidebar read as.
+     Mixed from each fill's OWN ink rather than from --bg-app, because these
+     are not wells like the field: the ramp's steps are what say hover < press <
+     selected, and on the dark themes those inks are LIGHTER than --bg-app, so
+     a row lifts off the frost here the same way it lifts off an opaque rail.
+     The alphas climb with the ramp so the order survives the mix. */
+  --bg-chrome-raised: color-mix(in srgb, var(--bg-surface-raised) 45%, transparent);
+  --bg-chrome-hover: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+  --bg-chrome-active: color-mix(in srgb, var(--bg-active) 50%, transparent);
+  --bg-chrome-selected: color-mix(in srgb, var(--bg-selected) 60%, transparent);
+  --bg-chrome-selected-resting: color-mix(in srgb, var(--bg-selected-resting) 50%, transparent);
+}
+/* …and handed to the frost ONLY — the app rail and the sidebar's chrome strip,
+ * the two elements that paint --bg-canvas and so are made of the OS frost.
+ * The sidebar's body, the workspace region and the pane are rounded opaque
+ * cards (--shell-card-radius), so their rows keep the opaque ramp: a
+ * translucent fill on an opaque ground reads a rung weak, which is why this is
+ * a scope and not a second block of :root overrides. Nothing stacks: a row
+ * wears one of these at a time, so it is one alpha step over the body tint,
+ * the same budget --bg-field spends. */
+:root[data-window-material="glass"] .window-chrome {
+  --bg-surface-raised: var(--bg-chrome-raised);
+  --bg-hover: var(--bg-chrome-hover);
+  --bg-active: var(--bg-chrome-active);
+  --bg-selected: var(--bg-chrome-selected);
+  --bg-selected-resting: var(--bg-chrome-selected-resting);
 }
 :root[data-window-material="glass"] body {
   background-color: color-mix(in srgb, var(--bg-app) 52%, transparent);

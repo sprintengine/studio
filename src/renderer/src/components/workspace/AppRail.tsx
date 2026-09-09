@@ -215,7 +215,11 @@ export function AppRail({
       style={{ width: APP_RAIL_WIDTH }}
       // The whole column is a drag region — it is window chrome — and each
       // control opts back out, exactly as the title strip does.
-      className="app-drag relative flex shrink-0 flex-col items-stretch bg-[color:var(--bg-canvas)]"
+      // `window-chrome` travels with the canvas fill: under the glass window
+      // material this column IS the OS frost, so the squares' hover and their
+      // neutral selection fill tint it instead of covering it (assets/index.css,
+      // the glass block). Nothing on an opaque window.
+      className="window-chrome app-drag relative flex shrink-0 flex-col items-stretch bg-[color:var(--bg-canvas)]"
     >
       {/* The title strip's height, reserved: the first glyph sits below the
           chrome row beside it, and on macOS the native traffic lights start here.
