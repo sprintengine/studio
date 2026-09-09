@@ -1,17 +1,13 @@
 import assert from 'node:assert/strict'
 
-import {
-  agentInitials,
-  peekStatusOf,
-  rowConversationPeekIdentity,
-  rowConversationPeekRoster,
-} from './conversationPeekRow'
+import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import type { AgentState } from '../../types/workspace'
 
-// QA for the choice a SIDEBAR ROW has to make that a tab does not: a row is a
-// chat, which may hold several terminals, so it has to pick the one whose
-// conversation the card reads — and pick the same one every time.
+// QA for what a SIDEBAR ROW hands the peek. A row is a chat and may hold
+// several terminals, so it resolves ONE IDENTITY PER AGENT (2026-09-09) and the
+// shell shows the one whose line the pointer is on. The order still matters:
+// the FIRST is what a row hovered anywhere but on an agent line opens.
 //
 // The other half is WHICH rows get a card at all. A peek is asked for most
 // about the chat that is not running, so the gate is "is there a session id
@@ -70,123 +66,126 @@ const chat = (
   agents: Record<string, AgentState> = {},
   name = 'A chat',
 ) =>
-  rowConversationPeekIdentity({
+  rowConversationPeekIdentities({
     workspace: { name, agents },
     sessions,
     status: peekStatusOf('idle', ''),
+    now: NOW,
   })
 
+/** Session ids in the order the row would offer them. */
+const ids = (identities: ReturnType<typeof chat>): string[] =>
+  identities.map((identity) => identity.agent.sessionId)
+
 run('a row with no terminals has nothing to peek at', () => {
-  assert.deepEqual(rowConversationPeekRoster({ workspace: {}, sessions: [] }), [], 'no sessions, no roster')
-  assert.equal(chat([]), null, 'and no card')
+  assert.deepEqual(chat([]), [], 'no sessions, no card')
 })
 
 run('a row of plain shells has no conversation', () => {
-  assert.deepEqual(
-    rowConversationPeekRoster({ workspace: {}, sessions: [session({ sessionId: 'sh1', kind: 'terminal' })] }),
-    [],
-    'a terminal is not a chat',
-  )
+  assert.deepEqual(chat([session({ sessionId: 'sh1', kind: 'terminal' })]), [], 'a terminal is not a chat')
 })
 
-run('the roster opens on the most recently active terminal', () => {
-  const roster = rowConversationPeekRoster({
-    workspace: {},
-    sessions: [
-      session({ sessionId: 'old', lastOutputAt: NOW - 600_000 }),
-      session({ sessionId: 'new', lastOutputAt: NOW - 1_000 }),
-      session({ sessionId: 'shell', kind: 'terminal', lastOutputAt: NOW }),
-    ],
-  })
+run('the row opens on the most recently active terminal', () => {
+  const identities = chat([
+    session({ sessionId: 'old', lastOutputAt: NOW - 600_000 }),
+    session({ sessionId: 'new', lastOutputAt: NOW - 1_000 }),
+    session({ sessionId: 'shell', kind: 'terminal', lastOutputAt: NOW }),
+  ])
   assert.deepEqual(
-    roster.map((entry) => entry.sessionId),
+    ids(identities),
     ['new', 'old'],
     'busiest first, and the shell is not in the running — first is what the card opens on',
   )
 })
 
 run('a live agent outranks a more recently active exited one', () => {
-  const identity = chat([
+  const identities = chat([
     session({ sessionId: 'gone', lastOutputAt: NOW - 1_000, exitedAt: NOW - 500, processAlive: false }),
     session({ sessionId: 'here', lastOutputAt: NOW - 600_000 }),
   ])
-  assert.equal(identity?.roster[0]?.sessionId, 'here', 'the chat you can still talk to opens the card')
-  assert.equal(identity?.roster.length, 2, 'but the finished one is still on the roster')
+  assert.equal(ids(identities)[0], 'here', 'the chat you can still talk to opens the card')
+  assert.equal(identities.length, 2, 'but the finished one still has a card of its own')
 })
 
 // --- The case the peek exists for: a chat that is not running --------------
 run('a suspended session still opens a card', () => {
-  const identity = chat([session({ sessionId: 'frozen', processAlive: false, suspended: true })])
-  assert.equal(
-    identity?.roster[0]?.sessionId,
-    'frozen',
-    'freeze-the-view killed the process, not the conversation — main still answers for this id',
-  )
-  assert.equal(identity?.roster[0]?.status?.label, 'Paused', 'and its disc says so')
+  const identities = chat([
+    session({ sessionId: 'frozen', processAlive: false, suspended: true }),
+    session({ sessionId: 'other', lastOutputAt: NOW - 900_000 }),
+  ])
+  const frozen = identities.find((identity) => identity.agent.sessionId === 'frozen')
+  assert.ok(frozen, 'freeze-the-view killed the process, not the conversation')
+  assert.deepEqual(frozen.status, { kind: 'attention', label: 'Paused' }, 'and its corner says so')
 })
 
 run('an exited session still opens a card', () => {
-  const identity = chat([session({ sessionId: 'done', processAlive: false, exitedAt: NOW - 60_000 })])
-  assert.equal(identity?.roster[0]?.sessionId, 'done', 'a finished chat is the one you most want to ask about')
-  assert.equal(identity?.roster[0]?.status?.label, 'Exited')
+  const identities = chat([
+    session({ sessionId: 'done', processAlive: false, exitedAt: NOW - 60_000 }),
+    session({ sessionId: 'other', lastOutputAt: NOW - 900_000 }),
+  ])
+  const done = identities.find((identity) => identity.agent.sessionId === 'done')
+  assert.ok(done, 'a finished chat is the one you most want to ask about')
+  assert.deepEqual(done.status, { kind: 'idle', label: 'Exited' })
 })
 
 run('a chat main has never heard of answers from its own agent records', () => {
-  const identity = chat([], { a1: agent() }, 'Retry budget for stalled sprints')
+  const identities = chat([], { a1: agent() }, 'Retry budget for stalled sprints')
+  const only = identities[0]
+  assert.ok(only)
   assert.equal(
-    identity?.roster[0]?.sessionId,
+    only.agent.sessionId,
     'parked-1',
     'after a restart the durable id is the agent record’s cliSessionId — the same id terminalStatus takes',
   )
-  assert.equal(identity?.roster[0]?.model, 'claude-opus-5', 'and the record carries the model too')
-  assert.equal(identity?.roster[0]?.cli, 'claude-code', 'and the runtime')
-  assert.equal(identity?.roster[0]?.status?.label, 'Parked')
+  assert.equal(only.agent.model, 'claude-opus-5', 'and the record carries the model too')
+  assert.equal(only.agent.cli, 'claude-code', 'and the runtime')
+  assert.deepEqual(only.agent.fileChanges, [], 'a record is not a session: it has no ledger to report')
+  assert.equal(only.agent.contextUsage, null)
 })
 
 run('a live session outranks a parked record, and the parked one is not listed twice', () => {
-  const identity = chat([session({ sessionId: 'running', agentId: 'a2', lastOutputAt: NOW })], {
+  const identities = chat([session({ sessionId: 'running', agentId: 'a2', lastOutputAt: NOW })], {
     a1: agent({ cliLastExitedAt: NOW - 86_400_000 }),
     a2: agent({ id: 'a2', name: 'Lir Lynch', cliSessionId: 'running' }),
   })
-  assert.equal(identity?.roster[0]?.sessionId, 'running', 'a running agent is what the chat opens on')
   assert.deepEqual(
-    identity?.roster.map((entry) => entry.sessionId),
+    ids(identities),
     ['running', 'parked-1'],
-    'an agent that is both a tracked session and a persisted record appears once',
+    'a running agent leads, and an agent that is both a tracked session and a persisted record appears once',
   )
 })
 
-// --- Rosters that could only say nothing are not offered -------------------
-run('an agent that has never launched is not on the roster', () => {
-  assert.equal(
+// --- Rows that could only say nothing are not offered a card ---------------
+run('an agent that has never launched gets no card', () => {
+  assert.deepEqual(
     chat([], { a1: agent({ cliHasLaunched: false, cliLastExitedAt: null }) }),
-    null,
+    [],
     'no transcript and no sidecar by construction — main would answer "none" and the card would '
       + 'then call a Claude chat a runtime that cannot report',
   )
 })
 
-run('an agent with no session id is not on the roster', () => {
-  assert.equal(chat([], { a1: agent({ cliSessionId: undefined }) }), null, 'nothing to ask about')
+run('an agent with no session id gets no card', () => {
+  assert.deepEqual(chat([], { a1: agent({ cliSessionId: undefined }) }), [], 'nothing to ask about')
 })
 
 run('parked agents are ordered by when their CLI last exited', () => {
-  const identity = chat([], {
+  const identities = chat([], {
     old: agent({ id: 'old', cliSessionId: 'old-id', cliLastExitedAt: NOW - 86_400_000 }),
     recent: agent({ id: 'recent', cliSessionId: 'recent-id', cliLastExitedAt: NOW - 60_000 }),
   })
-  assert.equal(identity?.roster[0]?.sessionId, 'recent-id', 'the agent you were last working with')
+  assert.equal(ids(identities)[0], 'recent-id', 'the agent you were last working with')
 })
 
-run('a roster that ties resolves the same way every render', () => {
+run('an order that ties resolves the same way every render', () => {
   const a = agent({ id: 'a', name: 'Ann Ash', cliSessionId: 'aaa', cliLastExitedAt: null })
   const b = agent({ id: 'b', name: 'Bo Bell', cliSessionId: 'bbb', cliLastExitedAt: null })
-  assert.equal(chat([], { a, b })?.roster[0]?.sessionId, 'aaa')
-  assert.equal(chat([], { b, a })?.roster[0]?.sessionId, 'aaa')
+  assert.equal(ids(chat([], { a, b }))[0], 'aaa')
+  assert.equal(ids(chat([], { b, a }))[0], 'aaa')
 })
 
 run('a chat that lives on a paired machine is not offered a card it cannot answer', () => {
-  const identity = rowConversationPeekIdentity({
+  const identities = rowConversationPeekIdentities({
     workspace: {
       name: 'Retry budget',
       remoteOrigin: { machineName: 'studio-mini' } as never,
@@ -194,58 +193,47 @@ run('a chat that lives on a paired machine is not offered a card it cannot answe
     },
     sessions: [],
     status: peekStatusOf('idle', ''),
+    now: NOW,
   })
-  assert.equal(
-    identity,
-    null,
+  assert.deepEqual(
+    identities,
+    [],
     'this main has no session and no sidecar under a remote id — it would call a Claude chat a '
       + 'runtime that cannot report',
   )
 })
 
-// --- Discs carry WHO, not what ---------------------------------------------
-run('a disc wears the agent’s initials, and its name is the accessible one', () => {
-  assert.equal(agentInitials('Deara Shea'), 'DS')
-  assert.equal(agentInitials('planner-agent'), 'PA', 'a hyphenated name is two words')
-  assert.equal(agentInitials('Mira'), 'MI', 'one word gives up its first two letters')
-  assert.equal(agentInitials(''), '??', 'never blank')
-  const identity = chat([session({ sessionId: 's1', agentId: 'a1' })], { a1: agent() })
-  assert.equal(identity?.roster[0]?.initials, 'DS')
-  assert.equal(identity?.roster[0]?.name, 'Deara Shea', 'the name travels beside the face')
+// --- The corner's three kinds ---------------------------------------------
+run('the row status is terse, because a row is read in a list of forty', () => {
+  assert.deepEqual(peekStatusOf('working', ''), { kind: 'working', label: 'Working' })
+  assert.deepEqual(peekStatusOf('needs-input', ''), { kind: 'attention', label: 'Waiting' })
+  assert.deepEqual(peekStatusOf('failed', ''), { kind: 'attention', label: 'Failed' })
+  assert.deepEqual(peekStatusOf('idle', '32m'), { kind: 'idle', label: 'Idle · 32m' })
+  assert.deepEqual(peekStatusOf('idle', ''), { kind: 'idle', label: 'Idle' }, 'and just "Idle" when it does not know')
 })
 
-run('the status cluster is terse, because a row is read in a list of forty', () => {
-  assert.deepEqual(peekStatusOf('working', ''), { tone: 'good', pulse: true, label: 'Working' })
-  assert.deepEqual(peekStatusOf('needs-input', ''), { tone: 'warn', pulse: false, label: 'Waiting' })
-  assert.deepEqual(peekStatusOf('failed', ''), { tone: 'error', pulse: false, label: 'Failed' })
-  assert.equal(peekStatusOf('idle', '32m')?.label, 'Idle · 32m', 'idle says how long when the row knows')
-  assert.equal(peekStatusOf('idle', '')?.label, 'Idle', 'and just "Idle" when it does not')
-})
-
-run('the identity names the ROW; everything per-terminal lives on the roster', () => {
-  const identity = rowConversationPeekIdentity({
-    workspace: {
-      name: 'Title tooltips from the first message',
-      agents: { a1: agent() },
-    },
+run('one agent takes the ROW’s status, which knows about waiting and about the clock', () => {
+  const identities = rowConversationPeekIdentities({
+    workspace: { name: 'Title tooltips from the first message', agents: { a1: agent() } },
     sessions: [session({ sessionId: 'sess-1', agentId: 'a1' })],
-    status: peekStatusOf('working', ''),
+    status: peekStatusOf('needs-input', ''),
+    now: NOW,
   })
-  assert.equal(identity?.name, 'Title tooltips from the first message', 'the card is that row’s card')
-  assert.equal(identity?.taskId, null, 'a row never picks one of its agents’ tasks to show')
-  assert.equal(identity?.status?.label, 'Working', 'the chat’s state, not a terminal’s')
-  assert.equal(
-    identity?.roster.length,
-    1,
-    'one terminal is no roster — and an agent whose record names a STALE session id is still one '
-      + 'agent, not a live one plus a parked ghost of itself',
+  const only = identities[0]
+  assert.ok(only)
+  assert.equal(only.name, 'Title tooltips from the first message', 'the card is that row’s card')
+  assert.equal(only.taskId, null, 'a row never picks one of its agents’ tasks to show')
+  assert.deepEqual(
+    only.status,
+    { kind: 'attention', label: 'Waiting' },
+    'a session snapshot cannot know a chat is waiting on you; the row can',
   )
-  assert.equal(identity?.roster[0]?.model, 'claude-opus-5', 'the exact model, per terminal')
-  assert.equal(identity?.roster[0]?.sessionId, 'sess-1', 'the session main will be asked about')
+  assert.equal(only.agent.model, 'claude-opus-5', 'the exact model')
+  assert.equal(only.agent.sessionId, 'sess-1', 'the session main will be asked about')
 })
 
-run('a chat with several agents lists them all, ordered, shells excluded', () => {
-  const identity = rowConversationPeekIdentity({
+run('several agents each say their OWN state, because each has its own card', () => {
+  const identities = rowConversationPeekIdentities({
     workspace: {
       name: 'Retry budget for stalled sprints',
       agents: {
@@ -254,31 +242,62 @@ run('a chat with several agents lists them all, ordered, shells excluded', () =>
       },
     },
     sessions: [
-      session({ sessionId: 's1', agentId: 'a1', lastOutputAt: NOW - 1_000 }),
+      session({ sessionId: 's1', agentId: 'a1', lastOutputAt: NOW - 1_000, activity: { kind: 'working' } as never }),
       session({ sessionId: 's2', agentId: 'a2', lastOutputAt: NOW - 900_000 }),
       session({ sessionId: 'sh', kind: 'terminal' }),
     ],
     status: peekStatusOf('working', ''),
+    now: NOW,
   })
+  assert.deepEqual(ids(identities), ['s1', 's2'], 'busiest first, shells excluded')
+  assert.deepEqual(identities[0]?.status, { kind: 'working', label: 'Working' })
   assert.deepEqual(
-    identity?.roster.map((entry) => `${entry.initials}:${entry.sessionId}`),
-    ['DS:s1', 'LL:s2'],
-    'busiest first, shells excluded — and each disc knows who it is',
+    identities[1]?.status,
+    { kind: 'idle', label: 'Idle · 15m' },
+    'the second agent is idle even though the ROW is working — the card is one agent’s',
   )
+  assert.equal(identities[0]?.name, 'Retry budget for stalled sprints', 'both cards still name the chat')
+  assert.equal(identities[1]?.name, 'Retry budget for stalled sprints')
 })
 
-run('an agent the renderer has no record for is still named and still runs something', () => {
-  const identity = rowConversationPeekIdentity({
+run('the session’s own figures ride the identity, so the card reads no snapshot itself', () => {
+  const identities = chat([
+    session({
+      sessionId: 'sess-1',
+      fileChanges: [
+        { path: '/repo/src/main/scheduler.ts', additions: 14, deletions: 6, edits: 2, lastEditedAt: NOW },
+      ],
+      activeSubagents: 2,
+      contextUsage: { usedPercentage: 38, at: NOW },
+    } as never),
+  ])
+  const only = identities[0]
+  assert.ok(only)
+  assert.equal(only.agent.fileChanges.length, 1, 'the ledger this session’s own hooks kept')
+  assert.equal(only.agent.activeSubagents, 2)
+  assert.deepEqual(only.agent.contextUsage, { usedPercentage: 38, at: NOW })
+})
+
+run('a session from an older main, with no ledger fields, reads as empty rather than undefined', () => {
+  const identities = chat([session({ sessionId: 'legacy' })])
+  const only = identities[0]
+  assert.ok(only)
+  assert.deepEqual(only.agent.fileChanges, [], 'a consumer can count without a guard')
+  assert.equal(only.agent.activeSubagents, 0)
+  assert.equal(only.agent.contextUsage, null)
+})
+
+run('an agent the renderer has no record for still runs something', () => {
+  const identities = rowConversationPeekIdentities({
     workspace: { name: 'Headless launch', agents: {} },
     sessions: [
       session({ sessionId: 'sess-2', agentId: 'ghost', agentName: 'roaming-agent-1', cli: 'codex' }),
     ],
     status: peekStatusOf('idle', ''),
+    now: NOW,
   })
-  assert.equal(identity?.roster[0]?.name, 'roaming-agent-1', 'the session’s own label stands in')
-  assert.equal(identity?.roster[0]?.initials, 'RA')
-  assert.equal(identity?.roster[0]?.cli, 'codex', 'the session knows what it is running')
-  assert.equal(identity?.roster[0]?.model, null, 'and claims no model it was never told')
+  assert.equal(identities[0]?.agent.cli, 'codex', 'the session knows what it is running')
+  assert.equal(identities[0]?.agent.model, null, 'and claims no model it was never told')
 })
 
 process.exit(failures === 0 ? 0 : 1)

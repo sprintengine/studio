@@ -561,6 +561,8 @@ code {
 #ds-view-component-chip-button:checked ~ .ds-catalog #component-chip-button { display: block; }
 #ds-view-component-command-palette:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-command-palette:checked ~ .ds-catalog #component-command-palette { display: block; }
+#ds-view-component-context-ring:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-context-ring:checked ~ .ds-catalog #component-context-ring { display: block; }
 #ds-view-component-definition-list:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-definition-list:checked ~ .ds-catalog #component-definition-list { display: block; }
 #ds-view-component-drawer:checked ~ .ds-catalog #components { display: block; }
@@ -659,6 +661,8 @@ code {
 #ds-view-component-chip-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-chip-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-command-palette:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-command-palette"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-command-palette:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-command-palette"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-context-ring:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-context-ring"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-context-ring:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-context-ring"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-definition-list:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-definition-list"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-definition-list:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-definition-list"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-drawer:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-drawer"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -2010,6 +2014,84 @@ code {
   }
 }
 
+/* components/context-ring/component.css */
+/* Context ring — how much of a model's context window a conversation has
+ * spent, drawn as a 14px circle filled clockwise from twelve. Extracted from
+ * the shipped ContextRing primitive
+ * (src/renderer/src/components/ui/ContextRing.tsx).
+ *
+ * The shape is borrowed rather than invented: Claude Code, Cursor and ChatGPT
+ * all draw this ring for the same fact, so a person arriving at it already
+ * knows what it means. That is the whole reason it is a ring and not a bar or
+ * a percentage — a number would have to be read, and this sits beside a title
+ * at 14px where there is no room to read one.
+ *
+ * It is a DISPLAY of one proportion, never a control and never a progress
+ * indicator: nothing here is loading, and the value can fall as well as rise
+ * (a compaction gives context back). It carries no tone but two — the accent
+ * while the window is ordinary, and status.warn once a compaction is close. */
+
+.ds-context-ring-anchor {
+  /* The mark's own diameter, kept here so the pull-back below can be written
+     in tokens and the two can never drift apart. */
+  --ds-context-ring-size: 14px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--sem-size-hit-target-min);
+  block-size: var(--sem-size-hit-target-min);
+  /* A 14px mark needs a 24px target to be hoverable and focusable; without
+     this pull-back that target would grow the line it sits in by 5px above and
+     below, which is a header getting taller to hold a 14px circle. */
+  margin-block: calc((var(--sem-size-hit-target-min) - var(--ds-context-ring-size)) / -2);
+  border-radius: var(--sem-radius-pill);
+  color: var(--sem-color-text-default);
+}
+
+.ds-context-ring-anchor:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-context-ring {
+  display: block;
+  inline-size: var(--ds-context-ring-size, 14px);
+  block-size: var(--ds-context-ring-size, 14px);
+}
+
+/* The unspent remainder. `border.strong` and not a status tone: the empty part
+   of the ring is a track, and a track that carried a colour would read as a
+   second value. */
+.ds-context-ring-track {
+  fill: none;
+  stroke: var(--sem-color-border-strong);
+  stroke-width: 2;
+}
+
+/* The spent part, swept clockwise from twelve. `butt` caps, because a rounded
+   cap at 2px overhangs by a whole degree and makes 0% draw a dot. */
+.ds-context-ring-fill {
+  fill: none;
+  stroke: var(--sem-color-accent-primary);
+  stroke-width: 2;
+  stroke-linecap: butt;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  transition: stroke-dasharray var(--sem-motion-duration-deliberate) var(--sem-motion-ease-standard);
+}
+
+/* Past the warn threshold a compaction is coming, which is worth a glance
+   before it happens. The only other tone the fill ever takes. */
+.ds-context-ring--high .ds-context-ring-fill {
+  stroke: var(--sem-color-status-warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-context-ring-fill {
+    transition: none;
+  }
+}
+
 /* components/definition-list/component.css */
 /* Definition list — label/value pairs for the facts a detail pane, dialog,
  * or inspector states about one thing. Extracted from the shipped
@@ -3162,6 +3244,23 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-link-button--inherit {
   font: inherit;
   line-height: inherit;
+}
+
+/* row — a full-width flex row, for a LIST of links rather than one set inside a
+ * sentence: the conversation peek's changed files, where the name, the folder
+ * and the counts are three columns that have to line up down the list.
+ *
+ * A variant and not something a caller adds on top, because `display` is the one
+ * property this component's base rule spends on being inline: a `flex` written
+ * beside `.ds-link-button` competes at equal specificity, so which wins is
+ * stylesheet order rather than the author's intent, and a row that silently fell
+ * back to `inline` would put the whole path on one baseline with no columns at
+ * all. */
+.ds-link-button--row {
+  display: flex;
+  align-items: baseline;
+  inline-size: 100%;
+  min-inline-size: 0;
 }
 
 /* components/list-row/component.css */
@@ -7011,6 +7110,54 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-command-palette .demo-scrim:last-child {
     margin-bottom: 0;
   }
+.ds-embed-component-context-ring {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-context-ring .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-context-ring .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-context-ring .demo-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    max-width: 340px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-md) var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface-raised);
+  }
+.ds-embed-component-context-ring .demo-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-context-ring .demo-state {
+    flex: none;
+    margin-left: auto;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+.ds-embed-component-context-ring .demo-anchor {
+    position: relative;
+  }
+.ds-embed-component-context-ring .demo-anchor .ds-tooltip {
+    position: absolute;
+    top: calc(var(--sem-size-hit-target-min) + var(--sem-space-2xs));
+    left: 0;
+  }
 .ds-embed-component-definition-list {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -9384,6 +9531,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-checkbox" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-chip-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-command-palette" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-context-ring" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-definition-list" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-drawer" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-empty-state" />
@@ -9453,6 +9601,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-checkbox">Checkbox</label>
 <label class="catalog-nav-item" for="ds-view-component-chip-button">Chip button</label>
 <label class="catalog-nav-item" for="ds-view-component-command-palette">Command palette</label>
+<label class="catalog-nav-item" for="ds-view-component-context-ring">Context ring</label>
 <label class="catalog-nav-item" for="ds-view-component-definition-list">Definition list</label>
 <label class="catalog-nav-item" for="ds-view-component-drawer">Drawer</label>
 <label class="catalog-nav-item" for="ds-view-component-empty-state">Empty state</label>
@@ -9779,7 +9928,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>1. <strong>The thing underneath is still the subject.</strong> The workspace being configured, the layout the diff is a bigger view of, the change being reviewed. If the surface replaces the subject rather than acting on it, it wants the region, not a scrim. 2. <strong>Nothing that names a PLACE leads to it.</strong> No section glyph, no drawer row, no history entry — a destination reached by navigation has to be somewhere the region can go, or back and forward step to a page that mounts invisibly behind the scrim. Note the test is about naming a place, not about being chrome: Settings is opened from the rail's FOOT, and the foot is deliberately not navigation — the account and the gear belong to the window rather than to any section of the product, so they route nothing and no history entry records them. 3. <strong>It is a task with an end.</strong> Opened, done, dismissed. A surface a person navigates around inside, or comes back to and expects to find as they left it, is a place, and places are doors.</p>
 <p><strong>A heading must separate something from something else.</strong> Do not label an ungrouped list (&quot;Rosters&quot; over a field that already reads &quot;Search rosters…&quot;), and do not render a group heading when there is only one group — &quot;Recent&quot; spanning every row groups nothing. Headings appear when there are at least two groups to tell apart; the list's accessible name carries the label otherwise.</p>
 <p><strong>The app rail</strong> (ruled 2026-09-05; glyphs-only and then three-glyph, same day) — the window's far-left column of glyphs, the editor's tool stripe and the app's rail — is chrome, not a rail in the context-rail sense. It names AREAS of the product (Home, Extensions) and holds its one standing tool (Automations), never things inside an area; the sidebar column beside it lists the things, and a drilled-in surface still replaces that column's content rather than standing beside it. &quot;One rail, ever&quot; is unchanged: the app rail holds no list a person walks. Its anatomy:</p>
-<p>1. <strong>A fixed set of glyphs on <code>size.control.lg</code> squares, no captions.</strong> A house and a tile grid do not need &quot;Home&quot; and &quot;Extensions&quot; written under them, and the caption is what made the first cut 76px wide. The name is the glyph's tooltip and accessible name — the idiom the sidebar's collapsed rows already use. The column is one square plus a <code>space.sm</code> gutter each side: 56px, and no wider. (Revised 2026-09-07 from <code>control.md</code> squares in a 46px column: the app's rail squares are a step above its largest in-panel control, and that step is what lets the column be found from across the window rather than read. <code>size.control.lg</code> exists for this column and nothing else; the glyphs on it are <code>icon.size.lg</code>.) 2. <strong>Selection is <code>bg.selected</code> on the square.</strong> Never the accent, never a bar on the window's edge. A section glyph is current while its column shows; a tool glyph is pressed while its surface floats. The two can light together, and they say different things. 3. <strong>Three glyphs: Home, Automations, Extensions.</strong> Automations stands on the rail because it is what the product DOES, not something added to it; it is the module's own registered surface, gated on the module's enablement, so a turned-off module's glyph is simply absent. Plugins does not: it is one of the five things under Extensions, and a glyph of its own said it stood beside them. 4. <strong>Extensions opens its home, and the sidebar becomes the drawer.</strong> The drawer is five rows in a fixed order — Sprints, Design, Plugins, Skills, Agent CLIs — with the same <code>SidebarNavButton</code> chrome for all five. The order is the ruling's, not the registry's <code>order</code>; a module contributes a row's name, glyph and behaviour, never its place. The drawer STAYS PUT while the card region swaps, which is what makes it the navigation rather than a menu: a door that is one of its rows renders its own rail beside its canvas instead of taking the column. Only Sprints, which has its own list of runs, replaces it for the length of its visit — and Automations, which is not a drawer row at all, because the automations it lists ARE the navigation while it is open. A drawer row reads <code>aria-current</code> while its page is showing (it is navigation, exactly like a workspace row); the rail's square reads <code>aria-pressed</code>. Two honest readings of one state — what would be wrong is one row of the drawer disagreeing with the row above it. <strong>The home is those same five rows, said again as tiles</strong> — glyph, name, a one-line summary, a live count, a chevron — resolved from the one function the drawer's rows are resolved by, so a tile cannot open something its row does not, and a module that is off takes both away together. A count on a tile is LIVE or ABSENT: a number nobody has measured yet is no line at all, and a number that really is nothing is words (&quot;No runs&quot;, &quot;None installed&quot;), because &quot;0 running&quot; reads as a counter that has not started rather than as an answer. No module list on the page: those switches live in Settings → Modules, and one choice in two shapes on two surfaces is two things to keep in agreement. 5. <strong>The account and Settings cluster pins to its foot.</strong> They belong to the window, not to whichever section the sidebar is showing. They sit on the same <code>control.lg</code> squares as the sections, and no rule separates them from the glyphs above: the rail is one column from its first square to its last, and the space does the separating (*Hairlines carry the structure*). The sidebar's chrome makes the same call — no rule under New chat. 6. <strong>Its top reserves the title strip's height</strong> on every platform, so its first glyph sits below the chrome row beside it. On macOS the native traffic lights start in that reserve and run past the rail's edge; the sidebar's chrome row insets for the remainder. 7. <strong>The divider starts below that reserve, never at the top.</strong> The rail's right-hand hairline is a positioned strip from the title row down, not a full-height <code>border-r</code>: the traffic lights are wider than the rail, so an edge that ran the whole height drew a line straight through the green light. Across the title row the rail and the chrome beside it are one unbroken band. 8. <strong>A square with news wears the badge's corner count</strong> (2026-09-07) — the unread activity count. Home counts chats wanting you (blocked on a prompt, crashed, or finished while you were away) other than the one on screen; Automations counts scheduled runs that ended while its door was closed; Extensions counts unread news from anything under it, cards published since its home was last open, and sprints waiting on an answer. The tone is the loudest thing counted — danger, then warn, then good or the accent. Opening the section reads its count; a thing still waiting on the person stays counted. Never a toast: a glass card for every chat that finished would be over the top, and the count is what says &quot;come back here&quot; without interrupting.</p>
+<p>1. <strong>A fixed set of glyphs on <code>size.control.lg</code> squares, no captions.</strong> A house and a tile grid do not need &quot;Home&quot; and &quot;Extensions&quot; written under them, and the caption is what made the first cut 76px wide. The name is the glyph's tooltip and accessible name — the idiom the sidebar's collapsed rows already use. The column is one square plus a <code>space.sm</code> gutter each side: 56px, and no wider. (Revised 2026-09-07 from <code>control.md</code> squares in a 46px column: the app's rail squares are a step above its largest in-panel control, and that step is what lets the column be found from across the window rather than read. <code>size.control.lg</code> exists for this column and nothing else; the glyphs on it are <code>icon.size.lg</code>.) 2. <strong>Selection is <code>bg.selected</code> on the square.</strong> Never the accent, never a bar on the window's edge. A section glyph is current while its column shows; a tool glyph is pressed while its surface floats. The two can light together, and they say different things. 3. <strong>Three glyphs: Home, Automations, Extensions.</strong> Automations stands on the rail because it is what the product DOES, not something added to it; it is the module's own registered surface, gated on the module's enablement, so a turned-off module's glyph is simply absent. Plugins does not: it is one of the five things under Extensions, and a glyph of its own said it stood beside them. 4. <strong>Extensions opens its home, and the sidebar becomes the drawer.</strong> The drawer is five rows in a fixed order — Sprints, Design, Plugins, Skills, Agent CLIs — with the same <code>SidebarNavButton</code> chrome for all five. The order is the ruling's, not the registry's <code>order</code>; a module contributes a row's name, glyph and behaviour, never its place. The drawer STAYS PUT while the card region swaps, which is what makes it the navigation rather than a menu: a door that is one of its rows renders its own rail beside its canvas instead of taking the column. Only Sprints, which has its own list of runs, replaces it for the length of its visit — and Automations, which is not a drawer row at all, because the automations it lists ARE the navigation while it is open. A drawer row reads <code>aria-current</code> while its page is showing (it is navigation, exactly like a workspace row); the rail's square reads <code>aria-pressed</code>. Two honest readings of one state — what would be wrong is one row of the drawer disagreeing with the row above it. <strong>The home is those same five rows, said again as tiles</strong> — glyph, name, a one-line summary, a live count, a chevron — resolved from the one function the drawer's rows are resolved by, so a tile cannot open something its row does not, and a module that is off takes both away together. A count on a tile is LIVE or ABSENT: a number nobody has measured yet is no line at all, and a number that really is nothing is words (&quot;No runs&quot;, &quot;None installed&quot;), because &quot;0 running&quot; reads as a counter that has not started rather than as an answer. No module list on the page: those switches live in Settings → Modules, and one choice in two shapes on two surfaces is two things to keep in agreement. 5. <strong>The account and Settings cluster pins to its foot.</strong> They belong to the window, not to whichever section the sidebar is showing. They sit on the same <code>control.lg</code> squares as the sections, and no rule separates them from the glyphs above: the rail is one column from its first square to its last, and the space does the separating (*Hairlines carry the structure*). The sidebar's chrome makes the same call — no rule under New chat. 6. <strong>Its top reserves the title strip's height</strong> on every platform, so its first glyph sits below the chrome row beside it. On macOS the native traffic lights start in that reserve and run past the rail's edge; the sidebar's chrome row insets for the remainder. 7. <strong>The divider starts below that reserve, never at the top.</strong> The rail's right-hand hairline is a positioned strip from the title row down, not a full-height <code>border-r</code>: the traffic lights are wider than the rail, so an edge that ran the whole height drew a line straight through the green light. Across the title row the rail and the chrome beside it are one unbroken band. 8. <strong>A square with news wears the badge's corner count</strong> (2026-09-07) — the unread activity count. Home counts chats wanting you (blocked on a prompt, crashed, or finished while you were away) other than the one on screen; Automations counts scheduled runs that ended while its door was closed; Extensions counts unread news from anything under it, cards published since its home was last open, and sprints waiting on an answer. The tone is the loudest thing counted — danger, then warn, then good or the accent. A thing still waiting on the person stays counted. Never a toast: a glass card for every chat that finished would be over the top, and the count is what says &quot;come back here&quot; without interrupting. 9. <strong>Each drawer row wears its own count, and the square is their sum</strong> (2026-09-08). The Extensions square used to read everything under it the moment the section opened, and the drawer that appeared said nothing about which row the news belonged to — a count that vanished on the click it asked for. Now the news goes on the row it came from: a source drift notice on Plugins, a CLI update on Agent CLIs, a run waiting on an answer on the door that lists it, entries arrived since the bundle was last shown on Design. The row draws the same corner counter — trailing when the column is expanded, docked on the icon when collapsed — in place of any status dot it would otherwise wear (one status idiom per surface), with the row's name in its accessible name. Opening a ROW reads its news; opening the section reads nothing, and the square keeps counting while the drawer is on screen, the way a workspace icon does above its unread channels. The one thing the square counts that no row wears is the hosted cards: the square's own click opens the home that shows them, so the square is their row. The home reads its own cards as it mounts, and marks the ones that were new with the New mark, so what the count pointed at is still on screen when the person arrives.</p>
 <p><strong>A dialog is header, content, actions — separated by space.</strong> No rule under the title, none above the buttons. See *Hairlines carry the structure*.</p>
 <h4>Status is earned</h4>
 <ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot and a tinted pill saying the same thing.</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
@@ -9943,13 +10092,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>Corner mode</strong> docks the badge to the top-right of a positioned trigger with a 1px border in the surface behind it, so it reads as sitting *on* the control. A box-shadow ring would hold the box at exactly 16px, but the token lint's <code>no-glow-shadow</code> rule forbids that spelling — and every counter this replaces already used a border.</p>
 <p>Never interactive, and never a second status idiom beside a <code>status-dot</code> that already says the same thing. A badge carrying meaning takes an <code>ariaLabel</code> (a bare &quot;3&quot; tells a screen reader nothing); one that merely repeats adjacent text is marked <code>decorative</code> so it is not read twice.</p>
 <p><strong>On the app rail</strong> (2026-09-07) the corner count reports unread activity: each section square wears the number of things in its area the person has not seen or that are waiting on them (principles.md, &quot;The app rail&quot;, item 8). It is named, never decorative — nothing beside a glyph says what the number is — and its ring is the rail's own <code>bg.canvas</code>, since the square sits on the canvas rather than the app ground the default ring assumes.</p>
+<p><strong>On a drawer row</strong> (2026-09-08) the same counter is the row's unread pip: the Extensions drawer's rows each wear the news that belongs to them, trailing the label when the column is expanded and docked on the icon's corner — ringed in <code>bg.canvas</code>, the column's ground — when it is collapsed. It replaces the row's status dot while it shows (one status idiom per surface; the count is the one that says how much), and its accessible name carries the row's name and what is counted (&quot;Sprints: 1 waiting on you, 2 new&quot;), because the row beside it names a place, not the news. The app rail's square above the drawer is the sum of its rows: same primitive, same tone precedence, and the two cannot disagree because one derivation feeds both (principles.md, &quot;The app rail&quot;, item 9).</p>
 <h4>Only a count is a live region (2026-09-02)</h4>
 <p>The two species announce differently, and this is the part a consumer gets wrong in both directions.</p>
 <ul><li><strong>Count</strong> — <code>role=&quot;status&quot;</code>, so a value changing in place beside its trigger (the attention bell) is announced. This is what an announcement is *for*: the number moved while the reader was elsewhere.</li><li><strong>Label</strong> — never a live region. <code>role=&quot;img&quot;</code> when it carries an <code>ariaLabel</code> (a bare <code>&lt;span&gt;</code> has no role for the name to hang on), plain text otherwise.</li></ul>
 <p>The audit found the label species emitting <code>role=&quot;status&quot;</code>, which turned a hundred-row skill listing into a hundred polite live regions that re-announced every time the list narrowed. The fix belongs here rather than at the call sites: marking those chips <code>decorative</code> would have silenced them, and <code>decorative</code> means &quot;the adjacent text already says this&quot; — it is not a mute button. Used as one it hides a fact nothing else states, which the same audit found at three settings rows whose chip was the only thing saying a module was unavailable or that a row was a skill rather than a server.</p>
 <h4>The New mark (2026-09-08)</h4>
 <p>A third, narrower drawing under the same name: a pill saying a thing <strong>arrived recently</strong>. <code>accent.primary</code> ink on <code>accent.primary-soft</code>, <code>font.size.micro</code> at medium weight, <code>radius.pill</code>, and — the part that separates it from the label species — <strong>no hairline</strong>. A border would make it read as a state chip, and this is not a state: it is the system pointing at something, which is the one job <code>accent.primary</code> has. It is the entire accent spend on the row that carries it.</p>
-<p>Two surfaces wear it and they must not diverge, which is why it is one shipped component (<code>src/renderer/src/components/ui/NewChip.tsx</code>) rather than a span in each: the CLI model picker marks a model the hosted feed released inside its thirty-day window, and the Design door marks a component, pattern, glyph or foundations file that arrived in a bundle since the person last opened it. The window is literally the same constant.</p>
+<p>Three surfaces wear it and they must not diverge, which is why it is one shipped component (<code>src/renderer/src/components/ui/NewChip.tsx</code>) rather than a span in each: the CLI model picker marks a model the hosted feed released inside its thirty-day window, the Design door marks a component, pattern, glyph or foundations file that arrived in a bundle since the person last opened it, and (2026-09-08) the Extensions home marks a hosted card published since the home was last open — the cards the app rail's square was counting, still marked when the person arrives. The window is literally the same constant.</p>
 <ul><li><strong>Never a hoist and never a sort key.</strong> The row stays exactly where its list put it; the chip is the only difference, so a muscle-memory pick still lands.</li><li><strong>It expires.</strong> Both consumers stop drawing it on their own — the feed window passes, or the visit is stamped and the next open is clean. A mark that never clears is decoration.</li><li><strong>It is plain text in reading order</strong>, immediately after the name it qualifies, so a screen reader hears &quot;command-palette, New&quot;. Where the row's own accessible name is written by hand (a tile whose <code>aria-label</code> composes name and counts), the word is composed into that name too rather than left for a nested span to supply.</li></ul>
 </div>
 </div>
@@ -13641,6 +13791,312 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
         &lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-context-ring" class="catalog-view catalog-component">
+<h3>Context ring</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-context-ring">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the ring beside the thing it describes. Early in a conversation, and with the tooltip a hover or focus summons.</p>
+
+  <div class="demo-head">
+    <span class="demo-title">Retry budget for stalled sprints</span>
+    <span class="demo-anchor">
+      <span class="ds-context-ring-anchor" role="img" tabindex="0" aria-label="Context 22% used">
+        <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
+          <circle class="ds-context-ring-track" cx="8" cy="8" r="6" />
+          <circle class="ds-context-ring-fill" cx="8" cy="8" r="6" stroke-dasharray="8.29 37.70" />
+        </svg>
+      </span>
+      <span class="ds-tooltip" role="tooltip">Context 22% used</span>
+    </span>
+    <span class="demo-state">Working</span>
+  </div>
+
+  <p class="demo-label">Mid-conversation, and past the warn threshold — the one other tone the fill takes.</p>
+
+  <div class="demo-head">
+    <span class="demo-title">Plugin sources for the marketplace</span>
+    <span class="ds-context-ring-anchor" role="img" tabindex="0" aria-label="Context 61% used">
+      <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
+        <circle class="ds-context-ring-track" cx="8" cy="8" r="6" />
+        <circle class="ds-context-ring-fill" cx="8" cy="8" r="6" stroke-dasharray="23.00 37.70" />
+      </svg>
+    </span>
+    <span class="demo-state">Idle · 12m</span>
+  </div>
+
+  <div class="demo-head">
+    <span class="demo-title">Terminal emulation parity</span>
+    <span class="ds-context-ring-anchor ds-context-ring--high" role="img" tabindex="0" aria-label="Context 84% used">
+      <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
+        <circle class="ds-context-ring-track" cx="8" cy="8" r="6" />
+        <circle class="ds-context-ring-fill" cx="8" cy="8" r="6" stroke-dasharray="31.67 37.70" />
+      </svg>
+    </span>
+    <span class="demo-state">Working</span>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same two tones, retuned by the tokens. A window barely touched, and one all but spent.</p>
+
+  <div class="demo-head">
+    <span class="demo-title">Dictation polish through your own CLI</span>
+    <span class="ds-context-ring-anchor" role="img" tabindex="0" aria-label="Context 4% used">
+      <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
+        <circle class="ds-context-ring-track" cx="8" cy="8" r="6" />
+        <circle class="ds-context-ring-fill" cx="8" cy="8" r="6" stroke-dasharray="1.51 37.70" />
+      </svg>
+    </span>
+    <span class="demo-state">Working</span>
+  </div>
+
+  <div class="demo-head">
+    <span class="demo-title">Improve Git Diff Viewing</span>
+    <span class="ds-context-ring-anchor ds-context-ring--high" role="img" tabindex="0" aria-label="Context 100% used">
+      <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
+        <circle class="ds-context-ring-track" cx="8" cy="8" r="6" />
+        <circle class="ds-context-ring-fill" cx="8" cy="8" r="6" stroke-dasharray="37.70 37.70" />
+      </svg>
+    </span>
+    <span class="demo-state">Idle · 2h</span>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>How much of a model's context window a conversation has spent, as a 14px circle filled clockwise from twelve. Extracted from the shipped <code>ContextRing</code> primitive (<code>src/renderer/src/components/ui/ContextRing.tsx</code>).</p>
+<p>The shape is borrowed, not invented: Claude Code, Cursor and ChatGPT all draw this ring for this fact, so it arrives already legible. That is the reason it is a ring rather than a bar or a percentage — a number has to be read, and this sits beside a title at 14px, in a place with no room to read one. The number is still there for anyone who wants it, in the tooltip and in the accessible name.</p>
+<p>It is a <strong>display of one proportion</strong>. It is not a control, and it is not a progress indicator: nothing is loading, and the value can fall as well as rise (a compaction gives context back). Do not reach for it to show a percentage of anything that completes — that is a different component, and this one's whole meaning is &quot;how full is the thing you are about to add to&quot;.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Hit target | <code>.ds-context-ring-anchor</code> | yes — a 24px focusable box around the mark | | Ring | <code>.ds-context-ring</code> | yes — a 16-unit <code>viewBox</code>, drawn at 14px | | Track | <code>.ds-context-ring-track</code> | yes — the unspent remainder, <code>border.strong</code> | | Fill | <code>.ds-context-ring-fill</code> | yes — the spent sweep, <code>accent.primary</code> |</p>
+<p>The anchor is a real part, not padding. A 14px mark is below the minimum hit target, so the ring is wrapped in a <code>size.hit-target-min</code> box that takes the hover and the focus; the box pulls its own overhang back with a negative block margin so a 24px target never grows the line it sits in.</p>
+<p>The sweep is set with <code>stroke-dasharray</code> on the fill circle: the dash is the spent arc length, the gap is the whole circumference. At <code>r=6</code> the circumference is <code>37.70</code>, so 38% used is <code>stroke-dasharray=&quot;14.33 37.70&quot;</code>. <code>stroke-linecap: butt</code> — a rounded cap at 2px overhangs by about a degree, which draws a visible dot at 0%.</p>
+<h4>Variants</h4>
+<ul><li><strong>Default</strong> — <code>accent.primary</code> fill. Accent as INK, which is inside the accent budget; the ring never takes an accent *fill* on its ground.</li><li><strong><code>--high</code></strong> — <code>status.warn</code> fill, past the warn threshold (80% in the product that ships it). A compaction is close, which is worth a glance before it happens rather than after. This is the only other tone the ring ever takes: there is no danger tier, because a full window is not a failure.</li></ul>
+<p>There is no size variant. 14px is the idiom.</p>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Rest | Track plus fill; the tooltip closed | | Hover / focus-visible | The tooltip opens, naming the exact percentage | | Focus-visible | The anchor wears the product focus ring | | Value change | The sweep animates over <code>motion.duration.deliberate</code> |</p>
+<p><strong>Not drawn at all</strong> when there is no reading. A ring at 0% and a ring for a runtime that reports nothing are the same picture, and one of them is a lie — so a surface with no value omits the component rather than drawing an empty one.</p>
+<p>The sweep transition is deliberate-tempo because the value moves in visible steps as a turn ends, and a step that snapped would read as a glitch on a surface nobody is looking at. <code>prefers-reduced-motion: reduce</code> removes it; the value is unaffected.</p>
+<h4>Usage</h4>
+<p><strong>Beside the thing whose context it is</strong> — a conversation's title, a session row — and never in a toolbar or a status bar of its own. The ring says &quot;this one&quot;, and it can only do that from next to its subject.</p>
+<p><strong>One per surface.</strong> Two rings on one card is two proportions the reader has to tell apart by position.</p>
+<p><strong>Never as the only statement of a warning.</strong> The <code>--high</code> tone is a nudge, not an alert; anything that must be acted on gets words.</p>
+<h4>Accessibility</h4>
+<ul><li>The anchor carries <code>role=&quot;img&quot;</code> and an <code>aria-label</code> naming the value in words — &quot;Context 38% used&quot;. Never the colour, and never &quot;ring&quot;.</li><li>The anchor is focusable (<code>tabindex=&quot;0&quot;</code>) so the tooltip is reachable without a pointer, which is the rule for every tooltip in the system: a hover-only reveal is not a reveal.</li><li>The SVG itself is <code>aria-hidden=&quot;true&quot;</code>. The label lives on the anchor, so the mark is announced once.</li><li>The tooltip repeats the same sentence as the accessible name. It is a <code>describedby</code> and never the name itself, because a tooltip that IS the name leaves an unnamed control for anyone who never opens it.</li><li>Colour is never the whole message: the sweep's LENGTH carries the value, and the <code>--high</code> tone only sharpens something already visible.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/context-ring/component.css</summary><pre><code>/* Context ring — how much of a model's context window a conversation has
+ * spent, drawn as a 14px circle filled clockwise from twelve. Extracted from
+ * the shipped ContextRing primitive
+ * (src/renderer/src/components/ui/ContextRing.tsx).
+ *
+ * The shape is borrowed rather than invented: Claude Code, Cursor and ChatGPT
+ * all draw this ring for the same fact, so a person arriving at it already
+ * knows what it means. That is the whole reason it is a ring and not a bar or
+ * a percentage — a number would have to be read, and this sits beside a title
+ * at 14px where there is no room to read one.
+ *
+ * It is a DISPLAY of one proportion, never a control and never a progress
+ * indicator: nothing here is loading, and the value can fall as well as rise
+ * (a compaction gives context back). It carries no tone but two — the accent
+ * while the window is ordinary, and status.warn once a compaction is close. */
+
+.ds-context-ring-anchor {
+  /* The mark's own diameter, kept here so the pull-back below can be written
+     in tokens and the two can never drift apart. */
+  --ds-context-ring-size: 14px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--sem-size-hit-target-min);
+  block-size: var(--sem-size-hit-target-min);
+  /* A 14px mark needs a 24px target to be hoverable and focusable; without
+     this pull-back that target would grow the line it sits in by 5px above and
+     below, which is a header getting taller to hold a 14px circle. */
+  margin-block: calc((var(--sem-size-hit-target-min) - var(--ds-context-ring-size)) / -2);
+  border-radius: var(--sem-radius-pill);
+  color: var(--sem-color-text-default);
+}
+
+.ds-context-ring-anchor:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-context-ring {
+  display: block;
+  inline-size: var(--ds-context-ring-size, 14px);
+  block-size: var(--ds-context-ring-size, 14px);
+}
+
+/* The unspent remainder. `border.strong` and not a status tone: the empty part
+   of the ring is a track, and a track that carried a colour would read as a
+   second value. */
+.ds-context-ring-track {
+  fill: none;
+  stroke: var(--sem-color-border-strong);
+  stroke-width: 2;
+}
+
+/* The spent part, swept clockwise from twelve. `butt` caps, because a rounded
+   cap at 2px overhangs by a whole degree and makes 0% draw a dot. */
+.ds-context-ring-fill {
+  fill: none;
+  stroke: var(--sem-color-accent-primary);
+  stroke-width: 2;
+  stroke-linecap: butt;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  transition: stroke-dasharray var(--sem-motion-duration-deliberate) var(--sem-motion-ease-standard);
+}
+
+/* Past the warn threshold a compaction is coming, which is worth a glance
+   before it happens. The only other tone the fill ever takes. */
+.ds-context-ring--high .ds-context-ring-fill {
+  stroke: var(--sem-color-status-warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-context-ring-fill {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/context-ring/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Context ring&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../tooltip/component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* The row the ring actually lives in: a title, the ring, and the state word
+     the surface already carries. The ring never stands on its own. */
+  .demo-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    max-width: 340px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-md) var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface-raised);
+  }
+  .demo-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-state {
+    flex: none;
+    margin-left: auto;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-anchor {
+    position: relative;
+  }
+  .demo-anchor .ds-tooltip {
+    position: absolute;
+    top: calc(var(--sem-size-hit-target-min) + var(--sem-space-2xs));
+    left: 0;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — the ring beside the thing it describes. Early in a conversation, and with the tooltip a hover or focus summons.&lt;/p&gt;
+
+  &lt;div class=&quot;demo-head&quot;&gt;
+    &lt;span class=&quot;demo-title&quot;&gt;Retry budget for stalled sprints&lt;/span&gt;
+    &lt;span class=&quot;demo-anchor&quot;&gt;
+      &lt;span class=&quot;ds-context-ring-anchor&quot; role=&quot;img&quot; tabindex=&quot;0&quot; aria-label=&quot;Context 22% used&quot;&gt;
+        &lt;svg class=&quot;ds-context-ring&quot; viewBox=&quot;0 0 16 16&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;circle class=&quot;ds-context-ring-track&quot; cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;6&quot; /&gt;
+          &lt;circle class=&quot;ds-context-ring-fill&quot; cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;6&quot; stroke-dasharray=&quot;8.29 37.70&quot; /&gt;
+        &lt;/svg&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-tooltip&quot; role=&quot;tooltip&quot;&gt;Context 22% used&lt;/span&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-state&quot;&gt;Working&lt;/span&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;Mid-conversation, and past the warn threshold — the one other tone the fill takes.&lt;/p&gt;
+
+  &lt;div class=&quot;demo-head&quot;&gt;
+    &lt;span class=&quot;demo-title&quot;&gt;Plugin sources for the marketplace&lt;/span&gt;
+    &lt;span class=&quot;ds-context-ring-anchor&quot; role=&quot;img&quot; tabindex=&quot;0&quot; aria-label=&quot;Context 61% used&quot;&gt;
+      &lt;svg class=&quot;ds-context-ring&quot; viewBox=&quot;0 0 16 16&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;circle class=&quot;ds-context-ring-track&quot; cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;6&quot; /&gt;
+        &lt;circle class=&quot;ds-context-ring-fill&quot; cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;6&quot; stroke-dasharray=&quot;23.00 37.70&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-state&quot;&gt;Idle · 12m&lt;/span&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-head&quot;&gt;
+    &lt;span class=&quot;demo-title&quot;&gt;Terminal emulation parity&lt;/span&gt;
+    &lt;span class=&quot;ds-context-ring-anchor ds-context-ring--high&quot; role=&quot;img&quot; tabindex=&quot;0&quot; aria-label=&quot;Context 84% used&quot;&gt;
+      &lt;svg class=&quot;ds-context-ring&quot; viewBox=&quot;0 0 16 16&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;circle class=&quot;ds-context-ring-track&quot; cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;6&quot; /&gt;
+        &lt;circle class=&quot;ds-context-ring-fill&quot; cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;6&quot; stroke-dasharray=&quot;31.67 37.70&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-state&quot;&gt;Working&lt;/span&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same two tones, retuned by the tokens. A window barely touched, and one all but spent.&lt;/p&gt;
+
+  &lt;div class=&quot;demo-head&quot;&gt;
+    &lt;span class=&quot;demo-title&quot;&gt;Dictation polish through your own CLI&lt;/span&gt;
+    &lt;span class=&quot;ds-context-ring-anchor&quot; role=&quot;img&quot; tabindex=&quot;0&quot; aria-label=&quot;Context 4% used&quot;&gt;
+      &lt;svg class=&quot;ds-context-ring&quot; viewBox=&quot;0 0 16 16&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;circle class=&quot;ds-context-ring-track&quot; cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;6&quot; /&gt;
+        &lt;circle class=&quot;ds-context-ring-fill&quot; cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;6&quot; stroke-dasharray=&quot;1.51 37.70&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-state&quot;&gt;Working&lt;/span&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-head&quot;&gt;
+    &lt;span class=&quot;demo-title&quot;&gt;Improve Git Diff Viewing&lt;/span&gt;
+    &lt;span class=&quot;ds-context-ring-anchor ds-context-ring--high&quot; role=&quot;img&quot; tabindex=&quot;0&quot; aria-label=&quot;Context 100% used&quot;&gt;
+      &lt;svg class=&quot;ds-context-ring&quot; viewBox=&quot;0 0 16 16&quot; aria-hidden=&quot;true&quot;&gt;
+        &lt;circle class=&quot;ds-context-ring-track&quot; cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;6&quot; /&gt;
+        &lt;circle class=&quot;ds-context-ring-fill&quot; cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;6&quot; stroke-dasharray=&quot;37.70 37.70&quot; /&gt;
+      &lt;/svg&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-state&quot;&gt;Idle · 2h&lt;/span&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 &lt;/body&gt;
@@ -18133,7 +18589,8 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>| Part | Class | Required | |---|---|---| | Link | <code>.ds-link-button</code> | yes — a <code>&lt;button&gt;</code> | | Ink | <code>--quiet</code> | no — the default is accent ink | | Type | <code>--inherit</code> | no — the default is <code>font.size.meta</code> |</p>
 <p><code>display: inline</code>, so the link wraps with the sentence rather than sitting in it as a box. The radius exists only so the focus ring has corners to draw round; nothing is painted inside it.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default (accent)</strong> — accent ink, deepening to <code>accent.hover</code>, underlined on hover. Accent as <strong>ink</strong> is inside the budget; what the budget forbids is the accent as a fill, which this never takes.</li><li><strong><code>--quiet</code></strong> — <code>text.muted</code> lifting to <code>text.primary</code>, with a <strong>permanent</strong> underline in <code>border.strong</code> at a 2px offset. The disclosure case: &quot;More&quot;, &quot;Show details&quot;. The underline is standing rather than a hover reveal because a quiet link with no colour and no box is indistinguishable from the sentence around it until the pointer happens to cross it.</li><li><strong><code>--inherit</code></strong> — takes the surrounding text's size and weight instead of <code>font.size.meta</code>. For the link set inside prose the caller has already sized: a path inside rendered markdown, a name inside a heading. A size of our own there would make one word of a sentence a different size from the rest of it, which is worse than any consistency it buys.</li></ul>
+<ul><li><strong>Default (accent)</strong> — accent ink, deepening to <code>accent.hover</code>, underlined on hover. Accent as <strong>ink</strong> is inside the budget; what the budget forbids is the accent as a fill, which this never takes.</li><li><strong><code>--quiet</code></strong> — <code>text.muted</code> lifting to <code>text.primary</code>, with a <strong>permanent</strong> underline in <code>border.strong</code> at a 2px offset. The disclosure case: &quot;More&quot;, &quot;Show details&quot;. The underline is standing rather than a hover reveal because a quiet link with no colour and no box is indistinguishable from the sentence around it until the pointer happens to cross it.</li><li><strong><code>--row</code></strong> — a full-width flex row with its parts baseline-aligned, for a LIST of links rather than one set inside a sentence: a column of changed files where the name, the folder and the counts have to line up down the list. It is a variant rather than a caller's own <code>display</code>, because <code>display</code> is the one property the base rule spends on being inline — a competing declaration at equal specificity is resolved by stylesheet order, and a row that quietly fell back to <code>inline</code> would lose its columns entirely. Everything else about the link is unchanged: still no box, no height and no ground.</li></ul>
+<ul><li><strong><code>--inherit</code></strong> — takes the surrounding text's size and weight instead of <code>font.size.meta</code>. For the link set inside prose the caller has already sized: a path inside rendered markdown, a name inside a heading. A size of our own there would make one word of a sentence a different size from the rest of it, which is worse than any consistency it buys.</li></ul>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Rest | Per ink above | | Hover | Ink one step; accent adds an underline, quiet already has one | | Focus-visible | The shared ring, at the standard offset | | Disabled | 45% opacity, <code>not-allowed</code>, <strong>underline dropped</strong>, ink kept | | Pressed | <strong>Nothing.</strong> A control that shrank mid-sentence would move the words after it |</p>
 <p><strong>Disabled keeps its ink.</strong> A sentence whose one action has fallen to <code>text.disabled</code> reads as broken copy rather than as an unavailable action, and the disabled step is certified for 3:1 non-text contrast only — it may not carry words.</p>
@@ -18210,6 +18667,23 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 .ds-link-button--inherit {
   font: inherit;
   line-height: inherit;
+}
+
+/* row — a full-width flex row, for a LIST of links rather than one set inside a
+ * sentence: the conversation peek's changed files, where the name, the folder
+ * and the counts are three columns that have to line up down the list.
+ *
+ * A variant and not something a caller adds on top, because `display` is the one
+ * property this component's base rule spends on being inline: a `flex` written
+ * beside `.ds-link-button` competes at equal specificity, so which wins is
+ * stylesheet order rather than the author's intent, and a row that silently fell
+ * back to `inline` would put the whole path on one baseline with no columns at
+ * all. */
+.ds-link-button--row {
+  display: flex;
+  align-items: baseline;
+  inline-size: 100%;
+  min-inline-size: 0;
 }
 </code></pre></details>
 <details class="catalog-source"><summary>components/link-button/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;

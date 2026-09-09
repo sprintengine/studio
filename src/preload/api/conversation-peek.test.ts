@@ -16,6 +16,7 @@ async function main(): Promise<void> {
       truncatedChars: 0,
     },
     since: [],
+    images: [{ kind: 'image', id: 'uuid-1:image:0', label: 'Screenshot.png' }],
   }
 
   const api = createConversationPeekApi({

@@ -62,9 +62,26 @@ const UNDERLINE: Record<LinkUnderline, string> = {
   never: 'no-underline',
 }
 
+/**
+ * - `inline` (default) — baseline flow, `display: inline`. A link set inside a
+ *   sentence, which is what this primitive is for.
+ * - `row` — a full-width flex row, for a LIST of links: the conversation peek's
+ *   changed files, where the name, the folder and the counts are three columns
+ *   that have to line up down the list.
+ *
+ * A variant rather than something a caller adds through `className`, because a
+ * `flex` written there does not reliably beat this file's `inline`: both are
+ * `display` utilities at the same specificity, so which wins is Tailwind's
+ * emission order rather than the order of the class attribute. A row that
+ * silently went back to `inline` would put the whole path on one baseline with
+ * no columns at all.
+ */
+export type LinkLayout = 'inline' | 'row'
+
 export type LinkButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   ink?: LinkInk
   underline?: LinkUnderline
+  layout?: LinkLayout
   /**
    * Take the surrounding text's size and weight instead of the kit's
    * `font.size.meta`.
@@ -80,7 +97,7 @@ export type LinkButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 }
 
 export const LinkButton = React.forwardRef<HTMLButtonElement, LinkButtonProps>(function LinkButton(
-  { className, ink = 'accent', underline, size = 'meta', type, ...rest },
+  { className, ink = 'accent', underline, layout = 'inline', size = 'meta', type, ...rest },
   ref,
 ) {
   return (
@@ -94,7 +111,9 @@ export const LinkButton = React.forwardRef<HTMLButtonElement, LinkButtonProps>(f
         // a control that shrank 3% mid-sentence would move the words after it.
         // `radius.chip` exists only so the focus ring has corners to draw round;
         // nothing is painted inside it.
-        'inline rounded-xs bg-transparent text-left transition-colors',
+        layout === 'row'
+          ? 'flex w-full min-w-0 items-baseline rounded-xs bg-transparent text-left transition-colors'
+          : 'inline rounded-xs bg-transparent text-left transition-colors',
         size === 'meta' ? 'text-meta' : 'text-[length:inherit] font-[inherit] leading-[inherit]',
         INK[ink],
         UNDERLINE[underline ?? (ink === 'quiet' ? 'always' : 'hover')],

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Context ring</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<link rel="stylesheet" href="../tooltip/component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* The row the ring actually lives in: a title, the ring, and the state word
+     the surface already carries. The ring never stands on its own. */
+  .demo-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    max-width: 340px;
+    margin-bottom: var(--sem-space-lg);
+    padding: var(--sem-space-md) var(--sem-space-lg);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface-raised);
+  }
+  .demo-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-state {
+    flex: none;
+    margin-left: auto;
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-muted);
+  }
+  .demo-anchor {
+    position: relative;
+  }
+  .demo-anchor .ds-tooltip {
+    position: absolute;
+    top: calc(var(--sem-size-hit-target-min) + var(--sem-space-2xs));
+    left: 0;
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the ring beside the thing it describes. Early in a conversation, and with the tooltip a hover or focus summons.</p>
+
+  <div class="demo-head">
+    <span class="demo-title">Retry budget for stalled sprints</span>
+    <span class="demo-anchor">
+      <span class="ds-context-ring-anchor" role="img" tabindex="0" aria-label="Context 22% used">
+        <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
+          <circle class="ds-context-ring-track" cx="8" cy="8" r="6" />
+          <circle class="ds-context-ring-fill" cx="8" cy="8" r="6" stroke-dasharray="8.29 37.70" />
+        </svg>
+      </span>
+      <span class="ds-tooltip" role="tooltip">Context 22% used</span>
+    </span>
+    <span class="demo-state">Working</span>
+  </div>
+
+  <p class="demo-label">Mid-conversation, and past the warn threshold — the one other tone the fill takes.</p>
+
+  <div class="demo-head">
+    <span class="demo-title">Plugin sources for the marketplace</span>
+    <span class="ds-context-ring-anchor" role="img" tabindex="0" aria-label="Context 61% used">
+      <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
+        <circle class="ds-context-ring-track" cx="8" cy="8" r="6" />
+        <circle class="ds-context-ring-fill" cx="8" cy="8" r="6" stroke-dasharray="23.00 37.70" />
+      </svg>
+    </span>
+    <span class="demo-state">Idle · 12m</span>
+  </div>
+
+  <div class="demo-head">
+    <span class="demo-title">Terminal emulation parity</span>
+    <span class="ds-context-ring-anchor ds-context-ring--high" role="img" tabindex="0" aria-label="Context 84% used">
+      <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
+        <circle class="ds-context-ring-track" cx="8" cy="8" r="6" />
+        <circle class="ds-context-ring-fill" cx="8" cy="8" r="6" stroke-dasharray="31.67 37.70" />
+      </svg>
+    </span>
+    <span class="demo-state">Working</span>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same two tones, retuned by the tokens. A window barely touched, and one all but spent.</p>
+
+  <div class="demo-head">
+    <span class="demo-title">Dictation polish through your own CLI</span>
+    <span class="ds-context-ring-anchor" role="img" tabindex="0" aria-label="Context 4% used">
+      <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
+        <circle class="ds-context-ring-track" cx="8" cy="8" r="6" />
+        <circle class="ds-context-ring-fill" cx="8" cy="8" r="6" stroke-dasharray="1.51 37.70" />
+      </svg>
+    </span>
+    <span class="demo-state">Working</span>
+  </div>
+
+  <div class="demo-head">
+    <span class="demo-title">Improve Git Diff Viewing</span>
+    <span class="ds-context-ring-anchor ds-context-ring--high" role="img" tabindex="0" aria-label="Context 100% used">
+      <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
+        <circle class="ds-context-ring-track" cx="8" cy="8" r="6" />
+        <circle class="ds-context-ring-fill" cx="8" cy="8" r="6" stroke-dasharray="37.70 37.70" />
+      </svg>
+    </span>
+    <span class="demo-state">Idle · 2h</span>
+  </div>
+</div>
+</body>
+</html>

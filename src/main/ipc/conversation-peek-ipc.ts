@@ -28,7 +28,9 @@ export function registerConversationPeekIpc(
     // A malformed payload is our bug or a hostile caller — never a statement
     // about the runtime, so `unknown` rather than the `none` that would tell
     // the person their CLI cannot report messages.
-    if (!isId(sessionId)) return Promise.resolve({ sessionId: '', source: 'unknown' as const, first: null, since: [] })
+    if (!isId(sessionId)) {
+      return Promise.resolve({ sessionId: '', source: 'unknown' as const, first: null, since: [], images: [] })
+    }
     return deps.readConversationPeek(sessionId)
   })
 
