@@ -265,8 +265,13 @@ function ChangedFileRow({
   const { name, folder } = splitChangedPath(change.path)
   return (
     <LinkButton
+      layout="row"
       underline="never"
-      className="flex w-full min-w-0 items-baseline gap-1"
+      // `size="inherit"` and the size on the row: the primitive's own
+      // `text-meta` and a `text-micro` here are both font-size utilities, and
+      // which one wins is stylesheet order rather than class order.
+      size="inherit"
+      className="gap-1 text-micro"
       aria-label={`Open the diff for ${change.path}`}
       onClick={(event) => {
         event.stopPropagation()
@@ -331,6 +336,7 @@ function ChangedFiles({
       <div className="px-3 pt-2">
         <LinkButton
           ink="quiet"
+          size="inherit"
           className="text-micro"
           onClick={(event) => {
             event.stopPropagation()

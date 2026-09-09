@@ -302,13 +302,9 @@ function renderTerminalRecencyIndicator(
 function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, renderNewAgentPanel }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
-  const workspaceName = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name ?? '')
   // A file the peek card lists opens in the workspace pane's Diff tab, the same
   // tab and the same focus a Git panel row opens (see GitPanel.handleOpenFile).
   const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
-  const workspaceRemoteOrigin = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.remoteOrigin ?? null,
-  )
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const workspaceAgents = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_WORKSPACE_AGENTS
@@ -1420,8 +1416,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         taskId: currentTaskId ?? null,
         status: identityStatus,
         agent: {
-          // A tab whose agent main has no session for still gets a card, built
-          // from what the tab already knows; the empty id simply asks nothing.
+          // A tab whose agent main has no SESSION for still gets a card: the id
+          // is what the peek asks about, and main answers `unknown` for one it
+          // holds no state for, which is the card's own arm. A tab with no id at
+          // ALL — an agent that has never launched — opens nothing, because
+          // there is nothing to ask, and the alternative the roster used to take
+          // was to open the card on a SIBLING agent's conversation.
           sessionId: agentSessionId ?? '',
           cli: agent?.cli ?? null,
           model: agent?.cliModel ?? null,
@@ -1452,7 +1452,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         </AgentTabIdentityPopover>
       )
     },
-    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, sprintEngineAgents, startRename, remoteAttachedSessions, terminalSessions, workspaceAgents, workspaceName, workspaceRemoteOrigin, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
+    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, sprintEngineAgents, startRename, remoteAttachedSessions, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {

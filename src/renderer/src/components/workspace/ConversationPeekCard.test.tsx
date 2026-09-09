@@ -169,10 +169,20 @@ run('subagents replace the word rather than being added beside it', () => {
 })
 
 run('an idle agent drops the dots and takes the quieter ink', () => {
-  const markup = card({ identity: { status: { kind: 'idle', label: 'Idle · 12m' } } })
-  assert.match(markup, />Idle · 12m</, 'says how long, not a bare "Idle"')
-  assert.equal(markup.includes('agent-working-dots'), false, 'nothing is running, so nothing moves')
-  assert.match(markup, /text-\[color:var\(--text-subtle\)\]/, 'and it recedes')
+  const idle = card({ identity: { status: { kind: 'idle', label: 'Idle · 12m' } } })
+  assert.match(idle, />Idle · 12m</, 'says how long, not a bare "Idle"')
+  assert.equal(idle.includes('agent-working-dots'), false, 'nothing is running, so nothing moves')
+  // Read the CORNER's own class attribute, not the whole card: `text.subtle`
+  // is on half the markup — the ages, the file glyph, the notes — so a match
+  // anywhere would pass whatever ink the corner actually took.
+  const cornerInk = (markup: string): string =>
+    markup.match(/<span class="(ml-auto[^"]*)"/)?.[1] ?? ''
+  assert.match(cornerInk(idle), /--text-subtle/, 'idle recedes')
+  assert.match(
+    cornerInk(card({ identity: { status: { kind: 'attention', label: 'Waiting' } } })),
+    /--text-muted/,
+    'a chat that wants you does not',
+  )
 })
 
 run('waiting and failed keep their labels and lose their dots', () => {

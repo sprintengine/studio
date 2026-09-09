@@ -545,7 +545,7 @@ async function main(): Promise<void> {
     // The whole point of the 2026-09-09 revision: the row says "working" with
     // three staggered dots, so a pulsing disc six pixels away on the card would
     // be two vocabularies for one fact.
-    for (const element of subtree(peekContainer.firstElementChild as Element)) {
+    for (const element of subtree(peekContainer)) {
       for (const token of classesOf(element)) {
         assert.ok(
           !/^animate-pulse$/.test(token),
@@ -586,7 +586,7 @@ async function main(): Promise<void> {
     // variable. `text-[length:…]` is a size that happens to share the `text-`
     // prefix and is not a colour at all.
     const COLOUR_UTILITY = /^(?:bg|text|border|stroke|fill)-\[(.+)\]$/
-    for (const element of subtree(peekContainer.firstElementChild as Element)) {
+    for (const element of subtree(peekContainer)) {
       for (const token of classesOf(element)) {
         assert.ok(
           !/#[0-9a-fA-F]{3,8}\b/.test(token),

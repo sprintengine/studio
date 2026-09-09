@@ -74,8 +74,20 @@ export function ConversationPeekPopover({
   // most likely reaching for. Not the first by name or id, which is an
   // arbitrary answer dressed up as a considered one.
   const [hoveredSession, setHoveredSession] = useState<string | null>(null)
+  // Whose card this opening started on, captured at reveal. It cannot be read
+  // off `identities[0]` each render: that list is sorted by last activity, so a
+  // SIBLING agent producing output re-sorts it and the open card silently
+  // becomes a different agent's — under a pointer that has not moved, and with
+  // a fresh transcript read behind it. The list is still the source of the
+  // choice; it is only the moment of choosing that is pinned.
+  const [openedOn, setOpenedOn] = useState<string | null>(null)
+  // Read through a ref so the reveal handlers below can capture the CURRENT
+  // list without re-binding every listener each time it is re-sorted.
+  const identitiesRef = useRef(identities)
+  identitiesRef.current = identities
+  const chosen = hoveredSession ?? openedOn
   const identity =
-    identities.find((entry) => entry.agent.sessionId === hoveredSession) ?? identities[0] ?? null
+    identities.find((entry) => entry.agent.sessionId === chosen) ?? identities[0] ?? null
   const sessionId = identity?.agent.sessionId ?? null
   const hover = useConversationPeek(sessionId)
   const { copied, copy } = useCopyValue(sessionId)
@@ -121,6 +133,7 @@ export function ConversationPeekPopover({
       setPoint({ x: rect.right + ANCHOR_GAP, y: rect.top - ANCHOR_RISE })
     }
     const onEnter = () => {
+      setOpenedOn(identitiesRef.current[0]?.agent.sessionId ?? null)
       anchor()
       openSoon()
     }
@@ -144,6 +157,7 @@ export function ConversationPeekPopover({
       // the card, and swapping the agent during that grace would change the
       // card out from under a pointer on its way to it.
       setHoveredSession(null)
+      setOpenedOn(identitiesRef.current[0]?.agent.sessionId ?? null)
       anchor()
       openNow()
     }
