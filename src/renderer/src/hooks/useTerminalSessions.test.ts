@@ -202,6 +202,43 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
     ),
     'the same work spread over two files is a different ledger'
   )
+  const withContext = (contextUsage: { usedPercentage: number; at: number } | null) => [
+    session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, contextUsage }),
+    base[1],
+  ]
+  assert.notEqual(
+    getTerminalSessionsSignature(base),
+    getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 50 })),
+    'a first context reading re-renders'
+  )
+  // `at` held CONSTANT: every other assertion here would pass with the
+  // percentage left out of the signature entirely, because a moving `at` moves
+  // the row on its own. This one fails without the field the signature exists
+  // to carry.
+  assert.notEqual(
+    getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 50 })),
+    getTerminalSessionsSignature(withContext({ usedPercentage: 9, at: 50 })),
+    'a moved percentage re-renders'
+  )
+  // And the converse: `at` is deliberately NOT in the signature, so a reading
+  // re-stamped at the same percentage is not a repaint.
+  assert.equal(
+    getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 50 })),
+    getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 900 })),
+    'a re-stamped identical percentage is not news'
+  )
+  assert.equal(
+    getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 50 })),
+    getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 50 })),
+    'and an unchanged one does not'
+  )
+  // Zero is a reading — a session that has just been compacted to nothing is
+  // not a session nothing has read.
+  assert.notEqual(
+    getTerminalSessionsSignature(withContext(null)),
+    getTerminalSessionsSignature(withContext({ usedPercentage: 0, at: 0 })),
+    'zero percent is a reading, not an absence'
+  )
   const subagentRunning = [
     session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, activeSubagents: 2 }),
     base[1],
@@ -216,10 +253,11 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   const partial = { ...base[0] } as Partial<TerminalSessionSnapshot>
   delete partial.fileChanges
   delete partial.activeSubagents
+  delete partial.contextUsage
   assert.equal(
     getTerminalSessionsSignature([partial as TerminalSessionSnapshot, base[1]]),
     getTerminalSessionsSignature(base),
-    'a snapshot missing the new fields reads as an empty ledger and no subagents, not a crash'
+    'a snapshot missing the new fields reads as an empty ledger, no subagents and no reading, not a crash'
   )
 }
 

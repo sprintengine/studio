@@ -35,10 +35,7 @@ function getActivitySignature(activity: TerminalSessionSnapshot['activity']) {
 //
 // The paths themselves are deliberately NOT hashed — five hundred of them is
 // tens of kilobytes of string per session, and this runs for every session on
-// every broadcast. `contextUsage` is deliberately absent: it is null until the
-// status-line forwarder lands, and when it arrives it should be keyed on the
-// rounded percentage only — its `at` moves on every sample, which is exactly
-// the lastOutputAt-class noise this signature exists to drop.
+// every broadcast.
 function getFileChangesSignature(fileChanges: TerminalSessionSnapshot['fileChanges']) {
   let additions = 0
   let deletions = 0
@@ -109,6 +106,19 @@ export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]
       // and once per subagent — a rate a paint can carry.
       getFileChangesSignature(session.fileChanges),
       session.activeSubagents ?? 0,
+      // Context-window usage, for the same reason: a status-line refresh moves
+      // no phase and no activity, so a session whose only news is a fuller
+      // context would never repaint. Main broadcasts only when the WHOLE
+      // percent moves, so this is at most one repaint per percent per session.
+      //
+      // The percentage ALONE, deliberately. Its `at` moves with it today and
+      // only with it, so including it would add nothing — and would quietly
+      // couple this signature to that main-process invariant: the day `at`
+      // becomes "when we last heard" rather than "when it last moved", every
+      // refresh of every session would repaint every window, and nothing here
+      // would notice. -1 for absent, which no reading can be: the parser
+      // refuses anything outside 0..100, so zero is a reading, not an absence.
+      session.contextUsage?.usedPercentage ?? -1,
     ])
   return JSON.stringify(rows)
 }

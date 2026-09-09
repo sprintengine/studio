@@ -1798,8 +1798,10 @@ export type SessionFileChange = {
 }
 
 // How much of the model's context window this session has consumed, as its own
-// status line reports it. Placeholder: nothing writes it yet — the status-line
-// forwarder that fills it is the next phase, and every producer sets null.
+// status line reports it. `at` is the moment the whole percent LAST MOVED, not
+// the moment of the last reading — the CLI refreshes its status line after
+// every assistant message, and a timestamp that advanced on each one would be
+// a repaint per message for a number that had not changed.
 export type SessionContextUsage = {
   usedPercentage: number
   at: number
@@ -1886,9 +1888,12 @@ export type TerminalSessionSnapshot = {
   // so a row can say "3 running" instead of a bare spinner. Zero for plain
   // terminals and for CLIs that report no subagent events.
   activeSubagents: number
-  // Context-window usage, once something reports it. Always null today: the
-  // status-line forwarder that fills it lands in the next phase, and the field
-  // ships now so its consumers can be written against a settled contract.
+  // Context-window usage, from the session's own status line. Null for a plain
+  // terminal, for a CLI with no status line, for one whose person's status line
+  // could not be wrapped, and for a session that has not made an API call yet —
+  // never a guess. A /compact does NOT clear it: the CLI reports no percentage
+  // for a moment afterwards, and "not known right now" is not "empty", so the
+  // last known reading stands until a real one replaces it.
   contextUsage: SessionContextUsage | null
   exitedAt: number | null
   outputBufferLength: number
