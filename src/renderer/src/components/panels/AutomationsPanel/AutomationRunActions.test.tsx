@@ -90,6 +90,19 @@ run('a run with nothing actionable and no report renders nothing', () => {
   assert.equal(markup(makeRun({ summary: 'plain text' }), noop), '', 'early-returns null when truly empty')
 })
 
+// ---- The pull request link (epic pull-request-marks, decisions 1-3) ---------
+
+run('a run’s pull request is the words, with no state mark beside them', () => {
+  // A shape is a claim about state. `AutomationRun` carries a URL and nothing
+  // else — no state, no reading, nothing watching it — so a mark here would
+  // draw the OPEN fork for a pull request that merged weeks ago. Nothing is
+  // drawn unless the app definitely knows (decision 3).
+  const m = markup(makeRun({ pullRequestUrl: 'https://github.com/acme/app/pull/12' }), noop)
+  assert.match(m, /Pull request/, 'the link keeps its words')
+  assert.match(m, /href="https:\/\/github\.com\/acme\/app\/pull\/12"/, 'and opens the pull request')
+  assert.ok(!m.includes('<svg'), 'and draws no glyph at all, which is what a state mark would be')
+})
+
 // ---- Click wiring -----------------------------------------------------------
 
 run('clicking "View report" invokes onViewReport with the run', () => {

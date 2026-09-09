@@ -1,4 +1,4 @@
-import { FOCUS_RING_CLASS, GhostButton, PullRequestGlyph, Tooltip } from '../../ui'
+import { FOCUS_RING_CLASS, GhostButton, Tooltip } from '../../ui'
 import type { AutomationRun } from '../../../../../shared/automations/contracts'
 import { extractReportPaths } from '../../automations/reportPaths'
 
@@ -46,12 +46,17 @@ export function AutomationRunActions({
             rel="noreferrer"
             className={`inline-flex h-5 items-center gap-1 rounded-sm px-1.5 text-micro font-medium text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
           >
-            {/* The mark, not just the words (epic pull-request-marks decision
-                12). A run record carries the URL and no state, and a pull
-                request the app has captured is OPEN until GitHub says otherwise
-                (decision 3) — so it wears the open mark, in the accent the link
-                already had. Decorative: the words beside it say what it is. */}
-            <PullRequestGlyph state="open" className="icon-xs" />
+            {/* The WORDS and no mark (epic pull-request-marks, decisions 1–3;
+                review 2026-09-09). A shape is a claim about state: the three
+                marks say open, merged and closed, and drawing one here would
+                say "open" about every run's pull request for ever. An
+                automation run record carries a URL and nothing else
+                (`AutomationRun.pullRequestUrl`) — no state, no reading, and
+                nothing watching it — so a pull request merged weeks ago would
+                keep drawing the open fork. Decision 3 is that nothing is drawn
+                unless the app definitely knows, and "we knew it existed once"
+                is not knowing. When these runs join the record and get a real
+                state, the mark can come back with it. */}
             Pull request
           </a>
         </Tooltip>
