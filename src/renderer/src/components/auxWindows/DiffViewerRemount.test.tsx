@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import React from 'react'
 
-import { DiffBody } from './DiffViewer'
+import { contentAcrossTargetChange, DiffBody } from './DiffViewer'
 import { DEFAULT_DIFF_EDITOR_PREFS, diffEditorOptions } from './diffToolbarModel'
 import type { DiffFileItem } from './diffFileList'
 
@@ -35,9 +35,11 @@ const item: DiffFileItem = {
   kind: 'unstaged',
 }
 
+const READY = { state: 'ready' as const, original: 'a\n', modified: 'b\n', language: 'typescript' }
+
 function bodyFor(diffView: 'side-by-side' | 'unified', hideUnchanged = false): React.ReactElement {
   const element = DiffBody({
-    content: { state: 'ready', original: 'a\n', modified: 'b\n', language: 'typescript' },
+    content: READY,
     repoState: 'ready',
     currentItem: item,
     onMount: () => {},
@@ -96,6 +98,47 @@ run('the states before a diff are still plain messages, with no editor at all', 
   })
   assert.ok(React.isValidElement(loading))
   assert.notEqual((loading as React.ReactElement).type, bodyFor('side-by-side').type)
+})
+
+run('a file step keeps the editor mounted — same element, same content', () => {
+  // Finding 13: the target effect routed every step through `{state:'loading'}`,
+  // so `DiffBody` returned the message component and React unmounted Monaco on
+  // every press of ↓. Within one repository the previous diff stays on screen
+  // until the next one lands, exactly as the live re-read path already does.
+  const kept = contentAcrossTargetChange(READY, true)
+  assert.equal(kept, READY, 'the very same object — nothing for React to diff')
+
+  const next: DiffFileItem = { ...item, path: '/repo/src/b.ts', relativePath: 'src/b.ts' }
+  const before = bodyFor('side-by-side')
+  const after = DiffBody({
+    content: kept,
+    repoState: 'ready',
+    currentItem: next,
+    onMount: () => {},
+    monacoTheme: 'vs',
+    options: diffEditorOptions({ diffView: 'side-by-side', ...DEFAULT_DIFF_EDITOR_PREFS }, 'mono'),
+  }) as React.ReactElement
+  assert.equal(after.type, before.type, 'the same component type — anything else is a remount')
+  assert.equal(after.key, null)
+  for (const prop of ['original', 'modified'] as const) {
+    assert.equal(
+      (after.props as Record<string, unknown>)[prop],
+      (before.props as Record<string, unknown>)[prop],
+      `${prop} must not change until the new read lands`,
+    )
+  }
+})
+
+run('a step into another repository, or a first read, still shows the message', () => {
+  // Nothing to keep: the diff on screen is not stale, it is about somewhere
+  // else — and on the first read there is no editor to keep mounted at all.
+  assert.deepEqual(contentAcrossTargetChange(READY, false), { state: 'loading' })
+  assert.deepEqual(contentAcrossTargetChange({ state: 'loading' }, true), { state: 'loading' })
+  assert.deepEqual(contentAcrossTargetChange({ state: 'binary' }, true), { state: 'loading' })
+  assert.deepEqual(
+    contentAcrossTargetChange({ state: 'error', message: 'no' }, true),
+    { state: 'loading' },
+  )
 })
 
 if (failures > 0) {

@@ -326,6 +326,25 @@ function CenteredError({ message }: { message: string }) {
 }
 
 /**
+ * What the content becomes while the NEXT file's diff is being read.
+ *
+ * The answer is "the file you were looking at", and that is the whole of
+ * finding 13. Routing a file step through `{ state: 'loading' }` made
+ * `DiffBody` return the message component instead of the editor, which is a
+ * different element type — so React unmounted Monaco and mounted it again on
+ * every press of ↓. The live re-read path never did this: it swaps the two
+ * texts under a mounted editor, and a file step is the same move with a
+ * different pair of texts.
+ *
+ * A message is still the right answer where there is no editor to keep: the
+ * first read of a window, and a step into another repository, where the diff on
+ * screen is not merely stale but about somewhere else.
+ */
+export function contentAcrossTargetChange(previous: DiffContent, sameRepo: boolean): DiffContent {
+  return previous.state === 'ready' && sameRepo ? previous : { state: 'loading' }
+}
+
+/**
  * Exported for `DiffViewer.remount.test.tsx`, which calls it as a plain
  * function (it holds no hooks, deliberately) and reads the element it returns.
  * Two calls whose only difference is a view preference must return an element
@@ -480,6 +499,11 @@ export function DiffViewer({
   const currentItem = currentIndex >= 0 ? items[currentIndex] ?? null : null
 
   const [content, setContent] = useState<DiffContent>({ state: 'loading' })
+  // Read by the target effect, which has to know what is on screen without
+  // depending on it — depending on `content` would re-read the diff every time
+  // the diff was read.
+  const contentRef = useRef<DiffContent>(content)
+  contentRef.current = content
   const diffEditorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null)
   // The MODIFIED editor and the lane its glyph margin hangs widgets in — the
   // two things the per-hunk include boxes need (T7). State rather than a ref
@@ -540,17 +564,31 @@ export function DiffViewer({
   const currentItemRef = useRef<DiffFileItem | null>(null)
   currentItemRef.current = currentItem
 
+  // Which repository the content on screen came from. A step within one repo
+  // may keep the previous diff on screen; a change of repository may not.
+  const contentRepoRef = useRef(repoRoot)
+
   useEffect(() => {
     if (!currentItem) {
       loadSeqRef.current += 1
       setContent({ state: 'loading' })
+      monacoStepsRef.current = []
+      setDifferenceCount(0)
       return
     }
     loadSeqRef.current += 1
     const token = loadSeqRef.current
-    setContent({ state: 'loading' })
-    monacoStepsRef.current = []
-    setDifferenceCount(0)
+    const sameRepo = contentRepoRef.current === repoRoot
+    contentRepoRef.current = repoRoot
+    const next = contentAcrossTargetChange(contentRef.current, sameRepo)
+    if (next.state !== 'ready') {
+      // Only when the editor is going away anyway: leaving these behind while
+      // the previous file is still drawn is what keeps the stepper and the
+      // counter describing what is actually on screen.
+      monacoStepsRef.current = []
+      setDifferenceCount(0)
+    }
+    setContent(next)
     hunkIndexRef.current = 0
     void loadDiffContent(repoRoot, currentItem).then((next) => {
       if (loadSeqRef.current === token) setContent(next)
