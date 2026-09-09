@@ -642,7 +642,11 @@ async function main(): Promise<void> {
     const panel = designContainer.querySelector('[role="tabpanel"]')
     assert.ok(panel, 'the contents live in a labelled tab panel')
     for (const token of classesOf(panel)) {
-      assert.ok(!token.startsWith('border-'), 'the panel draws no container')
+      // `border` on its own is a container too — a 1px rule on all four sides.
+      // The hyphen was added while re-pointing this at the rewritten canvas and
+      // it opened exactly the hole the rule exists to close, so the prefix is
+      // back to `border`.
+      assert.ok(!token.startsWith('border'), 'the panel draws no container')
       assert.ok(!token.startsWith('bg-'), 'and no surface of its own')
     }
   })
