@@ -13,6 +13,7 @@ import type { InstalledPluginRecord } from '../../../../../../../shared/electron
 import {
   SOURCE_SHAPE_LABEL,
   describeUnreadPlugin,
+  skillDirName,
   type ScannedPlugin,
   type SkillHarness,
   type SkillSource,
@@ -39,6 +40,7 @@ import {
   type PluginInstallState,
 } from './pluginsSurfaceModel'
 import { shortCommit } from '../skills/skillsSurfaceModel'
+import { UseSkillInAgentAction } from '../UseSkillInAgentAction'
 
 export type PluginDetailPaneProps = {
   source: SkillSource
@@ -50,6 +52,8 @@ export type PluginDetailPaneProps = {
   readError: string | null
   onRetryRead: () => void
   harnesses: readonly SkillHarness[]
+  /** The workspace its skills would be used in. Null when no folder is open. */
+  workspaceRoot?: string | null
   install: PluginInstallState
   availability: PluginInstallAvailability
   installing: boolean
@@ -189,6 +193,41 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
             </p>
           )}
         </Section>
+
+        {/*
+          A plugin is a bag of skills, and until now installing one ended at a
+          list of their names. A plugin can carry several, so each gets its own
+          action rather than the page guessing which one was meant. Only after
+          the install: the acknowledgement gate above is the only way in, and a
+          "use" that quietly installed would walk straight past it.
+        */}
+        {installed && plugin.componentsKnown && plugin.components.skills.length > 0 ? (
+          <Section level={4} title="Use a skill">
+            <ul role="list" className="flex flex-col gap-1.5">
+              {plugin.components.skills.map((skill) => (
+                <li
+                  key={skill.id}
+                  className="flex items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-1.5 last:border-b-0 last:pb-0"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-meta text-[color:var(--text-default)]">{skill.name}</span>
+                    {skill.description ? (
+                      <span className="block truncate text-micro text-[color:var(--text-subtle)]">
+                        {skill.description}
+                      </span>
+                    ) : null}
+                  </span>
+                  <UseSkillInAgentAction
+                    skillId={skillDirName(skill.id)}
+                    skillName={skill.name}
+                    workspaceRoot={props.workspaceRoot ?? null}
+                    disabled={props.installing}
+                  />
+                </li>
+              ))}
+            </ul>
+          </Section>
+        ) : null}
 
         {props.harnesses.length > 0 ? (
           <Section level={4} title="What installs where">

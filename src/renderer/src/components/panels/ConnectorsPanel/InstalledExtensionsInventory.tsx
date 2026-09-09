@@ -9,7 +9,7 @@
 // actions (launch / automation / remove) only delegate to handlers the host
 // already owns — a primitive with no handler simply shows no action.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../../shared/modules/manifest'
 import type {
@@ -30,23 +30,19 @@ import {
   GhostButton,
   InlineNotice,
   Pager,
-  MENU_LIST_CLASS,
-  MenuDivider,
-  MenuItem,
-  OutlineButton,
-  Popover,
   PrimaryButton,
-  roveMenuFocus,
   Spinner,
   StatusDot,
   Tooltip,
 } from '../../ui'
-import { bracketedPaste } from '../../../utils/terminalDrop'
 import {
-  ensureSkillForAgent,
-  renderSkillInvocation,
-  skillInstalledForHarness,
-} from '../../../utils/skillInvocation'
+  NO_WORKSPACE_FOLDER_MESSAGE,
+  resolveWorkspaceSkill,
+  skillRestartToast,
+  useSkillInAgent,
+} from '../../../utils/useSkillInAgent'
+import { UseSkillInAgentMenu } from '../../ui/UseSkillInAgentMenu'
+import { showToast } from '../../../store/toastStore'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
@@ -827,12 +823,13 @@ function RowStatus({ item }: { item: InstalledExtension }) {
   return null
 }
 
-// "Use in agent" on a skill row: a menu of running agent terminals by name
-// ("New agent…" always last). Picking a session ensure-installs the skill,
-// renders the per-CLI invocation via the plugin skillIntegration templates, and
-// bracket-pastes it at that agent's prompt — unsubmitted, like every other
-// door. Worktree agents are excluded (they don't read the main checkout's
-// harness dirs).
+// "Use in agent" on a skill row: the shared kit menu over the shared flow
+// (`utils/useSkillInAgent.ts`, `ui/UseSkillInAgentMenu`). What used to be a
+// hundred lines of round trip here is now the same round trip every other door
+// runs — list the live agents, ensure-install, render the per-CLI invocation,
+// bracket-paste it unsubmitted. Worktree agents are excluded by the flow (they
+// do not read the main checkout's harness dirs), and a CLI that only re-reads
+// its skills directory on restart says so in a toast.
 function UseSkillMenu({
   skillId,
   name,
@@ -844,194 +841,40 @@ function UseSkillMenu({
   skillUse: SkillUseContext
   onNewAgent?: (skill: WorkspaceSkill) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [sessions, setSessions] = useState<TerminalSessionSnapshot[] | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
-    setSessions(null)
-    setError(null)
-    window.api
-      .terminalList()
-      .then((all) => {
-        if (cancelled) return
-        setSessions(
-          all.filter(
-            (session) =>
-              session.kind === 'agent'
-              && session.processAlive
-              && session.executionMode !== 'worktree'
-              && !session.worktreePath,
-          ),
-        )
-      })
-      .catch(() => {
-        if (!cancelled) setSessions([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [open])
-
-  // Focus enters the menu on open, on the first row that can take it — the
-  // menu-button contract `OverflowMenu` and `SplitButton` keep. The rows here
-  // arrive asynchronously (`sessions` is null while `terminalList()` is in
-  // flight and the surface holds only the loading row), so on open there may be
-  // nothing to focus yet. Park focus on the menu body itself in that case — it
-  // carries the `roveMenuFocus` keydown handler, so the arrow keys are live —
-  // and move onto row 1 the moment the rows exist.
-  const menuBodyRef = useRef<HTMLDivElement | null>(null)
-  const focusMenu = useCallback(() => {
-    const body = menuBodyRef.current
-    if (!body) return
-    const first = body.querySelector<HTMLButtonElement>('[data-menu-item="true"]:not([disabled])')
-    if (first) first.focus()
-    else body.focus()
-  }, [])
-  // Stable identity: `Popover` keys its auto-focus effect on this callback.
-  // Next frame, so the Popover has positioned (and un-hidden) its surface.
-  const handleOpenAutoFocus = useCallback(() => {
-    requestAnimationFrame(focusMenu)
-  }, [focusMenu])
-  useEffect(() => {
-    if (!open || sessions === null) return
-    const body = menuBodyRef.current
-    if (!body) return
-    // Do not steal focus back if it already sits on a row the person moved to.
-    const active = document.activeElement
-    if (active && active !== body && body.contains(active)) return
-    const frame = requestAnimationFrame(focusMenu)
-    return () => cancelAnimationFrame(frame)
-  }, [open, sessions, focusMenu])
-
   // The row is a projection of the inventory record; the invocation machinery
   // needs the record itself (source, harnesses), re-read at click time so a
   // skill installed since the list loaded still resolves.
-  const resolveSkill = async (): Promise<WorkspaceSkill | null> => {
-    if (!skillUse.workspaceRoot) return null
-    const result = await window.api.workspaceSkillsList({ workspaceRoot: skillUse.workspaceRoot })
-    if (!result.ok) {
-      setError(result.message)
-      return null
-    }
-    return result.skills.find((skill) => skill.id === skillId) ?? null
-  }
-
-  const insertIntoSession = async (session: TerminalSessionSnapshot) => {
-    if (busy || !skillUse.workspaceRoot) return
-    setBusy(true)
-    setError(null)
-    try {
-      const skill = await resolveSkill()
-      if (!skill) {
-        setError((current) => current ?? 'This skill is missing from the workspace inventory.')
-        return
-      }
-      const ensured = await ensureSkillForAgent({ workspaceRoot: skillUse.workspaceRoot, skill })
-      if (!ensured.ok) {
-        setError(ensured.message)
-        return
-      }
-      const integration = session.cli
-        ? skillUse.clis.find((plugin) => plugin.id === session.cli)?.skillIntegration
-        : undefined
-      const invocation = renderSkillInvocation({
-        skill,
-        integration,
-        nativeInstalled: skillInstalledForHarness(skill, integration),
-      })
-      await window.api.terminalWrite(session.sessionId, bracketedPaste(`${invocation} `))
-      setOpen(false)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const startNewAgent = async () => {
-    if (busy || !onNewAgent) return
-    setBusy(true)
-    setError(null)
-    try {
-      const skill = await resolveSkill()
-      if (!skill) {
-        setError((current) => current ?? 'This skill is missing from the workspace inventory.')
-        return
-      }
-      setOpen(false)
-      onNewAgent(skill)
-    } finally {
-      setBusy(false)
-    }
-  }
+  const resolve = () => resolveWorkspaceSkill({ workspaceRoot: skillUse.workspaceRoot, skillId })
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={setOpen}
-      ariaLabel={`Use ${name} in an agent`}
-      popupRole="menu"
-      placement="bottom-end"
-      // The kit's list layer on the Popover's own `role="menu"` surface; the
-      // rows are `MenuItem`, so arrow keys rove and a divider is the menu's own.
-      surfaceClassName={`w-[240px] ${MENU_LIST_CLASS}`}
-      onOpenAutoFocus={handleOpenAutoFocus}
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <OutlineButton ref={ref} size="sm" onClick={togglePopover} {...triggerProps}>
-          Use in agent
-        </OutlineButton>
-      )}
-    >
-      <div
-        ref={menuBodyRef}
-        tabIndex={-1}
-        className="flex flex-col outline-none"
-        onKeyDown={(event) => roveMenuFocus(event, event.currentTarget.closest<HTMLElement>('[role="menu"]'))}
-      >
-        {error ? (
-          <div className="px-2 pb-1">
-            <InlineNotice tone="error">{error}</InlineNotice>
-          </div>
-        ) : null}
-        {sessions === null ? (
-          <div className="flex items-center gap-2 px-2.5 py-2 text-body text-[color:var(--text-muted)]" role="status">
-            <Spinner size={14} />
-            Finding running agents…
-          </div>
-        ) : (
-          <>
-            {sessions.length === 0 ? (
-              <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">No running agents</div>
-            ) : (
-              sessions.map((session) => (
-                <MenuItem
-                  key={session.sessionId}
-                  disabled={busy}
-                  onClick={() => void insertIntoSession(session)}
-                  trailing={
-                    session.cli ? (
-                      <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">{session.cli}</span>
-                    ) : undefined
-                  }
-                >
-                  {session.agentSession?.displayName ?? session.agentId ?? session.sessionId}
-                </MenuItem>
-              ))
-            )}
-            {onNewAgent ? (
-              <>
-                <MenuDivider />
-                <MenuItem disabled={busy} onClick={() => void startNewAgent()}>
-                  New agent…
-                </MenuItem>
-              </>
-            ) : null}
-          </>
-        )}
-      </div>
-    </Popover>
+    <UseSkillInAgentMenu
+      skillName={name}
+      unavailableReason={skillUse.workspaceRoot ? null : NO_WORKSPACE_FOLDER_MESSAGE}
+      onUse={async (session) => {
+        const resolved = await resolve()
+        if (!resolved.ok) return resolved.message
+        const used = await useSkillInAgent({
+          workspaceRoot: skillUse.workspaceRoot,
+          skill: resolved.skill,
+          session,
+          clis: skillUse.clis,
+        })
+        if (!used.ok) return used.message
+        const toast = skillRestartToast(used, resolved.skill.name)
+        if (toast) showToast(toast)
+        return null
+      }}
+      onNewAgent={
+        onNewAgent
+          ? async () => {
+              const resolved = await resolve()
+              if (!resolved.ok) return resolved.message
+              onNewAgent(resolved.skill)
+              return null
+            }
+          : undefined
+      }
+    />
   )
 }
 

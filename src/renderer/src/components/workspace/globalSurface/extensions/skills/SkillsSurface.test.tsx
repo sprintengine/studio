@@ -197,6 +197,47 @@ run('a skill opens as a dialog that names its source once, under the title', () 
   assert.ok(markup.includes('>Install skill<'), 'and so is Install')
 })
 
+run('installing is not the end of the page: the accent moves to using the skill', () => {
+  const one = skill('skills/tdd')
+  const page = (installed: boolean, withInstallForUse: boolean): string =>
+    renderToStaticMarkup(
+      <SkillPage
+        source={SOURCE}
+        skill={one}
+        installed={installed}
+        installing={false}
+        availability={{ enabled: true, reason: null }}
+        workspaceRoot="/ws"
+        onInstall={() => {}}
+        onInstallForUse={withInstallForUse ? async () => true : undefined}
+        onClose={() => {}}
+      />,
+    )
+
+  // Installed: "Use in agent" is the one accent, Install steps back to Reinstall.
+  const installed = page(true, true)
+  assert.ok(installed.includes('>Use in agent<'), 'an installed skill offers itself to a running agent')
+  assert.ok(
+    /<button[^>]*aria-haspopup="menu"[^>]*>Use in agent<\/button>/.test(installed),
+    'it is a menu button: several agents is a question, answered by a menu',
+  )
+  assert.ok(installed.includes('>Reinstall<'), 'and Install becomes a refresh')
+  assert.equal(installed.includes('>Install skill<'), false)
+  assert.equal(installed.includes('>Install and use<'), false)
+
+  // Not installed, with a host that can install: one button does both.
+  const available = page(false, true)
+  assert.ok(available.includes('>Install skill<'), 'Install is still the accent')
+  assert.ok(available.includes('>Install and use<'), 'and the round trip is offered beside it')
+  assert.equal(available.includes('>Use in agent<'), false)
+
+  // Not installed, no host to install through: no button promises what it cannot do.
+  const bare = page(false, false)
+  assert.ok(bare.includes('>Install skill<'))
+  assert.equal(bare.includes('>Install and use<'), false)
+  assert.equal(bare.includes('>Use in agent<'), false)
+})
+
 run('a skill inside a plugin says which, under its title', () => {
   const markup = renderToStaticMarkup(
     <SkillPage

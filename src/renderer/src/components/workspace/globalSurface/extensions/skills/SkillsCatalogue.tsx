@@ -122,11 +122,13 @@ export function SkillsCatalogue({
   }, [activeSource, ensureScan])
 
   const installSkill = useCallback(
-    async (source: SkillSource, skillId: string): Promise<void> => {
-      if (!workspaceRoot) return
+    // Reports whether the skill landed, so the page's one "Install and use"
+    // action can go on to hand it to an agent — and stop when it did not.
+    async (source: SkillSource, skillId: string): Promise<boolean> => {
+      if (!workspaceRoot) return false
       if (typeof window.api.skillsInstall !== 'function') {
         setReport({ sourceId: source.id, outcome: null, error: MISSING_API_MESSAGE })
-        return
+        return false
       }
       setInstalling(skillId)
       setReport(null)
@@ -137,12 +139,14 @@ export function SkillsCatalogue({
             ? { sourceId: source.id, outcome: summarizeInstallRun(1, []), error: null }
             : { sourceId: source.id, outcome: null, error: summarizeInstallRun(0, [{ skillId, message: result.message }]) },
         )
+        return result.ok
       } catch (error) {
         setReport({
           sourceId: source.id,
           outcome: null,
           error: summarizeInstallRun(0, [{ skillId, message: describe(error) }]),
         })
+        return false
       } finally {
         setInstalling(null)
         sources.refreshInstalled()
@@ -372,7 +376,9 @@ export function SkillsCatalogue({
         installed={sources.installedDirNames.has(skillDirName(openSkill.id))}
         installing={installing !== null}
         availability={deriveInstallAvailability(workspaceRoot, 1)}
+        workspaceRoot={workspaceRoot}
         onInstall={() => void installSkill(activeSource, openSkill.id)}
+        onInstallForUse={() => installSkill(activeSource, openSkill.id)}
         onClose={() => setOpenSkillId(null)}
       />
     ) : null

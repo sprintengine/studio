@@ -775,6 +775,7 @@ export function PluginsCatalogue({
       readError={readError?.pluginId === openPlugin.id ? readError.message : null}
       onRetryRead={() => void readLinked(activeSource, openPlugin)}
       harnesses={harnesses}
+      workspaceRoot={workspaceRoot}
       install={derivePluginInstallState(
         sources.installedPlugins,
         activeSource.id,

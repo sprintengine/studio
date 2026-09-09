@@ -20,6 +20,7 @@ import {
   Badge,
   DefinitionList,
   LinkButton,
+  OutlineButton,
   PrimaryButton,
   StatusDot,
   type DefinitionItem,
@@ -28,6 +29,7 @@ import { Modal, ModalFooter, ModalHeader } from '../../../../ui/Modal'
 import { ExtensionIcon } from '../../../../ui/ExtensionIcon'
 import { extensionIconProps, skillArtwork } from '../catalogue/pluginArtwork'
 import { SkillReader } from './SkillReader'
+import { UseSkillInAgentAction } from '../UseSkillInAgentAction'
 import { sourceDisplayName, skillPluginFolder, type SkillInstallAvailability } from './skillsSurfaceModel'
 
 const TITLE_ID = 'skill-detail-title'
@@ -41,7 +43,9 @@ export function SkillPage({
   installed,
   installing,
   availability,
+  workspaceRoot = null,
   onInstall,
+  onInstallForUse,
   onClose,
 }: {
   source: SkillSource
@@ -49,7 +53,15 @@ export function SkillPage({
   installed: boolean
   installing: boolean
   availability: SkillInstallAvailability
+  /** The workspace the skill would be used in. Null when no folder is open. */
+  workspaceRoot?: string | null
   onInstall: () => void
+  /**
+   * Install and say whether it landed, for the one action that does both. The
+   * page offers "Install and use" only when a host supplies this — a button
+   * that promised an install it could not perform would be a lie.
+   */
+  onInstallForUse?: () => Promise<boolean>
   onClose: () => void
 }): JSX.Element {
   const fileCount = skill.files.length
@@ -92,9 +104,30 @@ export function SkillPage({
           {installed ? (
             <span className="text-meta font-medium text-[color:var(--accent-primary)]">Installed</span>
           ) : null}
-          <PrimaryButton size="md" onClick={onInstall} disabled={!availability.enabled || installing}>
-            {installing ? 'Installing…' : installed ? 'Reinstall' : 'Install skill'}
-          </PrimaryButton>
+          {/* Installing is no longer the end of the page. Once the skill is in
+              the workspace the accent moves to what a person came here to do
+              with it, and Install steps back to the outline it now is: a
+              refresh of something they already have. */}
+          {installed ? (
+            <OutlineButton size="md" onClick={onInstall} disabled={!availability.enabled || installing}>
+              {installing ? 'Installing…' : 'Reinstall'}
+            </OutlineButton>
+          ) : (
+            <PrimaryButton size="md" onClick={onInstall} disabled={!availability.enabled || installing}>
+              {installing ? 'Installing…' : 'Install skill'}
+            </PrimaryButton>
+          )}
+          {installed || onInstallForUse ? (
+            <UseSkillInAgentAction
+              skillId={skillDirName(skill.id)}
+              skillName={skill.name}
+              workspaceRoot={workspaceRoot}
+              size="md"
+              emphasis={installed ? 'primary' : 'outline'}
+              disabled={installing || (!installed && !availability.enabled)}
+              onInstallFirst={installed ? null : onInstallForUse ?? null}
+            />
+          ) : null}
         </ModalFooter>
       </div>
     </Modal>

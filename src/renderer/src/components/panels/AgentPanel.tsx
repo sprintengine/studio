@@ -21,14 +21,9 @@ import {
 } from '../workspace/newWorkspace/cliRuntimeOptions'
 import { IconButton, PrimaryButton, RowButton, SkillPickerPopover, StarGlyph, Tooltip } from '../ui'
 import { revealBacklogItemInPane } from '../workspace/pane/backlogPaneReveal'
-import { bracketedPaste } from '../../utils/terminalDrop'
 import { clearAgentLaunchFailed } from '../../utils/terminalColdLoad'
-import {
-  ensureSkillForAgent,
-  hasInstalledNativeSkillTarget,
-  renderSkillInvocation,
-  skillInstalledForHarness,
-} from '../../utils/skillInvocation'
+import { skillRestartToast, useSkillInAgent } from '../../utils/useSkillInAgent'
+import { showToast } from '../../store/toastStore'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 
 const TerminalView = React.lazy(() => import('./TerminalView'))
@@ -197,35 +192,34 @@ export default function AgentPanel({
   const useSkillInTerminal = async (skill: WorkspaceSkill) => {
     const targetSessionId = effectiveSessionId
     if (!targetSessionId || !workspaceFolderPath) return
-    // Refresh builtin native targets (the picker only installed catalog
-    // 'available' picks); then render the same per-CLI invocation the backlog
-    // file-drop uses — native template when the harness copy exists, plain
-    // prompt mention otherwise — and paste it unsubmitted.
-    const ensured = await ensureSkillForAgent({ workspaceRoot: workspaceFolderPath, skill })
-    if (!ensured.ok) {
+    // The one shared round trip (utils/useSkillInAgent.ts): install where this
+    // CLI reads skills, render the invocation its manifest declares — native
+    // template when the harness copy exists, plain prompt mention otherwise —
+    // and paste it unsubmitted. This pane already knows which session and which
+    // CLI, so it hands both over rather than asking.
+    const used = await useSkillInAgent({
+      workspaceRoot: workspaceFolderPath,
+      skill,
+      session: { sessionId: targetSessionId, cli },
+      clis: pluginCatalogEntries,
+      integration: pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration,
+    })
+    if (!used.ok) {
       publishDiagnosticSync({
         level: 'error',
         source: 'workspace',
         title: 'Skill install failed',
-        message: ensured.message,
+        message: used.message,
         workspaceId,
         workspaceName,
       })
       return
     }
-    const integration = pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration
-    let nativeInstalled = skillInstalledForHarness(skill, integration)
-    if (!nativeInstalled && skill.source === 'builtin' && integration) {
-      const status = await window.api.builtinSkillStatus({
-        workspaceRoot: workspaceFolderPath,
-        skillId: skill.id,
-      })
-      if (status.ok) {
-        nativeInstalled = hasInstalledNativeSkillTarget(integration.harnessId, cli ?? '', status.targets)
-      }
-    }
-    const invocation = renderSkillInvocation({ skill, integration, nativeInstalled })
-    await window.api.terminalWrite(targetSessionId, bracketedPaste(`${invocation} `))
+    // grok and opencode declare that they re-read their skills directory only
+    // on restart, and nothing used to say so: the skill was written, the
+    // invocation was pasted, and the agent answered that it had no such skill.
+    const toast = skillRestartToast(used, skill.name)
+    if (toast) showToast(toast)
   }
   const suspendTerminal = () => {
     if (!effectiveSessionId) return
