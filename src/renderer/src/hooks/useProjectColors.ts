@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { useWorkspaceStore } from '../store/workspaceStore'
 import {
+  projectColorKeys,
   resolveProjectColor,
   type ProjectColor,
   type ProjectColorSetting,
@@ -43,14 +44,19 @@ export function useProjectColor(key: string | null | undefined): ProjectColor | 
  */
 export function useAssignProjectColors(keys: ReadonlyArray<string | null | undefined>): void {
   const assignProjectColors = useWorkspaceStore((s) => s.assignProjectColors)
-  // Sorted so the dependency is the set of keys rather than their order; the
-  // action re-derives arrival order from the list it is handed. Newline-joined
-  // because a key is a repo key or a path, and neither can contain one.
-  const signature = [...new Set(keys.filter((key): key is string => Boolean(key && key.trim())))]
-    .sort()
-    .join('\n')
+  const wanted = projectColorKeys(keys)
+  // The signature is only the effect's equality check — "is this the same set
+  // of projects?" — and the ARRAY is what gets passed to the action. A joined
+  // signature that were split back apart would break on a folder path
+  // containing the separator, which is legal on macOS and Linux for every
+  // character worth joining on.
+  const signature = JSON.stringify(wanted)
+  // `wanted` is rebuilt every render and is deliberately not a dependency; the
+  // signature is the whole question, and this is what keeps the effect from
+  // re-running on a new array holding the same keys.
+  const stableKeys = useMemo(() => wanted, [signature]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!signature) return
-    assignProjectColors(signature.split('\n'))
-  }, [signature, assignProjectColors])
+    if (stableKeys.length === 0) return
+    assignProjectColors(stableKeys)
+  }, [stableKeys, assignProjectColors])
 }

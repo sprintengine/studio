@@ -27,8 +27,17 @@
 //    back. `'none'` is the person saying "no colour", which is a different
 //    thing from "not yet seen" (absent) and is skipped when allocating.
 //
-// Pure and React-free so the store's allocator, the hooks and the tests all
-// derive the same answers from the same code.
+// Pure — no state, no side effects, no randomness — so the store's allocator,
+// the hooks and the tests all derive the same answers from the same code.
+//
+// It is not React-free, and deliberately not yet: `projectColorKey` needs
+// `folderIdentityKey`, which today lives in the `useFolderRepositoryIdentities`
+// hook module and drags React in behind it. That is one normalisation shared by
+// the sidebar's grouping and this key, so duplicating it would be worse than
+// the import — two spellings of "the same folder" is exactly the bug the
+// function exists to prevent. It wants moving to its own module (and the hook
+// re-exporting it); that file is under another change right now, so the move is
+// left for whoever touches it next.
 
 import { folderIdentityKey } from '../components/workspace/useFolderRepositoryIdentities'
 import type { ProjectColor, ProjectColorSetting } from '../types/workspace'
@@ -128,6 +137,29 @@ export function pickProjectColor(used: Iterable<ProjectColorSetting | null | und
     }
   }
   return leastUsed
+}
+
+/**
+ * The set of project keys a surface is asking about, normalised: trimmed,
+ * emptied of nulls, deduplicated and SORTED.
+ *
+ * Sorted because allocation is a question about a set, not a sequence — the
+ * same projects on screen should get the same hues however the sidebar
+ * happened to order them that render — and because it is what lets a hook
+ * compare "is this the same set?" without depending on render order.
+ *
+ * Returned as an array rather than a joined string on purpose. A folder path
+ * may legally contain a newline (or a space, or a comma) on macOS and Linux, so
+ * any separator a caller joined on could be split back apart in the middle of a
+ * real project and allocate two hues to two halves of its path.
+ */
+export function projectColorKeys(keys: ReadonlyArray<string | null | undefined>): string[] {
+  const wanted = new Set<string>()
+  for (const key of keys) {
+    const trimmed = key?.trim()
+    if (trimmed) wanted.add(trimmed)
+  }
+  return [...wanted].sort()
 }
 
 export type ProjectColorSwatch = {

@@ -280,10 +280,11 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
    */
   setProjectColor: (key: string, color: ProjectColorSetting | null) => void
   /**
-   * Give every one of these projects a colour it has not got yet. Keys that
-   * already carry an entry (a hue OR `'none'`) are untouched, and a call with
-   * nothing missing writes nothing at all — so a surface may call it from an
-   * effect on every render.
+   * Give every one of these projects a colour it has not got yet, allocated
+   * against the hues THESE projects already wear — the on-screen set, never the
+   * whole stored history. Keys that already carry an entry (a hue OR `'none'`)
+   * are untouched, and a call with nothing missing writes nothing at all — so a
+   * surface may call it from an effect on every render.
    */
   assignProjectColors: (keys: readonly string[]) => void
   /**
