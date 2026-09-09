@@ -80,11 +80,7 @@ import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import { isCanceledSprintEngineRun, isCompletedSprintEngineRun } from '../../utils/sprintengine'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { publishDiagnostic } from '../../utils/diagnostics'
-import {
-  sortWorkspacesByAttention,
-  sortWorkspacesByUserMessage,
-  type WorkspaceAttentionTier,
-} from '../../utils/workspaceRecency'
+import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { isSettledWorkspace, workspaceLastActiveAt } from '../../utils/workspaceSettle'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
@@ -1311,56 +1307,6 @@ export default function WorkspaceSidebar({
     onUnseenDoneChange?.(unseenDoneIds)
   }, [unseenDoneIds, onUnseenDoneChange])
 
-  // Which band each row sorts into: blocked-on-you first, then finished-while-
-  // you-were-away, then running, then everything at rest. Reads the same two
-  // signals the row's own treatment does (`needsAttention` / `unseenDone` in
-  // renderWorkspaceRow), so what a row looks like and where it sits can never
-  // disagree.
-  const liveAttentionTierById = useMemo(() => {
-    const map: Record<string, WorkspaceAttentionTier> = {}
-    for (const workspace of workspaces) {
-      const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
-      map[workspace.id] =
-        activity === 'needs-input'
-          ? 'attention'
-          : unseenDoneIds.has(workspace.id)
-            ? 'done'
-            : activity === 'working'
-              ? 'running'
-              : 'resting'
-    }
-    return map
-  }, [workspaces, activityByWorkspaceId, unseenDoneIds])
-
-  // The seat the selected row holds. Selecting a row is what clears its green
-  // mark, so without this the row would drop out from under the cursor that
-  // just clicked it — the reflow ruled against in `workspace-row-move-on-click`
-  // (id 88). Instead the row keeps the band it was in when you selected it and
-  // settles into its recency seat once you select something else. The ref
-  // carries the tiers from the render the click landed on, which is the one
-  // still holding the mark: the effect that clears it has not run yet.
-  const liveAttentionTierRef = useRef(liveAttentionTierById)
-  liveAttentionTierRef.current = liveAttentionTierById
-  const [heldSeat, setHeldSeat] = useState<{ id: string; tier: WorkspaceAttentionTier } | null>(null)
-  useEffect(() => {
-    if (!activeWorkspaceId) {
-      setHeldSeat(null)
-      return
-    }
-    const tier = liveAttentionTierRef.current[activeWorkspaceId] ?? 'resting'
-    setHeldSeat((previous) =>
-      previous?.id === activeWorkspaceId && previous.tier === tier ? previous : { id: activeWorkspaceId, tier }
-    )
-  }, [activeWorkspaceId])
-
-  const attentionTierOf = useCallback(
-    (workspace: Workspace): WorkspaceAttentionTier =>
-      heldSeat?.id === workspace.id
-        ? heldSeat.tier
-        : liveAttentionTierById[workspace.id] ?? 'resting',
-    [heldSeat, liveAttentionTierById]
-  )
-
   // A door-routed full-page surface owns the card region (global-surfaces epic
   // 1704). While one is active no project row is "current" — the door row carries
   // the selection instead, so the sidebar shows exactly one selected thing. This
@@ -1762,19 +1708,17 @@ export default function WorkspaceSidebar({
     [remoteGroups, remoteListening, railWorkspaces]
   )
 
-  // Starred workspaces band the same way the folders do — blocked, then just
-  // finished, then running, then at rest — and inside each band by when the
-  // person last messaged each. This supersedes manual drag position within the
-  // Starred section.
+  // Starred workspaces order the same way the folders do: by the person's last
+  // message, newest first, and nothing else. This supersedes manual drag
+  // position within the Starred section.
   // A starred row never settles on its own, but a person can settle one by
   // hand; rest means rest, so it then shows in its folder's shelf alone.
   const starredWorkspaces = useMemo(
     () =>
-      sortWorkspacesByAttention(
-        railWorkspaces.filter((workspace) => isStarred(workspace.highlight) && !isSettledWorkspace(workspace)),
-        attentionTierOf
+      sortWorkspacesByUserMessage(
+        railWorkspaces.filter((workspace) => isStarred(workspace.highlight) && !isSettledWorkspace(workspace))
       ),
-    [railWorkspaces, attentionTierOf]
+    [railWorkspaces]
   )
 
   const workspaceById = useMemo(() => {
@@ -2926,12 +2870,11 @@ export default function WorkspaceSidebar({
   // body.
   const renderFolderSection = (group: FolderGroup) => {
     const collapsed = collapsedFolders[group.key] === true
-    // Each folder's rows band by what wants you — blocked on input, then
-    // finished-while-you-were-away, then running, then at rest — and
-    // inside each band by when the person last messaged each, same as the
-    // Starred section. The selected row holds the band it was in when you
-    // picked it, so nothing reflows under the cursor.
-    const visibleWorkspaces = sortWorkspacesByAttention(group.workspaces, attentionTierOf)
+    // Rows order by the person's last message, newest first. A finishing or
+    // blocked agent tints the row but never moves it (owner ruling
+    // 2026-09-09) — the same order the Starred band and the flat stream use,
+    // so a row only ever changes seat when someone speaks in it.
+    const visibleWorkspaces = sortWorkspacesByUserMessage(group.workspaces)
     const folderBodyId = `ws-folder-body-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
     const dropMark =
       dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key

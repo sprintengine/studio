@@ -2,17 +2,18 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-// A folder's rows band by what wants you before they order by recency:
-// blocked on input, then finished-while-you-were-away, then running, then at
-// rest. Recency alone could only ever answer "what did I touch last", which is
-// why a row waiting on a permission prompt used to sit five rows down under
-// chats nobody was waiting on.
+// Every list in the sidebar orders by when the person last sent a message into
+// each chat, newest first, and by nothing else (owner ruling 2026-09-09:
+// "they keep moving up and down in my side panel... they should just stay put
+// where they are based on when I send them a message last").
 //
-// The second half of the contract is the seat the selected row holds. Selecting
-// a row is what clears its green mark, so a naive re-sort would drop the row out
-// from under the cursor that just clicked it — the reflow ruled against in
-// `workspace-row-move-on-click` (id 88). The row keeps its band until you select
-// something else, and only then settles.
+// The rows used to band by what wanted you — blocked, then finished-while-you-
+// were-away, then running, then at rest — so an agent finishing lifted its row
+// over chats the person had spoken in more recently. That lift was the jump the
+// owner saw. The tints stayed and the banding went, which also retired the
+// "held seat" that froze a selected row's band: with nothing reordering on
+// status there is nothing to freeze, and the row that keeps its seat on a click
+// (`workspace-row-move-on-click`, id 88) now does so for free.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -50,7 +51,8 @@ anyGlobal.ResizeObserver = NoopResizeObserver
 dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
 // Bravo's agent is alive and hook-reported idle: the "genuinely finished, not
-// killed" shape that earns the green mark when its working clock stops.
+// killed" shape that earns the green mark when its working clock stops. The
+// mark is what used to move the row; here it must only recolour it.
 domWindow.api = {
   platform: 'darwin',
   detectProjectLogo: async () => null,
@@ -79,18 +81,26 @@ async function main(): Promise<void> {
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   type Workspace = SidebarProps['workspaces'][number]
 
-  // Every row is created at the same instant, so the recency comparator ties
-  // them all and stored order alone decides within a band. Any reordering the
-  // assertions see is the banding, never a recency accident.
-  const createdAt = Date.now()
-  const workspace = (id: string, name: string) =>
-    ({ id, name, mode: 'standard', folderPath: '/projA', createdAt }) as unknown as Workspace
+  const MINUTE = 60 * 1000
+  const createdAt = Date.now() - 60 * MINUTE
+  // Distinct message stamps, so the order the assertions read is the message
+  // order and nothing else. Alpha was spoken in most recently, Delta least.
+  const workspace = (id: string, name: string, minutesAgo: number, starred = false) =>
+    ({
+      id,
+      name,
+      mode: 'standard',
+      folderPath: '/projA',
+      createdAt,
+      lastUserMessageAt: Date.now() - minutesAgo * MINUTE,
+      ...(starred ? { highlight: { starred: true } } : {}),
+    }) as unknown as Workspace
 
   const workspaces = [
-    workspace('w1', 'Alpha'),
-    workspace('w2', 'Bravo'),
-    workspace('w3', 'Charlie'),
-    workspace('w4', 'Delta'),
+    workspace('w1', 'Alpha', 1),
+    workspace('w2', 'Bravo', 2, true),
+    workspace('w3', 'Charlie', 3),
+    workspace('w4', 'Delta', 4, true),
   ]
 
   const recency = (workingSince: number | null) => ({
@@ -140,7 +150,7 @@ async function main(): Promise<void> {
   } as unknown as SidebarProps
 
   // Bravo's working clock stops against a hook-settled session: it earns the
-  // green mark, and its band with it.
+  // green mark. The mark is the whole point — the row must not move with it.
   const afterBravoFinishes = {
     ...whileBravoWorks,
     activityByWorkspaceId: { w1: 'working', w2: 'idle', w3: 'needs-input', w4: 'idle' },
@@ -166,44 +176,82 @@ async function main(): Promise<void> {
     await settle()
   }
 
-  // Rows carry their name as text; reading them in DOM order reads the list
-  // exactly as someone scanning the sidebar top to bottom does.
-  const rowOrder = (): string[] =>
-    [...container.querySelectorAll('[role="treeitem"]')]
-      .map((row) => ['Alpha', 'Bravo', 'Charlie', 'Delta'].find((name) => row.textContent?.includes(name)))
+  const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta']
+  const namesIn = (scope: Element | null): string[] =>
+    scope === null
+      ? []
+      : [...scope.querySelectorAll('[role="treeitem"]')]
+          .map((row) => NAMES.find((name) => row.textContent?.includes(name)))
+          .filter((name): name is string => name !== undefined)
+
+  // The folder's own rows, read top to bottom the way someone scanning the
+  // sidebar does. The Starred band renders the same chats again above the
+  // folders, so it is scoped out here and asserted on separately.
+  const rowOrder = (): string[] => {
+    const starredBody = container.querySelector('#ws-starred-body')
+    const starred = new Set(starredBody ? [...starredBody.querySelectorAll('[role="treeitem"]')] : [])
+    return [...container.querySelectorAll('[role="treeitem"]')]
+      .filter((row) => !starred.has(row))
+      .map((row) => NAMES.find((name) => row.textContent?.includes(name)))
       .filter((name): name is string => name !== undefined)
+  }
+
+  const starredOrder = (): string[] => namesIn(container.querySelector('#ws-starred-body'))
 
   try {
     await render(whileBravoWorks)
     assert.deepEqual(
       rowOrder(),
-      ['Charlie', 'Alpha', 'Bravo', 'Delta'],
-      'blocked first, then the two running rows in stored order, then the row at rest'
+      ['Alpha', 'Bravo', 'Charlie', 'Delta'],
+      'message order, newest first — a running agent and a blocked one both sit where the person left them'
     )
 
     await render(afterBravoFinishes)
     assert.deepEqual(
       rowOrder(),
-      ['Charlie', 'Bravo', 'Alpha', 'Delta'],
-      'the row that just finished lifts above the row still running'
+      ['Alpha', 'Bravo', 'Charlie', 'Delta'],
+      'the row that just finished goes green in place: same row above it, same row below'
     )
 
-    // Selecting Bravo clears its green mark. The seat must not move with it.
+    // Selecting Bravo clears its green mark. Nothing moved when the mark
+    // arrived, so nothing may move when it goes.
     await render({ ...afterBravoFinishes, activeWorkspaceId: 'w2' } as unknown as SidebarProps)
     assert.deepEqual(
       rowOrder(),
-      ['Charlie', 'Bravo', 'Alpha', 'Delta'],
-      'the selected row holds the band it was in — nothing reflows under the cursor'
+      ['Alpha', 'Bravo', 'Charlie', 'Delta'],
+      'nothing reflows under the cursor that just clicked'
     )
 
-    // Selecting anything else releases the seat, and Bravo settles back among
-    // the rows at rest.
+    // Charlie is the blocked row throughout, and stays third throughout: gold
+    // tints a row, it never lifts one.
     await render({ ...afterBravoFinishes, activeWorkspaceId: 'w4' } as unknown as SidebarProps)
     assert.deepEqual(
       rowOrder(),
-      ['Charlie', 'Alpha', 'Bravo', 'Delta'],
-      'once you select something else the row settles into its recency seat'
+      ['Alpha', 'Bravo', 'Charlie', 'Delta'],
+      'a row waiting on you keeps its seat too'
     )
+
+    assert.deepEqual(
+      starredOrder(),
+      ['Bravo', 'Delta'],
+      'the Starred band reads the same clock as the folders'
+    )
+
+    // The one event that moves a row: the person sends a message in Delta,
+    // which lifts it to the top of its group — and of the Starred band.
+    const afterDeltaMessage = {
+      ...afterBravoFinishes,
+      workspaces: workspaces.map((ws) =>
+        ws.id === 'w4' ? ({ ...ws, lastUserMessageAt: Date.now() } as unknown as Workspace) : ws
+      ),
+    } as unknown as SidebarProps
+    await render(afterDeltaMessage)
+    assert.deepEqual(
+      rowOrder(),
+      ['Delta', 'Alpha', 'Bravo', 'Charlie'],
+      'sending a message is the only thing that moves a row, and it moves it to the top'
+    )
+    assert.deepEqual(starredOrder(), ['Delta', 'Bravo'], 'the Starred band moves with it')
   } finally {
     act(() => {
       root.unmount()
@@ -212,7 +260,7 @@ async function main(): Promise<void> {
 }
 
 main()
-  .then(() => console.log('workspace sidebar attention order tests passed'))
+  .then(() => console.log('workspace sidebar message order tests passed'))
   .catch((error) => {
     console.error(error)
     process.exitCode = 1
