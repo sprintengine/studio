@@ -48,8 +48,9 @@ export type { LinkButtonProps, LinkInk, LinkUnderline } from './LinkButton'
 export { RefreshIcon } from './RefreshIcon'
 export { FileTypeGlyph } from './FileTypeGlyph'
 // The Commit window's and diff window's action vocabulary (git-commit-window
-// T2). Ten concepts, mirrored in design-system/glyphs/ — import them, never
-// paste a path into a toolbar.
+// T2). Thirteen concepts, mirrored in design-system/glyphs/ — import them,
+// never paste a path into a toolbar. The changelist four follow in their own
+// block below, for seventeen in all.
 export {
   CollapseAllGlyph,
   ExpandAllGlyph,
@@ -65,6 +66,17 @@ export {
   UnifiedGlyph,
   WriteCommitMessageGlyph,
 } from './GitActionGlyphs'
+// The changelist quartet (git-commit-window T6): new, delete, edit, and the
+// patch a selection is written out as.
+export {
+  CreatePatchGlyph,
+  DeleteChangelistGlyph,
+  EditChangelistGlyph,
+  NewChangelistGlyph,
+} from './GitActionGlyphs'
+// The one micro chip, for the "active" mark on a changelist's band
+// (design-system/components/micro-chip).
+export { MicroChip } from './DefaultChip'
 export { ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export { CliModelPickerButton, CliModelPopoverSurface } from './CliModelPicker'
 export type { CliRuntimeOption } from './cliRuntimeCatalog'

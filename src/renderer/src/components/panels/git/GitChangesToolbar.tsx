@@ -9,10 +9,15 @@
 //
 // Glyph-only, and every word rides the tooltip and the accessible name: the
 // band has to fit nine controls in a 340px pane, and a labelled button ramp
-// would fit four. Two of the nine are disabled and stay in the band anyway —
-// "which actions exist" is information, and a control that appears when a
-// feature lands moves everything beside it (`Toolbar` keeps a disabled item's
-// place but takes it out of the arrow walk).
+// would fit four.
+//
+// T5 shipped two of the nine disabled, with tooltips saying they arrive with
+// changelists. T6 is that arrival: "move to another changelist" now opens the
+// list of lists, and "group by" opens Changelist / Directory / None as a radio
+// group. The one still disabled is "write commit message", which waits on the
+// composer — kept in the band because which actions EXIST is information, and a
+// control that appears later moves everything beside it (`Toolbar` keeps a
+// disabled item's place but takes it out of the arrow walk).
 
 import React from 'react'
 
@@ -21,8 +26,10 @@ import {
   ContextMenu,
   ExpandAllGlyph,
   GroupByGlyph,
+  MenuDivider,
   MenuItem,
   MoveToChangelistGlyph,
+  NewChangelistGlyph,
   NextDifferenceGlyph,
   RefreshIcon,
   RollbackGlyph,
@@ -33,6 +40,15 @@ import {
   Tooltip,
   WriteCommitMessageGlyph,
 } from '../../ui'
+import { orderedChangelists, type Changelist } from '../../../../../shared/git/changelists'
+import { menuIconSlot } from './changeRowMenu'
+import type { GitChangesGrouping } from './gitChangesModel'
+
+const GROUPING_LABELS: Record<GitChangesGrouping, string> = {
+  changelist: 'Changelist',
+  directory: 'Directory',
+  none: 'None',
+}
 
 /** Where a "show diff" request should land. `default` honours the sticky
  *  preference T3 introduced; the other two are the explicit overrides the menu
@@ -41,12 +57,21 @@ export type ShowDiffPlacement = 'default' | 'app' | 'window'
 
 export type GitChangesToolbarProps = {
   busy: boolean
-  /** No file is picked: discard and show-diff have nothing to act on. */
+  /** No file is picked: discard, show-diff and move-to-changelist have nothing
+   *  to act on. */
   hasTarget: boolean
+  changelists: Changelist[]
+  /** The list the picked files are already in, so the menu can grey it out
+   *  instead of offering a move to where they already are. */
+  currentChangelistId: string | null
+  grouping: GitChangesGrouping
   onRefresh: () => void
   onDiscard: () => void
   onStash: () => void
   onShowDiff: (placement: ShowDiffPlacement) => void
+  onMoveToChangelist: (changelistId: string) => void
+  onMoveToNewChangelist: () => void
+  onGroupingChange: (grouping: GitChangesGrouping) => void
   onExpandAll: () => void
   onCollapseAll: () => void
 }
@@ -54,14 +79,23 @@ export type GitChangesToolbarProps = {
 export function GitChangesToolbar({
   busy,
   hasTarget,
+  changelists,
+  currentChangelistId,
+  grouping,
   onRefresh,
   onDiscard,
   onStash,
   onShowDiff,
+  onMoveToChangelist,
+  onMoveToNewChangelist,
+  onGroupingChange,
   onExpandAll,
   onCollapseAll,
 }: GitChangesToolbarProps): JSX.Element {
   const [diffMenu, setDiffMenu] = React.useState<{ x: number; y: number } | null>(null)
+  const [moveMenu, setMoveMenu] = React.useState<{ x: number; y: number } | null>(null)
+  const [groupMenu, setGroupMenu] = React.useState<{ x: number; y: number } | null>(null)
+  const lists = orderedChangelists(changelists)
 
   return (
     // Borderless: the view strip above already draws a hairline, and two rules
@@ -81,10 +115,19 @@ export function GitChangesToolbar({
           <RollbackGlyph />
         </ToolbarButton>
       </Tooltip>
-      {/* T6 (changelists) is what makes this a destination. Present and
-          disabled, with the tooltip saying why rather than a dead click. */}
-      <Tooltip content="Move to another changelist — arrives with changelists" placement="bottom">
-        <ToolbarButton ariaLabel="Move to another changelist" disabled>
+      {/* Live since T6. It opens a menu rather than acting, because "move" has
+          no single destination — the destination IS the question. */}
+      <Tooltip content="Move to another changelist" placement="bottom">
+        <ToolbarButton
+          ariaLabel="Move to another changelist"
+          menu
+          expanded={Boolean(moveMenu)}
+          disabled={busy || !hasTarget}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            setMoveMenu({ x: rect.left, y: rect.bottom })
+          }}
+        >
           <MoveToChangelistGlyph />
         </ToolbarButton>
       </Tooltip>
@@ -116,8 +159,16 @@ export function GitChangesToolbar({
         </ToolbarButton>
       </Tooltip>
       <ToolbarDivider />
-      <Tooltip content="Group by — arrives with changelists" placement="bottom">
-        <ToolbarButton ariaLabel="Group by" disabled>
+      <Tooltip content={`Group by — ${GROUPING_LABELS[grouping].toLowerCase()}`} placement="bottom">
+        <ToolbarButton
+          ariaLabel={`Group by ${GROUPING_LABELS[grouping].toLowerCase()}`}
+          menu
+          expanded={Boolean(groupMenu)}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            setGroupMenu({ x: rect.left, y: rect.bottom })
+          }}
+        >
           <GroupByGlyph />
         </ToolbarButton>
       </Tooltip>
@@ -131,6 +182,67 @@ export function GitChangesToolbar({
           <CollapseAllGlyph />
         </ToolbarButton>
       </Tooltip>
+      {moveMenu ? (
+        <ContextMenu
+          x={moveMenu.x}
+          y={moveMenu.y}
+          ariaLabel="Move to another changelist"
+          onClose={() => setMoveMenu(null)}
+          surfaceClassName="min-w-[220px]"
+        >
+          {lists.map((list) => (
+            <MenuItem
+              key={list.id}
+              icon={menuIconSlot()}
+              disabled={busy || list.id === currentChangelistId}
+              onClick={() => {
+                setMoveMenu(null)
+                onMoveToChangelist(list.id)
+              }}
+            >
+              {list.active ? `${list.name} (active)` : list.name}
+            </MenuItem>
+          ))}
+          <MenuDivider />
+          <MenuItem
+            icon={<NewChangelistGlyph className="icon-xs" />}
+            disabled={busy}
+            onClick={() => {
+              setMoveMenu(null)
+              onMoveToNewChangelist()
+            }}
+          >
+            New changelist…
+          </MenuItem>
+        </ContextMenu>
+      ) : null}
+      {groupMenu ? (
+        <ContextMenu
+          x={groupMenu.x}
+          y={groupMenu.y}
+          ariaLabel="Group by"
+          onClose={() => setGroupMenu(null)}
+          surfaceClassName="min-w-[180px]"
+        >
+          {/* A value being chosen, not three actions — so the rows are radios
+              and the current one is checked, rather than a menu that leaves the
+              reader to remember which arrangement they are looking at. */}
+          {(['changelist', 'directory', 'none'] as const).map((option) => (
+            <MenuItem
+              key={option}
+              icon={menuIconSlot()}
+              checked={grouping === option}
+              selection="one-of"
+              onClick={() => {
+                setGroupMenu(null)
+                onGroupingChange(option)
+              }}
+            >
+              {GROUPING_LABELS[option]}
+            </MenuItem>
+          ))}
+        </ContextMenu>
+      ) : null}
       {diffMenu ? (
         <ContextMenu
           x={diffMenu.x}

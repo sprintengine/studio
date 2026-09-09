@@ -12,10 +12,18 @@
 // without picking (the box stops the click); clicking the row picks without
 // ticking. Everything below follows from that one sentence.
 //
-// GROUPS, PLURAL. One "Changes" group ships today and T6 turns it into
-// changelists, so this renders whatever `buildGitChangeGroups` hands it: the
-// header, the region it folds, the cap notice. Nothing here knows there is
-// currently one.
+// GROUPS, PLURAL, AND IT DOES NOT KNOW WHICH. This renders whatever
+// `buildGitChangeGroups` hands it — a changelist, a directory, the untracked
+// files, one flat list — as a header, the region it folds, and the cap notice.
+// T6 added three kinds and changed nothing here except the chip on the band and
+// the band's own menu, which is the point of having taken an array in T5.
+//
+// THE LIST OWNS FOUR MORE KEYS. Space ticks and Enter opens, as before; ⌘↓
+// opens the file in an editor, F2 edits the changelist the cursor's row sits
+// in, ⌫ deletes the selected files from disk, and ⌥⌘A adds an untracked one to
+// git. They live here rather than in the command registry because they are only
+// meaningful with this list focused — and because the menu may only carry a
+// shortcut hint for a key that works with the menu closed, which these do.
 
 import React from 'react'
 
@@ -25,8 +33,11 @@ import {
   ContextMenu,
   FileTypeGlyph,
   GroupHeader,
+  GroupHeaderAction,
   MenuDivider,
+  MenuFlyoutItem,
   MenuItem,
+  MicroChip,
   FOCUS_RING_INSET_CLASS,
 } from '../../ui'
 import type { ChangeRowMenuEntry } from './changeRowMenu'
@@ -61,10 +72,65 @@ export type GitChangesListProps = {
    *  menu's labels describe exactly what the actions will touch. */
   onContextSelect: (row: GitChangeRow) => void
   buildMenu: (row: GitChangeRow) => ChangeRowMenuEntry[]
+  /** The band's own menu — the changelist half plus stage / unstage / discard
+   *  all. Reached by right-clicking the band or by its overflow control, which
+   *  is what makes it available to a pointer, a keyboard and a touch. */
+  buildGroupMenu: (group: GitChangeGroup) => ChangeRowMenuEntry[]
+  /** ⌘↓ on the cursor's row. */
+  onOpenInEditor: (row: GitChangeRow) => void
+  /** ⌫ — deletes from disk, so the panel confirms before it acts. */
+  onDeleteFiles: (row: GitChangeRow) => void
+  /** ⌥⌘A, and only meaningful on an untracked row; the panel decides. */
+  onAddToGit: (row: GitChangeRow) => void
+  /** F2 on the cursor's row — edits the changelist that row sits in. */
+  onEditChangelist: (row: GitChangeRow) => void
   registerRowNode: (path: string, node: HTMLElement | null) => void
 }
 
 type RowMenuState = { x: number; y: number; row: GitChangeRow }
+type GroupMenuState = { x: number; y: number; group: GitChangeGroup }
+
+/**
+ * One menu entry array, rendered. Shared by the row menu and the band menu so
+ * the two cannot drift: a divider is a divider, a submenu is a `MenuFlyoutItem`,
+ * and an item's danger ink, hint and disabled state are decided in exactly one
+ * place. `onClose` fires before the action so the menu is gone by the time a
+ * dialog opens under it.
+ */
+function renderMenuEntries(entries: ChangeRowMenuEntry[], onClose: () => void): React.ReactNode {
+  return entries.map((entry) => {
+    if (entry.kind === 'divider') return <MenuDivider key={entry.id} />
+    if (entry.kind === 'submenu') {
+      return (
+        <MenuFlyoutItem
+          key={entry.id}
+          label={entry.label}
+          ariaLabel={entry.label}
+          icon={entry.icon}
+          disabled={entry.disabled}
+          surfaceClassName="min-w-[200px]"
+        >
+          {renderMenuEntries(entry.items, onClose)}
+        </MenuFlyoutItem>
+      )
+    }
+    return (
+      <MenuItem
+        key={entry.id}
+        icon={entry.icon}
+        shortcut={entry.shortcut}
+        variant={entry.danger ? 'danger' : undefined}
+        disabled={entry.disabled}
+        onClick={() => {
+          onClose()
+          entry.onSelect()
+        }}
+      >
+        {entry.label}
+      </MenuItem>
+    )
+  })
+}
 
 export function GitChangesList({
   listId,
@@ -82,9 +148,15 @@ export function GitChangesList({
   onSelectAll,
   onContextSelect,
   buildMenu,
+  buildGroupMenu,
+  onOpenInEditor,
+  onDeleteFiles,
+  onAddToGit,
+  onEditChangelist,
   registerRowNode,
 }: GitChangesListProps): JSX.Element {
   const [rowMenu, setRowMenu] = React.useState<RowMenuState | null>(null)
+  const [groupMenu, setGroupMenu] = React.useState<GroupMenuState | null>(null)
   // Which fill a picked row takes: the accent edge belongs to the pane the
   // person is driving, and exactly one edge may be on screen at a time.
   const [listFocused, setListFocused] = React.useState(false)
@@ -104,7 +176,29 @@ export function GitChangesList({
     if (event.target !== event.currentTarget) return
     if (visibleRows.length === 0) return
 
-    if (event.key === 'ArrowDown') {
+    // The modified keys are read FIRST. ⌘↓ and ↓ differ by one flag, and a
+    // chain that tested the bare arrow first would move the cursor and never
+    // reach "open in editor".
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key === 'ArrowDown') {
+      // ⌘↓ jumps to the source file. The menu carries this hint because it
+      // works right here, with the menu closed.
+      event.preventDefault()
+      const row = visibleRows[cursorIndex]
+      if (row) onOpenInEditor(row)
+    } else if ((event.metaKey || event.ctrlKey) && event.altKey && (event.key === 'a' || event.key === 'A' || event.code === 'KeyA')) {
+      event.preventDefault()
+      const row = visibleRows[cursorIndex]
+      if (row) onAddToGit(row)
+    } else if (event.key === 'F2') {
+      event.preventDefault()
+      const row = visibleRows[cursorIndex]
+      if (row) onEditChangelist(row)
+    } else if (event.key === 'Backspace' || event.key === 'Delete') {
+      // Deletes from DISK. The panel confirms — this key only asks.
+      event.preventDefault()
+      const row = visibleRows[cursorIndex]
+      if (row) onDeleteFiles(row)
+    } else if (event.key === 'ArrowDown') {
       event.preventDefault()
       moveTo(cursorIndex < 0 ? 0 : cursorIndex + 1, event.shiftKey)
     } else if (event.key === 'ArrowUp') {
@@ -163,7 +257,15 @@ export function GitChangesList({
           <div key={group.id} role="group" aria-label={group.title}>
             {/* The band is not an `option`; the marquee reads this attribute so
                 a drag started on a header does not clear the selection. */}
-            <div data-git-group-header="true">
+            <div
+              data-git-group-header="true"
+              onContextMenu={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                const rect = event.currentTarget.getBoundingClientRect()
+                setGroupMenu({ x: event.clientX || rect.left, y: event.clientY || rect.bottom, group })
+              }}
+            >
               <GroupHeader
                 title={group.title}
                 count={group.totalCount === 1 ? '1 file' : `${group.totalCount} files`}
@@ -179,6 +281,27 @@ export function GitChangesList({
                   group.checked === null ? undefined : (next) => onToggleGroup(group, next)
                 }
                 checkLabel={`Stage every file in ${group.title}`}
+                // The chip states a fact that was true before the person
+                // arrived — this is the list the next change lands in — which is
+                // exactly what `micro-chip` is for, and why it takes no tone.
+                chip={group.active ? <MicroChip>active</MicroChip> : undefined}
+                // The band's menu, reachable without a right-click. One control,
+                // revealed on hover AND focus, which is the slot's whole rule.
+                action={
+                  <GroupHeaderAction
+                    ariaLabel={`Actions for ${group.title}`}
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      setGroupMenu({ x: rect.left, y: rect.bottom, group })
+                    }}
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true" className="size-icon-xs" fill="currentColor">
+                      <circle cx="8" cy="3.4" r="1.15" />
+                      <circle cx="8" cy="8" r="1.15" />
+                      <circle cx="8" cy="12.6" r="1.15" />
+                    </svg>
+                  </GroupHeaderAction>
+                }
               />
             </div>
             {/* Hidden, never unmounted: `aria-controls` above has to resolve. */}
@@ -248,27 +371,20 @@ export function GitChangesList({
           y={rowMenu.y}
           ariaLabel={`Actions for ${rowMenu.row.relativePath}`}
           onClose={() => setRowMenu(null)}
-          surfaceClassName="min-w-[240px]"
+          surfaceClassName="min-w-[260px]"
         >
-          {buildMenu(rowMenu.row).map((entry) =>
-            entry.kind === 'divider' ? (
-              <MenuDivider key={entry.id} />
-            ) : (
-              <MenuItem
-                key={entry.id}
-                icon={entry.icon}
-                shortcut={entry.shortcut}
-                variant={entry.danger ? 'danger' : undefined}
-                disabled={entry.disabled}
-                onClick={() => {
-                  setRowMenu(null)
-                  entry.onSelect()
-                }}
-              >
-                {entry.label}
-              </MenuItem>
-            ),
-          )}
+          {renderMenuEntries(buildMenu(rowMenu.row), () => setRowMenu(null))}
+        </ContextMenu>
+      ) : null}
+      {groupMenu ? (
+        <ContextMenu
+          x={groupMenu.x}
+          y={groupMenu.y}
+          ariaLabel={`Actions for ${groupMenu.group.title}`}
+          onClose={() => setGroupMenu(null)}
+          surfaceClassName="min-w-[260px]"
+        >
+          {renderMenuEntries(buildGroupMenu(groupMenu.group), () => setGroupMenu(null))}
         </ContextMenu>
       ) : null}
     </div>

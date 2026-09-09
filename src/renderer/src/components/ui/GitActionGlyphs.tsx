@@ -1,9 +1,12 @@
 // The Commit window's and the diff window's action vocabulary: *what will this
-// toolbar button do*. Eleven concepts, drawn once here and mirrored
+// toolbar button do*. Seventeen concepts, drawn once here and mirrored
 // framework-neutral in `design-system/glyphs/` (rollback, move-to-changelist,
-// stash, group-by, expand-all, collapse-all, next-difference, side-by-side,
-// unified, gear, open-in-editor) — see design-system/components/glyphs/
-// component.md → "Git and diff actions".
+// stash, group-by, expand-all, collapse-all, next-difference,
+// previous-difference, side-by-side, unified, gear, open-in-editor,
+// write-commit-message, new-changelist, delete-changelist, edit-changelist,
+// create-patch) — see design-system/components/glyphs/component.md → "Git and
+// diff actions". Seventeen concepts, sixteen drawings: the two difference
+// steps are one shape mirrored.
 //
 // 16-grid, `currentColor`, `fill="none"`, frame 1.3 / line work 1.4, legible at
 // `--sem-icon-size-sm`. Every glyph is `aria-hidden`: an action glyph never
@@ -250,6 +253,77 @@ export function WriteCommitMessageGlyph({ className = 'icon-sm' }: GlyphProps): 
       <path d="M2.25 4.25h7.5M2.25 7.5h5.5M2.25 10.75h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       <path d="M12.4 7.9v5.2M9.8 10.5h5.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       <path d="M10.9 9 13.9 12M13.9 9 10.9 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// --- Changelists and patches (git-commit-window T6) ---------------------------
+// Four more concepts, and each is here for the same reason the eleven above
+// are: the nearest lookalike in the product answers a different question.
+//
+//   New / Delete changelist — a plus and a minus INSIDE the changelist's own
+//   two-arrow frame would be four marks in 16px and read as nothing. The list
+//   itself is the noun the menu row already names, so these are the bare
+//   operators, drawn as the same round-capped line work as the family.
+//   `FolderPlusIcon` is a 24-grid folder and says "a new folder"; a changelist
+//   is not a folder.
+//
+//   EditChangelistGlyph — a bare pencil. `OpenInEditorGlyph` is the pencil ON A
+//   PAGE and means "hand this file to an editor"; renaming a list touches no
+//   file, so it drops the page and keeps only the tool.
+//
+//   CreatePatchGlyph — a page with a diff's two marks on it: a plus line over a
+//   minus line. Not `WriteCommitMessageGlyph`'s message lines (that is prose
+//   being composed) and not a frame (every frame in this family is a LAYOUT).
+
+/** New changelist: the plus, at the family's line weight. */
+export function NewChangelistGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path d="M8 3.25v9.5M3.25 8h9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Delete changelist: the minus. The pair is one mark and its absence, the way
+ *  `ExpandAllGlyph` and `CollapseAllGlyph` are one drawing twice. */
+export function DeleteChangelistGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path d="M3.25 8h9.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Edit changelist: the bare pencil — the tool without the page, because a
+ *  rename touches the list and not a file. */
+export function EditChangelistGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M3.25 12.75 3.9 10.1 10.4 3.6a1.2 1.2 0 0 1 1.7 0l.3.3a1.2 1.2 0 0 1 0 1.7l-6.5 6.5-2.65.65Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M9.3 4.7 11.3 6.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+/** Create a patch: the page carrying a diff's two lines, one added, one taken
+ *  away. A patch is a file OF a difference, so the mark is both. */
+export function CreatePatchGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M3.75 2.25h5l3.5 3.5v8a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5Z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M8.75 2.4v3.2h3.2" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path d="M6.9 9.1h2.2M8 8v2.2M6.9 12.1h2.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   )
 }

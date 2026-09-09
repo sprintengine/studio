@@ -277,6 +277,43 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace', 'gitPanelActive'],
     handlerPath: { kind: 'panel-event', eventId: 'git.commit' },
   }),
+  // The Commit window's row actions, reachable from the keyboard with the menu
+  // closed (git-commit-window T6). They act on the changes list's SELECTION, so
+  // they are gated on the Git panel exactly as the three above are, and the
+  // panel itself refuses them while one of its dialogs is open.
+  //
+  // ⌘D and ⌥⌘Z ship bound because they are the two the mockup's menu carries a
+  // hint for and neither chord is spoken for. `git.changes.moveToChangelist`
+  // ships UNBOUND on purpose: ⇧⌘M already belongs to the model picker
+  // at workspace scope here, the dispatcher takes the first match, and a default
+  // that quietly loses to another command is worse than none — so the menu
+  // carries no hint for it either, per the kit's menu rule.
+  command({
+    id: 'git.changes.showDiff',
+    title: 'Git: Show Diff For The Selected File',
+    category: 'git',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+D'],
+    availability: ['activeWorkspace', 'gitPanelActive'],
+    handlerPath: { kind: 'panel-event', eventId: 'git.changes.showDiff' },
+  }),
+  command({
+    id: 'git.changes.discard',
+    title: 'Git: Discard Changes In The Selected Files',
+    category: 'git',
+    scopes: ['workspace'],
+    defaultKeybindings: ['Primary+Alt+Z'],
+    availability: ['activeWorkspace', 'gitPanelActive'],
+    handlerPath: { kind: 'panel-event', eventId: 'git.changes.discard' },
+  }),
+  command({
+    id: 'git.changes.moveToChangelist',
+    title: 'Git: Move The Selected Files To Another Changelist',
+    category: 'git',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace', 'gitPanelActive'],
+    handlerPath: { kind: 'panel-event', eventId: 'git.changes.moveToChangelist' },
+  }),
   // No Fleet command: the Fleet panel (MC-2167) was retired on 2026-09-05
   // (remote-sessions-in-the-sidebar). Paired machines' sessions are rows in
   // the sidebar's Remote band; machine management is Settings → Remote and

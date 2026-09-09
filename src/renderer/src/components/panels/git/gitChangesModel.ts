@@ -18,6 +18,11 @@
 // builder takes a LIST of group definitions and the view renders whatever it
 // returns; adding a changelist is adding a definition, not rewriting the list.
 
+import {
+  DEFAULT_CHANGELIST_ID,
+  orderedChangelists,
+  type Changelist,
+} from '../../../../../shared/git/changelists'
 import type { CheckRowCheckedState } from '../../ui/CheckRow'
 
 /** How many rows one group renders before the rest are summarised. Four hundred
@@ -43,10 +48,19 @@ export type GitChangeRow = {
   diffScope: 'staged' | 'unstaged'
 }
 
-/** What kind of group this is, which is what decides how its rows behave. T6
- *  adds `'changelist'` and `'untracked'`; the view switches on this, so a new
- *  kind is a new case rather than a new list. */
-export type GitChangeGroupKind = 'conflicts' | 'changes'
+/** What kind of group this is, which is what decides how its rows behave. The
+ *  view switches on this, so a new kind is a new case rather than a new list.
+ *
+ *  `changes` is the flat group the None and Directory groupings render;
+ *  `changelist` is one of the person's own lists; `untracked` is the `??`
+ *  files, which get their own group at the bottom under EVERY grouping —
+ *  "git has never heard of this file" is a fact about the file, not about how
+ *  the person chose to arrange the panel. */
+export type GitChangeGroupKind = 'conflicts' | 'changes' | 'changelist' | 'untracked'
+
+/** How the checklist is carved up. `changelist` is the default;
+ *  the other two are the toolbar's "Group by" alternatives. */
+export type GitChangesGrouping = 'changelist' | 'directory' | 'none'
 
 export type GitChangeGroup = {
   /** Stable across refreshes — it keys the expanded/collapsed state and the
@@ -66,6 +80,15 @@ export type GitChangeGroup = {
   /** The group's tri-state box, or `null` for a group that has none (conflicts
    *  are resolved, not staged). */
   checked: CheckRowCheckedState | null
+  /** Which changelist this group renders, for the actions that act on the LIST
+   *  rather than on its files. Absent on the conflicts, untracked and flat
+   *  groups, which are not lists anyone can rename. */
+  changelistId?: string
+  /** The list new changes land in wears the `active` micro-chip. */
+  active?: boolean
+  /** The list's own comment, which the composer offers as its placeholder when
+   *  the list is active (the active list supplies the context). */
+  comment?: string
 }
 
 /** Status as a word, for the row's accessible name. The tint on the filename is
@@ -180,20 +203,57 @@ function byRelativePath(a: GitStatusEntry, b: GitStatusEntry): number {
 }
 
 /**
+ * "Git has never heard of this file": `??` in porcelain, which `git-status`
+ * parses as `new` + `unstaged` with nothing in the index. A staged addition is
+ * NOT untracked — git knows about it, it is in the index, and its row's tick is
+ * already on. Getting this backwards is what would put "Add to git" on a file
+ * that is already added.
+ */
+export function isUntrackedEntry(entry: Pick<GitStatusEntry, 'status' | 'staged'>): boolean {
+  return entry.status === 'new' && !entry.staged
+}
+
+function cappedGroup(
+  base: Omit<GitChangeGroup, 'rows' | 'allRows' | 'omittedCount' | 'totalCount' | 'checked'>,
+  entries: GitStatusEntry[],
+  limit: number,
+): GitChangeGroup {
+  const allRows = entries.map(toGitChangeRow)
+  const rows = allRows.slice(0, limit)
+  return {
+    ...base,
+    totalCount: allRows.length,
+    rows,
+    allRows,
+    omittedCount: Math.max(0, allRows.length - rows.length),
+    checked: groupCheckedState(allRows),
+  }
+}
+
+/**
  * Build the groups the Changes view renders, in render order.
  *
- * Today: conflicts (if any) above one flat `Changes` group holding everything
- * else, untracked files among it. T6 replaces the single definition with one
- * per changelist plus Untracked; nothing outside this function needs to change
- * for that, which is why it returns an array and not a pair.
+ * Conflicts first when there are any — they are resolved rather than ticked, so
+ * they carry no box and the panel draws them through its own component. Then
+ * the body, carved up by `grouping`. Then the untracked files, always last and
+ * always their own group.
+ *
+ * The changelist partition is a PARTITION, not a filter: every tracked entry
+ * lands in exactly one list, and one that the store has not heard of yet (a
+ * file an agent wrote a millisecond ago, before the next reconcile) falls to
+ * the ACTIVE list — the same answer main will persist a moment later, so the
+ * panel never shows a file in one list and then moves it to another.
  */
 export function buildGitChangeGroups(
   entries: GitStatusEntry[],
-  options: { limit?: number } = {},
+  options: { limit?: number; changelists?: Changelist[]; grouping?: GitChangesGrouping } = {},
 ): GitChangeGroup[] {
   const limit = options.limit ?? MAX_RENDERED_GIT_CHANGES_PER_GROUP
+  const grouping = options.grouping ?? 'changelist'
   const conflicts = entries.filter((entry) => entry.status === 'conflicted').sort(byRelativePath)
-  const changes = entries.filter((entry) => entry.status !== 'conflicted').sort(byRelativePath)
+  const rest = entries.filter((entry) => entry.status !== 'conflicted')
+  const untracked = rest.filter(isUntrackedEntry).sort(byRelativePath)
+  const tracked = rest.filter((entry) => !isUntrackedEntry(entry)).sort(byRelativePath)
 
   const groups: GitChangeGroup[] = []
   if (conflicts.length > 0) {
@@ -213,18 +273,65 @@ export function buildGitChangeGroups(
     })
   }
 
-  const allRows = changes.map(toGitChangeRow)
-  const rows = allRows.slice(0, limit)
-  groups.push({
-    id: 'changes',
-    kind: 'changes',
-    title: 'Changes',
-    totalCount: changes.length,
-    rows,
-    allRows,
-    omittedCount: Math.max(0, changes.length - rows.length),
-    checked: groupCheckedState(allRows),
-  })
+  const lists = options.changelists ?? []
+  if (grouping === 'changelist' && lists.length > 0) {
+    const ordered = orderedChangelists(lists)
+    const activeId = ordered.find((list) => list.active)?.id ?? DEFAULT_CHANGELIST_ID
+    const byList = new Map<string, GitStatusEntry[]>(ordered.map((list) => [list.id, []]))
+    const claim = new Map<string, string>()
+    for (const list of ordered) for (const path of list.paths) claim.set(path, list.id)
+    for (const entry of tracked) {
+      const listId = claim.get(entry.relativePath) ?? activeId
+      ;(byList.get(listId) ?? byList.get(activeId))?.push(entry)
+    }
+    for (const list of ordered) {
+      groups.push(
+        cappedGroup(
+          {
+            id: `changelist:${list.id}`,
+            kind: 'changelist',
+            title: list.name,
+            changelistId: list.id,
+            active: list.active,
+            ...(list.comment ? { comment: list.comment } : {}),
+          },
+          byList.get(list.id) ?? [],
+          limit,
+        ),
+      )
+    }
+  } else if (grouping === 'directory') {
+    // One group per directory, the repository root first under its own name so
+    // a top-level file is not filed under an empty heading.
+    const byDirectory = new Map<string, GitStatusEntry[]>()
+    for (const entry of tracked) {
+      const { directory } = splitGitPath(entry.relativePath)
+      const existing = byDirectory.get(directory)
+      if (existing) existing.push(entry)
+      else byDirectory.set(directory, [entry])
+    }
+    for (const directory of [...byDirectory.keys()].sort()) {
+      groups.push(
+        cappedGroup(
+          {
+            id: `directory:${directory}`,
+            kind: 'changes',
+            title: directory || 'Repository root',
+          },
+          byDirectory.get(directory) ?? [],
+          limit,
+        ),
+      )
+    }
+  } else {
+    groups.push(cappedGroup({ id: 'changes', kind: 'changes', title: 'Changes' }, tracked, limit))
+  }
+
+  if (untracked.length > 0) {
+    groups.push(
+      cappedGroup({ id: 'untracked', kind: 'untracked', title: 'Untracked files' }, untracked, limit),
+    )
+  }
   return groups
 }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   buildGitChangeGroups,
   changeRowDomId,
+  isUntrackedEntry,
   commitCounts,
   entryCheckedState,
   formatCommitCounts,
@@ -109,12 +110,17 @@ const snapshot: Entry[] = [
   entry({ relativePath: 'swap2-top.png', status: 'new' }),
 ]
 
+// `??` is a file git has never heard of. A STAGED addition is not one — it is
+// in the index, its tick is on, and "Add to git" must not be offered for it.
+assert.equal(isUntrackedEntry({ status: 'new', staged: false }), true)
+assert.equal(isUntrackedEntry({ status: 'new', staged: true }), false, 'a staged addition is tracked')
+assert.equal(isUntrackedEntry({ status: 'modified', staged: false }), false)
+
 const flat = buildGitChangeGroups(snapshot)
-assert.equal(flat.length, 1, 'no conflicts means one group')
-assert.equal(flat[0].id, 'changes')
+assert.deepEqual(flat.map((group) => group.id), ['changes', 'untracked'])
 assert.equal(flat[0].kind, 'changes')
 assert.equal(flat[0].title, 'Changes')
-assert.equal(flat[0].totalCount, 4)
+assert.equal(flat[0].totalCount, 3)
 assert.equal(flat[0].checked, 'mixed')
 assert.deepEqual(
   flat[0].rows.map((row) => row.relativePath),
@@ -122,10 +128,15 @@ assert.deepEqual(
     'design-system/components/modal/component.css',
     'src/main/app-services.ts',
     'src/main/checkpoint-store.ts',
-    'swap2-top.png',
   ],
-  'one flat list, sorted by path — untracked files sit in it, not under it',
+  'sorted by path, with the untracked file lifted out into its own group',
 )
+// The untracked group is last, and unchecked: nothing of it is in the index, so
+// one click on its box is `git add` for the lot.
+assert.equal(flat[1].kind, 'untracked')
+assert.equal(flat[1].title, 'Untracked files')
+assert.equal(flat[1].checked, false)
+assert.deepEqual(flat[1].rows.map((row) => row.relativePath), ['swap2-top.png'])
 
 // Conflicts are their own group, above, and they carry NO box: a conflicted
 // file is resolved, not ticked.
@@ -133,16 +144,94 @@ const withConflict = buildGitChangeGroups([
   ...snapshot,
   entry({ relativePath: 'src/renderer/src/App.tsx', status: 'conflicted' }),
 ])
-assert.deepEqual(withConflict.map((group) => group.id), ['conflicts', 'changes'])
+assert.deepEqual(withConflict.map((group) => group.id), ['conflicts', 'changes', 'untracked'])
 assert.equal(withConflict[0].checked, null, 'the conflicts group has no checkbox')
-assert.equal(withConflict[1].totalCount, 4, 'a conflicted file is not also a change row')
+assert.equal(withConflict[1].totalCount, 3, 'a conflicted file is not also a change row')
 
 // An empty repository still yields the Changes group, unchecked, so the header
-// and its count are stable rather than appearing on the first edit.
+// and its count are stable rather than appearing on the first edit. The
+// untracked group is NOT drawn when nothing is untracked — an always-on empty
+// group would be a heading about nothing.
 const empty = buildGitChangeGroups([])
 assert.equal(empty.length, 1)
 assert.equal(empty[0].totalCount, 0)
 assert.equal(empty[0].checked, false)
+
+// ── The changelist partition ──────────────────────────────────────────────────
+// The lists come from the store; the builder only PLACES rows, and the one rule
+// it enforces alone is that a path the store has not heard of yet falls to the
+// active list — the same answer main persists a moment later.
+
+const lists = [
+  { id: 'default', name: 'Changes', paths: ['src/main/checkpoint-store.ts'], active: false },
+  {
+    id: 'modal',
+    name: 'Modal header group',
+    comment: 'leading mark before the title',
+    paths: ['design-system/components/modal/component.css'],
+    active: true,
+  },
+]
+
+const byList = buildGitChangeGroups(snapshot, { changelists: lists })
+assert.deepEqual(
+  byList.map((group) => group.id),
+  ['changelist:modal', 'changelist:default', 'untracked'],
+  'the active list is first, the default last, untracked below both',
+)
+assert.equal(byList[0].kind, 'changelist')
+assert.equal(byList[0].title, 'Modal header group')
+assert.equal(byList[0].active, true, 'and it is the one that wears the chip')
+assert.equal(byList[0].comment, 'leading mark before the title')
+assert.equal(byList[0].changelistId, 'modal')
+assert.equal(byList[1].active, false, 'exactly one header carries the active chip')
+assert.deepEqual(
+  byList[0].rows.map((row) => row.relativePath),
+  ['design-system/components/modal/component.css', 'src/main/app-services.ts'],
+  'the file no list claims lands in the ACTIVE one, beside the file that named it',
+)
+assert.deepEqual(byList[1].rows.map((row) => row.relativePath), ['src/main/checkpoint-store.ts'])
+assert.equal(
+  byList.flatMap((group) => group.rows).length,
+  4,
+  'every changed file is rendered exactly once, in exactly one group',
+)
+assert.equal(byList[0].checked, 'mixed')
+assert.equal(byList[1].checked, false)
+
+// An untracked file is never filed into a changelist, whatever the store says
+// about it: the group at the bottom is a fact about the file.
+const claimingUntracked = buildGitChangeGroups(snapshot, {
+  changelists: [
+    { id: 'default', name: 'Changes', paths: [], active: false },
+    { id: 'modal', name: 'Modal header group', paths: ['swap2-top.png'], active: true },
+  ],
+})
+assert.deepEqual(claimingUntracked.map((group) => group.id).slice(-1), ['untracked'])
+assert.deepEqual(
+  claimingUntracked.find((group) => group.id === 'changelist:modal')?.rows.map((row) => row.relativePath),
+  ['design-system/components/modal/component.css', 'src/main/app-services.ts', 'src/main/checkpoint-store.ts'],
+)
+
+// ── Group by ──────────────────────────────────────────────────────────────────
+// The other two arrangements the toolbar offers. Untracked is its own group in
+// all three, and only the tracked body is rearranged.
+
+const byDirectory = buildGitChangeGroups(snapshot, { grouping: 'directory' })
+assert.deepEqual(
+  byDirectory.map((group) => group.title),
+  ['design-system/components/modal', 'src/main', 'Untracked files'],
+)
+assert.deepEqual(byDirectory[1].rows.map((row) => row.filename), ['app-services.ts', 'checkpoint-store.ts'])
+assert.equal(
+  buildGitChangeGroups([entry({ relativePath: 'top.ts' })], { grouping: 'directory' })[0].title,
+  'Repository root',
+  'a top-level file gets a heading with a name rather than an empty one',
+)
+
+const ungrouped = buildGitChangeGroups(snapshot, { grouping: 'none', changelists: lists })
+assert.deepEqual(ungrouped.map((group) => group.id), ['changes', 'untracked'])
+assert.equal(ungrouped[0].totalCount, 3, 'None means one list, whatever changelists exist')
 
 // The render cap holds rows back but never the group's verdict: the box governs
 // the group, so it reads every row and a tick would stage every one of them.

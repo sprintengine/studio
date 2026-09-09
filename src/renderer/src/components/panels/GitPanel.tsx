@@ -17,7 +17,8 @@ import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import { EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, PrimaryButton, RefreshIcon, Select, Skeleton, StashGlyph, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type TabItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import { buildChangeRowMenu } from './git/changeRowMenu'
+import { buildChangeGroupMenu, buildChangeRowMenu, type ChangelistActions, type CopyPathKind } from './git/changeRowMenu'
+import { ChangelistDialog, type ChangelistDialogValue } from './git/ChangelistDialog'
 import { GitChangesList } from './git/GitChangesList'
 import { GitChangesToolbar, type ShowDiffPlacement } from './git/GitChangesToolbar'
 import {
@@ -25,13 +26,25 @@ import {
   commitCounts,
   formatCommitCounts,
   groupToggleAction,
+  isUntrackedEntry,
   nextCheckIntent,
   nextCursorPath,
   splitGitPath,
   visibleChangeRows,
   type GitChangeGroup,
   type GitChangeRow,
+  type GitChangesGrouping,
 } from './git/gitChangesModel'
+import {
+  createChangelistFor,
+  deleteChangelistFor,
+  moveChangelistPathsFor,
+  refreshChangelists,
+  renameChangelistFor,
+  setActiveChangelistFor,
+  useChangelists,
+} from '../../hooks/useChangelists'
+import { DEFAULT_CHANGELIST_ID, normalizeChangelistPath } from '../../../../shared/git/changelists'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
 
@@ -646,16 +659,39 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     [statusEntries]
   )
   const allEntries = useMemo(() => sortedEntries(statusEntries), [statusEntries])
+  // The changelists: the app's own division of this repository's changes, read
+  // through one shared subscription per repo root (the same shape `useGitStatus`
+  // uses) so a rename made here is seen by anything else looking at the same
+  // checkout. Main prunes them against `git status` on every read, so the counts
+  // on the bands can never describe files that are no longer changed.
+  const { changelists, activeChangelist } = useChangelists(repoRoot)
+  // How the checklist is carved up. Not persisted: it is a way of looking at
+  // the pane for a minute, like a sort order, and a person who grouped by
+  // directory once should not find the panel that way a week later.
+  const [grouping, setGrouping] = useState<GitChangesGrouping>('changelist')
   // The checklist. `buildGitChangeGroups` returns the conflicts group too; the
   // panel renders those through `ConflictGroup` above the list, because a
   // conflicted file is resolved rather than ticked. Everything else is the
-  // checklist — one "Changes" group today, one per changelist once T6 lands,
-  // and nothing below this line knows which.
-  const changeGroups = useMemo(() => buildGitChangeGroups(statusEntries), [statusEntries])
+  // checklist — one group per changelist, per directory, or one flat list, plus
+  // the untracked files at the bottom — and nothing below this line knows which.
+  const changeGroups = useMemo(
+    () => buildGitChangeGroups(statusEntries, { changelists, grouping }),
+    [statusEntries, changelists, grouping]
+  )
   const checklistGroups = useMemo(
     () => changeGroups.filter((group) => group.checked !== null),
     [changeGroups]
   )
+  // The files git has never heard of, by repo-relative path. "Add to git" is
+  // offered on exactly these and on nothing else — a staged addition is already
+  // added, and offering it there would be a control that cannot act.
+  const untrackedPaths = useMemo(
+    () => new Set(statusEntries.filter(isUntrackedEntry).map((entry) => entry.relativePath)),
+    [statusEntries]
+  )
+  // The commit message box, so "Commit files…" can hand it the caret after it
+  // stages what was named.
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const changeCounts = useMemo(() => commitCounts(statusEntries), [statusEntries])
   const branchOptions = branches?.branches ?? []
   const worktreeCount = scopeOptions.filter((scope) => scope.kind === 'worktree').length
@@ -950,6 +986,260 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     return result
   }
 
+  // --- Changelists: the actions behind the menu and the band ----------------
+  // Every one of these ends by refreshing BOTH the status and the lists: the
+  // store reconciles against status on read, so a move that is not followed by
+  // a re-read would leave the panel drawing the arrangement it asked for rather
+  // than the one main persisted.
+
+  // Which list a row's file is in. The store speaks repo-relative paths and the
+  // rows carry git's absolute ones, so the lookup goes through the store's
+  // spelling — a mixed comparison would answer "the default" for every row and
+  // put "Delete changelist" on the wrong list.
+  const changelistIdForRow = useCallback(
+    (row: Pick<GitChangeRow, 'relativePath'>): string => {
+      const relative = normalizeChangelistPath(row.relativePath)
+      return changelists.find((list) => list.paths.includes(relative))?.id
+        ?? activeChangelist?.id
+        ?? DEFAULT_CHANGELIST_ID
+    },
+    [changelists, activeChangelist]
+  )
+
+  // The list an action on a SET of rows means: the one they share, or the
+  // active one when they are spread across several. A menu that named one of
+  // three lists because it happened to be first would delete the wrong one.
+  const changelistIdForRows = (rows: GitChangeRow[]): string => {
+    const ids = new Set(rows.map(changelistIdForRow))
+    if (ids.size === 1) return [...ids][0]
+    return activeChangelist?.id ?? DEFAULT_CHANGELIST_ID
+  }
+
+  const [changelistDialog, setChangelistDialog] = useState<{
+    mode: 'new' | 'edit'
+    changelistId?: string
+    initial: ChangelistDialogValue
+    /** Absolute paths that move into the list the dialog creates. */
+    paths: string[]
+  } | null>(null)
+  const changelistDialogOpenRef = useRef(false)
+  changelistDialogOpenRef.current = changelistDialog !== null
+
+  const changelistName = (id: string): string =>
+    changelists.find((list) => list.id === id)?.name ?? 'this changelist'
+
+  const afterChangelistChange = async (text: string): Promise<void> => {
+    setMessage({ tone: 'success', text })
+    await refreshChangelists(repoRoot)
+  }
+
+  const handleMoveToChangelist = async (changelistId: string, rows: GitChangeRow[]): Promise<void> => {
+    if (!repoRoot || rows.length === 0) return
+    await moveChangelistPathsFor(repoRoot, changelistId, rows.map((row) => row.path))
+    setMessage({
+      tone: 'success',
+      text: `Moved ${rows.length === 1 ? '1 file' : `${rows.length} files`} to ${changelistName(changelistId)}.`,
+    })
+  }
+
+  const openNewChangelistDialog = (paths: string[]): void => {
+    setChangelistDialog({
+      mode: 'new',
+      initial: { name: '', comment: '', activate: paths.length > 0 },
+      paths,
+    })
+  }
+
+  const openEditChangelistDialog = (changelistId: string): void => {
+    const list = changelists.find((entry) => entry.id === changelistId)
+    if (!list) return
+    setChangelistDialog({
+      mode: 'edit',
+      changelistId,
+      initial: { name: list.name, comment: list.comment ?? '', activate: list.active },
+      paths: [],
+    })
+  }
+
+  const submitChangelistDialog = async (value: ChangelistDialogValue): Promise<void> => {
+    const request = changelistDialog
+    setChangelistDialog(null)
+    if (!request || !repoRoot) return
+    if (request.mode === 'new') {
+      await createChangelistFor(repoRoot, {
+        name: value.name,
+        comment: value.comment,
+        activate: value.activate,
+        paths: request.paths,
+      })
+      await afterChangelistChange(`Created ${value.name}.`)
+      return
+    }
+    if (!request.changelistId) return
+    await renameChangelistFor(repoRoot, request.changelistId, { name: value.name, comment: value.comment })
+    await afterChangelistChange(`Renamed to ${value.name}.`)
+  }
+
+  const handleDeleteChangelist = async (changelistId: string): Promise<void> => {
+    if (!repoRoot) return
+    // The default holds every path nobody assigned, so there is nowhere for its
+    // own files to go. The model refuses it too — this is the half that says so.
+    if (changelistId === DEFAULT_CHANGELIST_ID) {
+      setMessage({ tone: 'error', text: 'The default changelist cannot be deleted.' })
+      return
+    }
+    const list = changelists.find((entry) => entry.id === changelistId)
+    if (!list) return
+    const confirmed = await dialog.confirm({
+      title: `Delete the changelist “${list.name}”?`,
+      body: (
+        <>
+          The list goes; the {list.paths.length === 1 ? 'file' : `${list.paths.length} files`} in it{' '}
+          {list.paths.length === 1 ? 'returns' : 'return'} to Changes. Nothing on disk is touched and nothing
+          is unstaged.
+        </>
+      ),
+      confirmLabel: 'Delete changelist',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    await deleteChangelistFor(repoRoot, changelistId)
+    await afterChangelistChange(`Deleted ${list.name}.`)
+  }
+
+  const handleSetActiveChangelist = async (changelistId: string): Promise<void> => {
+    if (!repoRoot) return
+    await setActiveChangelistFor(repoRoot, changelistId)
+    setMessage({ tone: 'success', text: `New changes now land in ${changelistName(changelistId)}.` })
+  }
+
+  // --- The rest of the row menu ---------------------------------------------
+
+  // "Commit files…" stages exactly what was named and puts the cursor in the
+  // composer. It does NOT commit: the message is still unwritten, and a menu
+  // item that committed on the strength of a right-click would be the one
+  // irreversible thing in this menu.
+  const handleCommitFiles = async (rows: GitChangeRow[]): Promise<void> => {
+    if (rows.length === 0) return
+    const unstaged = rows.filter((row) => row.checked !== true)
+    if (unstaged.length > 0) await stagePaths(unstaged.map((row) => row.path))
+    composerRef.current?.focus()
+  }
+
+  const handleCopyPath = async (row: GitChangeRow, kind: CopyPathKind): Promise<void> => {
+    const text = kind === 'absolute' ? row.path : kind === 'relative' ? row.relativePath : row.filename
+    try {
+      await window.api.clipboardWriteText(text)
+      setMessage({ tone: 'success', text: `Copied ${text}` })
+    } catch (error) {
+      // A clipboard write that fails silently is a person pasting the last
+      // thing they copied and not noticing for ten minutes.
+      setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Could not copy to the clipboard.' })
+    }
+  }
+
+  const handleAddToGit = async (rows: GitChangeRow[]): Promise<void> => {
+    // `git:stage` runs `git add -- <paths>`, which is exactly what adding an
+    // untracked file is; there is no second channel to reach for.
+    const additions = rows.filter((row) => untrackedPaths.has(row.relativePath))
+    if (additions.length === 0) return
+    await stagePaths(additions.map((row) => row.path))
+  }
+
+  const handleDeleteFiles = async (rows: GitChangeRow[]): Promise<void> => {
+    if (rows.length === 0 || typeof window.api.deletePath !== 'function') return
+    const many = rows.length > 1
+    const confirmed = await dialog.confirm({
+      title: many ? `Delete ${rows.length} files?` : `Delete ${rows[0].relativePath}?`,
+      body: (
+        <>
+          This removes {many ? `these ${rows.length} files` : 'the file'} from disk in {activeScopeLabel}. It is
+          not a git operation and it cannot be undone from here.
+          <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
+        </>
+      ),
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+    await runAction(
+      'Deleting files',
+      async () => {
+        const failures: string[] = []
+        for (const row of rows) {
+          try {
+            await window.api.deletePath(row.path)
+          } catch (error) {
+            failures.push(`${row.relativePath}: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
+        return failures.length > 0
+          ? { ok: false, stdout: '', stderr: failures.join('\n'), message: failures[0] }
+          : { ok: true, stdout: '', stderr: '', message: null }
+      },
+      many ? `Deleted ${rows.length} files.` : 'Deleted file.'
+    )
+    setSelectedPaths(new Set())
+  }
+
+  // The patch text is git's, always: the panel sends paths and main runs
+  // `git diff`. Assembling one from the rows would produce something no
+  // `git apply` would take.
+  const buildPatchFor = async (rows: GitChangeRow[]): Promise<string | null> => {
+    if (!repoRoot || rows.length === 0 || typeof window.api.createGitPatch !== 'function') return null
+    // Wholly staged rows have nothing outside the index, so their patch is the
+    // cached one; the mixed and unstaged rows are the worktree side. Asking for
+    // the side the rows are actually on is what keeps "create patch" from
+    // handing back an empty file for a fully staged selection.
+    const cached = rows.every((row) => row.checked === true)
+    const result = await window.api.createGitPatch(repoRoot, rows.map((row) => row.path), cached)
+    if (!result.ok) {
+      setMessage({ tone: 'error', text: result.message ?? 'Could not build the patch.' })
+      return null
+    }
+    if (!result.patch) {
+      setMessage({ tone: 'neutral', text: result.message ?? 'Nothing to put in a patch.' })
+      return null
+    }
+    return result.patch
+  }
+
+  const handleCopyAsPatch = async (rows: GitChangeRow[]): Promise<void> => {
+    const patch = await buildPatchFor(rows)
+    if (patch === null) return
+    try {
+      await window.api.clipboardWriteText(patch)
+      setMessage({ tone: 'success', text: `Copied a patch of ${rows.length === 1 ? '1 file' : `${rows.length} files`}.` })
+    } catch (error) {
+      setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Could not copy to the clipboard.' })
+    }
+  }
+
+  const handleCreatePatch = async (rows: GitChangeRow[]): Promise<void> => {
+    const patch = await buildPatchFor(rows)
+    if (patch === null || !repoRoot || typeof window.api.saveGitPatch !== 'function') return
+    const saved = await window.api.saveGitPatch(repoRoot, patch)
+    if (!saved.ok) {
+      setMessage({ tone: 'error', text: saved.message ?? 'Could not write the patch.' })
+      return
+    }
+    // A dismissed save dialog is not a failure and does not deserve an error.
+    if (saved.path) setMessage({ tone: 'success', text: `Wrote ${saved.path}` })
+  }
+
+  // The changelist half of both menus, built once: the row menu and the band
+  // menu offer the same list actions, and two spellings is how they drift.
+  const changelistActionsFor = (changelistId: string, rows: GitChangeRow[]): ChangelistActions => ({
+    changelists,
+    currentChangelistId: changelistId,
+    onMoveToChangelist: (targetId) => void handleMoveToChangelist(targetId, rows),
+    onMoveToNewChangelist: () => openNewChangelistDialog(rows.map((row) => row.path)),
+    onNewChangelist: () => openNewChangelistDialog([]),
+    onEditChangelist: (id) => openEditChangelistDialog(id),
+    onDeleteChangelist: (id) => void handleDeleteChangelist(id),
+    onSetActiveChangelist: (id) => void handleSetActiveChangelist(id),
+  })
+
   // Returns whether the commit actually landed, which is what `Commit & Push…`
   // needs: a push after a refused commit pushes whatever was already there and
   // reports success for a commit that never happened.
@@ -1014,6 +1304,14 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     // Targeted dispatch: ignore commands meant for another workspace's Git panel
     // so a commit/fetch only runs in the workspace the user acted from.
     if (typeof detail.workspaceId === 'string' && detail.workspaceId !== workspaceId) return
+    // The three row commands act on the changes list's selection, so they are
+    // refused while a dialog of ours is up: the changelist dialog and the
+    // confirm dialog both trap focus, and a chord that reached past a modal
+    // scrim to discard files would be a change nobody could see themselves make.
+    // (The composer needs no guard — the shell already suppresses global
+    // shortcuts inside an editable target.)
+    const dialogOpen =
+      changelistDialogOpenRef.current || Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'))
     switch (detail.id) {
       case 'git.refresh':
         void refreshAll()
@@ -1024,6 +1322,25 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       case 'git.commit':
         void handleCommit()
         break
+      case 'git.changes.showDiff': {
+        if (dialogOpen) break
+        const row = toolbarTargetRow
+        if (row) openChangeDiff(row)
+        break
+      }
+      case 'git.changes.discard': {
+        if (dialogOpen) break
+        void handleChangeRowsRevert(changeActionRows(toolbarTargetRow ?? undefined))
+        break
+      }
+      case 'git.changes.moveToChangelist': {
+        if (dialogOpen) break
+        const rows = changeActionRows(toolbarTargetRow ?? undefined)
+        // No destination to pick from a keyboard chord, so it opens the one
+        // dialog that asks for one — a new list with these files in it.
+        if (rows.length > 0) openNewChangelistDialog(rows.map((row) => row.path))
+        break
+      }
     }
   }
   useEffect(() => {
@@ -1834,12 +2151,24 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             <GitChangesToolbar
               busy={Boolean(busy)}
               hasTarget={Boolean(toolbarTargetRow)}
+              changelists={changelists}
+              currentChangelistId={
+                toolbarTargetRow ? changelistIdForRows(changeActionRows(toolbarTargetRow)) : null
+              }
+              grouping={grouping}
               onRefresh={() => void refreshAll()}
               onDiscard={() => void handleChangeRowsRevert(changeActionRows(toolbarTargetRow ?? undefined))}
               onStash={() => void handleStashPush()}
               onShowDiff={(placement) => {
                 if (toolbarTargetRow) openChangeDiff(toolbarTargetRow, placement)
               }}
+              onMoveToChangelist={(changelistId) =>
+                void handleMoveToChangelist(changelistId, changeActionRows(toolbarTargetRow ?? undefined))
+              }
+              onMoveToNewChangelist={() =>
+                openNewChangelistDialog(changeActionRows(toolbarTargetRow ?? undefined).map((row) => row.path))
+              }
+              onGroupingChange={setGrouping}
               onExpandAll={() => setCollapsedGroupIds(new Set())}
               onCollapseAll={() => setCollapsedGroupIds(new Set(checklistGroups.map((group) => group.id)))}
             />
@@ -1883,15 +2212,45 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                     onSelectAll={() => setSelectedPaths(new Set(visibleRows.map((row) => row.path)))}
                     onContextSelect={handleChangeRowContextSelect}
                     registerRowNode={registerChangeRowNode}
-                    buildMenu={(row) =>
-                      buildChangeRowMenu({
+                    onOpenInEditor={(row) => void handleOpenFileInEditor(row)}
+                    onDeleteFiles={(row) => void handleDeleteFiles(changeActionRows(row))}
+                    onAddToGit={(row) => void handleAddToGit(changeActionRows(row))}
+                    onEditChangelist={(row) => openEditChangelistDialog(changelistIdForRow(row))}
+                    buildMenu={(row) => {
+                      const rows = changeActionRows(row)
+                      return buildChangeRowMenu({
+                        ...changelistActionsFor(changelistIdForRows(rows), rows),
                         row,
-                        selectedCount: changeActionRows(row).length,
+                        selectedCount: rows.length,
                         busy: Boolean(busy),
-                        onDiscard: () => void handleChangeRowsRevert(changeActionRows(row)),
+                        untracked: untrackedPaths.has(row.relativePath),
+                        onCommitFiles: () => void handleCommitFiles(rows),
+                        onDiscard: () => void handleChangeRowsRevert(rows),
                         onShowDiff: () => openChangeDiff(row),
                         onOpenInEditor: () => void handleOpenFileInEditor(row),
+                        onCopyPath: (kind) => void handleCopyPath(row, kind),
+                        onDeleteFiles: () => void handleDeleteFiles(rows),
+                        onAddToGit: () => void handleAddToGit(rows),
+                        onCreatePatch: () => void handleCreatePatch(rows),
+                        onCopyAsPatch: () => void handleCopyAsPatch(rows),
                         onStash: () => void handleStashPush(),
+                        onRefresh: () => void refreshAll(),
+                      })
+                    }}
+                    buildGroupMenu={(group) =>
+                      buildChangeGroupMenu({
+                        // The band's actions act on every row the group holds —
+                        // the ones past the render cap included, exactly as its
+                        // checkbox does.
+                        ...changelistActionsFor(
+                          group.changelistId ?? activeChangelist?.id ?? DEFAULT_CHANGELIST_ID,
+                          group.allRows
+                        ),
+                        group,
+                        busy: Boolean(busy),
+                        onStageAll: () => handleToggleChangeGroup(group, true),
+                        onUnstageAll: () => handleToggleChangeGroup(group, false),
+                        onDiscardAll: () => void handleChangeRowsRevert(group.allRows),
                         onRefresh: () => void refreshAll(),
                       })
                     }
@@ -1910,7 +2269,23 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               onCommitMessageChange={handleCommitMessageChange}
               scopeLabel={activeScopeLabel}
               scopePath={activeScopePath}
+              inputRef={composerRef}
+              // A changelist comment can supply a useful commit message: the active list's comment is the sentence this commit is
+              // probably about, offered as the placeholder rather than typed in
+              // — a prefilled message would be one nobody wrote.
+              placeholder={activeChangelist?.comment || undefined}
             />
+            {changelistDialog ? (
+              <ChangelistDialog
+                open
+                mode={changelistDialog.mode}
+                initial={changelistDialog.initial}
+                fileCount={changelistDialog.paths.length}
+                busy={Boolean(busy)}
+                onCancel={() => setChangelistDialog(null)}
+                onSubmit={(value) => void submitChangelistDialog(value)}
+              />
+            ) : null}
         </TabPanel>
         <TabPanel idPrefix={gitTabsIdPrefix} tabId="worktrees" active={activeView === 'worktrees'} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           <WorktreeManager
@@ -2190,6 +2565,8 @@ function CommitComposer({
   onCommitMessageChange,
   scopeLabel,
   scopePath,
+  inputRef,
+  placeholder,
 }: {
   busy: string | null
   commitMessage: string
@@ -2201,6 +2578,11 @@ function CommitComposer({
   onCommitMessageChange: (value: string) => void
   scopeLabel: string
   scopePath: string
+  /** So "Commit files…" can hand the caret over after it stages. */
+  inputRef?: React.Ref<HTMLTextAreaElement>
+  /** The active changelist's comment, when it has one. The accessible name
+   *  stays "Commit message" — a placeholder is a suggestion, not a label. */
+  placeholder?: string
 }) {
   return (
     <section className="shrink-0 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3">
@@ -2216,11 +2598,12 @@ function CommitComposer({
         </Tooltip>
       </div>
       <Textarea
+        ref={inputRef}
         size="sm"
         resize="none"
         value={commitMessage}
         onChange={(event) => onCommitMessageChange(event.target.value)}
-        placeholder="Commit message"
+        placeholder={placeholder ?? 'Commit message'}
         aria-label="Commit message"
         className="h-16"
       />
