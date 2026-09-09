@@ -4375,10 +4375,13 @@ export type ElectronApi = {
   readConversationPeek: (sessionId: string) => Promise<ConversationPeek>
   // The hover hook for a conversation's pull request marks: main looks the
   // session's branch up (once per key per hold) and re-reads any state older
-  // than ~60s. Fire-and-forget — the answer arrives as a fresh
+  // than ~60s. The pull requests themselves arrive as a fresh
   // `terminal:sessions-changed` carrying the session's `pullRequests`, never as
-  // a return value, so one path owns the fact.
-  refreshPullRequestsForSession: (sessionId: string) => Promise<void>
+  // a return value, so one path owns the fact. The boolean says only whether
+  // there was anything to ask about — false for a session main cannot name, or
+  // one whose checkout has not resolved yet — so a caller that asks once per
+  // session can tell "asked" from "could not ask yet" and try again.
+  refreshPullRequestsForSession: (sessionId: string) => Promise<boolean>
   // Open an attachment the peek just handed out: an image goes to the OS image
   // viewer, a file is revealed in the file manager. Takes the attachment's id,
   // never a path — main resolves it against the peek it produced, so a renderer

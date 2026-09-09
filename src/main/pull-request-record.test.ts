@@ -753,6 +753,33 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
+  // The hover hook says whether there was anything to ask about, so a caller
+  // with one shot per session does not spend it on a session whose checkout has
+  // not resolved yet.
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    const known = session({ sessionId: 'known', gitRoot: '/repo', branch: 'feature' })
+    const unresolved = session({ sessionId: 'pending', resolved: false })
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => NOW,
+      timers: makeClock(),
+      resolveRepoKey: resolveAppRepo,
+      sessions: {
+        get: (sessionId) => (sessionId === 'known' ? known : sessionId === 'pending' ? unresolved : null),
+        list: () => [known, unresolved],
+      },
+      reads: { listBranchPullRequests: async () => ({ settled: true, pullRequests: [] }) },
+    })
+    assert.equal(record.refreshForSession('known'), true, 'a resolved checkout was asked about')
+    assert.equal(record.refreshForSession('pending'), false, 'a checkout that has not resolved was not')
+    assert.equal(record.refreshForSession('no-such-session'), false, 'and an id main cannot name was not')
+    await record.flush()
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
   // REVIEW FIX (finding 4). An unsettled state read is HELD. With `gh` missing,
   // unauthenticated or rate limited every read fails instantly, so without a
   // hold each window focus re-spawned `gh` — and on macOS a whole `$SHELL -ilc`
