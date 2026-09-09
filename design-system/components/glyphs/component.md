@@ -1,9 +1,11 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The thirty-one SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The thirty-four SVGs in
 `glyphs/` (close, search, spinner, multicode-mark, git-branch, remote-machine,
-commit, worktree, history, folder, file-typescript, file-generic, and the
+commit, worktree, history, folder, file-typescript, file-generic, the three
+pull-request marks — pull-request-open, pull-request-merged,
+pull-request-closed — and the
 nineteen Commit-window action marks — rollback, move-to-changelist, stash,
 group-by, expand-all, collapse-all, next-difference, previous-difference,
 show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message,
@@ -27,7 +29,7 @@ Two drawing grids, each with its own stroke discipline:
 | Grid | Primary stroke | Drawn by |
 |---|---|---|
 | 24 × 24 | `1.7` (the `iconStroke` constant) | `AppIcons.tsx` — every action, identity, status, and settings icon; `CliIcon.tsx` tile marks (1.7 frame, 1.9 letterform) |
-| 16 × 16 | `1.2 – 1.5` | the `ui/` primitives — `LifecycleGlyph` (1.4–1.5), `CapabilityGlyphs` (1.3), `RefreshIcon` (1.35), `StarGlyph` (1.4), `FileTypeGlyph` (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in `glyphs/` |
+| 16 × 16 | `1.2 – 1.5` | the `ui/` primitives — `LifecycleGlyph` (1.4–1.5), `PullRequestGlyph` (1.4), `CapabilityGlyphs` (1.3), `RefreshIcon` (1.35), `StarGlyph` (1.4), `FileTypeGlyph` (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in `glyphs/` |
 
 The 24-grid stroke flexes deliberately and narrowly: secondary strokes step
 *down* by 0.1–0.3 (`iconStroke - 0.3` on the `RoleGenericIcon` inner ring), and a
@@ -134,6 +136,40 @@ survives grayscale — with ink only reinforcing:
 Held states (`blocked`, `paused`) are neutral ink, never the accent — the
 accent means *startable or live right now*, and never `--tone-error` —
 waiting is calm, not a defect.
+
+### Pull request (16-grid — `ui/PullRequestGlyph.tsx`)
+
+*Where did this work go* — the state of a pull request, in the three marks
+GitHub itself has taught people to read (epic `pull-request-marks`, decision 1,
+2026-09-09). 16-grid, stroke 1.4, `currentColor`, `fill="none"`. All three are
+the same branch-and-node armature, so the family reads as one set; what differs
+is where the branch ends, and that difference is the state.
+
+| State | Drawing | Asset |
+|---|---|---|
+| `open` | The branch beside main with an arrow that has NOT gone in: two nodes on the left rail, a third down on the right, and the connector turning back into an arrowhead that stops short of it | `glyphs/pull-request-open.svg` |
+| `merged` | The branch gone into main: the right-hand node sits at the middle and the connector curves cleanly into it | `glyphs/pull-request-merged.svg` |
+| `closed` | The branch ending in a cross: the same three nodes, the right-hand connector cut short, and an × where the merge would have been | `glyphs/pull-request-closed.svg` |
+
+**Three states and no more.** A draft is an *open* pull request and wears the
+open mark — the word "draft" belongs in the tooltip, not in a fourth drawing.
+There is no "unknown" mark either: nothing is drawn unless a pull request
+definitely exists, so a lookup that could not be made draws exactly what no
+pull request draws (decision 3).
+
+**Shape first, tone second.** The three shapes are distinguishable in
+grayscale; the tone only agrees with the shape. The tone map is shared — one
+function, `pullRequestTone` in `src/shared/git/pull-request.ts` — so every
+surface inks the same state the same way:
+
+| State | Tone | CSS variable |
+|---|---|---|
+| `open` | `accent` — the one you can still act on | `--accent-primary` |
+| `merged` | `merged` — the violet a landed branch already wears | `--tone-merged` (`--sem-color-status-merged`) |
+| `closed` | `error` — GitHub's own red for a pull request that ended without landing | `--tone-error` (`--sem-color-status-danger`) |
+
+The primitive takes `state` and an optional `label`; the caller owns the size
+(`icon-xs` beside meta copy, `icon-sm` in a row's leading slot) and the ink.
 
 ### Role (24-grid drawings, 16-grid wrappers)
 
@@ -371,9 +407,12 @@ All at `iconStroke` so the rail reads as one set.
   stays hidden. Pair with a tooltip that says the consequence, not the name.
 - **Shape first, color second.** Every status and lifecycle state is
   distinguishable in grayscale; ink only reinforces. Color is never the sole
-  differentiator — the one narrow exception is merged-vs-unmerged on the
-  branch fork, where a distinct merge shape read as noise at 16 px and the
-  label carries the difference.
+  differentiator, with no exception. The one that used to stand here —
+  merged-vs-unmerged on the branch fork, on the ruling that a distinct merge
+  shape read as noise at 16 px — was retired on 2026-09-09: the Pull request
+  family draws merged, open and closed as three different shapes at 16 px, so
+  the ruling's premise is gone and nothing in the system needs colour to carry
+  a state on its own.
 - **Hit targets.** Nothing interactive below `--sem-size-hit-target-min`;
   the glyph pads out, it does not grow.
 
@@ -416,11 +455,12 @@ Cite these rather than matching the code you happen to be nearest.
    inconsistency, resolved by consuming the shared exports (item 3).
 5. **`RefreshIcon` is a 16-grid primitive named `Icon`** where the family
    convention is `Glyph`. Rename when it next moves.
-6. **The `glyphs/` folder holds twenty-nine assets** against a shipped vocabulary of
+6. **The `glyphs/` folder holds thirty-four assets** against a shipped vocabulary of
    roughly sixty. This entry closes the documentation gap; extracting
    framework-neutral SVGs for the core-action set into `glyphs/` (and
    registering them in `design-system.json`) remains open. *2026-09-05:* the
    Git view marks, the folder and two file-type samples joined the folder.
    *2026-09-09:* the seventeen Commit-window and diff-window action marks
    joined it (Git and diff actions, above), `previous-difference` among them
-   as a shipped mirror rather than a transform the reader has to apply.
+   as a shipped mirror rather than a transform the reader has to apply, and
+   the three pull-request marks with them (Pull request, above).

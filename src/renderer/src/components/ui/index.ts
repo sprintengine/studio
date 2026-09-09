@@ -13,6 +13,7 @@ export { AgentWorkingDots } from './AgentWorkingDots'
 export { ContextRing, CONTEXT_RING_WARN_PERCENTAGE } from './ContextRing'
 export { Spinner } from './Spinner'
 export { LifecycleGlyph, LIFECYCLE_LABEL, type LifecycleState } from './LifecycleGlyph'
+export { PullRequestGlyph, PULL_REQUEST_SHAPES } from './PullRequestGlyph'
 export {
   CaptionButton,
   CloseIconButton,
