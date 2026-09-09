@@ -51,6 +51,18 @@ export const PR_WATCH_JITTER_RATIO = 0.2
 /** At most one re-evaluation per key per this window; see the header. */
 export const PR_WATCH_CHANGE_COALESCE_MS = 30_000
 
+/**
+ * How stale a thing may be and still be picked up by a consumer's startup scan
+ * — and, for a consumer whose keys accumulate for the life of the process, how
+ * old one may be and still be worth a timer at all (30 days).
+ *
+ * It lives here because both consumers bound themselves by it: the sprint run
+ * watch has always skipped runs untouched for this long, and the conversation
+ * pull request record uses the same window so a laptop that has seen a thousand
+ * pull requests does not hold a thousand timers for ones nobody will merge.
+ */
+export const PR_WATCH_BOOT_SCAN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+
 export type WatchPollerTimers = {
   setTimeout(handler: () => void, ms: number): unknown
   clearTimeout(handle: unknown): void

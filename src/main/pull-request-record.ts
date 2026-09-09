@@ -37,13 +37,29 @@
 // comes only from GitHub: there is no ancestry inference anywhere in this file,
 // because a squash merge or a rebase would make it lie for ever (decision 8c).
 //
+// A LOOKUP'S ANSWER IS READ BACK BY THE CHECKOUT THAT ASKED. A row is filed
+// under the repository ITS OWN URL names, which is not always the key the
+// asking checkout resolves to: an SSH host alias (`git@github-work:acme/app`)
+// keys as `github-work/acme/app`, a fork's `gh pr list` answers for the parent,
+// and a transferred repository answers under its new name. So every checkout
+// also remembers WHICH repository keys its lookups came back under, and a
+// session reads the union of those and its own — otherwise the marks would be
+// filed correctly and be invisible for ever, with a watch armed on an entry
+// nothing could show.
+//
+// THE WATCH IS BOUNDED (decision 9's schedule, not its scope). Only a pull
+// request opened inside `PR_WATCH_BOOT_SCAN_MAX_AGE_MS` holds a timer — the
+// same 30-day window the sprint run watch has always bounded its boot scan by.
+// Without it every open pull request the app ever saw, in any repository, for
+// sessions long gone, keeps a ≤32-minute timer for the life of the process.
+//
 // EARLIER PULL REQUESTS ARE NEVER DROPPED (decision 6). A lookup merges by URL
 // and adds; it never deletes. A pull request that scrolled out of `gh pr list`
 // (a branch reused for a second one, a repository transferred) stays on the
 // record with the state it last had.
 
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
@@ -61,6 +77,7 @@ import {
 } from './github/branch-pull-request'
 import {
   createPullRequestWatchPoller,
+  PR_WATCH_BOOT_SCAN_MAX_AGE_MS,
   type WatchPollerTimers,
 } from './github/pull-request-watch-poller'
 import { normalizeComparablePath } from './git-utils'
@@ -88,6 +105,24 @@ export const LOOKUP_RETRY_AFTER_FAILURE_MS = 10_000
  * down a sidebar buys one `gh` call per pull request, not one per hover.
  */
 export const HOVER_REFRESH_STALE_MS = 60_000
+
+/**
+ * How old an OPEN pull request may be and still hold a watch timer. The window
+ * the sprint run watch already bounds its boot scan by — see the header.
+ */
+export const WATCH_MAX_AGE_MS = PR_WATCH_BOOT_SCAN_MAX_AGE_MS
+
+/**
+ * How many `gh` reads may be in flight at once. A window focus asks about every
+ * live session at once, and each ask is a subprocess — plus, on a GUI-launched
+ * macOS app whose `gh` is not on the inherited PATH, a whole `$SHELL -ilc` login
+ * shell. Three at a time keeps a hover responsive without turning "come back to
+ * the app" into a process storm.
+ */
+export const MAX_CONCURRENT_GITHUB_READS = 3
+
+/** A `<name>.<uuid>.tmp` left by a write that died must be older than this before it is swept. */
+const TEMP_FILE_SWEEP_MIN_AGE_MS = 60 * 60 * 1000
 
 /** What the record needs to see of a terminal session. Structural, so it can be tested without a pty. */
 export type PullRequestRecordSession = {
@@ -158,8 +193,13 @@ export type PullRequestRecord = {
   ensureLookedUp(input: PullRequestCheckout): Promise<void>
   /** Re-read one pull request's state by URL. Unsettled leaves the last reading standing. */
   refresh(url: string): Promise<void>
-  /** The hover hook: look this session's branch up, and refresh readings older than ~60s. */
-  refreshForSession(sessionId: string): void
+  /**
+   * The hover hook: look this session's branch up, and refresh readings older
+   * than ~60s. Returns whether there was anything to ask about — a session with
+   * no resolved checkout and no pull requests of its own asked nothing, and the
+   * renderer's one-shot must not be spent on it.
+   */
+  refreshForSession(sessionId: string): boolean
   /** Window focus: the same, for every live session. */
   refreshOnFocus(): void
   /** Whether a change reaches this session — the re-emit's filter. */
@@ -232,11 +272,44 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   const bySession = new Map<string, Set<string>>()
   /** A checkout's repository, once git has answered. Only settled answers are kept. */
   const repoKeyByCheckout = new Map<string, string>()
+  /**
+   * The repository keys a checkout's OWN lookups came back under — the rows a
+   * `gh pr list` run there answered with. Usually the one key above; a host
+   * alias, a fork or a transferred repository make it a different one, and a
+   * session must read both or its marks are invisible (see the header). Not
+   * persisted: the first lookup after a launch fills it again, and until it
+   * lands the honest answer is what the checkout's own key holds.
+   */
+  const lookupRepoKeys = new Map<string, Set<string>>()
   const repoKeyReads = new Map<string, Promise<void>>()
   const held = new Map<string, Hold>()
+  /** Per-URL hold on a state read, so an unsettled one is not re-spawned on every focus. */
+  const refreshHolds = new Map<string, Hold>()
   const lookupsInFlight = new Map<string, Promise<void>>()
   const refreshesInFlight = new Map<string, Promise<void>>()
+  let tempFileSweep: Promise<void> | null = null
   let disposed = false
+
+  // Every `gh` read passes through here. See MAX_CONCURRENT_GITHUB_READS: a
+  // focus with twenty live sessions must not become twenty subprocesses.
+  let activeReads = 0
+  const waitingReads: (() => void)[] = []
+  async function withReadSlot<T>(run: () => Promise<T>): Promise<T> {
+    if (activeReads >= MAX_CONCURRENT_GITHUB_READS) {
+      await new Promise<void>((resolve) => waitingReads.push(resolve))
+    }
+    activeReads += 1
+    try {
+      return await run()
+    } finally {
+      activeReads -= 1
+      waitingReads.shift()?.()
+    }
+  }
+  /** Let every queued read through at dispose; each one checks `disposed` and returns. */
+  function releaseWaitingReads(): void {
+    while (waitingReads.length > 0) waitingReads.shift()?.()
+  }
 
   // Every pull request still OPEN is watched, each stopping on its own when it
   // lands, so a menu never shows a stale open one (decision 9). The key is the
@@ -263,9 +336,12 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     if (state.loaded) return Promise.resolve()
     if (state.loading) return state.loading
     const loading = (async () => {
+      // Tmp files from a write that died mid-rename are nobody's to inherit.
+      await sweepStaleTempFiles()
+      const path = pullRequestStorePath(options.userDataDir, state.repoKey)
       let raw: string | null = null
       try {
-        raw = await readFile(pullRequestStorePath(options.userDataDir, state.repoKey), 'utf-8')
+        raw = await readFile(path, 'utf-8')
       } catch (error) {
         if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
           // A store we cannot read starts over rather than taking the marks
@@ -273,10 +349,23 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
           warn('could not read a stored pull request record', error)
         }
       }
+      let stored = raw === null ? new Map<string, BranchPullRequest[]>() : parseStoreFile(raw)
+      if (stored === null) {
+        // Truncated, hand-edited, or written by a version this build does not
+        // know. Either way it is kept — renamed aside — rather than silently
+        // overwritten by the next commit, so what was in it can be recovered.
+        warn(
+          'a stored pull request record could not be understood; keeping it aside as .corrupt',
+          new Error(`unreadable store for ${state.repoKey}`),
+        )
+        await rename(path, `${path}.corrupt`).catch((error) => {
+          warn('could not keep an unreadable pull request record aside', error)
+        })
+        stored = new Map<string, BranchPullRequest[]>()
+      }
       state.loaded = true
       state.loading = null
       if (disposed) return
-      const stored = raw === null ? new Map<string, BranchPullRequest[]>() : parseStoreFile(raw)
       for (const [branch, entries] of stored) {
         // Anything learned while the read was in flight wins: it came from a
         // live read of GitHub, the file did not.
@@ -359,25 +448,42 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   function commit(state: RepoState, branch: string, next: BranchPullRequest[]): void {
     const sorted = [...next].sort((a, b) => b.openedAt - a.openedAt || b.number - a.number)
     const previous = entriesOf(state, branch)
-    if (sameList(previous, sorted)) return
+    // Nothing moved at all, not even the moment of the reading: stop here.
+    if (sameList(previous, sorted, true)) return
+    // A successful probe that learned nothing still moves `stateAt`, and that
+    // has to be kept — it is what stops the next hover asking again, across a
+    // restart too — but it is not a repaint. So the list is stored and written,
+    // and only a change a person could SEE re-emits and re-reads the watch.
+    const learnedSomething = !sameList(previous, sorted, false)
     state.branches.set(branch, sorted)
     indexList(state.repoKey, branch, previous, sorted)
     persist(state)
+    if (!learnedSomething) return
     reconcileWatch(state, branch)
     emitChanged(state.repoKey, branch, sessionIdsOf(previous, sorted))
+  }
+
+  function isEntryWatchable(entry: BranchPullRequest): boolean {
+    // The one rule, shared with the sprint run watch: merged and closed are
+    // terminal and stop for good; open is the live case.
+    if (!isPullRequestWatchable({ hasVcs: true, prState: entry.state, hasPrUrl: true })) return false
+    // And bounded: a pull request opened months ago is still watched by a hover
+    // and by a focus, but it does not get a timer of its own for the life of
+    // the process. An entry whose opening date GitHub never gave (openedAt 0)
+    // is not aged out on a date we do not have.
+    if (!(entry.openedAt > 0)) return true
+    return now() - entry.openedAt <= WATCH_MAX_AGE_MS
   }
 
   function isUrlWatchable(url: string): boolean {
     const at = located.get(url)
     if (!at) return false
-    // The one rule, shared with the sprint run watch: merged and closed are
-    // terminal and stop for good; open is the live case.
-    return isPullRequestWatchable({ hasVcs: true, prState: at.entry.state, hasPrUrl: true })
+    return isEntryWatchable(at.entry)
   }
 
   function reconcileWatch(state: RepoState, branch: string): void {
     for (const entry of entriesOf(state, branch)) {
-      if (isPullRequestWatchable({ hasVcs: true, prState: entry.state, hasPrUrl: true })) watch.arm(entry.url)
+      if (isEntryWatchable(entry)) watch.arm(entry.url)
       else if (!isUrlWatchable(entry.url)) watch.disarm(entry.url)
     }
   }
@@ -388,14 +494,31 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
    */
   function applyState(
     url: string,
-    next: { state: PullRequestState; isDraft: boolean; stateAt: number; headRefName: string | null },
+    next: {
+      state: PullRequestState
+      isDraft: boolean
+      stateAt: number
+      headRefName: string | null
+      title?: string | null
+      openedAt?: number | null
+      number?: number | null
+    },
   ): void {
     const at = located.get(url)
     if (!at) return
     const state = repos.get(at.repoKey)
     if (!state) return
+    // A CAPTURED pull request is filed from a URL alone: no title, and the
+    // moment of capture standing in for the moment it was opened. In another
+    // repository no branch lookup will ever heal that (decision 10), so this
+    // read is where it learns both — every menu row, the peek's title line and
+    // the spoken label read empty until it does. GitHub's word wins where
+    // GitHub gave one; a read that said nothing never blanks what we have.
     const updated: BranchPullRequest = {
       ...at.entry,
+      ...(next.title ? { title: next.title } : {}),
+      ...(typeof next.openedAt === 'number' && next.openedAt > 0 ? { openedAt: next.openedAt } : {}),
+      ...(typeof next.number === 'number' && next.number > 0 ? { number: next.number } : {}),
       state: next.state,
       isDraft: next.isDraft,
       stateAt: next.stateAt,
@@ -415,12 +538,28 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     if (disposed) return
     const inFlight = refreshesInFlight.get(url)
     if (inFlight) return inFlight
+    // A read that could not settle is HELD, exactly as a branch lookup's is.
+    // Coalescing the in-flight call is not enough on its own: with `gh` missing,
+    // unauthenticated or rate limited every read fails instantly, so a window
+    // focus — six of them, a pointer sweeping a sidebar — would spawn `gh`
+    // (and on macOS a `$SHELL -ilc` login shell) once per open pull request per
+    // focus, for ever, learning nothing.
+    const hold = refreshHolds.get(url)
+    if (hold && !hold.settled && now() - hold.at < LOOKUP_RETRY_AFTER_FAILURE_MS) return
     const read = (async () => {
-      const outcome = await readState(url, { now })
+      const outcome = await withReadSlot(() =>
+        disposed
+          ? Promise.resolve({ settled: false, reason: 'bad-request' } as const)
+          : readState(url, { now }),
+      )
       if (disposed) return
       // Unsettled: the state stays as last read. Nothing is written, nothing is
       // emitted, and the watch keeps its schedule.
-      if (!outcome.settled) return
+      if (!outcome.settled) {
+        refreshHolds.set(url, { at: now(), settled: false })
+        return
+      }
+      refreshHolds.delete(url)
       applyState(url, outcome)
     })().catch((error) => {
       warn('could not refresh a pull request state', error)
@@ -444,7 +583,11 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     if (inFlight) return inFlight
 
     const lookup = (async () => {
-      const read = await listBranch({ gitRoot: checkout.gitRoot, branch: checkout.branch }, { now })
+      const read = await withReadSlot(() =>
+        disposed
+          ? Promise.resolve({ settled: false, reason: 'bad-request' } as const)
+          : listBranch({ gitRoot: checkout.gitRoot, branch: checkout.branch }, { now }),
+      )
       if (disposed) return
       if (!read.settled) {
         // Could not ask. The record is left exactly as it was, and the hold is
@@ -457,6 +600,11 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
       // own — a fork's pull request is in the fork — so they are grouped rather
       // than assumed.
       for (const [repoKey, incoming] of groupByRepo(read.pullRequests)) {
+        // This checkout can read this key back, whatever its own remote says
+        // (host alias, fork, transferred repository — see the header). Recorded
+        // BEFORE the commit below, so the change the commit emits already
+        // reaches the sessions on this checkout.
+        noteLookupRepoKey(checkout.gitRoot, repoKey)
         const state = await loadedRepo(repoKey)
         if (disposed) return
         // A captured entry for one of these URLs may still be sitting in the
@@ -538,6 +686,27 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     return null
   }
 
+  function noteLookupRepoKey(gitRoot: string, repoKey: string): void {
+    const key = normalizeComparablePath(gitRoot)
+    const keys = lookupRepoKeys.get(key) ?? new Set<string>()
+    keys.add(repoKey)
+    lookupRepoKeys.set(key, keys)
+  }
+
+  /**
+   * Every repository key a checkout may read a list back under: its own
+   * remote's, plus whatever its lookups actually answered with.
+   */
+  function checkoutRepoKeys(gitRoot: string, resolve: boolean): string[] {
+    const keys: string[] = []
+    const own = resolve ? repoKeyFor(gitRoot) : repoKeyByCheckout.get(normalizeComparablePath(gitRoot)) ?? null
+    if (own) keys.push(own)
+    for (const key of lookupRepoKeys.get(normalizeComparablePath(gitRoot)) ?? []) {
+      if (!keys.includes(key)) keys.push(key)
+    }
+    return keys
+  }
+
   function forBranch(repoKey: string, branch: string): BranchPullRequest[] {
     const state = repoStateFor(repoKey)
     // First ask about this repository: read the file, and re-emit when it lands.
@@ -560,11 +729,19 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   function listForSession(session: PullRequestRecordSession | null | undefined): BranchPullRequest[] {
     const own = session?.sessionId ? forSession(session.sessionId) : []
     const checkout = pullRequestSessionCheckout(session)
-    const repoKey = checkout ? repoKeyFor(checkout.gitRoot) : null
-    const onBranch = repoKey && checkout ? forBranch(repoKey, checkout.branch) : []
-    if (own.length === 0) return onBranch
+    const onBranch: BranchPullRequest[][] = []
+    if (checkout) {
+      for (const repoKey of checkoutRepoKeys(checkout.gitRoot, true)) {
+        const list = forBranch(repoKey, checkout.branch)
+        if (list.length > 0) onBranch.push(list)
+      }
+    }
+    if (own.length === 0) {
+      if (onBranch.length === 0) return []
+      return onBranch.length === 1 ? onBranch[0] : unionPullRequests(...onBranch)
+    }
     if (onBranch.length === 0) return own
-    return unionPullRequests(onBranch, own)
+    return unionPullRequests(...onBranch, own)
   }
 
   /** The stale readings on a session's list, refreshed. Each URL's refresh coalesces itself. */
@@ -578,17 +755,49 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     }
   }
 
-  function refreshSession(session: PullRequestRecordSession): void {
+  function refreshSession(session: PullRequestRecordSession): boolean {
     const checkout = pullRequestSessionCheckout(session)
     if (!checkout) {
       // No checkout to look a branch up in — but the pull requests this session
       // opened elsewhere still age.
       refreshStale(session)
-      return
+      return false
     }
     void ensureLookedUp(checkout).then(() => {
       if (!disposed) refreshStale(session)
     })
+    return true
+  }
+
+  /** Swept once per record, at the first load: a `.tmp` nothing is writing any more. */
+  function sweepStaleTempFiles(): Promise<void> {
+    if (tempFileSweep) return tempFileSweep
+    tempFileSweep = (async () => {
+      const dir = join(options.userDataDir, STORE_DIR)
+      let names: string[] = []
+      try {
+        names = await readdir(dir)
+      } catch {
+        // No store directory yet: nothing to sweep.
+        return
+      }
+      // Wall-clock, not the injected `now`: this is a file's age, and a write
+      // that is in flight RIGHT NOW (this process or another instance) must not
+      // have its temp file pulled out from under it.
+      const cutoff = Date.now() - TEMP_FILE_SWEEP_MIN_AGE_MS
+      for (const name of names) {
+        if (!name.endsWith('.tmp')) continue
+        const path = join(dir, name)
+        try {
+          const info = await stat(path)
+          if (info.mtimeMs > cutoff) continue
+          await unlink(path)
+        } catch {
+          // Already gone, or not ours to remove. Either is fine.
+        }
+      }
+    })().catch(() => undefined)
+    return tempFileSweep
   }
 
   return {
@@ -649,12 +858,15 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
 
     refreshForSession(sessionId) {
       const session = options.sessions?.get(sessionId) ?? null
-      if (!session || disposed) return
-      refreshSession(session)
+      if (!session || disposed) return false
+      return refreshSession(session)
     },
 
     refreshOnFocus() {
       if (disposed) return
+      // `sessions.list()` is the live sessions only — an exited or disposed one
+      // has no checkout worth re-asking about, and the `gh` reads this fans out
+      // to are capped at MAX_CONCURRENT_GITHUB_READS however many there are.
       for (const session of options.sessions?.list() ?? []) refreshSession(session)
     },
 
@@ -665,9 +877,10 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
       if (!checkout) return false
       // Only an already-resolved checkout can match by repository; an
       // unresolved one is re-emitted for when its resolution lands (see
-      // `repoKeyFor`), so nothing is lost by not asking git from here.
-      const repoKey = repoKeyByCheckout.get(normalizeComparablePath(checkout.gitRoot))
-      if (!repoKey || repoKey !== change.repoKey) return false
+      // `repoKeyFor`), so nothing is lost by not asking git from here. The keys
+      // its own lookups answered under count too — that is what makes a fork's
+      // or an aliased remote's list reach the session that asked for it.
+      if (!checkoutRepoKeys(checkout.gitRoot, false).includes(change.repoKey)) return false
       return change.branch === null || change.branch === checkout.branch
     },
 
@@ -695,7 +908,9 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     dispose() {
       disposed = true
       watch.dispose()
+      releaseWaitingReads()
       held.clear()
+      refreshHolds.clear()
       lookupsInFlight.clear()
       refreshesInFlight.clear()
       repoKeyReads.clear()
@@ -726,12 +941,22 @@ function groupByRepo(entries: readonly BranchPullRequest[]): Map<string, BranchP
   return grouped
 }
 
-function sameList(a: readonly BranchPullRequest[], b: readonly BranchPullRequest[]): boolean {
+function sameList(
+  a: readonly BranchPullRequest[],
+  b: readonly BranchPullRequest[],
+  includeStateAt: boolean,
+): boolean {
   if (a.length !== b.length) return false
-  return a.every((entry, index) => sameEntry(entry, b[index]))
+  return a.every((entry, index) => sameEntry(entry, b[index], includeStateAt))
 }
 
-function sameEntry(a: BranchPullRequest, b: BranchPullRequest): boolean {
+/**
+ * Two entries as a reader would see them. `stateAt` — WHEN GitHub was last
+ * asked — is only compared when the caller is deciding whether anything at all
+ * moved; it is not something rendered, and treating it as a change is what made
+ * every successful probe repaint every window.
+ */
+function sameEntry(a: BranchPullRequest, b: BranchPullRequest, includeStateAt: boolean): boolean {
   return (
     a.url === b.url
     && a.repoKey === b.repoKey
@@ -741,7 +966,7 @@ function sameEntry(a: BranchPullRequest, b: BranchPullRequest): boolean {
     && a.state === b.state
     && a.isDraft === b.isDraft
     && a.openedAt === b.openedAt
-    && a.stateAt === b.stateAt
+    && (!includeStateAt || a.stateAt === b.stateAt)
     && a.openedBySessionId === b.openedBySessionId
   )
 }
@@ -752,15 +977,24 @@ function numberFromUrl(url: string): number {
   return match ? Number(match[1]) : 0
 }
 
-function parseStoreFile(raw: string): Map<string, BranchPullRequest[]> {
+/**
+ * One store file's branches, or null when the file is not one this build can
+ * read — truncated, hand-edited into nonsense, or stamped with a version it
+ * does not know. Null is never "empty": the caller keeps the file aside rather
+ * than overwriting it on the next commit.
+ */
+function parseStoreFile(raw: string): Map<string, BranchPullRequest[]> | null {
   const branches = new Map<string, BranchPullRequest[]>()
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    return branches
+    return null
   }
-  if (!isRecord(parsed) || !isRecord(parsed.branches)) return branches
+  if (!isRecord(parsed) || !isRecord(parsed.branches)) return null
+  // The version was written from the first release and never read. A file from
+  // a future build may mean anything at all by these fields.
+  if (parsed.version !== STORE_VERSION) return null
   for (const [branch, value] of Object.entries(parsed.branches)) {
     if (!Array.isArray(value)) continue
     const entries = value.map(parseEntry).filter((entry): entry is BranchPullRequest => entry !== null)

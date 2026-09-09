@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import {
   createPullRequestRecord,
   pullRequestSessionCheckout,
   pullRequestStorePath,
+  WATCH_MAX_AGE_MS,
+  type PullRequestRecordChange,
   type PullRequestRecordSession,
 } from './pull-request-record'
 import type {
@@ -627,6 +629,358 @@ async function main(): Promise<void> {
       junkRepo,
       'and the repository is re-derived from the URL, never taken from the file',
     )
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 1). A lookup files each row under the repository ITS
+  // URL names, which is not always the key the asking checkout resolves to. An
+  // SSH host alias (`git@github-work:acme/app`) keys as `github-work/acme/app`,
+  // and before this the marks were filed correctly and were invisible for ever
+  // — `listForSession` read one key, the rows sat under another, and a watch
+  // was armed on an entry nothing could show.
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    const clock = makeClock()
+    const changes: PullRequestRecordChange[] = []
+    const alias = session({ sessionId: 'alias', gitRoot: '/work/app', branch: 'feature' })
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => NOW,
+      timers: clock,
+      // What `git remote get-url origin` says through an ~/.ssh/config alias.
+      resolveRepoKey: async () => 'github-work/acme/app',
+      onRecordChanged: (change) => changes.push(change),
+      reads: { listBranchPullRequests: async () => ({ settled: true, pullRequests: [pr({ number: 12 })] }) },
+    })
+
+    record.listForSession(alias)
+    await record.flush()
+    await record.ensureLookedUp({ gitRoot: '/work/app', branch: 'feature' })
+    await record.flush()
+
+    const listed = record.listForSession(alias)
+    assert.deepEqual(listed.map((entry) => entry.number), [12], 'the checkout that asked can read the answer back')
+    assert.equal(listed[0].repoKey, APP, 'and the row still says which repository it is really in')
+    assert.deepEqual(
+      record.watchedUrls(),
+      ['https://github.com/acme/app/pull/12'],
+      'the watch is armed on something a session can see',
+    )
+    const change = changes.find((entry) => entry.repoKey === APP && entry.branch === 'feature')
+    assert.ok(change, 'the change was emitted under the URL`s own repository')
+    assert.equal(record.changeAffectsSession(change, alias), true, 'and it reaches the session that asked')
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 1), the fork. `gh pr list` in a fork clone answers for
+  // the PARENT, so the rows key to `acme/app` while the checkout is `me/app`.
+  // The capture of that same pull request and the lookup's row must still be
+  // ONE row and ONE watch.
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    const clock = makeClock()
+    const fork = session({ sessionId: 'fork', gitRoot: '/fork/app', branch: 'feature' })
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => NOW,
+      timers: clock,
+      resolveRepoKey: async () => 'github.com/me/app',
+      reads: {
+        listBranchPullRequests: async () => ({ settled: true, pullRequests: [pr({ number: 21 })] }),
+        readPullRequestState: async () => ({
+          settled: true,
+          state: 'open',
+          isDraft: false,
+          stateAt: NOW,
+          headRefName: 'feature',
+        }),
+      },
+    })
+
+    record.noteCaptured({ url: 'https://github.com/acme/app/pull/21', sessionId: 'fork' })
+    await record.flush()
+    await record.ensureLookedUp({ gitRoot: '/fork/app', branch: 'feature' })
+    await record.flush()
+
+    const listed = record.listForSession(fork)
+    assert.equal(listed.length, 1, 'the capture and the lookup row are one pull request')
+    assert.equal(listed[0].number, 21)
+    assert.equal(listed[0].openedBySessionId, 'fork', 'and the conversation that opened it still owns it')
+    assert.equal(record.watchedUrls().length, 1, 'one watch, not two')
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 2). A CAPTURED pull request is filed from a URL alone:
+  // no title, and the moment of capture standing in for the moment it opened.
+  // In another repository no branch lookup ever heals that, so the state read
+  // has to — otherwise every menu row and the peek's title line read empty.
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    const clock = makeClock()
+    const openedAt = Date.parse('2026-09-05T09:00:00.000Z')
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => NOW,
+      timers: clock,
+      resolveRepoKey: async () => null,
+      reads: {
+        readPullRequestState: async () => ({
+          settled: true,
+          state: 'open',
+          isDraft: false,
+          stateAt: NOW,
+          headRefName: 'site/banner',
+          title: 'Refresh the banner',
+          openedAt,
+          number: 9,
+        }),
+      },
+    })
+    record.noteCaptured({ url: 'https://github.com/acme/website/pull/9', sessionId: 'writer' })
+    await record.flush()
+    const [captured] = record.forSession('writer')
+    assert.equal(captured.title, 'Refresh the banner', 'the capture learned its title')
+    assert.equal(captured.openedAt, openedAt, 'and when it was really opened, not when we noticed it')
+
+    // A later read that says nothing about the title never blanks it.
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 4). An unsettled state read is HELD. With `gh` missing,
+  // unauthenticated or rate limited every read fails instantly, so without a
+  // hold each window focus re-spawned `gh` — and on macOS a whole `$SHELL -ilc`
+  // login shell — once per open pull request, for ever, learning nothing.
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    const clock = makeClock()
+    let now = NOW
+    let reads = 0
+    let settled = false
+    const url = 'https://github.com/acme/app/pull/31'
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => now,
+      timers: clock,
+      reads: {
+        readPullRequestState: async () => {
+          reads += 1
+          return settled
+            ? { settled: true, state: 'open', isDraft: false, stateAt: now, headRefName: 'feature' }
+            : { settled: false, reason: 'gh-failed' }
+        },
+      },
+    })
+
+    for (let focus = 0; focus < 6; focus += 1) await record.refresh(url)
+    assert.equal(reads, 1, 'six focuses behind a broken `gh` buy one spawn, not six')
+    now += 10_001
+    await record.refresh(url)
+    assert.equal(reads, 2, 'and the hold lapses in ten seconds, exactly as a branch lookup`s does')
+
+    // A settled read is NOT held: the watch's own probe must always really ask.
+    settled = true
+    now += 10_001
+    await record.refresh(url)
+    const settledReads = reads
+    await record.refresh(url)
+    assert.equal(
+      reads,
+      settledReads + 1,
+      'a settled reading leaves nothing standing in the way of the next probe',
+    )
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 9). The watch is bounded by the same 30-day window the
+  // sprint run watch bounds its boot scan by. Without it every open pull
+  // request the app ever saw holds a <=32-minute timer for the life of the
+  // process — including ones in repositories nobody has open.
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    const clock = makeClock()
+    const ancient = { ...pr({ number: 40 }), openedAt: NOW - WATCH_MAX_AGE_MS - 1 }
+    const recent = { ...pr({ number: 41 }), openedAt: NOW - 1_000 }
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => NOW,
+      timers: clock,
+      reads: { listBranchPullRequests: async () => ({ settled: true, pullRequests: [ancient, recent] }) },
+    })
+    await record.ensureLookedUp({ gitRoot: '/repo', branch: 'feature' })
+    await record.flush()
+    assert.deepEqual(
+      record.forBranch(APP, 'feature').map((entry) => entry.number).sort((a, b) => a - b),
+      [40, 41],
+      'both are still on the record and still drawn',
+    )
+    assert.deepEqual(
+      record.watchedUrls(),
+      ['https://github.com/acme/app/pull/41'],
+      'but only the one somebody might still merge holds a timer',
+    )
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 10). A probe that learned nothing must not repaint. The
+  // reading's timestamp moves (and is written, so a restart does not re-ask
+  // everything), but `stateAt` is not something a person sees.
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    const clock = makeClock()
+    let now = NOW
+    const changes: PullRequestRecordChange[] = []
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => now,
+      timers: clock,
+      onRecordChanged: (change) => changes.push(change),
+      reads: {
+        listBranchPullRequests: async () => ({ settled: true, pullRequests: [pr({ number: 50 })] }),
+        readPullRequestState: async () => ({
+          settled: true,
+          state: 'open',
+          isDraft: false,
+          stateAt: now,
+          headRefName: 'feature',
+        }),
+      },
+    })
+    await record.ensureLookedUp({ gitRoot: '/repo', branch: 'feature' })
+    await record.flush()
+    const afterLookup = changes.length
+    assert.ok(afterLookup > 0, 'finding the pull request is a change')
+
+    now += 120_000
+    await record.refresh('https://github.com/acme/app/pull/50')
+    await record.flush()
+    assert.equal(changes.length, afterLookup, 'a probe that learned nothing repaints nothing')
+    assert.equal(
+      record.forBranch(APP, 'feature')[0].stateAt,
+      now,
+      'the reading is still dated, so the next hover does not ask again',
+    )
+
+    const persisted = JSON.parse(await readFile(pullRequestStorePath(userDataDir, APP), 'utf-8')) as {
+      branches: Record<string, { stateAt: number }[]>
+    }
+    assert.equal(persisted.branches.feature[0].stateAt, now, 'and it survives a restart')
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 11). Persistence hygiene: the version is READ, a file
+  // this build cannot understand is kept aside rather than silently overwritten
+  // by the next commit, and a `.tmp` from a write that died is swept.
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    const dir = join(userDataDir, 'pull-requests')
+    await mkdir(dir, { recursive: true })
+    const path = pullRequestStorePath(userDataDir, APP)
+    await writeFile(path, '{"version":1,"repoKey":"github.com/acme/app","branches":{"feature":[', 'utf-8')
+    const stale = `${path}.11111111-2222-3333-4444-555555555555.tmp`
+    await writeFile(stale, '{}', 'utf-8')
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    await utimes(stale, old, old)
+    const fresh = `${path}.99999999-2222-3333-4444-555555555555.tmp`
+    await writeFile(fresh, '{}', 'utf-8')
+
+    const warnings: string[] = []
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => NOW,
+      timers: makeClock(),
+      logWarning: (message) => warnings.push(message),
+      reads: { listBranchPullRequests: async () => ({ settled: true, pullRequests: [pr({ number: 60 })] }) },
+    })
+    record.forBranch(APP, 'feature')
+    await record.ensureLookedUp({ gitRoot: '/repo', branch: 'feature' })
+    await record.flush()
+
+    assert.ok(
+      warnings.some((message) => message.includes('kept aside') || message.includes('keeping it aside')),
+      `a truncated store is reported, not swallowed: ${JSON.stringify(warnings)}`,
+    )
+    const names = await readdir(dir)
+    assert.ok(names.some((name) => name.endsWith('.corrupt')), 'the unreadable file is kept, not overwritten')
+    assert.ok(!names.includes(basename(stale)), 'a stale temp file is swept')
+    assert.ok(names.includes(basename(fresh)), 'a temp file young enough to be in flight is left alone')
+    assert.deepEqual(record.forBranch(APP, 'feature').map((entry) => entry.number), [60], 'and the record refills')
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 11, the version). A store written by a build this one
+  // does not know is not read AND not overwritten.
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    await mkdir(join(userDataDir, 'pull-requests'), { recursive: true })
+    await writeFile(
+      pullRequestStorePath(userDataDir, APP),
+      JSON.stringify({
+        version: 99,
+        repoKey: APP,
+        branches: { feature: [{ url: 'https://github.com/acme/app/pull/70', state: 'open', number: 70, openedAt: 1, stateAt: 1 }] },
+      }),
+      'utf-8',
+    )
+    const record = createPullRequestRecord({ userDataDir, now: () => NOW, timers: makeClock(), logWarning: () => {} })
+    record.forBranch(APP, 'feature')
+    await record.flush()
+    assert.deepEqual(record.forBranch(APP, 'feature'), [], 'a version this build does not know reads as nothing')
+    const names = await readdir(join(userDataDir, 'pull-requests'))
+    assert.ok(names.some((name) => name.endsWith('.corrupt')), 'and the file is kept aside')
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
+  // REVIEW FIX (finding 5). Every `gh` read goes through one slot queue: a
+  // focus with twenty live sessions is not twenty subprocesses (and on a
+  // GUI-launched macOS app, not twenty login shells).
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    let inFlight = 0
+    let peak = 0
+    const release: (() => void)[] = []
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => NOW,
+      timers: makeClock(),
+      reads: {
+        readPullRequestState: async () => {
+          inFlight += 1
+          peak = Math.max(peak, inFlight)
+          await new Promise<void>((resolve) => release.push(resolve))
+          inFlight -= 1
+          return { settled: false, reason: 'gh-failed' }
+        },
+      },
+    })
+    const reads = Array.from({ length: 10 }, (_, index) =>
+      record.refresh(`https://github.com/acme/app/pull/${100 + index}`),
+    )
+    await settle()
+    assert.equal(peak, 3, 'at most three `gh` reads are ever in flight at once')
+    while (release.length > 0) {
+      release.shift()?.()
+      await settle()
+    }
+    await Promise.all(reads)
+    assert.equal(peak, 3, 'and the queue drains rather than deadlocking')
     record.dispose()
   }
 }

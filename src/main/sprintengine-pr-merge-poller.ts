@@ -61,6 +61,7 @@
  */
 import type { ExponentialBackoffOptions } from '../shared/exponentialBackoff'
 import {
+  PR_WATCH_BOOT_SCAN_MAX_AGE_MS,
   createPullRequestWatchPoller,
   PR_WATCH_BACKOFF,
   PR_WATCH_CHANGE_COALESCE_MS,
@@ -80,8 +81,8 @@ export const PR_MERGE_POLL_BACKOFF: ExponentialBackoffOptions = PR_WATCH_BACKOFF
 /** Each delay is multiplied by 1 ± this, so simultaneously-armed runs desynchronize. */
 const PR_MERGE_POLL_JITTER_RATIO = PR_WATCH_JITTER_RATIO
 
-/** How stale a run may be and still be picked up by the startup scan (30 days). */
-export const PR_MERGE_POLL_BOOT_SCAN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+/** How stale a run may be and still be picked up by the startup scan (30 days). The one window, shared. */
+export const PR_MERGE_POLL_BOOT_SCAN_MAX_AGE_MS = PR_WATCH_BOOT_SCAN_MAX_AGE_MS
 
 /**
  * At most one re-read per run per this window. `notifySprintRunsChanged` fires on
