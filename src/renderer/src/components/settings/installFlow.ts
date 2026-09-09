@@ -37,6 +37,26 @@ function hasCodeBearingKind(provides: MarketplaceComponentKind[]): boolean {
   return provides.some((kind) => kind === 'module' || kind === 'cli')
 }
 
+/**
+ * Whether installing this bundle needs an open workspace.
+ *
+ * Only the two workspace-scoped kinds do: an MCP server syncs into
+ * `<workspaceRoot>/.mcp.json` and a skill pack copies into the workspace's
+ * harness dirs. A module installs into `~/.multicode/modules/<id>`, a CLI
+ * plugin into the user plugin root — neither touches a project — so a
+ * module-only bundle installs with no workspace open at all, which is what
+ * makes a first-party module installable from a fresh app that has never
+ * opened a folder (D10). An automation needs one, but an automation-only
+ * bundle's own component reports that itself with the sentence that names the
+ * project it wants; keeping it out of this gate leaves that message intact.
+ *
+ * Lives here rather than inline in `BrowseStorefront` so the rule can be
+ * asserted without a renderer, like the rest of the flow.
+ */
+export function installNeedsWorkspace(provides: readonly MarketplaceComponentKind[]): boolean {
+  return provides.some((kind) => kind === 'mcp' || kind === 'skills')
+}
+
 // The blocked classifications: signature problems that offer no install path.
 // 'community' is NOT here — it is trust-grantable; 'verified' installs directly.
 type BlockedClassification = 'unsigned' | 'invalid'

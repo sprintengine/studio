@@ -7,6 +7,7 @@ import type {
 import {
   classifyVerification,
   deriveInstallView,
+  installNeedsWorkspace,
   summarizeInstallResult,
   type InstallFlowState,
 } from './installFlow'
@@ -320,6 +321,21 @@ for (const state of allStates) {
   // Permission-shaped trust prompts expose no file listing.
   const permView = deriveInstallView({ status: 'needs-trust', permissions: [] })
   assert.equal(permView.files, null)
+}
+
+// --- installNeedsWorkspace -------------------------------------------------
+// Only the workspace-scoped kinds gate on an open project. A module-only bundle
+// installs with nothing open, which is what makes a first-party module
+// installable from a fresh app that has never opened a folder (D10).
+{
+  assert.equal(installNeedsWorkspace(['module']), false)
+  assert.equal(installNeedsWorkspace(['cli']), false)
+  assert.equal(installNeedsWorkspace(['module', 'cli']), false)
+  assert.equal(installNeedsWorkspace(['mcp']), true)
+  assert.equal(installNeedsWorkspace(['skills']), true)
+  // A mixed bundle takes the strictest rule its components ask for.
+  assert.equal(installNeedsWorkspace(['module', 'skills']), true)
+  assert.equal(installNeedsWorkspace([]), false)
 }
 
 console.log('installFlow.test.ts passed')
