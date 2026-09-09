@@ -4,7 +4,7 @@ import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
-import { checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
+import { changedFileMarks, checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import { PullRequestMark, refreshPullRequestsForLine, shouldLookUpPullRequests } from './PullRequestMark'
@@ -1045,8 +1045,15 @@ export function TerminalLineView({
   // not a column of row text spending the line's width on a word the row's
   // title already implies. A shell, whose name IS its runtime, says it once.
   const markLabel = line.name && line.name !== runtimeLabel ? `${line.name} · ${runtimeLabel}` : runtimeLabel
-  const hasDiff = line.additions > 0 || line.deletions > 0
-  // What the ±lines may claim, from the line's scope: the words on hover, the
+  // FILES, not lines (owner decision 2026-09-09): green is what the checkout
+  // gained or reworked, red what it lost, and the per-file line counts live
+  // where a single file is in view — the conversation peek's rows and the diff
+  // viewer. A line whose summary carries no breakdown (an older main, a span
+  // git could not read, a remote row) has `files: null` and draws NOTHING; it
+  // never falls back to the line counts, which are a different unit.
+  const marks = line.files ? changedFileMarks(line.files) : null
+  const hasDiff = marks !== null && (marks.plus > 0 || marks.minus > 0)
+  // What the ± numbers may claim, from the line's scope: the words on hover, the
   // words for a screen reader, and whether they step back. The sentences live
   // beside the scope they belong to (terminalLines), not in this render.
   const diffCopy = diffScopeCopy(line)
@@ -1137,7 +1144,7 @@ export function TerminalLineView({
               draw at full strength.
 
               Where there is an agent behind the line the numbers are a
-              CONTROL — the shortest path from "this agent changed 40 lines" to
+              CONTROL — the shortest path from "this agent touched 5 files" to
               seeing which — and the kit's link button is what carries the focus
               ring and the hit target for it. Where there is not, the same
               drawing stays a reading. */}
@@ -1154,15 +1161,15 @@ export function TerminalLineView({
                 onOpenDiff()
               }}
             >
-              <span className="text-[color:var(--tone-good)]">+{line.additions}</span>
-              <span className="ml-1 text-[color:var(--tone-error)]">−{line.deletions}</span>
+              <span className="text-[color:var(--tone-good)]">+{marks?.plus ?? 0}</span>
+              <span className="ml-1 text-[color:var(--tone-error)]">−{marks?.minus ?? 0}</span>
             </LinkButton>
           ) : (
             <span
               className={`shrink-0 font-mono text-micro tabular-nums ${diffCopy.dim ? 'opacity-60' : ''}`}
             >
-              <span className="text-[color:var(--tone-good)]">+{line.additions}</span>
-              <span className="ml-1 text-[color:var(--tone-error)]">−{line.deletions}</span>
+              <span className="text-[color:var(--tone-good)]">+{marks?.plus ?? 0}</span>
+              <span className="ml-1 text-[color:var(--tone-error)]">−{marks?.minus ?? 0}</span>
               <span className="sr-only">{diffCopy.srText}</span>
             </span>
           )}

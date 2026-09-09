@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import type { SessionFileChange, TerminalSessionSnapshot, WorkspaceChangeSummary } from '../../../../shared/electron-api'
 import type { RemoteSessionRow } from './remoteBand/remoteSessionsModel'
 import type { BranchPullRequest } from '../../../../shared/git/pull-request'
-import { MAX_TERMINAL_LINES, checkoutPathsOf, diffScopeCopy, lineDiffOf, lineOfRemoteRow, sessionCheckoutPath, terminalLinesOf, type TerminalLinesWorkspace } from './terminalLines'
+import { MAX_TERMINAL_LINES, branchChipCopy, changedFileMarks, changedFilesPhrase, checkoutPathsOf, diffScopeCopy, lineDiffOf, lineOfRemoteRow, sessionCheckoutPath, terminalLinesOf, type TerminalLinesWorkspace } from './terminalLines'
 
 // The sidebar row's terminal lines (sidebar-lists-every-terminal), DOM-free:
 // one per live terminal, each on ITS checkout, working first, capped.
@@ -35,11 +35,14 @@ const workspace = (over: Partial<TerminalLinesWorkspace> = {}): TerminalLinesWor
   ...over,
 })
 
+// `files` always adds up to `changedFiles` — main asserts it, so a fixture that
+// broke the identity would be testing a summary git never produces.
 const summary = (over: Partial<WorkspaceChangeSummary>): WorkspaceChangeSummary => ({
   branch: 'main',
   additions: 202,
   deletions: 122,
   changedFiles: 9,
+  files: { added: 5, updated: 3, removed: 1 },
   scope: 'folder',
   ...over,
 })
@@ -206,6 +209,7 @@ const worktreeObserved = {
   assert.equal(line.name, null)
   assert.equal(line.diffScope, 'worktree', 'a remote sends a git reading, never a ledger')
   assert.equal(line.changedFiles, 0)
+  assert.equal(line.files, null, 'no file breakdown on the wire: the row draws NOTHING, not the lines it was sent')
   assert.equal(line.activeSubagents, 0)
   assert.equal(line.worktree, true)
   assert.equal(line.idleSince, 42)
@@ -322,6 +326,7 @@ const worktreeObserved = {
   })
   assert.equal(fleetOnly.lines[0].activeSubagents, 0, 'a pane on another machine reports no subagents')
   assert.equal(fleetOnly.lines[0].changedFiles, 0)
+  assert.equal(fleetOnly.lines[0].files, null, 'and nothing to draw')
   assert.equal(fleetOnly.lines[0].diffScope, 'folder')
 }
 
@@ -336,40 +341,89 @@ const worktreeObserved = {
   assert.equal(lines[0].activeSubagents, 3)
 }
 
-// The scope's words, one place for both spellings: the tooltip and the
-// sentence a screen reader hears. Only a folder reading — the one nobody can
-// be credited with — steps back; `landed` names the pull request that moved
-// the number, in both spellings.
+// The numbers ARE files (owner decision 2026-09-09): green is what the checkout
+// gained or reworked, red what it lost, and the two are one glance. The words
+// are what say which files did what.
 {
-  const worktree = diffScopeCopy({ diffScope: 'worktree', branch: 'agent/x', additions: 12, deletions: 3, pullRequests: [] })
-  assert.equal(worktree.srText, '12 added, 3 removed by this terminal')
+  assert.deepEqual(changedFileMarks({ added: 2, updated: 1, removed: 1 }), { plus: 3, minus: 1 }, '+3 \u22121')
+  assert.deepEqual(changedFileMarks({ added: 0, updated: 0, removed: 0 }), { plus: 0, minus: 0 }, 'and nothing to draw')
+  assert.equal(changedFilesPhrase({ added: 2, updated: 1, removed: 1 }), '2 files added, 1 updated, 1 removed')
+  assert.equal(changedFilesPhrase({ added: 1, updated: 1, removed: 1 }), '1 file added, 1 updated, 1 removed', 'one file is one file')
+  assert.equal(changedFilesPhrase({ added: 0, updated: 2, removed: 1 }), '2 files updated, 1 removed', 'a zero part is left out, and the noun moves')
+  assert.equal(changedFilesPhrase({ added: 0, updated: 0, removed: 1 }), '1 file removed')
+  assert.equal(changedFilesPhrase({ added: 3, updated: 0, removed: 0 }), '3 files added')
+  assert.equal(changedFilesPhrase({ added: 0, updated: 0, removed: 0 }), 'No files changed', 'never drawn, still true')
+}
+
+// The scope's words, one place for both spellings: the tooltip and the
+// sentence a screen reader hears say the same sentence, so the numbers in them
+// cannot drift. Only a folder reading — the one nobody can be credited with —
+// steps back; `landed` names the pull request that moved the number.
+{
+  const files = { added: 2, updated: 1, removed: 1 }
+  const worktree = diffScopeCopy({ diffScope: 'worktree', branch: 'agent/x', files, pullRequests: [] })
+  assert.equal(worktree.tooltip, '2 files added, 1 updated, 1 removed \u2014 changed by this terminal, which has a worktree of its own')
+  assert.equal(worktree.srText, worktree.tooltip, 'one sentence, two places')
   assert.equal(worktree.dim, false)
-  const branch = diffScopeCopy({ diffScope: 'branch', branch: 'feat/y', additions: 40, deletions: 8, pullRequests: [] })
-  assert.match(branch.tooltip, /^Changed on feat\/y — this terminal shares the checkout/)
-  assert.equal(branch.srText, '40 added, 8 removed on feat/y')
-  const branchless = diffScopeCopy({ diffScope: 'branch', branch: null, additions: 5, deletions: 1, pullRequests: [] })
-  assert.equal(branchless.srText, '5 added, 1 removed on this branch')
-  const folder = diffScopeCopy({ diffScope: 'folder', branch: 'main', additions: 246, deletions: 94, pullRequests: [] })
-  assert.equal(folder.srText, '246 added, 94 removed in this folder')
+
+  const branch = diffScopeCopy({ diffScope: 'branch', branch: 'feat/y', files, pullRequests: [] })
+  assert.equal(
+    branch.tooltip,
+    '2 files added, 1 updated, 1 removed \u2014 changed on feat/y; this terminal shares the checkout, so a person or another terminal may have made some of it'
+  )
+  assert.equal(branch.srText, branch.tooltip)
+  const branchless = diffScopeCopy({ diffScope: 'branch', branch: null, files: { added: 1, updated: 0, removed: 0 }, pullRequests: [] })
+  assert.match(branchless.srText, /^1 file added \u2014 changed on this branch;/)
+
+  const folder = diffScopeCopy({ diffScope: 'folder', branch: 'main', files: { added: 0, updated: 4, removed: 0 }, pullRequests: [] })
+  assert.equal(folder.tooltip, '4 files updated \u2014 uncommitted in this folder; this terminal has no branch of its own')
   assert.equal(folder.dim, true, 'the repo\u2019s state is nobody\u2019s work, so it steps back')
+
   // The landed line says WHY it shrank, and says it to a screen reader too —
   // the tooltip is portalled on hover and AT never gets it.
   const landed = diffScopeCopy({
     diffScope: 'landed',
     branch: 'feat/y',
-    additions: 3,
-    deletions: 1,
+    files: { added: 1, updated: 1, removed: 1 },
     pullRequests: [pr({ number: 418, state: 'merged' })],
   })
   // design-tokens-allow: the literal is a pull request NUMBER in the tooltip's own words, not a colour
-  assert.equal(landed.tooltip, 'Uncommitted changes since this branch landed — pull request #418 was merged')
-  assert.equal(landed.srText, '3 added, 1 removed since pull request 418 landed')
+  assert.equal(landed.tooltip, '1 file added, 1 updated, 1 removed \u2014 uncommitted here since pull request #418 was merged')
+  assert.equal(landed.srText, landed.tooltip)
   assert.equal(landed.dim, false, 'what the checkout still carries is attributable work')
   // A line drawn without the record it came from still says the branch landed
   // rather than claiming a number it does not have.
-  const anonymous = diffScopeCopy({ diffScope: 'landed', branch: 'feat/y', additions: 3, deletions: 1, pullRequests: [] })
-  assert.equal(anonymous.tooltip, 'Uncommitted changes since this branch landed — its pull request was merged')
-  assert.equal(anonymous.srText, '3 added, 1 removed since this branch landed')
+  const anonymous = diffScopeCopy({ diffScope: 'landed', branch: 'feat/y', files, pullRequests: [] })
+  assert.match(anonymous.tooltip, /uncommitted here since its pull request was merged$/)
+}
+
+// The workspace header's branch chip says the same thing in the same words —
+// the branch, the agent whose OWN worktree it is, the breakdown — and nothing
+// that instructs the person ("select another tab to follow it" is gone).
+{
+  const own = branchChipCopy({ branch: 'main', agent: null, files: { added: 1, updated: 1, removed: 1 } })
+  assert.equal(own.tooltip, 'main \u2014 1 file added, 1 updated, 1 removed')
+  assert.equal(own.spoken, ', 1 file added, 1 updated, 1 removed')
+  assert.doesNotMatch(own.tooltip, /following|select another tab/)
+
+  const worktree = branchChipCopy({
+    branch: 'agent/rail',
+    agent: { name: '\u00c1ine Carey', runtime: 'Claude Code' },
+    files: { added: 0, updated: 2, removed: 1 },
+  })
+  assert.equal(worktree.tooltip, 'agent/rail \u00b7 \u00c1ine Carey\u2019s worktree (Claude Code) \u2014 2 files updated, 1 removed')
+  assert.equal(worktree.spoken, ', \u00c1ine Carey\u2019s worktree (Claude Code), 2 files updated, 1 removed')
+  assert.equal(
+    branchChipCopy({ branch: 'agent/rail', agent: { name: '\u00c1ine Carey', runtime: null }, files: null }).tooltip,
+    'agent/rail \u00b7 \u00c1ine Carey\u2019s worktree',
+    'no breakdown, no numbers \u2014 and no invented ones'
+  )
+
+  // A clean checkout, and a checkout whose summary carries no breakdown, both
+  // say the branch and stop.
+  assert.equal(branchChipCopy({ branch: 'main', agent: null, files: { added: 0, updated: 0, removed: 0 } }).tooltip, 'main')
+  assert.equal(branchChipCopy({ branch: 'main', agent: null, files: null }).spoken, '')
+  assert.equal(branchChipCopy({ branch: null, agent: null, files: null }).tooltip, 'Detached HEAD')
 }
 
 // The whole of decision 2, stated on the pure function: a merged PRIMARY pull
@@ -377,16 +431,19 @@ const worktreeObserved = {
 // else keeps the span, and nothing ever invents a zero.
 {
   const span = summary({ additions: 202, deletions: 122, changedFiles: 9, scope: 'branch', branch: 'feat/x' })
-  const withUncommitted = { ...span, uncommitted: { additions: 3, deletions: 1, changedFiles: 2 } }
+  const withUncommitted = {
+    ...span,
+    uncommitted: { additions: 3, deletions: 1, changedFiles: 2, files: { added: 1, updated: 1, removed: 0 } },
+  }
 
   assert.deepEqual(
     lineDiffOf(withUncommitted, [pr({ state: 'merged' })]),
-    { additions: 3, deletions: 1, changedFiles: 2, scope: 'landed' },
-    'a squash-landed branch shows what the checkout still carries'
+    { additions: 3, deletions: 1, changedFiles: 2, files: { added: 1, updated: 1, removed: 0 }, scope: 'landed' },
+    'a squash-landed branch shows what the checkout still carries — including WHICH files'
   )
   assert.deepEqual(
     lineDiffOf(span, [pr({ state: 'merged' })]),
-    { additions: 202, deletions: 122, changedFiles: 9, scope: 'branch' },
+    { additions: 202, deletions: 122, changedFiles: 9, files: { added: 5, updated: 3, removed: 1 }, scope: 'branch' },
     'a reading we could not take degrades to the span, never to a confident zero'
   )
   assert.deepEqual(lineDiffOf(withUncommitted, [pr({ state: 'open' })]).scope, 'branch', 'an open primary keeps the span')
@@ -411,8 +468,23 @@ const worktreeObserved = {
   // An unresolved checkout has no summary to read: exactly what it drew before.
   assert.deepEqual(
     lineDiffOf(undefined, [pr({ state: 'merged' })]),
-    { additions: 0, deletions: 0, changedFiles: 0, scope: 'folder' },
+    { additions: 0, deletions: 0, changedFiles: 0, files: null, scope: 'folder' },
     'no reading at all is not a landed reading'
+  )
+
+  // The breakdown is the ONE thing that may not be improvised. A summary from a
+  // main that predates it — or one whose span git could not read — has lines and
+  // no files, and the line then draws nothing rather than drawing the lines in a
+  // place that means files.
+  const { files: spanFiles, ...withoutFiles } = span
+  void spanFiles
+  assert.equal(lineDiffOf(withoutFiles, []).files, null, 'lines without files draw NOTHING')
+  assert.equal(lineDiffOf(withoutFiles, []).additions, 202, 'the line counts still ride along for the surfaces that read them')
+  const landedWithoutFiles = { ...span, uncommitted: { additions: 3, deletions: 1, changedFiles: 2 } }
+  assert.equal(
+    lineDiffOf(landedWithoutFiles, [pr({ state: 'merged' })]).files,
+    null,
+    'a landed line never borrows the span\u2019s breakdown for the uncommitted reading'
   )
 }
 
@@ -426,7 +498,7 @@ const worktreeObserved = {
       changedFiles: 9,
       scope: 'branch',
       branch: 'feat/x',
-      uncommitted: { additions: 3, deletions: 1, changedFiles: 2 },
+      uncommitted: { additions: 3, deletions: 1, changedFiles: 2, files: { added: 0, updated: 2, removed: 0 } },
     }),
   }
   const merged = terminalLinesOf({
@@ -439,6 +511,7 @@ const worktreeObserved = {
     [merged.lines[0].additions, merged.lines[0].deletions, merged.lines[0].changedFiles, merged.lines[0].diffScope],
     [3, 1, 2, 'landed']
   )
+  assert.deepEqual(merged.lines[0].files, { added: 0, updated: 2, removed: 0 }, 'and the breakdown the line draws is the uncommitted one')
   assert.equal(merged.lines[0].branch, 'feat/x', 'the branch it landed from is still named')
   const open = terminalLinesOf({
     workspace: workspace(),

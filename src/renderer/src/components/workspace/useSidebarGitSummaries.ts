@@ -84,6 +84,16 @@ function summariesEqual(a: Record<string, WorkspaceChangeSummary>, b: Record<str
       || left.uncommitted?.additions !== right.uncommitted?.additions
       || left.uncommitted?.deletions !== right.uncommitted?.deletions
       || left.uncommitted?.changedFiles !== right.uncommitted?.changedFiles
+      // The FILE breakdown is what the line actually draws (owner decision
+      // 2026-09-09), so it is a rendered field like any other: a sweep where a
+      // file moved from added to updated changes the tooltip's words — and can
+      // change the drawn numbers — with `changedFiles` sitting still.
+      || left.files?.added !== right.files?.added
+      || left.files?.updated !== right.files?.updated
+      || left.files?.removed !== right.files?.removed
+      || left.uncommitted?.files?.added !== right.uncommitted?.files?.added
+      || left.uncommitted?.files?.updated !== right.uncommitted?.files?.updated
+      || left.uncommitted?.files?.removed !== right.uncommitted?.files?.removed
     ) {
       return false
     }

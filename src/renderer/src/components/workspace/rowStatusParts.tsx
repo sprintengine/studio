@@ -201,13 +201,20 @@ export function BranchChip({
 }
 
 /**
- * The ±lines a checkout carries, in the sidebar's exact shape: green added,
- * red removed (a true minus sign, never a hyphen), monospace and tabular so a
- * column of them lines up. Nothing when both are zero — a `+0 −0` is a chip
- * saying nothing. `tooltip` says whose changes they are; `srText` says the
- * same for the screen reader. `dim` is for a reading that is the folder's,
- * not the row's own (`scope: 'folder'`): the numbers are real, but nobody can
- * say the row made them, so they step back (the sidebar's `opacity-60`).
+ * The ± a checkout carries, in the sidebar's exact shape: green gained, red
+ * lost (a true minus sign, never a hyphen), monospace and tabular so a column
+ * of them lines up. Nothing when both are zero — a `+0 −0` is a chip saying
+ * nothing. `tooltip` says whose changes they are; `srText` says the same for
+ * the screen reader. `dim` is for a reading that is the folder's, not the row's
+ * own (`scope: 'folder'`): the numbers are real, but nobody can say the row made
+ * them, so they step back (the sidebar's `opacity-60`).
+ *
+ * The chip does not name the UNIT, and that is deliberate now rather than
+ * loose: the app sidebar counts FILES (owner decision 2026-09-09 — the summary
+ * level answers "how much of the tree moved", and lines only survive where a
+ * single file is in view), while the door rails still count the lines their run
+ * summaries carry. The caller brings both the numbers and the words that say
+ * what they are, so one drawing serves both without either lying.
  */
 export function DiffChip({
   additions,

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  changedFileKindOf,
+  countFileStatuses,
   isLinkedWorktree,
+  parseNameStatusZ,
   parseNumstatZ,
   readBranchName,
   readBranchSpan,
@@ -224,6 +227,182 @@ void (async () => {
     const result = await readBranchSpan(dir)
     const paths = (result?.stat.files ?? []).map((file) => file.path).sort()
     assert.ok(paths.includes('renamed.txt'), `expected the new path, got ${paths.join(', ')}`)
+  })
+
+
+  // ---- parseNameStatusZ: the OTHER `-z` framing --------------------------
+  //
+  // `--numstat` separates its fields with tabs and its records with NULs;
+  // `--name-status` puts the status in a NUL-terminated field of its own and
+  // follows a rename or copy with TWO paths. Reading one framing with the
+  // other's rules silently shifts every file after the first rename by one.
+
+  await run('an ordinary change is status then path', () => {
+    const statuses = parseNameStatusZ('M\0src/a.ts\0D\0src/gone.ts\0A\0src/new.ts\0')
+    assert.equal(statuses.get('src/a.ts'), 'updated')
+    assert.equal(statuses.get('src/gone.ts'), 'removed')
+    assert.equal(statuses.get('src/new.ts'), 'added')
+    assert.equal(statuses.size, 3)
+  })
+
+  await run('a rename spends THREE fields and lands at its NEW path', () => {
+    const statuses = parseNameStatusZ('R088\0old/name.ts\0new/name.ts\0M\0src/after.ts\0')
+    assert.equal(statuses.get('new/name.ts'), 'updated', 'one moved file, never removed + added')
+    assert.equal(statuses.has('old/name.ts'), false, 'the old path is not a file of its own')
+    assert.equal(
+      statuses.get('src/after.ts'),
+      'updated',
+      'the record after a rename must not be shifted by the extra field'
+    )
+  })
+
+  await run('a copy’s new file is an added one', () => {
+    const statuses = parseNameStatusZ('C075\0src/a.ts\0src/copy.ts\0')
+    assert.equal(statuses.get('src/copy.ts'), 'added')
+    assert.equal(statuses.has('src/a.ts'), false)
+  })
+
+  await run('a conflicted path reported twice collapses to one updated file', () => {
+    // What `git diff --name-status` says about an unmerged path: `U` and then
+    // `M`, the same file twice.
+    const statuses = parseNameStatusZ('U\0a.txt\0M\0a.txt\0')
+    assert.equal(statuses.size, 1)
+    assert.equal(statuses.get('a.txt'), 'updated')
+  })
+
+  await run('empty and malformed name-status output yield an empty map, never a throw', () => {
+    assert.equal(parseNameStatusZ('').size, 0)
+    assert.equal(parseNameStatusZ('\0\0').size, 0)
+    assert.equal(parseNameStatusZ('M\0').size, 0, 'a status with no path is not a file')
+  })
+
+  await run('every status letter folds into one of the three buckets', () => {
+    assert.equal(changedFileKindOf('A'), 'added')
+    assert.equal(changedFileKindOf('C075'), 'added')
+    assert.equal(changedFileKindOf('D'), 'removed')
+    assert.equal(changedFileKindOf('M'), 'updated')
+    assert.equal(changedFileKindOf('R100'), 'updated')
+    assert.equal(changedFileKindOf('T'), 'updated', 'a file that became a symlink is one file')
+    assert.equal(changedFileKindOf('U'), 'updated', 'a conflicted file is work in progress')
+    assert.equal(changedFileKindOf('X'), 'updated', 'the claim that says least')
+    assert.equal(changedFileKindOf(''), 'updated')
+  })
+
+  await run('the counts are driven by the FILE LIST, so they always sum to it', () => {
+    const files = [{ path: 'a' }, { path: 'b' }, { path: 'c' }, { path: 'unplaced' }]
+    const counts = countFileStatuses(
+      files,
+      new Map([
+        ['a', 'added' as const],
+        ['b', 'removed' as const],
+        ['c', 'updated' as const],
+        ['not-in-the-diff', 'added' as const],
+      ])
+    )
+    assert.deepEqual(counts, { added: 1, updated: 2, removed: 1 })
+    assert.equal(counts.added + counts.updated + counts.removed, files.length)
+  })
+
+  // ---- the span’s own per-status counts, against real repos ---------------
+
+  await run('a span counts an add, an edit, a delete and a rename-with-edits', async () => {
+    const dir = repo()
+    const wide = Array.from({ length: 12 }, (_, index) => `l${index}`).join('\n') + '\n'
+    writeFileSync(join(dir, 'm.txt'), wide)
+    writeFileSync(join(dir, 'd.txt'), 'gone\n')
+    writeFileSync(join(dir, 'r.txt'), wide)
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'the base the branch starts from')
+    git(dir, 'checkout', '-b', 'feat')
+
+    writeFileSync(join(dir, 'added.txt'), 'brand new\n')
+    git(dir, 'add', 'added.txt')
+    writeFileSync(join(dir, 'm.txt'), wide + 'one more\n')
+    git(dir, 'rm', '-q', 'd.txt')
+    git(dir, 'mv', 'r.txt', 'moved.txt')
+    writeFileSync(join(dir, 'moved.txt'), wide + 'and an edit\n')
+
+    const span = await readBranchSpan(dir)
+    assert.equal(span?.readable, true)
+    assert.deepEqual(span?.stat.counts, { added: 1, updated: 2, removed: 1 })
+    const counts = span!.stat.counts!
+    assert.equal(
+      counts.added + counts.updated + counts.removed,
+      span!.stat.changedFiles,
+      'the breakdown must sum to the file count the row draws beside it'
+    )
+  })
+
+  await run('a rename stays ONE updated file even with diff.renames off', async () => {
+    const dir = repo()
+    const wide = Array.from({ length: 12 }, (_, index) => `l${index}`).join('\n') + '\n'
+    writeFileSync(join(dir, 'r.txt'), wide)
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'a file worth moving')
+    // The user config that would otherwise split one moved file into two.
+    git(dir, 'config', 'diff.renames', 'false')
+    git(dir, 'checkout', '-b', 'feat')
+    git(dir, 'mv', 'r.txt', 'moved.txt')
+    writeFileSync(join(dir, 'moved.txt'), wide + 'and an edit\n')
+
+    const span = await readBranchSpan(dir)
+    assert.deepEqual(span?.stat.counts, { added: 0, updated: 1, removed: 0 })
+    assert.equal(span?.stat.changedFiles, 1)
+  })
+
+  // `diff.renames = copies` makes git pair a new file with the one it was copied
+  // from and report `C`. Asking for `--find-renames` explicitly normalises that
+  // away — both halves say `A` — and either answer folds to `added`, which is
+  // what a file that was not there before is.
+  await run('a copied file is an added one, whatever diff.renames says', async () => {
+    const dir = repo()
+    const wide = Array.from({ length: 20 }, (_, index) => `l${index}`).join('\n') + '\n'
+    writeFileSync(join(dir, 'source.txt'), wide)
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'a file worth copying')
+    git(dir, 'config', 'diff.renames', 'copies')
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'copy.txt'), wide)
+    git(dir, 'add', 'copy.txt')
+
+    const span = await readBranchSpan(dir)
+    assert.deepEqual(span?.stat.counts, { added: 1, updated: 0, removed: 0 })
+    assert.equal(span?.stat.changedFiles, 1, 'the source it was copied from did not change')
+  })
+
+  await run('a file that became a symlink is one updated file', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 't.txt'), 'plain\n')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'a plain file')
+    git(dir, 'checkout', '-b', 'feat')
+    rmSync(join(dir, 't.txt'))
+    symlinkSync('a.txt', join(dir, 't.txt'))
+
+    const span = await readBranchSpan(dir)
+    assert.deepEqual(span?.stat.counts, { added: 0, updated: 1, removed: 0 })
+  })
+
+  // The span is `git diff`, and `diff` cannot see a file git has never tracked.
+  // The SUMMARY adds those files back as `added` (workspace-change-summary);
+  // this reading stays the tracked diff it is.
+  await run('untracked work is outside the span’s own diff and its counts', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'untracked.txt'), 'nothing git has seen\n')
+    const span = await readBranchSpan(dir)
+    assert.deepEqual(span?.stat.counts, { added: 0, updated: 0, removed: 0 })
+    assert.equal(span?.stat.changedFiles, 0, 'the span never counted untracked files')
+  })
+
+  await run('a span that could not be read has NO counts, not zeros', async () => {
+    const dir = repo()
+    const bare = mkdtempSync(join(tmpdir(), 'multicode-branch-span-bare-'))
+    created.push(bare)
+    execFileSync('git', ['clone', '--quiet', '--bare', dir, bare])
+    const span = await readBranchSpan(bare)
+    assert.equal(span?.readable, false)
+    assert.equal(span?.stat.counts, null, 'a breakdown we could not take is absent')
   })
 
   for (const dir of created) rmSync(dir, { recursive: true, force: true })

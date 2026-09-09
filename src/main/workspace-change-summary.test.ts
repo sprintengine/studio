@@ -11,7 +11,7 @@ import {
   summaryFromSpan,
 } from './workspace-change-summary'
 import type { BranchSpan } from './git-branch-span'
-import type { WorkspaceChangeSummary } from '../shared/electron-api'
+import type { ChangedFileCounts, WorkspaceChangeSummary } from '../shared/electron-api'
 
 // The row's honest number (the-diff-an-agent-made / branch-scoped-row-diff):
 // what this checkout's branch has produced, and a scope that says how much the
@@ -81,8 +81,35 @@ function span(name: string, patch: Partial<BranchSpan> = {}): BranchSpan {
     isLinkedWorktree: false,
     aheadOfBase: false,
     readable: true,
-    stat: { additions: 0, deletions: 0, changedFiles: 0, files: [] },
+    stat: { additions: 0, deletions: 0, changedFiles: 0, files: [], counts: null },
     ...patch,
+  }
+}
+
+/**
+ * The one invariant every reading here owes its caller: the file breakdown sums
+ * to the `changedFiles` drawn beside it. Checked on both readings of every
+ * summary a test produces, because a drift between them is invisible in the UI —
+ * the line would simply draw a number that does not match its own tooltip.
+ */
+function assertSums(summary: WorkspaceChangeSummary): void {
+  const readings: Array<{ what: string; files?: ChangedFileCounts; changedFiles: number }> = [
+    { what: 'span', files: summary.files, changedFiles: summary.changedFiles },
+  ]
+  if (summary.uncommitted) {
+    readings.push({
+      what: 'uncommitted',
+      files: summary.uncommitted.files,
+      changedFiles: summary.uncommitted.changedFiles,
+    })
+  }
+  for (const reading of readings) {
+    if (!reading.files) continue
+    assert.equal(
+      reading.files.added + reading.files.updated + reading.files.removed,
+      reading.changedFiles,
+      `${reading.what}: added + updated + removed must equal changedFiles`
+    )
   }
 }
 
@@ -358,19 +385,38 @@ void (async () => {
     writeFileSync(join(dir, 'new.txt'), 'n1\nn2\n')
 
     const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
-    // The span is untouched by the new field: five committed plus the one
-    // uncommitted line, and untracked content stays invisible to it.
+    // The span's LINE counts are still git's tracked diff: five committed plus
+    // the one uncommitted line, with the untracked file contributing none.
     assert.equal(summary.additions, 6)
-    assert.equal(summary.changedFiles, 2)
+    // Its FILE count includes that untracked file, which is one file the branch
+    // added however invisible it is to `diff`.
+    assert.equal(summary.changedFiles, 3)
+    // b.txt committed on the branch and the untracked file are both added; the
+    // edit to a.txt is the one update.
+    assert.deepEqual(summary.files, { added: 2, updated: 1, removed: 0 })
+    assertSums(summary)
     assert.equal(summary.scope, 'branch')
     // The tail alone: the edit (+1) and the untracked file (+2).
-    assert.deepEqual(summary.uncommitted, { additions: 3, deletions: 0, changedFiles: 2 })
+    assert.deepEqual(summary.uncommitted, {
+      additions: 3,
+      deletions: 0,
+      changedFiles: 2,
+      // The edit and the untracked file, split by what happened to each.
+      files: { added: 1, updated: 1, removed: 0 },
+    })
   })
 
   await run('a clean checkout reports zeros — present, because they are known', async () => {
     const dir = repo()
     const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
-    assert.deepEqual(summary.uncommitted, { additions: 0, deletions: 0, changedFiles: 0 })
+    assert.deepEqual(summary.uncommitted, {
+      additions: 0,
+      deletions: 0,
+      changedFiles: 0,
+      files: { added: 0, updated: 0, removed: 0 },
+    })
+    // Known zeros are PRESENT on both readings; only an unreadable one is absent.
+    assert.deepEqual(summary.files, { added: 0, updated: 0, removed: 0 })
   })
 
   await run('an unreadable checkout leaves the field ABSENT, never zeros', async () => {
@@ -390,14 +436,24 @@ void (async () => {
     const dir = repo()
     writeFileSync(join(dir, 'blob.bin'), Buffer.from([0x89, 0x50, 0x00, 0x01, 0x02, 0x00, 0xff]))
     const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
-    assert.deepEqual(summary.uncommitted, { additions: 0, deletions: 0, changedFiles: 1 })
+    assert.deepEqual(summary.uncommitted, {
+      additions: 0,
+      deletions: 0,
+      changedFiles: 1,
+      files: { added: 1, updated: 0, removed: 0 },
+    })
   })
 
   await run('an untracked CRLF file is counted the way git counts lines', async () => {
     const dir = repo()
     writeFileSync(join(dir, 'win.txt'), 'one\r\ntwo\r\nthree\r\n')
     const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
-    assert.deepEqual(summary.uncommitted, { additions: 3, deletions: 0, changedFiles: 1 })
+    assert.deepEqual(summary.uncommitted, {
+      additions: 3,
+      deletions: 0,
+      changedFiles: 1,
+      files: { added: 1, updated: 0, removed: 0 },
+    })
   })
 
   // The `-z` framing trap: a rename emits THREE NUL-terminated fields, so
@@ -446,7 +502,12 @@ void (async () => {
     writeFileSync(join(tree, 'a.txt'), 'one\ntwo\nthree\nfour\n')
     const summary = await getWorkspaceChangeSummary({ checkoutPath: tree })
     assert.equal(summary.scope, 'worktree')
-    assert.deepEqual(summary.uncommitted, { additions: 1, deletions: 0, changedFiles: 1 })
+    assert.deepEqual(summary.uncommitted, {
+      additions: 1,
+      deletions: 0,
+      changedFiles: 1,
+      files: { added: 0, updated: 1, removed: 0 },
+    })
   })
 
   await run('a workspace opened on a SUBDIRECTORY still reads the whole repo', async () => {
@@ -456,7 +517,12 @@ void (async () => {
     writeFileSync(join(dir, 'sub', 's.txt'), 'one\n')
     writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
     const summary = await getWorkspaceChangeSummary({ checkoutPath: join(dir, 'sub') })
-    assert.deepEqual(summary.uncommitted, { additions: 2, deletions: 0, changedFiles: 2 })
+    assert.deepEqual(summary.uncommitted, {
+      additions: 2,
+      deletions: 0,
+      changedFiles: 2,
+      files: { added: 1, updated: 1, removed: 0 },
+    })
   })
 
   // A build directory nobody ignored. Listing it is one cheap git call; OPENING
@@ -484,7 +550,143 @@ void (async () => {
     // Identity, not equality: ten rows on one checkout get the one answer that
     // was read once — the extra git calls are inside that read, not beside it.
     assert.equal(first, second)
-    assert.deepEqual(first.uncommitted, { additions: 1, deletions: 0, changedFiles: 1 })
+    assert.deepEqual(first.uncommitted, {
+      additions: 1,
+      deletions: 0,
+      changedFiles: 1,
+      files: { added: 0, updated: 1, removed: 0 },
+    })
+  })
+
+
+  // ---- the file breakdown (decision 1: the numbers are FILES) ------------
+  //
+  // `files` is what the sidebar line and the header chip draw: `+added+updated`
+  // green, `−removed` red. It must always sum to the `changedFiles` beside it,
+  // and must be ABSENT rather than zero whenever the reading failed — a row that
+  // draws nothing for zeros would otherwise claim an agent changed nothing about
+  // work it merely could not measure.
+
+  await run('the span reports its files split by what happened to them', async () => {
+    const dir = repo()
+    const wide = Array.from({ length: 12 }, (_, index) => `l${index}`).join('\n') + '\n'
+    writeFileSync(join(dir, 'm.txt'), wide)
+    writeFileSync(join(dir, 'd.txt'), 'gone\n')
+    writeFileSync(join(dir, 'r.txt'), wide)
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'the base the branch starts from')
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'added.txt'), 'brand new\n')
+    git(dir, 'add', 'added.txt')
+    git(dir, 'commit', '-m', 'one file added on the branch')
+    writeFileSync(join(dir, 'm.txt'), wide + 'one more\n')
+    git(dir, 'rm', '-q', 'd.txt')
+    git(dir, 'mv', 'r.txt', 'moved.txt')
+    writeFileSync(join(dir, 'moved.txt'), wide + 'and an edit\n')
+
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.equal(summary.scope, 'branch')
+    assert.deepEqual(summary.files, { added: 1, updated: 2, removed: 1 })
+    assertSums(summary)
+    // Committed and uncommitted work alike: the same four files, split the same
+    // way, whether or not they have landed on the branch yet.
+    assert.deepEqual(summary.uncommitted?.files, { added: 0, updated: 2, removed: 1 })
+    assertSums(summary)
+  })
+
+  await run('the span counts an untracked file as added, without its lines', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    git(dir, 'commit', '-am', 'one committed change')
+    writeFileSync(join(dir, 'brand-new.txt'), 'n1\nn2\nn3\n')
+
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.deepEqual(summary.files, { added: 1, updated: 1, removed: 0 })
+    assert.equal(summary.changedFiles, 2)
+    assertSums(summary)
+    // The lines stay git's tracked diff — the diff surfaces read them, and the
+    // untracked file has none there.
+    assert.equal(summary.additions, 1)
+    assert.equal(summary.deletions, 0)
+  })
+
+  await run('an untracked file is an ADDED file in the uncommitted reading', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    writeFileSync(join(dir, 'brand-new.txt'), 'n1\nn2\n')
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.deepEqual(summary.uncommitted?.files, { added: 1, updated: 1, removed: 0 })
+    assert.equal(summary.uncommitted?.changedFiles, 2)
+    assertSums(summary)
+  })
+
+  // The trap this case exists for: git reports the path ONCE, as `D`, while
+  // `ls-files --others` also lists the file that is back on disk. Counting both
+  // would make the breakdown exceed the file count it sits beside.
+  await run('a file staged as deleted and re-created untracked counts once', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 'd.txt'), 'gone\n')
+    git(dir, 'add', '-A')
+    git(dir, 'commit', '-m', 'a file to delete')
+    git(dir, 'rm', '-q', 'd.txt')
+    writeFileSync(join(dir, 'd.txt'), 'but back on disk, untracked\n')
+
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.equal(summary.uncommitted?.changedFiles, 1, 'one path is one file')
+    assert.deepEqual(summary.uncommitted?.files, { added: 0, updated: 0, removed: 1 })
+    assertSums(summary)
+  })
+
+  await run('a checkout parked mid-merge counts its conflicted file as updated', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nfeat\n')
+    git(dir, 'commit', '-am', 'the branch’s take')
+    git(dir, 'checkout', 'main')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nmain\n')
+    git(dir, 'commit', '-am', 'the trunk’s take')
+    git(dir, 'checkout', 'feat')
+    try {
+      git(dir, 'merge', '--no-edit', 'main')
+      assert.fail('the fixture is meant to conflict')
+    } catch (error) {
+      if (error instanceof assert.AssertionError) throw error
+    }
+
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.deepEqual(summary.uncommitted?.files, { added: 0, updated: 1, removed: 0 })
+    assertSums(summary)
+  })
+
+  await run('a workspace opened on a SUBDIRECTORY counts the whole repo’s files', async () => {
+    const dir = repo()
+    // The config that would make git answer about the subtree alone, in paths
+    // no other surface here agrees with.
+    git(dir, 'config', 'diff.relative', 'true')
+    execFileSync('mkdir', ['-p', join(dir, 'sub')])
+    writeFileSync(join(dir, 'sub', 's.txt'), 'one\n')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: join(dir, 'sub') })
+    // The edit OUTSIDE the subdirectory is counted, and the untracked file
+    // inside it is placed by a path the diff half agrees with.
+    assert.deepEqual(summary.uncommitted?.files, { added: 1, updated: 1, removed: 0 })
+    assertSums(summary)
+  })
+
+  await run('a reading that could not be taken has NO files, never zeros', async () => {
+    const dir = repo()
+    const bare = mkdtempSync(join(tmpdir(), 'multicode-change-bare-files-'))
+    created.push(bare)
+    execFileSync('git', ['clone', '--quiet', '--bare', dir, bare])
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: bare })
+    assert.equal('files' in summary, false, 'an unreadable span draws nothing, not a zero')
+
+    const plain = mkdtempSync(join(tmpdir(), 'multicode-change-plain-files-'))
+    created.push(plain)
+    assert.equal('files' in (await getWorkspaceChangeSummary({ checkoutPath: plain })), false)
+    assert.equal('files' in summaryFromSpan(null), false)
+    assert.equal('files' in summaryFromSpan(span('feat')), false, 'a span with no counts says so')
   })
 
   // ---- the per-checkout share --------------------------------------------

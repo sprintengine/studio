@@ -1,7 +1,15 @@
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
-import { parseNumstatZ, readBranchSpan, scopeOfSpan, type BranchSpan } from './git-branch-span'
+import {
+  countFileStatuses,
+  diffFlags,
+  parseNameStatusZ,
+  parseNumstatZ,
+  readBranchSpan,
+  scopeOfSpan,
+  type BranchSpan,
+} from './git-branch-span'
 import { getGitRowSummary } from './git-status'
 import { runGitCommand } from './git-utils'
 import type { WorkspaceChangeSummary } from '../shared/electron-api'
@@ -47,18 +55,36 @@ export async function getWorkspaceChangeSummary(
  * The pure half: a span becomes a summary. Separated so the scope rule — the one
  * thing a reviewer needs to check — tests without a repo.
  */
-export function summaryFromSpan(span: BranchSpan | null): WorkspaceChangeSummary {
+export function summaryFromSpan(
+  span: BranchSpan | null,
+  untracked: readonly string[] = []
+): WorkspaceChangeSummary {
   if (!span) {
     return { branch: null, additions: 0, deletions: 0, changedFiles: 0, scope: 'folder' }
   }
+  // A file the agent just created is "1 file added" to the person reading the
+  // row, so untracked work counts here even though `git diff` cannot see it. The
+  // paths are de-duplicated against the span's own files for the case that would
+  // otherwise double-count: a file deleted on the branch and re-created on disk
+  // is one path, one file.
+  const known = new Set(span.stat.files.map((file) => file.path))
+  const added = untracked.filter((path) => !known.has(path)).length
   return {
     branch: span.branch,
+    // LINE counts stay git's tracked diff — the diff surfaces read them, and a
+    // file git has never seen has no diff to report.
     additions: span.stat.additions,
     deletions: span.stat.deletions,
-    changedFiles: span.stat.changedFiles,
+    changedFiles: span.stat.changedFiles + added,
     // The shared rule, not a local copy — the step strip renders the same span
     // and must say the same thing about it.
     scope: scopeOfSpan(span),
+    // Absent rather than zeros when the status pass failed: the line draws
+    // nothing for a breakdown it does not have, and must not be told the branch
+    // touched no files when it merely could not be asked.
+    ...(span.stat.counts
+      ? { files: { ...span.stat.counts, added: span.stat.counts.added + added } }
+      : {}),
   }
 }
 
@@ -77,9 +103,13 @@ async function readCheckoutSummary(checkoutPath: string): Promise<WorkspaceChang
   // for an uncommitted reading that cannot exist either.
   if (!span) return summaryFromSpan(span)
 
-  const uncommitted = await readUncommitted(checkoutPath)
+  // ONE listing, read beside the uncommitted diff rather than after it, and
+  // shared by both readings: the span counts these files as added, and the
+  // uncommitted reading counts them AND reads their lines.
+  const listing = listUntracked(checkoutPath)
+  const uncommitted = await readUncommitted(checkoutPath, listing)
   const base = span.readable
-    ? summaryFromSpan(span)
+    ? summaryFromSpan(span, (await listing) ?? [])
     : await folderFallback(checkoutPath, span)
   // Absent, never zeros: a reading we could not take must not tell the line
   // "nothing is uncommitted here", which for a landed branch is the whole
@@ -117,6 +147,33 @@ const UNTRACKED_COUNT_BATCH = 16
 type UncommittedReading = NonNullable<WorkspaceChangeSummary['uncommitted']>
 
 /**
+ * Every file git has never seen, repo-root-relative.
+ *
+ * Untracked files are structurally invisible to `diff` — git has no content to
+ * compare — yet a file an agent just created is exactly the work both readings
+ * exist to show. `--full-name` for the same reason the diffs carry
+ * `--no-relative`: a workspace opened on a SUBDIRECTORY must answer about the
+ * whole repo, in paths the diff halves agree with.
+ *
+ * Null means the listing itself failed; the callers then leave untracked work
+ * out rather than guessing at it.
+ */
+async function listUntracked(cwd: string): Promise<string[] | null> {
+  // Never rejects: the promise is handed to two callers and one of them (an
+  // unreadable span) may never await it, where a rejection would surface as an
+  // unhandled one in main.
+  const listed = await runGitCommand(cwd, [
+    'ls-files',
+    '--others',
+    '--exclude-standard',
+    '--full-name',
+    '-z',
+  ])
+  if (!listed.ok) return null
+  return listed.stdout.split('\0').filter((path) => path.length > 0)
+}
+
+/**
  * The checkout's UNCOMMITTED changes alone: index + worktree against HEAD, plus
  * untracked files as additions. What the sidebar line shows once its branch has
  * landed by SQUASH — where the merge base never moves, so the span keeps
@@ -136,27 +193,34 @@ type UncommittedReading = NonNullable<WorkspaceChangeSummary['uncommitted']>
  * `changedFiles`, no untracked files, and re-reads the branch name we already
  * have.
  *
- * Two cheap git calls, and a third only when there is untracked work to place —
- * all inside `readCheckoutSummary`, so the per-checkout share still means ten
- * rows on one checkout cost one reading between them.
+ * Three cheap git calls in flight together — the numstat and the name-status
+ * halves of ONE diff, and the untracked listing the span reading shares — and a
+ * fourth only when there is untracked work to place; all inside
+ * `readCheckoutSummary`, so the per-checkout share still means ten rows on one
+ * checkout cost one reading between them.
  *
  * Null means unreadable — a bare repo, an unborn HEAD, a locked index — and the
  * caller leaves the field ABSENT rather than reporting zeros.
  */
-async function readUncommitted(cwd: string): Promise<UncommittedReading | null> {
-  // The same flags the span's own diff carries. `--no-relative` because a
-  // workspace can be opened on a SUBDIRECTORY of its repo, where the user's
-  // `diff.relative=true` would both under-count and hand back paths that no
-  // other surface here agrees with.
-  const diff = await runGitCommand(cwd, [
-    'diff',
-    '--numstat',
-    '-z',
-    '--no-color',
-    '--no-ext-diff',
-    '--no-textconv',
-    '--no-relative',
-    'HEAD',
+async function readUncommitted(
+  cwd: string,
+  /**
+   * The untracked listing, handed over as a PROMISE so it overlaps the two diffs
+   * below instead of following them — and so one listing serves both this
+   * reading and the span's.
+   */
+  untracked: Promise<string[] | null>
+): Promise<UncommittedReading | null> {
+  // Literally the span's own flags (`diffFlags`), not a copy of them:
+  // `--no-relative` because a workspace can be opened on a SUBDIRECTORY of its
+  // repo, where the user's `diff.relative=true` would both under-count and hand
+  // back paths that no other surface here agrees with, and `--find-renames` so a
+  // moved file is one `updated` rather than a removed plus an added.
+  const [diff, nameStatus] = await Promise.all([
+    runGitCommand(cwd, [...diffFlags('--numstat'), 'HEAD']),
+    // The status half of the same diff, asked beside it rather than after it:
+    // two spawns that overlap cost one spawn's latency.
+    runGitCommand(cwd, [...diffFlags('--name-status'), 'HEAD']),
   ])
   // Includes the unborn HEAD, where `git diff HEAD` has nothing to resolve. The
   // span already reports that repo's staged work against the empty tree, and a
@@ -170,22 +234,24 @@ async function readUncommitted(cwd: string): Promise<UncommittedReading | null> 
     deletions: tracked.deletions,
     changedFiles: tracked.changedFiles,
   }
+  // Driven by the numstat file list, so the breakdown sums to `changedFiles`
+  // whatever the status pass says — including a file that is staged-deleted AND
+  // back on disk untracked, which git reports once as `D` and which the
+  // untracked listing below then skips.
+  if (nameStatus.ok) {
+    reading.files = countFileStatuses(tracked.files, parseNameStatusZ(nameStatus.stdout))
+  }
 
-  // Untracked files are structurally invisible to `diff` — git has never seen
-  // their content — and a new file is exactly the uncommitted work this reading
-  // exists to show. `--full-name` for the same reason as `--no-relative`.
-  const listed = await runGitCommand(cwd, [
-    'ls-files',
-    '--others',
-    '--exclude-standard',
-    '--full-name',
-    '-z',
-  ])
-  if (!listed.ok) return reading
+  const listed = await untracked
+  if (!listed) return reading
   const known = new Set(tracked.files.map((file) => file.path))
-  const paths = listed.stdout.split('\0').filter((path) => path && !known.has(path))
+  const paths = listed.filter((path) => !known.has(path))
   if (paths.length === 0) return reading
   reading.changedFiles += paths.length
+  // A file git has never seen is an added file — the only status it can have —
+  // and counting it here is what keeps the breakdown summing to `changedFiles`
+  // now that the count includes untracked work.
+  if (reading.files) reading.files.added += paths.length
 
   // `--full-name` paths are repo-root-relative, so reading them off disk starts
   // at the toplevel and not at a cwd that may be a subdirectory. Asked only when

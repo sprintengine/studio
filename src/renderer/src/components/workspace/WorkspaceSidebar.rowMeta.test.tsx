@@ -56,6 +56,7 @@ const line = (over: Partial<TerminalLine> = {}): TerminalLine => ({
   additions: 0,
   deletions: 0,
   changedFiles: 0,
+  files: null,
   diffScope: 'folder',
   activeSubagents: 0,
   pullRequests: [],
@@ -224,44 +225,64 @@ run('the mark recedes with a background row rather than shouting over its title'
   assert.match(markup, /data-pull-request-mark[^>]*opacity-60|opacity-60[^>]*data-pull-request-mark/)
 })
 
-run('each scope claims exactly what its checkout supports', () => {
-  const folder = view({ additions: 246, deletions: 94, diffScope: 'folder' })
-  assert.match(folder, /246 added, 94 removed in this folder/)
+run('each scope claims exactly what its checkout supports, in FILES', () => {
+  // Owner decision 2026-09-09: the summary level counts files — "+3 −1" is
+  // three files added or updated and one removed. Lines survive only where a
+  // single file is in view (the conversation peek's rows, the diff viewer),
+  // and the line's own line counts are no longer drawn anywhere on it.
+  const folder = view({ additions: 246, deletions: 94, files: { added: 0, updated: 4, removed: 0 }, diffScope: 'folder' })
+  assert.match(folder, /4 files updated — uncommitted in this folder/)
+  assert.doesNotMatch(folder, /246|94/, 'the line counts are not the summary\u2019s unit any more')
   assert.match(folder, /opacity-60/, 'drawn quieter than attributable work')
   assert.doesNotMatch(folder, /by this terminal/, 'never claims the repo’s numbers as the terminal’s')
   assert.doesNotMatch(folder, /title=/, 'no native title attribute anywhere on the stat')
-  const own = view({ additions: 12, deletions: 3, diffScope: 'worktree', worktree: true })
-  assert.match(own, /12 added, 3 removed by this terminal/)
+
+  const own = view({ files: { added: 2, updated: 1, removed: 1 }, diffScope: 'worktree', worktree: true })
+  assert.match(own, /\+3/, 'added and updated are one number on the line')
+  assert.match(own, /−1/, 'a true minus sign, and the removals beside it')
+  assert.match(own, /2 files added, 1 updated, 1 removed — changed by this terminal/)
   assert.doesNotMatch(own, /opacity-60/)
-  const shared = view({ branch: 'feat/y', additions: 40, deletions: 8, diffScope: 'branch' })
-  assert.match(shared, /40 added, 8 removed on feat\/y/)
+
+  const shared = view({ branch: 'feat/y', files: { added: 5, updated: 0, removed: 0 }, diffScope: 'branch' })
+  assert.match(shared, /5 files added — changed on feat\/y/)
   assert.doesNotMatch(shared, /opacity-60/, 'branch work is not a degraded reading')
-  assert.doesNotMatch(shared, /removed by this terminal/, 'a shared checkout never claims sole authorship')
-  assert.match(shared, /--tone-good/, 'additions in the good tone')
-  assert.match(shared, /--tone-error/, 'deletions in the danger tone')
-  const branchless = view({ branch: null, additions: 5, deletions: 1, diffScope: 'branch' })
-  assert.match(branchless, /5 added, 1 removed on this branch/)
+  assert.doesNotMatch(shared, /changed by this terminal/, 'a shared checkout never claims sole authorship')
+  assert.match(shared, /--tone-good/, 'what the checkout gained, in the good tone')
+  assert.match(shared, /--tone-error/, 'what it lost, in the danger tone')
+  assert.match(shared, /tabular-nums/, 'a column of them lines up')
+
+  const branchless = view({ branch: null, files: { added: 1, updated: 0, removed: 0 }, diffScope: 'branch' })
+  assert.match(branchless, /1 file added — changed on this branch/, 'one file is one file')
+
   // The fourth scope (owner ruling 2026-09-09): a branch that has LANDED by
   // squash merge, where the span would still read the whole feature, so the
   // line shows what the checkout still carries and names the pull request that
   // moved it. Attributable work, so it draws at full strength.
   const landed = view({
     branch: 'feat/y',
-    additions: 3,
-    deletions: 1,
     changedFiles: 2,
+    files: { added: 1, updated: 1, removed: 0 },
     diffScope: 'landed',
     pullRequests: [pullRequest({ number: 418, state: 'merged' })],
   })
-  assert.match(landed, /3 added, 1 removed since pull request 418 landed/, 'and the reason is spoken, not only hovered')
+  // design-tokens-allow: the literal is a pull request NUMBER in the line's own words, not a colour
+  assert.match(landed, /1 file added, 1 updated — uncommitted here since pull request #418 was merged/, 'and the reason is spoken, not only hovered')
   assert.doesNotMatch(landed, /opacity-60/, 'what the checkout still carries is not a degraded reading')
   assert.doesNotMatch(landed, /in this folder|on this branch|by this terminal/, 'it claims the checkout since the merge, nothing else')
-  // The ±chip is gated on the NUMBERS, not on the scope: a landed branch with
-  // a clean checkout draws no chip at all, which is the honest drawing of "the
+
+  // The chip is gated on the NUMBERS, not on the scope: a landed branch with a
+  // clean checkout draws no chip at all, which is the honest drawing of "the
   // work is in, nothing is outstanding".
-  const zeros = view({ additions: 0, deletions: 0, changedFiles: 0, diffScope: 'landed' })
-  assert.doesNotMatch(zeros, /added, /, 'no phantom +0 −0 chip, whatever the scope says')
-  assert.match(landed, /added, /, 'and the same view does draw one when there are lines')
+  const zeros = view({ files: { added: 0, updated: 0, removed: 0 }, diffScope: 'landed' })
+  assert.doesNotMatch(zeros, /files added|file added|No files changed/, 'no phantom +0 −0 chip, whatever the scope says')
+  assert.match(landed, /file added/, 'and the same view does draw one when files moved')
+
+  // The one that matters most: a summary with LINES but no file breakdown — an
+  // older main, a span git could not read, a remote row — draws NOTHING here.
+  // Drawing its line counts would put a different unit in the same place.
+  const linesOnly = view({ additions: 202, deletions: 122, changedFiles: 9, files: null, diffScope: 'branch' })
+  assert.doesNotMatch(linesOnly, /--tone-good/, 'no chip at all without a breakdown to draw')
+  assert.doesNotMatch(linesOnly, /202|122/, 'and never the lines in its place')
 })
 
 run('the seat is the line’s own: working dots + how long, or how long idle', () => {

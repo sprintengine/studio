@@ -1,4 +1,4 @@
-import type { TerminalSessionSnapshot, WorkspaceChangeSummary } from '../../../../shared/electron-api'
+import type { ChangedFileCounts, TerminalSessionSnapshot, WorkspaceChangeSummary } from '../../../../shared/electron-api'
 import { primaryPullRequest, type BranchPullRequest } from '../../../../shared/git/pull-request'
 import { sessionRecencyOf } from '../../hooks/useTerminalSessions'
 import type { Workspace } from '../../types/workspace'
@@ -10,9 +10,9 @@ import { checkoutPathFor } from './useSidebarGitSummaries'
 // The sidebar row's terminal lines (sidebar-lists-every-terminal): one line
 // per live terminal under the row's title — its CLI mark (whose tooltip
 // names the terminal), the branch it is on (a worktree of its own drawn at
-// full strength), the ±lines of that checkout, and how long it has worked or
-// sat idle. The face-pile of heads and the single row-level branch are gone:
-// the lines ARE the count, and each one says where IT is.
+// full strength), the ± FILES that checkout carries, and how long it has
+// worked or sat idle. The face-pile of heads and the single row-level branch
+// are gone: the lines ARE the count, and each one says where IT is.
 //
 // Pure: sessions and summaries in, lines out. The view renders a line; the
 // row decides how many to show.
@@ -21,8 +21,8 @@ import { checkoutPathFor } from './useSidebarGitSummaries'
 export const MAX_TERMINAL_LINES = 4
 
 /**
- * Whose changes a line's ±lines are — the honesty contract the tooltip and the
- * spoken label are derived from, one value wider than git's own
+ * Whose changes a line's ± numbers are — the honesty contract the tooltip and
+ * the spoken label are derived from, one value wider than git's own
  * ({@link WorkspaceChangeSummary}`.scope`):
  *
  * - `worktree` / `branch` / `folder` — the checkout's git reading, exactly as
@@ -49,14 +49,14 @@ export const MAX_TERMINAL_LINES = 4
 export type TerminalDiffScope = 'worktree' | 'branch' | 'folder' | 'landed'
 
 /**
- * The ±lines a line shows and what they are allowed to claim, from the two
+ * The numbers a line shows and what they are allowed to claim, from the two
  * readings that belong to the checkout: git's own span and the pull request
  * state main resolved for the conversation. Pure and exported so the rule can
  * be stated in a test in three lines.
  *
  * - No summary at all (an unresolved checkout, a path git could not be asked
- *   about) → zeros, `folder` scope: exactly what the line drew before, and the
- *   row draws no chip for zeros anyway.
+ *   about) → zeros, `folder` scope, and NO file counts: exactly what the line
+ *   drew before, and the row draws no chip for zeros anyway.
  * - The primary pull request (`primaryPullRequest`, decision 5 — the most
  *   recent one still OPEN, else the newest of all) is `merged` AND the summary
  *   carries `uncommitted` → the uncommitted numbers, `landed` scope.
@@ -67,12 +67,27 @@ export type TerminalDiffScope = 'worktree' | 'branch' | 'folder' | 'landed'
  *
  * The primary rule is what makes a merged pull request followed by a NEW open
  * one go back to the span on its own: the open one becomes the primary.
+ *
+ * `files` rides beside the line counts and is what the line actually DRAWS
+ * (owner decision 2026-09-09, decision 1): the summary numbers are files, and
+ * lines survive only where a single file is in view — the hover card's per-file
+ * rows and the diff viewer. It is null whenever the reading it belongs to
+ * carries no breakdown: a summary from an older main, a span git could not be
+ * read for, or the uncommitted reading a `landed` line switched to. Null draws
+ * NOTHING; it never falls back to the line counts, because "+202" in a place
+ * that means files would be a lie rather than a stale number.
  */
 export function lineDiffOf(
   summary: WorkspaceChangeSummary | undefined,
   pullRequests: ReadonlyArray<BranchPullRequest>
-): { additions: number; deletions: number; changedFiles: number; scope: TerminalDiffScope } {
-  if (!summary) return { additions: 0, deletions: 0, changedFiles: 0, scope: 'folder' }
+): {
+  additions: number
+  deletions: number
+  changedFiles: number
+  files: ChangedFileCounts | null
+  scope: TerminalDiffScope
+} {
+  if (!summary) return { additions: 0, deletions: 0, changedFiles: 0, files: null, scope: 'folder' }
   // Only a pull request ON THIS CHECKOUT'S BRANCH may say the branch landed.
   // The session's list is a union that also carries pull requests the agent
   // opened in other repositories (`cd ../website && gh pr create`); main stamps
@@ -81,29 +96,89 @@ export function lineDiffOf(
   const ownBranch = pullRequests.filter((pr) => pr.onSessionBranch === true)
   const landed = primaryPullRequest(ownBranch)?.state === 'merged'
   const uncommitted = summary.uncommitted
-  if (landed && uncommitted) return { ...uncommitted, scope: 'landed' }
+  if (landed && uncommitted) {
+    return {
+      additions: uncommitted.additions,
+      deletions: uncommitted.deletions,
+      changedFiles: uncommitted.changedFiles,
+      // The landed line reads the UNCOMMITTED breakdown, never the span's: the
+      // span is the whole feature a squash merge left behind, and pairing its
+      // file counts with the uncommitted line counts would invent a reading
+      // neither git call took.
+      files: uncommitted.files ?? null,
+      scope: 'landed',
+    }
+  }
   return {
     additions: summary.additions,
     deletions: summary.deletions,
     changedFiles: summary.changedFiles,
+    files: summary.files ?? null,
     scope: summary.scope,
   }
 }
 
 /**
- * What a line's ±lines are allowed to SAY, derived from the scope — the tooltip
- * on hover, the sentence a screen reader gets, and whether the numbers step
- * back. One place, so the two spellings can never drift apart.
+ * The two numbers a line draws, from the file breakdown: green is what the
+ * checkout GAINED or reworked (added + updated), red is what it lost. Added and
+ * updated are one number on the line and two in the words, because the line has
+ * room for a glance and the tooltip has room for the answer.
+ */
+export function changedFileMarks(files: ChangedFileCounts): { plus: number; minus: number } {
+  return { plus: files.added + files.updated, minus: files.removed }
+}
+
+/** How many files the breakdown covers — the summary's `changedFiles`, recomputed where only the breakdown is at hand. */
+export function changedFilesTotal(files: ChangedFileCounts): number {
+  return files.added + files.updated + files.removed
+}
+
+/**
+ * The breakdown in words: "1 file added, 1 updated, 1 removed". A zero part is
+ * left out entirely — "2 files updated, 1 removed" — and the noun rides the
+ * first part that survives, pluralised by ITS count, so a single file never
+ * reads as "1 files added".
+ */
+export function changedFilesPhrase(files: ChangedFileCounts): string {
+  const present: Array<[number, string]> = (
+    [
+      [files.added, 'added'],
+      [files.updated, 'updated'],
+      [files.removed, 'removed'],
+    ] as Array<[number, string]>
+  ).filter(([count]) => count > 0)
+  if (present.length === 0) return 'No files changed'
+  return present
+    .map(([count, verb], index) =>
+      index === 0 ? `${count} file${count === 1 ? '' : 's'} ${verb}` : `${count} ${verb}`
+    )
+    .join(', ')
+}
+
+/**
+ * What a line's ± numbers are allowed to SAY, derived from the scope — the
+ * tooltip on hover, the sentence a screen reader gets, and whether the numbers
+ * step back. One place, so the two spellings can never drift apart.
  *
  * The words follow the sidebar's existing shape — the claim, an em dash, the
  * reason you may or may not believe it — and each names whose work it is: the
  * terminal, the branch, what is left after the branch landed, or nobody in
- * particular.
+ * particular. The claim is now the FILE breakdown the line collapsed into two
+ * numbers ("2 files added, 1 updated, 1 removed"), which is the whole point of
+ * the hover: the line says how big, the tooltip says of what.
+ *
+ * `tooltip` and `srText` are one string by construction. They used to differ —
+ * a phrase for the eye, a sentence for the ear — and the cost was two spellings
+ * of the same numbers that could drift apart; the sentence reads correctly in
+ * both places, so there is nothing left to drift.
  */
 export function diffScopeCopy(
-  line: Pick<TerminalLine, 'diffScope' | 'branch' | 'additions' | 'deletions' | 'pullRequests'>
+  line: Pick<TerminalLine, 'diffScope' | 'branch' | 'files' | 'pullRequests'>
 ): { tooltip: string; srText: string; dim: boolean } {
-  const { additions, deletions } = line
+  // A line with no breakdown draws nothing, so these words are never seen; the
+  // phrase still degrades to something true rather than to "undefined files".
+  const claim = line.files ? changedFilesPhrase(line.files) : 'No files changed'
+  const said = (clause: string, dim: boolean) => ({ tooltip: `${claim} — ${clause}`, srText: `${claim} — ${clause}`, dim })
   if (line.diffScope === 'landed') {
     // The one scope whose second clause is not a caveat but the REASON the
     // number shrank: the branch's span would still read the whole feature
@@ -117,36 +192,50 @@ export function diffScopeCopy(
     // in another repository as the reason this branch's number shrank.
     const primary = primaryPullRequest(line.pullRequests.filter((pr) => pr.onSessionBranch === true))
     const named = primary ? `pull request #${primary.number} was merged` : 'its pull request was merged'
-    return {
-      tooltip: `Uncommitted changes since this branch landed — ${named}`,
-      srText: primary
-        ? `${additions} added, ${deletions} removed since pull request ${primary.number} landed`
-        : `${additions} added, ${deletions} removed since this branch landed`,
-      // Attributable work: it is what is still outstanding in this checkout,
-      // not the repo's anonymous state, so it draws at full strength.
-      dim: false,
-    }
+    // Attributable work: it is what is still outstanding in this checkout, not
+    // the repo's anonymous state, so it draws at full strength.
+    return said(`uncommitted here since ${named}`, false)
   }
   if (line.diffScope === 'worktree') {
-    return {
-      tooltip: 'Changed by this terminal — it has its own worktree',
-      srText: `${additions} added, ${deletions} removed by this terminal`,
-      dim: false,
-    }
+    return said('changed by this terminal, which has a worktree of its own', false)
   }
   if (line.diffScope === 'branch') {
-    return {
-      tooltip: `Changed on ${line.branch ?? 'this branch'} — this terminal shares the checkout, so a person or another terminal may have made some of it`,
-      srText: `${additions} added, ${deletions} removed on ${line.branch ?? 'this branch'}`,
-      dim: false,
-    }
+    return said(
+      `changed on ${line.branch ?? 'this branch'}; this terminal shares the checkout, so a person or another terminal may have made some of it`,
+      false
+    )
   }
+  // A folder reading is the repo's state, not this terminal's work: the numbers
+  // are real but nobody can say who made them, so they step back.
+  return said('uncommitted in this folder; this terminal has no branch of its own', true)
+}
+
+/**
+ * The workspace header's branch chip, in the same words as the line beneath it
+ * (owner decision 2026-09-09, decision 2). It names the branch, the agent whose
+ * OWN worktree the chip is describing — the caller passes an agent only then,
+ * because on a shared checkout there is no agent to credit — and the same file
+ * breakdown the sidebar's line spells. Nothing here instructs the person: the
+ * chip's job is to say what you are looking at, and "select another tab to
+ * follow it" was a manual note taped to a fact.
+ *
+ * `spoken` is the clause the control's accessible name takes, comma-led so it
+ * appends to whatever the control already calls itself.
+ */
+export function branchChipCopy(input: {
+  branch: string | null
+  agent: { name: string; runtime: string | null } | null
+  files: ChangedFileCounts | null
+}): { tooltip: string; spoken: string } {
+  const branch = input.branch ?? 'Detached HEAD'
+  const worktreeOf = input.agent
+    ? `${input.agent.name}’s worktree${input.agent.runtime ? ` (${input.agent.runtime})` : ''}`
+    : null
+  // No breakdown, or a clean checkout: the chip says the branch and stops.
+  const phrase = input.files && changedFilesTotal(input.files) > 0 ? changedFilesPhrase(input.files) : null
   return {
-    tooltip: 'Uncommitted changes in this folder — this terminal has no branch of its own',
-    srText: `${additions} added, ${deletions} removed in this folder`,
-    // A folder reading is the repo's state, not this terminal's work: the
-    // numbers are real but nobody can say who made them, so they step back.
-    dim: true,
+    tooltip: [worktreeOf ? `${branch} · ${worktreeOf}` : branch, phrase].filter(Boolean).join(' — '),
+    spoken: `${worktreeOf ? `, ${worktreeOf}` : ''}${phrase ? `, ${phrase}` : ''}`,
   }
 }
 
@@ -177,6 +266,18 @@ export type TerminalLine = {
    * summary to read, and a remote row whose wire shape carries no count, say 0.
    */
   changedFiles: number
+  /**
+   * What HAPPENED to those files — added, updated (a rename or a conflict is an
+   * update), removed. This is what the line draws: `+{added + updated}` green,
+   * `−{removed}` red, and the breakdown in words on hover.
+   *
+   * Null is the honest absence and it draws NOTHING: a summary from a main that
+   * predates the breakdown, a span git could not be read for, a remote row whose
+   * wire shape carries no counts yet. It never degrades to the line counts —
+   * they are a different unit, and a "+202" where a person reads files is worse
+   * than an empty space.
+   */
+  files: ChangedFileCounts | null
   diffScope: TerminalDiffScope
   /**
    * Subagents this session has running (`activeSubagents` on the snapshot).
@@ -296,6 +397,7 @@ function lineOfSession(
     additions: diff.additions,
     deletions: diff.deletions,
     changedFiles: diff.changedFiles,
+    files: diff.files,
     diffScope: diff.scope,
     activeSubagents: isAgent ? session.activeSubagents ?? 0 : 0,
     // Straight off the snapshot: main owns which pull requests a session has
@@ -331,6 +433,7 @@ function lineOfFleetPane(
     additions: 0,
     deletions: 0,
     changedFiles: 0,
+    files: null,
     diffScope: 'folder',
     activeSubagents: 0,
     // The pane's checkout is on another machine's disk and its pull requests
@@ -361,8 +464,12 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     deletions: row.deletions,
     // A remote sends a git reading with no file count in it, and its pull
     // requests are looked up where the checkout is — so a remote row never
-    // reaches the `landed` scope either; it draws the span it was sent.
+    // reaches the `landed` scope either. And with no file breakdown on the wire
+    // there is nothing for it to draw: the numbers a line shows are files now,
+    // so a remote row draws NOTHING rather than the lines it was sent. The wire
+    // shape can grow the counts later and the row starts drawing on its own.
     changedFiles: 0,
+    files: null,
     diffScope: row.diffScope,
     activeSubagents: 0,
     // A remote row's wire shape carries no pull requests: the lookup runs where

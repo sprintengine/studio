@@ -403,7 +403,15 @@ void (async () => {
     const row = await getWorkspaceChangeSummary({ checkoutPath: dir })
     assert.equal(span.additions, row.additions, 'additions agree')
     assert.equal(span.deletions, row.deletions, 'deletions agree')
-    assert.equal(span.files.length, row.changedFiles, 'and so does the file count')
+    // The ONE known difference (files-not-lines, 2026-09-09): the row counts
+    // files, and a file the agent created is "1 file added" to the person
+    // reading it, so the row's count includes the untracked file the pane's
+    // span still leaves out. The line totals above stay git's tracked diff on
+    // both. Stated here as an exact equation rather than glossed, so the day
+    // the pane lists untracked files too this line is the one that fails.
+    assert.equal(span.files.length + 1, row.changedFiles, 'the row counts the untracked file as added; the pane does not yet')
+    // b.txt is new against the merge base, untracked.txt is new on disk, a.txt existed at the base.
+    assert.deepEqual(row.files, { added: 2, updated: 1, removed: 0 }, 'b.txt and untracked.txt are the added ones')
   })
 
   await run('the strip’s scope agrees with the row’s scope', async () => {

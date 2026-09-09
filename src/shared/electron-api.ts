@@ -2105,6 +2105,19 @@ export type GitRowSummary = {
 }
 
 /**
+ * How many FILES a reading covers, by what happened to each one — the numbers
+ * the sidebar line and the header chip draw (`+added+updated` / `−removed`).
+ * Lines are shown only where a single file is in view.
+ *
+ * A rename counts once, as `updated` (it is one file that moved, never a removed
+ * plus an added); so does a type change and a conflicted file mid-merge. An
+ * untracked file counts as `added`. The three always sum to the reading's own
+ * `changedFiles`, which is what lets a caller draw either number without
+ * re-deriving the other.
+ */
+export type ChangedFileCounts = { added: number; updated: number; removed: number }
+
+/**
  * What a workspace's row reports as changed
  * (the-diff-an-agent-made / branch-scoped-row-diff).
  *
@@ -2125,9 +2138,19 @@ export type WorkspaceChangeSummary = {
   deletions: number
   changedFiles: number
   scope: 'worktree' | 'branch' | 'folder'
+  /** The same changed files, split by what happened to them: `added + updated + removed === changedFiles`.
+   *  Absent only when the per-status reading could not be taken; a caller must then draw nothing
+   *  rather than a zero, exactly as for `uncommitted`. */
+  files?: ChangedFileCounts
   /** The checkout's UNCOMMITTED changes alone — index + worktree vs HEAD, untracked files counted as additions.
    *  What the line shows once its branch has landed by squash (decision 2). Absent when unreadable. */
-  uncommitted?: { additions: number; deletions: number; changedFiles: number }
+  uncommitted?: {
+    additions: number
+    deletions: number
+    changedFiles: number
+    /** Split by status, untracked files counted as `added`: sums to this reading's `changedFiles`. */
+    files?: ChangedFileCounts
+  }
 }
 
 /**

@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'path'
 
 import { pathExists, runGitCommand } from './git-utils'
+import type { ChangedFileCounts } from '../shared/electron-api'
 
 /**
  * What a checkout's current branch has produced — the reading the sidebar row
@@ -31,6 +32,14 @@ export type BranchSpanStat = {
   deletions: number
   changedFiles: number
   files: BranchFileStat[]
+  /**
+   * The same files split by what happened to them — the number the row draws.
+   * `--numstat` carries no status, so this is filled from a second
+   * `--name-status` pass over the SAME diff and is null when only that pass
+   * failed: a breakdown we could not take is absent, never a confident zero,
+   * for the same reason `readable` exists.
+   */
+  counts: ChangedFileCounts | null
 }
 
 /** The trunk this branch's work is measured against. */
@@ -96,7 +105,7 @@ export function scopeOfSpan(span: BranchSpan | null): 'worktree' | 'branch' | 'f
  * failure result for the life of the process.
  */
 function emptyBranchSpanStat(): BranchSpanStat {
-  return { additions: 0, deletions: 0, changedFiles: 0, files: [] }
+  return { additions: 0, deletions: 0, changedFiles: 0, files: [], counts: null }
 }
 
 /**
@@ -394,18 +403,42 @@ async function diffWorkingTreeFrom(
   cwd: string,
   fromRev: string
 ): Promise<BranchSpanStat | null> {
-  const result = await runGitCommand(cwd, [
+  const [numstat, nameStatus] = await Promise.all([
+    runGitCommand(cwd, [...diffFlags('--numstat'), fromRev]),
+    runGitCommand(cwd, [...diffFlags('--name-status'), fromRev]),
+  ])
+  if (!numstat.ok) return null
+  const stat = parseNumstatZ(numstat.stdout)
+  if (nameStatus.ok) {
+    stat.counts = countFileStatuses(stat.files, parseNameStatusZ(nameStatus.stdout))
+  }
+  return stat
+}
+
+/**
+ * The flags every reading here shares, so the two passes over one diff can never
+ * be told different things about it.
+ *
+ * `--find-renames` explicitly rather than by default: `diff.renames=false` in a
+ * user's config would make BOTH passes split a rename into a delete plus an add,
+ * turning one moved file into two and contradicting decision 1 ("a rename is one
+ * updated"). Asking for it here takes that config out of the answer.
+ *
+ * Exported shape kept as a function, not a constant array, because the argument
+ * lists are handed straight to `runGitCommand` and a shared array would be one
+ * splice away from a cross-call bug.
+ */
+export function diffFlags(mode: '--numstat' | '--name-status'): string[] {
+  return [
     'diff',
-    '--numstat',
+    mode,
     '-z',
     '--no-color',
     '--no-ext-diff',
     '--no-textconv',
     '--no-relative',
-    fromRev,
-  ])
-  if (!result.ok) return null
-  return parseNumstatZ(result.stdout)
+    '--find-renames',
+  ]
 }
 
 /**
@@ -460,5 +493,88 @@ export function parseNumstatZ(stdout: string): BranchSpanStat {
     files.push({ path, additions: safeAdds, deletions: safeDels })
   }
 
-  return { additions, deletions, changedFiles: files.length, files }
+  // `counts` is not knowable from `--numstat`, which carries no status. The
+  // caller that also ran `--name-status` fills it; everyone else gets the honest
+  // null.
+  return { additions, deletions, changedFiles: files.length, files, counts: null }
+}
+
+/**
+ * The three buckets the row draws, and the map from git's status letters onto
+ * them. There are only three because there are only three things a person needs
+ * to see at a glance; every finer distinction git makes is folded here, once, so
+ * that no surface invents its own folding.
+ *
+ * - `A` added, `C` a copy's new file — a file that was not there before.
+ * - `D` removed.
+ * - `M` modified, `R` renamed (ONE file that moved — never a removed plus an
+ *   added, which is the whole reason rename detection is asked for), `T` a type
+ *   change (a file became a symlink), `U` unmerged: a conflicted file mid-merge
+ *   is work in progress on a file that exists on both sides.
+ * - Anything else — `X` (git's own "should not happen"), `B` a broken pairing, a
+ *   letter a future git adds — is `updated`, the claim that says least.
+ */
+export type ChangedFileKind = 'added' | 'updated' | 'removed'
+
+export function changedFileKindOf(statusField: string): ChangedFileKind {
+  // `R088` / `C075` carry a similarity score after the letter.
+  const letter = statusField.trim().charAt(0).toUpperCase()
+  if (letter === 'A' || letter === 'C') return 'added'
+  if (letter === 'D') return 'removed'
+  return 'updated'
+}
+
+/**
+ * Parses `git diff --name-status -z` into path → what happened to it.
+ *
+ * The `-z` framing differs from `--numstat`'s and is its own trap: the status is
+ * its own NUL-terminated field (no tab), an ordinary change follows it with one
+ * path, and a rename or copy follows it with TWO — old then new. The entry is
+ * keyed at the NEW path, which is where `--numstat` reports the same file, so
+ * the two readings join.
+ *
+ * A path can repeat: the worktree-vs-index diff of a conflicted file emits it
+ * twice (`U` then `M`). The first wins — `U` is the more specific fact — and
+ * either way both fold to `updated`.
+ */
+export function parseNameStatusZ(stdout: string): Map<string, ChangedFileKind> {
+  const fields = stdout.split('\0')
+  const statuses = new Map<string, ChangedFileKind>()
+
+  let index = 0
+  while (index < fields.length) {
+    const status = fields[index]
+    if (!status) {
+      index += 1
+      continue
+    }
+    const letter = status.trim().charAt(0).toUpperCase()
+    const paired = letter === 'R' || letter === 'C'
+    // A rename/copy spends three fields (status, old, new); everything else two.
+    const path = paired ? fields[index + 2] : fields[index + 1]
+    index += paired ? 3 : 2
+    if (!path) continue
+    if (!statuses.has(path)) statuses.set(path, changedFileKindOf(status))
+  }
+
+  return statuses
+}
+
+/**
+ * Splits a diff's files into the three buckets, driven by the FILE LIST rather
+ * than by the status output.
+ *
+ * That direction is the point: the result then sums to `files.length` by
+ * construction, so `added + updated + removed === changedFiles` cannot drift
+ * even if the two git passes disagree about a path (a threshold difference, a
+ * status letter we do not know). A file the status pass did not place counts as
+ * `updated`, the claim that says least.
+ */
+export function countFileStatuses(
+  files: readonly { path: string }[],
+  statuses: ReadonlyMap<string, ChangedFileKind>
+): ChangedFileCounts {
+  const counts: ChangedFileCounts = { added: 0, updated: 0, removed: 0 }
+  for (const file of files) counts[statuses.get(file.path) ?? 'updated'] += 1
+  return counts
 }

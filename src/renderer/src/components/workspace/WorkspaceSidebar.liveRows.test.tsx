@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom'
 // row's terminal lines — mark · name · branch · ±lines — exist only while
 // the row has an open terminal. Before this, every parked chat on one checkout
 // read the checkout's CURRENT numbers after a restart (ten rows on `multicode`
-// all `+728 −3590`, most of them with no agent alive), because the git poll
+// all `+37 −3`, most of them with no agent alive), because the git poll
 // asked about every row and line 2 rendered whenever a branch came back.
 //
 // This mounts the real sidebar with a stubbed terminal bridge: one live
@@ -76,7 +76,14 @@ domWindow.api = {
   listSprintRuns: async () => [],
   getWorkspaceChangeSummary: async (checkoutPath: string) => {
     summaryRequests.push(checkoutPath)
-    return { branch: 'main', additions: 728, deletions: 3590, changedFiles: 40, scope: 'branch' }
+    return {
+      branch: 'main',
+      additions: 728,
+      deletions: 3590,
+      changedFiles: 40,
+      files: { added: 12, updated: 25, removed: 3 },
+      scope: 'branch',
+    }
   },
 }
 
@@ -176,15 +183,15 @@ async function main(): Promise<void> {
     const alpha = rowMarkup('Alpha')
     assert.match(alpha, /aria-label="[^"]*Claude Code"/, 'the live row wears its terminal line')
     assert.match(alpha, />main</, 'and its branch')
-    assert.match(alpha, /\+728/, 'and the ±lines of the branch it is on')
+    assert.match(alpha, /\+37/, 'and the ± files of the branch it is on — added and updated in one number')
 
     const bravo = rowMarkup('Bravo')
     assert.doesNotMatch(bravo, /aria-label="[^"]*Claude Code"/, 'an exited session is not a line')
     assert.doesNotMatch(bravo, />main</, 'a parked chat on the same checkout shows no branch')
-    assert.doesNotMatch(bravo, /728/, 'and never wears the checkout’s current numbers')
+    assert.doesNotMatch(bravo, /\+37/, 'and never wears the checkout’s current numbers')
 
     const charlie = rowMarkup('Charlie')
-    assert.doesNotMatch(charlie, />main<|728|aria-label="[^"]*Claude Code"/, 'a row that never had a terminal is a one-liner')
+    assert.doesNotMatch(charlie, />main<|\+37|aria-label="[^"]*Claude Code"/, 'a row that never had a terminal is a one-liner')
 
     assert.deepEqual(
       [...new Set(summaryRequests)],

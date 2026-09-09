@@ -24,10 +24,12 @@ const CursorErrorPopover = React.lazy(() =>
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useGitBranch } from '../../hooks/useGitBranch'
-import { gitBadgeMode, useGitLineCounts } from '../../hooks/useGitLineCounts'
 import { useGitStatus } from '../../hooks/useGitStatus'
 import { useTerminalSessions } from '../../hooks/useTerminalSessions'
+import type { GitStatusSnapshot, WorkspaceChangeSummary } from '../../../../shared/electron-api'
 import { followedCheckoutOf } from './followedCheckout'
+import { branchChipCopy, changedFileMarks, changedFilesPhrase, lineDiffOf } from './terminalLines'
+import { checkoutPathFor, useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import CliIcon from '../CliIcon'
 import { selectModuleEnabled } from '../../modules'
@@ -324,6 +326,39 @@ export function OpenWorkspaceFolderButton({ targets }: { targets: FolderOpenTarg
   )
 }
 
+/**
+ * The change summary for the checkout the branch chip describes — the SAME read
+ * the sidebar's lines take (`getWorkspaceChangeSummary`), so the chip and the
+ * line for an agent on this checkout cannot disagree. It replaces the old
+ * `useGitLineCounts` read, which measured the working tree only and in LINES:
+ * the chip now says files, and the branch span is what the line beside it says.
+ *
+ * It refetches on the git status snapshot rather than on a timer, exactly as
+ * the read it replaces did: the watcher already knows when the tree moved.
+ * Everything unreadable is `undefined`, and `lineDiffOf` turns that into a chip
+ * that draws nothing — never into a confident zero.
+ */
+function useCheckoutChangeSummary(
+  checkoutPath: string | null,
+  _status: GitStatusSnapshot | null
+): WorkspaceChangeSummary | undefined {
+  // The SAME shared reading the sidebar's lines poll (useSidebarGitSummaries:
+  // one sweep on mount, every REFRESH_MS, and when the window becomes visible;
+  // main dedupes the read per checkout). It used to be a one-off fetch keyed on
+  // the git-status snapshot, which the file watcher does not always tick for a
+  // working-tree edit — so the chip sat on stale numbers while the line beside
+  // it moved (seen live, 2026-09-09). Chip and line now move together because
+  // they are two readers of one cadence, not two cadences.
+  const entries = React.useMemo(
+    () => (checkoutPath ? [{ id: CHIP_SUMMARY_ID, checkoutPath }] : []),
+    [checkoutPath]
+  )
+  const summaries = useSidebarGitSummaries(entries)
+  return checkoutPath ? summaries[CHIP_SUMMARY_ID] : undefined
+}
+
+const CHIP_SUMMARY_ID = 'workspace-identity-chip'
+
 export function WorkspaceIdentity({
   activeWorkspace,
   activeWorkspaceId,
@@ -364,41 +399,53 @@ export function WorkspaceIdentity({
   const followed = activeWorkspace ? followedCheckoutOf(activeWorkspace, focusedAgentId, terminalSessions) : null
   const gitProbePath = followed?.probePath ?? null
   const gitBranch = useGitBranch(gitProbePath)
-  const {
-    status: gitFileStatus,
-    repoState: gitRepoState,
-    repoRoot: gitRepoRoot,
-  } = useGitStatus(gitProbePath)
-  // ±lines for the button's badge. Porcelain status has no line counts, so this
-  // is a second read — the same `getGitRowSummary` the sidebar row uses, keyed
-  // off the status snapshot so it moves when the tree does.
-  const gitLineCounts = useGitLineCounts(gitRepoRoot, gitFileStatus)
+  // The watcher's snapshot is the chip's refresh signal, not its numbers: it
+  // knows when the tree moved, and the change summary is what says by how much.
+  const { status: gitFileStatus } = useGitStatus(gitProbePath)
+  // The chip's numbers, from the SAME summary the sidebar's lines read: the
+  // branch's span, or what the checkout still carries once that branch landed.
+  // Owner, 2026-09-09: they are FILES — "+5 −2" is five files added or updated
+  // and two removed — because that is the question the summary level answers;
+  // the per-file line counts live where a single file is in view (the
+  // conversation peek's rows and the diff viewer).
+  const gitSummary = useCheckoutChangeSummary(gitProbePath, gitFileStatus)
   const branchIsRepo = followed?.isRepo ?? gitBranch.isRepo
   const branchName = followed?.branch ?? gitBranch.branch
-  // Who the chip is following, for its mark and its words; null means the
+  // Who the chip is describing, for its mark and its words; null means the
   // workspace's own checkout, said the way it always was.
   const followedAgent = followed?.agent ?? null
-  const followingSpoken = followedAgent ? `, following ${followedAgent.name}` : ''
-  // The git change count that used to badge the (now-removed) Git panel switch
-  // rides the branch chip instead — the branch is where "how much has changed"
-  // belongs. Same source as the old badge: files in the worktree's status, shown
-  // only once the repo has resolved and has uncommitted changes.
-  const gitChangeCount = Object.keys(gitFileStatus?.files ?? {}).length
-  const gitHasChanges = gitRepoState === 'ready' && gitChangeCount > 0
-  // Owner, 2026-09-04: the badge counted FILES, which answers a question nobody
-  // asks — four files can be a rename or a rewrite. It shows ±lines now, in the
-  // sidebar row's tone ink, so the two diff sizes in the chrome read alike.
-  // A dirty tree whose every change is untracked has files but no ±lines
-  // (`diff` cannot see untracked content), so the file count stays the
-  // fallback rather than the button going blank on a brand-new file.
-  const gitBadge = gitBadgeMode({ hasChanges: gitHasChanges, ...gitLineCounts })
-  const gitHasLineCounts = gitBadge === 'lines'
-  const gitChangeLabel = String(Math.min(gitChangeCount, 999))
-  const gitChangeSpoken = gitHasLineCounts
-    ? `, ${gitLineCounts.additions} added, ${gitLineCounts.deletions} removed`
-    : gitHasChanges
-      ? `, ${gitChangeCount} uncommitted ${gitChangeCount === 1 ? 'change' : 'changes'}`
-      : ''
+  // The pull requests the followed agent's terminals carry, so the chip reaches
+  // the `landed` scope exactly when its line does: a squash-merged branch shows
+  // what the checkout still carries in BOTH places, or neither.
+  const followedPullRequests = React.useMemo(
+    () =>
+      followedAgent && activeWorkspaceId
+        ? terminalSessions
+            .filter((session) => session.workspaceId === activeWorkspaceId && session.agentId === followedAgent.agentId)
+            .flatMap((session) => session.pullRequests ?? [])
+        : [],
+    [terminalSessions, activeWorkspaceId, followedAgent]
+  )
+  const gitDiff = lineDiffOf(gitSummary, followedPullRequests)
+  // Absent counts draw NOTHING (a main that predates the breakdown, a span git
+  // could not read): the numbers here mean files, and falling back to the line
+  // counts would be a different unit wearing the same clothes.
+  const gitMarks = gitDiff.files ? changedFileMarks(gitDiff.files) : null
+  const gitHasCounts = gitMarks !== null && (gitMarks.plus > 0 || gitMarks.minus > 0)
+  // The chip names the agent only where the checkout is the agent's OWN
+  // worktree: on the workspace's own checkout there is nobody to credit — a
+  // person and any number of terminals share it — and naming one agent there
+  // would claim the tree's changes for them.
+  const ownCheckoutPath = activeWorkspace ? checkoutPathFor(activeWorkspace) : null
+  const agentWorktree = followedAgent !== null && gitProbePath !== null && gitProbePath !== ownCheckoutPath
+  const chipCopy = branchChipCopy({
+    branch: branchName,
+    agent:
+      agentWorktree && followedAgent
+        ? { name: followedAgent.name, runtime: followedAgent.cli ? labelForCliRuntime(followedAgent.cli) : null }
+        : null,
+    files: gitDiff.files,
+  })
   // The header identity segments double as panel shortcuts: the folder path
   // toggles the file explorer and the branch toggles the Git panel — same
   // open/close-on-second-click semantics as the Backlog panel switch. Only
@@ -450,35 +497,29 @@ export function WorkspaceIdentity({
   // stays the project root because the Files panel is rooted there.
   // Drawn once for both spellings of this control (the Git-panel button and the
   // read-only span when the panel module is off), so they can never drift.
-  const gitCountBadge = gitHasLineCounts ? (
+  const gitCountBadge = gitHasCounts && gitMarks ? (
     <span
       aria-hidden="true"
       className="ml-0.5 shrink-0 font-mono text-micro font-semibold leading-none tabular-nums"
     >
-      <span className="text-[color:var(--tone-good)]">+{gitLineCounts.additions}</span>
-      <span className="ml-1 text-[color:var(--tone-error)]">−{gitLineCounts.deletions}</span>
-    </span>
-  ) : gitBadge === 'files' ? (
-    <span
-      aria-hidden="true"
-      className="ml-0.5 flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1.5 text-micro font-semibold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
-    >
-      {gitChangeLabel}
+      <span className="text-[color:var(--tone-good)]">+{gitMarks.plus}</span>
+      <span className="ml-1 text-[color:var(--tone-error)]">−{gitMarks.minus}</span>
     </span>
   ) : null
   // The followed agent's runtime mark, ahead of the branch glyph, so "whose
   // branch" reads at a glance; decorative here — the control's words carry the
-  // name (`followingSpoken`), and the chip's tooltip names it in full.
+  // name (`chipCopy.spoken`), and the chip's tooltip names it in full.
   const followedMark = followedAgent?.cli ? (
     <span aria-hidden="true" className="flex shrink-0 items-center text-[color:var(--text-subtle)]">
       <CliIcon cli={followedAgent.cli} className="icon-xs" />
     </span>
   ) : null
-  const branchTooltip = followedAgent
-    ? `${branchName ?? 'Detached HEAD'} · following ${followedAgent.name}${
-        followedAgent.cli ? ` (${labelForCliRuntime(followedAgent.cli)})` : ''
-      } — select another tab to follow it`
-    : branchName ?? 'Detached HEAD'
+  // The chip says WHAT you are looking at and nothing else (owner, 2026-09-09):
+  // the branch, the agent whose own worktree it is, and how many files that
+  // checkout carries. The old tooltip ended "select another tab to follow it" —
+  // an instruction taped to a fact, in the one place a person is reading the
+  // header to answer "where am I?".
+  const branchTooltip = chipCopy.tooltip
 
   const openPath = gitProbePath
 
@@ -516,11 +557,9 @@ export function WorkspaceIdentity({
       const branchRowLabel = branchName ?? 'detached'
       overflowItems.push({
         id: 'identity-git',
-        label: gitHasLineCounts
-          ? `Git — ${branchRowLabel} (+${gitLineCounts.additions} −${gitLineCounts.deletions})`
-          : gitHasChanges
-            ? `Git — ${branchRowLabel} (${gitChangeCount} changed)`
-            : `Git — ${branchRowLabel}`,
+        label: gitHasCounts && gitDiff.files
+          ? `Git — ${branchRowLabel} (${changedFilesPhrase(gitDiff.files)})`
+          : `Git — ${branchRowLabel}`,
         icon: <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />,
         onSelect: toggleGitPanel,
       })
@@ -706,7 +745,7 @@ export function WorkspaceIdentity({
             <GhostButton
               size="inline"
               onClick={toggleGitPanel}
-              aria-label={`${branchName ? `Toggle Git panel, branch ${branchName}` : 'Toggle Git panel, detached HEAD'}${followingSpoken}${gitChangeSpoken}`}
+              aria-label={`${branchName ? `Toggle Git panel, branch ${branchName}` : 'Toggle Git panel, detached HEAD'}${chipCopy.spoken}`}
               className="app-no-drag min-w-0"
             >
               {followedMark}
@@ -727,8 +766,7 @@ export function WorkspaceIdentity({
               {/* aria-hidden on the badge above: the numbers read visually, and
                   the words ride along here for AT — the same split the sidebar
                   row's diff stat uses. */}
-              {followingSpoken ? <span className="sr-only">{followingSpoken}</span> : null}
-              {gitChangeSpoken ? <span className="sr-only">{gitChangeSpoken}</span> : null}
+              {chipCopy.spoken ? <span className="sr-only">{chipCopy.spoken}</span> : null}
             </span>
           </Tooltip>
         )
