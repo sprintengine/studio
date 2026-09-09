@@ -1,5 +1,7 @@
 import { ipcRenderer } from 'electron'
 import type { RepositoryIdentity } from '../../shared/repository-identity'
+import type { GitFileHunksResult, GitHunkRef, GitHunkScope } from '../../shared/git/hunks'
+import type { Changelist } from '../../shared/git/changelists'
 import type {
   ElectronApi,
   GitHubCloneInput,
@@ -17,6 +19,8 @@ import type {
   GitRepoOperation,
   GitResetMode,
   GitStashListSnapshot,
+  GitPatchResult,
+  GitPatchSaveResult,
   GitRowSummary,
   BranchStepDiff,
   BranchStepSelection,
@@ -65,6 +69,12 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-conflict-file', repoRoot, filePath),
   resolveGitConflict: (repoRoot: string, filePath: string, content: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:resolve-conflict', repoRoot, filePath, content),
+  getGitFileHunks: (repoRoot: string, filePath: string, scope: GitHunkScope): Promise<GitFileHunksResult> =>
+    ipcRenderer.invoke('git:get-file-hunks', repoRoot, filePath, scope),
+  stageGitHunk: (ref: GitHunkRef): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:stage-hunk', ref),
+  unstageGitHunk: (ref: GitHunkRef): Promise<GitCommandResult> =>
+    ipcRenderer.invoke('git:unstage-hunk', ref),
   stageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:stage', repoRoot, paths),
   unstageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
@@ -123,6 +133,30 @@ export const gitApi = {
     ipcRenderer.invoke('git:worktree:remove', input),
   pruneGitWorktrees: (repoRoot: string): Promise<GitWorktreeOperationResult<GitCommandResult>> =>
     ipcRenderer.invoke('git:worktree:prune', repoRoot),
+  // Changelists and patches (git-commit-window T6). Every changelist call
+  // answers with the whole reconciled set, so the panel re-renders from one
+  // value instead of patching its own copy.
+  getGitChangelists: (repoRoot: string): Promise<Changelist[]> =>
+    ipcRenderer.invoke('git:changelists:get', repoRoot),
+  setActiveGitChangelist: (repoRoot: string, id: string): Promise<Changelist[]> =>
+    ipcRenderer.invoke('git:changelists:set-active', repoRoot, id),
+  createGitChangelist: (
+    repoRoot: string,
+    input: { name: string; comment?: string; activate?: boolean; paths?: string[] }
+  ): Promise<Changelist[]> => ipcRenderer.invoke('git:changelists:create', repoRoot, input),
+  renameGitChangelist: (
+    repoRoot: string,
+    id: string,
+    input: { name: string; comment?: string }
+  ): Promise<Changelist[]> => ipcRenderer.invoke('git:changelists:rename', repoRoot, id, input),
+  deleteGitChangelist: (repoRoot: string, id: string): Promise<Changelist[]> =>
+    ipcRenderer.invoke('git:changelists:delete', repoRoot, id),
+  moveGitChangelistPaths: (repoRoot: string, id: string, paths: string[]): Promise<Changelist[]> =>
+    ipcRenderer.invoke('git:changelists:move-paths', repoRoot, id, paths),
+  createGitPatch: (repoRoot: string, paths: string[], cached?: boolean): Promise<GitPatchResult> =>
+    ipcRenderer.invoke('git:create-patch', repoRoot, paths, cached),
+  saveGitPatch: (repoRoot: string, patch: string, defaultFileName?: string): Promise<GitPatchSaveResult> =>
+    ipcRenderer.invoke('git:save-patch', repoRoot, patch, defaultFileName),
   getGitHubTokenStatus: (): Promise<GitHubTokenStatus> =>
     ipcRenderer.invoke('github:token-status'),
   setGitHubToken: (token: string): Promise<GitHubTokenStatus> =>
@@ -150,6 +184,9 @@ export const gitApi = {
   | 'getGitCommitGraph'
   | 'getGitConflictFile'
   | 'resolveGitConflict'
+  | 'getGitFileHunks'
+  | 'stageGitHunk'
+  | 'unstageGitHunk'
   | 'stageGitPaths'
   | 'unstageGitPaths'
   | 'revertGitPaths'
@@ -179,6 +216,14 @@ export const gitApi = {
   | 'createGitWorktree'
   | 'removeGitWorktree'
   | 'pruneGitWorktrees'
+  | 'getGitChangelists'
+  | 'setActiveGitChangelist'
+  | 'createGitChangelist'
+  | 'renameGitChangelist'
+  | 'deleteGitChangelist'
+  | 'moveGitChangelistPaths'
+  | 'createGitPatch'
+  | 'saveGitPatch'
   | 'getGitHubTokenStatus'
   | 'setGitHubToken'
   | 'clearGitHubToken'

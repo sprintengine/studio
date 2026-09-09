@@ -1,10 +1,24 @@
 import type { IpcMain } from 'electron'
+import { writeFile } from 'fs/promises'
+import { join } from 'path'
 import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import { readRepositoryIdentity } from '../repository-identity'
 import type { GitFileStage, GitRepoOperation, GitResetMode } from '../git'
 import type { BranchStepSelection } from '../../shared/electron-api'
 import { checkIgnoredPaths } from '../git-ignore'
+import { readFileHunks, stageGitHunk, unstageGitHunk } from '../git-hunks'
+import type { GitHunkRef, GitHunkScope } from '../../shared/git/hunks'
+// Changelists and patches (git-commit-window T6).
+import {
+  createGitChangelist,
+  deleteGitChangelist,
+  getGitChangelists,
+  moveGitChangelistPaths,
+  renameGitChangelist,
+  setActiveGitChangelist,
+} from '../git-changelists'
+import { createGitPatch, suggestedPatchFileName } from '../git-patch'
 import {
   abortGitOperation,
   applyGitStash,
@@ -57,7 +71,15 @@ type IpcDiagnostics = {
   ): Promise<T>
 }
 
-export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): void {
+/** Where the changelist store writes. Handed in rather than resolved here so
+ *  this module stays free of `electron.app` and the store stays testable. */
+export type GitIpcPaths = { userDataDir: string }
+
+export function registerGitIpc(
+  ipcMain: IpcMain,
+  diagnostics: IpcDiagnostics,
+  paths: GitIpcPaths = { userDataDir: '' }
+): void {
   ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () => getGitRepoRoot(folderPath))
   })
@@ -170,6 +192,28 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
 
   ipcMain.handle('git:unstage', async (_, repoRoot: string, paths: string[]) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'unstage', { repoRoot, pathCount: paths.length }, () => unstageGitPaths(repoRoot, paths))
+  })
+
+  // Per-hunk staging (git-commit-window T7). The renderer NAMES a hunk — the
+  // scope it was read in, its position as a hint and a fingerprint of its body
+  // — and never sends a patch: main reads the diff again and writes the patch
+  // itself, so nothing that crossed this boundary reaches `git apply`.
+  ipcMain.handle('git:get-file-hunks', async (_, repoRoot: string, filePath: string, scope: GitHunkScope) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-hunks', { repoRoot, filePath, scope }, () =>
+      readFileHunks(repoRoot, filePath, scope)
+    )
+  })
+
+  ipcMain.handle('git:stage-hunk', async (_, ref: GitHunkRef) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'stage-hunk', { repoRoot: ref.repoRoot, filePath: ref.filePath, index: ref.index }, () =>
+      stageGitHunk(ref)
+    )
+  })
+
+  ipcMain.handle('git:unstage-hunk', async (_, ref: GitHunkRef) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'unstage-hunk', { repoRoot: ref.repoRoot, filePath: ref.filePath, index: ref.index }, () =>
+      unstageGitHunk(ref)
+    )
   })
 
   ipcMain.handle('git:revert', async (_, repoRoot: string, paths: string[]) => {
@@ -298,5 +342,96 @@ export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics): v
 
   ipcMain.handle('git:worktree:prune', async (_, repoRoot: string) => {
     return pruneGitWorktrees(repoRoot)
+  })
+
+  // --- Changelists and patches (git-commit-window T6) ------------------------
+  // A changelist is the app's own named set of paths, per repository; the store
+  // (src/main/git-changelists.ts) prunes against `git status` on every one of
+  // these, so every answer below is already reconciled with the working tree.
+  // Each returns the WHOLE list set rather than an ok/error, because the panel
+  // re-renders from it and a partial answer would leave two truths on screen.
+  ipcMain.handle('git:changelists:get', async (_, repoRoot: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-get', { repoRoot }, () =>
+      getGitChangelists(paths.userDataDir, repoRoot)
+    )
+  })
+
+  ipcMain.handle('git:changelists:set-active', async (_, repoRoot: string, id: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-set-active', { repoRoot, id }, () =>
+      setActiveGitChangelist(paths.userDataDir, repoRoot, id)
+    )
+  })
+
+  ipcMain.handle(
+    'git:changelists:create',
+    async (_, repoRoot: string, input: { name: string; comment?: string; activate?: boolean; paths?: string[] }) => {
+      return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-create', { repoRoot }, () =>
+        createGitChangelist(paths.userDataDir, repoRoot, input)
+      )
+    }
+  )
+
+  ipcMain.handle(
+    'git:changelists:rename',
+    async (_, repoRoot: string, id: string, input: { name: string; comment?: string }) => {
+      return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-rename', { repoRoot, id }, () =>
+        renameGitChangelist(paths.userDataDir, repoRoot, id, input)
+      )
+    }
+  )
+
+  ipcMain.handle('git:changelists:delete', async (_, repoRoot: string, id: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-delete', { repoRoot, id }, () =>
+      deleteGitChangelist(paths.userDataDir, repoRoot, id)
+    )
+  })
+
+  ipcMain.handle('git:changelists:move-paths', async (_, repoRoot: string, id: string, filePaths: string[]) => {
+    return diagnostics.withIpcDiagnostics(
+      'GitIPC',
+      'changelists-move-paths',
+      { repoRoot, id, pathCount: filePaths.length },
+      () => moveGitChangelistPaths(paths.userDataDir, repoRoot, id, filePaths)
+    )
+  })
+
+  // The patch text comes from `git diff`, never from the renderer's rows — the
+  // panel has paths and nothing else, and a patch assembled from what a list
+  // was showing is a patch `git apply` refuses.
+  ipcMain.handle('git:create-patch', async (_, repoRoot: string, filePaths: string[], cached?: boolean) => {
+    return diagnostics.withIpcDiagnostics(
+      'GitIPC',
+      'create-patch',
+      { repoRoot, pathCount: filePaths.length, cached: cached === true },
+      () => createGitPatch(repoRoot, filePaths, { cached })
+    )
+  })
+
+  // Save-as for the same text. The dialog belongs to main because the window it
+  // must be modal to does.
+  ipcMain.handle('git:save-patch', async (event, repoRoot: string, patch: string, defaultFileName?: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'save-patch', { repoRoot, length: patch.length }, async () => {
+      const { BrowserWindow, dialog } = await import('electron')
+      const owner = BrowserWindow.fromWebContents(event.sender)
+      const suggestion = defaultFileName || suggestedPatchFileName(repoRoot)
+      const result = owner
+        ? await dialog.showSaveDialog(owner, {
+            title: 'Create patch',
+            defaultPath: join(repoRoot, suggestion),
+            filters: [{ name: 'Patch', extensions: ['patch', 'diff'] }],
+          })
+        : await dialog.showSaveDialog({
+            title: 'Create patch',
+            defaultPath: join(repoRoot, suggestion),
+            filters: [{ name: 'Patch', extensions: ['patch', 'diff'] }],
+          })
+      if (result.canceled || !result.filePath) return { ok: true, path: null, message: null }
+      try {
+        await writeFile(result.filePath, patch, 'utf-8')
+        return { ok: true, path: result.filePath, message: null }
+      } catch (error) {
+        return { ok: false, path: null, message: error instanceof Error ? error.message : String(error) }
+      }
+    })
   })
 }

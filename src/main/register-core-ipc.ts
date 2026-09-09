@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
@@ -127,11 +128,18 @@ export function registerCoreIpc(
   })
   registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
   registerBacklogIpc(ipcMain)
-  registerGitIpc(ipcMain, {
-    enabled: diagnosticsEnabled,
-    logMainPerfEvent: services.logMainPerfEvent,
-    withIpcDiagnostics: services.withIpcDiagnostics,
-  })
+  registerGitIpc(
+    ipcMain,
+    {
+      enabled: diagnosticsEnabled,
+      logMainPerfEvent: services.logMainPerfEvent,
+      withIpcDiagnostics: services.withIpcDiagnostics,
+    },
+    // The changelist store's home. Resolved here rather than inside the git
+    // modules so those stay free of `electron.app` and remain testable against
+    // a temp directory.
+    { userDataDir: app.getPath('userData') }
+  )
   registerVersionControlIpc(ipcMain)
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerGitHubReposIpc(ipcMain, services.githubTokenStore)
