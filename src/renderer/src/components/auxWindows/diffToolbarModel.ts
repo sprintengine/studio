@@ -42,9 +42,17 @@ export type DiffEditorPrefs = {
 export const DEFAULT_DIFF_EDITOR_PREFS: Omit<DiffEditorPrefs, 'diffView'> = {
   hideUnchanged: false,
   wordWrap: false,
-  // Monaco's own default. Whitespace-only lines still count as differences
-  // until the person says otherwise, because a diff that quietly hid some of
-  // them would be lying about the count beside it.
+  // Monaco's own default, and it means what it says: a line whose only change
+  // is leading or trailing whitespace is NOT drawn as a difference. (The
+  // comment here used to claim the opposite, which is worth naming because the
+  // claim mattered — it was the reason nobody noticed the stepper and the
+  // counter had stopped agreeing.)
+  //
+  // The counter is git's, not Monaco's, precisely because of this: `git diff
+  // -U0` has no such setting and counts that line. So the two numbers CAN
+  // differ, and when they do the sentence and the stepper both follow git —
+  // see `includedHunkCount` below and `gitStepsRef` in DiffViewer. Monaco is
+  // left to draw what it thinks is worth reading.
   ignoreTrimWhitespace: true,
 }
 

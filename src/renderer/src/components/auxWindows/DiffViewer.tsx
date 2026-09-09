@@ -48,6 +48,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { writeAuxWindowSetting } from './auxSettingsWrite'
 import { getGitEntry } from '../../hooks/useGitStatus'
 import type { DiffViewMode } from '../../store/slices/settingsSlice'
+import { hunkGutterLine } from '../../../../shared/git/hunks'
 import { HunkGutter, GLYPH_MARGIN_LANE_CENTER, type GlyphMarginHost } from './HunkGutter'
 import { hunkBoxes, hunkFileKey } from './hunkGutterModel'
 import { useFileHunks } from './useFileHunks'
@@ -484,7 +485,16 @@ export function DiffViewer({
   // two things the per-hunk include boxes need (T7). State rather than a ref
   // because the boxes are React's to render and must appear when Monaco does.
   const [gutterHost, setGutterHost] = useState<{ editor: GlyphMarginHost; lane: number } | null>(null)
-  const hunksRef = useRef<Monaco.editor.ILineChange[]>([])
+  // Where the stepper stops, in order down the file. TWO sources, and which is
+  // authoritative is finding 9: the counter reads git's `-U0` hunks while the
+  // stepper read Monaco's `getLineChanges()`, and with `ignoreTrimWhitespace`
+  // on Monaco can find nothing to step through in a file the counter says has
+  // two differences — so ↓ walked straight past it. git's hunks win whenever
+  // git has answered; Monaco's are the fallback for the files git has no hunks
+  // for (a branch step, a file whose read has not landed).
+  const monacoStepsRef = useRef<DiffStep[]>([])
+  const gitStepsRef = useRef<DiffStep[] | null>(null)
+  const diffSteps = (): DiffStep[] => gitStepsRef.current ?? monacoStepsRef.current
   const hunkIndexRef = useRef(0)
   const pendingEdgeRef = useRef<'first' | 'last' | null>(null)
 
@@ -539,7 +549,7 @@ export function DiffViewer({
     loadSeqRef.current += 1
     const token = loadSeqRef.current
     setContent({ state: 'loading' })
-    hunksRef.current = []
+    monacoStepsRef.current = []
     setDifferenceCount(0)
     hunkIndexRef.current = 0
     void loadDiffContent(repoRoot, currentItem).then((next) => {
@@ -596,21 +606,21 @@ export function DiffViewer({
 
   const revealHunk = useCallback((index: number) => {
     const editor = diffEditorRef.current
-    const hunks = hunksRef.current
-    if (!editor || hunks.length === 0) return
-    const clamped = Math.min(Math.max(index, 0), hunks.length - 1)
-    const hunk = hunks[clamped]
+    const steps = diffSteps()
+    if (!editor || steps.length === 0) return
+    const clamped = Math.min(Math.max(index, 0), steps.length - 1)
+    const step = steps[clamped]
     hunkIndexRef.current = clamped
-    // Pure deletions have modifiedEndLineNumber === 0; reveal the original side
-    // there, otherwise reveal the modified side (the diff editor syncs scroll).
-    if (hunk.modifiedEndLineNumber === 0) {
-      editor.getOriginalEditor().revealLineInCenter(Math.max(1, hunk.originalStartLineNumber))
-    } else {
-      const modified = editor.getModifiedEditor()
-      const line = Math.max(1, hunk.modifiedStartLineNumber)
-      modified.revealLineInCenter(line)
-      modified.setPosition({ lineNumber: line, column: 1 })
+    // A pure deletion has no line on the modified side; reveal the original
+    // there, otherwise the modified one (the diff editor syncs scroll).
+    if (step.side === 'original') {
+      editor.getOriginalEditor().revealLineInCenter(step.line)
+      return
     }
+    const modified = editor.getModifiedEditor()
+    modified.revealLineInCenter(step.line)
+    modified.setPosition({ lineNumber: step.line, column: 1 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleDiffMount = useCallback<DiffOnMount>(
@@ -659,13 +669,13 @@ export function DiffViewer({
       )
       editor.onDidUpdateDiff(() => {
         const changes = editor.getLineChanges() ?? []
-        hunksRef.current = changes
+        monacoStepsRef.current = changes.map(monacoStep)
         // The toolbar's counter reads this; the ref alone cannot re-render it.
         setDifferenceCount(changes.length)
         const pending = pendingEdgeRef.current
         if (pending) {
           pendingEdgeRef.current = null
-          revealHunk(resolveEdgeHunkIndex(pending, changes.length))
+          revealHunk(resolveEdgeHunkIndex(pending, diffSteps().length))
         } else {
           revealHunk(hunkIndexRef.current)
         }
@@ -680,7 +690,7 @@ export function DiffViewer({
       const move = nextDiffPosition(
         { fileIndex: currentIndex, hunkIndex: hunkIndexRef.current },
         direction,
-        hunksRef.current.length,
+        diffSteps().length,
         items.length
       )
       if (move.type === 'none') return
@@ -980,6 +990,14 @@ export function DiffViewer({
     [fileHunks.hunks, fileHunks.override, currentItem?.kind, currentItem?.path, currentItem?.relativePath]
   )
 
+  // The stepper's stops, from the same hunks the boxes and the counter come
+  // from — so "2 differences" and two presses of ↓ are the same two. Null when
+  // git has not counted this file (a branch step, a binary, a read still in
+  // flight), and Monaco's changes stand in.
+  gitStepsRef.current = fileHunks.summary
+    ? fileHunks.hunks.map((hunk) => ({ line: hunkGutterLine(hunk), side: 'modified' as const }))
+    : null
+
   // The band belongs to the FILE on screen. A failure about the last one is not
   // a fact about this one, and leaving it up made the window look broken on a
   // file that was perfectly fine. Declared before the mirror below so that a
@@ -1021,9 +1039,10 @@ export function DiffViewer({
   }, [currentItem, variant, workspaceId])
 
   // ── The counter ─────────────────────────────────────────────────────────
-  // `hunksRef` is a ref (Monaco writes it from a callback), so the count is
-  // mirrored into state on every diff update to give the sentence something to
-  // re-render on.
+  // Monaco's count, mirrored from the ref it writes into a callback so the
+  // sentence has something to re-render on. It is only the FALLBACK total:
+  // `differenceCounterLabel` prefers git's, which is also what the stepper
+  // walks (`gitStepsRef`), so the words and the arrows count the same things.
   const [differenceCount, setDifferenceCount] = useState(0)
   const counterLabel = differenceCounterLabel({
     item: currentItem,
@@ -1310,4 +1329,15 @@ export function DiffViewer({
 
 function keyFor(item: DiffFileItem | undefined): string | null {
   return item ? `${item.kind}:${item.path}` : null
+}
+
+/** One stop for the change stepper: a line, and which editor it is a line of. */
+type DiffStep = { line: number; side: 'original' | 'modified' }
+
+/** Monaco's own idea of a change, as a stop. Used only when git has none to
+ *  give — see `gitStepsRef`. */
+function monacoStep(change: Monaco.editor.ILineChange): DiffStep {
+  return change.modifiedEndLineNumber === 0
+    ? { line: Math.max(1, change.originalStartLineNumber), side: 'original' }
+    : { line: Math.max(1, change.modifiedStartLineNumber), side: 'modified' }
 }
