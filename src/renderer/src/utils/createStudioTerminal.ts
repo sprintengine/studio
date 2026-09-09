@@ -2,11 +2,15 @@ import { Terminal } from '@xterm/xterm'
 import type { IDisposable, ILinkHandler } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../shared/terminal-history'
-import { TERMINAL_CELL_GEOMETRY_OPTIONS } from '../../../shared/terminal-options'
+import {
+  TERMINAL_CELL_GEOMETRY_OPTIONS,
+  TERMINAL_UNICODE_VERSION,
+} from '../../../shared/terminal-options'
 import { MONO_FONT_STACK } from './fonts'
 import { logPerfEvent } from './perfDiagnostics'
 import { bindTerminalTheme, getTerminalTheme } from './terminalTheme'
@@ -24,8 +28,9 @@ import {
  * diverges between them. Before this, four sites each held their own copy of
  * the same option literal.
  *
- * What this owns: the option block, the theme (and its live re-tint binding),
- * the font, the scrollback, the fit addon, the web-links addon, the WebGL
+ * What this owns: the option block, the Unicode width table, the theme (and
+ * its live re-tint binding), the font, the scrollback, the fit addon, the
+ * web-links addon, the WebGL
  * renderer and its context-loss fallback, the `linkHandler` slot that OSC 8
  * hyperlinks will fill, and OSC handler registration.
  *
@@ -160,6 +165,16 @@ export function createStudioTerminal({
     ...(disableStdin === undefined ? {} : { disableStdin }),
     ...(linkHandler === undefined ? {} : { linkHandler }),
   })
+
+  // Before anything is written: the width table decides where every row wraps,
+  // and rows already in the buffer are not re-measured when it changes. Loaded
+  // here rather than by each pane because the MAIN process's headless replay
+  // terminal applies the same two lines (`terminal-replay-snapshot.ts`) — if
+  // one side registers version 11 and the other stays on xterm's default 6, an
+  // emoji is two columns on one side and one on the other, and a replayed
+  // screen reflows away from the screen the user was looking at.
+  terminal.loadAddon(new Unicode11Addon())
+  terminal.unicode.activeVersion = TERMINAL_UNICODE_VERSION
 
   const unbindTerminalTheme = bindTerminalTheme(terminal)
 

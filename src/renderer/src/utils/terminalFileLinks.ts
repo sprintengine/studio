@@ -16,6 +16,23 @@ export type TerminalFileLinkSegment = {
   startIndex: number
   startColumn: number
   text: string
+  /**
+   * The terminal column (1-based) each UTF-16 code unit of `text` was read
+   * from.
+   *
+   * Not derivable from `startColumn + offset`, which is what this replaced: a
+   * cell is not a code unit. Under Unicode 11 an emoji is TWO columns and two
+   * code units (accidentally aligned), while a CJK character is two columns
+   * and ONE code unit, and a plain empty cell is one column and one code unit
+   * — so a single `世` in a line shifts every link range after it left by a
+   * cell. The user then sees the underline on the wrong characters and clicks
+   * a path that is not there.
+   *
+   * Optional because `readWrappedLogicalLine` is not the only way a segment is
+   * built in tests; absent, `positionForOffset` falls back to the old
+   * arithmetic, which is exact for any line of narrow BMP characters.
+   */
+  columns?: number[]
 }
 
 type TerminalFileLinkActivateInput = {
@@ -249,8 +266,12 @@ function positionForOffset(
   for (const segment of segments) {
     const segmentEnd = segment.startIndex + segment.text.length
     if (offset >= segment.startIndex && offset < segmentEnd) {
+      const withinSegment = offset - segment.startIndex
       return {
-        x: offset - segment.startIndex + segment.startColumn,
+        // The cell the character actually came from, when the segment was read
+        // off real buffer cells. The arithmetic fallback is only correct while
+        // every character is one column wide — see `columns`.
+        x: segment.columns?.[withinSegment] ?? withinSegment + segment.startColumn,
         y: segment.y,
       }
     }
@@ -270,6 +291,74 @@ function lineReachesRightEdge(line: IBufferLine, cols: number): boolean {
 function trailingTokenHasSeparator(lineText: string): boolean {
   const trailingToken = lineText.trimEnd().split(/\s+/u).at(-1) ?? ''
   return PATH_SEPARATOR_PATTERN.test(trailingToken)
+}
+
+/**
+ * A row's text, and the 1-based terminal column each of its UTF-16 code units
+ * was read from.
+ *
+ * Why this is not `startColumn + offset`: a cell is not a code unit, and under
+ * Unicode 11 the two come apart in both directions. An emoji is two columns and
+ * two code units; a CJK character is two columns and ONE; a blank cell is one
+ * column and one. So a single wide character earlier in a line shifts every
+ * later link range by a cell, and the user sees the underline on the wrong
+ * characters and clicks a path that is not there.
+ *
+ * Why this is not xterm's own mapping: `BufferLine.translateToString` does take
+ * a fourth `outColumns` argument and fills it with exactly this — but the
+ * public `IBufferLine` an addon receives is an API view whose
+ * `translateToString(trimRight, start, end)` forwards only three arguments, so
+ * the parameter is unreachable from here and passing it silently yields an
+ * empty array. The walk below is therefore a deliberate reimplementation of
+ * that loop, and `terminalWideCharacterLinks.test.ts` pins it against the real
+ * `translateToString` — over wide, astral, combining, blank and trailing-blank
+ * rows of a live xterm buffer — so the two cannot drift apart unnoticed.
+ */
+function readLineWithColumns(
+  line: IBufferLine,
+  trimRight: boolean,
+  startColumn: number,
+  endColumn: number
+): { text: string; columns: number[] } {
+  const cell = line.getCell(startColumn)
+  const end = trimRight ? Math.min(endColumn, trimmedCellLength(line, endColumn)) : endColumn
+
+  const chunks: string[] = []
+  const columns: number[] = []
+  let x = startColumn
+  while (x < end) {
+    const current = line.getCell(x, cell)
+    if (!current) break
+    // A cell the stream never wrote has no codepoint and renders as a space,
+    // exactly as xterm does. Advancing by the cell's WIDTH is what steps over
+    // the placeholder cell that follows a wide character; `|| 1` keeps a
+    // zero-width cell reached head-on from looping forever.
+    const chars = current.getChars() || WHITESPACE_CELL
+    const width = current.getWidth()
+    chunks.push(chars)
+    for (let unit = 0; unit < chars.length; unit += 1) columns.push(x + 1)
+    x += width || 1
+  }
+
+  return { text: chunks.join(''), columns }
+}
+
+const WHITESPACE_CELL = ' '
+
+/**
+ * Where a row's content ends, in CELLS — xterm's `getTrimmedLength`, which is
+ * what `translateToString(true)` clamps to and which the public `IBufferLine`
+ * does not expose. Note it is the index plus the character's WIDTH, so a row
+ * ending in a wide character reports both of its columns.
+ */
+function trimmedCellLength(line: IBufferLine, cols: number): number {
+  const cell = line.getCell(0)
+  for (let x = cols - 1; x >= 0; x -= 1) {
+    const current = line.getCell(x, cell)
+    if (!current) continue
+    if (current.getChars() !== '') return x + current.getWidth()
+  }
+  return 0
 }
 
 export function readWrappedLogicalLine(
@@ -296,16 +385,15 @@ export function readWrappedLogicalLine(
     const line = buffer.getLine(y - 1)
     if (!line) break
     const isLast = y === endY
-    const segmentText = isLast
-      ? line.translateToString(true)
-      : line.translateToString(false, 0, terminal.cols)
+    const row = readLineWithColumns(line, isLast, 0, terminal.cols)
     segments.push({
       y,
       startIndex: text.length,
       startColumn: 1,
-      text: segmentText,
+      text: row.text,
+      columns: row.columns,
     })
-    text += segmentText
+    text += row.text
   }
 
   for (const continuation of readHangingWrapContinuations(terminal, endY, segments.at(-1)?.text ?? '')) {
@@ -340,13 +428,23 @@ function readHangingWrapContinuations(
   while (bottomLine && lineReachesRightEdge(bottomLine, cols)) {
     const nextLine = buffer.getLine(bottomY)
     if (!nextLine || nextLine.isWrapped) break
-    const nextText = nextLine.translateToString(true)
+    const nextRow = readLineWithColumns(nextLine, true, 0, cols)
+    const nextText = nextRow.text
     const continuation = HANGING_CONTINUATION_PATTERN.exec(nextText)
     if (!continuation) break
 
     const indent = continuation[1] ?? ''
     const token = continuation[2] ?? ''
-    continuations.push({ y: bottomY + 1, startColumn: indent.length + 1, text: token })
+    // The token starts after the indent in CODE UNITS; where that lands in
+    // COLUMNS is only the same thing while the indent is plain spaces. Slice
+    // the row's column map rather than counting characters.
+    const tokenColumns = nextRow.columns.slice(indent.length, indent.length + token.length)
+    continuations.push({
+      y: bottomY + 1,
+      startColumn: tokenColumns[0] ?? indent.length + 1,
+      text: token,
+      columns: tokenColumns,
+    })
     bottomY += 1
     bottomLine = nextLine
 

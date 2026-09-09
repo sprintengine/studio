@@ -1,7 +1,11 @@
 import { Terminal } from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 
-import { TERMINAL_CELL_GEOMETRY_OPTIONS } from '../shared/terminal-options'
+import {
+  TERMINAL_CELL_GEOMETRY_OPTIONS,
+  TERMINAL_UNICODE_VERSION,
+} from '../shared/terminal-options'
 
 // Blank-screen fix for suspended agent terminals.
 //
@@ -84,11 +88,22 @@ function renderAndSerialize(data: string, cols: number, rows: number): Promise<s
       ...TERMINAL_CELL_GEOMETRY_OPTIONS,
       cols,
       rows,
-      allowProposedApi: true,
       // Deliberately NOT the panes' scrollback: this snapshot exists to repaint
       // the last screen, and deep history is already covered by the raw replay.
       scrollback: SNAPSHOT_SCROLLBACK_ROWS,
     })
+    // The panes' width table, applied before a byte is written. Under xterm's
+    // default version 6 an emoji is one column; under 11 it is two, so a
+    // snapshot rendered on the default table wraps an agent frame somewhere
+    // else entirely and the replay looks like corruption. `allowProposedApi`
+    // (which `terminal.unicode` requires) now comes from the shared block that
+    // carries the version, so the two cannot be separated by accident.
+    //
+    // The addon is width tables and nothing else — no DOM — which is why it can
+    // be loaded here as well as in the renderer, exactly like SerializeAddon.
+    term.loadAddon(new Unicode11Addon())
+    term.unicode.activeVersion = TERMINAL_UNICODE_VERSION
+
     const serializer = new SerializeAddon()
     term.loadAddon(serializer)
 

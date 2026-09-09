@@ -75,6 +75,8 @@ function makeTerminal(cols: number, lines: MockLine[]): Terminal {
   const padded = lines.map((line) => ({
     isWrapped: line.isWrapped,
     raw: line.text.length >= cols ? line.text.slice(0, cols) : line.text.padEnd(cols, ' '),
+    /** How far the stream actually wrote; past this the cells were never touched. */
+    written: Math.min(line.text.length, cols),
   }))
   const buffer = {
     active: {
@@ -83,14 +85,23 @@ function makeTerminal(cols: number, lines: MockLine[]): Terminal {
         if (!line) return undefined
         return {
           isWrapped: line.isWrapped,
+          length: cols,
           translateToString(trimRight?: boolean, startColumn = 0, endColumn = cols) {
             const slice = line.raw.slice(startColumn, endColumn)
             return trimRight ? slice.replace(/\s+$/u, '') : slice
           },
+          // A cell, not a character: `readWrappedLogicalLine` reads widths to
+          // map string offsets back onto columns, and every character in these
+          // fixtures is narrow. The written/unwritten distinction is xterm's:
+          // a cell the stream never reached reports '' (and is what
+          // trimRight trims to), while a space the stream actually wrote
+          // reports ' '.
           getCell(x: number) {
             if (x < 0 || x >= line.raw.length) return undefined
-            const char = line.raw[x] ?? ''
-            return { getChars: () => char }
+            return {
+              getChars: () => (x < line.written ? (line.raw[x] ?? '') : ''),
+              getWidth: () => 1,
+            }
           },
         }
       },
