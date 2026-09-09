@@ -85,6 +85,8 @@ async function main(): Promise<void> {
       'newest first, with MERGED/CLOSED/OPEN mapped and draft carried as a flag',
     )
     assert.equal(read.pullRequests[0].title, 'Teach the sidebar to say where the work went')
+    assert.equal(read.pullRequests[0].repoKey, 'github.com/acme/app', 'each row says which repository it is in')
+    assert.equal(read.pullRequests[0].repoName, 'app')
     assert.equal(read.pullRequests[0].openedAt, Date.parse('2026-09-08T10:00:00.000Z'))
     assert.equal(read.pullRequests[0].stateAt, NOW, 'stateAt is when GitHub was asked')
     assert.equal(read.pullRequests[0].openedBySessionId, undefined, 'a lookup names no session')
@@ -186,6 +188,11 @@ async function main(): Promise<void> {
       'https://ghe.corp.example.com/acme/app/pull/12',
       'the enterprise host passes through, canonicalised by the one URL parser',
     )
+    assert.equal(
+      read.settled && read.pullRequests[0].repoKey,
+      'ghe.corp.example.com/acme/app',
+      'and its repository key carries the host, so two hosts are two repositories',
+    )
   }
 
   // A row we cannot key or cannot state is skipped; the rest of the answer stands.
@@ -202,17 +209,17 @@ async function main(): Promise<void> {
   // The state re-read, by URL — the watch's probe and hover's refresh.
   // -------------------------------------------------------------------------
   {
-    const { gh, calls } = ghStub(() => ok(JSON.stringify({ state: 'OPEN', isDraft: true, mergedAt: null, closedAt: null })))
+    const { gh, calls } = ghStub(() => ok(JSON.stringify({ state: 'OPEN', isDraft: true, mergedAt: null, closedAt: null, headRefName: 'feature/marks' })))
     const read = await readPullRequestState('https://github.com/acme/app/pull/12/files', { gh, now: () => NOW })
     assert.deepEqual(calls[0].args, [
       'pr',
       'view',
       'https://github.com/acme/app/pull/12',
       '--json',
-      'state,isDraft,mergedAt,closedAt',
+      'state,isDraft,mergedAt,closedAt,headRefName',
     ])
     assert.equal(calls[0].cwd, undefined, 'a URL read needs no checkout')
-    assert.deepEqual(read, { settled: true, state: 'open', isDraft: true, stateAt: NOW })
+    assert.deepEqual(read, { settled: true, state: 'open', isDraft: true, stateAt: NOW, headRefName: 'feature/marks' }, 'the head branch comes back too: it is how a captured pull request learns which branch it is on')
   }
   {
     const { gh } = ghStub(() => ok(JSON.stringify({ state: 'MERGED', isDraft: false, mergedAt: '2026-09-09T09:00:00.000Z', closedAt: '2026-09-09T09:00:00.000Z' })))
@@ -221,6 +228,7 @@ async function main(): Promise<void> {
       state: 'merged',
       isDraft: false,
       stateAt: NOW,
+      headRefName: null,
     })
   }
   {
@@ -230,6 +238,7 @@ async function main(): Promise<void> {
       state: 'closed',
       isDraft: false,
       stateAt: NOW,
+      headRefName: null,
     })
   }
   {

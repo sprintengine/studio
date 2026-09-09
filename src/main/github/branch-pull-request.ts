@@ -28,7 +28,7 @@
 // purpose — "this conversation's branch has these pull requests" — the branch
 // name is the key the person is thinking in.
 
-import type { BranchPullRequest, PullRequestState } from '../../shared/git/pull-request'
+import { pullRequestRepository, type BranchPullRequest, type PullRequestState } from '../../shared/git/pull-request'
 import { canonicalPullRequestUrl, parsePullRequestUrl } from '../../shared/review/pr-url'
 import { isRecord } from '../../shared/records'
 import { sharedGhRunner, type GhRunner } from './gh'
@@ -50,9 +50,14 @@ export type BranchPullRequestsRead =
   | { settled: true; pullRequests: BranchPullRequest[] }
   | { settled: false; reason: PullRequestReadFailure }
 
-/** What a state re-read learned. `stateAt` is the moment GitHub was asked. */
+/**
+ * What a state re-read learned. `stateAt` is the moment GitHub was asked, and
+ * `headRefName` is the branch the pull request is FROM — the only way a pull
+ * request captured from a hook (which knows a URL and nothing else) ever learns
+ * which branch it belongs to (decision 10). Null when GitHub did not say.
+ */
 export type PullRequestStateRead =
-  | { settled: true; state: PullRequestState; isDraft: boolean; stateAt: number }
+  | { settled: true; state: PullRequestState; isDraft: boolean; stateAt: number; headRefName: string | null }
   | { settled: false; reason: PullRequestReadFailure }
 
 /**
@@ -72,7 +77,7 @@ export type BranchPullRequestDeps = {
 
 /** The fields the list read asks `gh` for — one place, so the parser cannot drift from the query. */
 const LIST_FIELDS = 'number,url,title,state,isDraft,createdAt,mergedAt,closedAt'
-const VIEW_FIELDS = 'state,isDraft,mergedAt,closedAt'
+const VIEW_FIELDS = 'state,isDraft,mergedAt,closedAt,headRefName'
 
 /**
  * Every pull request whose head is `branch`, as GitHub knows them — open, merged
@@ -134,7 +139,13 @@ export async function readPullRequestState(
   if (!isRecord(json)) return { settled: false, reason: 'bad-output' }
   const state = readState(json)
   if (!state) return { settled: false, reason: 'bad-output' }
-  return { settled: true, state, isDraft: json.isDraft === true && state === 'open', stateAt: (deps.now ?? Date.now)() }
+  return {
+    settled: true,
+    state,
+    isDraft: json.isDraft === true && state === 'open',
+    stateAt: (deps.now ?? Date.now)(),
+    headRefName: typeof json.headRefName === 'string' && json.headRefName.length > 0 ? json.headRefName : null,
+  }
 }
 
 type GhOutcome = { ok: true; stdout: string } | { ok: false; reason: PullRequestReadFailure }
@@ -188,10 +199,15 @@ function toBranchPullRequest(row: unknown, now: number): BranchPullRequest | nul
   const state = readState(row)
   if (!state) return null
   const number = typeof row.number === 'number' && Number.isInteger(row.number) && row.number > 0 ? row.number : parsed.number
+  const repository = pullRequestRepository(row.url as string)
+  if (!repository) return null
   return {
     // GHES hosts pass through untouched: the canonical form only strips the
     // paste's incidental cruft, it never rewrites the host.
     url: canonicalPullRequestUrl(parsed),
+    // The repository the pull request is in, keyed the way every clone of it is.
+    repoKey: repository.repoKey,
+    repoName: repository.repoName,
     number,
     title: typeof row.title === 'string' ? row.title : '',
     state,

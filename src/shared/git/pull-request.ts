@@ -8,11 +8,24 @@
 // no ancestor of the branch tip on main, so `merge-base --is-ancestor` would
 // call a landed pull request open for ever (decision 8c).
 
+import { canonicalPullRequestUrl, parsePullRequestUrl } from '../review/pr-url'
+import { canonicalRepositoryKey } from '../repository-identity'
+
 export type PullRequestState = 'open' | 'merged' | 'closed'
 
 export type BranchPullRequest = {
   /** Canonical URL, as `parsePullRequestUrl` (src/shared/review/pr-url.ts) would normalise it. */
   url: string
+  /**
+   * The repository the pull request is IN — `host/owner/name`, the key every
+   * clone of it shares (`canonicalRepositoryKey`). Not always the repository the
+   * conversation sits in: an agent that runs `cd ../website && gh pr create`
+   * opens one somewhere else entirely, and the URL is what says where
+   * (decision 10).
+   */
+  repoKey: string
+  /** The repository's short name, for the rows and tooltips that must say which repo. */
+  repoName: string
   number: number
   title: string
   state: PullRequestState
@@ -53,6 +66,55 @@ export function pullRequestStateLabel(pr: Pick<BranchPullRequest, 'state' | 'isD
   if (pr.state === 'merged') return 'merged'
   if (pr.state === 'closed') return 'closed'
   return pr.isDraft ? 'open, draft' : 'open'
+}
+
+/**
+ * The repository a pull request URL names. Built through the one URL parser and
+ * the one repository canonicaliser, so a captured pull request keys exactly the
+ * way a local clone of that repository does and the two join up.
+ */
+export function pullRequestRepository(url: string): { repoKey: string; repoName: string } | null {
+  const parsed = parsePullRequestUrl(url)
+  if (!parsed || 'unsupported' in parsed) return null
+  const repoKey = canonicalRepositoryKey(`https://${parsed.host}/${parsed.owner}/${parsed.repo}`)
+  if (!repoKey) return null
+  const segments = repoKey.split('/').filter((segment) => segment.length > 0)
+  return { repoKey, repoName: segments[segments.length - 1] ?? parsed.repo }
+}
+
+/** The canonical URL for a pull request URL, or null when it is not one. */
+export function canonicalPullRequestUrlOf(url: string): string | null {
+  const parsed = parsePullRequestUrl(url)
+  return !parsed || 'unsupported' in parsed ? null : canonicalPullRequestUrl(parsed)
+}
+
+/**
+ * The list a conversation wears: everything on its own repo and branch, plus
+ * everything it opened itself in any repository (decision 10), de-duplicated by
+ * URL and newest first. The same pull request reached both ways is one row —
+ * the reading that knows more wins: the newer state, and the entry that
+ * remembers which session opened it.
+ */
+export function unionPullRequests(...lists: readonly (readonly BranchPullRequest[])[]): BranchPullRequest[] {
+  const byUrl = new Map<string, BranchPullRequest>()
+  for (const list of lists) {
+    for (const entry of list) {
+      const previous = byUrl.get(entry.url)
+      if (!previous) {
+        byUrl.set(entry.url, entry)
+        continue
+      }
+      const winner = entry.stateAt > previous.stateAt ? entry : previous
+      const other = winner === entry ? previous : entry
+      byUrl.set(
+        entry.url,
+        winner.openedBySessionId || !other.openedBySessionId
+          ? winner
+          : { ...winner, openedBySessionId: other.openedBySessionId },
+      )
+    }
+  }
+  return [...byUrl.values()].sort(newestFirst)
 }
 
 function newestFirst(a: BranchPullRequest, b: BranchPullRequest): number {

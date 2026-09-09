@@ -50,8 +50,22 @@
  *   `gh` subprocess every 32 minutes forever, for as long as the app runs. The bound
  *   applies ONLY to the scan: any change to such a run arrives through
  *   `noteRunChanged` and puts it straight back under watch.
+ *
+ * WHERE THE SCHEDULE ITSELF LIVES. The backoff, the jitter, the coalescing and
+ * the arm/disarm bookkeeping described above moved to
+ * `github/pull-request-watch-poller.ts` when the conversation pull request
+ * record (epic `pull-request-marks`, decision 9) became a second consumer of
+ * exactly this watch. Same table, same jitter, same coalescing window — this
+ * module is now the sprint-run answer to the core's two questions, "is this key
+ * still worth probing" and "probe it", plus the boot scan that is its own.
  */
-import { backoffDelayMs, type ExponentialBackoffOptions } from '../shared/exponentialBackoff'
+import type { ExponentialBackoffOptions } from '../shared/exponentialBackoff'
+import {
+  createPullRequestWatchPoller,
+  PR_WATCH_BACKOFF,
+  PR_WATCH_CHANGE_COALESCE_MS,
+  PR_WATCH_JITTER_RATIO,
+} from './github/pull-request-watch-poller'
 import type { SprintRunSummary } from '../shared/sprintengine/runSummary'
 import type { SprintEngineVcs } from '../shared/sprintengine/run-types'
 import { isRunPullRequestWatchable } from '../shared/sprintengine/vcs'
@@ -59,15 +73,12 @@ import { isRunPullRequestWatchable } from '../shared/sprintengine/vcs'
 /**
  * 1 → 2 → 4 → 8 → 16 → 32 min, then every 32 min. No `stopAtMax`: see the header
  * for why the headless owner keeps probing where the renderer supervisor halted.
+ * The one table, shared with every other pull-request watch.
  */
-export const PR_MERGE_POLL_BACKOFF: ExponentialBackoffOptions = {
-  baseMs: 60_000,
-  factor: 2,
-  maxMs: 32 * 60_000,
-}
+export const PR_MERGE_POLL_BACKOFF: ExponentialBackoffOptions = PR_WATCH_BACKOFF
 
 /** Each delay is multiplied by 1 ± this, so simultaneously-armed runs desynchronize. */
-const PR_MERGE_POLL_JITTER_RATIO = 0.2
+const PR_MERGE_POLL_JITTER_RATIO = PR_WATCH_JITTER_RATIO
 
 /** How stale a run may be and still be picked up by the startup scan (30 days). */
 export const PR_MERGE_POLL_BOOT_SCAN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
@@ -80,7 +91,7 @@ export const PR_MERGE_POLL_BOOT_SCAN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
  * about once per run. Well under the base delay, so a newly-opened pull request
  * still arms long before its first probe would have fired.
  */
-const PR_MERGE_POLL_CHANGE_COALESCE_MS = 30_000
+const PR_MERGE_POLL_CHANGE_COALESCE_MS = PR_WATCH_CHANGE_COALESCE_MS
 
 export type SprintPullRequestMergePollerDeps = {
   /**
@@ -139,149 +150,40 @@ export type SprintPullRequestMergePoller = {
   dispose(): void
 }
 
-type PollEntry = { attempt: number; handle: unknown | null }
-
 export function createSprintPullRequestMergePoller(
   deps: SprintPullRequestMergePollerDeps,
 ): SprintPullRequestMergePoller {
-  const backoff = deps.backoff ?? PR_MERGE_POLL_BACKOFF
-  const jitterRatio = deps.jitterRatio ?? PR_MERGE_POLL_JITTER_RATIO
   const maxAgeMs = deps.bootScanMaxAgeMs ?? PR_MERGE_POLL_BOOT_SCAN_MAX_AGE_MS
-  const coalesceMs = deps.changeCoalesceMs ?? PR_MERGE_POLL_CHANGE_COALESCE_MS
   const now = deps.now ?? (() => Date.now())
-  const random = deps.random ?? Math.random
-  const timers = deps.timers ?? {
-    setTimeout: (handler: () => void, ms: number) => setTimeout(handler, ms),
-    clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-  }
-
-  const entries = new Map<string, PollEntry>()
-  // Serializes the async re-evaluations of one run, so a burst of change
-  // notifications cannot interleave an arm with a disarm for the same path.
-  const evaluations = new Map<string, Promise<void>>()
-  // Change-notification coalescing per run: when it last read, and the trailing
-  // timer holding a notification that arrived inside the window.
-  const lastEvaluatedAt = new Map<string, number>()
-  const trailingEvaluations = new Map<string, unknown>()
-  let started = false
   let disposed = false
 
-  function jittered(delayMs: number): number {
-    if (jitterRatio <= 0) return delayMs
-    // random() ∈ [0,1) → a factor in [1 - ratio, 1 + ratio).
-    return Math.max(0, Math.round(delayMs * (1 + (random() * 2 - 1) * jitterRatio)))
-  }
-
-  function schedule(statePath: string): void {
-    const entry = entries.get(statePath)
-    if (!entry || disposed) return
-    const delay = backoffDelayMs(entry.attempt, backoff)
-    // A non-stopping schedule never exhausts; a caller that configured one that
-    // does gets the renderer's old halt-and-stay-silent behaviour instead of a
-    // crash.
-    if (delay === null) {
-      entry.handle = null
-      return
-    }
-    entry.handle = timers.setTimeout(() => {
-      const armed = entries.get(statePath)
-      if (!armed || armed !== entry || disposed) return
-      armed.handle = null
-      void probeThenReschedule(statePath, armed)
-    }, jittered(delay))
-  }
-
-  async function probeThenReschedule(statePath: string, armed: PollEntry): Promise<void> {
-    try {
-      await deps.probe(statePath)
-    } catch {
-      // Best-effort: a transient gh/git failure just retries on the next step.
-      // A run whose PR is genuinely gone stops via the watchability re-read below.
-    }
-    if (disposed) return
-    // Disarm/re-arm during the in-flight probe wins.
-    if (entries.get(statePath) !== armed) return
-    armed.attempt += 1
-    // The probe just rewrote this run's projection: re-read it rather than keep
-    // probing a run that has now merged. This is what tears the last timer down
-    // and returns the poller to holding none.
-    const watchable = await isWatchable(statePath)
-    if (disposed || entries.get(statePath) !== armed) return
-    if (!watchable) {
-      entries.delete(statePath)
-      return
-    }
-    schedule(statePath)
-  }
-
   async function isWatchable(statePath: string): Promise<boolean> {
+    // An unreadable run is not a run to probe (Fallback Discipline: no guessing
+    // that a PR is open on evidence we could not read). The core treats a throw
+    // the same way; this keeps the intent stated where the read happens.
     try {
       return isRunPullRequestWatchable(await deps.readRunVcs(statePath))
     } catch {
-      // An unreadable run is not a run to probe (Fallback Discipline: no guessing
-      // that a PR is open on evidence we could not read).
       return false
     }
   }
 
-  function arm(statePath: string): void {
-    if (entries.has(statePath) || disposed) return
-    const entry: PollEntry = { attempt: 0, handle: null }
-    entries.set(statePath, entry)
-    schedule(statePath)
-  }
-
-  function disarm(statePath: string): void {
-    const entry = entries.get(statePath)
-    if (!entry) return
-    if (entry.handle !== null) timers.clearTimeout(entry.handle)
-    entries.delete(statePath)
-  }
-
-  // One notification, coalesced: read now if this run has not been read inside
-  // the window, otherwise arm a single trailing read for when the window closes.
-  function evaluateCoalesced(statePath: string): void {
-    if (trailingEvaluations.has(statePath)) return
-    const sinceLast = now() - (lastEvaluatedAt.get(statePath) ?? -Infinity)
-    if (sinceLast >= coalesceMs) {
-      evaluate(statePath)
-      return
-    }
-    trailingEvaluations.set(
-      statePath,
-      timers.setTimeout(() => {
-        trailingEvaluations.delete(statePath)
-        if (disposed || !started) return
-        evaluate(statePath)
-      }, coalesceMs - sinceLast),
-    )
-  }
-
-  // One run, re-read and reconciled against its timer. Queued per path so
-  // overlapping notifications resolve in order.
-  function evaluate(statePath: string): void {
-    lastEvaluatedAt.set(statePath, now())
-    const previous = evaluations.get(statePath) ?? Promise.resolve()
-    const next = previous
-      .catch(() => undefined)
-      .then(async () => {
-        if (disposed || !started) return
-        // An already-armed run keeps its schedule: see `noteRunChanged`.
-        if (entries.has(statePath)) {
-          if (!(await isWatchable(statePath))) disarm(statePath)
-          return
-        }
-        if (await isWatchable(statePath)) arm(statePath)
-      })
-    evaluations.set(statePath, next)
-    void next.finally(() => {
-      if (evaluations.get(statePath) === next) evaluations.delete(statePath)
-    })
-  }
+  const watch = createPullRequestWatchPoller({
+    isWatchable,
+    probe: (statePath) => deps.probe(statePath),
+    // Named here rather than left to the core's defaults, so this module keeps
+    // stating the schedule it documents — they are the same values.
+    backoff: deps.backoff ?? PR_MERGE_POLL_BACKOFF,
+    jitterRatio: deps.jitterRatio ?? PR_MERGE_POLL_JITTER_RATIO,
+    changeCoalesceMs: deps.changeCoalesceMs ?? PR_MERGE_POLL_CHANGE_COALESCE_MS,
+    ...(deps.timers ? { timers: deps.timers } : {}),
+    ...(deps.now ? { now: deps.now } : {}),
+    ...(deps.random ? { random: deps.random } : {}),
+  })
 
   return {
     async start({ listWorkspaceRoots }) {
-      started = true
+      watch.begin()
       const roots = [...listWorkspaceRoots()]
       const report: SprintPullRequestMergePollReport = {
         roots,
@@ -313,28 +215,23 @@ export function createSprintPullRequestMergePoller(
           report.skippedStale.push(run.statePath)
           continue
         }
-        arm(run.statePath)
+        watch.arm(run.statePath)
         report.watching.push(run.statePath)
       }
       return report
     },
 
     noteRunChanged(statePath) {
-      if (!started || disposed) return
-      evaluateCoalesced(statePath)
+      watch.noteChanged(statePath)
     },
 
     watchedStatePaths() {
-      return [...entries.keys()]
+      return watch.watchedKeys()
     },
 
     dispose() {
       disposed = true
-      for (const statePath of [...entries.keys()]) disarm(statePath)
-      for (const handle of trailingEvaluations.values()) timers.clearTimeout(handle)
-      trailingEvaluations.clear()
-      lastEvaluatedAt.clear()
-      evaluations.clear()
+      watch.dispose()
     },
   }
 }

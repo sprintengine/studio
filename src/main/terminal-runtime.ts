@@ -897,6 +897,25 @@ function broadcastTerminalSessionsChanged(): void {
   pendingSessionsBroadcast.unref?.()
 }
 
+/**
+ * A pull request record changed: re-emit the sessions the change reaches (epic
+ * `pull-request-marks`, decision 10). Which sessions those are is the record's
+ * question, not this module's — a session is reached either because it sits on
+ * the repository and branch that changed or because it opened one of the pull
+ * requests in it, possibly in another repository entirely — so the predicate
+ * comes from there. The channel carries the whole session array, so this is the
+ * existing coalesced broadcast; the point of the check is that a change no live
+ * session is on buys no repaint at all.
+ */
+export function notePullRequestRecordChanged(affectsSession: (session: TerminalSession) => boolean): void {
+  for (const session of terminals.values()) {
+    if (session.isDisposed) continue
+    if (!affectsSession(session)) continue
+    broadcastTerminalSessionsChanged()
+    return
+  }
+}
+
 /** Send now whatever is pending — the quit path, and tests that read the wire synchronously. */
 function flushTerminalSessionsBroadcast(): void {
   if (pendingSessionsBroadcast) {

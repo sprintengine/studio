@@ -18,6 +18,7 @@ import {
   parseSessionFileChanges,
   recordSessionFileChange,
   recordSessionStatusLine,
+  setSessionPullRequestReader,
   recordTerminalInput,
   recordTerminalVisibility,
   transitionTerminalActivity,
@@ -55,6 +56,43 @@ function main(): void {
   assertPersistedLedgerIsReadBackAsUntrustedInput()
   assertStatusLineReadingsMergeAndGateTheBroadcast()
   assertPersistedContextUsageIsReadBackAsUntrustedInput()
+  assertSnapshotCarriesThePullRequestRecordsAnswer()
+}
+
+// The snapshot's `pullRequests` come from whatever the app registered as the
+// record reader, and from nothing else: with no record wired — a test, a plain
+// terminal, main before the record exists — every snapshot carries an empty
+// list rather than an absent field.
+function assertSnapshotCarriesThePullRequestRecordsAnswer(): void {
+  const session = createSession({ startedAt: 1_000 })
+  assert.deepEqual(getTerminalSnapshot(session).pullRequests, [], 'no record wired: an empty list, never a guess')
+
+  const pullRequest = {
+    url: 'https://github.com/acme/app/pull/12',
+    repoKey: 'github.com/acme/app',
+    repoName: 'app',
+    number: 12,
+    title: 'Marks',
+    state: 'open' as const,
+    isDraft: false,
+    openedAt: 10,
+    stateAt: 20,
+  }
+  try {
+    setSessionPullRequestReader((asked) => (asked === session ? [pullRequest] : []))
+    assert.deepEqual(getTerminalSnapshot(session).pullRequests, [pullRequest], 'the record\'s answer rides the snapshot')
+
+    setSessionPullRequestReader(() => {
+      throw new Error('the store fell over')
+    })
+    assert.deepEqual(
+      getTerminalSnapshot(session).pullRequests,
+      [],
+      'a store that threw costs a list, never a session',
+    )
+  } finally {
+    setSessionPullRequestReader(null)
+  }
 }
 
 // The per-session file ledger: counts accumulate, the newest edit is at the

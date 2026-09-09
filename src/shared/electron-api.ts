@@ -1,5 +1,6 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type { ObservedCheckout } from './observed-checkout'
+import type { BranchPullRequest } from './git/pull-request'
 import type { ConversationPeek } from './conversation-peek'
 import type { ChatTitleRequest, TextGenerationResult } from './text-generation/contract'
 export type {
@@ -1883,6 +1884,21 @@ export type TerminalSessionSnapshot = {
   // survives an app restart with the session parked, and starts over when the
   // pty is respawned.
   fileChanges: SessionFileChange[]
+  // The pull requests this conversation has, newest first (epic
+  // `pull-request-marks`, decision 10): the union of the ones on the repository
+  // and branch its checkout is observed to be on and the ones it opened itself
+  // in ANY repository (`cd ../website && gh pr create` is a real thing an agent
+  // does), de-duplicated by URL. Main owns the fact — see
+  // `main/pull-request-record.ts` — and the list is empty for a plain terminal,
+  // for a session whose checkout is not resolved yet, and for a branch GitHub
+  // says has none. Nothing is ever drawn from an absent answer: a lookup that
+  // could not be made leaves the last known list standing rather than emptying
+  // it.
+  //
+  // Optional on the wire only because fixtures across the app build a snapshot
+  // literal; every snapshot main sends carries the array. A later phase can
+  // tighten it once those fixtures name the field.
+  pullRequests?: BranchPullRequest[]
   // Subagents this session started and has not seen stop — the count main
   // already keeps to hold a turn end open while background work runs, surfaced
   // so a row can say "3 running" instead of a bare spinner. Zero for plain
@@ -4357,6 +4373,12 @@ export type ElectronApi = {
   // neither), because the card is required to say so rather than look broken.
   // See `shared/conversation-peek.ts`.
   readConversationPeek: (sessionId: string) => Promise<ConversationPeek>
+  // The hover hook for a conversation's pull request marks: main looks the
+  // session's branch up (once per key per hold) and re-reads any state older
+  // than ~60s. Fire-and-forget — the answer arrives as a fresh
+  // `terminal:sessions-changed` carrying the session's `pullRequests`, never as
+  // a return value, so one path owns the fact.
+  refreshPullRequestsForSession: (sessionId: string) => Promise<void>
   // Open an attachment the peek just handed out: an image goes to the OS image
   // viewer, a file is revealed in the file manager. Takes the attachment's id,
   // never a path — main resolves it against the peek it produced, so a renderer

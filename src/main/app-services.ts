@@ -97,8 +97,16 @@ import { listGitWorktrees } from './git-worktree-list'
 import { readRepositoryIdentity } from './repository-identity'
 import { agentWorktreePaths } from '../shared/worktree-paths'
 import { createConversationPeek } from './conversation-peek/io'
-import { cliResumeCapabilities, createTerminalRuntime, listTerminalRoots, resolveSpawnEventSink } from './terminal-runtime'
+import {
+  cliResumeCapabilities,
+  createTerminalRuntime,
+  listTerminalRoots,
+  notePullRequestRecordChanged,
+  resolveSpawnEventSink,
+} from './terminal-runtime'
+import { setSessionPullRequestReader } from './terminal-session'
 import { createAgentChangelistFeed } from './agent-changelist-feed'
+import { createPullRequestRecord } from './pull-request-record'
 import { createBrowserManager } from './browser/browser-manager'
 import { createBrowserControl } from './browser/browser-control'
 import { createBrowserTools } from './automation/browser-tools'
@@ -431,6 +439,38 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return { ok: false, retryable: false, message: result.message }
     },
   })
+  // The conversation pull request record (epic `pull-request-marks`, decision
+  // 10): main owns which pull requests a conversation has and what state each is
+  // in, keyed by REPOSITORY (`host/owner/name`) and branch — a pull request an
+  // agent opened in another repo belongs to that repo, not to the checkout the
+  // session happens to sit in. A change re-emits the sessions it reaches over
+  // the terminal snapshot channel they already ride.
+  const pullRequestRecord = createPullRequestRecord({
+    userDataDir: app.getPath('userData'),
+    sessions: {
+      get: (sessionId) =>
+        terminalRuntime.ipcHandlers.listTerminals().find((session) => session.sessionId === sessionId) ?? null,
+      list: () => terminalRuntime.ipcHandlers.listTerminals(),
+    },
+    onRecordChanged: (change) =>
+      notePullRequestRecordChanged((session) => pullRequestRecord.changeAffectsSession(change, session)),
+    logWarning: (message, error) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'terminal',
+        title: 'Pull request record',
+        message,
+        details: error instanceof Error ? error.stack ?? error.message : String(error),
+      })
+    },
+  })
+  // The snapshot's `pullRequests` field is filled from here, and nowhere else.
+  setSessionPullRequestReader((session) => pullRequestRecord.listForSession(session))
+  // Coming back to the app is the cheapest moment to notice a pull request that
+  // merged while it was in the background (decision 9), and it is also what
+  // first populates the marks after a cold start.
+  app.on('browser-window-focus', () => pullRequestRecord.refreshOnFocus())
+
   // The one interaction path to a live agent session (MC-102). Every caller
   // that drives an agent — Sprint Engine dispatch, the review guide, later the
   // composer and MCP — goes through this instead of writing to a pty itself, so
@@ -1208,6 +1248,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     conversationPeek,
     terminalRuntime,
     agentChangelistFeed,
+    pullRequestRecord,
     broadcastGitChangelistsChanged,
     updateService,
     withIpcDiagnostics,

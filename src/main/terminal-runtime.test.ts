@@ -581,6 +581,28 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
     } finally {
       runtime.ipcHandlers.killTerminal(secondId)
     }
+
+    // A pull request record change re-emits the sessions the record says it
+    // reaches, and only those (epic `pull-request-marks`, decision 10). Which
+    // sessions those are is the record's question — by repository and branch, or
+    // by which session opened the pull request — so what the runtime owes is the
+    // filter and the broadcast.
+    // Let the previous session's teardown broadcast land before counting.
+    await settle()
+    const broadcasts = () => mockSender.sent.filter((event) => event.channel === 'terminal:sessions-changed').length
+    const broadcastsBeforeRecord = broadcasts()
+    const seen: string[] = []
+    runtimeModule.notePullRequestRecordChanged((session) => {
+      seen.push(session.sessionId)
+      return false
+    })
+    await settle()
+    assert.ok(seen.includes(sessionId), 'every live session is offered to the record\'s filter')
+    assert.equal(broadcasts(), broadcastsBeforeRecord, 'a change no live session is on never repaints a window')
+
+    runtimeModule.notePullRequestRecordChanged((session) => session.sessionId === sessionId)
+    await settle()
+    assert.ok(broadcasts() > broadcastsBeforeRecord, 'the sessions the change reaches are re-emitted')
   } finally {
     runtime.ipcHandlers.killTerminal(sessionId)
     await rm(workspaceRoot, { recursive: true, force: true })

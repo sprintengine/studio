@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron'
 import type { ObservedCheckout } from '../shared/observed-checkout'
+import type { BranchPullRequest } from '../shared/git/pull-request'
 import type * as pty from 'node-pty'
 import type {
   AgentCli,
@@ -605,6 +606,33 @@ function evictOldestFileChangesPastBudget(ledger: Map<string, SessionFileChange>
   }
 }
 
+/**
+ * Where the snapshot's `pullRequests` come from (epic `pull-request-marks`,
+ * decision 10). The record that owns them (`pull-request-record.ts`) is wired in
+ * by the app rather than imported here: this module knows a session, not a
+ * checkout's GitHub history, and a session snapshot must stay buildable in a
+ * test with no store behind it. Unset — a plain terminal, a test, main before
+ * the record exists — every snapshot simply carries an empty list.
+ */
+export type SessionPullRequestReader = (session: TerminalSession) => BranchPullRequest[]
+
+let readSessionPullRequests: SessionPullRequestReader | null = null
+
+export function setSessionPullRequestReader(reader: SessionPullRequestReader | null): void {
+  readSessionPullRequests = reader
+}
+
+function listSessionPullRequests(session: TerminalSession): BranchPullRequest[] {
+  if (!readSessionPullRequests) return []
+  try {
+    return readSessionPullRequests(session)
+  } catch {
+    // A snapshot is built on every broadcast; a store that threw must cost a
+    // list, never a session.
+    return []
+  }
+}
+
 /** The ledger as the renderer reads it: newest-edited first. */
 export function listSessionFileChanges(session: TerminalSession): SessionFileChange[] {
   if (!session.fileChanges || session.fileChanges.size === 0) return []
@@ -766,6 +794,10 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     // owns. Both are hook truth; a session with no hooks reports an empty
     // ledger and zero, never absence.
     fileChanges: listSessionFileChanges(session),
+    // Where this conversation's work went, newest first. Empty until its
+    // checkout resolves and GitHub has actually been asked — the app draws a
+    // mark only for a pull request it definitely has.
+    pullRequests: listSessionPullRequests(session),
     activeSubagents: session.backgroundWork ?? 0,
     // The status-line forwarder's reading, or null for a session whose CLI has
     // no status line and for one that has not made an API call yet.

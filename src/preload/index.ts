@@ -16,6 +16,7 @@ import { textGenerationApi } from './api/text-generation'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
 import { conversationPeekApi } from './api/conversation-peek'
+import { pullRequestApi } from './api/pull-request'
 import { credentialApi } from './api/credential'
 import { designSystemApi } from './api/design-system'
 import { filesystemApi } from './api/filesystem'
@@ -83,6 +84,7 @@ const api = {
   ...pluginsApi,
   ...conversationApi,
   ...conversationPeekApi,
+  ...pullRequestApi,
   ...credentialApi,
   ...designSystemApi,
   ...skillsApi,
