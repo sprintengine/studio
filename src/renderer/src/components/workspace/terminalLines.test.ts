@@ -426,4 +426,37 @@ const worktreeObserved = {
   assert.equal(folder.dim, true, 'the repo\u2019s state is nobody\u2019s work, so it steps back')
 }
 
+// The pull requests a line wears come straight off the session snapshot (epic
+// pull-request-marks, decision 10): main owns the union, the line only carries
+// it. An older snapshot that carries none reads as none — an absent answer and
+// an empty one draw the same thing, which is nothing.
+{
+  const opened = {
+    url: 'https://github.com/acme/multicode/pull/418',
+    repoKey: 'github.com/acme/multicode',
+    repoName: 'multicode',
+    number: 418,
+    title: 'Extensions icon carries its unread count',
+    state: 'open' as const,
+    isDraft: false,
+    openedAt: 1_000,
+    stateAt: 2_000,
+  }
+  const { lines } = terminalLinesOf({
+    workspace: workspace(),
+    sessions: [
+      session({ sessionId: 's1', pullRequests: [opened], lastOutputAt: 20 }),
+      session({ sessionId: 's2', agentId: 'a2', lastOutputAt: 10 }),
+      session({ sessionId: 's3', kind: 'terminal', agentId: undefined, lastOutputAt: 5 }),
+    ],
+    fleetPanes: [{ tabId: 'pane-1', machineName: 'Mini' }],
+    summaries: {},
+  })
+  const byKey = new Map(lines.map((line) => [line.key, line.pullRequests]))
+  assert.deepEqual(byKey.get('s1'), [opened], 'the agent line wears what its snapshot carries')
+  assert.deepEqual(byKey.get('s2'), [], 'a snapshot with no answer draws what an empty one draws')
+  assert.deepEqual(byKey.get('s3'), [], 'a plain shell has no conversation to have opened one')
+  assert.deepEqual(byKey.get('pane-1'), [], 'a fleet pane’s checkout is another machine’s')
+}
+
 console.log('terminalLines: ok')

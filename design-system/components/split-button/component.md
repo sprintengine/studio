@@ -68,10 +68,23 @@ different target*. Two unrelated actions welded together are two buttons.
 
 - The primary half must announce what it will do without a caption — that is
   the glyph's job. If the target cannot be shown in the resting state, this is
-  the wrong control.
+  the wrong control. The half's content may be the MARK itself rather than a
+  verb — a pull request's state glyph and its number — where the mark is what
+  you would quote to a colleague and a verb over it would say less.
 - Choosing from the menu runs that target immediately **and** becomes the new
   primary. A menu that only re-points the primary makes every switch two
   clicks.
+- **Unless the primary is a rule rather than a memory.** Where the resting half
+  is derived — "the most recent pull request still open", not "the target you
+  last used" — choosing a row runs it and the primary does NOT move: it is the
+  rule's answer, and a click cannot change what the rule says. Such a menu
+  carries no check either, because no row is "the one you chose". Read the
+  clause above as the default and this as its one exception; a menu that is
+  neither is a menu that has not decided what its primary means.
+- **Group the rows when they have states rather than being peers.** The
+  grouping is the menu's own (`.ds-menu-group-label`, one heading per run of
+  rows, empty groups omitted rather than shown as a heading over nothing), and
+  a count belongs in the heading — "Open · 4" — not repeated down the rows.
 - Offer only targets that resolve. A row for something that is not installed is
   a fake affordance — omit it, never disable it.
 - Keep the menu at two or more rows. One alternative is a plain button.

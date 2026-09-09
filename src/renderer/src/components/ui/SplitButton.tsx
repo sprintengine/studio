@@ -15,24 +15,55 @@
 import React from 'react'
 import { Popover } from './Popover'
 import { MenuItem, roveMenuFocus } from './ContextMenu'
-import { MENU_LIST_CLASS } from './menuClasses'
+import { MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS } from './menuClasses'
 import { FOCUS_RING_INSET_CLASS } from './tokens'
 
 export type SplitButtonItem = {
   id: string
-  label: string
+  label: React.ReactNode
+  /**
+   * The row's spoken name, when the label's own nodes do not read as a sentence
+   * — a row whose visible text is `#409` and a title says "Pull request 409,
+   * open: …" out loud.
+   */
+  ariaLabel?: string
+  /**
+   * The heading this row sits under. Rows carrying the same group in sequence
+   * are one section, and the heading is drawn once above them
+   * (design-system/components/menu → Divider: a group label is the ALTERNATIVE
+   * to a separator, never an addition to it). Undefined on every row means an
+   * ungrouped menu, which is what a target list is.
+   */
+  group?: string
   /** Leading mark, normally the same glyph the primary half shows for it. */
   icon?: React.ReactNode
   /** Right-aligned keyboard hint. Display only — bind the key elsewhere. */
   shortcut?: string
-  /** True on the row the primary half currently runs; renders the check. */
+  /** A quiet trailing annotation in the same slot — an age, a count. */
+  hint?: string
+  /**
+   * True on the row the primary half currently runs; renders the check and
+   * announces the row as one of a mutually exclusive set.
+   *
+   * Left undefined the rows are plain `menuitem`s with no checked state, which
+   * is what a menu whose primary is a RULE rather than a memory needs: the
+   * conversation peek's primary is "the most recent pull request still open",
+   * so no row is "the one you chose" and a check would claim otherwise.
+   */
   checked?: boolean
   onSelect: () => void
 }
 
 export type SplitButtonProps = {
-  /** Verb on the primary half, e.g. "Open". */
-  label: string
+  /**
+   * The primary half's content: a verb ("Open"), or a mark that IS the target
+   * (the conversation peek's `#418` in its state's tone). A node rather than a
+   * string because a caller whose primary is a mark has to set its own type and
+   * ink, and doing that from `className` would put two font-size utilities on
+   * one element for stylesheet order to resolve. Its own element inside the
+   * half has no such contest.
+   */
+  label: React.ReactNode
   /** Accessible name for the primary half, naming its resolved target. */
   primaryAriaLabel: string
   /** Accessible name for the menu half and its surface, e.g. "Open in…". */
@@ -58,6 +89,12 @@ export type SplitButtonProps = {
    * focus ring are unchanged — quiet is a chrome level, not a lower bar.
    */
   quiet?: boolean
+  /**
+   * Which layer the MENU sits on. `menu` for a split button hosted inside an
+   * already-open popover-tier surface — a card, a peek — where the default
+   * popover tier would paint the menu under the surface that opened it.
+   */
+  layer?: 'popover' | 'menu'
   disabled?: boolean
   className?: string
 }
@@ -111,6 +148,7 @@ export function SplitButton({
   onMenuOpenChange,
   primaryRef,
   quiet = false,
+  layer = 'popover',
   disabled = false,
   className,
 }: SplitButtonProps) {
@@ -159,6 +197,7 @@ export function SplitButton({
       ariaLabel={menuAriaLabel}
       popupRole="menu"
       placement="bottom-end"
+      layer={layer}
       // The shared list layer. This surface carried `p-1` — horizontal padding,
       // which insets the rows and is exactly what makes a full-bleed `MenuItem`
       // look like a card inside a card. Vertical only, like every other menu.
@@ -224,30 +263,42 @@ export function SplitButton({
         </span>
       )}
     >
-      {items.map((item) => (
-        <MenuItem
-          key={item.id}
-          icon={item.icon}
-          shortcut={item.shortcut}
-          checked={item.checked ?? false}
-          // Exactly one target is the primary, and choosing another moves the
-          // check rather than adding one — a one-of set, not a row of toggles.
-          selection="one-of"
-          trailing={
-            item.checked ? (
-              <span className="text-[color:var(--accent-primary)]">
-                <CheckGlyph />
-              </span>
-            ) : null
-          }
-          onClick={() => {
-            item.onSelect()
-            setOpenState(false)
-          }}
-          onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}
-        >
-          {item.label}
-        </MenuItem>
+      {items.map((item, index) => (
+        <React.Fragment key={item.id}>
+          {/* The heading, once per run of rows that share it. Nothing is drawn
+              for an ungrouped menu, and a group that repeats after another one
+              starts a second section rather than silently merging with the
+              first — the order the caller hands over is the order shown. */}
+          {item.group && item.group !== items[index - 1]?.group ? (
+            <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{item.group}</div>
+          ) : null}
+          <MenuItem
+            icon={item.icon}
+            shortcut={item.shortcut}
+            hint={item.hint}
+            aria-label={item.ariaLabel}
+            checked={item.checked}
+            // Exactly one target is the primary, and choosing another moves the
+            // check rather than adding one — a one-of set, not a row of toggles.
+            // Only where there IS a check: a menu that passes no `checked` is a
+            // list of actions and its rows stay plain menu items.
+            selection="one-of"
+            trailing={
+              item.checked ? (
+                <span className="text-[color:var(--accent-primary)]">
+                  <CheckGlyph />
+                </span>
+              ) : null
+            }
+            onClick={() => {
+              item.onSelect()
+              setOpenState(false)
+            }}
+            onKeyDown={(event) => roveMenuFocus(event, surfaceRef.current)}
+          >
+            {item.label}
+          </MenuItem>
+        </React.Fragment>
       ))}
     </Popover>
   )

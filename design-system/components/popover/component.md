@@ -138,6 +138,22 @@ surface as an outside click and unmounts it before its own click lands,
 silently dropping the choice the user just made. This clause exists because
 that was a real defect.
 
+The rule is the SHELL's, not the trigger-anchored variant's: it holds for the
+coordinate-anchored surface too (`.ds-popover--pointer`), which is the one that
+hosts rich content and therefore the one most likely to have a menu opened from
+inside it. A split button on a hover card's head line is exactly that shape —
+the card dismissed itself on the press that chose a menu row, and the row's
+click never landed. The stack is the source of truth for "what is open right
+now", so a press inside any member of it is never outside any other.
+
+**A surface opened from inside a menu-tier surface takes the menu tier.** The
+layer is a property of what a surface was summoned *over*, not of how it was
+anchored: a trigger-anchored menu opened from a coordinate-anchored card sits
+at `z.menu` like the card, and at the default `z.popover` it would paint
+underneath the thing it was opened from. One `z` per surface, chosen by the
+shell from a named layer — a caller appending a second `z` utility leaves which
+one wins to stylesheet order.
+
 **The popup role is a contract, not a default.** `role="menu"` for action
 lists, `role="listbox"` for selection, `role="dialog"` for rich content (a
 search field, a form). The trigger's `aria-haspopup` mirrors whichever the

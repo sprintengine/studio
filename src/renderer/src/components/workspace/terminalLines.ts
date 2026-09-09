@@ -1,4 +1,5 @@
 import type { SessionFileChange, TerminalSessionSnapshot, WorkspaceChangeSummary } from '../../../../shared/electron-api'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 import { sessionRecencyOf } from '../../hooks/useTerminalSessions'
 import type { Workspace } from '../../types/workspace'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
@@ -163,6 +164,18 @@ export type TerminalLine = {
    * so it is 0 for every line that is not a local agent session.
    */
   activeSubagents: number
+  /**
+   * The pull requests this conversation has, newest first — the union main
+   * already resolves (`TerminalSessionSnapshot.pullRequests`, epic
+   * `pull-request-marks` decision 10): the ones on its observed repo and branch
+   * plus the ones it opened itself in any repository.
+   *
+   * Empty is the normal answer and the only one that means "draw nothing": a
+   * lookup that could not be made, a plain shell, a branch GitHub says has no
+   * pull request. There is no "unknown" mark (decision 3), so the list being
+   * empty and the list being unknowable are one case here on purpose.
+   */
+  pullRequests: BranchPullRequest[]
   working: boolean
   workingSince: number | null
   needsInput: boolean
@@ -265,6 +278,11 @@ function lineOfSession(
     changedFiles: ledger?.changedFiles ?? summary?.changedFiles ?? 0,
     diffScope: ledger ? 'session' : summary?.scope ?? 'folder',
     activeSubagents: isAgent ? session.activeSubagents ?? 0 : 0,
+    // Straight off the snapshot: main owns which pull requests a session has
+    // and how they were learned, and the line only draws what it is handed.
+    // Absent on a fixture-built snapshot, and an absent answer is not an empty
+    // one — but both draw nothing, which is what decision 3 asks for.
+    pullRequests: session.pullRequests ?? [],
     ...recencyOf(session),
   }
 }
@@ -295,6 +313,9 @@ function lineOfFleetPane(
     changedFiles: 0,
     diffScope: 'folder',
     activeSubagents: 0,
+    // The pane's checkout is on another machine's disk and its pull requests
+    // are that machine's to look up; this side has never asked.
+    pullRequests: [],
     working: false,
     workingSince: null,
     needsInput: false,
@@ -323,6 +344,9 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     changedFiles: 0,
     diffScope: row.diffScope,
     activeSubagents: 0,
+    // A remote row's wire shape carries no pull requests: the lookup runs where
+    // the checkout is, and that is the other machine.
+    pullRequests: [],
     working: row.activity === 'working',
     workingSince: row.activity === 'working' ? row.since : null,
     needsInput: row.activity === 'needs-input',

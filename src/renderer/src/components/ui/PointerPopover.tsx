@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useClampedMenuPosition } from './ContextMenu'
+import { pointerLandedInOpenPopover } from './Popover'
 
 type PointerPopoverProps = {
   /** Viewport x of the open point (e.g. `event.clientX` or a button corner). */
@@ -71,7 +72,18 @@ export function PointerPopover({
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onClose()
+      const target = event.target as Node
+      if (ref.current?.contains(target)) return
+      // A `Popover` opened from INSIDE this surface — a split button's menu on
+      // a card's head line — portals its own surface to <body>, so the
+      // contains() check above reads a press on it as an outside press. Closing
+      // on that press unmounts this surface, and the menu with it, before the
+      // row's click has landed: the choice is silently dropped. Anything in the
+      // popover stack is part of what is open right now, so it is never
+      // outside. (`Popover` already applies the same rule to itself — see
+      // `pointerLandedInPopoverAbove`.)
+      if (pointerLandedInOpenPopover(target)) return
+      onClose()
     }
     // Bubble phase + defaultPrevented guard so rich children (e.g. a nested chip
     // flyout that closes itself on Escape) can handle the key first, matching

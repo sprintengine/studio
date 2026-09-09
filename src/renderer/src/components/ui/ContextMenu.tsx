@@ -235,6 +235,15 @@ type MenuItemProps = Omit<
   icon?: React.ReactNode
   /** Visible keyboard shortcut hint (e.g. `F2`). Display only. */
   shortcut?: string
+  /**
+   * The same trailing slot, carrying a quiet ANNOTATION rather than an
+   * accelerator — how long ago a row's subject happened, how many of something
+   * it holds. One slot with two names because the two are different promises: a
+   * shortcut says "this key works without opening this menu"
+   * (design-system/components/menu → Keyboard hints), and this says nothing
+   * about keys at all. A row states one or the other, never both.
+   */
+  hint?: React.ReactNode
   variant?: 'danger'
   disabled?: boolean
   /** When set, the item is checkable and exposes this checked state.
@@ -267,6 +276,7 @@ export function MenuItem({
   onContextMenu,
   icon,
   shortcut,
+  hint,
   variant,
   disabled,
   checked,
@@ -310,8 +320,8 @@ export function MenuItem({
     >
       {icon ?? null}
       <span className="min-w-0 flex-1 truncate">{children}</span>
-      {shortcut ? (
-        <span className="text-micro text-[color:var(--text-disabled)] font-mono">{shortcut}</span>
+      {(shortcut ?? hint) ? (
+        <span className="text-micro text-[color:var(--text-disabled)] font-mono">{shortcut ?? hint}</span>
       ) : null}
       {trailing}
     </button>

@@ -14,6 +14,7 @@ import {
 } from './WorkspaceSidebar'
 import type { Workspace } from '../../types/workspace'
 import type { TerminalLine } from './terminalLines'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
 
 // A row's terminal lines (sidebar-lists-every-terminal): one per live
 // terminal — mark · branch · ±lines · seat — in place of the head pile and
@@ -57,6 +58,7 @@ const line = (over: Partial<TerminalLine> = {}): TerminalLine => ({
   changedFiles: 0,
   diffScope: 'folder',
   activeSubagents: 0,
+  pullRequests: [],
   working: false,
   workingSince: null,
   needsInput: false,
@@ -149,6 +151,76 @@ run('truncation is an ordered give-way: the branch yields, never mark / diff / s
   assert.match(markup, /inline-flex shrink-0/, 'the diff never shrinks')
   assert.match(markup, /min-w-\[44px\] shrink-0/, 'nor the seat')
   assert.match(markup, /overflow-hidden/, 'the line clips rather than spilling past the gutter')
+})
+
+// The pull request mark on the line (epic pull-request-marks, decisions 3–6).
+// The tooltip itself is portalled on hover and so is not in this markup — its
+// words are held in `PullRequestMark.test.tsx`; what is held here is the
+// placement, the spoken name, the tone, and the case where nothing is drawn.
+const HOUR = 3_600_000
+
+const pullRequest = (over: Partial<BranchPullRequest> & { number: number }): BranchPullRequest => ({
+  url: `https://github.com/acme/multicode/pull/${over.number}`,
+  repoKey: 'github.com/acme/multicode',
+  repoName: 'multicode',
+  title: `Pull request ${over.number}`,
+  state: 'open',
+  isDraft: false,
+  openedAt: NOW - HOUR,
+  stateAt: NOW,
+  ...over,
+})
+
+run('the mark sits after the branch and before the ±lines, and opens the pull request', () => {
+  const markup = view({
+    branch: 'agent/ext-icon-notification',
+    additions: 40,
+    deletions: 7,
+    pullRequests: [pullRequest({ number: 418 })],
+  })
+  const branchAt = markup.indexOf('agent/ext-icon-notification')
+  const markAt = markup.indexOf('data-pull-request-mark')
+  const diffAt = markup.indexOf('+40')
+  assert.ok(branchAt >= 0 && markAt > branchAt, 'after the branch it belongs to')
+  assert.ok(diffAt > markAt, 'and before the ±lines, which keep their place')
+  assert.match(
+    markup,
+    /aria-label="Pull request 418, open. Open it on GitHub"/,
+    'the spoken name carries the state and the consequence',
+  )
+  assert.match(markup, /data-pull-request-mark="https:\/\/github.com\/acme\/multicode\/pull\/418"/)
+  assert.match(markup, /color:var\(--accent-primary\)/, 'open inks in the accent')
+  assert.doesNotMatch(markup, /<a /, 'a control, never an anchor: nothing here navigates in-app')
+})
+
+run('a line with no pull request draws no mark at all — there is no “unknown”', () => {
+  const markup = view({ branch: 'agent/nothing-opened', additions: 4, deletions: 1 })
+  assert.doesNotMatch(markup, /data-pull-request-mark/)
+  assert.doesNotMatch(markup, /Pull request/)
+})
+
+run('the mark is the most recent OPEN one, and it inks in that state’s tone', () => {
+  const merged = view({
+    pullRequests: [
+      pullRequest({ number: 420, state: 'merged', openedAt: NOW - HOUR }),
+      pullRequest({ number: 411, state: 'closed', openedAt: NOW - 2 * HOUR }),
+    ],
+  })
+  assert.match(merged, /aria-label="Pull request 420, merged\. Earlier: pull request 411, closed\./)
+  assert.match(merged, /color:var\(--tone-merged\)/, 'merged takes the landed-branch violet')
+
+  const open = view({
+    pullRequests: [
+      pullRequest({ number: 420, state: 'merged', openedAt: NOW - HOUR }),
+      pullRequest({ number: 411, openedAt: NOW - 2 * HOUR }),
+    ],
+  })
+  assert.match(open, /aria-label="Pull request 411, open\./, 'an older open one beats a newer merged one')
+})
+
+run('the mark recedes with a background row rather than shouting over its title', () => {
+  const markup = view({ pullRequests: [pullRequest({ number: 418 })] }, { dim: true })
+  assert.match(markup, /data-pull-request-mark[^>]*opacity-60|opacity-60[^>]*data-pull-request-mark/)
 })
 
 run('each scope claims exactly what its checkout supports', () => {

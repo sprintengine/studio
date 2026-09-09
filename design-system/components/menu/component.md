@@ -115,7 +115,10 @@ The horizontal zero is the load-bearing part: it is what makes rows full-bleed,
 and it is what an inset fill needs in order to look wrong.
 
 A pointer-positioned menu sits one tier up, at `z.menu`, because it is summoned
-*over* whatever is already open — including an open popover.
+*over* whatever is already open — including an open popover. **So does a menu
+opened from INSIDE a surface already on that tier** — a menu on a hover card's
+head line — for the same reason read the other way round: at the popover tier it
+would paint underneath the card that opened it, which is not a menu at all.
 
 ## Item
 
@@ -224,6 +227,16 @@ keyboard contract below rather than painted onto a row.
 
 Hints are `text.disabled` and right-aligned into a column, so they read as one
 quiet annotation rather than as trailing content on each label.
+
+**The slot also carries a non-keyboard annotation**, in exactly the same
+treatment: how long ago a row's subject happened, how many of something it
+holds — the conversation peek's pull request menu puts each row's age there. It
+is the same slot because it is the same job, a footnote to the label that must
+not compete with it; it is stated separately because the two are different
+promises, and a reader who has learned that this column means "a key you can
+press" must not find a date in it without the spec having said so. **One or the
+other per row, never both**: two footnotes right-aligned into one column is a
+second label.
 
 ## Submenu
 

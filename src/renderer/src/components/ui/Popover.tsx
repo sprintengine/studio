@@ -24,6 +24,15 @@ type PopoverProps = {
   onOpenChange: (open: boolean) => void
   ariaLabel: string
   popupRole: 'menu' | 'listbox' | 'dialog'
+  /**
+   * Which layer the surface sits on. `popover` (the default, `z.popover`) is
+   * right for a surface opened out of the page. `menu` (`z.menu`) is for one
+   * opened from inside a surface that is ALREADY on the menu tier — a
+   * pointer-anchored card, a context menu — where the default tier would paint
+   * this underneath the thing that opened it (design-system/components/menu →
+   * Surface).
+   */
+  layer?: 'popover' | 'menu'
   renderTrigger: (args: PopoverRenderTriggerArgs) => React.ReactNode
   children: React.ReactNode
   placement?: PopoverPlacement
@@ -141,11 +150,27 @@ function pointerLandedInPopoverAbove(id: string, target: Node): boolean {
   return openPopoverStack.slice(index + 1).some((entry) => entry.surface.current?.contains(target))
 }
 
+/**
+ * The same question asked from OUTSIDE the stack, for a surface that dismisses
+ * on an outside press but is not a `Popover` itself — `PointerPopover`, which
+ * anchors to a coordinate rather than to a trigger.
+ *
+ * A menu opened from inside such a surface is portaled to `<body>` too, so the
+ * host's own `contains()` reads a click on it as an outside click and unmounts
+ * the host (and with it the menu) before the row's click can land. The choice
+ * the person just made is then silently dropped. Anything in the popover stack
+ * is part of what is currently open, so a press inside one is never "outside".
+ */
+export function pointerLandedInOpenPopover(target: Node): boolean {
+  return openPopoverStack.some((entry) => entry.surface.current?.contains(target))
+}
+
 export function Popover({
   open,
   onOpenChange,
   ariaLabel,
   popupRole,
+  layer = 'popover',
   renderTrigger,
   children,
   placement = 'bottom-start',
@@ -299,7 +324,10 @@ export function Popover({
                 // The chrome is the shared one, so the surface a pointer-summoned
                 // menu draws for itself cannot drift from the surface an anchored
                 // one gets here. What sits on it owns its own inset.
-                'popover-enter z-[var(--z-popover)]',
+                // One z utility, chosen here rather than appended by a caller:
+                // two `z-*` classes on one element are resolved by stylesheet
+                // order rather than by the order they were written.
+                layer === 'menu' ? 'popover-enter z-[var(--z-menu)]' : 'popover-enter z-[var(--z-popover)]',
                 // One ground per surface, written as one class each: `surface-glass`
                 // sets `background` and the raised chrome sets `background-color`,
                 // so spelling both would leave which one wins to stylesheet order.

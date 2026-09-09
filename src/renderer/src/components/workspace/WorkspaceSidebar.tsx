@@ -7,6 +7,7 @@ import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
+import { PullRequestMark, refreshPullRequestsOnce, shouldLookUpPullRequests } from './PullRequestMark'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
@@ -1060,6 +1061,16 @@ export function TerminalLineView({
       // knows nothing about a hover surface. Agent lines only: a shell has no
       // conversation, and a remote pane's key is a tab id, not a session.
       {...(line.kind === 'agent' ? { 'data-peek-session': line.key } : {})}
+      // The hover hook for the branch lookup (epic decision 8a): a line with a
+      // branch and no pull request is the one case where main may not have
+      // asked GitHub yet, so pointing at it asks. Coalesced inside
+      // `refreshPullRequestsOnce` — once per session per window, not once per
+      // mouse event — and `mouseenter`, which does not re-fire as the pointer
+      // crosses the line's own children. A line that already HAS a mark asks
+      // nothing: its state is watched by the record until it lands.
+      onMouseEnter={
+        shouldLookUpPullRequests(line) ? () => refreshPullRequestsOnce(line.key) : undefined
+      }
       className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${
         dim ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
       }`}
@@ -1101,6 +1112,13 @@ export function TerminalLineView({
           <span className="shrink-0 text-micro text-[color:var(--tone-error)]">Removed</span>
         </Tooltip>
       ) : null}
+      {/* Immediately after the branch and before the ±lines, because it belongs
+          to the branch: "this branch, this much changed, and here is where it
+          went" (epic pull-request-marks, decision 4). It draws nothing at all
+          when the conversation has no pull request, and the ±lines then slide
+          left exactly as they always did — there is no "unknown" mark and no
+          placeholder (decision 3). */}
+      <PullRequestMark pullRequests={line.pullRequests} dim={dim} />
       {hasDiff ? (
         // Beside the branch, not at the far edge: for a git reading the two
         // are one fact — "this branch, this much changed" — and the trailing
