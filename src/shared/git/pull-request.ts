@@ -8,13 +8,13 @@
 // no ancestor of the branch tip on main, so `merge-base --is-ancestor` would
 // call a landed pull request open for ever (decision 8c).
 
-import { canonicalPullRequestUrl, parsePullRequestUrl } from '../review/pr-url'
+import { canonicalPullRequestUrl, parsePullRequestUrl } from './pr-url'
 import { canonicalRepositoryKey } from '../repository-identity'
 
 export type PullRequestState = 'open' | 'merged' | 'closed'
 
 export type BranchPullRequest = {
-  /** Canonical URL, as `parsePullRequestUrl` (src/shared/review/pr-url.ts) would normalise it. */
+  /** Canonical URL, as `parsePullRequestUrl` (src/shared/git/pr-url.ts) would normalise it. */
   url: string
   /**
    * The repository the pull request is IN — `host/owner/name`, the key every

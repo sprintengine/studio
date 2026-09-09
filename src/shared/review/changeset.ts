@@ -11,16 +11,17 @@ import {
   isNonNegativeInt,
   isPlainObject,
 } from './guards'
+// The provider union lives with the URL classifier that produces it, in
+// `src/shared/git/pr-url.ts` — core git/GitHub code needs it without reaching
+// into review. Re-exported here so review's own imports stay unchanged.
+import { PULL_REQUEST_PROVIDERS, type PullRequestProvider } from '../git/pr-url'
+
+export type { PullRequestProvider }
 
 const CHANGESET_SCHEMA_VERSION = 1
 
 const REVIEW_SOURCE_KINDS = ['pull-request', 'branch', 'patch'] as const
 export type ReviewSourceKind = (typeof REVIEW_SOURCE_KINDS)[number]
-
-// 'bitbucket' joins this union later; the validator rejects unknown providers
-// explicitly rather than silently passing them.
-const PULL_REQUEST_PROVIDERS = ['github', 'github-enterprise'] as const
-export type PullRequestProvider = (typeof PULL_REQUEST_PROVIDERS)[number]
 
 const CHANGE_FILE_STATUSES = ['added', 'modified', 'deleted', 'renamed'] as const
 export type ChangeFileStatus = (typeof CHANGE_FILE_STATUSES)[number]
