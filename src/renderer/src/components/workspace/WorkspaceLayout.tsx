@@ -1488,6 +1488,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       renderValues.content = (
         <AgentTabIdentityPopover
           identity={agentIdentity}
+          // What the card's pull request lookup is coalesced by (epic decision
+          // 8a): the branch main last OBSERVED this session on, not the branch
+          // the agent was launched onto. Nothing draws it — the card carries no
+          // checkout — it only keys the ask, so a session that moves branch is
+          // asked about again instead of being answered from the old reading.
+          lookupBranch={agentSnapshot?.observedCheckout?.branch ?? null}
           onOpenDiff={(path, diffAgentId) =>
             openPaneTab(workspaceId, {
               kind: 'diff',

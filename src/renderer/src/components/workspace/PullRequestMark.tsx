@@ -201,47 +201,106 @@ export function pullRequestMenuGroups(
 }
 
 /**
- * Sessions this window has already asked main to look up, so a pointer crossing
- * a row does not fire an IPC call per mouse event.
+ * How long an ask holds before the same conversation may be asked about again.
  *
- * Module-level and never cleared in normal use: the lookup is idempotent, its
- * answer arrives on the session snapshot every consumer already reads, and a
- * session whose branch genuinely gains a pull request later is covered by the
- * record's own watch rather than by asking again on every hover. Once per
- * session per window is the whole contract.
+ * Matched to the record's own "re-read a reading older than ~60s on hover"
+ * (epic decision 9): this side must not be the thing that makes that
+ * unreachable. It is a FLOOR on how often this window asks, not a schedule —
+ * nothing here polls, and an ask only happens under a pointer.
  */
-const refreshedSessions = new Set<string>()
+const LOOKUP_ASK_TTL_MS = 60_000
+
+/**
+ * When this window last asked main about a conversation, keyed by session AND
+ * branch.
+ *
+ * It was a permanent one-shot `Set` of session ids, and that burned the only
+ * ask the app would ever make before main could act on it. Three ways, all of
+ * them the common case:
+ *
+ * - the key was the session alone, while the ask is really about a BRANCH. A
+ *   line's branch is filled from the launch intent long before the observed
+ *   checkout resolves, and main only acts once it has resolved — so the very
+ *   first hover, in the first second of a chat, spent the one ask on a question
+ *   main could not answer, and no later hover asked again.
+ * - a `gh` read that never settled (no auth, no network, a repo `gh` cannot
+ *   see) was also never re-asked.
+ * - and the branch CHANGING — the agent moving to its worktree, a rebase onto a
+ *   new branch — asked nothing, because the session id had not changed.
+ *
+ * Keyed by session + branch with a TTL, all three re-ask on the next hover.
+ * There is no timer and no poll: entries are written by hovers and read by
+ * hovers, so a window nobody is pointing at asks nothing at all.
+ */
+const askedAt = new Map<string, number>()
+
+function askKey(sessionId: string, branch: string | null): string {
+  // A newline, which no branch name and no session id can contain, so
+  // "a" + "b/c" and "a\nb" + "c" cannot collide.
+  return `${sessionId}\n${branch ?? ''}`
+}
 
 /**
  * Whether pointing at this line should ask main to look its branch up (epic
- * decision 8a). Three conditions, and all three matter:
+ * decision 8a):
  *
  * - an AGENT line, because a shell has no conversation and a remote pane's
  *   checkout is on another machine's disk;
  * - with a BRANCH, because the lookup is `gh pr list --head <branch>` and there
- *   is nothing to ask about without one;
- * - and with NO pull requests yet, because a line that already wears a mark has
- *   its states watched by the record until they land — asking again on hover
- *   would be a second poller with worse manners.
+ *   is nothing to ask about without one.
+ *
+ * A line that already WEARS a mark asks too, which it used to be barred from.
+ * The bar made decision 9's "refresh on hover when the reading is older than
+ * ~60s" unreachable — the only lines with a reading to refresh were exactly the
+ * lines this refused to ask about — and it is not what keeps this from becoming
+ * a poller: the TTL above does, and main holds the lookup behind its own hold
+ * and coalesces the refreshes it accepts.
  */
 export function shouldLookUpPullRequests(line: {
   kind: 'agent' | 'shell' | 'remote'
   branch: string | null
-  pullRequests: readonly BranchPullRequest[]
 }): boolean {
-  return line.kind === 'agent' && line.branch !== null && line.pullRequests.length === 0
+  return line.kind === 'agent' && line.branch !== null
 }
 
-/** Ask main to look this session's branch up, at most once per window. */
-export function refreshPullRequestsOnce(sessionId: string): void {
-  if (refreshedSessions.has(sessionId)) return
-  refreshedSessions.add(sessionId)
-  void window.api?.refreshPullRequestsForSession?.(sessionId)
+/**
+ * Ask main to look this conversation's pull requests up — the ONE path both
+ * anchors use, so the sidebar line and the agent tab cannot ask at two
+ * different rates or key their coalescing two different ways.
+ *
+ * `now` is a test seam. Callers are event handlers and pass nothing.
+ */
+export function refreshPullRequestsForLine(
+  sessionId: string,
+  branch: string | null,
+  now: number = Date.now(),
+): void {
+  if (!sessionId) return
+  const key = askKey(sessionId, branch)
+  const last = askedAt.get(key)
+  if (last !== undefined && now - last < LOOKUP_ASK_TTL_MS) return
+  // Recorded BEFORE the call, not in its `then`: a mousemove storm is
+  // synchronous and would otherwise fire an IPC per event while the first
+  // promise was still in flight.
+  askedAt.set(key, now)
+  const answer = window.api?.refreshPullRequestsForSession?.(sessionId) as unknown
+  void Promise.resolve(answer).then(
+    (accepted) => {
+      // Main may answer whether it actually took the ask (it can hold one back
+      // while the observed checkout is unresolved). A refusal is not an ask, so
+      // it must not spend the minute — anything else, including today's
+      // `Promise<void>`, is one that was taken.
+      if (accepted === false) askedAt.delete(key)
+    },
+    // A rejected call reached nobody. Forget it, or a main process that was
+    // restarting during the hover would cost this window a silent minute.
+    () => askedAt.delete(key),
+  )
 }
 
 /** Test seam: forget what has been asked, so a case can assert the coalescing. */
 export function resetPullRequestRefreshes(): void {
-  refreshedSessions.clear()
+  askedAt.clear()
 }
 
 function openPullRequest(url: string): void {

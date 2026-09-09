@@ -7,7 +7,7 @@ import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
-import { PullRequestMark, refreshPullRequestsOnce, shouldLookUpPullRequests } from './PullRequestMark'
+import { PullRequestMark, refreshPullRequestsForLine, shouldLookUpPullRequests } from './PullRequestMark'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
@@ -1061,15 +1061,17 @@ export function TerminalLineView({
       // knows nothing about a hover surface. Agent lines only: a shell has no
       // conversation, and a remote pane's key is a tab id, not a session.
       {...(line.kind === 'agent' ? { 'data-peek-session': line.key } : {})}
-      // The hover hook for the branch lookup (epic decision 8a): a line with a
-      // branch and no pull request is the one case where main may not have
-      // asked GitHub yet, so pointing at it asks. Coalesced inside
-      // `refreshPullRequestsOnce` — once per session per window, not once per
-      // mouse event — and `mouseenter`, which does not re-fire as the pointer
-      // crosses the line's own children. A line that already HAS a mark asks
-      // nothing: its state is watched by the record until it lands.
+      // The hover hook for the branch lookup (epic decision 8a): pointing at an
+      // agent line asks main about its branch. Coalesced inside
+      // `refreshPullRequestsForLine` — at most one ask per session per BRANCH
+      // per minute, not one per mouse event — and on `mouseenter`, which does
+      // not re-fire as the pointer crosses the line's own children.
+      //
+      // A line that already wears a mark asks too: decision 9 has main re-read
+      // a reading older than ~60s on hover, and the lines with a reading to
+      // refresh are exactly the lines that have a mark.
       onMouseEnter={
-        shouldLookUpPullRequests(line) ? () => refreshPullRequestsOnce(line.key) : undefined
+        shouldLookUpPullRequests(line) ? () => refreshPullRequestsForLine(line.key, line.branch) : undefined
       }
       className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${
         dim ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'

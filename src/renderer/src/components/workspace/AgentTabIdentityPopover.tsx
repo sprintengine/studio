@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { PointerPopover } from '../ui'
 import type { ConversationPeekIdentity } from './ConversationPeekCard'
 import { useConversationPeek, useCopyValue } from './useConversationPeek'
+import { refreshPullRequestsForLine } from './PullRequestMark'
 
 // The peek card itself — the thread, the file list, the image strip — behind a
 // `React.lazy` boundary at this call site (bundle-
@@ -54,11 +55,20 @@ export function AgentTabIdentityPopover({
   identity,
   children,
   onOpenDiff,
+  lookupBranch = null,
 }: {
   identity: AgentTabIdentity
   children: React.ReactNode
   /** Open the diff for one of this agent's changed paths, or the whole diff for `null`. */
   onOpenDiff?: (path: string | null, agentId: string | null) => void
+  /**
+   * The branch this agent's session was last observed on, for the pull request
+   * lookup below. Not shown anywhere and NOT part of the card — the card
+   * deliberately carries no branch and no checkout — it is only what the ask is
+   * coalesced by, so a session that moves to another branch is asked about
+   * again rather than being answered from the last branch's reading.
+   */
+  lookupBranch?: string | null
 }) {
   const anchorRef = useRef<HTMLSpanElement>(null)
   const tabButtonRef = useRef<HTMLElement | null>(null)
@@ -77,6 +87,21 @@ export function AgentTabIdentityPopover({
   // being hovered pays no ticking re-render (the sidebar's own clock is always
   // on because its rows always show a time).
   const now = useRelativeNow(30_000, hover.open)
+
+  // The pull request lookup, from the peek's OTHER anchor (epic decision 8a).
+  // The sidebar line asks on hover, but a tab whose line is scrolled out of the
+  // sidebar — or whose sidebar is collapsed — is never hovered there, so its
+  // marks only ever arrived on the next window focus. Opening the card is the
+  // moment the answer is wanted, so it is the moment to ask.
+  //
+  // The SAME helper the sidebar line uses, deliberately: one coalescing window
+  // (session + branch, ~60s) shared by both anchors, so hovering a row and then
+  // its tab is one ask rather than two, and neither anchor can drift into a
+  // rate of its own.
+  useEffect(() => {
+    if (!hover.open || !sessionId) return
+    refreshPullRequestsForLine(sessionId, lookupBranch)
+  }, [hover.open, sessionId, lookupBranch])
 
   // Anchor the card to the tab button's bottom-left, computed at reveal so the
   // shell never flashes at 0,0 before positioning.

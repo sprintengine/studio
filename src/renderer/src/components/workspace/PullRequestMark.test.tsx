@@ -91,7 +91,7 @@ async function main(): Promise<void> {
     peekMarkCopy,
     pullRequestMenuGroups,
     pullRequestsSpanRepositories,
-    refreshPullRequestsOnce,
+    refreshPullRequestsForLine,
     resetPullRequestRefreshes,
     shouldLookUpPullRequests,
     sidebarMarkCopy,
@@ -214,26 +214,82 @@ async function main(): Promise<void> {
     assert.deepEqual(noneClosed.map((group) => group.id), ['open'], 'no heading over nothing')
   })
 
-  await run('only an agent line with a branch and no mark is worth a lookup', () => {
-    const line = { kind: 'agent' as const, branch: 'agent/osc52-gate', pullRequests: [] }
+  await run('an agent line with a branch is worth a lookup — mark or no mark', () => {
+    const line = { kind: 'agent' as const, branch: 'agent/osc52-gate' }
     assert.equal(shouldLookUpPullRequests(line), true)
     assert.equal(shouldLookUpPullRequests({ ...line, branch: null }), false, 'nothing to ask about')
     assert.equal(shouldLookUpPullRequests({ ...line, kind: 'shell' }), false, 'no conversation')
     assert.equal(shouldLookUpPullRequests({ ...line, kind: 'remote' }), false, 'another machine’s disk')
-    assert.equal(
-      shouldLookUpPullRequests({ ...line, pullRequests: [pr({ number: 1 })] }),
-      false,
-      'a line that already wears a mark is watched by the record, not re-asked on hover',
-    )
   })
 
-  await run('the hover lookup is asked once per session, not once per mouse event', () => {
+  await run('a mousemove storm is one ask, and the minute after it is none', () => {
     resetPullRequestRefreshes()
     refreshed.length = 0
-    refreshPullRequestsOnce('session-1')
-    refreshPullRequestsOnce('session-1')
-    refreshPullRequestsOnce('session-2')
+    const t0 = NOW
+    for (let i = 0; i < 50; i += 1) refreshPullRequestsForLine('session-1', 'agent/x', t0 + i)
+    assert.deepEqual(refreshed, ['session-1'], 'fifty pointer events, one call')
+    refreshPullRequestsForLine('session-1', 'agent/x', t0 + 59_999)
+    assert.deepEqual(refreshed, ['session-1'], 'still inside the window')
+  })
+
+  await run('a hover a minute later asks again — the reading may have gone stale', () => {
+    resetPullRequestRefreshes()
+    refreshed.length = 0
+    refreshPullRequestsForLine('session-1', 'agent/x', NOW)
+    refreshPullRequestsForLine('session-1', 'agent/x', NOW + 60_000)
+    assert.deepEqual(refreshed, ['session-1', 'session-1'])
+  })
+
+  await run('the branch changing asks again at once, without waiting out the window', () => {
+    // The bug this is the fix for: a line's branch is filled from the launch
+    // intent, and main only acts once the OBSERVED checkout resolves. Keyed on
+    // the session alone, the first hover of a chat's life spent the app's only
+    // ask on a question main could not answer yet.
+    resetPullRequestRefreshes()
+    refreshed.length = 0
+    refreshPullRequestsForLine('session-1', null, NOW)
+    refreshPullRequestsForLine('session-1', 'agent/osc52-gate', NOW + 1)
+    refreshPullRequestsForLine('session-1', 'agent/osc52-gate', NOW + 2)
+    assert.deepEqual(refreshed, ['session-1', 'session-1'], 'the new branch asks; the repeat does not')
+  })
+
+  await run('two conversations are two asks', () => {
+    resetPullRequestRefreshes()
+    refreshed.length = 0
+    refreshPullRequestsForLine('session-1', 'agent/x', NOW)
+    refreshPullRequestsForLine('session-2', 'agent/x', NOW)
     assert.deepEqual(refreshed, ['session-1', 'session-2'])
+  })
+
+  await run('an ask main did not take does not spend the minute', async () => {
+    // Forward-compatible with main answering whether it acted on the ask (it
+    // holds one back while the observed checkout is unresolved). A refusal, and
+    // a call that reached nobody at all, are both re-asked on the next hover.
+    resetPullRequestRefreshes()
+    refreshed.length = 0
+    const api = (dom.window as unknown as { api: Record<string, unknown> }).api
+    const settled = api.refreshPullRequestsForSession
+    api.refreshPullRequestsForSession = async (sessionId: string) => {
+      refreshed.push(sessionId)
+      return false
+    }
+    refreshPullRequestsForLine('session-1', 'agent/x', NOW)
+    await sleep(0)
+    refreshPullRequestsForLine('session-1', 'agent/x', NOW + 1)
+    await sleep(0)
+    assert.deepEqual(refreshed, ['session-1', 'session-1'], 'a refusal is not an ask')
+    api.refreshPullRequestsForSession = async (sessionId: string) => {
+      refreshed.push(sessionId)
+      throw new Error('main is restarting')
+    }
+    refreshed.length = 0
+    resetPullRequestRefreshes()
+    refreshPullRequestsForLine('session-2', 'agent/x', NOW)
+    await sleep(0)
+    refreshPullRequestsForLine('session-2', 'agent/x', NOW + 1)
+    await sleep(0)
+    assert.deepEqual(refreshed, ['session-2', 'session-2'], 'a call that reached nobody is re-asked')
+    api.refreshPullRequestsForSession = settled
   })
 
   // ── the menu ──────────────────────────────────────────────────────────────
@@ -369,19 +425,16 @@ async function main(): Promise<void> {
   ): { host: Element; closes: () => number; unmount: () => void } {
     let closes = 0
     const view = mount(
-      React.createElement(
-        PointerPopover,
-        {
-          x: 20,
-          y: 20,
-          ariaLabel: 'Gate OSC 52 — conversation',
-          popupRole: 'dialog' as const,
-          onClose: () => {
-            closes += 1
-          },
+      React.createElement(PointerPopover, {
+        x: 20,
+        y: 20,
+        ariaLabel: 'Gate OSC 52 — conversation',
+        popupRole: 'dialog' as const,
+        onClose: () => {
+          closes += 1
         },
-        React.createElement(PullRequestPeekMark, { pullRequests, now: NOW }),
-      ),
+        children: React.createElement(PullRequestPeekMark, { pullRequests, now: NOW }),
+      }),
     )
     return { host: view.host, closes: () => closes, unmount: view.unmount }
   }
@@ -452,6 +505,47 @@ async function main(): Promise<void> {
     })
     assert.equal(view.closes(), 1, 'a press in someone else’s surface is an outside press')
     elsewhere.unmount()
+    view.unmount()
+  })
+
+  await run('opening an agent tab’s card asks about that conversation, through the same helper', async () => {
+    // The peek's OTHER anchor (epic decision 8a). A tab whose sidebar line is
+    // scrolled out of view is never hovered there, so before this its marks
+    // only arrived on the next window focus. It asks through the SAME helper,
+    // so the two anchors share one coalescing window rather than each having
+    // one of their own.
+    const { AgentTabIdentityPopover } = await import('./AgentTabIdentityPopover')
+    resetPullRequestRefreshes()
+    refreshed.length = 0
+    const identity = {
+      name: 'planner-agent',
+      taskId: null,
+      status: { kind: 'working' as const, label: 'Working' },
+      agent: {
+        sessionId: 'a21ac8e7-548f-6f89',
+        cli: 'claude-code',
+        model: 'claude-opus-4-8',
+        fileChanges: [],
+        pullRequests: [],
+        activeSubagents: 0,
+        contextUsage: null,
+      },
+    }
+    const view = mount(
+      React.createElement(AgentTabIdentityPopover, {
+        identity,
+        lookupBranch: 'agent/osc52-gate',
+        children: React.createElement('span', null, 'planner-agent'),
+      }),
+    )
+    assert.deepEqual(refreshed, [], 'a tab nobody has looked at asks nothing')
+    await act(async () => {
+      view.host.firstElementChild!.dispatchEvent(
+        new dom.window.FocusEvent('focusin', { bubbles: true }),
+      )
+      await sleep(0)
+    })
+    assert.deepEqual(refreshed, ['a21ac8e7-548f-6f89'], 'the card opening is the ask')
     view.unmount()
   })
 
