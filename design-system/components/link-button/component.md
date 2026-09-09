@@ -42,6 +42,15 @@ nothing is painted inside it.
   "Show details". The underline is standing rather than a hover reveal because a
   quiet link with no colour and no box is indistinguishable from the sentence
   around it until the pointer happens to cross it.
+- **`--row`** — a full-width flex row with its parts baseline-aligned, for a
+  LIST of links rather than one set inside a sentence: a column of changed files
+  where the name, the folder and the counts have to line up down the list. It is
+  a variant rather than a caller's own `display`, because `display` is the one
+  property the base rule spends on being inline — a competing declaration at
+  equal specificity is resolved by stylesheet order, and a row that quietly fell
+  back to `inline` would lose its columns entirely. Everything else about the
+  link is unchanged: still no box, no height and no ground.
+
 - **`--inherit`** — takes the surrounding text's size and weight instead of
   `font.size.meta`. For the link set inside prose the caller has already sized: a
   path inside rendered markdown, a name inside a heading. A size of our own there

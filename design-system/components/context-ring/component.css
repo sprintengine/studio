@@ -1,0 +1,76 @@
+/* Context ring — how much of a model's context window a conversation has
+ * spent, drawn as a 14px circle filled clockwise from twelve. Extracted from
+ * the shipped ContextRing primitive
+ * (src/renderer/src/components/ui/ContextRing.tsx).
+ *
+ * The shape is borrowed rather than invented: Claude Code, Cursor and ChatGPT
+ * all draw this ring for the same fact, so a person arriving at it already
+ * knows what it means. That is the whole reason it is a ring and not a bar or
+ * a percentage — a number would have to be read, and this sits beside a title
+ * at 14px where there is no room to read one.
+ *
+ * It is a DISPLAY of one proportion, never a control and never a progress
+ * indicator: nothing here is loading, and the value can fall as well as rise
+ * (a compaction gives context back). It carries no tone but two — the accent
+ * while the window is ordinary, and status.warn once a compaction is close. */
+
+.ds-context-ring-anchor {
+  /* The mark's own diameter, kept here so the pull-back below can be written
+     in tokens and the two can never drift apart. */
+  --ds-context-ring-size: 14px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  inline-size: var(--sem-size-hit-target-min);
+  block-size: var(--sem-size-hit-target-min);
+  /* A 14px mark needs a 24px target to be hoverable and focusable; without
+     this pull-back that target would grow the line it sits in by 5px above and
+     below, which is a header getting taller to hold a 14px circle. */
+  margin-block: calc((var(--sem-size-hit-target-min) - var(--ds-context-ring-size)) / -2);
+  border-radius: var(--sem-radius-pill);
+  color: var(--sem-color-text-default);
+}
+
+.ds-context-ring-anchor:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+.ds-context-ring {
+  display: block;
+  inline-size: var(--ds-context-ring-size, 14px);
+  block-size: var(--ds-context-ring-size, 14px);
+}
+
+/* The unspent remainder. `border.strong` and not a status tone: the empty part
+   of the ring is a track, and a track that carried a colour would read as a
+   second value. */
+.ds-context-ring-track {
+  fill: none;
+  stroke: var(--sem-color-border-strong);
+  stroke-width: 2;
+}
+
+/* The spent part, swept clockwise from twelve. `butt` caps, because a rounded
+   cap at 2px overhangs by a whole degree and makes 0% draw a dot. */
+.ds-context-ring-fill {
+  fill: none;
+  stroke: var(--sem-color-accent-primary);
+  stroke-width: 2;
+  stroke-linecap: butt;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  transition: stroke-dasharray var(--sem-motion-duration-deliberate) var(--sem-motion-ease-standard);
+}
+
+/* Past the warn threshold a compaction is coming, which is worth a glance
+   before it happens. The only other tone the fill ever takes. */
+.ds-context-ring--high .ds-context-ring-fill {
+  stroke: var(--sem-color-status-warn);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-context-ring-fill {
+    transition: none;
+  }
+}

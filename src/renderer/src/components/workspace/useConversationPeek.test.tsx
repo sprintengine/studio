@@ -2,11 +2,15 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-// The selection and caching contract behind the roster (mockup frame 9). None
-// of this is visible in markup: hover previews without committing, a press
-// pins, the body follows whichever is in force, and each terminal is read at
-// most once per opening. So this drives the hook in a real DOM against a
-// counted stub of the preload call.
+// The caching and one-card-at-a-time contract behind the peek. None of this is
+// visible in markup: which session is read, how often, and what a close throws
+// away. So this drives the hook in a real DOM against a counted stub of the
+// preload call.
+//
+// The hook no longer owns a SELECTION (2026-09-09). One card is one agent, and
+// which agent is the shell's business: the sidebar reads the `data-peek-session`
+// of the line under the pointer and hands the hook that session id, which is
+// why the session a mounted hook is given can change while it is open.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -21,7 +25,13 @@ anyGlobal.HTMLElement = dom.window.HTMLElement
 anyGlobal.Node = dom.window.Node
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
 
-type Peek = { sessionId: string; source: 'transcript'; first: null; since: [] }
+type Peek = {
+  sessionId: string
+  source: 'transcript'
+  first: null
+  since: []
+  images: []
+}
 
 const reads: string[] = []
 let answer: (sessionId: string) => Promise<Peek> = async (sessionId) => ({
@@ -29,6 +39,7 @@ let answer: (sessionId: string) => Promise<Peek> = async (sessionId) => ({
   source: 'transcript',
   first: null,
   since: [],
+  images: [],
 })
 
 ;(dom.window as unknown as { api: unknown }).api = {
@@ -62,21 +73,26 @@ async function main(): Promise<void> {
   type Slot = { current: Hook }
   let hook: Hook | null = null
 
-  function Probe({ defaultSessionId, slot }: { defaultSessionId: string | null; slot: Slot }) {
-    const value = useConversationPeek(defaultSessionId)
+  function Probe({ sessionId, slot }: { sessionId: string | null; slot: Slot }) {
+    const value = useConversationPeek(sessionId)
     slot.current = value
     hook = value
     return null
   }
 
-  function mount(defaultSessionId: string | null) {
+  function mount(sessionId: string | null) {
     const host = dom.window.document.createElement('div')
     dom.window.document.body.appendChild(host)
     const root = createRoot(host)
     const slot = { current: null as unknown as Hook }
-    act(() => root.render(<Probe defaultSessionId={defaultSessionId} slot={slot} />))
+    act(() => root.render(<Probe sessionId={sessionId} slot={slot} />))
     return {
       slot,
+      // The shell moving the card to another agent line: same mounted hook, a
+      // different session id.
+      moveTo: (next: string | null) => {
+        act(() => root.render(<Probe sessionId={next} slot={slot} />))
+      },
       unmount: () => {
         act(() => root.unmount())
         host.remove()
@@ -100,63 +116,20 @@ async function main(): Promise<void> {
     const mounted = mount(DS)
     act(() => hook!.openNow())
     await settle()
-    assert.equal(hook!.selectedSessionId, DS, 'the default is what the body shows')
-    assert.equal(hook!.pinnedSessionId, null, 'and nothing is committed until someone commits it')
+    assert.equal(hook!.peek?.sessionId, DS, 'the session it was handed is the one on screen')
     assert.deepEqual(reads, [DS], 'exactly one read, for the terminal on screen')
     mounted.unmount()
   })
 
-  await run('hovering a disc moves the body and commits nothing', async () => {
+  await run('moving to another agent line reads that agent', async () => {
     reads.length = 0
     const mounted = mount(DS)
     act(() => hook!.openNow())
     await settle()
-    act(() => hook!.previewAgent(LL))
+    mounted.moveTo(LL)
     await settle()
-    assert.equal(hook!.selectedSessionId, LL, 'the body moved to the hovered terminal')
-    assert.equal(hook!.pinnedSessionId, null, 'a hover is not a choice')
-    assert.deepEqual(reads, [DS, LL], 'and the hovered terminal is read')
-    mounted.unmount()
-  })
-
-  await run('leaving the roster without a press returns the body to where it was', async () => {
-    const mounted = mount(DS)
-    act(() => hook!.openNow())
-    await settle()
-    act(() => hook!.previewAgent(LL))
-    await settle()
-    act(() => hook!.endPreview())
-    assert.equal(hook!.selectedSessionId, DS, 'back to the default')
-    mounted.unmount()
-  })
-
-  await run('pinning survives the pointer leaving the roster', async () => {
-    const mounted = mount(DS)
-    act(() => hook!.openNow())
-    await settle()
-    act(() => hook!.pinAgent(LL))
-    await settle()
-    assert.equal(hook!.pinnedSessionId, LL, 'the press committed')
-    act(() => hook!.endPreview())
-    assert.equal(
-      hook!.selectedSessionId,
-      LL,
-      'so the pointer can travel down to a file chip without the card changing underneath it',
-    )
-    mounted.unmount()
-  })
-
-  await run('a hover over a third disc previews ON TOP of the pin, and falls back to it', async () => {
-    const mounted = mount(DS)
-    act(() => hook!.openNow())
-    await settle()
-    act(() => hook!.pinAgent(LL))
-    await settle()
-    act(() => hook!.previewAgent(DS))
-    assert.equal(hook!.selectedSessionId, DS, 'the hover wins while it lasts')
-    assert.equal(hook!.pinnedSessionId, LL, 'without disturbing the commit')
-    act(() => hook!.endPreview())
-    assert.equal(hook!.selectedSessionId, LL, 'and falls back to the pinned one, not the default')
+    assert.equal(hook!.peek?.sessionId, LL, 'the card is the agent the pointer is on')
+    assert.deepEqual(reads, [DS, LL], 'and that agent’s conversation is read')
     mounted.unmount()
   })
 
@@ -165,13 +138,17 @@ async function main(): Promise<void> {
     const mounted = mount(DS)
     act(() => hook!.openNow())
     await settle()
-    act(() => hook!.previewAgent(LL))
+    mounted.moveTo(LL)
     await settle()
-    act(() => hook!.previewAgent(DS))
+    mounted.moveTo(DS)
     await settle()
-    act(() => hook!.previewAgent(LL))
+    mounted.moveTo(LL)
     await settle()
-    assert.deepEqual(reads, [DS, LL], 'switching back is instant and never re-streams a transcript')
+    assert.deepEqual(
+      reads,
+      [DS, LL],
+      'sweeping back up the row’s agent lines is instant and never re-streams a transcript',
+    )
     mounted.unmount()
   })
 
@@ -199,26 +176,25 @@ async function main(): Promise<void> {
     await settle()
     assert.equal(hook!.loading, false, 'no endless skeleton')
     assert.equal(hook!.peek, null, 'and the card falls back to saying so')
-    answer = async (sessionId) => ({ sessionId, source: 'transcript', first: null, since: [] })
+    answer = async (sessionId) => ({ sessionId, source: 'transcript', first: null, since: [], images: [] })
     mounted.unmount()
   })
 
-  await run('closing drops the answers and the pin, so re-opening reads fresh', async () => {
+  await run('closing drops the answers, so re-opening reads fresh', async () => {
     reads.length = 0
     const mounted = mount(DS)
     act(() => hook!.openNow())
     await settle()
-    act(() => hook!.pinAgent(LL))
+    mounted.moveTo(LL)
     await settle()
+    mounted.moveTo(DS)
     act(() => hook!.closeNow())
     act(() => hook!.openNow())
     await settle()
-    assert.equal(hook!.pinnedSessionId, null, 'a pin from a previous visit is not a choice still being made')
-    assert.equal(hook!.selectedSessionId, DS, 'so the card opens where it always opens')
     assert.deepEqual(
       reads,
       [DS, LL, DS],
-      'and the conversation is re-read — the last visit’s messages may have moved on since',
+      'the conversation is re-read — the last visit’s messages may have moved on since',
     )
     mounted.unmount()
   })

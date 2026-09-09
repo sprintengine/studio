@@ -1,11 +1,17 @@
+import { formatRelativeMs } from '../../utils/relativeTime'
 import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import type { AgentState, Workspace } from '../../types/workspace'
-import type { ConversationPeekAgent, ConversationPeekIdentity } from './ConversationPeekCard'
+import type { ConversationPeekIdentity, ConversationPeekStatus } from './ConversationPeekCard'
 
-// What a SIDEBAR ROW knows about the conversation behind it. A tab is one
-// agent; a row is a CHAT, which may hold several terminals — so it resolves a
-// roster of them rather than one, and the card shows one at a time with the
-// roster as its selector (mockup frame 9).
+// What a SIDEBAR ROW knows about the conversations behind it.
+//
+// ONE CARD PER AGENT (owner, 2026-09-09). A row is a CHAT and may hold several
+// terminals, so this resolves ONE IDENTITY PER TERMINAL rather than a roster
+// the card selects from: the sidebar already lists a chat's agents as its own
+// sub-lines, and the person points at the one they mean. The shell picks the
+// identity whose session the pointer is on (`data-peek-session`) and falls back
+// to the first — which is the whole of a single-agent row, where the row and
+// the agent are the same thing.
 //
 // Nothing is merged. Three terminals are three conversations that happen to
 // share a folder, and a single thread stitched from all three reads as one
@@ -26,33 +32,50 @@ function activityAt(session: TerminalSessionSnapshot): number {
 }
 
 /**
- * Two letters for an agent's disc. The distinguishing fact in a roster is WHO,
- * not what: the agents in one chat usually share a runtime, so a row of
- * identical runtime marks would name none of them. The full name is the disc's
- * accessible name — the initials are the face, never the label.
+ * ONE terminal's own state, for a row that holds more than one.
+ *
+ * Idle says how long, from the same three timestamps the ordering uses, because
+ * a bare "Idle" on a card opened from a chat you last touched in March says
+ * nothing. The row's own status (see `peekStatusOf`) is better than this
+ * wherever there is only one terminal — it knows about needs-input, which a
+ * session snapshot alone does not — so that is what a single-agent row uses.
  */
-export function agentInitials(name: string): string {
-  const words = name.split(/[\s\-_.]+/u).filter(Boolean)
-  if (words.length === 0) return '??'
-  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase()
-  return `${words[0]![0]!}${words[1]![0]!}`.toUpperCase()
-}
-
-/** A terminal's own state, in the disc's voice. */
-function agentStatusOf(session: TerminalSessionSnapshot | null): ConversationPeekIdentity['status'] {
-  if (!session) return { tone: 'neutral', pulse: false, label: 'Parked' }
-  if (session.activity?.kind === 'working') return { tone: 'good', pulse: true, label: 'Working' }
-  if (session.activity?.kind === 'failed') return { tone: 'error', pulse: false, label: 'Failed' }
-  if (session.exitedAt !== null) return { tone: 'neutral', pulse: false, label: 'Exited' }
-  if (session.suspended) return { tone: 'neutral', pulse: false, label: 'Paused' }
-  return { tone: 'neutral', pulse: false, label: 'Idle' }
+function agentStatusOf(
+  session: TerminalSessionSnapshot | null,
+  now: number,
+): ConversationPeekStatus {
+  if (!session) return { kind: 'attention', label: 'Parked' }
+  if (session.activity?.kind === 'working') return { kind: 'working', label: 'Working' }
+  if (session.activity?.kind === 'failed') return { kind: 'attention', label: 'Failed' }
+  if (session.exitedAt !== null) return { kind: 'idle', label: 'Exited' }
+  if (session.suspended) return { kind: 'attention', label: 'Paused' }
+  const idleFor = formatRelativeMs(activityAt(session), now)
+  return { kind: 'idle', label: idleFor ? `Idle · ${idleFor}` : 'Idle' }
 }
 
 /**
- * Every terminal a row's card can be moved to, live first and then most
- * recently active — which is also why the roster's FIRST entry is the one
- * selected at rest. Not the first by name or by id: an arbitrary answer dressed
- * up as a considered one.
+ * The header's status cluster for the ROW as a whole. Deliberately terser than
+ * the tab's — a row is read in a list of forty, and "Workspace agents working"
+ * is a sentence where the tab card has room for one. Idle says how long only
+ * when the row already knows; a bare "Idle" beside a chat you last touched in
+ * March says nothing.
+ */
+export function peekStatusOf(
+  activity: ConversationPeekRowActivity,
+  idleFor: string,
+): ConversationPeekStatus {
+  if (activity === 'needs-input') return { kind: 'attention', label: 'Waiting' }
+  if (activity === 'working') return { kind: 'working', label: 'Working' }
+  if (activity === 'failed') return { kind: 'attention', label: 'Failed' }
+  if (idleFor) return { kind: 'idle', label: `Idle · ${idleFor}` }
+  return { kind: 'idle', label: 'Idle' }
+}
+
+/**
+ * One card per terminal this row can peek at, live first and then most recently
+ * active — which is also why the FIRST entry is the one a row with no hovered
+ * agent line opens on. Not the first by name or by id: an arbitrary answer
+ * dressed up as a considered one.
  *
  * Built from the two sources the peek already resolves — the sessions main
  * knows about and the row's own parked agent records — deduplicated by session
@@ -67,17 +90,31 @@ function agentStatusOf(session: TerminalSessionSnapshot | null): ConversationPee
  * The `live` arm is load-bearing now that the caller hands over every session
  * main knows about rather than only the running ones: a chat with a finished
  * agent and a running one opens on the running one.
+ *
+ * `status` is the ROW's own answer and is used only where the row holds one
+ * terminal, because there the row and the agent are the same thing and the row
+ * knows more (needs-input, and its own idle clock). Where there are several,
+ * each card says its own agent's state — the point of the ruling.
+ *
+ * `sessions` is every session main knows about for this row, NOT only the ones
+ * with a living process — a peek is asked for most about the chat that is not
+ * running.
+ *
+ * Empty when the row has no conversation to peek at, which is the caller's
+ * signal to draw no card at all.
  */
-export function rowConversationPeekRoster(input: {
-  workspace: Pick<Workspace, 'remoteOrigin'> & { agents?: Record<string, AgentState> }
+export function rowConversationPeekIdentities(input: {
+  workspace: Pick<Workspace, 'name' | 'remoteOrigin'> & { agents?: Record<string, AgentState> }
   sessions: ReadonlyArray<TerminalSessionSnapshot>
-}): ConversationPeekAgent[] {
+  status: ConversationPeekStatus
+  now: number
+}): ConversationPeekIdentity[] {
   const agents = input.workspace.agents
-  const byId = new Map<string, { agent: ConversationPeekAgent; live: boolean; at: number }>()
-  // Which agents already have a session on the roster. Deduplicating by session
+  const byId = new Map<string, { identity: ConversationPeekIdentity; live: boolean; at: number }>()
+  // Which agents already have a session on the list. Deduplicating by session
   // id alone is not enough: an agent record's `cliSessionId` is the id it was
   // LAST launched under, and a relaunch mints a new one — so a stale record
-  // would put the same person on the roster twice, live and parked, under one
+  // would put the same person on the list twice, live and parked, under one
   // name. The agent is the unit; the session is how we ask about it.
   const seenAgents = new Set<string>()
 
@@ -85,15 +122,24 @@ export function rowConversationPeekRoster(input: {
     if (session.kind !== 'agent') continue
     if (session.agentId) seenAgents.add(session.agentId)
     const record = session.agentId ? agents?.[session.agentId] : undefined
-    const name = record?.name ?? session.agentName ?? 'Agent'
     byId.set(session.sessionId, {
-      agent: {
-        sessionId: session.sessionId,
-        name,
-        initials: agentInitials(name),
-        cli: record?.cli ?? session.cli ?? null,
-        model: record?.cliModel ?? null,
-        status: agentStatusOf(session),
+      identity: {
+        // The ROW's title, not the agent's: the card opens out of the row and
+        // has to be recognisable as that row's card (mockup frame 3, where the
+        // card opened from an agent line still names the chat).
+        name: input.workspace.name,
+        // No task chip on a row, unlike the tab: a sprint task is claimed by an
+        // agent, and the row's own title is the chat's.
+        taskId: null,
+        status: agentStatusOf(session, input.now),
+        agent: {
+          sessionId: session.sessionId,
+          cli: record?.cli ?? session.cli ?? null,
+          model: record?.cliModel ?? null,
+          fileChanges: session.fileChanges ?? [],
+          activeSubagents: session.activeSubagents ?? 0,
+          contextUsage: session.contextUsage ?? null,
+        },
       },
       live: session.exitedAt === null,
       at: activityAt(session),
@@ -109,13 +155,20 @@ export function rowConversationPeekRoster(input: {
       if (!sessionId || record.cliHasLaunched !== true) continue
       if (byId.has(sessionId) || seenAgents.has(record.id)) continue
       byId.set(sessionId, {
-        agent: {
-          sessionId,
-          name: record.name,
-          initials: agentInitials(record.name),
-          cli: record.cli ?? null,
-          model: record.cliModel ?? null,
-          status: agentStatusOf(null),
+        identity: {
+          name: input.workspace.name,
+          taskId: null,
+          status: agentStatusOf(null, input.now),
+          agent: {
+            sessionId,
+            cli: record.cli ?? null,
+            model: record.cliModel ?? null,
+            // A parked record is not a session: main holds no ledger for it,
+            // and an empty list is the honest answer rather than a stale one.
+            fileChanges: [],
+            activeSubagents: 0,
+            contextUsage: null,
+          },
         },
         live: false,
         at: record.cliLastExitedAt ?? 0,
@@ -123,60 +176,17 @@ export function rowConversationPeekRoster(input: {
     }
   }
 
-  return [...byId.values()]
+  const ordered = [...byId.values()]
     .sort((a, b) => {
       if (a.live !== b.live) return a.live ? -1 : 1
       if (a.at !== b.at) return b.at - a.at
-      return a.agent.sessionId.localeCompare(b.agent.sessionId)
+      return a.identity.agent.sessionId.localeCompare(b.identity.agent.sessionId)
     })
-    .map((entry) => entry.agent)
-}
+    .map((entry) => entry.identity)
 
-/**
- * The header's status cluster. Deliberately terser than the tab's — a row is
- * read in a list of forty, and "Workspace agents working" is a sentence where
- * the tab card has room for one. Idle says how long only when the row already
- * knows; a bare "Idle" beside a chat you last touched in March says nothing.
- */
-export function peekStatusOf(
-  activity: ConversationPeekRowActivity,
-  idleFor: string,
-): ConversationPeekIdentity['status'] {
-  if (activity === 'needs-input') return { tone: 'warn', pulse: false, label: 'Waiting' }
-  if (activity === 'working') return { tone: 'good', pulse: true, label: 'Working' }
-  if (activity === 'failed') return { tone: 'error', pulse: false, label: 'Failed' }
-  if (idleFor) return { tone: 'neutral', pulse: false, label: `Idle · ${idleFor}` }
-  return { tone: 'neutral', pulse: false, label: 'Idle' }
-}
-
-/**
- * Everything the row's peek says that is not a message. Null when the row has
- * no conversation to peek at.
- *
- * The name is the ROW's title, not the agent's: the card opens out of the row
- * and has to be recognisable as that row's card. Everything that varies per
- * TERMINAL — the model, the session id, the messages — belongs to the roster,
- * because the card shows one terminal at a time and the roster is what moves
- * it between them.
- *
- * No task chip here, unlike the tab: a sprint task is claimed by an agent, and
- * a row that holds three of them would be picking one of their tasks to show.
- *
- * `sessions` is every session main knows about for this row, NOT only the ones
- * with a living process — a peek is asked for most about the chat that is not
- * running.
- */
-export function rowConversationPeekIdentity(input: {
-  workspace: Pick<Workspace, 'name' | 'remoteOrigin'> & { agents?: Record<string, AgentState> }
-  sessions: ReadonlyArray<TerminalSessionSnapshot>
-  status: ConversationPeekIdentity['status']
-}): ConversationPeekIdentity | null {
-  const roster = rowConversationPeekRoster(input)
-  if (roster.length === 0) return null
-  return {
-    name: input.workspace.name,
-    taskId: null,
-    status: input.status,
-    roster,
-  }
+  // One terminal: the row IS the agent, so the row's own status wins — it knows
+  // about needs-input, and its idle clock is the one the row is already showing.
+  const only = ordered[0]
+  if (ordered.length === 1 && only) return [{ ...only, status: input.status }]
+  return ordered
 }

@@ -64,3 +64,20 @@
   font: inherit;
   line-height: inherit;
 }
+
+/* row — a full-width flex row, for a LIST of links rather than one set inside a
+ * sentence: the conversation peek's changed files, where the name, the folder
+ * and the counts are three columns that have to line up down the list.
+ *
+ * A variant and not something a caller adds on top, because `display` is the one
+ * property this component's base rule spends on being inline: a `flex` written
+ * beside `.ds-link-button` competes at equal specificity, so which wins is
+ * stylesheet order rather than the author's intent, and a row that silently fell
+ * back to `inline` would put the whole path on one baseline with no columns at
+ * all. */
+.ds-link-button--row {
+  display: flex;
+  align-items: baseline;
+  inline-size: 100%;
+  min-inline-size: 0;
+}
