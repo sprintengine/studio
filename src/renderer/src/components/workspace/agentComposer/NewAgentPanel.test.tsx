@@ -1561,6 +1561,142 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  // ── One colour per project, on the scope line ────────────────────────────
+  // Owner ruling 2026-09-09, backlog item
+  // `one-colour-per-project-on-the-folder-glyph`, decision 7: "I keep opening
+  // up a new chat and forgetting to pick the project." The fix is that a chosen
+  // project and no project stop LOOKING alike — a solid folder in the project's
+  // own hue against a dashed, colourless one reading "Choose a project".
+
+  // The glyph is the first svg inside the control; the chevron follows it.
+  const glyphMark = (el: Element | null | undefined): string | null => {
+    const glyph = el?.querySelector('svg')
+    const classes = (glyph?.getAttribute('class') ?? '').split(/\s+/)
+    return classes.find((name) => name.startsWith('project-mark-')) ?? null
+  }
+  const glyphIsUnfiled = (el: Element | null | undefined): boolean => {
+    const glyph = el?.querySelector('svg')
+    return Boolean(glyph?.querySelector('path')?.getAttribute('stroke-dasharray'))
+  }
+  const seedColours = (): void => {
+    useWorkspaceStore.setState((state) => ({
+      appSettings: { ...state.appSettings, projectColors: {} },
+    }) as never)
+  }
+
+  await check('the scope line wears the project’s colour, and no project at all wears the dashed folder', async () => {
+    seedStore()
+    seedColours()
+    resetRememberedMachineForTests()
+    fleetConnections = []
+    const multicode = { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
+    localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? multicode : null)
+
+    const view = await render({
+      folderPath: '/proj',
+      projectOptions: [{ path: '/proj', label: 'proj' }, { path: '/other', label: 'other' }],
+      onSelectProject: () => {},
+      onBrowseProject: () => {},
+    })
+    await settle()
+    await settle()
+    const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
+    const mark = glyphMark(trigger)
+    assert.ok(mark, `the chosen project’s chip carries a hue; got class ${trigger?.querySelector('svg')?.getAttribute('class')}`)
+    assert.equal(glyphIsUnfiled(trigger), false, 'and a solid folder, because this IS a project')
+    // The colour is stored against the REPOSITORY, not the folder: two clones
+    // of one repo are one project and one hue (decision 3).
+    const stored = useWorkspaceStore.getState().appSettings.projectColors ?? {}
+    assert.equal(
+      stored['repo:github.com/acme/multicode'],
+      mark?.replace('project-mark-', ''),
+      'the hue was allocated under the repository key, and the glyph wears exactly it',
+    )
+    assert.equal(
+      Object.keys(stored).some((key) => key.startsWith('folder:')),
+      false,
+      'and no phantom folder key was allocated while the identity was still being read',
+    )
+    // The list is where a person chooses BETWEEN projects, so the rows carry
+    // their own colours rather than only the chip that opened them.
+    await click(trigger)
+    await settle()
+    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Project this agent runs in"]')
+    assert.ok(menu, 'the chip opens the project menu')
+    const chosenRow = [...menu!.querySelectorAll('[role="menuitemradio"]')].find((row) =>
+      (row.textContent ?? '').includes('/proj'),
+    )
+    assert.equal(glyphMark(chosenRow), mark, 'the row for the chosen project wears the same hue as the chip')
+    view.unmount()
+
+    // No project at all: the dashed, colourless folder and the words that say
+    // there is a choice to make. And no hint text under it — the owner cut that.
+    seedColours()
+    const empty = await render({
+      folderPath: null,
+      projectOptions: [],
+      onSelectProject: () => {},
+      onBrowseProject: () => {},
+    })
+    await settle()
+    const emptyTrigger = empty.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
+    assert.ok(emptyTrigger?.textContent?.includes('Choose a project'), 'it says there is a project to choose')
+    assert.equal(glyphMark(emptyTrigger), null, 'no folder is not a project, so it has no hue')
+    assert.equal(glyphIsUnfiled(emptyTrigger), true, 'and the outline is dashed, not a solid folder waiting on a colour')
+    assert.deepEqual(
+      useWorkspaceStore.getState().appSettings.projectColors,
+      {},
+      'nothing was allocated: an unfiled chat must never eat one of the six hues',
+    )
+    empty.unmount()
+    localIdentityAnswer = () => null
+  })
+
+  await check('the same repository on a paired machine wears the same hue as the local clone', async () => {
+    seedStore()
+    seedColours()
+    resetRememberedMachineForTests()
+    const multicode = { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
+    localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? multicode : null)
+    fleetConnections = [machine('m1', 'Air')]
+    fleetBrowseAnswer = (id) => ({
+      connectionId: id,
+      reachable: true,
+      unreachableReason: null,
+      unauthorized: false,
+      scopes: ['workspace:operate'],
+      terminalAccess: 'control',
+      workspaces: [
+        { ...workspace('w1', 'other', '/srv/other'), repository: { canonicalKey: 'github.com/acme/other', remoteUrl: '', name: 'other' } },
+        { ...workspace('w2', 'multicode-air', '/srv/multicode'), repository: multicode },
+      ],
+      terminals: [],
+      gaps: [],
+    })
+    const view = await remoteRender()
+    await settle()
+    await settle()
+    const localMark = glyphMark(view.container.querySelector('[data-project-trigger="true"]'))
+    assert.ok(localMark, 'the local clone has a hue to match')
+
+    await pickMachine(view, 'Air')
+    await settle()
+    await settle()
+    // Two projects on the Air, but one of them is the repository in hand, so
+    // the machine pick keeps the project.
+    const remoteTrigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
+    assert.ok(remoteTrigger?.textContent?.includes('multicode-air'), `the remote copy is the picked project; got ${remoteTrigger?.textContent}`)
+    assert.equal(
+      glyphMark(remoteTrigger),
+      localMark,
+      'and it wears the SAME hue: the machine is a glyph on the line, never a second colour',
+    )
+    assert.equal(glyphIsUnfiled(remoteTrigger), false, 'a picked remote project is a project')
+    view.unmount()
+    localIdentityAnswer = () => null
+    fleetConnections = []
+  })
+
   await check('the local access menu walks with the arrows and selects on Enter', async () => {
     seedStore()
     resetRememberedMachineForTests()

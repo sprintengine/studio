@@ -14,7 +14,9 @@ import type {
 import type { TailnetScope } from '../../../../../shared/tailnet'
 import { sameRepository, type RepositoryIdentity } from '../../../../../shared/repository-identity'
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
-import { RemoteMachineGlyph } from '../../AppIcons'
+import { FolderTypeIcon, RemoteMachineGlyph } from '../../AppIcons'
+import { useAssignProjectColors, useProjectColor } from '../../../hooks/useProjectColors'
+import { projectColorKey, type ProjectColor } from '../../../utils/projectColor'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { ATTACHABLE_IMAGE_TYPES } from '../../../../../shared/conversation-attachments'
@@ -502,6 +504,37 @@ export default function NewAgentPanel({
     ? remoteTarget.picked?.repository ?? null
     : localIdentity
   activeIdentityRef.current = activeIdentity
+  // The colour the scope line wears (owner ruling 2026-09-09, backlog item
+  // `one-colour-per-project-on-the-folder-glyph`, decision 7). The owner's
+  // words were "I keep opening up a new chat and forgetting to pick the
+  // project", so the point of the hue here is not decoration: it is that a
+  // chosen project and no project stop looking alike.
+  //
+  // The key is the project's, not the folder's or the machine's — decision 3, a
+  // project is a repository. So the local scope resolves through the folder's
+  // repository identity and a picked remote project through the one its machine
+  // served, and the same repository on two machines therefore lands on ONE key
+  // and one hue. The machine is a glyph on this line, never a second colour.
+  const scopeProjectKey = remoteTarget
+    ? remoteTarget.picked
+      ? projectColorKey({ folderPath: remoteTarget.picked.folderPath, repository: remoteTarget.picked.repository })
+      : null
+    : projectColorKey({ folderPath: workspaceRoot, repository: localIdentity })
+  // A project first met HERE gets its hue here, rather than staying colourless
+  // until the sidebar happens to render a row for it. The allocator writes
+  // nothing when the key already has one, so this is safe on every render.
+  //
+  // But it waits for the folder's identity to be READ. A folder with a remote
+  // keys as `repo:…` and one without as `folder:…`, so allocating while the
+  // read is still in flight would spend a hue on a key the project never uses
+  // again — a phantom entry, permanently holding one of six. The identities
+  // hook says "not asked yet" by absence and "asked, and no remote" by a stored
+  // null, so absence is precisely the thing to wait on. Until then the key
+  // resolves to no stored colour and the glyph is plain, which is what an
+  // unknown project should look like anyway.
+  const localIdentityRead = !workspaceRoot?.trim() || localIdentities.has(folderIdentityKey(workspaceRoot))
+  useAssignProjectColors(remoteTarget || localIdentityRead ? [scopeProjectKey] : [])
+  const scopeProjectColor = useProjectColor(scopeProjectKey)
   const pickRemoteMachine = (connection: FleetConnection | null, keep: RepositoryIdentity | null = activeIdentity): void => {
     lastPickedMachineId = connection?.id ?? null
     if (!connection) {
@@ -1069,7 +1102,7 @@ export default function NewAgentPanel({
               />
             ) : null}
             {remoteTarget ? (
-              <RemoteProjectPicker target={remoteTarget} onPick={(workspace) => {
+              <RemoteProjectPicker target={remoteTarget} color={scopeProjectColor} onPick={(workspace) => {
                 setRemoteTarget((current) =>
                   current ? { ...current, picked: workspace, checkout: null, checkoutError: null, choice: { mode: 'current' } } : current
                 )
@@ -1083,11 +1116,27 @@ export default function NewAgentPanel({
                 onSelect={(path) => onSelectProject?.(path)}
                 onBrowse={onBrowseProject}
                 onClone={onCloneProject}
+                // The hue, resolved here because only this component holds the
+                // repository identity behind the folder; the identity map goes
+                // with it so the rows IN the list wear their own colours too,
+                // read from the map this panel already asked main for rather
+                // than a second round of the same IPC.
+                color={scopeProjectColor}
+                unfiled={!workspaceRoot?.trim()}
+                identities={localIdentities}
               />
             ) : projectLabel ? (
-              <p className="text-meta text-[color:var(--text-subtle)]">
-                {projectLabel}
-                {branch ? ` · ${branch}` : ''}
+              // The tab strip's "+": the project is a fact rather than a choice,
+              // so this is a line and not a control — but it is the same line,
+              // and it wears the same glyph in the same hue. Every state of the
+              // scope line carries the colour, or the colour stops being how you
+              // tell one project from another.
+              <p className="inline-flex items-center gap-1.5 text-meta text-[color:var(--text-subtle)]">
+                <FolderTypeIcon className="icon-xs shrink-0" color={scopeProjectColor} />
+                <span className="min-w-0 truncate">
+                  {projectLabel}
+                  {branch ? ` · ${branch}` : ''}
+                </span>
               </p>
             ) : null}
             {/* machine · project · checkout · branch (checkout-and-branch-on-
@@ -1656,9 +1705,17 @@ function MachineScopePicker({
  */
 function RemoteProjectPicker({
   target,
+  color,
   onPick,
 }: {
   target: RemoteTargetState
+  /**
+   * The picked project's hue — the SAME hue the local clone of that repository
+   * wears here (decision 3: a project is a repository, and the machine is a
+   * glyph on the line rather than a second colour). Null until a project is
+   * picked, which is also when the glyph is the dashed unfiled outline.
+   */
+  color: ProjectColor | null
   onPick: (workspace: FleetWorkspace) => void
 }) {
   const [open, setOpen] = React.useState(false)
@@ -1688,7 +1745,11 @@ function RemoteProjectPicker({
       placement="bottom-start"
       surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <ChipButton ref={ref} onClick={togglePopover} {...triggerProps}>
+        // The same stable hook the local chip carries: the two never render
+        // together, so a pass looking for "the project control on the scope
+        // line" finds whichever one is there.
+        <ChipButton ref={ref} onClick={togglePopover} data-project-trigger="true" {...triggerProps}>
+          <FolderTypeIcon className="icon-xs shrink-0" color={color} unfiled={!target.picked} />
           {label}
           <ChevronGlyph />
         </ChipButton>
