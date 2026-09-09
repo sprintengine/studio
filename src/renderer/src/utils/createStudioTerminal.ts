@@ -13,6 +13,7 @@ import {
 } from '../../../shared/terminal-options'
 import { MONO_FONT_STACK } from './fonts'
 import { logPerfEvent } from './perfDiagnostics'
+import { attachTerminalOsc52Clipboard } from './terminalOsc52Clipboard'
 import { bindTerminalTheme, getTerminalTheme } from './terminalTheme'
 import {
   attachWebglRenderer,
@@ -30,7 +31,7 @@ import {
  *
  * What this owns: the option block, the Unicode width table, the theme (and
  * its live re-tint binding), the font, the scrollback, the fit addon, the
- * web-links addon, the WebGL
+ * web-links addon, the write-only OSC 52 clipboard, the WebGL
  * renderer and its context-loss fallback, the `linkHandler` slot that OSC 8
  * hyperlinks will fill, and OSC handler registration.
  *
@@ -83,10 +84,14 @@ export function terminalSurfaceLinkRoots(surface: TerminalSurface): TerminalLink
 export type TerminalWebLinkHandler = (event: MouseEvent, uri: string) => void
 
 /**
- * An OSC handler, keyed by its identifier (7 = cwd, 52 = clipboard, 133 = shell
- * integration). Returning true marks the sequence handled, exactly as
+ * An OSC handler, keyed by its identifier (7 = cwd, 133 = shell integration).
+ * Returning true marks the sequence handled, exactly as
  * `IParser.registerOscHandler` expects. Registered and disposed by the factory
  * so no pane has to remember to tear one down.
+ *
+ * OSC 52 is NOT in here: the clipboard is the same on every surface, so the
+ * factory owns it outright rather than trusting each pane to pass a write-only
+ * one (a pane that forgot would answer clipboard READ requests).
  */
 export type TerminalOscHandlers = Readonly<Record<number, (data: string) => boolean | Promise<boolean>>>
 
@@ -185,6 +190,19 @@ export function createStudioTerminal({
   for (const [identifier, handler] of Object.entries(oscHandlers ?? {})) {
     oscDisposables.push(terminal.parser.registerOscHandler(Number(identifier), handler))
   }
+
+  // OSC 52 — a program asking the terminal to touch the system clipboard.
+  //
+  // Every surface gets it, agent and fleet included: copying is what the
+  // sequence is FOR, and a pane attached to another machine is the canonical
+  // case (it is how `ssh` + tmux put a remote buffer on your local clipboard).
+  // The fleet rule the epic sets is about resolving local PATHS, which this
+  // does not do.
+  //
+  // Registered LAST so its read guard sits in front of every other OSC 52
+  // handler — xterm runs them in reverse registration order. Write only; see
+  // `terminalOsc52Clipboard.ts` for why read is refused and how, twice.
+  oscDisposables.push(attachTerminalOsc52Clipboard({ terminal }))
 
   let webglRenderer: WebglRendererHandle | null = null
   const loadWebglRenderer = (): void => {

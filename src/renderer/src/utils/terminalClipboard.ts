@@ -22,6 +22,31 @@ type RuntimeClipboardApi = {
   clipboardWriteText?: (text: string) => Promise<void>
 }
 
+/**
+ * Put text on the system clipboard, reporting whether it landed.
+ *
+ * The one writer in the renderer, shared by the pane's own copy handlers below
+ * and by OSC 52 (`terminalOsc52Clipboard.ts`) — a CLI copying through an escape
+ * sequence and a user pressing the copy key must reach the same clipboard, or
+ * "copy" means two things in one pane. Electron's clipboard over IPC rather
+ * than `navigator.clipboard`, which needs document focus and a user gesture:
+ * a CLI copying while the user is in another window is the normal case.
+ *
+ * Never throws. `false` means the text did not land — an empty string, a
+ * runtime with no clipboard API (a test host), or a rejected IPC call.
+ */
+export async function writeTerminalClipboardText(text: string): Promise<boolean> {
+  if (!text) return false
+  const api = window.api as typeof window.api & RuntimeClipboardApi
+  if (typeof api.clipboardWriteText !== 'function') return false
+  try {
+    await api.clipboardWriteText(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function bindTerminalClipboardHandlers({
   container,
   term,
@@ -35,20 +60,7 @@ export function bindTerminalClipboardHandlers({
   let pasteOnNextContextMenu = false
   let lastTerminalCopiedText = ''
 
-  const writeClipboardText = async (text: string): Promise<boolean> => {
-    if (!text) return false
-    const api = window.api as typeof window.api & RuntimeClipboardApi
-    if (typeof api.clipboardWriteText === 'function') {
-      try {
-        await api.clipboardWriteText(text)
-        return true
-      } catch {
-        return false
-      }
-    }
-
-    return false
-  }
+  const writeClipboardText = writeTerminalClipboardText
 
   const readClipboardText = async (): Promise<string> => {
     const api = window.api as typeof window.api & RuntimeClipboardApi
