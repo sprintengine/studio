@@ -10,7 +10,7 @@ import { useTerminalFind } from '../../hooks/useTerminalFind'
 import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
-import { createTerminalOscLinkHandler, parseTerminalOscCwd } from '../../utils/terminalOscLinks'
+import { parseTerminalOscCwd } from '../../utils/terminalOscLinks'
 import { registerMountedTerminalPromptNavigation } from '../../utils/terminalPromptNavigation'
 import {
   createTerminalShellMarkTracker,
@@ -173,15 +173,14 @@ export default function PlainTerminalPanel({
     let markTracker: TerminalShellMarkTracker | null = null
     const studioTerminal = createStudioTerminal({
       surface: terminalSurface,
-      linkHandler: createTerminalOscLinkHandler({
-        allowLocalPaths: surfaceLinkRoots !== null,
+      oscLinks: {
         inspectPath,
         onActivateFile: openFileLinkMenu,
         onActivateUrl: (url, anchor) => {
           setLinkMenu({ target: { kind: 'url', url }, x: anchor.x, y: anchor.y })
         },
         onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
-      }),
+      },
       onWebLink: (event, uri) => {
         setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
       },

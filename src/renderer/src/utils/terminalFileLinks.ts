@@ -147,7 +147,17 @@ function isRemoteOrShellReference(value: string): boolean {
   return false
 }
 
-function normalizePath(pathValue: string): string {
+/**
+ * Collapses `.`, `..` and repeated separators, keeping the root (a leading
+ * separator, or a `C:` drive) so `..` can never climb out of it.
+ *
+ * Exported because `terminalOscLinks.ts` needs the SAME answer: a path that
+ * arrives as an OSC 8 `file:` URI and one the heuristic provider matched in the
+ * output both end up in `projectRelativePath`, which is a prefix comparison —
+ * two normalisations would mean a `..` that reads as inside the workspace
+ * through one route and outside it through the other.
+ */
+export function normalizePath(pathValue: string): string {
   const separator = pathSeparatorFor(pathValue)
   const normalized = pathValue.replace(/[\\/]+/gu, separator)
   const drive = /^[A-Za-z]:[\\/]/u.exec(normalized)?.[0]?.slice(0, 2) ?? ''

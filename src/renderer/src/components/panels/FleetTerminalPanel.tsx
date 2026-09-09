@@ -10,7 +10,10 @@ import { TerminalFindBar } from '../terminal/TerminalFindBar'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { StatusDot } from '../ui'
+import { CursorErrorPopover } from '../ui/CursorErrorPopover'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
+import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
+import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { fleetInputState, fleetLinkBadge } from './fleet/fleetModel'
 
 // One terminal on ANOTHER machine, in a pane of this one (MC-2167).
@@ -32,13 +35,19 @@ interface Props {
   /** Local id for this attachment, stable for the pane's life. The event channel is keyed by it. */
   attachId: string
   connectionId: string
+  /**
+   * The workspace this pane is rendered in. Not a resolution root — a fleet
+   * pane resolves no local path at all — only where a chosen link action lands
+   * (a browser tab, the clipboard).
+   */
+  workspaceId: string
   /** The machine's name, for the badge. Passed in so the pane paints before any call returns. */
   machineName: string
   /** The remote session to attach to. */
   sessionId: string
 }
 
-export default function FleetTerminalPanel({ attachId, connectionId, machineName, sessionId }: Props) {
+export default function FleetTerminalPanel({ attachId, connectionId, machineName, sessionId, workspaceId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   // The live terminal, for anything outside the mount effect that needs it —
   // today `useTerminalFind`, which loads the search addon on the first find.
@@ -51,6 +60,8 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
   const [linkDetail, setLinkDetail] = useState<string | null>(null)
   const [access, setAccess] = useState<FleetTerminalAccess>('none')
   const [failure, setFailure] = useState<string | null>(null)
+  const [linkMenu, setLinkMenu] = useState<{ target: TerminalLinkTarget; x: number; y: number } | null>(null)
+  const [linkError, setLinkError] = useState<{ message: string; x: number; y: number } | null>(null)
   // The terminal's onData handler is installed once; these refs are how it reads
   // the CURRENT permission instead of the one captured at mount.
   const accessRef = useRef<FleetTerminalAccess>('none')
@@ -71,6 +82,28 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
       // about the grant until the attach header arrives, and a cursor that
       // accepts keystrokes it will not send is a lie for that whole window.
       disableStdin: true,
+      // A pane with no `oscLinks` used to be a pane with no gate: xterm
+      // registers its `OscLinkProvider` unconditionally, and with no
+      // `linkHandler` to consult it falls back to its own `defaultActivate` —
+      // a raw browser confirmation dialog and a `window.open()`, which this
+      // app's `setWindowOpenHandler` turns into `shell.openExternal`. An http(s)
+      // hyperlink printed by the REMOTE machine therefore opened in the user's
+      // real browser without passing `resolveTerminalOscLink` or this chooser.
+      // `createStudioTerminal` now derives the gate from `surface`, so the
+      // fleet rule holds here by construction rather than by remembering.
+      oscLinks: {
+        // Unreachable: a fleet surface has no link roots, so
+        // `resolveTerminalOscLink` never returns a `file` target for it. Kept
+        // fail-closed rather than thrown, so a future surface change degrades
+        // to "that file does not exist" instead of opening a same-named local
+        // file.
+        inspectPath: async () => ({ exists: false, isDirectory: false }),
+        onActivateFile: () => {},
+        onActivateUrl: (url, anchor) => {
+          setLinkMenu({ target: { kind: 'url', url }, x: anchor.x, y: anchor.y })
+        },
+        onOpenError: (message, anchor) => setLinkError({ message, x: anchor.x, y: anchor.y }),
+      },
     })
     studioTerminalRef.current = studioTerminal
     const term = studioTerminal.terminal
@@ -262,6 +295,24 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
         >
           <TerminalFindBar find={find} />
         </div>
+        {linkError ? (
+          <CursorErrorPopover
+            key={`${linkError.x},${linkError.y},${linkError.message}`}
+            message={linkError.message}
+            anchor={{ x: linkError.x, y: linkError.y }}
+            onDismiss={() => setLinkError(null)}
+          />
+        ) : null}
+        {linkMenu ? (
+          <TerminalLinkMenu
+            workspaceId={workspaceId}
+            target={linkMenu.target}
+            x={linkMenu.x}
+            y={linkMenu.y}
+            onClose={() => setLinkMenu(null)}
+            onError={(message) => setLinkError({ message, x: linkMenu.x, y: linkMenu.y })}
+          />
+        ) : null}
       </div>
     </div>
   )

@@ -21,7 +21,6 @@ import { useTerminalFind } from '../../hooks/useTerminalFind'
 import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { TerminalFindBar } from '../terminal/TerminalFindBar'
 import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
-import { createTerminalOscLinkHandler } from '../../utils/terminalOscLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
@@ -476,8 +475,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // OSC 8: a real hyperlink the CLI emitted, which carries its own absolute
       // target and needs no guessing. It rides the same chooser as everything
       // else — the click still asks rather than deciding (MC-1899).
-      linkHandler: createTerminalOscLinkHandler({
-        allowLocalPaths: surfaceLinkRoots !== null,
+      oscLinks: {
         inspectPath,
         onActivateFile: ({ resolvedPath, isDirectory }, anchor) => {
           setLinkMenu({
@@ -495,7 +493,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           setLinkMenu({ target: { kind: 'url', url }, x: anchor.x, y: anchor.y })
         },
         onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
-      }),
+      },
       onWebLink: (event, uri) => {
         setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
       },

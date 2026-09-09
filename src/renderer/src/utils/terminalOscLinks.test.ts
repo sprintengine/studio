@@ -2,15 +2,26 @@ import assert from 'node:assert/strict'
 import type { IBufferRange } from '@xterm/xterm'
 import {
   createTerminalOscLinkHandler,
+  createTerminalSurfaceOscLinkHandler,
   parseTerminalOscCwd,
   resolveTerminalOscLink,
 } from './terminalOscLinks'
+import { terminalSurfaceLinkRoots, type TerminalSurface } from './terminalSurfaces'
 
 // OSC 8 payloads are attacker-controlled: any agent CLI, and any `cat` of any
 // file an agent was handed, can print one. These tests are the gate.
 
-const LOCAL = { allowLocalPaths: true }
-const FLEET = { allowLocalPaths: false }
+// `windowsPaths` is stated rather than inherited from the host: the Windows
+// spellings have to be provable from a Mac and refusable from one.
+const LOCAL = { allowLocalPaths: true, windowsPaths: false }
+const FLEET = { allowLocalPaths: false, windowsPaths: false }
+const WINDOWS = { allowLocalPaths: true, windowsPaths: true }
+
+// The surfaces the panes actually construct. `allowLocalPaths` is derived from
+// these and never written down anywhere else.
+const AGENT_SURFACE: TerminalSurface = { kind: 'agent', workspaceRoot: '/w', executionRoot: null }
+const SHELL_SURFACE: TerminalSurface = { kind: 'shell', workspaceRoot: '/w' }
+const FLEET_SURFACE: TerminalSurface = { kind: 'fleet' }
 
 // ---------- scheme allowlist ----------
 
@@ -107,9 +118,77 @@ assert.deepEqual(
   'the URL parser resolves dot segments before we ever see the path',
 )
 assert.deepEqual(
-  resolveTerminalOscLink('file:///C:/Users/dev/notes.md', LOCAL),
+  resolveTerminalOscLink('file:///C:/Users/dev/notes.md', WINDOWS),
   { kind: 'file', path: 'C:\\Users\\dev\\notes.md' },
   'a Windows drive path comes back in the form the platform can stat',
+)
+
+// ---------- the Windows spellings are refused off Windows ----------
+//
+// `C:\Users\dev\notes.md` on macOS or Linux is not a path at all: it is a
+// RELATIVE name whose backslashes are ordinary filename characters, and handing
+// it to `statPath` breaks the module's own rule 4. Same for the UNC form, which
+// off Windows names another machine — rule 2 in a different spelling.
+assert.equal(
+  resolveTerminalOscLink('file:///C:/Users/dev/notes.md', LOCAL),
+  null,
+  'a drive letter is a Windows spelling and this is not Windows',
+)
+assert.equal(resolveTerminalOscLink('file:///c:/Users/dev/notes.md', LOCAL), null)
+assert.equal(
+  resolveTerminalOscLink('file:////server/share/notes.md', LOCAL),
+  null,
+  'a UNC share off Windows is another machine, not //server on this one',
+)
+assert.deepEqual(
+  resolveTerminalOscLink('file:////server/share/notes.md', WINDOWS),
+  { kind: 'file', path: '\\\\server\\share\\notes.md' },
+  'on Windows the same payload is the share it names',
+)
+assert.equal(
+  resolveTerminalOscLink('file:////server', WINDOWS),
+  null,
+  'a server with no share names a machine, not a file on it',
+)
+assert.equal(
+  resolveTerminalOscLink('file:////server/share/%2e%2e/%2e%2e/x', WINDOWS),
+  null,
+  'a traversal that climbs back out of the share is not a path on it',
+)
+assert.equal(resolveTerminalOscLink('file:///C:/%2e%2e', WINDOWS), null, 'nor is a drive root')
+
+// ---------- `..` is collapsed, however it was spelled ----------
+//
+// The URL parser collapses BARE dot segments only, so `%2e%2e%2f` survives the
+// parse and `decodeURIComponent` puts the traversal straight back. That matters
+// because `projectRelativePath` (terminalLinkActions.ts) is a PREFIX
+// comparison: un-normalised, `file:///w/../../etc/passwd` reports as inside the
+// workspace `/w` with the relative path `../../etc/passwd`, and that string is
+// what the link menu shows the user.
+assert.deepEqual(
+  resolveTerminalOscLink('file:///Users/dev/%2e%2e/%2e%2e/etc/passwd', LOCAL),
+  { kind: 'file', path: '/etc/passwd' },
+  'a percent-encoded traversal is collapsed, not carried through',
+)
+assert.deepEqual(
+  resolveTerminalOscLink('file:///Users/dev/%2E%2E%2Fnotes.md', LOCAL),
+  { kind: 'file', path: '/Users/notes.md' },
+  'upper-case escapes and an encoded slash are the same traversal',
+)
+assert.deepEqual(
+  resolveTerminalOscLink('file:///Users//dev/./notes.md', LOCAL),
+  { kind: 'file', path: '/Users/dev/notes.md' },
+  'doubled separators and a bare dot segment collapse too',
+)
+assert.equal(
+  resolveTerminalOscLink('file:///%2e%2e/%2e%2e/%2e%2e', LOCAL),
+  null,
+  'a traversal that leaves nothing but the root is the same non-answer as file:///',
+)
+assert.deepEqual(
+  resolveTerminalOscLink('file:///C:/Users/%2e%2e/dev/notes.md', WINDOWS),
+  { kind: 'file', path: 'C:\\dev\\notes.md' },
+  'the drive is a root, so `..` cannot climb past it either',
 )
 assert.equal(
   resolveTerminalOscLink('file:///Users/dev/%E0%A4%A.md', LOCAL),
@@ -132,14 +211,18 @@ const CLICK = { clientX: 12, clientY: 34 } as MouseEvent
 
 type Activation = { files: string[]; urls: string[]; errors: string[] }
 
+/**
+ * A handler built the way a PANE builds one: from the surface, through the same
+ * function `createStudioTerminal` calls, so `allowLocalPaths` is derived here
+ * exactly as it is in production rather than written down a second time.
+ */
 function handlerFor(
-  allowLocalPaths: boolean,
+  surface: TerminalSurface,
   info: { exists: boolean; isDirectory: boolean } = { exists: true, isDirectory: false },
 ): { activate: (text: string) => void; seen: Activation; settled: () => Promise<void> } {
   const seen: Activation = { files: [], urls: [], errors: [] }
   const pending: Array<Promise<unknown>> = []
-  const handler = createTerminalOscLinkHandler({
-    allowLocalPaths,
+  const handler = createTerminalSurfaceOscLinkHandler(surface, {
     inspectPath: (path) => {
       const result = Promise.resolve(info)
       pending.push(result)
@@ -169,7 +252,7 @@ function handlerFor(
 }
 
 async function testAnAgentPaneOpensOnlyWhatSurvivesTheGate(): Promise<void> {
-  const agent = handlerFor(true)
+  const agent = handlerFor(AGENT_SURFACE)
   agent.activate('file:///Users/dev/notes.md')
   agent.activate('https://example.com/a')
   agent.activate('javascript:alert(1)')
@@ -180,17 +263,47 @@ async function testAnAgentPaneOpensOnlyWhatSurvivesTheGate(): Promise<void> {
   assert.deepEqual(agent.seen.errors, [], 'a refusal is silent — no popover, no message')
 }
 
+// The regression this replaces: the old version of this test built a handler
+// with `allowLocalPaths: false` by hand — a handler production never
+// constructed, because `FleetTerminalPanel` passed NO link handler at all and
+// xterm's own `defaultActivate` (a `confirm()` and a `window.open()`, which
+// this app turns into `shell.openExternal`) answered every OSC 8 click in a
+// fleet pane. It passed either way. This one starts from the surface literal
+// the pane writes, and runs it through the same constructor
+// `createStudioTerminal` uses.
 async function testAFleetPaneNeverResolvesALocalPath(): Promise<void> {
-  const fleet = handlerFor(false)
+  assert.equal(
+    terminalSurfaceLinkRoots(FLEET_SURFACE),
+    null,
+    'the surface, not the pane, is what says a fleet terminal has no local roots',
+  )
+  const fleet = handlerFor(FLEET_SURFACE)
   fleet.activate('file:///Users/dev/notes.md')
+  fleet.activate('file://localhost/etc/hosts')
   fleet.activate('https://example.com/a')
+  fleet.activate('javascript:alert(1)')
   await fleet.settled()
   assert.deepEqual(fleet.seen.files, [], 'a fleet pane never opens a local path')
-  assert.deepEqual(fleet.seen.urls, ['https://example.com/a'])
+  assert.deepEqual(
+    fleet.seen.urls,
+    ['https://example.com/a'],
+    'http(s) rides the app chooser rather than xterm defaultActivate',
+  )
+  assert.deepEqual(fleet.seen.errors, [])
+}
+
+// A shell pane derives the other answer from the same function, so the
+// derivation is a rule about surfaces rather than a constant that happens to
+// read false.
+async function testAShellPaneStillResolvesALocalPath(): Promise<void> {
+  const shell = handlerFor(SHELL_SURFACE)
+  shell.activate('file:///Users/dev/notes.md')
+  await shell.settled()
+  assert.deepEqual(shell.seen.files, ['/Users/dev/notes.md'])
 }
 
 async function testADeadLinkShowsTheErrorRatherThanAMenu(): Promise<void> {
-  const missing = handlerFor(true, { exists: false, isDirectory: false })
+  const missing = handlerFor(AGENT_SURFACE, { exists: false, isDirectory: false })
   missing.activate('file:///Users/dev/gone.md')
   await missing.settled()
   assert.deepEqual(missing.seen.files, [])
@@ -238,6 +351,7 @@ assert.equal(
 async function main(): Promise<void> {
   await testAnAgentPaneOpensOnlyWhatSurvivesTheGate()
   await testAFleetPaneNeverResolvesALocalPath()
+  await testAShellPaneStillResolvesALocalPath()
   await testADeadLinkShowsTheErrorRatherThanAMenu()
   console.log('ok - terminalOscLinks')
 }
