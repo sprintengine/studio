@@ -118,10 +118,11 @@ export function ChangelistDialog({
           />
         </Field>
         {mode === 'new' ? (
-          <label className="flex items-center gap-2 text-meta text-[color:var(--text-default)]">
-            <Checkbox checked={activate} onChange={setActivate} ariaLabel="Make this the active changelist" />
-            Make this the active changelist
-          </label>
+          // The kit checkbox IS a `<label>` and takes its own text. Wrapping it
+          // in a second one nested two labels, gave the control two accessible
+          // names (the `aria-label` and the outer label's text), and made a
+          // click on the words land on the wrong element in some browsers.
+          <Checkbox checked={activate} onChange={setActivate} label="Make this the active changelist" />
         ) : null}
       </ModalBody>
       <ModalFooter>
