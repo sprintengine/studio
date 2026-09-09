@@ -185,7 +185,7 @@ import { WorkspaceTypeSupervisorHost } from '../../modules/WorkspaceTypeSupervis
 import { RendererCommandDispatcher } from '../../commands/commandDispatcher'
 import { getCommandDefinition } from '../../commands/commandRegistry'
 import { getElectronAccelerator } from '../../commands/effectiveKeybindings'
-import { LEGACY_COMMAND_ID_ALIASES } from '../../commands/keybindings'
+import { LEGACY_COMMAND_ID_ALIASES, type KeybindingPlatform } from '../../commands/keybindings'
 import type { CommandAvailabilityContext } from '../../commands/availability'
 import type { CommandScope, ModuleCommandContext } from '../../commands/types'
 import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
@@ -4009,30 +4009,30 @@ export default function WorkspaceManager() {
   ])
 
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const platform = window.api.platform === 'darwin'
-        ? 'darwin'
-        : window.api.platform === 'win32'
-          ? 'windows'
-          : 'linux'
+    const dispatcherContext = (event: KeyboardEvent) => ({
       // The `terminal` scope is per-KEYSTROKE, not per-workspace: it is active
       // exactly when this key came from inside a terminal surface. Deriving it
       // from the event rather than from the active tab is what keeps ⌘F inside
       // a Monaco editor as Monaco's own find — the shell never claims a key it
       // did not receive from a terminal.
-      const activeScopes = isTerminalKeyTarget(event.target)
+      activeScopes: isTerminalKeyTarget(event.target)
         ? [...activeCommandScopes, 'terminal' as const]
-        : activeCommandScopes
-      const result = commandDispatcherRef.current.resolve(event, {
-        activeScopes,
-        commands: commandContributions,
-        disabledCommandIds,
-        keybindingOverrides: keybindingSettings?.overrides,
-        availability: commandAvailability,
-        moduleContext: moduleCommandContext,
-        isSuppressedTarget: isGlobalShortcutSuppressedTarget,
-        platform,
-      })
+        : activeCommandScopes,
+      commands: commandContributions,
+      disabledCommandIds,
+      keybindingOverrides: keybindingSettings?.overrides,
+      availability: commandAvailability,
+      moduleContext: moduleCommandContext,
+      isSuppressedTarget: isGlobalShortcutSuppressedTarget,
+      platform: (window.api.platform === 'darwin'
+        ? 'darwin'
+        : window.api.platform === 'win32'
+          ? 'windows'
+          : 'linux') as KeybindingPlatform,
+    })
+
+    const onKey = (event: KeyboardEvent) => {
+      const result = commandDispatcherRef.current.resolve(event, dispatcherContext(event))
       if (result.kind === 'unmatched') return
       if (result.kind === 'pending') {
         event.preventDefault()
@@ -4045,8 +4045,30 @@ export default function WorkspaceManager() {
       }
     }
 
+    // The release half of the lone-modifier double tap (Shift Shift). A tap is
+    // only a tap once the key comes back up with nothing pressed in between,
+    // so the gesture is decided on keyup; every other keyup falls through.
+    const onKeyUp = (event: KeyboardEvent) => {
+      const result = commandDispatcherRef.current.resolveKeyUp(event, dispatcherContext(event))
+      if (result.kind !== 'matched') return
+      if (runCommand(result.commandId)) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+
+    // Losing the window mid-gesture drops it: the keyup for a modifier released
+    // while another app has focus never arrives here.
+    const onBlur = () => commandDispatcherRef.current.reset()
+
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    window.addEventListener('keyup', onKeyUp, true)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('keyup', onKeyUp, true)
+      window.removeEventListener('blur', onBlur)
+    }
   }, [
     activeCommandScopes,
     commandContributions,

@@ -26,12 +26,19 @@ export const COMMAND_REGISTRY = [
     scopes: ['global'],
     handlerPath: { kind: 'app-menu', command: 'app.updates.check' },
   }),
+  // `Shift Shift` is the familiar IDE search-everywhere gesture, and it is here for
+  // the reason a person reaches for it: their hands are in a terminal and they
+  // want the palette NOW. The dispatcher fires a lone-modifier double tap
+  // regardless of target suppression, so it works inside xterm and Monaco
+  // where ⌘K deliberately does not. It rides `commandPalette.open` for now and
+  // is a single list entry to move should the palette ever split into its own
+  // "search everywhere" command.
   command({
     id: 'commandPalette.open',
     title: 'Open Command Palette',
     category: 'command_palette',
     scopes: ['global'],
-    defaultKeybindings: ['Primary+K', 'Primary+Shift+P'],
+    defaultKeybindings: ['Primary+K', 'Primary+Shift+P', 'Shift Shift'],
     handlerPath: { kind: 'workspace-manager', handler: 'setCommandPaletteOpen(true)' },
   }),
   // Find in Path. The same overlay `commandPalette.open` raises, opened filtered

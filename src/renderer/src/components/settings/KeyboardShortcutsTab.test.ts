@@ -24,9 +24,13 @@ function rowFor(id: string, keybindings: KeybindingSettings = EMPTY) {
 }
 
 // --- Defaults preserve registry behavior -----------------------------------
+// Double Shift rides the palette command as a third default (the IDE
+// Search Everywhere gesture), so it shows in the row and can be reset/removed
+// like any other binding — the recorder cannot capture it, a lone modifier
+// being ignored there, but the row still displays and disables it.
 const paletteDefault = rowFor('commandPalette.open')
-assert.deepEqual(paletteDefault.defaults, ['primary+k', 'primary+shift+p'])
-assert.deepEqual(paletteDefault.effective, ['primary+k', 'primary+shift+p'])
+assert.deepEqual(paletteDefault.defaults, ['primary+k', 'primary+shift+p', 'shift shift'])
+assert.deepEqual(paletteDefault.effective, ['primary+k', 'primary+shift+p', 'shift shift'])
 assert.equal(paletteDefault.overrides, null)
 assert.equal(paletteDefault.disabled, false)
 assert.equal(paletteDefault.customized, false)
@@ -38,7 +42,7 @@ const paletteOverride = rowFor('commandPalette.open', {
 })
 assert.deepEqual(paletteOverride.overrides, ['primary+j'], 'override is normalized and de-duplicated')
 assert.deepEqual(paletteOverride.effective, ['primary+j'], 'effective follows the override')
-assert.deepEqual(paletteOverride.defaults, ['primary+k', 'primary+shift+p'], 'defaults are still surfaced')
+assert.deepEqual(paletteOverride.defaults, ['primary+k', 'primary+shift+p', 'shift shift'], 'defaults are still surfaced')
 assert.equal(paletteOverride.customized, true)
 
 // --- Disable / reset --------------------------------------------------------

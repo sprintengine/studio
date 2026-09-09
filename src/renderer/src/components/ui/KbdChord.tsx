@@ -7,7 +7,7 @@
 // The caller wires the actual keyboard handler on the control the chord
 // labels (button, menu item, etc.).
 import React from 'react'
-import { keybindingToKbdKeys, type KeybindingPlatform } from '../../commands/keybindings'
+import { isModifierTapChord, keybindingToKbdKeys, type KeybindingPlatform } from '../../commands/keybindings'
 
 type KbdChordProps = {
   /** Ordered keys, e.g. ['Cmd', 'K'] or ['Shift', 'Enter']. */
@@ -25,7 +25,10 @@ type KbdChordProps = {
 export function KbdChord({ keys, chord, platform, separator, ariaLabel, className }: KbdChordProps) {
   const renderedStrokes = chord ? keybindingToKbdKeys(chord, platform) : []
   const displayStrokes = renderedStrokes.length > 0 ? renderedStrokes : keys ? [keys] : []
-  const label = ariaLabel ?? displayStrokes.map((stroke) => stroke.join(' ')).join(' then ')
+  // `Shift Shift` is one gesture (a double tap), not a stroke followed by
+  // another stroke, so it renders as two adjacent keys with no "then" between.
+  const tapChord = chord ? isModifierTapChord(chord) : false
+  const label = ariaLabel ?? displayStrokes.map((stroke) => stroke.join(' ')).join(tapChord ? ' ' : ' then ')
   const sep = separator ?? '+'
   return (
     <span
@@ -35,7 +38,7 @@ export function KbdChord({ keys, chord, platform, separator, ariaLabel, classNam
     >
       {displayStrokes.map((stroke, strokeIndex) => (
         <React.Fragment key={`stroke-${strokeIndex}`}>
-          {strokeIndex > 0 ? (
+          {strokeIndex > 0 && !tapChord ? (
             <span aria-hidden="true" className="px-0.5 font-mono text-micro text-[color:var(--text-disabled)]">
               then
             </span>

@@ -1,6 +1,6 @@
 import { isCommandAvailable, type CommandAvailabilityContext } from './availability'
 import { COMMAND_REGISTRY } from './commandRegistry'
-import { LEGACY_COMMAND_ID_ALIASES, parseKeybinding, type KeybindingPlatform, type KeybindingStroke } from './keybindings'
+import { isModifierKeyToken, LEGACY_COMMAND_ID_ALIASES, parseKeybinding, type KeybindingPlatform, type KeybindingStroke } from './keybindings'
 import type { CommandContribution, CommandScope, ModuleCommandContext } from './types'
 
 export type CommandDispatcherKeyEvent = {
@@ -58,6 +58,11 @@ type ActiveBinding = {
   order: number
 }
 
+type ModifierTap = {
+  key: string
+  at: number
+}
+
 type PendingChord = {
   // Only the first stroke is retained; the matching chord set is re-derived from
   // the live context when the second stroke arrives, so a chord cannot complete
@@ -68,6 +73,31 @@ type PendingChord = {
 }
 
 const DEFAULT_CHORD_TIMEOUT_MS = 1_000
+
+/**
+ * How long after a lone-modifier tap a second tap still reads as a double tap.
+ *
+ * Deliberately much shorter than the 1s two-stroke chord window: a chord is a
+ * deliberate sequence a person can pause inside, a double tap is one gesture,
+ * and every millisecond of this window is a millisecond in which an ordinary
+ * Shift release could be mistaken for the first half of one. 400ms is the
+ * interval IDE search-everywhere gestures use and comfortably above a fast
+ * double tap (~150-250ms).
+ */
+export const MODIFIER_DOUBLE_TAP_MS = 400
+
+// Physical modifier keys as `keyFromEvent` reports them, mapped onto the
+// parser's canonical tokens. `Control` is the DOM's name for what keybindings
+// call `ctrl`; `OS` is the legacy name older Chromium gave the Meta key.
+const MODIFIER_KEY_BY_EVENT_KEY: Record<string, string> = {
+  shift: 'shift',
+  control: 'ctrl',
+  ctrl: 'ctrl',
+  alt: 'alt',
+  altgraph: 'alt',
+  meta: 'meta',
+  os: 'meta',
+}
 
 const KEY_BY_CODE: Record<string, string> = {
   Backquote: '`',
@@ -110,18 +140,29 @@ export function keyFromEvent(event: CommandDispatcherKeyEvent): string {
   if (/^F(?:[1-9]|1[0-9]|2[0-4])$/.test(code)) return code.toLowerCase()
   if (KEY_BY_CODE[code]) return KEY_BY_CODE[code]
   if (event.key === ' ') return 'space'
-  return event.key.toLowerCase()
+  const lowered = event.key.toLowerCase()
+  // A modifier pressed on its own is a key in its own right (`Shift Shift`),
+  // so it resolves to the same token the parser produces for it.
+  return MODIFIER_KEY_BY_EVENT_KEY[lowered] ?? lowered
 }
 
 function eventSignature(event: CommandDispatcherKeyEvent, platform: KeybindingPlatform): StrokeSignature {
-  const primary = platform === 'darwin' ? event.metaKey === true : event.ctrlKey === true
+  const key = keyFromEvent(event)
+  // A lone modifier press stamps its own flag (a Shift keydown carries
+  // shiftKey: true), which would otherwise make it un-matchable against the
+  // modifier-less stroke `{ modifiers: [], key: 'shift' }`. When the modifier
+  // IS the key it is not a modifier ON itself, so its flag is zeroed — and
+  // with it `primary`, which that same modifier may have raised.
+  const selfModifier = isModifierKeyToken(key) ? key : null
+  const ctrl = event.ctrlKey === true && selfModifier !== 'ctrl'
+  const meta = event.metaKey === true && selfModifier !== 'meta'
   return {
-    key: keyFromEvent(event),
-    primary,
-    ctrl: event.ctrlKey === true,
-    meta: event.metaKey === true,
-    alt: event.altKey === true,
-    shift: event.shiftKey === true,
+    key,
+    primary: platform === 'darwin' ? meta : ctrl,
+    ctrl,
+    meta,
+    alt: event.altKey === true && selfModifier !== 'alt',
+    shift: event.shiftKey === true && selfModifier !== 'shift',
   }
 }
 
@@ -200,13 +241,71 @@ function activeBindings(context: CommandDispatcherContext): ActiveBinding[] {
   return bindings.sort((a, b) => b.specificity - a.specificity || a.order - b.order)
 }
 
+function isLoneModifierStroke(signature: StrokeSignature): boolean {
+  return isModifierKeyToken(signature.key)
+    && !signature.primary && !signature.ctrl && !signature.meta && !signature.alt && !signature.shift
+}
+
+function isModifierTapBinding(binding: ActiveBinding, key: string): boolean {
+  return binding.strokes.length === 2
+    && binding.strokes.every((stroke) => stroke.key === key && isLoneModifierStroke(stroke))
+}
+
 export class RendererCommandDispatcher {
   private pending: PendingChord | null = null
+  // The lone modifier currently held with nothing pressed since — a tap in
+  // progress. Any other keydown clears it, which is what keeps Shift+A (and a
+  // held, auto-repeating Shift) from ever completing the gesture.
+  private modifierDown: string | null = null
+  // The last completed lone-modifier tap, waiting for its twin.
+  private modifierTap: ModifierTap | null = null
 
-  constructor(private readonly chordTimeoutMs = DEFAULT_CHORD_TIMEOUT_MS) {}
+  constructor(
+    private readonly chordTimeoutMs = DEFAULT_CHORD_TIMEOUT_MS,
+    private readonly modifierTapWindowMs = MODIFIER_DOUBLE_TAP_MS,
+  ) {}
 
   reset(): void {
     this.pending = null
+    this.modifierDown = null
+    this.modifierTap = null
+  }
+
+  /**
+   * The release half of a lone-modifier double tap (`Shift Shift`).
+   *
+   * A tap is only a tap once the key comes back UP with nothing pressed in
+   * between, so the gesture is decided here rather than on keydown: a Shift
+   * held down — or auto-repeating on Windows and Linux — produces no second
+   * release and can never trigger itself, and a Shift held to type a capital
+   * is disqualified by the letter's keydown before the release arrives.
+   *
+   * Target suppression does not apply. `⌘K` is withheld from a terminal or an
+   * editor because it may be that surface's own key; a lone Shift tap is not
+   * text, is not a shell binding, and is exactly the gesture a person makes
+   * while their hands are in a terminal — which is the whole point of it.
+   */
+  resolveKeyUp(event: CommandDispatcherKeyEvent, context: CommandDispatcherContext): CommandDispatcherResult {
+    const signature = eventSignature(event, context.platform)
+    if (!isModifierKeyToken(signature.key)) return { kind: 'unmatched', preventDefault: false }
+    const clean = this.modifierDown === signature.key && isLoneModifierStroke(signature)
+    this.modifierDown = null
+    if (!clean) {
+      this.modifierTap = null
+      return { kind: 'unmatched', preventDefault: false }
+    }
+
+    const now = context.now ?? Date.now()
+    const previous = this.modifierTap
+    this.modifierTap = null
+    if (!previous || previous.key !== signature.key || now - previous.at > this.modifierTapWindowMs) {
+      this.modifierTap = { key: signature.key, at: now }
+      return { kind: 'unmatched', preventDefault: false }
+    }
+
+    const match = activeBindings(context).find((binding) => isModifierTapBinding(binding, signature.key))
+    if (!match) return { kind: 'unmatched', preventDefault: false }
+    return { kind: 'matched', commandId: match.command.id, command: match.command, preventDefault: true }
   }
 
   resolve(event: CommandDispatcherKeyEvent, context: CommandDispatcherContext): CommandDispatcherResult {
@@ -214,6 +313,24 @@ export class RendererCommandDispatcher {
     const now = context.now ?? Date.now()
     const targetSuppressed = context.isSuppressedTarget?.(event.target) === true
     const eventStroke = eventSignature(event, context.platform)
+
+    // A modifier pressed on its own is never a stroke by itself: it arms the
+    // double-tap gesture and otherwise falls straight through. Returning here
+    // is what keeps the first half of `Shift Shift` from being swallowed as a
+    // pending chord — swallow it and capitals stop working.
+    if (isModifierKeyToken(eventStroke.key)) {
+      if (isLoneModifierStroke(eventStroke)) {
+        this.modifierDown = eventStroke.key
+      } else {
+        this.modifierDown = null
+        this.modifierTap = null
+      }
+      return { kind: 'unmatched', preventDefault: false }
+    }
+    // Any other key ends a tap gesture in progress, so neither `Shift+A` nor a
+    // Shift tap followed by ordinary typing can complete the double tap.
+    this.modifierDown = null
+    this.modifierTap = null
 
     if (this.pending && now - this.pending.startedAt <= this.chordTimeoutMs) {
       const firstStroke = this.pending.firstStroke

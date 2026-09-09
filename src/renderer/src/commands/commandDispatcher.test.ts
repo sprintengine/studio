@@ -419,4 +419,137 @@ result = predicateDispatcher.resolve(
 assert.equal(result.kind, 'matched', 'legacy-id override still binds')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'voice-dictation.toggle')
 
+// --- Double Shift: the IDE "Search Everywhere" gesture ----------------
+// A lone Shift TAP is press-then-release with nothing in between, so the
+// gesture completes on keyup. Every case below is about the one rule that
+// matters: it must never fire while a person is typing capitals.
+const shiftDown = (over: Partial<CommandDispatcherKeyEvent> = {}) =>
+  key({ key: 'Shift', code: 'ShiftLeft', shiftKey: true, ...over })
+const shiftUp = (over: Partial<CommandDispatcherKeyEvent> = {}) =>
+  key({ key: 'Shift', code: 'ShiftLeft', shiftKey: false, ...over })
+const globalAt = (now: number, extra: Record<string, unknown> = {}) => ({
+  activeScopes: ['global'] as const,
+  platform: 'linux' as const,
+  now,
+  ...extra,
+})
+
+// Two taps inside the window open the palette.
+const tapDispatcher = new RendererCommandDispatcher(500, 400)
+result = tapDispatcher.resolve(shiftDown(), globalAt(0))
+assert.equal(result.kind, 'unmatched', 'the first Shift is not a stroke of its own')
+assert.equal(result.preventDefault, false, 'the first Shift is never swallowed — capitals depend on it')
+result = tapDispatcher.resolveKeyUp(shiftUp(), globalAt(60))
+assert.equal(result.kind, 'unmatched', 'one tap only arms the gesture')
+result = tapDispatcher.resolve(shiftDown(), globalAt(200))
+assert.equal(result.kind, 'unmatched')
+assert.equal(result.preventDefault, false, 'the second Shift keydown is not swallowed either')
+result = tapDispatcher.resolveKeyUp(shiftUp(), globalAt(260))
+assert.equal(result.kind, 'matched', 'two Shift taps inside the window fire')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'commandPalette.open')
+
+// Taps further apart than the window re-arm instead of firing.
+const slowTaps = new RendererCommandDispatcher(500, 400)
+slowTaps.resolve(shiftDown(), globalAt(1000))
+assert.equal(slowTaps.resolveKeyUp(shiftUp(), globalAt(1010)).kind, 'unmatched')
+slowTaps.resolve(shiftDown(), globalAt(1500))
+assert.equal(
+  slowTaps.resolveKeyUp(shiftUp(), globalAt(1510)).kind,
+  'unmatched',
+  'taps 500ms apart are two separate taps, not a double tap',
+)
+
+// Typing a capital: Shift down, letter, Shift up. The letter disqualifies the
+// release, so no amount of capitals accumulates into the gesture.
+const capitals = new RendererCommandDispatcher(500, 400)
+capitals.resolve(shiftDown(), globalAt(2000))
+capitals.resolve(key({ key: 'A', code: 'KeyA', shiftKey: true }), globalAt(2010))
+assert.equal(capitals.resolveKeyUp(shiftUp(), globalAt(2020)).kind, 'unmatched')
+capitals.resolve(shiftDown(), globalAt(2030))
+capitals.resolve(key({ key: 'B', code: 'KeyB', shiftKey: true }), globalAt(2040))
+assert.equal(
+  capitals.resolveKeyUp(shiftUp(), globalAt(2050)).kind,
+  'unmatched',
+  'typing "AB" with Shift held never completes the double tap',
+)
+
+// Shift+A and then a clean Shift tap: the armed state was cleared by the A, so
+// the tap only re-arms.
+const shiftedThenTap = new RendererCommandDispatcher(500, 400)
+shiftedThenTap.resolve(shiftDown(), globalAt(3000))
+shiftedThenTap.resolve(key({ key: 'A', code: 'KeyA', shiftKey: true }), globalAt(3005))
+assert.equal(shiftedThenTap.resolveKeyUp(shiftUp(), globalAt(3010)).kind, 'unmatched')
+shiftedThenTap.resolve(shiftDown(), globalAt(3020))
+assert.equal(
+  shiftedThenTap.resolveKeyUp(shiftUp(), globalAt(3030)).kind,
+  'unmatched',
+  'Shift+A then Shift is one tap, not two',
+)
+
+// An ordinary key pressed BETWEEN two clean taps cancels the armed state.
+const interrupted = new RendererCommandDispatcher(500, 400)
+interrupted.resolve(shiftDown(), globalAt(4000))
+assert.equal(interrupted.resolveKeyUp(shiftUp(), globalAt(4010)).kind, 'unmatched')
+interrupted.resolve(key({ key: 'a', code: 'KeyA' }), globalAt(4020))
+interrupted.resolve(shiftDown(), globalAt(4030))
+assert.equal(
+  interrupted.resolveKeyUp(shiftUp(), globalAt(4040)).kind,
+  'unmatched',
+  'a key struck between the taps cancels the gesture',
+)
+
+// Shift+Tab: the Tab keydown cancels, so a following tap cannot complete.
+const shiftTab = new RendererCommandDispatcher(500, 400)
+shiftTab.resolve(shiftDown(), globalAt(5000))
+shiftTab.resolve(key({ key: 'Tab', code: 'Tab', shiftKey: true }), globalAt(5005))
+assert.equal(shiftTab.resolveKeyUp(shiftUp(), globalAt(5010)).kind, 'unmatched')
+
+// A Shift pressed while another modifier is held is not a lone tap.
+const decorated = new RendererCommandDispatcher(500, 400)
+decorated.resolve(shiftDown({ metaKey: true }), globalAt(6000))
+assert.equal(decorated.resolveKeyUp(shiftUp({ metaKey: true }), globalAt(6010)).kind, 'unmatched')
+decorated.resolve(shiftDown(), globalAt(6020))
+assert.equal(decorated.resolveKeyUp(shiftUp(), globalAt(6030)).kind, 'unmatched')
+
+// The whole point of the gesture: it fires with focus inside a terminal or an
+// editor, where target suppression withholds ⌘K.
+const inTerminal = new RendererCommandDispatcher(500, 400)
+inTerminal.resolve(shiftDown(), globalAt(7000, { isSuppressedTarget: suppressed }))
+inTerminal.resolveKeyUp(shiftUp(), globalAt(7010, { isSuppressedTarget: suppressed }))
+inTerminal.resolve(shiftDown(), globalAt(7100, { isSuppressedTarget: suppressed }))
+result = inTerminal.resolveKeyUp(shiftUp(), globalAt(7110, { isSuppressedTarget: suppressed }))
+assert.equal(result.kind, 'matched', 'double Shift fires inside .xterm, where ⌘K is suppressed')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'commandPalette.open')
+// ⌘K in that same suppressed target stays withheld — the exemption is the
+// gesture's, not the command's.
+assert.equal(
+  inTerminal.resolve(key({ key: 'k', code: 'KeyK', ctrlKey: true }), globalAt(7200, { isSuppressedTarget: suppressed })).kind,
+  'unmatched',
+)
+
+// Disabling the command disables the gesture with it.
+const disabledTap = new RendererCommandDispatcher(500, 400)
+disabledTap.resolve(shiftDown(), globalAt(8000))
+disabledTap.resolveKeyUp(shiftUp(), globalAt(8010))
+disabledTap.resolve(shiftDown(), globalAt(8100))
+assert.equal(
+  disabledTap.resolveKeyUp(shiftUp(), globalAt(8110, { disabledCommandIds: new Set(['commandPalette.open']) })).kind,
+  'unmatched',
+)
+
+// reset() (the shell calls it when the window loses focus) drops a half-made
+// gesture, so a modifier released while another app had focus cannot complete.
+const blurred = new RendererCommandDispatcher(500, 400)
+blurred.resolve(shiftDown(), globalAt(9000))
+blurred.resolveKeyUp(shiftUp(), globalAt(9010))
+blurred.reset()
+blurred.resolve(shiftDown(), globalAt(9020))
+assert.equal(blurred.resolveKeyUp(shiftUp(), globalAt(9030)).kind, 'unmatched')
+
+// A non-modifier keyup is never the gesture.
+assert.equal(
+  blurred.resolveKeyUp(key({ key: 'a', code: 'KeyA' }), globalAt(9100)).kind,
+  'unmatched',
+)
+
 console.log('command dispatcher module command tests passed')
