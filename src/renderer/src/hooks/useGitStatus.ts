@@ -173,7 +173,13 @@ function backOffGitStatusRecovery(subscription: GitStatusSubscription): void {
 
 function scheduleGitStatusRecovery(subscription: GitStatusSubscription): void {
   clearGitStatusRecovery(subscription)
-  if (!subscription.subscribers.size || document.hidden) return
+  // The same guard `releaseGitStatusSubscription` uses, and it has to be: that
+  // one keeps the subscription alive while EITHER set has a listener, so a
+  // revision-only subscription (the diff window's live re-read, with no status
+  // reader beside it) would otherwise be kept alive and then never tick again
+  // after its first failure.
+  const listening = subscription.subscribers.size > 0 || subscription.revisionSubscribers.size > 0
+  if (!listening || document.hidden) return
 
   subscription.recoveryTimer = window.setTimeout(() => {
     subscription.recoveryTimer = null
