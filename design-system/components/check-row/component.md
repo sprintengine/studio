@@ -134,7 +134,7 @@ bands.
 | Rest | Transparent ground, `text.default` name, `text.muted` directory |
 | Hover | `bg.hover`. Background only — no shadow, scale, or border that shifts the row |
 | Focus-visible | `focus.ring`, drawn **inward**: the row is full-bleed against its list's edges, which clip an outset ring |
-| Selected (focused pane) | `bg.selected` + a 2px inset `accent.primary` edge + `text.primary` |
+| Selected (focused pane) | `bg.selected` + a 2px inset `accent.primary` edge + `text.primary`. The edge reads through `--ds-selection-edge` (defaulting to the accent), so a host can neutralise it for the resting tier rather than owning two rules |
 | Selected (resting pane) | `bg.selected-resting`, **no edge**, `text.default` |
 | Cursored | `.ds-check-row-cursor` — a 2px `text.primary` mark in the leading gutter |
 | Checked | `aria-checked="true"` — the box takes the accent fill and the tick |

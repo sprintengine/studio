@@ -153,8 +153,10 @@ export function GitChangesToolbar({
           <MoveToChangelistGlyph />
         </ToolbarButton>
       </Tooltip>
-      <Tooltip content="Stash changes…" placement="bottom">
-        <ToolbarButton ariaLabel="Stash changes" disabled={busy} onClick={onStash}>
+      {/* The whole repository, not the selection — the band's other five items
+          act on the picked files, so this one says "all" out loud. */}
+      <Tooltip content="Stash all changes…" placement="bottom">
+        <ToolbarButton ariaLabel="Stash all changes" disabled={busy} onClick={onStash}>
           <StashGlyph />
         </ToolbarButton>
       </Tooltip>

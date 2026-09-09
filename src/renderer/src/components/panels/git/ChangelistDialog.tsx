@@ -91,7 +91,7 @@ export function ChangelistDialog({
             id={nameId}
             value={name}
             autoFocus
-            placeholder="Modal header group"
+            placeholder="Feature name"
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
               // Enter submits from the one-line field, the way it does in every

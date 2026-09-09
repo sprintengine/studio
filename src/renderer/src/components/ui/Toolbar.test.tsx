@@ -75,6 +75,7 @@ async function main(): Promise<void> {
   const { Toolbar, ToolbarButton, ToolbarDivider, ToolbarSpacer } = await import('./Toolbar')
   const { SegmentedControl } = await import('./SegmentedControl')
   const { Pager } = await import('./Pager')
+  const { Tooltip } = await import('./Tooltip')
 
   const document = dom.window.document
   const glyph = <svg viewBox="0 0 16 16" aria-hidden="true" />
@@ -279,12 +280,41 @@ async function main(): Promise<void> {
   })
 
   run('the divider is decoration, and the spacer is not a third cluster', () => {
-    const view = mount(band(<ToolbarSpacer />))
+    // The REAL band shape: every item in the product's bands is Tooltip-wrapped,
+    // because the words ride the tooltip in a glyph-only band. That wrapper is a
+    // `<span>`, and it is emphatically NOT `aria-hidden` — hiding it would hide
+    // the control inside it. So the invariant is not "every span in the band is
+    // hidden" (which the old fixture could only satisfy by having no tooltips in
+    // it, i.e. by not being a band); it is that the CHROME — the divider and the
+    // spacer, the two spans that wrap no control — is hidden and roleless.
+    const view = mount(
+      <Toolbar ariaLabel="Changed files">
+        <Tooltip content="Refresh the working tree" placement="bottom">
+          <ToolbarButton ariaLabel="Refresh">{glyph}</ToolbarButton>
+        </Tooltip>
+        <ToolbarDivider />
+        <Tooltip content="Collapse all groups" placement="bottom">
+          <ToolbarButton ariaLabel="Collapse all">{glyph}</ToolbarButton>
+        </Tooltip>
+        <ToolbarSpacer />
+      </Toolbar>,
+    )
     const spans = Array.from(view.band.querySelectorAll('span'))
-    assert.ok(spans.length >= 2)
-    for (const span of spans) {
+    const chrome = spans.filter((span) => span.querySelector('button') === null && !span.closest('button'))
+    const wrappers = spans.filter((span) => span.querySelector('button') !== null)
+
+    assert.equal(chrome.length, 2, 'exactly two decorative spans: the divider and the spacer')
+    for (const span of chrome) {
       assert.equal(span.getAttribute('aria-hidden'), 'true', 'neither is announced: the band is one flat toolbar')
       assert.equal(span.getAttribute('role'), null, 'never role="separator" — it separates nothing structurally')
+    }
+    assert.equal(wrappers.length, 2, 'and both items are wrapped, as every real band wraps them')
+    for (const span of wrappers) {
+      assert.equal(
+        span.getAttribute('aria-hidden'),
+        null,
+        'a tooltip wrapper is not chrome — hiding it would hide the control inside it',
+      )
     }
     assert.ok(
       !/justify-between/.test(view.band.getAttribute('class') ?? ''),

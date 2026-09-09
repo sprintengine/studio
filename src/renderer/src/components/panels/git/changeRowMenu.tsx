@@ -392,7 +392,10 @@ export function buildChangeRowMenu(context: ChangeRowMenuContext): ChangeRowMenu
     {
       kind: 'item',
       id: 'stash',
-      label: 'Stash changes…',
+      // "all", because it is `git stash push` on the WHOLE repository — not on
+      // the row the menu was opened on, and not on the selection the items
+      // above it name. The label was the only thing that said otherwise.
+      label: 'Stash all changes…',
       icon: <StashGlyph className="icon-xs" />,
       disabled: context.busy,
       onSelect: context.onStash,

@@ -1033,8 +1033,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     /** Absolute paths that move into the list the dialog creates. */
     paths: string[]
   } | null>(null)
-  const changelistDialogOpenRef = useRef(false)
-  changelistDialogOpenRef.current = changelistDialog !== null
 
   const changelistName = (id: string): string =>
     changelists.find((list) => list.id === id)?.name ?? 'this changelist'
@@ -1358,14 +1356,19 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     // Targeted dispatch: ignore commands meant for another workspace's Git panel
     // so a commit/fetch only runs in the workspace the user acted from.
     if (typeof detail.workspaceId === 'string' && detail.workspaceId !== workspaceId) return
-    // The three row commands act on the changes list's selection, so they are
-    // refused while a dialog of ours is up: the changelist dialog and the
-    // confirm dialog both trap focus, and a chord that reached past a modal
-    // scrim to discard files would be a change nobody could see themselves make.
+    // Commit and the three row commands are refused while a dialog of ours is
+    // up: the changelist dialog and the confirm dialog both trap focus, and a
+    // chord that reached past a modal scrim to discard files or write a commit
+    // would be a change nobody could see themselves make. Refresh and fetch are
+    // not gated — they read, they touch nothing the person is looking at, and
+    // a status re-read behind a dialog is harmless.
     // (The composer needs no guard — the shell already suppresses global
     // shortcuts inside an editable target.)
-    const dialogOpen =
-      changelistDialogOpenRef.current || Boolean(document.querySelector(MODAL_SURFACE_SELECTOR))
+    // Read off the DOM alone. This used to also consult a ref assigned DURING
+    // RENDER, which is a write to shared state in the render phase — and it
+    // said nothing the query does not: `ChangelistDialog` is a kit `Modal`, and
+    // every kit Modal declares `aria-modal="true"` while it is mounted.
+    const dialogOpen = Boolean(document.querySelector(MODAL_SURFACE_SELECTOR))
     switch (detail.id) {
       case 'git.refresh':
         void refreshAll()
@@ -1374,6 +1377,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         void handleFetch()
         break
       case 'git.commit':
+        // Gated like the row commands, and for a stronger reason than any of
+        // them: a chord that reached past a modal scrim to WRITE A COMMIT is
+        // the one irreversible thing on this list.
+        if (dialogOpen) break
         void handleCommit()
         break
       case 'git.changes.showDiff': {

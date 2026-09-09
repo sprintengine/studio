@@ -1605,7 +1605,15 @@ code {
  * to the cursor. */
 .ds-check-row--selected {
   background: var(--sem-color-bg-selected);
-  box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
+  /* THE EDGE IS INDIRECT, and that is the whole point. A host rebinds
+   * `--ds-selection-edge` to `transparent` for the RESTING tier so exactly one
+   * accent edge is on screen at a time — which is what the shipped React
+   * primitive does through the app's own `--selection-edge` alias
+   * (`ui/CheckRow.tsx`, InboxRow's ruling 2026-09-05). Reading the accent token
+   * straight here would have made the framework-neutral row the one row in the
+   * product a theme could not neutralise. The default resolves to the same
+   * value, so a host that rebinds nothing is unchanged. */
+  box-shadow: inset 0 0 0 2px var(--ds-selection-edge, var(--sem-color-accent-primary));
   color: var(--sem-color-text-primary);
 }
 
@@ -7109,7 +7117,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 /* ── Divider ─────────────────────────────────────────────────────────────
  * The system's first VERTICAL divider, and it earns being one: a band of
- * identical 26px squares has no other way to say "these four are about the
+ * identical 26px squares has no other way to say "these six are about the
  * files, these three are about the view". A gap cannot — the items are already
  * separated by one, and doubling it reads as a rendering accident.
  *
@@ -13329,7 +13337,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Variants</h4>
 <ul><li><strong>Default</strong> — the flat list row: box, glyph, name, directory, trailing.</li><li><strong><code>--tree</code></strong> — adds the chevron slot ahead of the box and a depth indent. The indent is a <strong>unitless depth</strong> (<code>--ds-check-row-depth: 2</code>) multiplying one <code>space.lg</code> step, not a pixel value, so a tree cannot drift off the scale one level at a time and a surface that wants a tighter tree changes one step rather than every row. Expansion is <code>aria-expanded</code> <strong>on the row</strong>, which is what a <code>treeitem</code> announces; the chevron is decoration, because a control inside the row would be a second tab stop per level.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Transparent ground, <code>text.default</code> name, <code>text.muted</code> directory | | Hover | <code>bg.hover</code>. Background only — no shadow, scale, or border that shifts the row | | Focus-visible | <code>focus.ring</code>, drawn <strong>inward</strong>: the row is full-bleed against its list's edges, which clip an outset ring | | Selected (focused pane) | <code>bg.selected</code> + a 2px inset <code>accent.primary</code> edge + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code>, <strong>no edge</strong>, <code>text.default</code> | | Cursored | <code>.ds-check-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter | | Checked | <code>aria-checked=&quot;true&quot;</code> — the box takes the accent fill and the tick | | Mixed | <code>aria-checked=&quot;mixed&quot;</code> — the accent fill and the dash. Mixed outranks checked | | Disabled | <code>aria-disabled=&quot;true&quot;</code>, <code>opacity: 0.5</code>, <code>not-allowed</code>. Stays in the walk |</p>
+<p>| State | Treatment | |---|---| | Rest | Transparent ground, <code>text.default</code> name, <code>text.muted</code> directory | | Hover | <code>bg.hover</code>. Background only — no shadow, scale, or border that shifts the row | | Focus-visible | <code>focus.ring</code>, drawn <strong>inward</strong>: the row is full-bleed against its list's edges, which clip an outset ring | | Selected (focused pane) | <code>bg.selected</code> + a 2px inset <code>accent.primary</code> edge + <code>text.primary</code>. The edge reads through <code>--ds-selection-edge</code> (defaulting to the accent), so a host can neutralise it for the resting tier rather than owning two rules | | Selected (resting pane) | <code>bg.selected-resting</code>, <strong>no edge</strong>, <code>text.default</code> | | Cursored | <code>.ds-check-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter | | Checked | <code>aria-checked=&quot;true&quot;</code> — the box takes the accent fill and the tick | | Mixed | <code>aria-checked=&quot;mixed&quot;</code> — the accent fill and the dash. Mixed outranks checked | | Disabled | <code>aria-disabled=&quot;true&quot;</code>, <code>opacity: 0.5</code>, <code>not-allowed</code>. Stays in the walk |</p>
 <p>Every one of these is [list-row](../list-row/component.md)'s, verbatim and deliberately. A second selection idiom on the row beside the rail would be a second answer to &quot;where am I&quot;, and the two channels this row already carries (state and choice) is the most one 24px line can hold.</p>
 <p><strong>Disabled is <code>aria-disabled</code>, never the attribute.</strong> The row is an item in a composite widget: it stays in the walk, and a person must be able to reach it and be told why it cannot be ticked.</p>
 <p><strong>The directory lifts one step on a selected row, and no further.</strong> The mockup lifted it to <code>text.primary</code> alongside the name; at that point the row's two halves weigh the same and the filename stops being the thing you find.</p>
@@ -13425,7 +13433,15 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * to the cursor. */
 .ds-check-row--selected {
   background: var(--sem-color-bg-selected);
-  box-shadow: inset 0 0 0 2px var(--sem-color-accent-primary);
+  /* THE EDGE IS INDIRECT, and that is the whole point. A host rebinds
+   * `--ds-selection-edge` to `transparent` for the RESTING tier so exactly one
+   * accent edge is on screen at a time — which is what the shipped React
+   * primitive does through the app's own `--selection-edge` alias
+   * (`ui/CheckRow.tsx`, InboxRow's ruling 2026-09-05). Reading the accent token
+   * straight here would have made the framework-neutral row the one row in the
+   * product a theme could not neutralise. The default resolves to the same
+   * value, so a host that rebinds nothing is unchanged. */
+  box-shadow: inset 0 0 0 2px var(--ds-selection-edge, var(--sem-color-accent-primary));
   color: var(--sem-color-text-primary);
 }
 
@@ -32547,7 +32563,7 @@ for (const button of document.querySelectorAll('.demo-parked .ds-toast-dismiss')
 
 /* ── Divider ─────────────────────────────────────────────────────────────
  * The system's first VERTICAL divider, and it earns being one: a band of
- * identical 26px squares has no other way to say &quot;these four are about the
+ * identical 26px squares has no other way to say &quot;these six are about the
  * files, these three are about the view&quot;. A gap cannot — the items are already
  * separated by one, and doubling it reads as a rendering accident.
  *
