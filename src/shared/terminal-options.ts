@@ -71,3 +71,44 @@ export type TerminalCellGeometryOptions = typeof TERMINAL_CELL_GEOMETRY_OPTIONS
  * wrong link range and a mis-sized terminal, not only a cosmetic one.
  */
 export const TERMINAL_UNICODE_VERSION = '11'
+
+/**
+ * The same two facts, said out loud to a REMOTE renderer.
+ *
+ * The two processes above share this module, so they cannot disagree. A phone
+ * attached over the tailnet cannot: it ships its own xterm, on its own release
+ * cadence, and it paints the same PTY bytes into its own buffer. Before this
+ * existed the only thing keeping it in step was that somebody remembered to
+ * mirror a constant — and when the live panes moved to Unicode 11 nobody did,
+ * so every emoji-bearing agent frame wrapped one way here and another way on
+ * the phone, which then reported the resulting column count back to size the
+ * pty.
+ *
+ * So the stream states it. `tailnet-terminal-stream.ts` puts this on the
+ * `attached` frame and the client adopts it; every value is settable on a live
+ * `Terminal`, which is what lets a client follow rather than refuse. A client
+ * too old to read it ignores an unknown key, which is the same outcome as
+ * before and no worse.
+ *
+ * This is deliberately NOT the whole of `TERMINAL_CELL_GEOMETRY_OPTIONS`:
+ * `allowProposedApi` is a local construction concern (it decides whether
+ * `terminal.unicode` may be touched at all), not something a remote renderer
+ * adopts — it either has the proposed API or it cannot honour the version
+ * either way.
+ */
+export type TerminalRenderContract = {
+  unicodeVersion: string
+  tabStopWidth: number
+  convertEol: boolean
+  /** Diagnostics only. A client must never gate behaviour on it. */
+  xtermVersion?: string
+}
+
+export function terminalRenderContract(xtermVersion?: string): TerminalRenderContract {
+  return {
+    unicodeVersion: TERMINAL_UNICODE_VERSION,
+    tabStopWidth: TERMINAL_CELL_GEOMETRY_OPTIONS.tabStopWidth,
+    convertEol: TERMINAL_CELL_GEOMETRY_OPTIONS.convertEol,
+    ...(xtermVersion ? { xtermVersion } : {}),
+  }
+}

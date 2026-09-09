@@ -7,6 +7,7 @@ import type {
   TerminalRemoteHost,
 } from '../../terminal-remote-attach'
 import { tailnetScopeGrantsAccess, type TailnetScope } from '../../../shared/tailnet'
+import { terminalRenderContract } from '../../../shared/terminal-options'
 import {
   createWebSocketFrameDecoder,
   encodeCloseFrame,
@@ -136,11 +137,25 @@ export function createTailnetTerminalStream(options: TailnetTerminalStreamOption
   // Sent AFTER the attach replay so the client's first frame is always the
   // scrollback: a header arriving first would tempt a client to paint an empty
   // screen and then be repainted.
+  //
+  // `render` is how THIS process measures a cell (`terminal-options.ts`). A
+  // remote renderer paints the same bytes into its own xterm on its own release
+  // cadence, so it has to be told rather than left to mirror a constant — that
+  // mirroring is what silently stopped happening when the live panes moved to
+  // Unicode 11. It rides this frame rather than one of its own because a client
+  // that ignores the key is exactly as correct as it was before, which keeps
+  // this a purely additive change to the stream.
+  //
+  // The ordering above is the cost: a client adopting a different width table
+  // has already painted the replay under its own, and xterm does not re-measure
+  // lines already in its buffer. Repainting is therefore the client's job, and
+  // it only has to do it when the two ends actually differ.
   send({
     type: 'attached',
     sessionId: attachment.sessionId,
     scope: attachment.scope,
     session: attachment.session as unknown as Record<string, unknown>,
+    render: terminalRenderContract(),
   })
 
   const decoder = createWebSocketFrameDecoder(MAX_WEBSOCKET_MESSAGE_BYTES)
