@@ -10,6 +10,7 @@ import { reportBuildStamp } from './utils/buildStamp'
 import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
 import { markStartup, markStartupAt } from './utils/startupTimeline'
+import { setTerminalRepaintPauseReporter } from './utils/terminalRepaintPause'
 
 // Boot measurement (MC-2075). `timeOrigin` is this document's navigation start,
 // so the pair below brackets everything that happens before a line of app code
@@ -29,6 +30,13 @@ const DiagnosticsWindowApp = React.lazy(() => import('./components/diagnostics/D
 reportBuildStamp()
 
 bindElectronClipboardPasteBridge()
+
+// The modal repaint pause reports through `logPerfEvent` like everything else,
+// but the store itself imports nothing: it is pulled into the xterm output
+// queue, whose tests bundle without `import.meta.env` defined. Injecting the
+// reporter here keeps that module dependency-free and keeps the perf events in
+// the one rollup the diagnostics panel reads.
+setTerminalRepaintPauseReporter(logPerfEvent)
 
 window.addEventListener('error', (event) => {
   console.error('[RendererError]', {

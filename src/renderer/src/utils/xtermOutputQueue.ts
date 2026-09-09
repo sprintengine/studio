@@ -1,5 +1,10 @@
 import type { Terminal } from '@xterm/xterm'
 import { TERMINAL_RECENT_REPLAY_BYTES } from '../../../shared/terminal-history'
+import {
+  isTerminalRepaintPaused,
+  reportTerminalRepaintPauseWindow,
+  subscribeTerminalRepaintPause,
+} from './terminalRepaintPause'
 
 const MAX_TERMINAL_WRITE_CHARS = 32 * 1024
 const MAX_QUEUED_TERMINAL_CHARS = TERMINAL_RECENT_REPLAY_BYTES
@@ -104,12 +109,44 @@ export function createXtermOutputQueue(
   let writing = false
   let disposed = false
   let queuedChars = 0
-  let throttled = false
+
+  // Modal repaint pause. While a covering dialog is open we keep accepting PTY
+  // data into the SAME FIFO and simply stop draining it, so the pause cannot
+  // reorder anything: there is no second buffer to merge back, only a drain
+  // that resumes at the chunk it stopped on.
+  //
+  // Buffer-growth policy while paused is the queue's existing one — cap at
+  // `MAX_QUEUED_TERMINAL_CHARS` (the same window the app already treats as the
+  // meaningful recent scrollback), discard from the OLDEST end, and head the
+  // survivors with the throttle banner so the discard is visible rather than
+  // silent. Chosen over drop-with-marker-at-the-END because a terminal's value
+  // is its newest state: a pane that emitted 40MB behind a Settings dialog is
+  // only ever going to be read for where it ended up, and for an alt-screen TUI
+  // the final repaint is literally the only meaningful part of the payload. It
+  // is also the policy a fast pane already hits with no modal open at all, so
+  // the pause introduces no second truncation behaviour to reason about.
+  let paused = isTerminalRepaintPaused()
+  let pauseStartedAt = paused ? performance.now() : 0
+  let heldChunks = 0
+  let heldChars = 0
+  let droppedChars = 0
 
   const trimQueue = () => {
     if (queuedChars <= MAX_QUEUED_TERMINAL_CHARS) return
 
-    const prefix = throttled ? '' : TERMINAL_THROTTLE_MESSAGE
+    // The banner is re-seated on every trim rather than announced once. Under
+    // SUSTAINED overflow — a pane streaming behind a dialog somebody left open —
+    // the previous trim's banner is by then the oldest thing in the queue and is
+    // the first thing the next trim discards, which used to leave the drop
+    // silent for exactly the case the notice exists to explain. Lifting it out
+    // before the scan also keeps it from being retained twice or sliced in half.
+    if (queue[0] === TERMINAL_THROTTLE_MESSAGE) {
+      queue.shift()
+      queuedChars -= TERMINAL_THROTTLE_MESSAGE.length
+    }
+
+    const payloadCharsBefore = queuedChars
+    const prefix = TERMINAL_THROTTLE_MESSAGE
     const targetChars = Math.max(MAX_QUEUED_TERMINAL_CHARS - prefix.length, 0)
     const retained: string[] = []
     let retainedChars = 0
@@ -132,18 +169,17 @@ export function createXtermOutputQueue(
     }
 
     queue.length = 0
-    if (prefix) queue.push(prefix)
+    queue.push(prefix)
     queue.push(...retained)
     queuedChars = prefix.length + retainedChars
-    throttled = true
+    // Banner chars are added, not carried over from the payload, so the drop
+    // count compares payload with payload.
+    droppedChars += Math.max(payloadCharsBefore - retainedChars, 0)
   }
 
   const takeChunk = (): string | null => {
     const next = queue.shift()
-    if (!next) {
-      throttled = false
-      return null
-    }
+    if (!next) return null
 
     queuedChars -= next.length
 
@@ -157,19 +193,19 @@ export function createXtermOutputQueue(
   }
 
   const scheduleDrain = () => {
-    if (scheduled || writing || disposed) return
+    if (scheduled || writing || disposed || paused) return
     scheduled = true
     window.requestAnimationFrame(drain)
   }
 
   const drain = () => {
     scheduled = false
-    if (disposed || writing) return
+    if (disposed || writing || paused) return
 
     const frameStartedAt = performance.now()
 
     const writeNext = () => {
-      if (disposed) return
+      if (disposed || paused) return
 
       const data = takeChunk()
       if (!data) return
@@ -181,6 +217,12 @@ export function createXtermOutputQueue(
         recordWrite(data, performance.now() - writeStartedAt)
 
         if (disposed) return
+        // A pause that lands mid-drain stops here. The write already in flight
+        // when the dialog opened is allowed to finish — cancelling it is not
+        // possible and abandoning its callback would strand `writing` true —
+        // so the worst case is exactly one more painted frame after the modal
+        // appears, never a partial write.
+        if (paused) return
         if (performance.now() - frameStartedAt >= TERMINAL_WRITE_FRAME_BUDGET_MS) {
           scheduleDrain()
           return
@@ -193,29 +235,78 @@ export function createXtermOutputQueue(
     writeNext()
   }
 
+  const unsubscribePause = subscribeTerminalRepaintPause((nextPaused) => {
+    if (disposed || nextPaused === paused) return
+    paused = nextPaused
+    if (paused) {
+      pauseStartedAt = performance.now()
+      heldChunks = 0
+      heldChars = 0
+      droppedChars = 0
+      return
+    }
+
+    // Report before flushing so the numbers describe the pause window itself.
+    // `writesAvoided` is the honest measure of the win: that many PTY chunks
+    // reached this pane while the dialog was up and produced no paint, and
+    // therefore no re-composite of the covered region.
+    if (heldChunks > 0 || droppedChars > 0) {
+      reportTerminalRepaintPauseWindow({
+        elapsedMs: Math.round(performance.now() - pauseStartedAt),
+        writesAvoided: heldChunks,
+        heldChars,
+        droppedChars,
+        queuedCharsOnResume: queuedChars,
+      })
+    }
+    heldChunks = 0
+    heldChars = 0
+    droppedChars = 0
+    scheduleDrain()
+  })
+
   return {
     enqueue: (data: string) => {
       if (disposed || !data) return
       queue.push(data)
       queuedChars += data.length
+      if (paused) {
+        heldChunks += 1
+        heldChars += data.length
+      }
       trimQueue()
+      // A no-op while paused; the resume handler is what restarts the drain.
       scheduleDrain()
     },
     clear: () => {
       // Drop everything queued-but-not-yet-written without tearing the queue
       // down (used when a hidden terminal is revealed and resynced via replay).
+      // Correct while paused too: a resync replaces the withheld window, and
+      // keeping it would double-paint content the replay payload already
+      // carries.
       queue.length = 0
       queuedChars = 0
-      throttled = false
     },
     dispose: () => {
       disposed = true
       queue.length = 0
       queuedChars = 0
+      // Unsubscribing here is what keeps a terminal disposed DURING a pause
+      // from leaking: without it the store retains this closure — and the whole
+      // buffered queue with it — for the life of the window.
+      unsubscribePause()
     },
   }
 }
 
+// The replay gate deliberately does NOT honour the modal repaint pause. Its
+// drain is one bounded payload with a visible reveal at the end of it — a
+// terminal that pauses replay behind a dialog sits on a skeleton until the
+// dialog closes and then flashes its whole scrollback in. The pause targets the
+// unbounded, continuous source (live PTY output through `outputQueue`), which
+// is the one that actually re-invalidates the covered region frame after frame.
+// Live data that arrives mid-replay still lands in the output queue via
+// `flushLiveBuffer`, so it is paused there.
 export function createXtermReplayGate(
   term: Terminal,
   outputQueue: XtermOutputQueue,
