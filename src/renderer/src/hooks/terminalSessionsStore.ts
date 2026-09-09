@@ -19,6 +19,42 @@ function getActivitySignature(activity: TerminalSessionSnapshot['activity']) {
   }
 }
 
+// The ledger reduced to what changes when it changes: how many files, the two
+// running totals, how many edits made them, the newest edit time, and which
+// file is at the head of the list.
+//
+// The edit COUNT is load-bearing, not decoration. An edit that adds and removes
+// nothing is the reporter's honest answer for a tool whose result shape it
+// cannot count (a NotebookEdit, a MultiEdit from a CLI that reports no patch),
+// and the timestamp is a max over out-of-order hook frames, so neither the
+// totals nor the time need move when such an edit lands. `edits` always does.
+//
+// The head path is the whole of the ordering: the ledger is rendered
+// newest-first, and the only reordering a fold can produce is promoting one
+// file to the front.
+//
+// The paths themselves are deliberately NOT hashed — five hundred of them is
+// tens of kilobytes of string per session, and this runs for every session on
+// every broadcast. `contextUsage` is deliberately absent: it is null until the
+// status-line forwarder lands, and when it arrives it should be keyed on the
+// rounded percentage only — its `at` moves on every sample, which is exactly
+// the lastOutputAt-class noise this signature exists to drop.
+function getFileChangesSignature(fileChanges: TerminalSessionSnapshot['fileChanges']) {
+  let additions = 0
+  let deletions = 0
+  let edits = 0
+  let lastEditedAt = 0
+  for (const change of fileChanges ?? []) {
+    // `|| 0` so a malformed entry compares as itself rather than collapsing to
+    // the NaN every other malformed entry serializes to.
+    additions += change.additions || 0
+    deletions += change.deletions || 0
+    edits += change.edits || 0
+    if (change.lastEditedAt > lastEditedAt) lastEditedAt = change.lastEditedAt
+  }
+  return [fileChanges?.length ?? 0, additions, deletions, edits, lastEditedAt, fileChanges?.[0]?.path ?? '']
+}
+
 // Signature of the session fields a consumer actually renders. Deliberately
 // excludes high-frequency noise (notably lastOutputAt), so a broadcast that only
 // bumps output timing is treated as unchanged.
@@ -66,6 +102,13 @@ export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]
       session.observedCheckout?.branch ?? '',
       session.observedCheckout?.isLinkedWorktree ?? false,
       session.observedCheckout?.missing ?? false,
+      // The per-session file ledger and the subagent count: both are numbers a
+      // row renders, and both move without any phase moving, so a session that
+      // only edited a file would otherwise never re-render. Unlike the
+      // thinking ↔ tool_use churn excluded above, these change once per edit
+      // and once per subagent — a rate a paint can carry.
+      getFileChangesSignature(session.fileChanges),
+      session.activeSubagents ?? 0,
     ])
   return JSON.stringify(rows)
 }
