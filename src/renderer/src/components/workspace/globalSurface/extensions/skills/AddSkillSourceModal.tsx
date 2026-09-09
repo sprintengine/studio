@@ -39,8 +39,26 @@ import { pluralSkills } from './skillsSurfaceModel'
 type AddPhase =
   | { kind: 'idle' }
   | { kind: 'scanning' }
-  | { kind: 'added'; source: SkillSource; scan: ScanResult }
+  | { kind: 'added'; source: SkillSource; scan: ScanResult; mergedIntoBuiltin: boolean }
   | { kind: 'failed'; message: string }
+
+/**
+ * What a paste that landed in a built-in tab has to say for itself. Every other
+ * add says it with the row that appears in the list.
+ *
+ * Pasting `anthropics/claude-plugins-official` or `sprintengine/studio-releases`
+ * is not an add: those repositories are tabs this studio always has, so the
+ * paste merges into the tab and nothing new turns up in the list. The modal
+ * used to report the same flat success it reports for a new repository, and
+ * the person went looking for a source that was never going to appear.
+ * Exported for its test.
+ */
+export function mergedIntoBuiltinNotice(source: SkillSource): { title: string; hint: string } {
+  return {
+    title: `That is already the ${source.name} tab.`,
+    hint: `${source.repo} comes with the studio, so nothing was added to your sources — its listing has just been re-read.`,
+  }
+}
 
 export function AddSkillSourceModal({
   open,
@@ -96,7 +114,12 @@ export function AddSkillSourceModal({
         setPhase({ kind: 'failed', message: result.message })
         return
       }
-      setPhase({ kind: 'added', source: result.source, scan: result.scan })
+      setPhase({
+        kind: 'added',
+        source: result.source,
+        scan: result.scan,
+        mergedIntoBuiltin: result.mergedIntoBuiltin === true,
+      })
       onAdded(result.source)
     } catch (error) {
       setPhase({ kind: 'failed', message: error instanceof Error ? error.message : String(error) })
@@ -148,6 +171,10 @@ export function AddSkillSourceModal({
           <InlineNotice tone="error" title="That repository was not added." hint={phase.message} />
         ) : null}
 
+        {phase.kind === 'added' && phase.mergedIntoBuiltin ? (
+          <InlineNotice tone="warn" {...mergedIntoBuiltinNotice(phase.source)} />
+        ) : null}
+
         {phase.kind === 'added' ? <ScanSummary scan={phase.scan} /> : null}
 
         {phase.kind === 'idle' ? (
@@ -183,13 +210,17 @@ export function AddSkillSourceModal({
       <ModalFooter>
         {phase.kind === 'added' ? (
           <>
-            <GhostButton
-              size="md"
-              disabled={removing}
-              onClick={() => void remove(phase.source.id)}
-            >
-              {removing ? 'Removing…' : 'Remove source'}
-            </GhostButton>
+            {/* No Remove for a tab the studio always has: the store refuses it,
+                so the button's only possible outcome is a failure. */}
+            {phase.mergedIntoBuiltin ? null : (
+              <GhostButton
+                size="md"
+                disabled={removing}
+                onClick={() => void remove(phase.source.id)}
+              >
+                {removing ? 'Removing…' : 'Remove source'}
+              </GhostButton>
+            )}
             <PrimaryButton size="md" onClick={onClose}>
               Done
             </PrimaryButton>

@@ -16,7 +16,7 @@ import {
 } from '../../../../../../../shared/skills'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { SourceTabActions } from '../catalogue/SourceTabActions'
-import { AddSkillSourceModal } from './AddSkillSourceModal'
+import { AddSkillSourceModal, mergedIntoBuiltinNotice } from './AddSkillSourceModal'
 import { SkillPage } from './SkillPage'
 import { SkillDocument, SkillReader } from './SkillReader'
 import {
@@ -547,6 +547,25 @@ run('Scan opens the Add-a-source modal on that repository', () => {
   )
   assert.ok(markup.includes('value="browser-act/skills"'), 'the candidate lands in the pasted-URL field')
   assert.ok(markup.includes('>Add<'), 'and takes the same path from there')
+})
+
+run('pasting a repository the studio always has is not reported as an add', () => {
+  // `anthropics/claude-plugins-official` IS the Anthropic tab, so the paste
+  // merges into it and no row appears in the list. The modal used to say the
+  // same "added" it says for a new repository, and the person went looking for
+  // a source that was never going to be there.
+  const notice = mergedIntoBuiltinNotice({
+    id: 'github:anthropics/claude-plugins-official',
+    kind: 'github',
+    name: 'Anthropic',
+    repo: 'anthropics/claude-plugins-official',
+    monogram: 'AN',
+    blurb: '',
+    commitSha: '',
+    scannedAt: '',
+  })
+  assert.ok(notice.title.includes('Anthropic'), 'it names the tab the paste landed in')
+  assert.ok(notice.hint.includes('nothing was added'), 'and does not claim a source was added')
 })
 
 run('the closed modal renders nothing', () => {
