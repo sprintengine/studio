@@ -32,6 +32,12 @@ export type HunkBox = {
  * from, whether that snapshot agrees with it or not. Nothing here waits for the
  * prediction to come true — a write that landed somewhere unexpected must show
  * what actually happened.
+ *
+ * `afterRevision` starts at `OVERRIDE_PENDING_WRITE` and is pinned to a real
+ * revision by `pinOverride` when the write returns. Anything else would let a
+ * read that was ALREADY IN FLIGHT when the box was clicked — the watcher's own
+ * tick, a second earlier — clear the prediction before git had been asked at
+ * all, flicking the box back to its old state and then forward again.
  */
 export type HunkOverride = {
   /** `<kind>:<path>` — the file this prediction is about. */
@@ -39,6 +45,14 @@ export type HunkOverride = {
   index: number
   checked: boolean
   afterRevision: number
+}
+
+/** "No read may clear this yet": the write it predicts has not returned. */
+export const OVERRIDE_PENDING_WRITE = Number.POSITIVE_INFINITY
+
+/** The write returned; from here the next completed read is the truth. */
+export function pinOverride(override: HunkOverride | null, revision: number): HunkOverride | null {
+  return override ? { ...override, afterRevision: revision } : null
 }
 
 /** Which file a gutter belongs to. Includes the KIND: the same file's staged

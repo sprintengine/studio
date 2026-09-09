@@ -5,6 +5,9 @@ import {
   hunkAction,
   hunkBoxes,
   hunkFileKey,
+  OVERRIDE_PENDING_WRITE,
+  pinOverride,
+  predictedSummary,
   settleOverride,
   type HunkOverride,
 } from './hunkGutterModel'
@@ -145,6 +148,37 @@ run('a prediction dies with the read that supersedes it, right or wrong', () => 
   assert.equal(settleOverride(pending, 'staged:/repo/src/a.ts', 3), null)
   assert.equal(settleOverride(pending, null, 3), null)
   assert.equal(settleOverride(null, key, 3), null)
+})
+
+run('a prediction whose write has not returned cannot be cleared by any read', () => {
+  const pending = override({ afterRevision: OVERRIDE_PENDING_WRITE })
+  const key = 'unstaged:/repo/src/a.ts'
+  // The watcher ticks once a second; a read already in flight when the box was
+  // clicked must not undraw the tick before git has even been asked.
+  assert.equal(settleOverride(pending, key, 99), pending)
+  // Once git answers, the prediction is pinned to the read that will replace it.
+  const pinned = pinOverride(pending, 99)
+  assert.equal(pinned?.afterRevision, 99)
+  assert.equal(settleOverride(pinned, key, 99), pinned)
+  assert.equal(settleOverride(pinned, key, 100), null)
+  assert.equal(pinOverride(null, 3), null)
+  // A file switch still ends it, pending write or not: the prediction was about
+  // a file that is no longer on screen.
+  assert.equal(settleOverride(pending, 'staged:/repo/src/a.ts', 1), null)
+})
+
+run('the counter carries the pending click too, or it contradicts the box', () => {
+  const key = 'unstaged:/repo/src/a.ts'
+  const summary = { total: 3, included: 1 }
+  assert.deepEqual(predictedSummary(summary, override({ checked: true }), key), { total: 3, included: 2 })
+  assert.deepEqual(predictedSummary(summary, override({ checked: false }), key), { total: 3, included: 0 })
+  // A prediction about another file changes nothing here.
+  assert.deepEqual(predictedSummary(summary, override(), 'staged:/repo/src/a.ts'), summary)
+  assert.equal(predictedSummary(null, override(), key), null)
+  assert.deepEqual(predictedSummary(summary, null, key), summary)
+  // And it can never step outside the count it is describing.
+  assert.deepEqual(predictedSummary({ total: 1, included: 1 }, override({ checked: true }), key), { total: 1, included: 1 })
+  assert.deepEqual(predictedSummary({ total: 1, included: 0 }, override({ checked: false }), key), { total: 1, included: 0 })
 })
 
 if (failures > 0) {

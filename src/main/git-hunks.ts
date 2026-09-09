@@ -50,11 +50,21 @@ function diffArgs(scope: GitHunkScope, relativePath: string): string[] {
     '--no-ext-diff',
     '--no-textconv',
     '--no-color',
+    // Rename detection is off on purpose. A rename WITH a content change puts
+    // `rename from` / `rename to` in the header every one-hunk patch replays,
+    // so the first hunk would carry the rename with it and the second would
+    // then be refused — the file it names having already moved in the index.
+    // Without detection the same change is a deletion of one path and an
+    // addition of another, which is two files that each behave.
+    '--no-renames',
     '--src-prefix=a/',
     '--dst-prefix=b/',
     '-U0',
     '--',
-    relativePath,
+    // `:(literal)` because a path IS a pathspec to git: a file called
+    // `[id].tsx` is a character class, and `a?b.ts` would match `axb.ts`. The
+    // renderer hands over the name of a real file, and this says so.
+    `:(literal)${relativePath}`,
   ]
 }
 
@@ -90,7 +100,7 @@ async function readFileDiff(
 }
 
 async function isUntracked(repoRoot: string, relativePath: string): Promise<boolean> {
-  const result = await runGitCommand(repoRoot, ['ls-files', '--cached', '--', relativePath])
+  const result = await runGitCommand(repoRoot, ['ls-files', '--cached', '--', `:(literal)${relativePath}`])
   if (!result.ok) return false
   return result.stdout.trim() === ''
 }

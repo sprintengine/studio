@@ -231,15 +231,21 @@ async function main(): Promise<void> {
 
   run('an editor disposed under the cleanup does not take the unmount down', () => {
     const editor = fakeEditor()
+    let removals = 0
     const disposed = {
       addGlyphMarginWidget: editor.host.addGlyphMarginWidget,
       removeGlyphMarginWidget: () => {
+        removals += 1
         throw new Error('Editor is disposed')
       },
     }
-    const view = mount(<HunkGutter editor={disposed} boxes={boxesFor([4])} onToggle={() => {}} />)
+    const view = mount(<HunkGutter editor={disposed} boxes={boxesFor([4, 19])} onToggle={() => {}} />)
+    assert.equal(editor.margin.querySelectorAll('[role="checkbox"]').length, 2)
     view.unmount()
-    console.log('  (the throw was swallowed, which is the assertion)')
+    // Both widgets were asked to go, not just the one before the throw: a
+    // cleanup that stopped at the first refusal would leave the rest behind.
+    assert.equal(removals, 2)
+    assert.equal(view.container.isConnected, false, 'and the React tree came down')
   })
 
   if (failures > 0) {

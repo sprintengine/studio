@@ -17,6 +17,8 @@ import type { DiffFileItem } from './diffFileList'
 import {
   hasHunkGutter,
   hunkFileKey,
+  OVERRIDE_PENDING_WRITE,
+  pinOverride,
   predictedSummary,
   settleOverride,
   type HunkOverride,
@@ -117,8 +119,13 @@ export function useFileHunks({
     // unstaged diffs two different reads.
   }, [repoRoot, key, path, kind, supported, treeRevision, reloadToken])
 
-  // The file changed under a prediction that was about the old one.
+  // The file changed. Everything held about the last one goes NOW rather than
+  // when the next read lands: a counter cleared a git call late would spend that
+  // call showing the previous file's total beside this file's diff, and a
+  // prediction about the last file's hunk would be drawn on one of this file's.
   useEffect(() => {
+    setHunks(EMPTY)
+    setSummary(null)
     setOverride((current) => (current && current.key !== key ? null : current))
     setError(null)
   }, [key])
@@ -137,7 +144,10 @@ export function useFileHunks({
         key: fileKey,
         index: hunk.index,
         checked: !hunk.included,
-        afterRevision: revisionRef.current,
+        // Not `revisionRef.current`: a read that was already in flight when
+        // this box was clicked would then land and clear the prediction before
+        // git had been asked at all.
+        afterRevision: OVERRIDE_PENDING_WRITE,
       })
       void (async () => {
         try {
@@ -166,9 +176,9 @@ export function useFileHunks({
           setError(failure instanceof Error ? failure.message : 'Could not change what is included.')
         } finally {
           busyRef.current = false
-          // Re-read whatever happened. The override survives until THIS read
-          // lands, so the box does not flicker back through its old value on
-          // the way to the new one.
+          // git has answered; from here the next completed read supersedes the
+          // prediction, and this is the read that will.
+          setOverride((current) => pinOverride(current, revisionRef.current))
           setReloadToken((value) => value + 1)
         }
       })()

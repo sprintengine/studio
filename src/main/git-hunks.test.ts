@@ -22,6 +22,7 @@ async function main(): Promise<void> {
   await assertBinaryAndUntrackedRefuse()
   await assertRefusals()
   await assertPersonalDiffConfigCannotBreakIt()
+  await assertAwkwardNames()
   console.log('git-hunks.test.ts: ok')
 }
 
@@ -295,6 +296,42 @@ async function assertRefusals(): Promise<void> {
     const outsideWrite = await stageGitHunk({ ...ref, filePath: join(root, 'elsewhere.txt') })
     assert.equal(outsideWrite.ok, false)
     console.log('ok - a stale hunk, a mismatched scope and a path outside the repo are all refused')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+async function assertAwkwardNames(): Promise<void> {
+  const { root, repo } = makeRepo('names')
+  try {
+    // A path IS a pathspec to git, and `[id]` is a character class. Without
+    // `:(literal)` this file's diff is whatever else happens to match.
+    execFileSync('mkdir', ['-p', join(repo, 'pages')])
+    writeFileSync(join(repo, 'pages', '[id].tsx'), 'a\nb\nc\n')
+    writeFileSync(join(repo, 'pages', 'xid.tsx'), 'other\n')
+    writeFileSync(join(repo, 'old.txt'), 'r1\nr2\nr3\nr4\nr5\nr6\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '--quiet', '-m', 'base'])
+
+    writeFileSync(join(repo, 'pages', '[id].tsx'), 'A\nb\nC\n')
+    const bracketed = await hunksOf(repo, 'pages/[id].tsx', 'unstaged')
+    assert.equal(bracketed.hunks.length, 2)
+    const staged = await stageGitHunk(refFor(repo, 'pages/[id].tsx', bracketed, 0))
+    assert.equal(staged.ok, true, staged.message ?? staged.stderr)
+    assert.equal(git(repo, ['show', ':pages/[id].tsx']), 'A\nb\nc\n')
+
+    // A rename WITH a content change. Rename detection is off, so this is a new
+    // file at the new path — and every one of its hunks can go in without the
+    // first one carrying a rename the rest would then trip over.
+    execFileSync('mv', [join(repo, 'old.txt'), join(repo, 'new.txt')])
+    writeFileSync(join(repo, 'new.txt'), 'R1\nr2\nr3\nr4\nr5\nR6\n')
+    git(repo, ['add', '--', 'new.txt', 'old.txt'])
+    const renamed = await hunksOf(repo, 'new.txt', 'staged')
+    assert.equal(renamed.hunks.length, 1, 'without rename detection the new path is one whole addition')
+    const back = await unstageGitHunk(refFor(repo, 'new.txt', renamed, 0))
+    assert.equal(back.ok, true, back.message ?? back.stderr)
+    assert.equal(status(repo, 'new.txt'), '?? new.txt')
+    console.log('ok - a bracketed path is a path, and a rename is two files that each behave')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
