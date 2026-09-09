@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { JSDOM } from 'jsdom'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { GitChangesList, type GitChangesListProps } from './GitChangesList'
-import type { GitChangeGroup, GitChangeRow } from './gitChangesModel'
+import { groupToggleAction, type GitChangeGroup, type GitChangeRow } from './gitChangesModel'
 
 // The Changes list, rendered (epic `git-commit-window`, adversarial review).
 //
@@ -165,6 +167,110 @@ const FIXTURE = [
   )
   assert.ok(notice, 'the cap notice renders')
   assert.equal(notice!.closest('[role="listbox"]'), null, 'and it is not a non-option child of the listbox')
+}
+
+// ── the row says what T5 ruled it says ───────────────────────────────────────
+{
+  const root = render(FIXTURE)
+  const options = Array.from(root.querySelectorAll('[role="option"]'))
+  assert.equal(options.length, 4)
+
+  // KIND colour on the glyph — the epic's ruling, which revised the 2026-09-06
+  // identity-colour carve-out for this very list. `data-tone="kind"` is what
+  // `FileTypeGlyph` stamps when it is asked for the hue AND the kind has one;
+  // `.ts` and `.tsx` do, `.md` and `.txt` are among the kinds that stay in the
+  // row's ink, so the assertion is on the rows that can wear a hue.
+  for (const filename of ['a.ts', 'b.tsx']) {
+    const option = options.find((candidate) => candidate.textContent?.includes(filename))
+    assert.ok(option, `no row for ${filename}`)
+    assert.ok(
+      option!.querySelector('svg[data-tone="kind"]'),
+      `${filename} wears its language's hue`,
+    )
+  }
+  assert.match(
+    readFileSync(join(process.cwd(), 'src/renderer/src/components/panels/git/GitChangesList.tsx'), 'utf8'),
+    /<FileTypeGlyph name=\{row\.filename\} tone="kind"/,
+    'and every row asks for it, whether or not its kind has one',
+  )
+
+  for (const option of options) {
+    assert.ok(
+      option.querySelector('span[aria-hidden="true"] > svg'),
+      'the glyph slot says nothing: the name carries the meaning',
+    )
+
+    // NO TRAILING STATUS LETTER. T5 dropped it, which makes the visually-hidden
+    // word the only non-colour carrier of the status left — and colour alone is
+    // not an accessible signal, so it has to be there.
+    assert.equal(
+      option.querySelector('.font-mono.text-micro'),
+      null,
+      'no trailing letter — the mockup\'s row ends at the directory',
+    )
+    assert.ok(
+      option.querySelector('.sr-only'),
+      'so the status word travels with the name instead',
+    )
+  }
+
+  const statuses = options.map((option) => option.querySelector('.sr-only')?.textContent?.trim())
+  assert.deepEqual(statuses, [', modified', ', modified', ', modified', ', added'])
+
+  // Selection and the tick are different questions and are announced as two.
+  assert.deepEqual(
+    options.map((option) => option.getAttribute('aria-checked')),
+    ['true', 'false', 'false', 'false'],
+  )
+  for (const option of options) {
+    assert.equal(option.getAttribute('aria-selected'), 'false', 'an option always declares whether it is chosen')
+  }
+}
+
+// ── every row keeps its checkbox handler ─────────────────────────────────────
+//
+// The failure T5 documented, and the reason this is asserted on the SOURCE:
+// `CheckRow` only swallows the click on its box when it HAS a handler to run.
+// A row that dropped `onCheckedChange` while a git command was in flight would
+// let the click fall through to the row body — so a tick would open the diff.
+// The handler is therefore unconditional, and a `busy &&` creeping in here is
+// exactly what this reads for.
+{
+  const source = readFileSync(join(process.cwd(), 'src/renderer/src/components/panels/git/GitChangesList.tsx'), 'utf8')
+  assert.match(
+    source,
+    /onCheckedChange=\{\(\) => onToggleRow\(row\)\}/,
+    'the row box hands over its handler unconditionally',
+  )
+  assert.ok(
+    !/onCheckedChange=\{[^}]*\?[^}]*onToggleRow/.test(source),
+    'never behind a condition: a box that drops its handler shows a diff instead of ticking',
+  )
+}
+
+// ── an empty group's box is live, and stages nothing ─────────────────────────
+//
+// A changelist a person has just made is empty, and its band still has to be
+// operable — so the box is not withheld. What must not happen is the panel
+// calling `git stage` with an empty path list, which is a spawn that can only
+// fail.
+{
+  const root = render([group({ id: 'changelist:new', title: 'Spike', rows: [] })])
+  const listbox = root.querySelector('[role="listbox"]')
+  assert.ok(listbox, 'the group still renders its (empty) listbox')
+  assert.equal(listbox!.querySelectorAll('[role="option"]').length, 0)
+  const box = root.querySelector('input[type="checkbox"]')
+  assert.ok(box, 'and its band still carries a box a person can tick')
+  assert.equal(box!.hasAttribute('disabled'), false)
+
+  assert.deepEqual(groupToggleAction([], true), { action: 'stage', paths: [] })
+  assert.deepEqual(groupToggleAction([], false), { action: 'unstage', paths: [] })
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/components/panels/GitPanel.tsx'), 'utf8')
+  assert.match(
+    panel,
+    /groupToggleAction\(group\.allRows, next\)[\s\S]{0,120}?if \(paths\.length === 0\) return/,
+    'and the panel returns before spawning git with nothing to act on',
+  )
 }
 
 console.log('ok - the Changes list nests one listbox per group, and each owns options only')
