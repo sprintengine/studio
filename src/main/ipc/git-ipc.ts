@@ -1,6 +1,6 @@
 import type { IpcMain } from 'electron'
 import { writeFile } from 'fs/promises'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 import { diffBranchSelection, listBranchSteps, readFileAtRev } from '../branch-steps'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 import { readRepositoryIdentity } from '../repository-identity'
@@ -200,19 +200,27 @@ export function registerGitIpc(
   // scope it was read in, its position as a hint and a fingerprint of its body
   // — and never sends a patch: main reads the diff again and writes the patch
   // itself, so nothing that crossed this boundary reaches `git apply`.
+  //
+  // A repo root is an absolute path or it is not a repo root. `git -C <root>`
+  // resolves a relative one against whatever this process's cwd happens to be,
+  // which for `stage-hunk` means writing to the index of a repository nobody
+  // named — so it is checked here, the way `window:dock-diff` checks its own.
   ipcMain.handle('git:get-file-hunks', async (_, repoRoot: string, filePath: string, scope: GitHunkScope) => {
+    if (!isRepoRoot(repoRoot)) return { ok: false, message: 'That repository path is not absolute.' }
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-hunks', { repoRoot, filePath, scope }, () =>
       readFileHunks(repoRoot, filePath, scope)
     )
   })
 
   ipcMain.handle('git:stage-hunk', async (_, ref: GitHunkRef) => {
+    if (!isRepoRoot(ref?.repoRoot)) return refusedHunkWrite()
     return diagnostics.withIpcDiagnostics('GitIPC', 'stage-hunk', { repoRoot: ref.repoRoot, filePath: ref.filePath, index: ref.index }, () =>
       stageGitHunk(ref)
     )
   })
 
   ipcMain.handle('git:unstage-hunk', async (_, ref: GitHunkRef) => {
+    if (!isRepoRoot(ref?.repoRoot)) return refusedHunkWrite()
     return diagnostics.withIpcDiagnostics('GitIPC', 'unstage-hunk', { repoRoot: ref.repoRoot, filePath: ref.filePath, index: ref.index }, () =>
       unstageGitHunk(ref)
     )
@@ -415,7 +423,11 @@ export function registerGitIpc(
     return diagnostics.withIpcDiagnostics('GitIPC', 'save-patch', { repoRoot, length: patch.length }, async () => {
       const { BrowserWindow, dialog } = await import('electron')
       const owner = BrowserWindow.fromWebContents(event.sender)
-      const suggestion = defaultFileName || suggestedPatchFileName(repoRoot)
+      // A BARE NAME, or none. This is joined to the repository root, so
+      // `../../.zshrc` or `/etc/hosts` would put the save dialog somewhere the
+      // person did not ask for — and the dialog's default path is what a
+      // hurried Enter accepts.
+      const suggestion = bareFileName(defaultFileName) ?? suggestedPatchFileName(repoRoot)
       const result = owner
         ? await dialog.showSaveDialog(owner, {
             title: 'Create patch',
@@ -436,4 +448,30 @@ export function registerGitIpc(
       }
     })
   })
+}
+
+/** A repository root is an absolute path, or it is not one. */
+function isRepoRoot(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && isAbsolute(value)
+}
+
+/** The shape both hunk WRITES answer with, so a refusal reads like git's own. */
+function refusedHunkWrite(): { ok: false; stdout: string; stderr: string; message: string } {
+  return { ok: false, stdout: '', stderr: '', message: 'That repository path is not absolute.' }
+}
+
+/**
+ * A file NAME — no directory in it, no climbing out of one, nothing a shell or
+ * a path join would read as an instruction. Null when the caller gave nothing
+ * usable, so the caller falls back to a name it made itself.
+ */
+export function bareFileName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const name = value.trim()
+  if (!name || name === '.' || name === '..') return null
+  if (/[\\/]/.test(name)) return null
+  // A leading dot is a hidden file, not a traversal; `..anything` is neither,
+  // and a NUL byte is a path the fs layer would refuse anyway.
+  if (name.includes('\0')) return null
+  return name
 }

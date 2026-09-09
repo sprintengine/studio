@@ -1112,7 +1112,6 @@ export function DiffViewer({
   }`
 
   const noFiles = items.length === 0 || currentIndex < 0
-  const fileCount = Math.max(1, items.length)
 
   return (
     <div
@@ -1191,9 +1190,15 @@ export function DiffViewer({
         <Pager
           inline
           inlineNoun={items.length === 1 ? 'file' : 'files'}
-          page={noFiles ? 1 : currentIndex + 1}
-          pageCount={fileCount}
-          rangeLabel={`${positionLabel} (${isMac ? '⌘↑ / ⌘↓' : 'Ctrl+↑ / Ctrl+↓'})`}
+          // "0/0 files" when there are none, not "1/1": the band keeps its
+          // width either way, and a stepper claiming one file over an empty
+          // list is the one thing worse than an empty stepper.
+          page={noFiles ? 0 : currentIndex + 1}
+          pageCount={items.length}
+          rangeLabel={positionLabel}
+          // The shortcut goes on the CHEVRONS. `rangeLabel` is a live region,
+          // so a hint folded into it was read out again on every step.
+          stepHint={isMac ? '⌘↑ / ⌘↓' : 'Ctrl+↑ / Ctrl+↓'}
           ariaLabel="Changed files in this diff"
           onPageChange={(page) => goToFileIndex(page - 1)}
         />

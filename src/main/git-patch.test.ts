@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createGitPatch, gitPatchArgs } from './git-patch'
+import { bareFileName } from './ipc/git-ipc'
 
 // A path is a PATHSPEC to git, and a file really named `src/[id].tsx` is a
 // character class that also matches `src/i.tsx`. These assert the whole file's
@@ -16,6 +17,7 @@ void main()
 async function main(): Promise<void> {
   await assertLiteralPathspecInArgv()
   await assertGlobbyNameCopiesOnlyItself()
+  assertSaveNameIsABareName()
   console.log('git-patch.test.ts: ok')
 }
 
@@ -64,4 +66,25 @@ async function assertGlobbyNameCopiesOnlyItself(): Promise<void> {
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+}
+
+/**
+ * The save dialog's default path is `join(repoRoot, suggestion)`, and the
+ * suggestion arrives over IPC. A name with a directory in it aims that dialog
+ * somewhere the person did not choose — and the default path is what a hurried
+ * Enter accepts.
+ */
+function assertSaveNameIsABareName(): void {
+  assert.equal(bareFileName('changes.patch'), 'changes.patch')
+  assert.equal(bareFileName('  changes.patch  '), 'changes.patch', 'trimmed')
+  assert.equal(bareFileName('.hidden.patch'), '.hidden.patch', 'a dotfile is a name')
+  assert.equal(bareFileName('../../.zshrc'), null)
+  assert.equal(bareFileName('/etc/hosts'), null)
+  assert.equal(bareFileName('sub\\dir.patch'), null, 'a Windows separator counts too')
+  assert.equal(bareFileName('..'), null)
+  assert.equal(bareFileName('.'), null)
+  assert.equal(bareFileName(''), null)
+  assert.equal(bareFileName('   '), null)
+  assert.equal(bareFileName(undefined), null)
+  assert.equal(bareFileName(42), null)
 }

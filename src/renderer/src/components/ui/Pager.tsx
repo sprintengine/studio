@@ -20,6 +20,7 @@ import React from 'react'
 
 import { FOCUS_RING_CLASS } from './tokens'
 import { toolbarItemProps, useInToolbarBand } from './Toolbar'
+import { Tooltip } from './Tooltip'
 
 /** A gap in the number strip, standing for the pages it hides. */
 export type PagerStep = number | 'gap'
@@ -60,6 +61,20 @@ const STEP_CLASS =
 const INLINE_STEP_CLASS =
   'grid size-control-xs shrink-0 place-items-center rounded-xs text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent'
 
+/** The chevron, with its shortcut said once beside it — or the bare chevron,
+ *  for the callers that have no shortcut to say. */
+function withStepHint(
+  button: React.ReactElement<import('./Tooltip').TooltipChildProps>,
+  hint: string | null
+): React.ReactElement {
+  if (!hint) return button
+  return (
+    <Tooltip content={hint} placement="bottom">
+      {button}
+    </Tooltip>
+  )
+}
+
 export function Pager({
   page,
   pageCount,
@@ -68,6 +83,7 @@ export function Pager({
   ariaLabel,
   inline = false,
   inlineNoun,
+  stepHint,
   className,
 }: {
   /** 1-based, already clamped by the caller's own model. */
@@ -100,6 +116,13 @@ export function Pager({
    *  Optional: the variant's shape is `n/m`, and the noun is what the diff
    *  window's own band draws. */
   inlineNoun?: string
+  /**
+   * A keyboard shortcut for the two chevrons, e.g. `⌘↑ / ⌘↓`. It goes in their
+   * TOOLTIPS — which is to say `aria-describedby` on the buttons — and never in
+   * `rangeLabel`: that is a live region, so a hint folded into it is read out
+   * again on every single step.
+   */
+  stepHint?: string
   className?: string
 }): JSX.Element {
   // The inline stepper lives in a Toolbar band, and the band is one tab stop:
@@ -113,17 +136,20 @@ export function Pager({
         aria-label={ariaLabel}
         className={['inline-flex items-center gap-0.5', className ?? ''].filter(Boolean).join(' ')}
       >
-        <button
-          type="button"
-          aria-label="Previous"
-          disabled={page <= 1}
-          {...toolbarItemProps(inBand)}
-          tabIndex={inBand ? -1 : undefined}
-          onClick={() => onPageChange(page - 1)}
-          className={`${INLINE_STEP_CLASS} ${FOCUS_RING_CLASS}`}
-        >
-          <ChevronLeft />
-        </button>
+        {withStepHint(
+          <button
+            type="button"
+            aria-label="Previous"
+            disabled={page <= 1}
+            {...toolbarItemProps(inBand)}
+            tabIndex={inBand ? -1 : undefined}
+            onClick={() => onPageChange(page - 1)}
+            className={`${INLINE_STEP_CLASS} ${FOCUS_RING_CLASS}`}
+          >
+            <ChevronLeft />
+          </button>,
+          stepHint ? `Previous (${stepHint})` : null,
+        )}
         {/* One element, two readings: "2/27" is drawn, the full sentence is
             announced, and it is still the pager's only live region. */}
         <span
@@ -135,17 +161,20 @@ export function Pager({
           {page}/{pageCount}
           {inlineNoun ? ` ${inlineNoun}` : ''}
         </span>
-        <button
-          type="button"
-          aria-label="Next"
-          disabled={page >= pageCount}
-          {...toolbarItemProps(inBand)}
-          tabIndex={inBand ? -1 : undefined}
-          onClick={() => onPageChange(page + 1)}
-          className={`${INLINE_STEP_CLASS} ${FOCUS_RING_CLASS}`}
-        >
-          <ChevronRight />
-        </button>
+        {withStepHint(
+          <button
+            type="button"
+            aria-label="Next"
+            disabled={page >= pageCount}
+            {...toolbarItemProps(inBand)}
+            tabIndex={inBand ? -1 : undefined}
+            onClick={() => onPageChange(page + 1)}
+            className={`${INLINE_STEP_CLASS} ${FOCUS_RING_CLASS}`}
+          >
+            <ChevronRight />
+          </button>,
+          stepHint ? `Next (${stepHint})` : null,
+        )}
       </nav>
     )
   }
