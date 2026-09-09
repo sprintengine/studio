@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useClampedMenuPosition } from './ContextMenu'
-import { pointerLandedInOpenPopover } from './Popover'
+import { pointerLandedInPopoverWithin, popoverOpenWithin } from './Popover'
 
 type PointerPopoverProps = {
   /** Viewport x of the open point (e.g. `event.clientX` or a button corner). */
@@ -78,11 +78,13 @@ export function PointerPopover({
       // a card's head line — portals its own surface to <body>, so the
       // contains() check above reads a press on it as an outside press. Closing
       // on that press unmounts this surface, and the menu with it, before the
-      // row's click has landed: the choice is silently dropped. Anything in the
-      // popover stack is part of what is open right now, so it is never
-      // outside. (`Popover` already applies the same rule to itself — see
+      // row's click has landed: the choice is silently dropped. A popover this
+      // surface opened is part of this surface. Scoped to OUR popovers, not to
+      // the whole stack: a press inside an unrelated menu somewhere else in the
+      // window is an outside press like any other, and used to leave this card
+      // standing. (`Popover` applies the same rule to itself — see
       // `pointerLandedInPopoverAbove`.)
-      if (pointerLandedInOpenPopover(target)) return
+      if (pointerLandedInPopoverWithin(ref.current, target)) return
       onClose()
     }
     // Bubble phase + defaultPrevented guard so rich children (e.g. a nested chip
@@ -91,6 +93,16 @@ export function PointerPopover({
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
       if (event.key === 'Escape') {
+        // A menu opened from inside this surface owns the key: Escape closes
+        // the TOPMOST thing, and the split button's menu on a card's head line
+        // is above the card. The `defaultPrevented` guard above cannot see it —
+        // this listener was registered when the card mounted and the menu's
+        // when it opened, and same-target listeners fire in registration order,
+        // so this one runs FIRST and closed the whole card on the keypress that
+        // was meant for the menu. Standing down here lets the menu's own
+        // handler take it; the next Escape, with nothing of ours open, closes
+        // the card. Same rule as the pointer branch above, same scope.
+        if (popoverOpenWithin(ref.current)) return
         event.preventDefault()
         restoreFocus()
         onClose()

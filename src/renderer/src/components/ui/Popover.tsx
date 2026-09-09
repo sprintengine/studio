@@ -112,10 +112,17 @@ function computeSurfacePosition(
   return { ...vertical, ...horizontal, triggerWidth: trigger.width }
 }
 
-// Open popovers in stacking order, each with its own surface. The surface is
-// carried (not just the id) so a popover can tell whether a pointer landed in
-// one stacked ABOVE it — see the outside-click guard below.
-type OpenPopoverEntry = { id: string; surface: React.MutableRefObject<HTMLElement | null> }
+// Open popovers in stacking order, each with its own surface and the element it
+// was opened FROM. The surface is carried (not just the id) so a popover can
+// tell whether a pointer landed in one stacked ABOVE it — see the outside-click
+// guard below. The ANCHOR is carried for the question a host surface asks:
+// "is one of these mine?" — see `openPopoversWithin`.
+type OpenPopoverEntry = {
+  id: string
+  surface: React.MutableRefObject<HTMLElement | null>
+  /** The trigger's own container, which is where in the page this was opened from. */
+  anchor: React.MutableRefObject<HTMLElement | null>
+}
 
 const openPopoverStack: OpenPopoverEntry[] = []
 
@@ -123,10 +130,14 @@ function indexOfOpenPopover(id: string): number {
   return openPopoverStack.findIndex((entry) => entry.id === id)
 }
 
-function pushOpenPopover(id: string, surface: React.MutableRefObject<HTMLElement | null>): void {
+function pushOpenPopover(
+  id: string,
+  surface: React.MutableRefObject<HTMLElement | null>,
+  anchor: React.MutableRefObject<HTMLElement | null>,
+): void {
   const existing = indexOfOpenPopover(id)
   if (existing >= 0) openPopoverStack.splice(existing, 1)
-  openPopoverStack.push({ id, surface })
+  openPopoverStack.push({ id, surface, anchor })
 }
 
 function removeOpenPopover(id: string): void {
@@ -151,18 +162,65 @@ function pointerLandedInPopoverAbove(id: string, target: Node): boolean {
 }
 
 /**
- * The same question asked from OUTSIDE the stack, for a surface that dismisses
- * on an outside press but is not a `Popover` itself — `PointerPopover`, which
- * anchors to a coordinate rather than to a trigger.
+ * The open popovers that belong to `host` — the ones opened from inside it,
+ * directly or through one of their own surfaces.
+ *
+ * Scoped, not stack-wide. The stack is global: every `Popover` open anywhere in
+ * the window is in it, including ones from a panel behind the host. A host that
+ * treated ALL of them as "part of me" would refuse to dismiss on a press inside
+ * a completely unrelated menu, which is a press that should close it like any
+ * other outside press.
+ *
+ * "Belongs to" is transitive because a popover's surface is portaled to
+ * `<body>`: a menu opened from inside the host is a DOM child of `<body>`, so a
+ * flyout opened from inside THAT menu has an anchor that is inside neither the
+ * host nor the body-level surface of anything but its own parent. Walking the
+ * stack in stacking order (a popover opened from inside another was pushed
+ * after it) resolves the whole chain in one pass.
+ */
+function openPopoversWithin(host: Node): OpenPopoverEntry[] {
+  const mine: OpenPopoverEntry[] = []
+  for (const entry of openPopoverStack) {
+    const anchor = entry.anchor.current
+    if (!anchor) continue
+    if (host.contains(anchor) || mine.some((owned) => owned.surface.current?.contains(anchor))) {
+      mine.push(entry)
+    }
+  }
+  return mine
+}
+
+/**
+ * The outside-press question asked from OUTSIDE the stack, for a surface that
+ * dismisses on an outside press but is not a `Popover` itself —
+ * `PointerPopover`, which anchors to a coordinate rather than to a trigger.
  *
  * A menu opened from inside such a surface is portaled to `<body>` too, so the
  * host's own `contains()` reads a click on it as an outside click and unmounts
  * the host (and with it the menu) before the row's click can land. The choice
- * the person just made is then silently dropped. Anything in the popover stack
- * is part of what is currently open, so a press inside one is never "outside".
+ * the person just made is then silently dropped. A popover the host itself
+ * opened is part of the host, so a press inside one is never "outside" —
+ * and a press inside anyone ELSE's popover still is.
  */
-export function pointerLandedInOpenPopover(target: Node): boolean {
-  return openPopoverStack.some((entry) => entry.surface.current?.contains(target))
+export function pointerLandedInPopoverWithin(host: Node | null, target: Node): boolean {
+  if (!host) return false
+  return openPopoversWithin(host).some((entry) => entry.surface.current?.contains(target))
+}
+
+/**
+ * Whether a popover opened from inside `host` is on screen right now — the
+ * Escape question, and the mirror of the pointer rule above.
+ *
+ * Escape closes the TOPMOST thing, and a menu opened from inside a card is
+ * above the card. But `Popover` registers its Escape handler when it opens and
+ * a host surface registers one when it MOUNTS, and same-target listeners fire
+ * in registration order, so the host's handler always runs first and would
+ * close the whole card on the keypress meant for its menu. The host asks this
+ * and stands down; the menu's own handler then takes the key.
+ */
+export function popoverOpenWithin(host: Node | null): boolean {
+  if (!host) return false
+  return openPopoversWithin(host).length > 0
 }
 
 export function Popover({
@@ -246,7 +304,7 @@ export function Popover({
 
   useEffect(() => {
     if (!open) return
-    pushOpenPopover(popoverId, surfaceRef)
+    pushOpenPopover(popoverId, surfaceRef, containerRef)
     const onPointer = (event: MouseEvent) => {
       const target = event.target as Node | null
       if (!target) return

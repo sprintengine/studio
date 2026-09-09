@@ -354,6 +354,107 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  // ── the mark inside the card that hosts it ────────────────────────────────
+  //
+  // The peek is a `PointerPopover`, and its menu is a `Popover` portaled to
+  // <body> from inside it. The two surfaces have to agree about who owns a key
+  // and a press, and neither of them can be asserted from either component
+  // alone — so the composition is mounted here, where the mark that puts one
+  // inside the other lives.
+
+  const { PointerPopover, Popover } = await import('../ui')
+
+  function mountInCard(
+    pullRequests: BranchPullRequest[],
+  ): { host: Element; closes: () => number; unmount: () => void } {
+    let closes = 0
+    const view = mount(
+      React.createElement(
+        PointerPopover,
+        {
+          x: 20,
+          y: 20,
+          ariaLabel: 'Gate OSC 52 — conversation',
+          popupRole: 'dialog' as const,
+          onClose: () => {
+            closes += 1
+          },
+        },
+        React.createElement(PullRequestPeekMark, { pullRequests, now: NOW }),
+      ),
+    )
+    return { host: view.host, closes: () => closes, unmount: view.unmount }
+  }
+
+  const card = (): Element | null => document.querySelector('[role="dialog"]')
+  const press = (target: Element): void => {
+    target.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }))
+  }
+  const escape = (): void => {
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  }
+
+  await run('Escape in the mark’s menu closes the menu; the card only goes on the next one', async () => {
+    const view = mountInCard(MANY)
+    await act(async () => {
+      card()!.querySelector<HTMLElement>('[aria-haspopup="menu"]')!.click()
+    })
+    assert.ok(menuSurface(), 'precondition: the menu is open inside the card')
+    await act(async () => {
+      escape()
+      await sleep(0)
+    })
+    assert.equal(menuSurface(), null, 'the menu took the key')
+    assert.equal(view.closes(), 0, 'and the card it was opened from stayed up')
+    await act(async () => {
+      escape()
+      await sleep(0)
+    })
+    assert.equal(view.closes(), 1, 'with nothing of its own open, the card takes the next one')
+    view.unmount()
+  })
+
+  await run('pressing a row of the mark’s own menu does not dismiss the card under it', async () => {
+    const view = mountInCard(MANY)
+    await act(async () => {
+      card()!.querySelector<HTMLElement>('[aria-haspopup="menu"]')!.click()
+    })
+    await act(async () => {
+      press(rows()[0]!)
+      await sleep(0)
+    })
+    assert.equal(view.closes(), 0, 'the row is inside what the card opened, so it is not outside')
+    view.unmount()
+  })
+
+  await run('a press inside an UNRELATED open popover still dismisses the card', async () => {
+    const view = mountInCard(MANY)
+    // Somebody else's menu, open at the same time and nothing to do with this
+    // card — a filter menu on the panel behind it. The stack is global, so a
+    // stack-wide "is this inside a popover" reads a press here as inside the
+    // card and left the card standing for ever.
+    const elsewhere = mount(
+      React.createElement(Popover, {
+        open: true,
+        onOpenChange: () => {},
+        ariaLabel: 'Filter',
+        popupRole: 'listbox' as const,
+        renderTrigger: ({ ref }: { ref: React.Ref<HTMLButtonElement> }) =>
+          React.createElement('button', { ref, type: 'button' }, 'Filter'),
+        children: React.createElement('div', { 'data-unrelated-row': 'true' }, 'Only mine'),
+      }),
+    )
+    const unrelated = document.querySelector('[data-unrelated-row="true"]')
+    assert.ok(unrelated, 'precondition: the unrelated popover is open')
+    await act(async () => {
+      press(unrelated!)
+      await sleep(0)
+    })
+    assert.equal(view.closes(), 1, 'a press in someone else’s surface is an outside press')
+    elsewhere.unmount()
+    view.unmount()
+  })
+
   await run('the mark opens its own pull request through the app’s external opener', async () => {
     opened.length = 0
     const view = mount(
