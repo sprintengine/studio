@@ -3,22 +3,36 @@ import { createReviewGatewayTools } from '../review/gateway-tools'
 import { registerReviewIpc } from '../review/review-ipc'
 import {
   AgentControlPlaneToken,
-  ReviewChangeSetServiceToken,
-  ReviewGuideTerminalServiceToken,
   SprintEngineLaunchSettingsToken,
   TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
-import { createReviewChangeSetService } from '../review/changeset-service'
+import { createServiceToken } from '../module-host/main-host'
+import { createReviewChangeSetService, type ReviewChangeSetService } from '../review/changeset-service'
 import { BRIEF_RUN_EVENT_TOPIC, type BriefRunEvent } from '../review/brief-run-service'
 import {
   createReviewGuideTerminalService,
   recordGuideRunEvent,
   REVIEW_GUIDE_SKILL_ID,
+  type ReviewGuideTerminalService,
 } from '../review/guide-terminal-service'
 import { getPluginById } from '../plugin-registry-instance'
 import { resolveSkillInvocation } from '../../shared/skill-invocation'
 import type { CapabilityModule } from '../module-host/load-modules'
+
+// The review change-set ingestion service (MC-1676). Declared here rather than in
+// the core token table because only this module provides it and only review code
+// consumes it; the key strings are the contract, so they are unchanged.
+const ReviewChangeSetServiceToken = createServiceToken<ReviewChangeSetService>(
+  'review.change-set-service'
+)
+// The review guide's terminal service, provided by the same module. A landed
+// brief ends the run, so the gateway sink resolves the guide through this token
+// to release the terminal rather than reaching past the module into the
+// terminal runtime.
+const ReviewGuideTerminalServiceToken = createServiceToken<ReviewGuideTerminalService>(
+  'review.guide-terminal-service'
+)
 
 // Review as a capability module. Matches the renderer `review` module id so the
 // single enablement override gates both processes: a disabled module registers

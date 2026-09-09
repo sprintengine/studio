@@ -8,8 +8,6 @@ import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { ModuleStorageRegistry } from './module-storage'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
-import type { ReviewChangeSetService } from '../review/changeset-service'
-import type { ReviewGuideTerminalService } from '../review/guide-terminal-service'
 import { createServiceToken } from './main-host'
 
 // Tokens for the shared services that capability modules consume across module
@@ -123,18 +121,4 @@ export const CompanionAgentServiceToken = createServiceToken<CompanionAgentServi
 // so a third-party module resolves the instance the app provides here.
 export const CompanionAgentsModuleServiceToken = createServiceToken<CompanionAgentsModuleRegistry>(
   'companion-agents.module-service'
-)
-// The review change-set ingestion service (MC-1676). Provided by the `review`
-// capability module so the GitHub PR provider (MC-1678) can register its source
-// provider against the same instance.
-export const ReviewChangeSetServiceToken = createServiceToken<ReviewChangeSetService>(
-  'review.change-set-service'
-)
-// The review guide's terminal service, provided by the same module. The Studio
-// gateway's `review_submit_brief` sink lives in app-services (the tools are
-// registered there), and a landed brief ends the run — so it resolves the guide
-// through this token to release the terminal, rather than reaching past the
-// module into the terminal runtime.
-export const ReviewGuideTerminalServiceToken = createServiceToken<ReviewGuideTerminalService>(
-  'review.guide-terminal-service'
 )
