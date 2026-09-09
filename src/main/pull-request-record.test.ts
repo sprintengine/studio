@@ -195,6 +195,11 @@ async function main(): Promise<void> {
       'both repositories, newest first',
     )
     assert.equal(new Set(union.map((entry) => entry.url)).size, union.length, 'de-duplicated by URL')
+    assert.deepEqual(
+      union.map((entry) => [entry.repoName, entry.onSessionBranch === true]),
+      [['website', false], ['app', true]],
+      'only the entry on the session\'s own repository and branch is stamped on-branch',
+    )
 
     // A different session on the same checkout sees the branch's pull request
     // but NOT the one another conversation opened elsewhere.

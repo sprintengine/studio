@@ -1122,19 +1122,19 @@ export function TerminalLineView({
           placeholder (decision 3). */}
       <PullRequestMark pullRequests={line.pullRequests} dim={dim} />
       {hasDiff ? (
-        // Beside the branch, not at the far edge: for a git reading the two
-        // are one fact — "this branch, this much changed" — and the trailing
-        // seat is spoken for by the status. A `session` reading is a fact
-        // about the AGENT rather than about the branch beside it, and keeps
-        // the seat by layout convention alone; the words on hover and the
-        // spoken label are what say which of the two you are reading. The
+        // Beside the branch, not at the far edge: the two are one fact —
+        // "this branch, this much changed" — and the trailing seat is spoken
+        // for by the status. Every reading here is the checkout's (owner
+        // ruling 2026-09-09): the branch's span, or what the checkout still
+        // carries once that branch has landed. The words on hover and the
+        // spoken label are what say which of those you are reading, and the
         // kit's Tooltip, not a native title, carries them.
         <Tooltip content={diffCopy.tooltip} wrapperClassName="inline-flex shrink-0">
-          {/* Only a folder reading dims (see diffScopeCopy): a `branch` reading
-              IS attributable work — to the branch rather than to this terminal
-              alone — and a `session` reading is the most attributable of the
-              four, this agent's own edits and nobody else's, so both draw at
-              full strength.
+          {/* Only a folder reading dims (see diffScopeCopy): a `branch` or
+              `worktree` reading IS attributable work — to the branch rather
+              than to this terminal alone — and a `landed` reading is what this
+              checkout still carries after its pull request merged, so both
+              draw at full strength.
 
               Where there is an agent behind the line the numbers are a
               CONTROL — the shortest path from "this agent changed 40 lines" to
@@ -2385,7 +2385,7 @@ export default function WorkspaceSidebar({
           fleetPanes: fleetPanesOf(workspace),
           summaries: gitSummaries,
         })
-      : { lines: [], overflow: 0, rowDiff: null }
+      : { lines: [], overflow: 0 }
     // A band row names its machine on the title glyph, so its lines do not
     // say it again; a local row that holds a remote pane still marks it there.
     if (options?.remoteMachine) for (const line of rowLines.lines) line.machineName = null

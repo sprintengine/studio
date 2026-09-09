@@ -37,6 +37,16 @@ export type BranchPullRequest = {
   stateAt: number
   /** The session whose hooks captured the creation; absent for a branch lookup. */
   openedBySessionId?: string
+  /**
+   * Set by `listForSession` (main): true when this pull request is on the
+   * repository AND branch the session's checkout is observed to be on. A
+   * session's list is a union (decision 10) that also holds pull requests the
+   * agent opened in OTHER repositories, and only the ones on its own branch may
+   * say anything about the state of that branch — the sidebar's "landed"
+   * reading (the-diff-an-agent-made decision 10) reads this and nothing else.
+   * Absent on a captured-elsewhere entry and on a fixture-built snapshot.
+   */
+  onSessionBranch?: boolean
 }
 
 /**

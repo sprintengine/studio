@@ -740,12 +740,20 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
         if (list.length > 0) onBranch.push(list)
       }
     }
+    // Which entries are the session's OWN BRANCH's, by URL, stamped after the
+    // union so the flag survives whichever copy of a twice-reached pull request
+    // won: the sidebar's "landed" reading may only ever be decided by a pull
+    // request on this checkout's branch, never by one the agent opened in
+    // another repository (the-diff-an-agent-made decision 10).
+    const onBranchUrls = new Set(onBranch.flat().map((entry) => entry.url))
+    const stamp = (list: BranchPullRequest[]): BranchPullRequest[] =>
+      list.map((entry) => (onBranchUrls.has(entry.url) ? { ...entry, onSessionBranch: true } : entry))
     if (own.length === 0) {
       if (onBranch.length === 0) return []
-      return onBranch.length === 1 ? onBranch[0] : unionPullRequests(...onBranch)
+      return stamp(onBranch.length === 1 ? onBranch[0] : unionPullRequests(...onBranch))
     }
     if (onBranch.length === 0) return own
-    return unionPullRequests(...onBranch, own)
+    return stamp(unionPullRequests(...onBranch, own))
   }
 
   /** The stale readings on a session's list, refreshed. Each URL's refresh coalesces itself. */

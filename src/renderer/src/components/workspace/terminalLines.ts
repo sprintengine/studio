@@ -1,5 +1,5 @@
-import type { SessionFileChange, TerminalSessionSnapshot, WorkspaceChangeSummary } from '../../../../shared/electron-api'
-import type { BranchPullRequest } from '../../../../shared/git/pull-request'
+import type { TerminalSessionSnapshot, WorkspaceChangeSummary } from '../../../../shared/electron-api'
+import { primaryPullRequest, type BranchPullRequest } from '../../../../shared/git/pull-request'
 import { sessionRecencyOf } from '../../hooks/useTerminalSessions'
 import type { Workspace } from '../../types/workspace'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
@@ -25,57 +25,69 @@ export const MAX_TERMINAL_LINES = 4
  * spoken label are derived from, one value wider than git's own
  * ({@link WorkspaceChangeSummary}`.scope`):
  *
- * - `session` — the agent's OWN edits, tallied from its editor tool calls as it
- *   made them (the per-session hook ledger). The only reading that separates
- *   two agents sharing one checkout, and the only one that is cumulative: a
- *   line edited twice counts twice, because it measures work done rather than
- *   the tree's distance from a base.
  * - `worktree` / `branch` / `folder` — the checkout's git reading, exactly as
- *   main's workspace-change-summary defines them.
+ *   main's workspace-change-summary defines them: merge-base(branch, trunk) to
+ *   the working tree, uncommitted included, or the folder's uncommitted changes
+ *   where there is no branch to measure against.
+ * - `landed` — the same checkout's UNCOMMITTED changes alone, shown once the
+ *   conversation's primary pull request is merged (owner decision 2026-09-09,
+ *   decision 2 of the sidebar-branch-diff ruling). A merge commit or a
+ *   fast-forward moves the merge base and the span empties by itself; a SQUASH
+ *   merge does not, and a branch whose work has landed must not keep reading
+ *   +2000. Merged is only ever GitHub's word through the pull request record
+ *   (epic `pull-request-marks`, decision 8c) — never inferred from ancestry.
+ *
+ * There is deliberately no per-agent scope here any more. The 2026-09-09
+ * ruling "no git for a session that has a ledger" is REVERSED: the hook
+ * ledger's cumulative tally counts work DONE (a line edited twice counts
+ * twice, and work since undone is still in it), which is not what an
+ * outstanding diff is. The ledger keeps its two homes — the conversation
+ * peek's changed-files list and the agent's changelist — and the sidebar
+ * number is what the branch still carries. Two agents on one branch showing
+ * the same number is now the correct answer, not the bug it was read as.
  */
-export type TerminalDiffScope = 'session' | 'worktree' | 'branch' | 'folder'
+export type TerminalDiffScope = 'worktree' | 'branch' | 'folder' | 'landed'
 
 /**
- * The ledger's totals, or null when the session has no ±lines to state — a
- * plain shell, a CLI whose hooks we never installed, or an agent that has not
- * written anything yet. Null is the signal to fall back to the checkout's git
- * reading: a session that cannot speak for itself must keep exactly the numbers
- * it had before the ledger existed.
+ * The ±lines a line shows and what they are allowed to claim, from the two
+ * readings that belong to the checkout: git's own span and the pull request
+ * state main resolved for the conversation. Pure and exported so the rule can
+ * be stated in a test in three lines.
  *
- * A ledger whose entries carry NO counts is null too, and that is the whole of
- * why this returns null rather than zeros. The reporter records a path-only
- * entry when a tool result's shape is one it cannot count (NotebookEdit, a
- * MultiEdit whose result ships no structuredPatch, and whatever a non-Claude
- * CLI sends), so `+0 −0` is a reading we failed to take, not a session that
- * changed nothing — and the row draws nothing at all for zeros. Claiming the
- * scope on those would leave a CLI whose hooks half-work showing LESS than a
- * CLI with no hooks at all.
+ * - No summary at all (an unresolved checkout, a path git could not be asked
+ *   about) → zeros, `folder` scope: exactly what the line drew before, and the
+ *   row draws no chip for zeros anyway.
+ * - The primary pull request (`primaryPullRequest`, decision 5 — the most
+ *   recent one still OPEN, else the newest of all) is `merged` AND the summary
+ *   carries `uncommitted` → the uncommitted numbers, `landed` scope.
+ * - Anything else — an open or closed primary, no pull request at all, or a
+ *   merged one whose `uncommitted` reading could not be taken → the span, at
+ *   the scope git gave it. Never a confident zero: an unreadable reading
+ *   degrades to the previous scope, not to 0.
  *
- * A ledger that mixes the two still reports: the counted edits are stated and
- * the uncounted ones add only their file to the count. That under-reads, and
- * says so at full strength — the alternative is throwing away edits we DID
- * count for the sake of ones we did not, which is worse and, since a Claude
- * Edit / Write / MultiEdit all carry a patch, rarer than it sounds.
- *
- * The totals are of the entries the ledger still HOLDS: main bounds it
- * (MAX_SESSION_FILE_CHANGES) by dropping the least recently edited, so a run
- * that touches thousands of files reports the ones it remembers. Under-reading
- * a very long run is the intended trade — the alternative is an unbounded list
- * on every snapshot broadcast — and it errs downwards, never claiming more work
- * than was done.
+ * The primary rule is what makes a merged pull request followed by a NEW open
+ * one go back to the span on its own: the open one becomes the primary.
  */
-export function ledgerTotalsOf(
-  fileChanges: ReadonlyArray<SessionFileChange> | undefined
-): { additions: number; deletions: number; changedFiles: number } | null {
-  if (!fileChanges || fileChanges.length === 0) return null
-  let additions = 0
-  let deletions = 0
-  for (const change of fileChanges) {
-    additions += change.additions
-    deletions += change.deletions
+export function lineDiffOf(
+  summary: WorkspaceChangeSummary | undefined,
+  pullRequests: ReadonlyArray<BranchPullRequest>
+): { additions: number; deletions: number; changedFiles: number; scope: TerminalDiffScope } {
+  if (!summary) return { additions: 0, deletions: 0, changedFiles: 0, scope: 'folder' }
+  // Only a pull request ON THIS CHECKOUT'S BRANCH may say the branch landed.
+  // The session's list is a union that also carries pull requests the agent
+  // opened in other repositories (`cd ../website && gh pr create`); main stamps
+  // `onSessionBranch` on the ones that belong to this branch, and a merged one
+  // elsewhere must not read this branch as landed.
+  const ownBranch = pullRequests.filter((pr) => pr.onSessionBranch === true)
+  const landed = primaryPullRequest(ownBranch)?.state === 'merged'
+  const uncommitted = summary.uncommitted
+  if (landed && uncommitted) return { ...uncommitted, scope: 'landed' }
+  return {
+    additions: summary.additions,
+    deletions: summary.deletions,
+    changedFiles: summary.changedFiles,
+    scope: summary.scope,
   }
-  if (additions === 0 && deletions === 0) return null
-  return { additions, deletions, changedFiles: fileChanges.length }
 }
 
 /**
@@ -85,25 +97,33 @@ export function ledgerTotalsOf(
  *
  * The words follow the sidebar's existing shape — the claim, an em dash, the
  * reason you may or may not believe it — and each names whose work it is: the
- * agent, the terminal, the branch, or nobody in particular.
+ * terminal, the branch, what is left after the branch landed, or nobody in
+ * particular.
  */
 export function diffScopeCopy(
-  line: Pick<TerminalLine, 'diffScope' | 'branch' | 'additions' | 'deletions'>
+  line: Pick<TerminalLine, 'diffScope' | 'branch' | 'additions' | 'deletions' | 'pullRequests'>
 ): { tooltip: string; srText: string; dim: boolean } {
   const { additions, deletions } = line
-  if (line.diffScope === 'session') {
-    // The only reading that is one agent's alone, so it is the only one that
-    // says "this agent" rather than "this terminal" or "this checkout". Its
-    // second clause carries the same weight the others' do — what you must not
-    // assume. Here that is the counting: these are the agent's editing tool
-    // calls as it made them, so a line edited twice counts twice and work it
-    // has since undone is still in the number. The spoken label has to carry it
-    // too: a screen reader never gets the tooltip (it is portalled on hover),
-    // and "by this agent" alone would be the one sr sentence MORE confident
-    // than the words beside it.
+  if (line.diffScope === 'landed') {
+    // The one scope whose second clause is not a caveat but the REASON the
+    // number shrank: the branch's span would still read the whole feature
+    // after a squash merge, so the line switched to what the checkout still
+    // carries. Naming the pull request is what makes that legible — "why is
+    // this suddenly +3?" is answered on hover, not in the changelog. The
+    // number is known only when the line carries the pull request it belongs
+    // to; a line that lost the record still says the branch landed.
+    // The same subset `lineDiffOf` decided on — the pull requests on THIS
+    // branch — so the tooltip can never name a pull request the agent opened
+    // in another repository as the reason this branch's number shrank.
+    const primary = primaryPullRequest(line.pullRequests.filter((pr) => pr.onSessionBranch === true))
+    const named = primary ? `pull request #${primary.number} was merged` : 'its pull request was merged'
     return {
-      tooltip: 'Changed by this agent — the edits it made through its tools, including ones it has since undone',
-      srText: `${additions} added, ${deletions} removed by this agent’s own edits`,
+      tooltip: `Uncommitted changes since this branch landed — ${named}`,
+      srText: primary
+        ? `${additions} added, ${deletions} removed since pull request ${primary.number} landed`
+        : `${additions} added, ${deletions} removed since this branch landed`,
+      // Attributable work: it is what is still outstanding in this checkout,
+      // not the repo's anonymous state, so it draws at full strength.
       dim: false,
     }
   }
@@ -152,9 +172,9 @@ export type TerminalLine = {
   additions: number
   deletions: number
   /**
-   * How many files the numbers cover. Only a `session` reading counts them —
-   * the git summary carries its own `changedFiles`, and a line that falls back
-   * to it takes that; a line that claims nothing says 0.
+   * How many files the numbers cover, as the git summary counted them — the
+   * span's files, or the uncommitted ones on a `landed` line. A line with no
+   * summary to read, and a remote row whose wire shape carries no count, say 0.
    */
   changedFiles: number
   diffScope: TerminalDiffScope
@@ -240,25 +260,25 @@ function lineOfSession(
   const summary = probePath ? summaries[probePath] : undefined
   const agent = session.agentId ? workspace.agents?.[session.agentId] : undefined
   const isAgent = session.kind === 'agent'
-  // The numbers: this session's own ledger when it has one, else the
-  // checkout's git reading exactly as before (hook-file-ledger, owner decision
-  // 2026-09-09 — "no git for a session that has a ledger"). The git reading is
-  // keyed by CHECKOUT, so two agents sharing one gave the same ±lines on both
-  // their lines and neither could be believed; the ledger is the session's own.
-  // The branch, the worktree flag and the cwd still come from the checkout
-  // below — where a session sits is a fact about the checkout whatever it has
-  // edited.
+  // The numbers are the CHECKOUT's, always (owner ruling 2026-09-09,
+  // sidebar-branch-diff): the branch's diff from its merge base to the working
+  // tree, or the folder's uncommitted changes where there is no branch — and
+  // the checkout's uncommitted changes alone once the branch has landed. Two
+  // agents on one branch therefore show the same number, which is the honest
+  // answer: what is outstanding on that branch is one fact about the branch,
+  // not two facts about two agents. The hook ledger is NOT consulted here any
+  // more; it stays what it always measured — the work an agent did — on the
+  // conversation peek's changed-files list and in its changelist.
   //
-  // The ledger wins over `worktree` scope too, which is the one place the trade
-  // is not free: a linked worktree is already exclusive to one session, and its
-  // git span also sees edits made through the shell (a codemod, `git apply`)
-  // and falls when the agent reverts, neither of which the ledger can. What it
-  // buys is one meaning for the number on every line of the sidebar — "the work
-  // this agent did" — rather than two that look identical and are not.
-  //
-  // Only an agent line reads a ledger. A shell has none today (frames are
-  // routed by agent id), and the words this scope licenses say "this agent".
-  const ledger = isAgent ? ledgerTotalsOf(session.fileChanges) : null
+  // `session.pullRequests` is the same list the line's mark draws, straight off
+  // main's snapshot, so `landed` needs no extra read: both the span and the
+  // uncommitted reading are already in the summary the poll took, and the
+  // moment main marks the primary pull request merged the sessions snapshot
+  // re-renders this line and the numbers switch on that render. The
+  // uncommitted reading itself is only as fresh as the last poll (≤ 60s,
+  // useSidebarGitSummaries), which is the same freshness the span has always
+  // had.
+  const diff = lineDiffOf(summary, session.pullRequests ?? [])
   // Only a checkout names a branch; a folder, a removed directory or an
   // unverified path has none, and the summary (keyed by checkout) has none
   // for them either, so nothing is claimed.
@@ -273,10 +293,10 @@ function lineOfSession(
     worktree: checkout?.kind === 'worktree',
     cwd: checkout?.cwd ?? null,
     removed: checkout?.kind === 'missing',
-    additions: ledger?.additions ?? summary?.additions ?? 0,
-    deletions: ledger?.deletions ?? summary?.deletions ?? 0,
-    changedFiles: ledger?.changedFiles ?? summary?.changedFiles ?? 0,
-    diffScope: ledger ? 'session' : summary?.scope ?? 'folder',
+    additions: diff.additions,
+    deletions: diff.deletions,
+    changedFiles: diff.changedFiles,
+    diffScope: diff.scope,
     activeSubagents: isAgent ? session.activeSubagents ?? 0 : 0,
     // Straight off the snapshot: main owns which pull requests a session has
     // and how they were learned, and the line only draws what it is handed.
@@ -339,8 +359,9 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
     removed: false,
     additions: row.additions,
     deletions: row.deletions,
-    // A remote sends a git reading with no file count in it, and no ledger at
-    // all: a session on another machine never claims `session` scope here.
+    // A remote sends a git reading with no file count in it, and its pull
+    // requests are looked up where the checkout is — so a remote row never
+    // reaches the `landed` scope either; it draws the span it was sent.
     changedFiles: 0,
     diffScope: row.diffScope,
     activeSubagents: 0,
@@ -367,75 +388,21 @@ function activityAt(line: TerminalLine, session?: TerminalSessionSnapshot): numb
 }
 
 /**
- * What the ROW as a whole may claim about ±lines, or null when it may claim
- * nothing new — which is today's behaviour, and the row draws no aggregate at
- * all.
- *
- * The rule is all-or-nothing on purpose. A sum is only the row's own work when
- * every agent under it is self-reporting; the moment ONE line falls back to its
- * checkout's git reading, adding that reading to the others' ledgers would mix
- * two different measurements — one cumulative and per-agent, one a distance
- * from a merge base shared by everybody — and the total would mean nothing.
- *
- * Only agent lines are counted: the claim is "the agents' own edits", so a
- * plain shell (which reports no edits) neither contributes nor disqualifies,
- * and a remote pane's checkout is on another disk. Whatever eventually draws
- * this has to say the agents, then — a person typing `sed` in a shell under the
- * row made changes this number does not have. Every line the row HAS is
- * counted, including the ones folded into `overflow` — the figure is the row's,
- * not the visible four's.
- *
- * One thing for the phase that draws it: this flips between null and a value
- * discontinuously. It appears the moment the LAST agent under the row makes its
- * first countable edit, and disappears again when any one of them respawns its
- * pty (the ledger lives and dies with the process). A renderer that simply
- * shows it will blink; holding the last value, or saying how many agents are
- * reporting, is the honest way to draw a figure that comes and goes.
- */
-export type RowDiff = {
-  additions: number
-  deletions: number
-  /**
-   * Files EDITED, summed across the ledgers — not distinct paths. Two agents
-   * that both touched `a.ts` make it 2, and the row cannot tell: each ledger
-   * is its own and the paths are gone by the time the lines are summed. Named
-   * for what it counts so nothing downstream writes "3 files changed" against
-   * a number that does not mean that.
-   */
-  fileEdits: number
-  scope: 'session'
-}
-
-function rowDiffOf(lines: ReadonlyArray<TerminalLine>): RowDiff | null {
-  const agentLines = lines.filter((line) => line.kind === 'agent')
-  if (agentLines.length === 0) return null
-  if (!agentLines.every((line) => line.diffScope === 'session')) return null
-  return agentLines.reduce<RowDiff>(
-    (total, line) => ({
-      additions: total.additions + line.additions,
-      deletions: total.deletions + line.deletions,
-      fileEdits: total.fileEdits + line.changedFiles,
-      scope: 'session',
-    }),
-    { additions: 0, deletions: 0, fileEdits: 0, scope: 'session' }
-  )
-}
-
-/**
  * A row's lines, in the order they show: the terminals doing something first,
  * then by how recently each did anything, remote panes (which never say) last.
  * Past {@link MAX_TERMINAL_LINES} the rest fold into `overflow`.
  *
- * `rowDiff` is the row's own aggregate when every agent under it reports a
- * ledger (see {@link RowDiff}); null keeps the row exactly as it was. Nothing
- * draws it yet — the row's lines each carry their own numbers today.
+ * No row-level aggregate: the sum of the ledgers that used to ride here
+ * (`rowDiff`) went with the per-agent scope — nothing ever drew it, and
+ * summing branch spans across the row's checkouts would double-count a branch
+ * two of its agents share.
  */
 export function terminalLinesOf(input: {
   workspace: TerminalLinesWorkspace
   sessions: ReadonlyArray<TerminalSessionSnapshot>
   fleetPanes: ReadonlyArray<{ tabId: string; machineName: string; cli?: string }>
   summaries: Record<string, WorkspaceChangeSummary>
-}): { lines: TerminalLine[]; overflow: number; rowDiff: RowDiff | null } {
+}): { lines: TerminalLine[]; overflow: number } {
   const ranked = [
     ...input.sessions.map((session) => {
       const line = lineOfSession(input.workspace, session, input.summaries)
@@ -452,8 +419,6 @@ export function terminalLinesOf(input: {
     return (a.line.name ?? '').localeCompare(b.line.name ?? '')
   })
   const lines = ranked.map((entry) => entry.line)
-  // Taken before the cap: a row with six agents reports all six.
-  const rowDiff = rowDiffOf(lines)
-  if (lines.length <= MAX_TERMINAL_LINES) return { lines, overflow: 0, rowDiff }
-  return { lines: lines.slice(0, MAX_TERMINAL_LINES), overflow: lines.length - MAX_TERMINAL_LINES, rowDiff }
+  if (lines.length <= MAX_TERMINAL_LINES) return { lines, overflow: 0 }
+  return { lines: lines.slice(0, MAX_TERMINAL_LINES), overflow: lines.length - MAX_TERMINAL_LINES }
 }

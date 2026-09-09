@@ -2125,6 +2125,9 @@ export type WorkspaceChangeSummary = {
   deletions: number
   changedFiles: number
   scope: 'worktree' | 'branch' | 'folder'
+  /** The checkout's UNCOMMITTED changes alone — index + worktree vs HEAD, untracked files counted as additions.
+   *  What the line shows once its branch has landed by squash (decision 2). Absent when unreadable. */
+  uncommitted?: { additions: number; deletions: number; changedFiles: number }
 }
 
 /**

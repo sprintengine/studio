@@ -68,12 +68,22 @@ function summariesEqual(a: Record<string, WorkspaceChangeSummary>, b: Record<str
     if (!right) return false
     // `scope` is compared like any other rendered field: a row flipping from the
     // folder reading to its own is a visible change even when the numbers match.
+    //
+    // `uncommitted` is compared too, and it is NOT decoration: a line whose
+    // branch has landed draws those numbers and nothing else
+    // (`lineDiffOf`/`landed`, terminalLines). A sweep that changed only the
+    // uncommitted reading — the usual case on a squash-merged branch, whose
+    // span sits still while the checkout keeps being edited — must commit, or
+    // the line freezes on the reading it had when the pull request merged.
     if (
       left.branch !== right.branch
       || left.additions !== right.additions
       || left.deletions !== right.deletions
       || left.changedFiles !== right.changedFiles
       || left.scope !== right.scope
+      || left.uncommitted?.additions !== right.uncommitted?.additions
+      || left.uncommitted?.deletions !== right.uncommitted?.deletions
+      || left.uncommitted?.changedFiles !== right.uncommitted?.changedFiles
     ) {
       return false
     }

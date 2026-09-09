@@ -340,6 +340,153 @@ void (async () => {
     assert.equal(summary.scope, 'folder', 'never `branch` or `worktree` for a span we could not read')
   })
 
+
+  // ---- the uncommitted reading (the sidebar number for a landed branch) ----
+  //
+  // The span answers "what does this branch carry?"; `uncommitted` answers
+  // "what is not committed yet?". They are two readings of one checkout, taken
+  // in one shared pass, and a branch that landed by SQUASH — where the merge
+  // base never moves — is the only reason the second exists.
+
+  await run('a branch reports its span AND, separately, only its uncommitted tail', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'b.txt'), 'x1\nx2\nx3\nx4\nx5\n')
+    git(dir, 'add', '.')
+    git(dir, 'commit', '-m', 'five committed lines')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    writeFileSync(join(dir, 'new.txt'), 'n1\nn2\n')
+
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    // The span is untouched by the new field: five committed plus the one
+    // uncommitted line, and untracked content stays invisible to it.
+    assert.equal(summary.additions, 6)
+    assert.equal(summary.changedFiles, 2)
+    assert.equal(summary.scope, 'branch')
+    // The tail alone: the edit (+1) and the untracked file (+2).
+    assert.deepEqual(summary.uncommitted, { additions: 3, deletions: 0, changedFiles: 2 })
+  })
+
+  await run('a clean checkout reports zeros — present, because they are known', async () => {
+    const dir = repo()
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.deepEqual(summary.uncommitted, { additions: 0, deletions: 0, changedFiles: 0 })
+  })
+
+  await run('an unreadable checkout leaves the field ABSENT, never zeros', async () => {
+    const dir = repo()
+    const bare = mkdtempSync(join(tmpdir(), 'multicode-change-bare-uncommitted-'))
+    created.push(bare)
+    execFileSync('git', ['clone', '--quiet', '--bare', dir, bare])
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: bare })
+    assert.equal('uncommitted' in summary, false, 'a zero here would claim a landed branch is clean')
+
+    const plain = mkdtempSync(join(tmpdir(), 'multicode-change-plain-uncommitted-'))
+    created.push(plain)
+    assert.equal('uncommitted' in (await getWorkspaceChangeSummary({ checkoutPath: plain })), false)
+  })
+
+  await run('an untracked BINARY file is one changed file and no lines', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 'blob.bin'), Buffer.from([0x89, 0x50, 0x00, 0x01, 0x02, 0x00, 0xff]))
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.deepEqual(summary.uncommitted, { additions: 0, deletions: 0, changedFiles: 1 })
+  })
+
+  await run('an untracked CRLF file is counted the way git counts lines', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 'win.txt'), 'one\r\ntwo\r\nthree\r\n')
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.deepEqual(summary.uncommitted, { additions: 3, deletions: 0, changedFiles: 1 })
+  })
+
+  // The `-z` framing trap: a rename emits THREE NUL-terminated fields, so
+  // mis-reading it drops or misattributes every file that follows.
+  await run('a rename staged in the index does not derail the count', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 'z.txt'), 'p\nq\n')
+    git(dir, 'add', '.')
+    git(dir, 'commit', '-m', 'a second tracked file')
+    git(dir, 'mv', 'a.txt', 'moved.txt')
+    writeFileSync(join(dir, 'z.txt'), 'p\nq\nr\n')
+
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.ok(summary.uncommitted, 'a renamed index is readable')
+    assert.equal(summary.uncommitted?.deletions, 0, 'a pure rename deletes no lines')
+    assert.equal(summary.uncommitted?.additions, 1, 'the file AFTER the rename is still counted')
+    assert.equal(summary.uncommitted?.changedFiles, 2)
+  })
+
+  await run('a checkout parked mid-merge still reports a reading', async () => {
+    const dir = repo()
+    git(dir, 'checkout', '-b', 'feat')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nfeat\n')
+    git(dir, 'commit', '-am', 'the branch’s take')
+    git(dir, 'checkout', 'main')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nmain\n')
+    git(dir, 'commit', '-am', 'the trunk’s take')
+    git(dir, 'checkout', 'feat')
+    try {
+      git(dir, 'merge', '--no-edit', 'main')
+      assert.fail('the fixture is meant to conflict')
+    } catch (error) {
+      if (error instanceof assert.AssertionError) throw error
+    }
+
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.ok(summary.uncommitted, 'a conflicted tree is still a readable one')
+    assert.ok(summary.uncommitted!.changedFiles >= 1, 'the conflicted file is uncommitted work')
+  })
+
+  await run('a linked worktree reports its OWN uncommitted tail', async () => {
+    const dir = repo()
+    const tree = join(dir, '..', `wt-uncommitted-${Date.now()}`)
+    created.push(tree)
+    git(dir, 'worktree', 'add', '-b', 'wt-tail', tree)
+    writeFileSync(join(tree, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: tree })
+    assert.equal(summary.scope, 'worktree')
+    assert.deepEqual(summary.uncommitted, { additions: 1, deletions: 0, changedFiles: 1 })
+  })
+
+  await run('a workspace opened on a SUBDIRECTORY still reads the whole repo', async () => {
+    const dir = repo()
+    git(dir, 'config', 'diff.relative', 'true')
+    execFileSync('mkdir', ['-p', join(dir, 'sub')])
+    writeFileSync(join(dir, 'sub', 's.txt'), 'one\n')
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: join(dir, 'sub') })
+    assert.deepEqual(summary.uncommitted, { additions: 2, deletions: 0, changedFiles: 2 })
+  })
+
+  // A build directory nobody ignored. Listing it is one cheap git call; OPENING
+  // every file in it is not, once per checkout per sweep, so the reads are
+  // capped while the file count stays honest. Six hundred rather than five
+  // thousand only to keep the suite quick — the cap is what is under test.
+  await run('a large untracked directory is counted, not read', async () => {
+    const dir = repo()
+    execFileSync('mkdir', ['-p', join(dir, 'out')])
+    for (let index = 0; index < 600; index += 1) {
+      writeFileSync(join(dir, 'out', `f${index}.txt`), 'line\n')
+    }
+    const summary = await getWorkspaceChangeSummary({ checkoutPath: dir })
+    assert.equal(summary.uncommitted?.changedFiles, 600, 'every file is still a changed file')
+    assert.equal(summary.uncommitted?.additions, 500, 'line counting stops at the cap')
+  })
+
+  await run('the uncommitted reading rides the SAME shared read as the span', async () => {
+    const dir = repo()
+    writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour\n')
+    const [first, second] = await Promise.all([
+      getWorkspaceChangeSummary({ checkoutPath: dir }),
+      getWorkspaceChangeSummary({ checkoutPath: `${dir}/` }),
+    ])
+    // Identity, not equality: ten rows on one checkout get the one answer that
+    // was read once — the extra git calls are inside that read, not beside it.
+    assert.equal(first, second)
+    assert.deepEqual(first.uncommitted, { additions: 1, deletions: 0, changedFiles: 1 })
+  })
+
   // ---- the per-checkout share --------------------------------------------
 
   await run('rows sharing a checkout share ONE read', async () => {

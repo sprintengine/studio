@@ -1,5 +1,9 @@
-import { readBranchSpan, scopeOfSpan, type BranchSpan } from './git-branch-span'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
+
+import { parseNumstatZ, readBranchSpan, scopeOfSpan, type BranchSpan } from './git-branch-span'
 import { getGitRowSummary } from './git-status'
+import { runGitCommand } from './git-utils'
 import type { WorkspaceChangeSummary } from '../shared/electron-api'
 
 /**
@@ -69,17 +73,156 @@ export function summaryFromSpan(span: BranchSpan | null): WorkspaceChangeSummary
  */
 async function readCheckoutSummary(checkoutPath: string): Promise<WorkspaceChangeSummary> {
   const span = await readBranchSpan(checkoutPath)
-  if (span && !span.readable) {
-    const folder = await getGitRowSummary(checkoutPath)
-    return {
-      branch: span.branch ?? folder.branch,
-      additions: folder.additions,
-      deletions: folder.deletions,
-      changedFiles: 0,
-      scope: 'folder',
-    }
+  // Not a repository at all (or the path is gone): no span, and no git spawned
+  // for an uncommitted reading that cannot exist either.
+  if (!span) return summaryFromSpan(span)
+
+  const uncommitted = await readUncommitted(checkoutPath)
+  const base = span.readable
+    ? summaryFromSpan(span)
+    : await folderFallback(checkoutPath, span)
+  // Absent, never zeros: a reading we could not take must not tell the line
+  // "nothing is uncommitted here", which for a landed branch is the whole
+  // number it draws.
+  return uncommitted ? { ...base, uncommitted } : base
+}
+
+async function folderFallback(
+  checkoutPath: string,
+  span: BranchSpan
+): Promise<WorkspaceChangeSummary> {
+  const folder = await getGitRowSummary(checkoutPath)
+  return {
+    branch: span.branch ?? folder.branch,
+    additions: folder.additions,
+    deletions: folder.deletions,
+    changedFiles: 0,
+    scope: 'folder',
   }
-  return summaryFromSpan(span)
+}
+
+/** An untracked file bigger than this is counted as a file with no lines. */
+const UNTRACKED_COUNT_LIMIT_BYTES = 1_000_000
+/**
+ * How many untracked files are opened to count their lines. A build output
+ * directory someone forgot to ignore is thousands of files; listing them is one
+ * cheap git call, but reading them all is thousands of file opens on main's
+ * event loop, once per checkout per sweep. Past the cap the files are still
+ * COUNTED — `changedFiles` stays honest — and simply contribute no lines.
+ */
+const UNTRACKED_COUNT_MAX_FILES = 500
+/** How many of those reads are open at once (macOS's default fd limit is low). */
+const UNTRACKED_COUNT_BATCH = 16
+
+type UncommittedReading = NonNullable<WorkspaceChangeSummary['uncommitted']>
+
+/**
+ * The checkout's UNCOMMITTED changes alone: index + worktree against HEAD, plus
+ * untracked files as additions. What the sidebar line shows once its branch has
+ * landed by SQUASH — where the merge base never moves, so the span keeps
+ * reporting work that is already on the trunk (decision 2 of the plan).
+ *
+ * **Why this is not `diffBranchSelection(cwd, { kind: 'uncommitted' })`**, which
+ * produces exactly this shape and is the reading the changed-files panel draws:
+ * that path re-runs `readBranchFacts` — the whole trunk-resolution chain, on the
+ * order of twenty git spawns — for one fact (is HEAD unborn?) that this caller
+ * does not need. `readBranchFacts` exists precisely because paying for a span to
+ * get facts was measured as ~137ms of waste per refresh; paying for facts to get
+ * a diff is the same mistake mirrored. What IS reused is `parseNumstatZ`, the
+ * one tested `-z` framing (a rename emits three NUL-terminated fields, not one),
+ * so the two readings cannot disagree about what a diff says.
+ *
+ * `getGitRowSummary` was the other candidate and does not fit: it reports no
+ * `changedFiles`, no untracked files, and re-reads the branch name we already
+ * have.
+ *
+ * Two cheap git calls, and a third only when there is untracked work to place —
+ * all inside `readCheckoutSummary`, so the per-checkout share still means ten
+ * rows on one checkout cost one reading between them.
+ *
+ * Null means unreadable — a bare repo, an unborn HEAD, a locked index — and the
+ * caller leaves the field ABSENT rather than reporting zeros.
+ */
+async function readUncommitted(cwd: string): Promise<UncommittedReading | null> {
+  // The same flags the span's own diff carries. `--no-relative` because a
+  // workspace can be opened on a SUBDIRECTORY of its repo, where the user's
+  // `diff.relative=true` would both under-count and hand back paths that no
+  // other surface here agrees with.
+  const diff = await runGitCommand(cwd, [
+    'diff',
+    '--numstat',
+    '-z',
+    '--no-color',
+    '--no-ext-diff',
+    '--no-textconv',
+    '--no-relative',
+    'HEAD',
+  ])
+  // Includes the unborn HEAD, where `git diff HEAD` has nothing to resolve. The
+  // span already reports that repo's staged work against the empty tree, and a
+  // branch with no commit at all cannot have landed, so the field is simply
+  // absent there rather than costing a second resolution to fake.
+  if (!diff.ok) return null
+
+  const tracked = parseNumstatZ(diff.stdout)
+  const reading: UncommittedReading = {
+    additions: tracked.additions,
+    deletions: tracked.deletions,
+    changedFiles: tracked.changedFiles,
+  }
+
+  // Untracked files are structurally invisible to `diff` — git has never seen
+  // their content — and a new file is exactly the uncommitted work this reading
+  // exists to show. `--full-name` for the same reason as `--no-relative`.
+  const listed = await runGitCommand(cwd, [
+    'ls-files',
+    '--others',
+    '--exclude-standard',
+    '--full-name',
+    '-z',
+  ])
+  if (!listed.ok) return reading
+  const known = new Set(tracked.files.map((file) => file.path))
+  const paths = listed.stdout.split('\0').filter((path) => path && !known.has(path))
+  if (paths.length === 0) return reading
+  reading.changedFiles += paths.length
+
+  // `--full-name` paths are repo-root-relative, so reading them off disk starts
+  // at the toplevel and not at a cwd that may be a subdirectory. Asked only when
+  // there is something to read.
+  const toplevel = await runGitCommand(cwd, ['rev-parse', '--show-toplevel'])
+  const root = (toplevel.ok && toplevel.stdout.trim()) || cwd
+
+  const counted = paths.slice(0, UNTRACKED_COUNT_MAX_FILES)
+  for (let index = 0; index < counted.length; index += UNTRACKED_COUNT_BATCH) {
+    const batch = counted.slice(index, index + UNTRACKED_COUNT_BATCH)
+    const lines = await Promise.all(batch.map((path) => countLines(join(root, path))))
+    for (const count of lines) reading.additions += count
+  }
+  return reading
+}
+
+/**
+ * A new file's lines. Capped, and zero for anything binary or unreadable: a
+ * binary blob is one changed file carrying no lines, which is what `git diff`
+ * itself says about one. Line endings are irrelevant — splitting on `\n` counts
+ * a CRLF file the same way git does.
+ */
+async function countLines(absolutePath: string): Promise<number> {
+  try {
+    const buffer = await readFile(absolutePath)
+    if (buffer.byteLength > UNTRACKED_COUNT_LIMIT_BYTES) return 0
+    // A NUL byte near the start is git's own binary heuristic.
+    if (buffer.subarray(0, 8000).includes(0)) return 0
+    const text = buffer.toString('utf8')
+    if (text.length === 0) return 0
+    const lines = text.split('\n').length
+    return text.endsWith('\n') ? lines - 1 : lines
+  } catch {
+    // A symlink to nowhere, a file deleted between the listing and the read, a
+    // permission we do not have: no lines, still a file.
+    return 0
+  }
 }
 
 /**

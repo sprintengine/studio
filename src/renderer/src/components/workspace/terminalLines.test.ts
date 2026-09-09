@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 
 import type { SessionFileChange, TerminalSessionSnapshot, WorkspaceChangeSummary } from '../../../../shared/electron-api'
 import type { RemoteSessionRow } from './remoteBand/remoteSessionsModel'
-import { MAX_TERMINAL_LINES, checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, sessionCheckoutPath, terminalLinesOf, type TerminalLinesWorkspace } from './terminalLines'
+import type { BranchPullRequest } from '../../../../shared/git/pull-request'
+import { MAX_TERMINAL_LINES, checkoutPathsOf, diffScopeCopy, lineDiffOf, lineOfRemoteRow, sessionCheckoutPath, terminalLinesOf, type TerminalLinesWorkspace } from './terminalLines'
 
 // The sidebar row's terminal lines (sidebar-lists-every-terminal), DOM-free:
 // one per live terminal, each on ITS checkout, working first, capped.
@@ -51,6 +52,24 @@ const edited = (path: string, additions: number, deletions: number, edits = 1): 
   deletions,
   edits,
   lastEditedAt: 1_000,
+})
+
+// A pull request as main resolves it onto the session snapshot (epic
+// pull-request-marks): only its state and number matter to the line.
+const pr = (over: Partial<BranchPullRequest> = {}): BranchPullRequest => ({
+  url: 'https://github.com/acme/multicode/pull/418',
+  repoKey: 'github.com/acme/multicode',
+  repoName: 'multicode',
+  number: 418,
+  title: 'The sidebar number is the branch diff',
+  state: 'open',
+  isDraft: false,
+  openedAt: 1_000,
+  stateAt: 2_000,
+  // On the session's own branch unless a case says otherwise: main stamps this
+  // for the branch lookup's entries, and only those may land the line.
+  onSessionBranch: true,
+  ...over,
 })
 
 const worktreeObserved = {
@@ -197,13 +216,14 @@ const worktreeObserved = {
   assert.equal(working.idleSince, null)
 }
 
-// The numbers come from the session's OWN ledger when it has one: summed over
-// every file it edited, cumulative, and scoped `session` — no git in it. The
-// point of the change: two agents on ONE checkout, where the git reading gave
-// both the same numbers, now say different things.
+// The numbers are the CHECKOUT's, whatever the agents' ledgers say (owner
+// ruling 2026-09-09, REVERSING "no git for a session that has a ledger"): the
+// hook ledger counts work done, which is not the outstanding diff. Two agents
+// on one branch therefore show the SAME number, and that is the right answer —
+// what is left on the branch is one fact about the branch.
 {
-  const summaries = { '/repo': summary({ additions: 202, deletions: 122, scope: 'branch', branch: 'feat/x' }) }
-  const { lines, rowDiff } = terminalLinesOf({
+  const summaries = { '/repo': summary({ additions: 202, deletions: 122, changedFiles: 9, scope: 'branch', branch: 'feat/x' }) }
+  const { lines } = terminalLinesOf({
     workspace: workspace(),
     sessions: [
       session({
@@ -219,50 +239,19 @@ const worktreeObserved = {
   assert.deepEqual(
     lines.map((line) => [line.name, line.additions, line.deletions, line.changedFiles, line.diffScope]),
     [
-      ['Aine Carey', 2, 0, 1, 'session'],
-      ['Conor Kirby', 16, 5, 2, 'session'],
+      ['Aine Carey', 202, 122, 9, 'branch'],
+      ['Conor Kirby', 202, 122, 9, 'branch'],
     ],
-    'each line sums its own ledger; the shared checkout no longer speaks for either'
+    'the branch span on both lines; no ledger anywhere near the sidebar number'
   )
-  assert.equal(lines[0].branch, 'feat/x', 'the branch is still the checkout\u2019s — the ledger says nothing about where it sits')
-  // Every agent reports, so the row may add them up and claim the sum.
-  assert.deepEqual(rowDiff, { additions: 18, deletions: 5, fileEdits: 3, scope: 'session' })
+  assert.equal(lines[0].branch, 'feat/x')
+  // And the ledger still rides the snapshot untouched, for the peek and the
+  // changelist: the line simply does not read it.
+  assert.equal(lines[0].changedFiles, 9, 'the summary\u2019s file count, not the ledger\u2019s')
 }
 
-// A ledger recorded path-only (a tool result whose shape the reporter could
-// not count) states no lines, so it is not a reading: the line keeps the
-// checkout's numbers. Otherwise a CLI whose hooks half-work would draw NOTHING
-// — the row hides a +0 −0 — where a CLI with no hooks at all draws the folder.
-{
-  const { lines } = terminalLinesOf({
-    workspace: workspace(),
-    sessions: [session({ sessionId: 's1', fileChanges: [edited('/repo/src/a.ts', 0, 0)] })],
-    fleetPanes: [],
-    summaries: { '/repo': summary({ additions: 202, deletions: 122, changedFiles: 9 }) },
-  })
-  assert.deepEqual(
-    [lines[0].additions, lines[0].deletions, lines[0].changedFiles, lines[0].diffScope],
-    [202, 122, 9, 'folder']
-  )
-  // One countable edit among the uncountable ones IS a reading, and the
-  // uncountable file still counts as a file.
-  const { lines: some } = terminalLinesOf({
-    workspace: workspace(),
-    sessions: [session({ sessionId: 's1', fileChanges: [edited('/repo/src/a.ts', 0, 0), edited('/repo/src/b.ts', 5, 2)] })],
-    fleetPanes: [],
-    summaries: { '/repo': summary({ additions: 202, deletions: 122 }) },
-  })
-  assert.deepEqual(
-    [some[0].additions, some[0].deletions, some[0].changedFiles, some[0].diffScope],
-    [5, 2, 2, 'session']
-  )
-}
-
-// A session in a worktree of its OWN reads its ledger too (owner decision
-// 2026-09-09: no git for a session that has one). This is the case where the
-// git span was already attributable to the one session, so the choice is
-// deliberate — one meaning for the number on every line — and pinned here so
-// it cannot change by accident.
+// A session in a worktree of its own reads THAT worktree's span — the
+// exclusive checkout keeps the scope git gave it, ledger or no ledger.
 {
   const { lines } = terminalLinesOf({
     workspace: workspace(),
@@ -272,13 +261,13 @@ const worktreeObserved = {
       '/repo/.claude/worktrees/rail': summary({ branch: 'worktree-workspace-rail', additions: 1048, deletions: 21762, scope: 'worktree' }),
     },
   })
-  assert.deepEqual([lines[0].additions, lines[0].deletions, lines[0].diffScope], [9, 2, 'session'])
-  assert.equal(lines[0].branch, 'worktree-workspace-rail', 'and it is still in its own worktree')
+  assert.deepEqual([lines[0].additions, lines[0].deletions, lines[0].diffScope], [1048, 21762, 'worktree'])
+  assert.equal(lines[0].branch, 'worktree-workspace-rail')
   assert.equal(lines[0].worktree, true)
 }
 
-// A shell never claims a session reading, whatever arrives on its snapshot:
-// the words the scope licenses say "this agent", and a shell is not one.
+// A shell reads its checkout like every other line, whatever arrives on its
+// snapshot — and it claims none of the session's own facts (subagents included).
 {
   const { lines } = terminalLinesOf({
     workspace: workspace(),
@@ -299,11 +288,11 @@ const worktreeObserved = {
   assert.equal(lines[0].activeSubagents, 0)
 }
 
-// No ledger — a hookless CLI, a plain shell, an agent that has not written
-// anything yet — falls back to the checkout summary exactly as before.
+// An agent that has written nothing, and one whose snapshot predates the
+// ledger field, read the checkout exactly like every other line.
 {
   const summaries = { '/repo': summary({ additions: 202, deletions: 122, changedFiles: 9, scope: 'folder' }) }
-  const { lines, rowDiff } = terminalLinesOf({
+  const { lines } = terminalLinesOf({
     workspace: workspace(),
     sessions: [
       session({ sessionId: 'empty', fileChanges: [] }),
@@ -321,75 +310,19 @@ const worktreeObserved = {
       `${line.key} keeps the checkout reading`
     )
   }
-  assert.equal(rowDiff, null, 'a row nobody reports for keeps the behaviour it had')
 }
 
-// A MIXED row — one agent with a ledger, one without — may claim no sum: the
-// two readings measure different things and adding them would mean nothing.
-// A plain shell neither contributes nor disqualifies; nor does a fleet pane.
+// A fleet pane claims nothing at all: its checkout is another machine's disk.
 {
-  const summaries = { '/repo': summary({}) }
-  const mixed = terminalLinesOf({
-    workspace: workspace(),
-    sessions: [
-      session({ sessionId: 'ledger', fileChanges: [edited('/repo/src/a.ts', 3, 1)] }),
-      session({ sessionId: 'none', agentId: 'a2', fileChanges: [] }),
-    ],
-    fleetPanes: [],
-    summaries,
-  })
-  assert.equal(mixed.rowDiff, null)
-  const shellToo = terminalLinesOf({
-    workspace: workspace(),
-    sessions: [
-      session({ sessionId: 'ledger', fileChanges: [edited('/repo/src/a.ts', 3, 1)] }),
-      session({ sessionId: 'shell', kind: 'terminal', cli: undefined, agentId: undefined, fileChanges: [] }),
-    ],
-    fleetPanes: [{ tabId: 'fleet-terminal:c1:s9', machineName: 'air.local', cli: 'codex' }],
-    summaries,
-  })
-  assert.deepEqual(shellToo.rowDiff, { additions: 3, deletions: 1, fileEdits: 1, scope: 'session' })
-}
-
-// A row with no agent line has no aggregate to claim — not a zero.
-{
-  const shellOnly = terminalLinesOf({
-    workspace: workspace(),
-    sessions: [session({ sessionId: 'shell', kind: 'terminal', cli: undefined, agentId: undefined, fileChanges: [] })],
-    fleetPanes: [],
-    summaries: { '/repo': summary({}) },
-  })
-  assert.equal(shellOnly.rowDiff, null)
   const fleetOnly = terminalLinesOf({
     workspace: workspace(),
     sessions: [],
     fleetPanes: [{ tabId: 'fleet-terminal:c1:s9', machineName: 'air.local', cli: 'codex' }],
     summaries: {},
   })
-  assert.equal(fleetOnly.rowDiff, null)
   assert.equal(fleetOnly.lines[0].activeSubagents, 0, 'a pane on another machine reports no subagents')
   assert.equal(fleetOnly.lines[0].changedFiles, 0)
-}
-
-// The row's figure covers every agent it has, including the ones folded past
-// the cap — it is the row's total, not the visible four's.
-{
-  const sessions = Array.from({ length: MAX_TERMINAL_LINES + 2 }, (_, index) =>
-    session({
-      sessionId: `s${index}`,
-      activity: { kind: 'idle', since: 1_000 + index },
-      fileChanges: [edited(`/repo/src/${index}.ts`, 1, 1)],
-    })
-  )
-  const { lines, overflow, rowDiff } = terminalLinesOf({ workspace: workspace(), sessions, fleetPanes: [], summaries: {} })
-  assert.equal(lines.length, MAX_TERMINAL_LINES)
-  assert.equal(overflow, 2)
-  assert.deepEqual(rowDiff, {
-    additions: MAX_TERMINAL_LINES + 2,
-    deletions: MAX_TERMINAL_LINES + 2,
-    fileEdits: MAX_TERMINAL_LINES + 2,
-    scope: 'session',
-  })
+  assert.equal(fleetOnly.lines[0].diffScope, 'folder')
 }
 
 // Subagents ride the line for a later renderer; nothing draws them yet.
@@ -404,26 +337,116 @@ const worktreeObserved = {
 }
 
 // The scope's words, one place for both spellings: the tooltip and the
-// sentence a screen reader hears. Only `session` speaks of the AGENT, and only
-// a folder reading — the one nobody can be credited with — steps back.
+// sentence a screen reader hears. Only a folder reading — the one nobody can
+// be credited with — steps back; `landed` names the pull request that moved
+// the number, in both spellings.
 {
-  const own = diffScopeCopy({ diffScope: 'session', branch: 'main', additions: 31, deletions: 7 })
-  assert.equal(own.tooltip, 'Changed by this agent — the edits it made through its tools, including ones it has since undone')
-  // The spoken label carries the caveat too: a screen reader never gets the
-  // tooltip, so "by this agent" alone would claim more than the words on hover.
-  assert.equal(own.srText, '31 added, 7 removed by this agent’s own edits')
-  assert.equal(own.dim, false)
-  const worktree = diffScopeCopy({ diffScope: 'worktree', branch: 'agent/x', additions: 12, deletions: 3 })
+  const worktree = diffScopeCopy({ diffScope: 'worktree', branch: 'agent/x', additions: 12, deletions: 3, pullRequests: [] })
   assert.equal(worktree.srText, '12 added, 3 removed by this terminal')
   assert.equal(worktree.dim, false)
-  const branch = diffScopeCopy({ diffScope: 'branch', branch: 'feat/y', additions: 40, deletions: 8 })
+  const branch = diffScopeCopy({ diffScope: 'branch', branch: 'feat/y', additions: 40, deletions: 8, pullRequests: [] })
   assert.match(branch.tooltip, /^Changed on feat\/y — this terminal shares the checkout/)
   assert.equal(branch.srText, '40 added, 8 removed on feat/y')
-  const branchless = diffScopeCopy({ diffScope: 'branch', branch: null, additions: 5, deletions: 1 })
+  const branchless = diffScopeCopy({ diffScope: 'branch', branch: null, additions: 5, deletions: 1, pullRequests: [] })
   assert.equal(branchless.srText, '5 added, 1 removed on this branch')
-  const folder = diffScopeCopy({ diffScope: 'folder', branch: 'main', additions: 246, deletions: 94 })
+  const folder = diffScopeCopy({ diffScope: 'folder', branch: 'main', additions: 246, deletions: 94, pullRequests: [] })
   assert.equal(folder.srText, '246 added, 94 removed in this folder')
   assert.equal(folder.dim, true, 'the repo\u2019s state is nobody\u2019s work, so it steps back')
+  // The landed line says WHY it shrank, and says it to a screen reader too —
+  // the tooltip is portalled on hover and AT never gets it.
+  const landed = diffScopeCopy({
+    diffScope: 'landed',
+    branch: 'feat/y',
+    additions: 3,
+    deletions: 1,
+    pullRequests: [pr({ number: 418, state: 'merged' })],
+  })
+  // design-tokens-allow: the literal is a pull request NUMBER in the tooltip's own words, not a colour
+  assert.equal(landed.tooltip, 'Uncommitted changes since this branch landed — pull request #418 was merged')
+  assert.equal(landed.srText, '3 added, 1 removed since pull request 418 landed')
+  assert.equal(landed.dim, false, 'what the checkout still carries is attributable work')
+  // A line drawn without the record it came from still says the branch landed
+  // rather than claiming a number it does not have.
+  const anonymous = diffScopeCopy({ diffScope: 'landed', branch: 'feat/y', additions: 3, deletions: 1, pullRequests: [] })
+  assert.equal(anonymous.tooltip, 'Uncommitted changes since this branch landed — its pull request was merged')
+  assert.equal(anonymous.srText, '3 added, 1 removed since this branch landed')
+}
+
+// The whole of decision 2, stated on the pure function: a merged PRIMARY pull
+// request with an uncommitted reading beside it lands the line; everything
+// else keeps the span, and nothing ever invents a zero.
+{
+  const span = summary({ additions: 202, deletions: 122, changedFiles: 9, scope: 'branch', branch: 'feat/x' })
+  const withUncommitted = { ...span, uncommitted: { additions: 3, deletions: 1, changedFiles: 2 } }
+
+  assert.deepEqual(
+    lineDiffOf(withUncommitted, [pr({ state: 'merged' })]),
+    { additions: 3, deletions: 1, changedFiles: 2, scope: 'landed' },
+    'a squash-landed branch shows what the checkout still carries'
+  )
+  assert.deepEqual(
+    lineDiffOf(span, [pr({ state: 'merged' })]),
+    { additions: 202, deletions: 122, changedFiles: 9, scope: 'branch' },
+    'a reading we could not take degrades to the span, never to a confident zero'
+  )
+  assert.deepEqual(lineDiffOf(withUncommitted, [pr({ state: 'open' })]).scope, 'branch', 'an open primary keeps the span')
+  // A merged pull request the agent opened in ANOTHER repository (union,
+  // pull-request-marks decision 10) says nothing about this branch: main did
+  // not stamp it on the session's branch, so the line keeps the span.
+  assert.deepEqual(
+    lineDiffOf(withUncommitted, [pr({ state: 'merged', onSessionBranch: false, repoName: 'website', url: 'https://github.com/acme/website/pull/9' })]).scope,
+    'branch',
+    'a merged pull request elsewhere does not land this branch',
+  )
+  assert.deepEqual(lineDiffOf(withUncommitted, [pr({ state: 'closed' })]).scope, 'branch', 'closed without merging is not landed')
+  assert.deepEqual(lineDiffOf(withUncommitted, []).scope, 'branch', 'no pull request at all keeps the span')
+  // Decision 5's primary rule doing the work: a NEW open pull request on a
+  // branch whose earlier one merged is the primary, so the line goes back to
+  // the span — the branch has work outstanding again.
+  assert.deepEqual(
+    lineDiffOf(withUncommitted, [pr({ number: 418, state: 'merged', openedAt: 1_000 }), pr({ number: 420, state: 'open', openedAt: 2_000, url: 'https://github.com/acme/multicode/pull/420' })]).scope,
+    'branch',
+    'a newer open pull request takes the mark back, and the number with it'
+  )
+  // An unresolved checkout has no summary to read: exactly what it drew before.
+  assert.deepEqual(
+    lineDiffOf(undefined, [pr({ state: 'merged' })]),
+    { additions: 0, deletions: 0, changedFiles: 0, scope: 'folder' },
+    'no reading at all is not a landed reading'
+  )
+}
+
+// And end to end on the line: the merged pull request main put on the snapshot
+// switches the numbers on the very next render, with no extra read.
+{
+  const summaries = {
+    '/repo': summary({
+      additions: 202,
+      deletions: 122,
+      changedFiles: 9,
+      scope: 'branch',
+      branch: 'feat/x',
+      uncommitted: { additions: 3, deletions: 1, changedFiles: 2 },
+    }),
+  }
+  const merged = terminalLinesOf({
+    workspace: workspace(),
+    sessions: [session({ sessionId: 's1', pullRequests: [pr({ number: 418, state: 'merged' })] })],
+    fleetPanes: [],
+    summaries,
+  })
+  assert.deepEqual(
+    [merged.lines[0].additions, merged.lines[0].deletions, merged.lines[0].changedFiles, merged.lines[0].diffScope],
+    [3, 1, 2, 'landed']
+  )
+  assert.equal(merged.lines[0].branch, 'feat/x', 'the branch it landed from is still named')
+  const open = terminalLinesOf({
+    workspace: workspace(),
+    sessions: [session({ sessionId: 's1', pullRequests: [pr({ number: 418, state: 'open' })] })],
+    fleetPanes: [],
+    summaries,
+  })
+  assert.deepEqual([open.lines[0].additions, open.lines[0].diffScope], [202, 'branch'])
 }
 
 // The pull requests a line wears come straight off the session snapshot (epic
