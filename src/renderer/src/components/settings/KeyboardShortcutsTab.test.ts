@@ -106,6 +106,12 @@ assert.equal(eventToChordString(press({ key: ' ', ctrlKey: true }), 'linux'), 'p
 assert.equal(eventToChordString(press({ key: 'Shift', shiftKey: true }), 'darwin'), null)
 assert.equal(eventToChordString(press({ key: 'Meta', metaKey: true }), 'darwin'), null)
 assert.equal(eventToChordString(press({ key: 'Dead' }), 'linux'), null)
+// Modifier keys the ignore list does not name by event name (Super on Linux,
+// AltGraph, Fn) reach the parser as a lone modifier stroke. A lone modifier is
+// only legal as a double tap, so the parser refuses them and the recorder
+// waits, rather than saving a one-stroke `meta` or `alt` that nothing can fire.
+assert.equal(eventToChordString(press({ key: 'Super', code: 'MetaLeft' }), 'linux'), null)
+assert.equal(eventToChordString(press({ key: 'AltGraph', code: 'AltRight' }), 'linux'), null)
 
 // --- Recorder/dispatcher key identity (shifted punctuation) -----------------
 // The recorder must record by physical key (event.code), not the shifted char,

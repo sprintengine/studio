@@ -12,6 +12,14 @@ export type CommandDispatcherKeyEvent = {
   shiftKey?: boolean
   target?: EventTarget | null
   defaultPrevented?: boolean
+  // A held key's auto-repeat (Windows and Linux repeat modifiers too). A repeat
+  // is not a fresh press, so it can neither start nor restart a modifier tap.
+  repeat?: boolean
+  // Set while an IME composition is in flight. Composed keydowns arrive as
+  // `Process` and match nothing, so the keydown path is composition-safe by
+  // construction; the modifier keys keep their own names throughout, so the
+  // keyup path has to check.
+  isComposing?: boolean
 }
 
 export type CommandDispatcherContext = {
@@ -288,7 +296,9 @@ export class RendererCommandDispatcher {
   resolveKeyUp(event: CommandDispatcherKeyEvent, context: CommandDispatcherContext): CommandDispatcherResult {
     const signature = eventSignature(event, context.platform)
     if (!isModifierKeyToken(signature.key)) return { kind: 'unmatched', preventDefault: false }
-    const clean = this.modifierDown === signature.key && isLoneModifierStroke(signature)
+    // A Shift released mid-composition is part of the IME's own conversation
+    // (Japanese and Chinese IMEs use it to switch modes), never a tap of ours.
+    const clean = event.isComposing !== true && this.modifierDown === signature.key && isLoneModifierStroke(signature)
     this.modifierDown = null
     if (!clean) {
       this.modifierTap = null
@@ -320,7 +330,10 @@ export class RendererCommandDispatcher {
     // pending chord — swallow it and capitals stop working.
     if (isModifierKeyToken(eventStroke.key)) {
       if (isLoneModifierStroke(eventStroke)) {
-        this.modifierDown = eventStroke.key
+        // Only a fresh press arms. Auto-repeats of a held Shift leave whatever
+        // state the presses between them produced: a letter typed under a held
+        // Shift disarmed it, and no repeat may arm it again before the release.
+        if (event.repeat !== true) this.modifierDown = eventStroke.key
       } else {
         this.modifierDown = null
         this.modifierTap = null

@@ -62,6 +62,18 @@ assert.equal(parseKeybinding('Shift+Shift').ok, false)
 assert.equal(parseKeybinding('Primary Primary').ok, false)
 assert.equal(parseKeybinding('Shift Shift Shift').ok, false)
 
+// A lone modifier is legal ONLY as a double tap of the same modifier. Anything
+// else the dispatcher could never fire: a one-stroke `Shift` is never a
+// stroke, `Shift Ctrl` is two different taps, and `Primary+K then Shift`
+// would swallow ⌘K as a pending chord whose second stroke never arrives.
+assert.equal(parseKeybinding('Shift').ok, false)
+assert.equal(parseKeybinding('Meta').ok, false)
+assert.equal(parseKeybinding('Shift Ctrl').ok, false)
+assert.equal(parseKeybinding('Primary+K then Shift').ok, false)
+assert.equal(parseKeybinding('Shift then Primary+K').ok, false)
+assert.equal(normalizeKeybinding('Shift'), null)
+assert.deepEqual(collapseDuplicateKeybindings(['Shift', 'Shift Shift', 'shift shift']), ['shift shift'])
+
 // Display: a modifier-as-key wears the modifier's own platform label, and a
 // tap chord joins with a space rather than the two-stroke "then".
 assert.equal(renderKeybinding('Shift Shift', 'darwin'), 'Shift Shift')

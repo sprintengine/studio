@@ -13,6 +13,8 @@ function key(event: Partial<CommandDispatcherKeyEvent>): CommandDispatcherKeyEve
     shiftKey: event.shiftKey ?? false,
     target: event.target,
     defaultPrevented: event.defaultPrevented ?? false,
+    repeat: event.repeat ?? false,
+    isComposing: event.isComposing ?? false,
   }
 }
 
@@ -550,6 +552,53 @@ assert.equal(blurred.resolveKeyUp(shiftUp(), globalAt(9030)).kind, 'unmatched')
 assert.equal(
   blurred.resolveKeyUp(key({ key: 'a', code: 'KeyA' }), globalAt(9100)).kind,
   'unmatched',
+)
+
+// A held Shift auto-repeats its keydown on Windows and Linux. A repeat is not a
+// fresh press: after a letter typed under the held Shift has disarmed the tap,
+// the repeats that follow must not arm it again before the release.
+const repeating = new RendererCommandDispatcher(500, 400)
+repeating.resolve(shiftDown(), globalAt(10000))
+repeating.resolveKeyUp(shiftUp(), globalAt(10010))
+repeating.resolve(shiftDown(), globalAt(10100))
+repeating.resolve(key({ key: 'A', code: 'KeyA', shiftKey: true }), globalAt(10110))
+repeating.resolve(shiftDown({ repeat: true }), globalAt(10150))
+repeating.resolve(shiftDown({ repeat: true }), globalAt(10200))
+assert.equal(
+  repeating.resolveKeyUp(shiftUp(), globalAt(10250)).kind,
+  'unmatched',
+  'a repeat keydown after Shift+A cannot re-arm the tap',
+)
+// A repeat with no fresh press before it (the window gained focus with Shift
+// already held) never arms either.
+repeating.resolve(shiftDown({ repeat: true }), globalAt(10300))
+assert.equal(repeating.resolveKeyUp(shiftUp(), globalAt(10310)).kind, 'unmatched')
+repeating.resolve(shiftDown(), globalAt(10400))
+assert.equal(repeating.resolveKeyUp(shiftUp(), globalAt(10410)).kind, 'unmatched', 'only one clean tap was armed')
+// Repeats between a fresh press and its release are harmless: still one tap.
+const heldTap = new RendererCommandDispatcher(500, 400)
+heldTap.resolve(shiftDown(), globalAt(11000))
+heldTap.resolve(shiftDown({ repeat: true }), globalAt(11050))
+assert.equal(heldTap.resolveKeyUp(shiftUp(), globalAt(11100)).kind, 'unmatched')
+heldTap.resolve(shiftDown(), globalAt(11200))
+heldTap.resolve(shiftDown({ repeat: true }), globalAt(11250))
+assert.equal(heldTap.resolveKeyUp(shiftUp(), globalAt(11300)).kind, 'matched', 'two taps, each with repeats inside, still fire')
+
+// Inside an IME composition a Shift release belongs to the IME, not to us.
+const composing = new RendererCommandDispatcher(500, 400)
+composing.resolve(shiftDown(), globalAt(12000))
+composing.resolveKeyUp(shiftUp(), globalAt(12010))
+composing.resolve(shiftDown({ isComposing: true }), globalAt(12100))
+assert.equal(
+  composing.resolveKeyUp(shiftUp({ isComposing: true }), globalAt(12110)).kind,
+  'unmatched',
+  'a composing Shift release never completes the gesture',
+)
+composing.resolve(shiftDown(), globalAt(12200))
+assert.equal(
+  composing.resolveKeyUp(shiftUp(), globalAt(12210)).kind,
+  'unmatched',
+  'and it disarmed the tap before it, so the next clean tap is a first tap',
 )
 
 console.log('command dispatcher module command tests passed')

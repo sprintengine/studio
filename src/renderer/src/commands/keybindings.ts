@@ -145,9 +145,8 @@ export function parseKeybinding(input: string): ParsedKeybinding {
 
     // A stroke that is nothing BUT a modifier name is legal: the modifier is
     // the key. That is what makes `Shift Shift` expressible. Only as the whole
-    // stroke, though — `Ctrl+Shift` is still a chord missing its key. A
-    // one-stroke `Shift` parses too but binds nothing: the dispatcher fires a
-    // lone modifier only as a double tap, never as a single press.
+    // stroke, though — `Ctrl+Shift` is still a chord missing its key — and
+    // only as a double tap, which the check after the loop enforces.
     if (tokens.length === 1) {
       const only = MODIFIER_ALIASES[tokens[0].toLowerCase().replace(/\s+/g, '')]
       if (only && MODIFIER_KEYS.includes(only)) {
@@ -177,6 +176,19 @@ export function parseKeybinding(input: string): ParsedKeybinding {
 
     const orderedModifiers = MODIFIER_ORDER.filter((modifier) => modifiers.has(modifier))
     strokes.push({ modifiers: orderedModifiers, key })
+  }
+
+  // A lone modifier binds ONLY as a double tap of the same modifier, because
+  // that is the one shape the dispatcher can fire: a single Shift is never a
+  // stroke, `Shift Ctrl` is two different taps, and a lone modifier as the
+  // second stroke of an ordinary chord (`Primary+K then Shift`) would swallow
+  // its first stroke as a pending chord whose completion never arrives. Ruling
+  // it out here keeps the recorder from saving a one-stroke `meta` when Super
+  // or AltGraph is pressed, and the menu from being handed "shift" as an
+  // accelerator.
+  const loneModifierStrokes = strokes.filter((stroke) => isModifierKeyToken(stroke.key)).length
+  if (loneModifierStrokes > 0 && !(strokes.length === 2 && loneModifierStrokes === 2 && strokes[0].key === strokes[1].key)) {
+    return { ok: false, error: 'A modifier on its own only binds as a double tap of the same modifier, e.g. "Shift Shift".' }
   }
 
   const canonical = strokes.map((stroke) => [...stroke.modifiers, stroke.key].join('+')).join(' ')

@@ -56,6 +56,12 @@ assert.equal(
   getEffectiveKeybindingLabel('commandPalette.open', { overrides: { 'commandPalette.open': ['Shift Shift'] }, disabled: {} }, 'darwin'),
   'Shift Shift',
 )
+// A hand-edited one-stroke `Shift` override does not parse, so it can never
+// reach the menu as the invalid Electron accelerator "shift".
+assert.equal(
+  getElectronAccelerator('commandPalette.open', { overrides: { 'commandPalette.open': ['Shift'] }, disabled: {} }),
+  null,
+)
 assert.deepEqual(
   getEffectiveKeybindings('commandPalette.open', { overrides: {}, disabled: {} }),
   ['primary+k', 'primary+shift+p', 'shift shift'],
