@@ -1234,6 +1234,53 @@ samp,
 .chip-text-error { color: color-mix(in oklab, var(--text-strong) 30%, var(--tone-error)); }
 /* design-tokens-allow-end */
 
+/* Project identity hues - one colour per project, worn on the folder glyph and
+ * nowhere else on the row (owner, 2026-09-09; principles.md -> "Identity
+ * colour": a glyph may wear an identity hue only where nothing else on the row
+ * is coloured, and the hue identifies, it never grades).
+ *
+ * Six of the seven colour.mark hues. Gold is left out because it is what a row
+ * wears when an agent is waiting on the person, and there is no green because
+ * that is the finished tint; neither may double as a project's colour on the
+ * same row. Allocation and the key are utils/projectColor.ts.
+ *
+ * Stated as --sem-color-mark-* rather than hex, so each hue follows data-mode
+ * for free: the deep -600/-700 variants on the four light themes and the -400
+ * brights on the seven dark ones. That is the whole reason the highlight
+ * palette above needs a light-override block and this does not.
+ *
+ * Violet is the one exception. colour.mark.violet is violet-500 in BOTH modes
+ * (every other mark hue has a dark variant), and violet-500 on the ink ground
+ * is a glyph you have to hunt for. It is lifted toward --text-strong here - the
+ * .highlight-text-* recipe, mixed at the element so the theme's own ink does
+ * the work - and put back to the raw token on the light themes below, where
+ * violet-500 already reads on white and a lift would only wash it out. */
+.project-mark-blue   { color: var(--sem-color-mark-blue); }
+.project-mark-teal   { color: var(--sem-color-mark-teal); }
+.project-mark-cyan   { color: var(--sem-color-mark-cyan); }
+.project-mark-violet { color: color-mix(in oklab, var(--sem-color-mark-violet) 62%, var(--text-strong)); }
+.project-mark-orange { color: var(--sem-color-mark-orange); }
+.project-mark-red    { color: var(--sem-color-mark-red); }
+
+/* The same hues as a filled dot, for the "Project colour" swatch row. Same
+ * values as the glyph classes above on purpose: the dot a person clicks must be
+ * the colour the glyph then wears, in every theme. */
+.project-swatch-blue   { background-color: var(--sem-color-mark-blue); }
+.project-swatch-teal   { background-color: var(--sem-color-mark-teal); }
+.project-swatch-cyan   { background-color: var(--sem-color-mark-cyan); }
+.project-swatch-violet { background-color: color-mix(in oklab, var(--sem-color-mark-violet) 62%, var(--text-strong)); }
+.project-swatch-orange { background-color: var(--sem-color-mark-orange); }
+.project-swatch-red    { background-color: var(--sem-color-mark-red); }
+
+:root[data-theme="light"] .project-mark-violet,
+:root[data-theme="vellum"] .project-mark-violet,
+:root[data-theme="herbarium"] .project-mark-violet,
+:root[data-theme="paper"] .project-mark-violet { color: var(--sem-color-mark-violet); }
+:root[data-theme="light"] .project-swatch-violet,
+:root[data-theme="vellum"] .project-swatch-violet,
+:root[data-theme="herbarium"] .project-swatch-violet,
+:root[data-theme="paper"] .project-swatch-violet { background-color: var(--sem-color-mark-violet); }
+
 /* File-tree row washes - "what IS this file?", answered by the row's own
  * background (ruled 2026-09-07, principles.md ->
  * "Identity colour"). Two washes only: `test` for test material, `generated`

@@ -268,7 +268,14 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // hand-spelled icon box goes with it. Banked, not left as headroom.
     'components/workspace': 11,
     'components/panels': 10, // 2026-09-08: the second swap
-    'components/ui': 14,
+    // ui 14 → 13, 2026-09-09: the "Project colour" swatch row landed beside the
+    // highlight one in `ContextMenu`, and rather than adding a fifth copy of the
+    // 20px disc the file now spells it once (`SWATCH_DOT_SIZE_CLASS`) for all
+    // four swatches — the same repair the tab chip took above. The geometry is
+    // still off the ramp (20px sits between icon-md 18 and icon-lg 22) and still
+    // owed; it is owed in one place instead of four. Banked, not left as
+    // headroom for the next off-ramp.
+    'components/ui': 13,
     // New directory, 2026-09-08 — a MOVE, not a regression. The Design Wizard
     // was deleted; the generated-HTML artifact frame and its annotate mode
     // survived it (the Backlog mockup surfaces and the Sprint Engine

@@ -8,6 +8,11 @@ import type { TextGenerationSettings } from '../../../../shared/text-generation/
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
+import {
+  isProjectColorSetting,
+  pickProjectColor,
+  type ProjectColorSetting,
+} from '../../utils/projectColor'
 import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import {
   dispatchExtensionsSurfaceTarget,
@@ -377,6 +382,24 @@ export function normalizeDesignSystemSeen(value: unknown): Record<string, string
   const kept = pairs.sort((left, right) => right[2] - left[2]).slice(0, DESIGN_SYSTEM_SEEN_LIMIT)
   const out: Record<string, string> = {}
   for (const [key, stamp] of kept) out[key] = stamp
+  return out
+}
+
+/**
+ * One colour per project (utils/projectColor). Persisted state is other
+ * people's data by the time it is read back — an older build's spelling, a
+ * hand-edited settings file — so a key that is not a non-empty string, and a
+ * value that is not one of the six hues or `'none'`, is dropped rather than
+ * carried into the map the glyph reads.
+ */
+export function normalizeProjectColors(value: unknown): Record<string, ProjectColorSetting> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, ProjectColorSetting> = {}
+  for (const [key, setting] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof key !== 'string' || key.trim() === '') continue
+    if (!isProjectColorSetting(setting)) continue
+    out[key] = setting
+  }
   return out
 }
 
@@ -1024,6 +1047,10 @@ export const defaultAppSettings = (): AppSettings => ({
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
   sprintEngineRunSettings: {},
   projectKnowledgeRoots: {},
+  // Nothing seen yet. Every project in the map got there by being shown once,
+  // so a fresh profile allocates as its first sidebar renders rather than
+  // pre-colouring projects it has never opened.
+  projectColors: {},
   recentWorkspaceFolders: [],
   // Null follows the active workspace, which is what the Design door did before
   // it had a chip at all.
@@ -1093,6 +1120,11 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     // — the same merge-not-only-migrate enforcement as the opt-in reset below.
     sprintEngineRunSettings: normalizeSprintEngineRunSettings(settings?.sprintEngineRunSettings),
     projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
+    // Not pruned against the open workspaces, unlike the knowledge roots above:
+    // a project's colour has to survive closing every chat in it and opening
+    // one again next week, or "it never changes behind your back" is untrue for
+    // exactly the projects a person comes back to.
+    projectColors: normalizeProjectColors(settings?.projectColors),
     recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
       settings?.recentWorkspaceFolders,
       workspaces.map((ws) => ws.folderPath)
@@ -1287,6 +1319,25 @@ export interface SettingsSliceActions {
   setLastFolderOpenTarget: (target: FolderOpenTargetId) => void
   /** The Design door's viewing scope. Null returns it to following the active workspace. */
   setDesignProjectScopePath: (path: string | null) => void
+  /**
+   * Set (or clear) one project's colour, keyed by `projectColorKey`.
+   *
+   * `'none'` is the person choosing no colour and is remembered as such —
+   * without it, the next `assignProjectColors` would treat the project as
+   * unseen and hand it a hue again. `null` deletes the entry entirely, which
+   * returns the project to "not yet seen".
+   */
+  setProjectColor: (key: string, color: ProjectColorSetting | null) => void
+  /**
+   * Give every one of these projects a colour it does not already have.
+   *
+   * Safe to call from an effect on every render: keys that already have an
+   * entry (a hue OR `'none'`) are left alone, and when nothing is missing the
+   * action writes nothing at all, so it cannot loop a subscriber. Each missing
+   * key is allocated against the entries written so far, so one call that sees
+   * six new projects hands out six different hues.
+   */
+  assignProjectColors: (keys: readonly string[]) => void
   /**
    * Stamp a design system as seen, now.
    *
@@ -1687,6 +1738,48 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setDesignProjectScopePath: (path) =>
       set((state) => {
         state.appSettings.designProjectScopePath = normalizeFolderPathSetting(path)
+      }),
+
+    setProjectColor: (key, color) =>
+      set((state) => {
+        const projectKey = typeof key === 'string' ? key.trim() : ''
+        if (!projectKey) return
+        const current = state.appSettings.projectColors ?? {}
+        if (color === null) {
+          if (!(projectKey in current)) return
+          const next = { ...current }
+          delete next[projectKey]
+          state.appSettings.projectColors = next
+          return
+        }
+        if (!isProjectColorSetting(color)) return
+        if (current[projectKey] === color) return
+        state.appSettings.projectColors = { ...current, [projectKey]: color }
+      }),
+
+    assignProjectColors: (keys) =>
+      set((state) => {
+        const current = state.appSettings.projectColors ?? {}
+        // Deduped in arrival order — the sidebar's order — so the first project
+        // down the list gets the first hue, and calling twice with the same
+        // list is a no-op rather than a reshuffle.
+        const missing: string[] = []
+        const seen = new Set<string>()
+        for (const raw of keys) {
+          const key = typeof raw === 'string' ? raw.trim() : ''
+          if (!key || seen.has(key)) continue
+          seen.add(key)
+          if (key in current) continue
+          missing.push(key)
+        }
+        // The idempotent path, and the reason this is safe in a render effect:
+        // no missing key means no write, so no subscriber is notified.
+        if (missing.length === 0) return
+        const next = { ...current }
+        for (const key of missing) {
+          next[key] = pickProjectColor(Object.values(next))
+        }
+        state.appSettings.projectColors = next
       }),
 
     markDesignSystemSeen: (bundleId, at) =>

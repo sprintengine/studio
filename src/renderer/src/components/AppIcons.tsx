@@ -10,6 +10,7 @@ import type {
   Workspace,
 } from '../types/workspace'
 import { getSprintEngineRoleGlyphKind } from '../utils/sprintengine'
+import { projectColorGlyphClass, type ProjectColor } from '../utils/projectColor'
 
 type IconProps = {
   className?: string
@@ -142,16 +143,49 @@ export function SparkGlyph({ className }: IconProps) {
   )
 }
 
-// The folder glyph a sidebar folder header wears when its project has no logo
+// The folder outline a sidebar row or header wears when its project has no logo
 // of its own. Drawn on the 16px grid, unlike the 24px workspace-type glyphs
-// above it, because the header slot is where it renders.
-function FolderGlyphIcon({ className }: IconProps) {
+// above it, because the row slot is where it renders. One path, three states.
+const FOLDER_GLYPH_PATH =
+  'M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z'
+
+// The folder glyph in its three states, and the ONE place the project colour is
+// drawn (owner, 2026-09-09; principles.md → "Identity colour"):
+//
+//  * `color` — the project's identity hue, as ink on the outline. Nothing else
+//    on the row is tinted; the hue names the project, it never grades it.
+//  * `unfiled` — a chat with no folder. No folder is not a project, so it gets
+//    the dashed outline in --text-disabled and no colour, rather than reading
+//    as a seventh project. It outranks `color` because a row with no folder
+//    has no project whose colour could apply.
+//  * neither — currentColor, exactly the glyph every existing caller had.
+//
+// The hue is a class, not a style: `project-mark-*` resolves the identity token
+// per theme (assets/index.css), so one glyph reads on all eleven. It is an
+// UNLAYERED rule and Tailwind's utilities are layered, which is what lets the
+// project's hue survive a row that also sets its ink — the row's tint is a
+// state, the project's colour is what the row IS.
+export function ProjectFolderGlyph({
+  className,
+  color,
+  unfiled,
+}: IconProps & { color?: ProjectColor | null; unfiled?: boolean }) {
+  const tone = unfiled ? 'text-[color:var(--text-disabled)]' : projectColorGlyphClass(color)
   return (
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      className={`${className ?? ''} ${tone}`.trim()}
+    >
       <path
-        d="M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z"
+        d={FOLDER_GLYPH_PATH}
         stroke="currentColor"
         strokeWidth="1.4"
+        // The dash is the second half of "not a project": on a light theme the
+        // disabled ink alone is a faint solid folder, which reads as a project
+        // whose colour has not loaded yet rather than as one that has none.
+        strokeDasharray={unfiled ? '2 1.6' : undefined}
       />
     </svg>
   )
@@ -167,7 +201,20 @@ function FolderGlyphIcon({ className }: IconProps) {
 // The logo was briefly worn by every workspace row instead (MC-2135 ruling C);
 // the owner reversed that on 2026-09-02 — one project, one mark, on the header
 // that names the project — and the chat rows lost their icon slot with it.
-export function FolderTypeIcon({ className, logoSrc }: IconProps & { logoSrc?: string | null }) {
+//
+// `color` and `unfiled` pass straight through to ProjectFolderGlyph, so a call
+// site that has a project key can hand over the hue without choosing between
+// the two components — and a project WITH a logo keeps showing its logo, which
+// is why "No colour" exists in the picker at all: a detected logo already
+// answers "which project is this", and a hue behind it would be a second answer
+// to the same question. Both props are optional and default to the plain glyph,
+// so every existing caller is unchanged.
+export function FolderTypeIcon({
+  className,
+  logoSrc,
+  color,
+  unfiled,
+}: IconProps & { logoSrc?: string | null; color?: ProjectColor | null; unfiled?: boolean }) {
   const [brokenLogoSrc, setBrokenLogoSrc] = useState<string | null>(null)
 
   if (logoSrc && logoSrc !== brokenLogoSrc) {
@@ -187,7 +234,7 @@ export function FolderTypeIcon({ className, logoSrc }: IconProps & { logoSrc?: s
     )
   }
 
-  return <FolderGlyphIcon className={className} />
+  return <ProjectFolderGlyph className={className} color={color} unfiled={unfiled} />
 }
 
 // SprintEngine wherever the app names it as a thing you can open — the Sprints
