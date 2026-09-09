@@ -305,6 +305,64 @@ export type ScannedPlugin = {
    * review, 2026-09-06).
    */
   readCommit?: string
+  /**
+   * The glyph the entry gives itself — an emoji, or one or two characters of
+   * text. Optional twice over: most entries declare none, and every scan
+   * cached before this was read carries none either.
+   */
+  icon?: string
+  /** An https image URL the entry gives itself. Same two absences as `icon`. */
+  logo?: string
+}
+
+/**
+ * `icon` and `logo` on a marketplace entry: the glyph and the picture a plugin
+ * publishes for itself.
+ *
+ * Neither is in the documented field table (code.claude.com/docs/en/
+ * plugin-marketplaces, read 2026-09-10; anthropics/claude-code#28187 is the
+ * open request to standardise them), but the marketplace schema says any field
+ * valid in a plugin manifest may be written on an entry, and marketplaces in
+ * the wild already write both. So they are read where they appear — the entry
+ * first, the plugin's own manifest after it — and VALIDATED rather than
+ * trusted, because a field nobody specified is a field publishers will put
+ * anything in.
+ *
+ * A glyph is text this app prints inside a 36px chip: at most
+ * `MAX_PLUGIN_ICON_CODE_POINTS` code points (a family emoji is seven), no
+ * control characters, and nothing that is really a path or a URL — `./icon.png`
+ * is the picture the open request proposes, and printing it as text would put
+ * a filename in the slot.
+ */
+export const MAX_PLUGIN_ICON_CODE_POINTS = 8
+
+/** The entry's `icon` as a glyph this app may print, or '' when it is not one. */
+export function pluginIconGlyph(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (text === '') return ''
+  if ([...text].length > MAX_PLUGIN_ICON_CODE_POINTS) return ''
+  // Control characters and line breaks only, not every `\p{C}`: the zero-width
+  // joiner is a format character, and rejecting it would reject 👩‍💻 and every
+  // other emoji built by joining two.
+  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(text)) return ''
+  if (/[/\\]/.test(text) || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(text)) return ''
+  return text
+}
+
+/**
+ * The entry's `logo` as an https URL, or '' when it is not one. Only https: a
+ * marketplace is read over the network and its logo is fetched by the
+ * renderer, so http would be a downgrade and `data:`/`file:` a way to hand the
+ * window bytes nobody fetched.
+ */
+export function pluginLogoUrl(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (text === '') return ''
+  try {
+    return new URL(text).protocol === 'https:' ? text : ''
+  } catch {
+    return ''
+  }
 }
 
 /**

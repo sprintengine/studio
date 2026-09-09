@@ -31,6 +31,8 @@
 import { isMarketplaceSourceHostAllowed } from '../../shared/marketplace/source-policy'
 import {
   emptyPluginComponents,
+  pluginIconGlyph,
+  pluginLogoUrl,
   type PluginReadState,
   type ScannedLspServer,
   type ScannedMcpServer,
@@ -542,6 +544,7 @@ async function readLinkedPlugin(options: {
     description: plugin.description || read.manifest?.description || '',
     author: plugin.author || read.manifest?.author || '',
     homepage: plugin.homepage || read.manifest?.homepage || '',
+    ...pluginArtworkFields(plugin.icon || read.manifest?.icon || '', plugin.logo || read.manifest?.logo || ''),
     // `origin.sha` stays what the MARKETPLACE pinned, '' included. The commit
     // this read used goes beside it: writing it into the origin made an entry
     // the publisher left floating read as pinned, and silently moved every
@@ -632,6 +635,16 @@ type PluginPlan = {
   readIndex: number
 }
 
+/**
+ * The artwork fields, WRITTEN ONLY WHEN THERE IS ARTWORK. A scan is cached to
+ * disk verbatim, and `icon: ''` on 292 plugins is 292 lines of a field saying
+ * nothing — the absence is the fact, and it is the same absence every scan
+ * cached before this existed already carries.
+ */
+function pluginArtworkFields(icon: string, logo: string): Pick<ScannedPlugin, 'icon' | 'logo'> {
+  return { ...(icon === '' ? {} : { icon }), ...(logo === '' ? {} : { logo }) }
+}
+
 async function realisePlan(
   plan: PluginPlan,
   input: PluginTreeScanInput,
@@ -654,6 +667,7 @@ async function realisePlan(
       strict: entry.strict,
       tags: entry.tags,
       keywords: entry.keywords,
+      ...pluginArtworkFields(entry.icon, entry.logo),
       origin: entry.source,
       componentsKnown: false,
       components: emptyPluginComponents(),
@@ -684,6 +698,7 @@ async function realisePlan(
     strict: entry?.strict ?? true,
     tags: entry?.tags ?? [],
     keywords: entry?.keywords ?? [],
+    ...pluginArtworkFields(entry?.icon || manifest?.icon || '', entry?.logo || manifest?.logo || ''),
     origin: { kind: 'in-tree', path: dir },
     // An in-tree plugin is read from the same repository as the rest of the
     // scan, but a raw read still fails, and it fails the same way: a plugin
@@ -714,6 +729,13 @@ type PluginManifest = {
   version: string
   author: string
   homepage: string
+  /**
+   * Read here too, though no schema documents them on a manifest: an entry may
+   * carry any field a manifest may, so a publisher who writes the glyph once
+   * writes it in whichever of the two files they think of first.
+   */
+  icon: string
+  logo: string
 }
 
 /**
@@ -793,6 +815,8 @@ async function readComponents(
           version: parsedManifest.version,
           author: parsedManifest.author,
           homepage: parsedManifest.homepage,
+          icon: parsedManifest.icon,
+          logo: parsedManifest.logo,
         }
       : null,
     components: { skills: pluginSkills, commands, agents, hooks, mcpServers, lspServers, missingSkills },
@@ -827,6 +851,8 @@ function parsePluginManifest(raw: string | null): ParsedPluginManifest | null {
     version: stringOf(parsed.version),
     author: authorName(parsed.author),
     homepage: stringOf(parsed.homepage),
+    icon: pluginIconGlyph(parsed.icon),
+    logo: pluginLogoUrl(parsed.logo),
     inlineHooks: isRecord(parsed.hooks) ? parsed.hooks : null,
     inlineMcpServers: isRecord(parsed.mcpServers) ? parsed.mcpServers : null,
     inlineLspServers: isRecord(parsed.lspServers) ? parsed.lspServers : null,
@@ -1087,6 +1113,9 @@ type MarketplaceEntry = {
   homepage: string
   source: Extract<ScannedPluginOrigin, { kind: 'in-tree' | 'linked' }>
   skills: string[]
+  /** The entry's own glyph and picture, '' when it declares none we can use. */
+  icon: string
+  logo: string
   /** Absent means true — the marketplace schema's own default. */
   strict: boolean
   tags: string[]
@@ -1132,6 +1161,8 @@ export function parseMarketplaceManifest(raw: string | null): MarketplaceManifes
       skills: Array.isArray(item.skills)
         ? item.skills.filter((skill): skill is string => typeof skill === 'string')
         : [],
+      icon: pluginIconGlyph(item.icon),
+      logo: pluginLogoUrl(item.logo),
       strict: item.strict !== false,
       tags: stringList(item.tags),
       keywords: stringList(item.keywords),
