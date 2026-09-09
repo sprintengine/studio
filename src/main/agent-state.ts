@@ -6,6 +6,7 @@ import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/el
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { isAbsoluteObservedPath, MAX_OBSERVED_CWD_LENGTH } from '../shared/observed-checkout'
 import { isRecord } from '../shared/records'
+import { resolveClaudeConfigDir } from './conversation-peek/locate'
 
 // =============================================================================
 // Authoritative agent state — pure core (no Electron deps, fully unit-testable)
@@ -754,7 +755,13 @@ function stripAgentStateEntries(hooks: Record<string, ClaudeMatcherBlock[]>): vo
 export async function mergeAgentStateHooks(
   settingsPath: string,
   command: string,
-  events: ReadonlyArray<{ event: string; matcher?: string }>
+  events: ReadonlyArray<{ event: string; matcher?: string }>,
+  // The status line to write in the same pass, when this spec declares one.
+  // ONE read-modify-write, deliberately: this file is shared with Claude Code
+  // itself, which rewrites it whenever a person answers "allow always", so a
+  // second write cycle here is a window in which their permission is silently
+  // clobbered.
+  statusLine?: StatusLineForwarderInstall | null
 ): Promise<void> {
   const existing = (await readJsonIfExists<ClaudeSettings>(settingsPath)) ?? {}
   const settings: ClaudeSettings = { ...existing }
@@ -774,6 +781,8 @@ export async function mergeAgentStateHooks(
     block.hooks = filtered
   }
 
+  if (statusLine) applyStatusLineForwarder(settings, statusLine)
+
   await mkdir(resolve(settingsPath, '..'), { recursive: true })
   await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
 }
@@ -787,6 +796,418 @@ async function unmergeAgentStateHooks(settingsPath: string): Promise<void> {
   stripAgentStateEntries(existing.hooks)
   if (Object.keys(existing.hooks).length === 0) delete existing.hooks
 
+  await writeFile(settingsPath, JSON.stringify(existing, null, 2) + '\n', 'utf8')
+}
+
+// =============================================================================
+// Status line (Claude Code's `statusLine` setting) — install / uninstall
+//
+// Hooks say what an agent is DOING; none of them says how much of the model's
+// context window is gone. Claude Code puts that number (and the session's cost,
+// line counts, model and name) on stdin of the `statusLine` command, refreshed
+// after every assistant message, after a /compact, on a permission-mode change
+// and on a rate-limit reset. So the app makes itself that command — the
+// forwarder script beside the reporter — and turns each refresh into a frame.
+//
+// A person may already have a status line, and taking it away to read a number
+// would be a straight theft of their terminal. So install WRAPS: their command
+// is base64'd into `--wrap`, the forwarder runs it with the same stdin bytes and
+// passes its stdout and exit code through, and the object we displaced is kept
+// verbatim under `_multicodeWrapped` so uninstall can put it back exactly.
+//
+// Same `_multicode` discipline as the hooks: our entry is recognizable, ours
+// alone is ever replaced, every other key in the file is preserved, and install
+// is idempotent (a second install unwraps our own entry rather than wrapping
+// itself). Serialization is the caller's, and it is the SAME per-target-file
+// chain the hooks use — both writers touch settings.local.json.
+// =============================================================================
+
+// Where the forwarder script is copied inside a workspace, beside the reporter.
+export const STATUS_LINE_HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'status-line.mjs')
+
+// The same tag-stripping problem the hook entries have (a writer round-tripping
+// settings.local.json through a schema that drops unknown keys would take
+// `_multicode` with it, leaving an unremovable entry pointing at a script path
+// that dangles the moment the workspace moves). So ours is claimed by the
+// command's shape too, exactly as buildStatusLineForwarderCommand emits it.
+const STATUS_LINE_COMMAND_SIGNATURE = '/.multicode/hooks/status-line.mjs" --socket "'
+
+// The person's own command, as it rides in our argv: base64 of
+// {"command": "..."}, double-quoted. Read back out of a command string when a
+// tag-stripping writer has taken `_multicodeWrapped` — the envelope is then the
+// only surviving copy of what we displaced.
+const STATUS_LINE_WRAP_ARGUMENT = /--wrap "([A-Za-z0-9+/=]+)"/
+
+// A status line command longer than this is not one we will carry through a
+// base64 argv round trip — nothing is installed (their status line stays
+// exactly as it is) rather than truncating, because half a command is a
+// command.
+const MAX_WRAPPED_STATUS_LINE_COMMAND_LENGTH = 4096
+
+// And the rendered command has its own ceiling, because the base64 envelope is
+// a third longer than what it carries and the whole string is executed as a
+// command line: cmd.exe refuses one past 8191 characters, so a wrapped command
+// that is legal on its own can render a status line Windows cannot run. Checked
+// on the RENDERED string, which is the thing with the limit.
+const MAX_STATUS_LINE_RENDERED_COMMAND_LENGTH = 7000
+
+// Which of the three settings files the wrapped status line was displaced from.
+// Recorded because only the LOCAL one is the file we overwrite: a status line
+// that lives in the person's `~/.claude/settings.json` is still sitting there
+// untouched, so writing a copy of it back into the project's
+// settings.local.json on uninstall would leave a stale duplicate shadowing the
+// original forever after they next edit it.
+export type WrappedStatusLineOrigin = 'local' | 'project' | 'user'
+
+export type WrappedStatusLine = {
+  statusLine: Record<string, unknown>
+  origin: WrappedStatusLineOrigin
+}
+
+// What the settings write does about the status line: put ours in (wrapping the
+// status line it displaced, null when it displaced nothing), or take ours out.
+export type StatusLineForwarderInstall =
+  | { action: 'write'; command: string; wrapped: WrappedStatusLine | null }
+  | { action: 'remove' }
+
+const WRAPPED_STATUS_LINE_ORIGINS: ReadonlySet<string> = new Set<WrappedStatusLineOrigin>([
+  'local',
+  'project',
+  'user',
+])
+
+// `scriptPath` is forward-slashed and `socketPath` verbatim for exactly the
+// reasons buildAgentStateReporterCommand documents. The wrap envelope is
+// base64 (alphabet A-Z a-z 0-9 + / =) so no shell on any platform can find
+// anything to interpret in the person's own command while it rides in our argv;
+// it is double-quoted anyway, like the other two.
+export function buildStatusLineForwarderCommand(
+  scriptPath: string,
+  socketPath: string,
+  wrapped: WrappedStatusLine | null
+): string {
+  const base = `node "${scriptPath.split(sep).join('/')}" --socket "${socketPath}"`
+  const command = typeof wrapped?.statusLine.command === 'string' ? wrapped.statusLine.command : null
+  if (!command) return base
+  const envelope = Buffer.from(JSON.stringify({ command }), 'utf8').toString('base64')
+  return `${base} --wrap "${envelope}"`
+}
+
+/** Whether a `statusLine` value is one this app wrote. */
+function isOurStatusLine(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  if (value._multicode === true) return true
+  return typeof value.command === 'string' && value.command.includes(STATUS_LINE_COMMAND_SIGNATURE)
+}
+
+/**
+ * A person's status line reduced to "can we run this on their behalf". Only
+ * Claude's `command` type exists, so anything else - a missing command, a
+ * non-string one, an absurd one, or (defensively) one of ours - is not
+ * wrappable.
+ *
+ * An unwrappable status line is never DISPLACED: see the resolution below. A
+ * type this code has not heard of is the case that matters, because it is what
+ * a future Claude release looks like, and installing over it would delete a
+ * setting we merely failed to recognize.
+ */
+function wrappableStatusLine(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value) || isOurStatusLine(value)) return null
+  if (value.type !== 'command') return null
+  const command = value.command
+  if (typeof command !== 'string' || !command.trim()) return null
+  if (command.length > MAX_WRAPPED_STATUS_LINE_COMMAND_LENGTH) return null
+  return value
+}
+
+// A settings file that another tool half-wrote (or a `~/.claude/settings.json`
+// with a trailing comma in it) must not take the agent-state install down with
+// it: an unreadable file simply carries no status line.
+async function readSettingsLeniently(path: string): Promise<Record<string, unknown> | null> {
+  try {
+    return (await readJsonIfExists<Record<string, unknown>>(path)) ?? null
+  } catch {
+    return null
+  }
+}
+
+// What the scan tells the writer to do. Three outcomes, kept apart because two
+// of them used to be one `null` and the difference between them is a person's
+// status line:
+//   write  — install ours, wrapping `wrapped` (null = there was nothing to wrap)
+//   remove — take ours back out: the person now has a status line we cannot run
+//            for them, and ours is the only thing standing in front of it
+//   leave  — touch the setting at all and something is lost
+export type StatusLineResolution =
+  | { kind: 'write'; wrapped: WrappedStatusLine | null }
+  | { kind: 'remove' }
+  | { kind: 'leave' }
+
+/**
+ * What one of our own entries displaced, as far as it can still be told.
+ *
+ *   value    — the status line we replaced. `origin: 'unknown'` means it was
+ *              recovered from the command's own `--wrap` envelope after a writer
+ *              stripped the bookkeeping keys, so where it came from is lost.
+ *   none     — we installed over nothing, and there is nothing to recover.
+ *   unusable — something IS recorded but is not a status line we can re-wrap (a
+ *              hand-edit, a type from a later Claude). It is still the record
+ *              uninstall restores from, so it must not be overwritten.
+ */
+type DisplacedStatusLine =
+  | { kind: 'value'; statusLine: Record<string, unknown>; origin: WrappedStatusLineOrigin | 'unknown' }
+  | { kind: 'none' }
+  | { kind: 'unusable' }
+
+// The person's own status line rebuilt out of OUR entry — the only surviving
+// copy once a schema-normalizing writer has taken `_multicodeWrapped`. The
+// command comes from the base64 in our argv; `padding` and `refreshInterval`
+// come from our own entry, which carries them precisely so that Claude keeps
+// running their script the way they configured it. `padding: 0` is a setting a
+// person can see, not a default, so it is recovered like the rest.
+function statusLineFromWrapArgument(ours: Record<string, unknown>): Record<string, unknown> | null {
+  const command = ours.command
+  if (typeof command !== 'string') return null
+  const match = STATUS_LINE_WRAP_ARGUMENT.exec(command)
+  if (!match) return null
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8'))
+    if (!isRecord(parsed) || typeof parsed.command !== 'string') return null
+    const recovered: Record<string, unknown> = { type: 'command', command: parsed.command }
+    if (typeof ours.padding === 'number' && Number.isFinite(ours.padding)) recovered.padding = ours.padding
+    if (typeof ours.refreshInterval === 'number' && Number.isFinite(ours.refreshInterval)) {
+      recovered.refreshInterval = ours.refreshInterval
+    }
+    return wrappableStatusLine(recovered)
+  } catch {
+    return null
+  }
+}
+
+// The origin recorded on one of our entries, when it is still there and still
+// one of the three we write.
+function recordedStatusLineOrigin(ours: Record<string, unknown>): WrappedStatusLineOrigin | null {
+  const recorded = ours._multicodeWrappedFrom
+  return typeof recorded === 'string' && WRAPPED_STATUS_LINE_ORIGINS.has(recorded)
+    ? (recorded as WrappedStatusLineOrigin)
+    : null
+}
+
+function displacedStatusLine(ours: Record<string, unknown>): DisplacedStatusLine {
+  const previous = ours._multicodeWrapped
+  if (isRecord(previous)) {
+    const statusLine = wrappableStatusLine(previous)
+    if (!statusLine) return { kind: 'unusable' }
+    return { kind: 'value', statusLine, origin: recordedStatusLineOrigin(ours) ?? 'local' }
+  }
+  // Explicitly null: we installed over nothing.
+  if (previous === null) return { kind: 'none' }
+  // Absent: the same writer the command-shape signature exists for has round-
+  // tripped this file through a schema that drops unknown keys, taking
+  // `_multicodeWrapped` with the tag. It may or may not have taken the origin
+  // too — when the origin survived it is still the truth about where the
+  // command came from, and using it is what stops a project-level status line
+  // being copied down into the local file as a permanent shadow of itself.
+  const recovered = statusLineFromWrapArgument(ours)
+  if (!recovered) return { kind: 'none' }
+  return { kind: 'value', statusLine: recovered, origin: recordedStatusLineOrigin(ours) ?? 'unknown' }
+}
+
+/**
+ * The status line the person would see if this app installed nothing, read in
+ * Claude Code's own precedence: the settings file we write (project-local),
+ * then the project settings beside it, then the user's (honouring
+ * `CLAUDE_CONFIG_DIR`, first comma entry, the way every other Claude reader in
+ * this app resolves it).
+ *
+ * Our own entry is never wrapped. It is unwrapped instead:
+ *   - displaced from THIS file  -> that is the answer, and install is idempotent.
+ *   - recovered from the argv envelope, origin lost -> also the answer, and
+ *     immediately: the file it was found in outranks everything below, so
+ *     deferring to a lower one would run a command Claude never would have and
+ *     throw away the only copy of the one it did.
+ *   - displaced from the project or user file -> the scan CONTINUES, so the LIVE
+ *     value from that file wins. Those two are never restored by uninstall
+ *     (they were never removed from their own file), so the copy we hold is only
+ *     "what to run", and a person who has since edited it means the edit.
+ *   - nothing displaced (we installed over nothing) -> the scan continues, so a
+ *     status line added after we installed is picked up rather than shadowed.
+ *
+ * A status line we cannot run for them stops the scan. If ours is sitting in the
+ * local file it is REMOVED — otherwise our entry, which outranks every file
+ * below it, would shadow the person's new status line silently and forever.
+ */
+export async function resolveWrappedStatusLine(
+  settingsPath: string,
+  options: { homeDir: string; env: NodeJS.ProcessEnv }
+): Promise<StatusLineResolution> {
+  const projectPath = resolve(settingsPath, '..', 'settings.json')
+  const userPath = resolve(resolveClaudeConfigDir(options.homeDir, options.env), 'settings.json')
+  // Derived from the registration's own path rather than hardcoded, and
+  // de-duplicated: a manifest is only validated to register a settings-JSON
+  // kind, not which of Claude's settings files it names.
+  const candidates: Array<{ path: string; origin: WrappedStatusLineOrigin }> = [
+    { path: settingsPath, origin: 'local' },
+  ]
+  if (projectPath !== settingsPath) candidates.push({ path: projectPath, origin: 'project' })
+  if (userPath !== settingsPath && userPath !== projectPath) candidates.push({ path: userPath, origin: 'user' })
+
+  let oursIsInstalled = false
+  for (const { path, origin } of candidates) {
+    const settings = await readSettingsLeniently(path)
+    const raw = settings?.statusLine
+    if (!isRecord(raw)) continue
+    if (isOurStatusLine(raw)) {
+      if (origin === 'local') oursIsInstalled = true
+      const displaced = displacedStatusLine(raw)
+      // Something is recorded that we cannot re-wrap: leave the whole setting
+      // alone rather than overwrite the record uninstall restores from.
+      if (displaced.kind === 'unusable') return { kind: 'leave' }
+      if (displaced.kind === 'none') continue
+      if (displaced.origin === 'local' || displaced.origin === 'unknown') {
+        // The candidate's OWN origin, not a hardcoded 'local': every shipped
+        // manifest registers the local file, so these are the same value today,
+        // but a manifest registering `.claude/settings.json` would otherwise
+        // make one workspace's scan claim another install's record as its own
+        // to restore.
+        return { kind: 'write', wrapped: { statusLine: displaced.statusLine, origin } }
+      }
+      continue
+    }
+    const statusLine = wrappableStatusLine(raw)
+    if (statusLine) return { kind: 'write', wrapped: { statusLine, origin } }
+    return oursIsInstalled ? { kind: 'remove' } : { kind: 'leave' }
+  }
+  return { kind: 'write', wrapped: null }
+}
+
+/**
+ * Write our status line into a settings object, preserving every other key.
+ * `padding` and `refreshInterval` are carried over from the status line we
+ * displaced: they configure how Claude RUNS the command (indentation, and the
+ * timer that re-runs it while the session is idle), so dropping them would
+ * silently change the behaviour of the person's own script, which is still the
+ * one printing.
+ */
+function applyStatusLineForwarder(settings: ClaudeSettings, install: StatusLineForwarderInstall): void {
+  if (install.action === 'remove') {
+    removeStatusLineForwarder(settings)
+    return
+  }
+  // The scan read this file, and the copy of the forwarder happened after. A
+  // status line written into that window — Claude Code's own `/statusline`, a
+  // person with an editor open — is not the one we resolved against, and
+  // overwriting it would lose it AND record the stale value as the thing to
+  // restore. Leave it; the next install wraps it properly.
+  const current = settings.statusLine
+  if (
+    isRecord(current)
+    && !isOurStatusLine(current)
+    && JSON.stringify(current) !== JSON.stringify(install.wrapped?.statusLine ?? null)
+  ) {
+    return
+  }
+  const ours: Record<string, unknown> = { type: 'command', command: install.command }
+  const padding = install.wrapped?.statusLine.padding
+  if (typeof padding === 'number' && Number.isFinite(padding)) ours.padding = padding
+  const refreshInterval = install.wrapped?.statusLine.refreshInterval
+  if (typeof refreshInterval === 'number' && Number.isFinite(refreshInterval)) {
+    ours.refreshInterval = refreshInterval
+  }
+  ours._multicode = true
+  // Verbatim, so restore is byte-identical to what was there. Explicitly null
+  // (rather than absent) when we installed over nothing: uninstall reads the
+  // difference between "restore this" and "delete the key".
+  ours._multicodeWrapped = install.wrapped?.statusLine ?? null
+  if (install.wrapped) ours._multicodeWrappedFrom = install.wrapped.origin
+  settings.statusLine = ours
+}
+
+/**
+ * Take our status line back out of a settings object, putting back the one it
+ * displaced. Restoring is not the same question as wrapping: this puts a value
+ * BACK where it was, so a status line we could no longer run for them is still
+ * theirs to have.
+ *
+ * Only a status line displaced from THIS file is restored — one that came from
+ * the project or user settings is still sitting in its own file, untouched, and
+ * copying it down here would shadow every later edit of the original. An entry
+ * whose bookkeeping a schema-normalizing writer stripped is restored from our
+ * own argv, which is then the only copy of it left anywhere; and an entry with
+ * no recorded origin predates the bookkeeping. Both of those restore, which is
+ * the direction that keeps a command running.
+ */
+function removeStatusLineForwarder(settings: ClaudeSettings): void {
+  const current = settings.statusLine
+  if (!isOurStatusLine(current) || !isRecord(current)) return
+  const previous = current._multicodeWrapped
+  const recordedOrigin = recordedStatusLineOrigin(current)
+  const restorable = recordedOrigin === null || recordedOrigin === 'local'
+  if (restorable && isRecord(previous) && !isOurStatusLine(previous)) {
+    settings.statusLine = previous
+    return
+  }
+  // Gated on the same `restorable`: an origin that survived the stripping still
+  // says the command came from another file, where it is still sitting.
+  if (restorable && previous === undefined) {
+    const recovered = statusLineFromWrapArgument(current)
+    if (recovered) {
+      settings.statusLine = recovered
+      return
+    }
+  }
+  delete settings.statusLine
+}
+
+/**
+ * Work out what the status line should be and copy the forwarder into place,
+ * ready for the settings write to carry it. Returns null when nothing should be
+ * written - and null is the safe answer for every failure here, because the
+ * hooks are the load-bearing half of this install and a status line must never
+ * cost a workspace its agent state.
+ *
+ * Nothing is written when the person's own status line is one we cannot run for
+ * them: displacing a setting we merely failed to recognize would delete it.
+ */
+async function prepareStatusLineForwarder(
+  workspaceRoot: string,
+  settingsPath: string,
+  options: { statusLineScriptPath: string; socketPath: string; homeDir: string; env: NodeJS.ProcessEnv }
+): Promise<StatusLineForwarderInstall | null> {
+  try {
+    const resolved = await resolveWrappedStatusLine(settingsPath, {
+      homeDir: options.homeDir,
+      env: options.env,
+    })
+    if (resolved.kind === 'leave') return null
+    // Resolved BEFORE the script is looked for: taking ours back out of the way
+    // of a status line we cannot wrap is exactly the thing a build that shipped
+    // without the forwarder still has to be able to do.
+    if (resolved.kind === 'remove') return { action: 'remove' }
+    if (!existsSync(options.statusLineScriptPath)) return null
+    const destScript = resolve(workspaceRoot, STATUS_LINE_HOOK_SCRIPT_REL)
+    const command = buildStatusLineForwarderCommand(destScript, options.socketPath, resolved.wrapped)
+    // A command the platform will not run is not one to install: cmd.exe caps a
+    // command line at 8191 characters, and the base64 envelope is a third longer
+    // than what it carries. Their status line stays exactly as it is.
+    if (command.length > MAX_STATUS_LINE_RENDERED_COMMAND_LENGTH) return null
+    await mkdir(resolve(destScript, '..'), { recursive: true })
+    await copyFile(options.statusLineScriptPath, destScript)
+    return { action: 'write', command, wrapped: resolved.wrapped }
+  } catch {
+    return null
+  }
+}
+
+/** Put the person's status line back, on disk. */
+async function unmergeStatusLineForwarder(settingsPath: string): Promise<void> {
+  const existing = await readJsonIfExists<ClaudeSettings>(settingsPath)
+  if (!existing) return
+  // A status line that is not ours is left exactly as it is — a person who
+  // replaced ours by hand has said what they want, and uninstall is not the
+  // place to argue.
+  if (!isOurStatusLine(existing.statusLine)) return
+  removeStatusLineForwarder(existing)
   await writeFile(settingsPath, JSON.stringify(existing, null, 2) + '\n', 'utf8')
 }
 
@@ -1050,7 +1471,19 @@ function resolveRegistrationPath(
 export async function installAgentStateReporter(
   workspaceRoot: string,
   spec: PluginAgentStateSpec,
-  options: { sourceScriptPath: string; socketPath: string; homeDir?: string }
+  options: {
+    sourceScriptPath: string
+    socketPath: string
+    homeDir?: string
+    // The bundled status-line forwarder, for a spec that opts into it. Null or
+    // absent (the script did not ship, or this CLI declares no status line) and
+    // the install writes hooks only — a missing forwarder must never cost a
+    // workspace its agent state.
+    statusLineScriptPath?: string | null
+    // Environment the Claude settings precedence is read against
+    // (CLAUDE_CONFIG_DIR). Injected so tests never read the real one.
+    env?: NodeJS.ProcessEnv
+  }
 ): Promise<AgentStateInstallResult> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
   if (!options.socketPath?.trim()) return { ok: false, message: 'Agent-state socket path is required.' }
@@ -1088,9 +1521,24 @@ export async function installAgentStateReporter(
     const events = registeredAgentStateEvents(spec)
 
     switch (registration.kind) {
-      case 'settings-json':
-        await mergeAgentStateHooks(targetPath, command, events)
+      case 'settings-json': {
+        // The status line rides the same settings file and the same WRITE.
+        // Workspace-scoped only: the precedence scan reads the project's own
+        // .claude/, which a user-global registration has none of. Everything
+        // about it is best-effort — it resolves to null rather than throwing,
+        // so the hooks land whatever happens to it.
+        const statusLine =
+          spec.statusLine === true && registration.scope !== 'user' && options.statusLineScriptPath
+            ? await prepareStatusLineForwarder(workspaceRoot, targetPath, {
+                statusLineScriptPath: options.statusLineScriptPath,
+                socketPath: options.socketPath,
+                homeDir,
+                env: options.env ?? process.env,
+              })
+            : null
+        await mergeAgentStateHooks(targetPath, command, events, statusLine)
         break
+      }
       case 'flat-hooks-json':
         await mergeFlatAgentStateHooks(targetPath, command, events)
         break
@@ -1128,7 +1576,15 @@ export async function uninstallAgentStateReporter(
     const targetPath = resolveRegistrationPath(workspaceRoot, registration, options.homeDir ?? homedir())
     switch (registration.kind) {
       case 'settings-json': {
-        if (existsSync(targetPath)) await unmergeAgentStateHooks(targetPath)
+        if (existsSync(targetPath)) {
+          await unmergeAgentStateHooks(targetPath)
+          // Unconditional, never gated on spec.statusLine: a spec that turned
+          // the flag OFF must still be able to give a person their status line
+          // back.
+          await unmergeStatusLineForwarder(targetPath)
+        }
+        const destStatusLine = resolve(workspaceRoot, STATUS_LINE_HOOK_SCRIPT_REL)
+        if (existsSync(destStatusLine)) await rm(destStatusLine, { force: true })
         // The copied stdin-filter reporter is shared by every command-hook
         // registration in the workspace; the settings-json uninstall owns its
         // removal (legacy behavior — the other kinds leave it in place).

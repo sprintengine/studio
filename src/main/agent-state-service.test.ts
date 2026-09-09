@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { connect, createServer, type Server } from 'node:net'
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -616,6 +617,308 @@ async function run(): Promise<void> {
       'the frame carries the count, never the patch — it must stay a rounding error against the 64KB line cap'
     )
     editServer.close()
+
+    // --- status-line forwarder ---------------------------------------------
+    // Executes the REAL bundled forwarder: the payload below is Claude Code's
+    // documented status-line document, and what comes back over the socket must
+    // be the seven values and nothing else. Then the wrap path: the person's own
+    // command runs with the same stdin bytes and its stdout is ours.
+    const statusLineScript = join(process.cwd(), 'resources', 'hooks', 'multicode-status-line.mjs')
+    const slSockPath = join(sockDir, 'status-line.sock')
+    const slFrames: string[] = []
+    const slServer = await listenLines(slSockPath, slFrames)
+
+    const statusLinePayload = {
+      cwd: '/repo',
+      session_id: 'sl-session',
+      session_name: 'hook ledger',
+      transcript_path: '/Users/me/.claude/projects/-repo/sl-session.jsonl',
+      model: { id: 'claude-opus-5', display_name: 'Opus' },
+      workspace: { current_dir: '/repo', project_dir: '/repo' },
+      version: '2.1.90',
+      cost: {
+        total_cost_usd: 0.01234,
+        total_duration_ms: 45_000,
+        total_api_duration_ms: 2300,
+        total_lines_added: 156,
+        total_lines_removed: 23,
+      },
+      context_window: {
+        total_input_tokens: 15_500,
+        total_output_tokens: 1200,
+        context_window_size: 200_000,
+        used_percentage: 8.4,
+        remaining_percentage: 91.6,
+        current_usage: { input_tokens: 8500, output_tokens: 1200 },
+      },
+      rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1_738_425_600 } },
+    }
+
+    const runStatusLine = (
+      options: {
+        envSocket?: string | undefined
+        argSocket: string
+        payload: unknown
+        wrap?: { command: string }
+        agentId?: string | undefined
+      }
+    ): Promise<{ stdout: string; code: number | null }> =>
+      new Promise((resolve, reject) => {
+        const args = [statusLineScript, '--socket', options.argSocket]
+        if (options.wrap) {
+          args.push('--wrap', Buffer.from(JSON.stringify(options.wrap), 'utf8').toString('base64'))
+        }
+        const child = spawn(process.execPath, args, {
+          env: {
+            ...process.env,
+            // Always overridden: this suite can itself be running inside a
+            // Multicode agent terminal, whose launch env names the LIVE app's
+            // socket and agent.
+            MULTICODE_AGENT_STATE_SOCKET: options.envSocket ?? '',
+            MULTICODE_AGENT_ID: options.agentId ?? '',
+            MULTICODE_WORKSPACE_ID: 'sl-ws',
+            // Pinned rather than inherited: the wrapped command runs under the
+            // person's own $SHELL, and a suite whose result depends on the
+            // developer's login shell is a suite that passes for the wrong
+            // reason on one machine and fails on another.
+            SHELL: '/bin/sh',
+          },
+          stdio: ['pipe', 'pipe', 'ignore'],
+        })
+        let stdout = ''
+        child.stdout.setEncoding('utf8')
+        child.stdout.on('data', (chunk: string) => {
+          stdout += chunk
+        })
+        child.on('error', reject)
+        child.on('close', (code) => resolve({ stdout, code }))
+        child.stdin.end(typeof options.payload === 'string' ? options.payload : JSON.stringify(options.payload))
+      })
+
+    const bare = await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: join(sockDir, 'unused.sock'),
+      payload: statusLinePayload,
+      agentId: 'sl-agent',
+    })
+    assert.equal(bare.stdout, '', 'with no wrapped command the forwarder prints nothing')
+    assert.equal(bare.code, 0)
+    await waitFor(() => slFrames.length >= 1)
+    const slFrame = JSON.parse(slFrames[0]) as Record<string, unknown>
+    assert.equal(slFrame.type, 'agent_state')
+    assert.equal(slFrame.event, 'StatusLine', 'the event no manifest names, folded before phase resolution')
+    assert.equal(slFrame.agentId, 'sl-agent')
+    assert.equal(slFrame.workspaceId, 'sl-ws')
+    assert.equal(slFrame.sessionId, 'sl-session')
+    assert.equal(typeof slFrame.ts, 'number')
+    assert.deepEqual(
+      slFrame.statusLine,
+      {
+        usedPercentage: 8.4,
+        contextWindowSize: 200_000,
+        totalCostUsd: 0.01234,
+        linesAdded: 156,
+        linesRemoved: 23,
+        model: 'Opus',
+        sessionName: 'hook ledger',
+      },
+      'only the reading rides the socket — never the transcript path, the cwd or the rate limits'
+    )
+    assert.ok(
+      !slFrames[0].includes('transcript') && !slFrames[0].includes('rate_limits') && !slFrames[0].includes('/repo'),
+      'the forwarder must not leak the rest of the payload'
+    )
+
+    // A null used_percentage (before the first API call, and again right after a
+    // /compact) is OMITTED, never sent as zero: the main process keeps the last
+    // known reading rather than painting a session as empty.
+    await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: join(sockDir, 'unused.sock'),
+      agentId: 'sl-agent',
+      payload: { ...statusLinePayload, context_window: { ...statusLinePayload.context_window, used_percentage: null } },
+    })
+    await waitFor(() => slFrames.length >= 2)
+    const compacted = JSON.parse(slFrames[1]) as { statusLine?: Record<string, unknown> }
+    assert.equal(compacted.statusLine?.usedPercentage, undefined, 'a null percentage is omitted, not zeroed')
+    assert.equal(compacted.statusLine?.contextWindowSize, 200_000, 'the rest of the reading still rides')
+
+    // --wrap: the person's own command runs with the SAME stdin bytes, and its
+    // stdout is what Claude paints.
+    const wrapped = await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: join(sockDir, 'unused.sock'),
+      agentId: 'sl-agent',
+      payload: statusLinePayload,
+      wrap: { command: 'cat' },
+    })
+    assert.equal(wrapped.code, 0)
+    assert.deepEqual(JSON.parse(wrapped.stdout), statusLinePayload, 'the wrapped command receives the same stdin')
+    await waitFor(() => slFrames.length >= 3)
+    assert.equal((JSON.parse(slFrames[2]) as { event?: string }).event, 'StatusLine', 'wrapping still reports')
+
+    const printed = await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: join(sockDir, 'unused.sock'),
+      agentId: 'sl-agent',
+      payload: statusLinePayload,
+      wrap: { command: "printf 'my status line'" },
+    })
+    assert.equal(printed.stdout, 'my status line', 'the wrapped stdout is passed through verbatim')
+    assert.equal(printed.code, 0)
+
+    // The wrapped command's exit code is ours.
+    const failed = await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: join(sockDir, 'unused.sock'),
+      agentId: 'sl-agent',
+      payload: statusLinePayload,
+      wrap: { command: "printf 'still printed'; exit 3" },
+    })
+    assert.equal(failed.stdout, 'still printed')
+    assert.equal(failed.code, 3, 'the wrapped exit code passes through')
+
+    // A session launched OUTSIDE the app: no identity env, so nothing is
+    // reported — but the person's status line still runs.
+    const framesBefore = slFrames.length
+    const outside = await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: slSockPath,
+      agentId: undefined,
+      payload: statusLinePayload,
+      wrap: { command: "printf 'outside'" },
+    })
+    assert.equal(outside.stdout, 'outside', 'an outside-app session keeps its status line')
+    assert.equal(outside.code, 0)
+    // "Nothing arrived" is asserted with a SENTINEL rather than a sleep: send a
+    // payload that must report, and assert the next frame on the wire is that
+    // one. A frame the silent run had sent would have to be ahead of it.
+    await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: join(sockDir, 'unused.sock'),
+      agentId: 'sl-agent',
+      payload: { ...statusLinePayload, session_name: 'sentinel-outside' },
+    })
+    await waitFor(() => slFrames.length > framesBefore)
+    assert.equal(
+      (JSON.parse(slFrames[framesBefore]) as { statusLine?: { sessionName?: string } }).statusLine?.sessionName,
+      'sentinel-outside',
+      'no identity env: report nothing — the next frame is the sentinel, not the silent run'
+    )
+
+    // A socket that is not there fails the connect outright; the status line
+    // must not notice. (The hung-listener case is bounded by SOCKET_TIMEOUT_MS,
+    // which no portable listener can be made to trigger from a test — a write
+    // this small lands in the kernel buffer and our own end() closes it.)
+    const deadSocket = await runStatusLine({
+      envSocket: join(sockDir, 'no-such-status-line.sock'),
+      argSocket: join(sockDir, 'no-such-status-line.sock'),
+      agentId: 'sl-agent',
+      payload: statusLinePayload,
+      wrap: { command: "printf 'survived'" },
+    })
+    assert.equal(deadSocket.stdout, 'survived')
+    assert.equal(deadSocket.code, 0)
+
+    // The base64 envelope exists so that nothing in the person's own command is
+    // interpreted while it rides in our argv. Metacharacters that would be a
+    // command injection through any other encoding come out the far end intact.
+    const hostile = await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: join(sockDir, 'unused.sock'),
+      agentId: 'sl-agent',
+      payload: statusLinePayload,
+      wrap: { command: "printf '%s' 'a b\"c$HOME;echo no'" },
+    })
+    assert.equal(
+      hostile.stdout,
+      'a b"c$HOME;echo no',
+      'the wrapped command runs under their shell exactly as they wrote it, and nothing of ours is interpreted'
+    )
+
+    // Junk on stdin is dropped without a frame and without a crash.
+    const beforeJunk = slFrames.length
+    const junk = await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: slSockPath,
+      agentId: 'sl-agent',
+      payload: 'not json at all',
+      wrap: { command: "printf 'ok'" },
+    })
+    assert.equal(junk.stdout, 'ok')
+
+    // A payload past the parse cap reports nothing — but the wrapped command
+    // still receives EVERY byte of it. Half a JSON document is worse to hand a
+    // person's script than the whole one.
+    const oversized = JSON.stringify({
+      ...statusLinePayload,
+      session_name: 'far too large',
+      padding: 'x'.repeat(1_200_000),
+    })
+    const big = await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: join(sockDir, 'unused.sock'),
+      agentId: 'sl-agent',
+      payload: oversized,
+      wrap: { command: 'wc -c' },
+    })
+    assert.equal(Number(big.stdout.trim()), Buffer.byteLength(oversized, 'utf8'), 'the wrapped command gets it all')
+
+    await runStatusLine({
+      envSocket: slSockPath,
+      argSocket: join(sockDir, 'unused.sock'),
+      agentId: 'sl-agent',
+      payload: { ...statusLinePayload, session_name: 'sentinel-junk' },
+    })
+    await waitFor(() => slFrames.length > beforeJunk)
+    assert.equal(
+      (JSON.parse(slFrames[beforeJunk]) as { statusLine?: { sessionName?: string } }).statusLine?.sessionName,
+      'sentinel-junk',
+      'unparseable stdin and an over-cap payload both report nothing'
+    )
+
+    // Claude Code kills a status-line command that runs too long. That used to
+    // kill the person's command directly; now it kills the forwarder, so the
+    // signal has to reach the command underneath it — including a command that
+    // TRAPS the signal to clean up, which is an ordinary thing for a status-line
+    // script to do. An orphan here holds the status-line pipe open forever, one
+    // per slow refresh.
+    {
+      const marker = join(sockDir, 'orphan-marker')
+      const trapping = `trap 'sleep 30' TERM; printf '%s' start > ${JSON.stringify(marker)}; sleep 30`
+      const child = spawn(
+        process.execPath,
+        [statusLineScript, '--socket', join(sockDir, 'unused.sock'), '--wrap', Buffer.from(JSON.stringify({ command: trapping }), 'utf8').toString('base64')],
+        {
+          env: { ...process.env, MULTICODE_AGENT_STATE_SOCKET: '', MULTICODE_AGENT_ID: '', SHELL: '/bin/sh' },
+          stdio: ['pipe', 'ignore', 'ignore'],
+        }
+      )
+      child.stdin.end(JSON.stringify(statusLinePayload))
+      await waitFor(() => existsSync(marker))
+      const closed = new Promise<void>((resolve) => child.on('close', () => resolve()))
+      child.kill('SIGTERM')
+      // The forwarder waits for the child, and insists shortly after — so this
+      // resolves in well under the 30s the trapping command asked for.
+      await Promise.race([
+        closed,
+        new Promise<void>((_resolve, reject) => setTimeout(() => reject(new Error('the forwarder did not exit after SIGTERM')), 5_000)),
+      ])
+      const survivors = await new Promise<string>((resolve) => {
+        const ps = spawn('/bin/sh', ['-c', `ps -eo pid,command | grep ${JSON.stringify(marker)} | grep -v grep || true`], {
+          stdio: ['ignore', 'pipe', 'ignore'],
+        })
+        let out = ''
+        ps.stdout.setEncoding('utf8')
+        ps.stdout.on('data', (chunk: string) => {
+          out += chunk
+        })
+        ps.on('close', () => resolve(out.trim()))
+      })
+      assert.equal(survivors, '', `the wrapped command must not outlive the forwarder: ${survivors}`)
+    }
+
+    slServer.close()
   }
 
   console.log('agent-state-service.test.ts: all assertions passed')

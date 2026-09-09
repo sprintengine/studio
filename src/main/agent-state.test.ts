@@ -1108,6 +1108,430 @@ async function run(): Promise<void> {
   assert.equal(kimiRemoved.ok, true)
   assert.ok(!(await readFile(kimiConfigPath, 'utf8')).includes('agent-state.mjs'), 'uninstall left the kimi block')
 
+  // --- status line: install, wrap, precedence, restore ---------------------
+  // The forwarder is installed alongside the hooks for a Claude-family
+  // settings-json spec that opts in, and it must never cost a person the status
+  // line they already had.
+  const statusLineScript = join(process.cwd(), 'resources', 'hooks', 'multicode-status-line.mjs')
+  assert.ok(existsSync(statusLineScript), `status-line forwarder not found at ${statusLineScript}`)
+  assert.equal(claudeSpec.statusLine, true, 'claude-code must opt into the status line')
+  assert.equal((await loadBundledSpec('zai')).statusLine, true, 'zai must opt into the status line')
+  assert.equal((await loadBundledSpec('kimi-claude')).statusLine, true, 'kimi-claude must opt into the status line')
+  assert.equal(codexSpec.statusLine, undefined, 'a non-Claude spec must not declare a status line')
+
+  type StatusLineWorld = { root: string; home: string; settingsPath: string; socket: string }
+
+  async function seedStatusLineWorld(seed: {
+    local?: unknown
+    project?: unknown
+    user?: unknown
+  }): Promise<StatusLineWorld> {
+    const home = await mkdtemp(join(tmpdir(), 'agent-state-sl-home-'))
+    const root = await mkdtemp(join(tmpdir(), 'agent-state-sl-ws-'))
+    await mkdir(join(root, '.claude'), { recursive: true })
+    await mkdir(join(home, '.claude'), { recursive: true })
+    const write = async (path: string, value: unknown): Promise<void> => {
+      await writeFile(path, JSON.stringify(value, null, 2) + '\n', 'utf8')
+    }
+    if (seed.local !== undefined) await write(join(root, '.claude', 'settings.local.json'), seed.local)
+    if (seed.project !== undefined) await write(join(root, '.claude', 'settings.json'), seed.project)
+    if (seed.user !== undefined) await write(join(home, '.claude', 'settings.json'), seed.user)
+    return { root, home, settingsPath: join(root, '.claude', 'settings.local.json'), socket: join(root, 'agent.sock') }
+  }
+
+  const installStatusLine = (world: StatusLineWorld, env: NodeJS.ProcessEnv = {}) =>
+    installAgentStateReporter(world.root, claudeSpec, {
+      sourceScriptPath,
+      socketPath: world.socket,
+      statusLineScriptPath: statusLineScript,
+      homeDir: world.home,
+      env,
+    })
+
+  const readStatusLine = async (world: StatusLineWorld): Promise<Record<string, any>> =>
+    JSON.parse(await readFile(world.settingsPath, 'utf8')) as Record<string, any>
+
+  const wrapArgOf = (command: string): unknown => {
+    const match = /--wrap "([A-Za-z0-9+/=]+)"/.exec(command)
+    if (!match) return null
+    return JSON.parse(Buffer.from(match[1], 'base64').toString('utf8'))
+  }
+
+  // 1. No prior status line anywhere: ours goes in unwrapped, other keys stand.
+  {
+    const world = await seedStatusLineWorld({ local: { permissions: { allow: ['Bash(ls:*)'] } } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    const settings = await readStatusLine(world)
+    assert.deepEqual(settings.permissions, { allow: ['Bash(ls:*)'] }, 'unrelated keys must survive install')
+    assert.ok(settings.hooks, 'the hooks merge must still have happened')
+    assert.equal(settings.statusLine.type, 'command')
+    assert.equal(settings.statusLine._multicode, true)
+    assert.equal(settings.statusLine._multicodeWrapped, null)
+    assert.equal(settings.statusLine._multicodeWrappedFrom, undefined)
+    assert.ok(!('padding' in settings.statusLine), 'no padding to carry, so none is written')
+    assert.ok(!settings.statusLine.command.includes('--wrap'), settings.statusLine.command)
+    // Absolute path to the copied script, forward-slashed, exactly like the
+    // reporter command — a relative one would misresolve off the session cwd.
+    const expectedScript = join(world.root, '.multicode', 'hooks', 'status-line.mjs').split('\\').join('/')
+    assert.ok(
+      settings.statusLine.command.startsWith(`node "${expectedScript}" --socket "${world.socket}"`),
+      settings.statusLine.command
+    )
+    assert.ok(existsSync(join(world.root, '.multicode', 'hooks', 'status-line.mjs')), 'forwarder not copied')
+
+    // Uninstall wrapped nothing, so the key goes entirely — and the copy with it.
+    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    const after = await readStatusLine(world)
+    assert.equal(after.statusLine, undefined, 'a status line that wrapped nothing must be deleted')
+    assert.deepEqual(after.permissions, { allow: ['Bash(ls:*)'] }, 'uninstall must keep unrelated keys')
+    assert.ok(!existsSync(join(world.root, '.multicode', 'hooks', 'status-line.mjs')), 'forwarder copy survived uninstall')
+  }
+
+  // 2. A user-level status line is wrapped, its padding carried, and it is NOT
+  //    copied back into the project file on uninstall: it still lives in
+  //    ~/.claude/settings.json, and a duplicate here would shadow every later
+  //    edit of the original.
+  {
+    const theirs = { type: 'command', command: 'my-line.sh --pretty', padding: 2, refreshInterval: 5 }
+    const world = await seedStatusLineWorld({ user: { statusLine: theirs } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    let settings = await readStatusLine(world)
+    assert.deepEqual(settings.statusLine._multicodeWrapped, theirs, 'the original must be kept verbatim')
+    assert.equal(settings.statusLine._multicodeWrappedFrom, 'user')
+    assert.equal(settings.statusLine.padding, 2, 'padding must be carried so the layout does not move')
+    assert.equal(settings.statusLine.refreshInterval, 5, 'refreshInterval must be carried: their script still prints')
+    assert.deepEqual(wrapArgOf(settings.statusLine.command), { command: 'my-line.sh --pretty' })
+
+    // Idempotent: a second install unwraps our own entry rather than wrapping
+    // itself, and rewrites the identical bytes.
+    const first = await readFile(world.settingsPath, 'utf8')
+    assert.equal((await installStatusLine(world)).ok, true)
+    assert.equal(await readFile(world.settingsPath, 'utf8'), first, 'a second install must be byte-identical')
+
+    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    settings = await readStatusLine(world)
+    assert.equal(settings.statusLine, undefined, 'a user-level original must not be re-homed into the project file')
+    const userSettings = JSON.parse(await readFile(join(world.home, '.claude', 'settings.json'), 'utf8'))
+    assert.deepEqual(userSettings.statusLine, theirs, 'the user settings file must never be touched')
+  }
+
+  // 3. A project-level status line beats the user-level one, and a status line
+  //    the person had in settings.local.json itself IS restored there.
+  {
+    const project = { type: 'command', command: 'project-line.sh' }
+    const world = await seedStatusLineWorld({
+      project: { statusLine: project },
+      user: { statusLine: { type: 'command', command: 'user-line.sh' } },
+    })
+    assert.equal((await installStatusLine(world)).ok, true)
+    const settings = await readStatusLine(world)
+    assert.deepEqual(settings.statusLine._multicodeWrapped, project, 'project settings outrank user settings')
+    assert.equal(settings.statusLine._multicodeWrappedFrom, 'project')
+  }
+  {
+    const mine = { type: 'command', command: 'local-line.sh', padding: 1 }
+    const world = await seedStatusLineWorld({ local: { statusLine: mine, env: { FOO: 'bar' } } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    let settings = await readStatusLine(world)
+    assert.equal(settings.statusLine._multicodeWrappedFrom, 'local')
+    assert.deepEqual(wrapArgOf(settings.statusLine.command), { command: 'local-line.sh' })
+    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    settings = await readStatusLine(world)
+    assert.deepEqual(settings.statusLine, mine, 'a local original must come back exactly as it was')
+    assert.deepEqual(settings.env, { FOO: 'bar' }, 'uninstall must keep unrelated keys')
+  }
+
+  // 4. CLAUDE_CONFIG_DIR redirects the user-level read (first comma entry), the
+  //    same rule every other Claude reader in this app follows.
+  {
+    const world = await seedStatusLineWorld({ user: { statusLine: { type: 'command', command: 'home-line.sh' } } })
+    const altConfig = join(world.home, 'alt-config')
+    await mkdir(altConfig, { recursive: true })
+    await writeFile(
+      join(altConfig, 'settings.json'),
+      JSON.stringify({ statusLine: { type: 'command', command: 'alt-line.sh' } }),
+      'utf8'
+    )
+    assert.equal((await installStatusLine(world, { CLAUDE_CONFIG_DIR: `${altConfig},/other` })).ok, true)
+    const settings = await readStatusLine(world)
+    assert.deepEqual(wrapArgOf(settings.statusLine.command), { command: 'alt-line.sh' })
+  }
+
+  // 5. A spec that does not opt in installs no status line at all, and a build
+  //    missing the forwarder still installs the hooks.
+  {
+    const world = await seedStatusLineWorld({})
+    const optedOut: PluginAgentStateSpec = { ...claudeSpec, statusLine: false }
+    assert.equal((await installAgentStateReporter(world.root, optedOut, {
+      sourceScriptPath,
+      socketPath: world.socket,
+      statusLineScriptPath: statusLineScript,
+      homeDir: world.home,
+      env: {},
+    })).ok, true)
+    assert.equal((await readStatusLine(world)).statusLine, undefined)
+
+    const world2 = await seedStatusLineWorld({})
+    assert.equal((await installAgentStateReporter(world2.root, claudeSpec, {
+      sourceScriptPath,
+      socketPath: world2.socket,
+      statusLineScriptPath: join(world2.root, 'does-not-exist.mjs'),
+      homeDir: world2.home,
+      env: {},
+    })).ok, true, 'a missing forwarder must not fail the agent-state install')
+    const settings2 = await readStatusLine(world2)
+    assert.equal(settings2.statusLine, undefined)
+    assert.ok(settings2.hooks?.SessionStart, 'hooks must still be installed without the forwarder')
+  }
+
+  // 6. A status line we cannot run on their behalf is never DISPLACED. The type
+  //    below is what a future Claude release looks like from here, and the whole
+  //    point is that we must not delete a setting we merely failed to recognize
+  //    — so no status line of ours is installed at all, in the file we write or
+  //    in the ones we only read.
+  {
+    const odd = { type: 'something-else', command: 'x' }
+    const world = await seedStatusLineWorld({ project: { statusLine: odd } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    const settings = await readStatusLine(world)
+    assert.equal(settings.statusLine, undefined, 'an unwrappable status line stops the install')
+    assert.ok(settings.hooks?.SessionStart, 'and the hooks still land — they are the load-bearing half')
+    const projectSettings = JSON.parse(await readFile(join(world.root, '.claude', 'settings.json'), 'utf8'))
+    assert.deepEqual(projectSettings.statusLine, odd, 'the project settings file must never be touched')
+  }
+  {
+    // …and in the file we DO write, where overwriting it would be unrecoverable.
+    for (const theirs of [
+      { command: 'no-type.sh' },
+      { type: 'static', text: 'hello' },
+      { type: 'command', command: 'x'.repeat(9000) },
+    ]) {
+      const world = await seedStatusLineWorld({ local: { statusLine: theirs, env: { KEEP: 'me' } } })
+      assert.equal((await installStatusLine(world)).ok, true)
+      const settings = await readStatusLine(world)
+      assert.deepEqual(settings.statusLine, theirs, `an unwrappable local status line survives: ${JSON.stringify(theirs)}`)
+      assert.deepEqual(settings.env, { KEEP: 'me' })
+      assert.ok(settings.hooks?.SessionStart)
+    }
+  }
+
+  // 7. A writer that round-trips settings.local.json through a schema dropping
+  //    unknown keys takes `_multicode` and the wrap bookkeeping with it. The
+  //    command it leaves behind still carries the person's own command, base64'd
+  //    in --wrap, and that is then the only copy of it left anywhere.
+  {
+    const theirs = { type: 'command', command: 'stripped-original.sh' }
+    const world = await seedStatusLineWorld({ local: { statusLine: theirs } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    const installed = await readStatusLine(world)
+    assert.deepEqual(wrapArgOf(installed.statusLine.command), { command: 'stripped-original.sh' })
+
+    const stripped = { type: 'command', command: installed.statusLine.command }
+    await writeFile(world.settingsPath, JSON.stringify({ ...installed, statusLine: stripped }, null, 2), 'utf8')
+    assert.equal((await installStatusLine(world)).ok, true)
+    const healed = await readStatusLine(world)
+    assert.deepEqual(
+      healed.statusLine._multicodeWrapped,
+      theirs,
+      'the wrapped command is recovered from our own argv when the bookkeeping is gone'
+    )
+    assert.deepEqual(wrapArgOf(healed.statusLine.command), { command: 'stripped-original.sh' })
+    // Origin is genuinely unrecoverable, so it is treated as local — the
+    // direction that keeps a command running.
+    assert.equal(healed.statusLine._multicodeWrappedFrom, 'local')
+
+    // And uninstall recovers it the same way. This is the case that loses the
+    // command outright if only install knows the trick.
+    await writeFile(world.settingsPath, JSON.stringify({ ...installed, statusLine: stripped }, null, 2), 'utf8')
+    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    assert.deepEqual(
+      (await readStatusLine(world)).statusLine,
+      theirs,
+      'uninstall recovers a stripped original from our own argv rather than deleting it'
+    )
+  }
+  {
+    // A stripped entry outranks every file below it, so what it carries is what
+    // Claude was running. A lower-precedence file must not take its place — that
+    // would run a command Claude never would have AND throw away the only copy
+    // of the one it did.
+    const mine = { type: 'command', command: 'local-mine.sh' }
+    const world = await seedStatusLineWorld({
+      local: { statusLine: mine },
+      user: { statusLine: { type: 'command', command: 'user-other.sh' } },
+    })
+    assert.equal((await installStatusLine(world)).ok, true)
+    const installed = await readStatusLine(world)
+    await writeFile(
+      world.settingsPath,
+      JSON.stringify({ ...installed, statusLine: { type: 'command', command: installed.statusLine.command } }, null, 2),
+      'utf8'
+    )
+    assert.equal((await installStatusLine(world)).ok, true)
+    assert.deepEqual(
+      wrapArgOf((await readStatusLine(world)).statusLine.command),
+      { command: 'local-mine.sh' },
+      'the recovered local command outranks a live user one'
+    )
+  }
+  {
+    // A `_multicodeWrapped` that is no longer something we could wrap (a
+    // hand-edit, a type from a later Claude) is still the record uninstall
+    // restores from: leave the whole setting alone rather than overwrite it
+    // with null.
+    const odd = { type: 'command' }
+    const world = await seedStatusLineWorld({ local: { statusLine: { type: 'command', command: 'mine.sh' } } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    const installed = await readStatusLine(world)
+    const tampered = { ...installed.statusLine, _multicodeWrapped: odd }
+    await writeFile(world.settingsPath, JSON.stringify({ ...installed, statusLine: tampered }, null, 2), 'utf8')
+    assert.equal((await installStatusLine(world)).ok, true)
+    assert.deepEqual(
+      (await readStatusLine(world)).statusLine._multicodeWrapped,
+      odd,
+      'a restore record we cannot re-wrap is never overwritten'
+    )
+    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    assert.deepEqual((await readStatusLine(world)).statusLine, odd, 'and it is still what comes back')
+  }
+  {
+    // The other side of "never displace what we cannot run": a status line the
+    // person adds AFTER we installed, in a file ours outranks. Ours would shadow
+    // it silently and forever, so ours comes out.
+    const world = await seedStatusLineWorld({ user: { statusLine: { type: 'command', command: 'user-line.sh' } } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    assert.equal((await readStatusLine(world)).statusLine._multicode, true)
+    await writeFile(
+      join(world.root, '.claude', 'settings.json'),
+      JSON.stringify({ statusLine: { type: 'from-a-later-claude' } }),
+      'utf8'
+    )
+    assert.equal((await installStatusLine(world)).ok, true)
+    assert.equal(
+      (await readStatusLine(world)).statusLine,
+      undefined,
+      'ours steps out of the way rather than shadow a status line it cannot run'
+    )
+  }
+  {
+    // The rendered command has its own ceiling (cmd.exe stops at 8191): a
+    // command well inside the source cap can still render past it once the
+    // base64 envelope and the JSON escaping of every quote are counted.
+    const long = { type: 'command', command: 'echo ' + '"'.repeat(3500) }
+    const world = await seedStatusLineWorld({ local: { statusLine: long } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    assert.deepEqual(
+      (await readStatusLine(world)).statusLine,
+      long,
+      'a command that would render past the platform limit is left exactly where it is'
+    )
+  }
+
+  // 8. A project or user status line EDITED after we wrapped it: the snapshot we
+  //    hold is only "what to run" (uninstall never re-homes those), so the live
+  //    file wins. Otherwise the first version they ever wrote would run forever.
+  {
+    const world = await seedStatusLineWorld({ project: { statusLine: { type: 'command', command: 'v1.sh' } } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    assert.deepEqual(wrapArgOf((await readStatusLine(world)).statusLine.command), { command: 'v1.sh' })
+
+    await writeFile(
+      join(world.root, '.claude', 'settings.json'),
+      JSON.stringify({ statusLine: { type: 'command', command: 'v2.sh' } }),
+      'utf8'
+    )
+    assert.equal((await installStatusLine(world)).ok, true)
+    assert.deepEqual(
+      wrapArgOf((await readStatusLine(world)).statusLine.command),
+      { command: 'v2.sh' },
+      'the live project settings win over the snapshot we displaced'
+    )
+
+    // And deleting it there means they meant to delete it.
+    await writeFile(join(world.root, '.claude', 'settings.json'), JSON.stringify({}), 'utf8')
+    assert.equal((await installStatusLine(world)).ok, true)
+    const after = await readStatusLine(world)
+    assert.equal(after.statusLine._multicodeWrapped, null)
+    assert.ok(!after.statusLine.command.includes('--wrap'))
+  }
+
+  // 9. A status line that cannot be installed must never cost the workspace its
+  //    agent state: the hooks are the load-bearing half. A directory sitting
+  //    where the forwarder copy goes makes the copy throw.
+  {
+    const world = await seedStatusLineWorld({})
+    await mkdir(join(world.root, '.multicode', 'hooks', 'status-line.mjs'), { recursive: true })
+    const result = await installStatusLine(world)
+    assert.equal(result.ok, true, `a status-line failure must not fail the install: ${JSON.stringify(result)}`)
+    const settings = await readStatusLine(world)
+    assert.ok(settings.hooks?.SessionStart, 'the hooks landed')
+    assert.equal(settings.statusLine, undefined, 'and no half-installed status line was written')
+  }
+
+  // 10. Only numbers are carried across; the rest of the person's object stays
+  //     in `_multicodeWrapped` and comes back on uninstall.
+  {
+    const theirs = { type: 'command', command: 'l.sh', padding: 'two', refreshInterval: null, colour: 'red' }
+    const world = await seedStatusLineWorld({ local: { statusLine: theirs } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    const settings = await readStatusLine(world)
+    assert.ok(!('padding' in settings.statusLine), 'a non-numeric padding is not carried')
+    assert.ok(!('refreshInterval' in settings.statusLine), 'nor a null refreshInterval')
+    assert.deepEqual(settings.statusLine._multicodeWrapped, theirs, 'but the whole object is kept for the restore')
+    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    assert.deepEqual((await readStatusLine(world)).statusLine, theirs)
+  }
+
+  // 10b. The command we WRITE is executed by Claude through a shell. Take it
+  //      out of the file and run it, with a wrapped command built to break out
+  //      of any encoding that is not opaque, and check that the person's own
+  //      command is what ran — argument for argument — and nothing else.
+  if (process.platform !== 'win32') {
+    const marker = join(await mkdtemp(join(tmpdir(), 'agent-state-sl-shell-')), 'pwned')
+    const theirs = {
+      type: 'command',
+      command: `printf '%s' 'quoted "and" $HOME'; test -e ${JSON.stringify(marker)} && printf ' PWNED'`,
+    }
+    const world = await seedStatusLineWorld({ local: { statusLine: theirs } })
+    assert.equal((await installStatusLine(world)).ok, true)
+    const written = (await readStatusLine(world)).statusLine.command as string
+    const out = await new Promise<string>((res, rej) => {
+      const child = spawn('/bin/sh', ['-c', written], {
+        env: { ...process.env, MULTICODE_AGENT_ID: '', MULTICODE_AGENT_STATE_SOCKET: '', SHELL: '/bin/sh' },
+        stdio: ['pipe', 'pipe', 'ignore'],
+      })
+      let stdout = ''
+      child.stdout.setEncoding('utf8')
+      child.stdout.on('data', (chunk: string) => {
+        stdout += chunk
+      })
+      child.on('error', rej)
+      child.on('close', () => res(stdout))
+      child.stdin.end(JSON.stringify({ session_id: 's', context_window: { used_percentage: 4 } }))
+    })
+    assert.equal(
+      out,
+      'quoted "and" $HOME',
+      'the settings command runs the person’s own command verbatim, and nothing of ours is interpreted'
+    )
+    assert.ok(!existsSync(marker), 'nothing in the wrapped command escaped into our own command line')
+  }
+
+  // 11. A malformed user settings file must not take the install down with it.
+  {
+    const world = await seedStatusLineWorld({})
+    await writeFile(join(world.home, '.claude', 'settings.json'), '{ "statusLine": ', 'utf8')
+    assert.equal((await installStatusLine(world)).ok, true, 'unreadable user settings must not fail the install')
+    assert.equal((await readStatusLine(world)).statusLine._multicodeWrapped, null)
+  }
+
+  // 12. Someone replaced our status line by hand: uninstall leaves it exactly so.
+  {
+    const world = await seedStatusLineWorld({ local: { statusLine: { type: 'command', command: 'theirs.sh' } } })
+    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    assert.deepEqual((await readStatusLine(world)).statusLine, { type: 'command', command: 'theirs.sh' })
+  }
+
   console.log('agent-state.test.ts: all assertions passed')
 }
 

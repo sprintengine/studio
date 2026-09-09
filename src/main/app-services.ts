@@ -200,6 +200,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .loaded()
         .find((plugin) => plugin.manifest.id === cli)?.manifest.agentStateSpec ?? null,
     resolveReporterScriptPath: getBundledAgentStateReporterPath,
+    resolveStatusLineScriptPath: getBundledStatusLineForwarderPath,
     resolveReporterTemplatePath: getBundledAgentStateReporterTemplatePath,
     onFrame: (frame) => terminalRuntime.ingestAgentStateFrame(frame),
     logDiagnostic: (diagnostic) => {
@@ -1216,6 +1217,12 @@ function getBundledHookReporterPath(filename: string): string | null {
 // plugin, rewritten to .js on install).
 function getBundledAgentStateReporterPath(): string | null {
   return getBundledHookReporterPath('multicode-agent-state.mjs')
+}
+
+// The status-line forwarder, shipped by the same `resources/hooks` entry. Only
+// the Claude-family specs that declare `statusLine: true` install it.
+function getBundledStatusLineForwarderPath(): string | null {
+  return getBundledHookReporterPath('multicode-status-line.mjs')
 }
 
 // The app's own plugin marketplace, shipped by the `resources/studio-plugin`
