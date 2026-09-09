@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-import type { BranchPullRequest } from '../../../../shared/git/pull-request'
+import { pullRequestStateLabel, type BranchPullRequest } from '../../../../shared/git/pull-request'
 
 // The pull request mark, in the one module both surfaces draw it from (epic
 // `pull-request-marks`, items `sidebar-line-pull-request-mark` and
@@ -186,6 +186,60 @@ async function main(): Promise<void> {
       ariaLabel:
         'Pull request 418, open: Extensions icon carries its unread count. Open it on GitHub',
     })
+  })
+
+  await run('a pull request the hooks just captured says its number, not a blank line', () => {
+    // The exact record `noteCaptured` writes: a URL, the number parsed out of
+    // it, no title, and the moment of capture standing in for the moment it was
+    // opened. It stays that way until GitHub answers — and for ever if `gh`
+    // never can. Rendered naively that was a bold empty line over the identity
+    // line, and "Pull request 418, open: . Open it on GitHub" out loud.
+    const captured: BranchPullRequest = {
+      url: 'https://github.com/acme/multicode/pull/418',
+      repoKey: 'github.com/acme/multicode',
+      repoName: 'multicode',
+      number: 418,
+      title: '',
+      state: 'open',
+      isDraft: false,
+      openedAt: NOW,
+      stateAt: NOW,
+      openedBySessionId: 'session-a',
+    }
+    const copy = peekMarkCopy([captured], NOW)
+    const state = pullRequestStateLabel(captured)
+    assert.equal(copy?.title, `Pull request ${num(418)}`, 'the identity leads, since nothing else can')
+    assert.deepEqual(
+      copy?.lines,
+      [`${state} · now`, 'Open it on GitHub'],
+      'and it is not repeated underneath: the line under it says only what is left to say',
+    )
+    assert.equal(
+      copy?.ariaLabel,
+      `Pull request 418, ${state}. Open it on GitHub`,
+      'spoken, the colon clause goes with the title it introduced',
+    )
+    const [group] = pullRequestMenuGroups([captured, pr({ number: 411, state: 'merged' })], NOW)
+    assert.equal(group?.rows[0]?.title, '', 'the menu row is the number alone')
+    assert.equal(
+      group?.rows[0]?.ariaLabel,
+      `Pull request 418, ${state}. Open it on GitHub`,
+    )
+    // An hour later, still untitled, the age has something to say and joins the
+    // state on the line under the identity.
+    const older = peekMarkCopy([{ ...captured, openedAt: NOW - HOUR }], NOW)
+    assert.equal(older?.title, `Pull request ${num(418)}`)
+    assert.deepEqual(older?.lines, [`${state} · 1 hour ago`, 'Open it on GitHub'])
+  })
+
+  await run('the moment GitHub answers with a title, the title leads again', () => {
+    const copy = peekMarkCopy(
+      [pr({ number: 418, title: 'Gate OSC 52 writes', openedAt: NOW - 12 * MINUTE })],
+      NOW,
+    )
+    assert.equal(copy?.title, 'Gate OSC 52 writes')
+    assert.match(copy?.lines[0] ?? '', /^Pull request #418 · /, 'the identity moves back down')
+    assert.match(copy?.ariaLabel ?? '', /: Gate OSC 52 writes\. Open it on GitHub$/)
   })
 
   await run('the menu groups by state, newest first inside each, and omits the empty groups', () => {

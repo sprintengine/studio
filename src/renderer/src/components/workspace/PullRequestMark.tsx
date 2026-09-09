@@ -128,19 +128,30 @@ export function peekMarkCopy(list: readonly BranchPullRequest[], now: number): P
   const spans = pullRequestsSpanRepositories(list)
   const state = pullRequestStateLabel(primary)
   const opened = relativeFromNow(primary.openedAt, now)
+  const identity = spans
+    ? writtenNumber(primary, spans)
+    : `Pull request ${writtenNumber(primary, spans)}`
+  // A pull request the hooks CAPTURED has no title until GitHub answers — and
+  // never gets one if `gh` cannot reach it. Untitled, the identity moves up
+  // into the title line, because a bold empty line over "Pull request #418 ·
+  // open · 12 minutes ago" is a tooltip whose first line is missing, and a
+  // spoken "Pull request 418, open: . Open it on GitHub" is a sentence with a
+  // hole in it. The number is a name; the title is an elaboration of it, and an
+  // elaboration that is not there is simply left out.
+  const titled = primary.title.trim().length > 0
   return {
-    title: primary.title,
+    title: titled ? primary.title : identity,
     lines: [
-      [
-        spans ? writtenNumber(primary, spans) : `Pull request ${writtenNumber(primary, spans)}`,
-        state,
-        opened,
-      ]
+      // Identity only ONCE: it is the title line above when there is no title,
+      // and this line then carries what is left to say about it.
+      (titled ? [identity, state, opened] : [state, opened])
         .filter((part) => part.length > 0)
         .join(' · '),
       'Open it on GitHub',
     ],
-    ariaLabel: `${spokenNumber(primary, spans)}, ${state}: ${primary.title}. Open it on GitHub`,
+    ariaLabel: titled
+      ? `${spokenNumber(primary, spans)}, ${state}: ${primary.title}. Open it on GitHub`
+      : `${spokenNumber(primary, spans)}, ${state}. Open it on GitHub`,
   }
 }
 
@@ -177,14 +188,22 @@ export function pullRequestMenuGroups(
 ): PullRequestMenuGroup[] {
   const spans = pullRequestsSpanRepositories(list)
   const grouped = groupPullRequests(list)
-  const rowOf = (pr: BranchPullRequest): PullRequestMenuRow => ({
-    url: pr.url,
-    number: writtenNumber(pr, spans),
-    title: pr.title,
-    age: formatRelativeMs(pr.openedAt, now),
-    state: pr.state,
-    ariaLabel: `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}: ${pr.title}. Open it on GitHub`,
-  })
+  const rowOf = (pr: BranchPullRequest): PullRequestMenuRow => {
+    // Same rule as the tooltip above: a captured pull request has no title
+    // until GitHub answers, and the row is then the number alone rather than a
+    // number followed by a gap. Spoken, the colon clause goes with it.
+    const titled = pr.title.trim().length > 0
+    return {
+      url: pr.url,
+      number: writtenNumber(pr, spans),
+      title: titled ? pr.title : '',
+      age: formatRelativeMs(pr.openedAt, now),
+      state: pr.state,
+      ariaLabel: titled
+        ? `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}: ${pr.title}. Open it on GitHub`
+        : `${spokenNumber(pr, spans)}, ${pullRequestStateLabel(pr)}. Open it on GitHub`,
+    }
+  }
   return (
     [
       { id: 'open', label: 'Open', rows: grouped.open },
