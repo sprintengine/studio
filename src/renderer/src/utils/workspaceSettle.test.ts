@@ -66,6 +66,18 @@ assert.equal(
 assert.equal(shouldAutoSettleWorkspace(ws({ settledAt: NOW - DAY }), NOW), false, 'never re-settle')
 assert.equal(shouldAutoSettleWorkspace(ws({ settledOverride: 'active' }), NOW), false, 'a manual Un-settle holds the row active')
 assert.equal(shouldAutoSettleWorkspace(ws({ settledOverride: 'settled' }), NOW), false, "a manual Settle is not the sweep's to touch")
+// A running snooze is a hand decision about the near future; the sweep never
+// overrules one (snooze, 2026-09-10). A SPENT one holds nothing off.
+assert.equal(
+  shouldAutoSettleWorkspace(ws({ snoozedUntil: NOW + 60 * 60 * 1000 }), NOW),
+  false,
+  'a sleeping row is not settled out from under its own wake time'
+)
+assert.equal(
+  shouldAutoSettleWorkspace(ws({ snoozedUntil: NOW - 1 }), NOW),
+  true,
+  'once the snooze is spent the usual idle rule resumes'
+)
 assert.equal(
   shouldAutoSettleWorkspace(ws({ highlight: { starred: true, color: null } }), NOW),
   false,
@@ -152,14 +164,20 @@ assert.equal(decide(ws({ settledOverride: 'active' })), 'none', 'a hand Un-settl
 
 // The two transitions as field patches. A rest decision carries the input
 // clock so main is never behind the decision; a wake clears the stamp and
-// sets (or spends) the hand decision.
+// sets (or spends) the hand decision. Rest also supersedes sleep, so a settle
+// tombstones any snooze underneath it (snooze, 2026-09-10).
 assert.deepEqual(
   settleWorkspacePatch(ws({ lastTerminalActivityAt: NOW - 5 * DAY }), NOW, 'settled'),
-  { settledAt: NOW, settledOverride: 'settled', lastTerminalActivityAt: NOW - 5 * DAY }
+  {
+    snoozedUntil: null,
+    settledAt: NOW,
+    settledOverride: 'settled',
+    lastTerminalActivityAt: NOW - 5 * DAY,
+  }
 )
 assert.deepEqual(
   settleWorkspacePatch(ws({}), NOW, null),
-  { settledAt: NOW, settledOverride: null },
+  { snoozedUntil: null, settledAt: NOW, settledOverride: null },
   'no input clock, no clock in the patch (absent is "no opinion")'
 )
 assert.deepEqual(wakeWorkspacePatch('active'), { settledAt: null, settledOverride: 'active' })

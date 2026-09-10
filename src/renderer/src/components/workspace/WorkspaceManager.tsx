@@ -2509,10 +2509,15 @@ export default function WorkspaceManager() {
   // at), and the rail's Home badge counts them alongside the chats blocked on
   // a prompt. A chat under a door is off screen, so it counts too.
   const [unseenDoneIds, setUnseenDoneIds] = useState<ReadonlySet<string>>(() => new Set())
+  // And the chats it is hiding because they are asleep (snooze, 2026-09-10),
+  // reported up the same way and for the same reason: the badge counts what
+  // the sidebar shows.
+  const [snoozedWorkspaceIds, setSnoozedWorkspaceIds] = useState<ReadonlySet<string>>(() => new Set())
   const railBadges = useRailBadges({
     workspaces: visibleWorkspaces,
     activityByWorkspaceId,
     unseenDoneIds,
+    snoozedWorkspaceIds,
     onScreenWorkspaceId: activeGlobalSurface ? null : windowActiveWorkspaceId,
     activeGlobalSurface,
   })
@@ -4577,6 +4582,7 @@ export default function WorkspaceManager() {
         residentWorkspaceIds={residentWorkspaceIds}
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
         onUnseenDoneChange={setUnseenDoneIds}
+        onSnoozedWorkspacesChange={setSnoozedWorkspaceIds}
         onOpenRemoteSession={openRemoteSession}
         onSelectWorkspace={(id) => {
           // Park explicitly: selecting the very workspace New chat sits over

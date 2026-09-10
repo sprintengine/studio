@@ -945,6 +945,21 @@ export type Workspace = {
   // the sweep would settle it straight back on its next tick. The sweep never
   // touches a row carrying either value.
   settledOverride?: 'settled' | 'active' | null
+  // When set, the chat is asleep until this instant: it renders in its folder's
+  // Snoozed shelf rather than in the active list, wearing the countdown to its
+  // wake. Set from the row menu's Snooze presets; cleared by opening the chat,
+  // by Wake, and by settling.
+  //
+  // Snoozing SUSPENDS the chat's terminals, so a sleeping chat sits like every
+  // other non-live chat — no agent process — and the wake returns the row with
+  // them still paused; the person's first keystroke resumes the agent with
+  // `--resume`. Suspend and not kill is the difference from `settledAt`, which
+  // drops the ptys for good: a snoozed chat is coming back on a known clock.
+  //
+  // Nothing schedules that wake — a row is asleep while this stamp is in the
+  // future and awake when it is not, so a wake missed while the app was closed
+  // simply never happens. See `utils/workspaceSnooze.ts`.
+  snoozedUntil?: number | null
   // True once this workspace's name is settled and auto-titling must never touch
   // it again. Set by the auto-title itself (a name derived from the first real
   // prompt), by a manual rename, and at creation for any workspace given an

@@ -14,6 +14,7 @@ import {
   settleWorkspacePatch,
   wakeWorkspacePatch,
 } from '../../utils/workspaceSettle'
+import { hasSnooze, snoozeWorkspacePatch, wakeSnoozedWorkspacePatch } from '../../utils/workspaceSnooze'
 import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
 import { workspaceProjectRoot, workspaceProjectRootOf } from '../../utils/workspaceWorktree'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
@@ -276,6 +277,12 @@ interface WorkspacesSliceActions {
   setWorkspaceHighlight: (id: WorkspaceId, highlight: Partial<WorkspaceHighlight>) => void
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
+  /**
+   * Put a chat to sleep until `wakeAt`, or wake it now with `null`. The RECORD
+   * only: suspending the chat's terminals is the sidebar's half of the gesture
+   * (`snoozeWorkspaceById`). See `utils/workspaceSnooze.ts`.
+   */
+  setWorkspaceSnoozed: (id: WorkspaceId, wakeAt: number | null) => void
   /** Returns the ids that CAME TO REST on this tick, for the caller to quiet. */
   reconcileWorkspaceSettlement: (input: {
     now: number
@@ -973,6 +980,32 @@ export function createWorkspacesSlice(
       if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
     },
 
+    // Sleep by hand (snooze, 2026-09-10): the row leaves the active list for
+    // its folder's Snoozed shelf until `wakeAt`, and `null` brings it back now.
+    //
+    // The RECORD only. Suspending the chat's terminals is the sidebar's half
+    // (`snoozeWorkspaceById`), which is also the layer that kills them for
+    // Settle — the store never talks to a pty.
+    //
+    // Nothing schedules the wake: the row simply stops reading as asleep once
+    // the stamp is in the past. A hand gesture, so it reports from whichever
+    // window made it, exactly as Settle does.
+    setWorkspaceSnoozed: (id, wakeAt) => {
+      let patch: WorkspaceFieldsPatch | null = null
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        // Waking a row that was never asleep is a no-op, not a write. The menu
+        // only offers Wake on a sleeping row, but a write here would broadcast
+        // a field patch — and wake every other window's copy of the row — to
+        // say nothing.
+        if (wakeAt === null && !hasSnooze(ws)) return
+        patch = wakeAt === null ? wakeSnoozedWorkspacePatch() : snoozeWorkspacePatch(wakeAt)
+        Object.assign(ws, patch)
+      })
+      if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)
+    },
+
     // The rest sweep (settled-chats, 2026-09-07), run by the sidebar on mount
     // and on its 30 s tick: a quiet row settles after three idle days, a
     // resting row that is working again wakes. The sidebar passes what only
@@ -1515,7 +1548,12 @@ export function createWorkspacesSlice(
       return landed
     },
 
-    setActiveWorkspace: (id) =>
+    setActiveWorkspace: (id) => {
+      // Opening a chat spends its snooze (snooze, 2026-09-10) — both a running
+      // one, because you are here now and "not now" is over, and a spent one,
+      // because the Woke mark exists to get you to this exact click and has
+      // nothing left to say once you have made it.
+      let snoozePatch: WorkspaceFieldsPatch | null = null
       set((state) => {
         state.activeWorkspaceId = id
         // Leaving a door-routed full-page surface for a workspace (epic 1704);
@@ -1527,7 +1565,16 @@ export function createWorkspacesSlice(
           windowState.activeWorkspaceId = id
           windowState.lastFocusedAt = seenAt
         }
-      }),
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (ws && hasSnooze(ws)) {
+          snoozePatch = wakeSnoozedWorkspacePatch()
+          Object.assign(ws, snoozePatch)
+        }
+      })
+      // Selecting is a hand gesture, reported by the window that made it — the
+      // rule `setWorkspaceSettled` follows, for the same reason.
+      if (snoozePatch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, snoozePatch)
+    },
 
     setFolderPath: (id, folderPath) =>
       set((state) => {

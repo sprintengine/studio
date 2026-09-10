@@ -25,7 +25,8 @@ import type { WorkspaceActivity } from './workspaceManagerHelpers'
 //
 //   Home         — chats blocked on a prompt, crashed, or finished while you
 //                  were away (the sidebar's own unseen-done mark, reported up),
-//                  minus the chat on screen. Cleared per chat, by opening it —
+//                  minus the chat on screen and the ones the sidebar is hiding
+//                  because they are asleep. Cleared per chat, by opening it —
 //                  the sidebar already owns that, so nothing here writes.
 //   Automations  — unread bell rows from the automations source. Cleared by
 //                  opening the Automations door.
@@ -45,11 +46,28 @@ export function useRailBadges(input: {
   workspaces: readonly Workspace[]
   activityByWorkspaceId: Readonly<Record<string, WorkspaceActivity>>
   unseenDoneIds: ReadonlySet<string>
+  /**
+   * The chats the sidebar is hiding because they are asleep (snooze,
+   * 2026-09-10). The badge counts what the sidebar SHOWS: a number that
+   * survives the gesture that hid the chat is a number the person cannot
+   * clear, and following it leads to a list the chat is not in. A snoozed chat
+   * whose agent is blocked on the person is not in this set — that raises its
+   * hand and puts it back on screen — so the one attention state a snooze
+   * really covers is the only one it silences.
+   */
+  snoozedWorkspaceIds: ReadonlySet<string>
   /** The chat actually on screen, or null while a door holds the card region. */
   onScreenWorkspaceId: string | null
   activeGlobalSurface: string | null
 }): RailBadges {
-  const { workspaces, activityByWorkspaceId, unseenDoneIds, onScreenWorkspaceId, activeGlobalSurface } = input
+  const {
+    workspaces,
+    activityByWorkspaceId,
+    unseenDoneIds,
+    snoozedWorkspaceIds,
+    onScreenWorkspaceId,
+    activeGlobalSurface,
+  } = input
 
   const notifications = useNotificationStore((s) => s.notifications)
   const sectionSeenAt = useNotificationStore((s) => s.sectionSeenAt)
@@ -104,6 +122,7 @@ export function useRailBadges(input: {
     let finished = 0
     for (const workspace of workspaces) {
       if (workspace.id === onScreenWorkspaceId) continue
+      if (snoozedWorkspaceIds.has(workspace.id)) continue
       const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
       if (activity === 'needs-input') needsInput += 1
       else if (activity === 'failed') failed += 1
@@ -118,6 +137,7 @@ export function useRailBadges(input: {
     workspaces,
     activityByWorkspaceId,
     unseenDoneIds,
+    snoozedWorkspaceIds,
     onScreenWorkspaceId,
     automationsOpen,
     rowBadges,

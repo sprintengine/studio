@@ -269,6 +269,7 @@ function RailProbe(): React.ReactElement {
     workspaces: [],
     activityByWorkspaceId: {},
     unseenDoneIds: new Set(),
+    snoozedWorkspaceIds: new Set(),
     onScreenWorkspaceId: null,
     activeGlobalSurface,
   })

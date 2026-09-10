@@ -5,7 +5,7 @@ import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSess
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { changedFileMarks, checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
-import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
+import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import {
   openPullRequestCount,
@@ -40,6 +40,7 @@ import {
   LinkButton,
   MenuDivider,
   AgentWorkingDots,
+  MenuFlyoutItem,
   MenuItem,
   MenuSwatchRow,
   ProjectColorSwatchRow,
@@ -92,7 +93,7 @@ import {
 } from './remoteBand/remoteSessionsModel'
 import { shortMachineName } from '../remote/machineRowModel'
 import { useChangePulse } from '../../hooks/useChangePulse'
-import { formatElapsedMs, formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
+import { formatElapsedMs, formatRelativeMs, formatRelativeMsAgo, relativeFromNow } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
 import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import { isCanceledSprintEngineRun, isCompletedSprintEngineRun } from '../../utils/sprintengine'
@@ -101,6 +102,14 @@ import { publishDiagnostic } from '../../utils/diagnostics'
 import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { isSettledWorkspace } from '../../utils/workspaceSettle'
+import {
+  canSnoozeWorkspace,
+  isSnoozedWorkspace,
+  resolveSnoozePresets,
+  snoozeWakeLabel,
+  workspaceWokeAt,
+  type SnoozePresetId,
+} from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
@@ -153,6 +162,14 @@ type WorkspaceSidebarProps = {
   // counts them (useRailBadges). The sidebar stays their owner: it is the layer
   // that knows what was looked at, and nothing outside it writes a mark.
   onUnseenDoneChange?: (ids: ReadonlySet<WorkspaceId>) => void
+  /**
+   * The chats this rail is HIDING because they are asleep (snooze, 2026-09-10),
+   * reported up for the same reason the unseen-done marks are: the rail's Home
+   * badge counts what wants the person, and a badge counting a chat the sidebar
+   * has taken off screen is a number pointing at nothing. The sidebar owns the
+   * reading because it owns the clock the wake is derived from.
+   */
+  onSnoozedWorkspacesChange?: (ids: ReadonlySet<WorkspaceId>) => void
   onSelectWorkspace: (id: WorkspaceId) => void
   // Open a session that lives on a paired machine (the Remote band): focus
   // the workspace here that already is it, or attach a new one. Absent in a
@@ -200,7 +217,10 @@ const NULL_FOLDER_KEY = '__no_folder__'
 // map with the folders' shelves — one place remembers what is open — under a
 // key no folder can produce.
 const ALL_CHATS_SHELF_KEY = '__all_chats__'
+const ALL_CHATS_SNOOZE_SHELF_KEY = '__all_chats_snoozed__'
 const ALL_CHATS_SHELF_ID = 'ws-settled-all-chats'
+// The flat stream's Snoozed shelf, alongside the Settled one above.
+const ALL_CHATS_SNOOZE_SHELF_ID = 'ws-snoozed-all-chats'
 
 /**
  * The header facts a merged group takes from its local folder (the row that
@@ -604,19 +624,25 @@ function isCancelableSprintEngineWorkspace(workspace: Workspace): boolean {
   return runtimeState !== 'canceled' && runtimeState !== 'complete'
 }
 
-// The Settled shelf's fold row (settled-chats, 2026-09-07): the one line a
-// folder shows for its resting chats — "Settled", and how many — collapsed by
-// default, in the fold-row idiom the older-rows disclosure used to carry. The
-// section rule applies (design-system/components/section): a heading earns
-// its place by separating one group from another, so the row renders only
-// when the folder has settled rows to separate from its active ones.
-function SettledShelfRow({
+// A shelf's fold row (settled-chats, 2026-09-07): the one line a folder shows
+// for a group of parked chats — its name, and how many — collapsed by default,
+// in the fold-row idiom the older-rows disclosure used to carry. The section
+// rule applies (design-system/components/section): a heading earns its place by
+// separating one group from another, so the row renders only when the folder
+// has rows to separate from its active ones.
+//
+// Two shelves use it — Settled (rest) and Snoozed (sleep, 2026-09-10). They are
+// the same line with a different word, and one component is what keeps them
+// reading as the same kind of thing.
+function ShelfFoldRow({
+  label,
   count,
   expanded,
   controlsId,
   onToggle,
   flush = false,
 }: {
+  label: string
   count: number
   expanded: boolean
   controlsId: string
@@ -648,7 +674,7 @@ function SettledShelfRow({
         >
           <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span className="truncate">Settled</span>
+        <span className="truncate">{label}</span>
         <span className="tabular-nums text-[color:var(--text-subtle)]">{count}</span>
       </RowButton>
     </div>
@@ -1282,6 +1308,7 @@ export default function WorkspaceSidebar({
   residentWorkspaceIds,
   terminalRecencyByWorkspaceId,
   onUnseenDoneChange,
+  onSnoozedWorkspacesChange,
   onSelectWorkspace,
   onOpenRemoteSession,
   onMoveWorkspaceToNewWindow,
@@ -1306,6 +1333,7 @@ export default function WorkspaceSidebar({
   const reorderWorkspaces = useWorkspaceStore((s) => s.reorderWorkspaces)
   const setWorkspaceHighlight = useWorkspaceStore((s) => s.setWorkspaceHighlight)
   const setWorkspaceSettled = useWorkspaceStore((s) => s.setWorkspaceSettled)
+  const setWorkspaceSnoozed = useWorkspaceStore((s) => s.setWorkspaceSnoozed)
   const clearWorkspaceHighlight = useWorkspaceStore((s) => s.clearWorkspaceHighlight)
   // The person changing a project's colour from its header menu; the only
   // writer besides the first-sight allocation (one-colour-per-project, 2026-09-09).
@@ -1472,6 +1500,27 @@ export default function WorkspaceSidebar({
       quietSettledWorkspace(id)
     },
     [setWorkspaceSettled, quietSettledWorkspace]
+  )
+
+  // Snooze by hand (owner ruling, 2026-09-10): the record first, then PAUSE the
+  // ptys — the same order and the same reason as Settle above, and the same
+  // gate on the row actually having something open, because asking main to
+  // suspend a chat whose ptys died with the last app run is a round trip to
+  // say nothing.
+  //
+  // Paused, not killed. A snoozed chat has to sit like every other non-live
+  // chat — no agent process burning while the row is off screen — but it is
+  // coming back on a clock, so the session is kept resumable and the person's
+  // first keystroke relaunches the agent with `--resume`. Waking resumes
+  // nothing; see `suspendWorkspaceTerminals`.
+  const snoozeWorkspaceById = useCallback(
+    (id: WorkspaceId, wakeAt: number) => {
+      setWorkspaceSnoozed(id, wakeAt)
+      const workspace = workspaces.find((candidate) => candidate.id === id)
+      if (!workspace || !rowHasOpenTerminals(workspace, sessionsByWorkspaceId)) return
+      void suspendWorkspaceTerminals(workspace)
+    },
+    [setWorkspaceSnoozed, workspaces, sessionsByWorkspaceId]
   )
 
   // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle
@@ -1908,6 +1957,41 @@ export default function WorkspaceSidebar({
     [activeWorkspaceId]
   )
 
+  // Asleep RIGHT NOW: the wake time is still ahead, and that is the whole test
+  // — nothing brings a row back early. Reading a chat never sends it to sleep,
+  // the same exemption the Settled shelf gives the row you are in, though in
+  // practice opening one already spent its snooze (`setActiveWorkspace`), so
+  // this is the belt to that braces.
+  const isAsleep = useCallback(
+    (workspace: Workspace) => workspace.id !== activeWorkspaceId && isSnoozedWorkspace(workspace, now),
+    [activeWorkspaceId, now]
+  )
+
+  // A row that came back and has not been opened since. The list's order is
+  // deliberately static, so a woken row does not move to announce itself and
+  // has to say so on its own face; opening it clears the stamp and the mark
+  // with it.
+  const wokeAtOf = useCallback((workspace: Workspace) => workspaceWokeAt(workspace, now), [now])
+
+  // The sleeping set, reported up for the rail's Home badge. Held as state and
+  // compared by CONTENTS rather than rebuilt into the parent on every tick: the
+  // wake is derived from a clock that moves every 30 s, and a fresh Set each
+  // time would re-render the whole manager for a set that had not changed.
+  // Same shape as the unseen-done marks above, which report up for the same
+  // reason and bail out the same way.
+  const [snoozedWorkspaceIds, setSnoozedWorkspaceIds] = useState<ReadonlySet<WorkspaceId>>(() => new Set())
+  useEffect(() => {
+    const next = new Set<WorkspaceId>()
+    for (const workspace of workspaces) if (isAsleep(workspace)) next.add(workspace.id)
+    setSnoozedWorkspaceIds((previous) => {
+      if (next.size === previous.size && [...next].every((id) => previous.has(id))) return previous
+      return next
+    })
+  }, [workspaces, isAsleep])
+  useEffect(() => {
+    onSnoozedWorkspacesChange?.(snoozedWorkspaceIds)
+  }, [snoozedWorkspaceIds, onSnoozedWorkspacesChange])
+
   // A project whose every chat has come to rest leaves the sidebar (owner
   // ruling, 2026-09-07). Its header was a line that said nothing was happening
   // — a folder name over a "Settled 1" fold and nothing to do — and a person
@@ -1919,9 +2003,18 @@ export default function WorkspaceSidebar({
   // A folder returns the moment anything in it wakes, is un-settled, or is
   // selected — the active chat is never shelved, so opening one of its chats
   // from search or New chat brings its project back with it.
+  //
+  // Sleeping counts as gone for this test too (owner, 2026-09-10). A snoozed
+  // chat is coming back, but the folder comes back WITH it — the wake needs no
+  // event, so the header returns on the tick the stamp expires, and until then
+  // it would be a project line over a fold with nothing to do, which is the
+  // exact thing the ruling above removed. Nothing is stranded: the All chats
+  // stream keeps one Snoozed shelf across every project (`renderChatStream`),
+  // so a sleeper in a folder that has stepped out is still there to be found
+  // and woken early.
   const activeGroups = useMemo(
-    () => groups.filter((group) => !group.workspaces.every(isShelved)),
-    [groups, isShelved]
+    () => groups.filter((group) => !group.workspaces.every((w) => isShelved(w) || isAsleep(w))),
+    [groups, isShelved, isAsleep]
   )
 
   // The Remote band's reads and rows (remote-sessions-in-the-sidebar): each
@@ -1980,9 +2073,11 @@ export default function WorkspaceSidebar({
   const starredWorkspaces = useMemo(
     () =>
       sortWorkspacesByUserMessage(
-        railWorkspaces.filter((workspace) => isStarred(workspace.highlight) && !isSettledWorkspace(workspace))
+        railWorkspaces.filter(
+          (workspace) => isStarred(workspace.highlight) && !isSettledWorkspace(workspace) && !isAsleep(workspace)
+        )
       ),
-    [railWorkspaces]
+    [railWorkspaces, isAsleep]
   )
 
   const workspaceById = useMemo(() => {
@@ -2381,6 +2476,8 @@ export default function WorkspaceSidebar({
       remoteMachine?: string
       /** A row in its folder's Settled shelf: title and the hover actions, nothing that asks for a look. */
       settled?: boolean
+      /** A row in its folder's Snoozed shelf: the same compact row, wearing the countdown to its wake. */
+      snoozed?: boolean
       /**
        * The row is in the flat stream (all-chats-view), where there is no
        * folder header above it: it grows a line for the project it belongs to,
@@ -2419,17 +2516,31 @@ export default function WorkspaceSidebar({
     const idleRecencyText = typeof recency?.idleSince === 'number'
       ? formatRelativeMs(recency.idleSince, now)
       : ''
+    // The countdown a sleeping row wears in the shelf, and the mark a woken one
+    // wears in the active list until it is opened. Mutually exclusive by
+    // construction: `workspaceWokeAt` is null while the row is still asleep.
+    const asleepUntil = options?.snoozed ? (workspace.snoozedUntil ?? null) : null
+    const wokeAt = wokeAtOf(workspace)
     const showRecencyText =
       !runGlyph
       && activity === 'idle'
       && !!recency
       && !recency.hasRunning
       && !!idleRecencyText
+      // The wake countdown and the Woke mark each take this seat when they
+      // apply: two numbers in one 44px slot is a row saying nothing twice.
+      && !options?.snoozed
+      && wokeAt === null
     // The row that wants you: it wears the gold treatment instead of a dot.
     const needsAttention = activity === 'needs-input'
     // The row that finished while you were away: the same treatment in green,
     // held until you open it. Gold outranks it when both apply.
-    const unseenDone = !needsAttention && unseenDoneIds.has(workspace.id)
+    // A sleeping row never wears the green "finished while you were away" wash,
+    // and never pulses. The mark is a request for attention, and this row's
+    // person has just declined to give it; a chat whose terminals are suspended
+    // is not finishing anything anyway. The wash is waiting for them when the
+    // row wakes, which is when it is news again.
+    const unseenDone = !needsAttention && !options?.snoozed && unseenDoneIds.has(workspace.id)
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     // "Hot": at least one resident (live-PTY) agent — instant to switch into.
@@ -2468,7 +2579,7 @@ export default function WorkspaceSidebar({
     const rowIsLive = rowHasOpenTerminals(workspace, sessionsByWorkspaceId)
     // A settled row is the one-liner by construction: rest is the point, and
     // a checkout's branch and ±lines are not facts about a chat at rest.
-    const rowLines = rowIsLive && !options?.settled
+    const rowLines = rowIsLive && !options?.settled && !options?.snoozed
       ? terminalLinesOf({
           workspace,
           sessions: sessionsByWorkspaceId.get(workspace.id) ?? [],
@@ -2585,6 +2696,29 @@ export default function WorkspaceSidebar({
                 </svg>
               </IconButton>
             </Tooltip>
+          ) : options?.snoozed ? (
+            /* The one-click seat on a sleeping row is Wake. Settle is wrong
+               here — the row is not asking to be called finished, it is
+               waiting on a clock — and the undo arrow the Settled shelf uses
+               would be saying "put this back" about a state the row is going
+               to leave on its own anyway. The alarm-bell shape says the clock
+               is what you are cancelling. */
+            <Tooltip content="Wake now">
+              <IconButton
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setWorkspaceSnoozed(workspace.id, null)
+                }}
+                tone="quiet"
+                aria-label={`Wake ${workspace.name}`}
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                  <circle cx="8" cy="9" r="4.6" stroke="currentColor" strokeWidth="1.4" />
+                  <path d="M8 6.6V9l1.6 1.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M2.6 4.2 4.7 2.5M13.4 4.2l-2.1-1.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                </svg>
+              </IconButton>
+            </Tooltip>
           ) : options?.settled ? (
             <Tooltip content="Un-settle">
               <IconButton
@@ -2677,6 +2811,27 @@ export default function WorkspaceSidebar({
               <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
             )
           ) : null}
+          {/* A sleeping row says when it comes back — the one thing it is for.
+              Same seat, same type step and the same muted ink as the idle
+              clock it stands in for, because it is the same kind of reading. */}
+          {asleepUntil !== null ? (
+            <RowTooltip content={`Wakes ${relativeFromNow(asleepUntil, now)} (${new Date(asleepUntil).toLocaleString()})`}>
+              <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
+                <span aria-hidden="true">{snoozeWakeLabel(asleepUntil, now)}</span>
+                <span className="sr-only">Wakes in {snoozeWakeLabel(asleepUntil, now)}</span>
+              </span>
+            </RowTooltip>
+          ) : null}
+          {/* A row that came back. The list's order is static, so nothing about
+              its position says it returned; this is the whole of the signal,
+              and opening the row spends it. Muted, not gold: gold on this
+              surface means "the agent is waiting on you", which a woken row is
+              not necessarily doing. */}
+          {wokeAt !== null ? (
+            <RowTooltip content={`Woke ${formatRelativeMsAgo(wokeAt, now) || 'just now'}`}>
+              <span className="text-meta text-[color:var(--text-subtle)]">Woke</span>
+            </RowTooltip>
+          ) : null}
           {showRecencyText ? (
             <RowTooltip content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}>
               <span
@@ -2768,6 +2923,7 @@ export default function WorkspaceSidebar({
         {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
         {unseenDone ? <span className="sr-only"> (finished while you were away)</span> : null}
         {options?.settled ? <span className="sr-only"> (settled)</span> : null}
+        {options?.snoozed ? <span className="sr-only"> (snoozed)</span> : null}
       </>
     )
     const titleCluster = hasPeek ? (
@@ -3126,6 +3282,12 @@ export default function WorkspaceSidebar({
   // (settled-chats, 2026-09-07): one fold row carrying the count, closed by
   // default, over the resting rows in compact form, in that same order. The shelf
   // replaces the old "Show N older" recency fold: a chat now rests by the
+  // Sleeping rows order by WAKE TIME, soonest first — the one question a person
+  // opening that shelf is asking. The active list's last-message order would
+  // rank them by a past nobody is looking at.
+  const sortByWake = (rows: Workspace[]): Workspace[] =>
+    [...rows].sort((a, b) => (a.snoozedUntil ?? 0) - (b.snoozedUntil ?? 0))
+
   // settle rule (`utils/workspaceSettle.ts`), never by a fold that hid it.
   // `folderBodyId` lets the folder header's toggle button own an
   // aria-controls pointing at the body it expands/collapses.
@@ -3139,10 +3301,13 @@ export default function WorkspaceSidebar({
     // header's aria-controls always resolves to a real node.
     if (folderCollapsed) return <div id={folderBodyId} hidden />
 
-    const activeRows = visibleWorkspaces.filter((workspace) => !isShelved(workspace))
+    // Three groups, and rest outranks sleep: a settled row that also carries a
+    // stale snooze belongs in the Settled shelf, not in both.
     const settledRows = sortWorkspacesByUserMessage(visibleWorkspaces.filter(isShelved))
+    const snoozedRows = sortByWake(visibleWorkspaces.filter((w) => !isShelved(w) && isAsleep(w)))
+    const activeRows = visibleWorkspaces.filter((workspace) => !isShelved(workspace) && !isAsleep(workspace))
 
-    if (settledRows.length === 0) {
+    if (settledRows.length === 0 && snoozedRows.length === 0) {
       return (
         <div id={folderBodyId}>
           {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
@@ -3150,30 +3315,63 @@ export default function WorkspaceSidebar({
       )
     }
 
-    const expanded = expandedSettledFolders[group.key] === true
-    const shelfId = `ws-settled-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
+    const slug = group.key.replace(/[^a-z0-9]+/giu, '-')
+    const settledExpanded = expandedSettledFolders[group.key] === true
+    const settledShelfId = `ws-settled-${slug}`
+    const snoozeKey = `__snoozed__:${group.key}`
+    const snoozeExpanded = expandedSettledFolders[snoozeKey] === true
+    const snoozeShelfId = `ws-snoozed-${slug}`
 
     return (
       <div id={folderBodyId}>
         {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
-        <SettledShelfRow
-          count={settledRows.length}
-          expanded={expanded}
-          controlsId={shelfId}
-          onToggle={() =>
-            setExpandedSettledFolders((prev) => ({ ...prev, [group.key]: !expanded }))
-          }
-        />
-        <div
-          id={shelfId}
-          role="group"
-          aria-label={`Settled chats in ${group.displayName}`}
-          hidden={!expanded}
-        >
-          {expanded
-            ? settledRows.map((workspace) => renderWorkspaceRow(workspace, group.key, { settled: true }))
-            : null}
-        </div>
+        {/* Sleep above rest: these rows are coming back, and on a known clock. */}
+        {snoozedRows.length > 0 ? (
+          <>
+            <ShelfFoldRow
+              label="Snoozed"
+              count={snoozedRows.length}
+              expanded={snoozeExpanded}
+              controlsId={snoozeShelfId}
+              onToggle={() =>
+                setExpandedSettledFolders((prev) => ({ ...prev, [snoozeKey]: !snoozeExpanded }))
+              }
+            />
+            <div
+              id={snoozeShelfId}
+              role="group"
+              aria-label={`Snoozed chats in ${group.displayName}`}
+              hidden={!snoozeExpanded}
+            >
+              {snoozeExpanded
+                ? snoozedRows.map((workspace) => renderWorkspaceRow(workspace, group.key, { snoozed: true }))
+                : null}
+            </div>
+          </>
+        ) : null}
+        {settledRows.length > 0 ? (
+          <>
+            <ShelfFoldRow
+              label="Settled"
+              count={settledRows.length}
+              expanded={settledExpanded}
+              controlsId={settledShelfId}
+              onToggle={() =>
+                setExpandedSettledFolders((prev) => ({ ...prev, [group.key]: !settledExpanded }))
+              }
+            />
+            <div
+              id={settledShelfId}
+              role="group"
+              aria-label={`Settled chats in ${group.displayName}`}
+              hidden={!settledExpanded}
+            >
+              {settledExpanded
+                ? settledRows.map((workspace) => renderWorkspaceRow(workspace, group.key, { settled: true }))
+                : null}
+            </div>
+          </>
+        ) : null}
       </div>
     )
   }
@@ -3191,9 +3389,13 @@ export default function WorkspaceSidebar({
   // Rows born on a paired machine stay the Remote band's alone, as they are in
   // the tree — the band is above this list either way.
   const renderChatStream = () => {
-    const streamRows = sortWorkspacesByUserMessage(localRailWorkspaces.filter((w) => !isShelved(w)))
     const settledRows = sortWorkspacesByUserMessage(localRailWorkspaces.filter(isShelved))
+    const snoozedRows = sortByWake(localRailWorkspaces.filter((w) => !isShelved(w) && isAsleep(w)))
+    const streamRows = sortWorkspacesByUserMessage(
+      localRailWorkspaces.filter((w) => !isShelved(w) && !isAsleep(w))
+    )
     const expanded = expandedSettledFolders[ALL_CHATS_SHELF_KEY] === true
+    const snoozeExpanded = expandedSettledFolders[ALL_CHATS_SNOOZE_SHELF_KEY] === true
     return (
       <section className="relative pt-1" aria-label="All chats">
         {streamRows.map((workspace) =>
@@ -3202,9 +3404,43 @@ export default function WorkspaceSidebar({
             flatProject: flatProjectOf(workspace),
           })
         )}
+        {snoozedRows.length > 0 ? (
+          <>
+            <ShelfFoldRow
+              label="Snoozed"
+              count={snoozedRows.length}
+              expanded={snoozeExpanded}
+              flush
+              controlsId={ALL_CHATS_SNOOZE_SHELF_ID}
+              onToggle={() =>
+                setExpandedSettledFolders((prev) => ({
+                  ...prev,
+                  [ALL_CHATS_SNOOZE_SHELF_KEY]: !snoozeExpanded,
+                }))
+              }
+            />
+            <div
+              id={ALL_CHATS_SNOOZE_SHELF_ID}
+              role="group"
+              aria-label="Snoozed chats"
+              hidden={!snoozeExpanded}
+            >
+              {snoozeExpanded
+                ? snoozedRows.map((workspace) =>
+                    renderWorkspaceRow(workspace, keyOf(workspace), {
+                      keyPrefix: 'all-',
+                      snoozed: true,
+                      flatProject: flatProjectOf(workspace),
+                    })
+                  )
+                : null}
+            </div>
+          </>
+        ) : null}
         {settledRows.length > 0 ? (
           <>
-            <SettledShelfRow
+            <ShelfFoldRow
+              label="Settled"
               count={settledRows.length}
               expanded={expanded}
               flush
@@ -3729,6 +3965,7 @@ export default function WorkspaceSidebar({
           y={contextMenu.y}
           workspace={workspaceById.get(contextMenu.workspaceId) ?? null}
           isDetachedWindow={isDetachedWindow}
+          now={now}
           onClose={() => setContextMenu(null)}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
@@ -3796,6 +4033,22 @@ export default function WorkspaceSidebar({
             if (action === 'toggle-settle') {
               if (isSettledWorkspace(workspace)) setWorkspaceSettled(workspace.id, false)
               else settleWorkspaceById(workspace.id)
+              setContextMenu(null)
+              return
+            }
+            if (action === 'wake') {
+              setWorkspaceSnoozed(workspace.id, null)
+              setContextMenu(null)
+              return
+            }
+            if (action.startsWith('snooze:')) {
+              const presetId = action.slice('snooze:'.length)
+              // Re-resolved against the clock at CLICK time, not at open time:
+              // a menu left open across the hour would otherwise snooze to a
+              // wake time already in the past, and the row would sleep for no
+              // time at all.
+              const preset = resolveSnoozePresets(Date.now()).find((candidate) => candidate.id === presetId)
+              if (preset) snoozeWorkspaceById(workspace.id, preset.wakeAt)
               setContextMenu(null)
               return
             }
@@ -4037,6 +4290,10 @@ type ContextMenuAction =
   | 'cancel-sprint'
   | 'toggle-star'
   | 'toggle-settle'
+  // Snooze presets dispatch as `snooze:<presetId>` so the union stays closed
+  // while the list of wake times remains data shared by the menu and dispatcher.
+  | `snooze:${SnoozePresetId}`
+  | 'wake'
   | 'clear-color'
 
 // Workspace-row context menu. Generic menu chrome (surface, clamped
@@ -4047,6 +4304,7 @@ function WorkspaceContextMenu({
   y,
   workspace,
   isDetachedWindow,
+  now,
   onClose,
   onSelect,
   onPickColor,
@@ -4055,6 +4313,8 @@ function WorkspaceContextMenu({
   y: number
   workspace: Workspace | null
   isDetachedWindow: boolean
+  /** The clock the wake times and the asleep/awake reading are resolved against. */
+  now: number
   onClose: () => void
   onSelect: (action: ContextMenuAction) => void
   onPickColor: (color: HighlightColor) => void
@@ -4069,6 +4329,8 @@ function WorkspaceContextMenu({
   const canNewChatInProject = newChatProjectTarget(workspace) !== null
   const starred = isStarred(workspace.highlight)
   const settled = isSettledWorkspace(workspace)
+  const snoozed = isSnoozedWorkspace(workspace, now)
+  const canSnooze = canSnoozeWorkspace(workspace)
   const currentColor = workspace.highlight?.color ?? null
 
   return (
@@ -4111,6 +4373,27 @@ function WorkspaceContextMenu({
           paired machine is the Remote band's, which has no shelf. */}
       {workspace.remoteOrigin ? null : (
         <MenuItem onClick={() => onSelect('toggle-settle')}>{settled ? 'Un-settle' : 'Settle'}</MenuItem>
+      )}
+      {/* Sleep by hand (snooze, 2026-09-10), beneath Settle because it is the
+          softer of the two: Settle says the work is done, Snooze says only
+          "not now". Resolved against the clock at OPEN time so the wake times
+          on the rows are the ones the click will actually land on.
+
+          Hidden entirely — rather than disabled — on a settled row and on a
+          Remote-band row: neither has anywhere to sleep, and a permanently
+          dead entry is worse than no entry. Disabled, not hidden, when the
+          agent is waiting on the person: that one is temporary and the reason
+          is worth showing. */}
+      {snoozed ? (
+        <MenuItem onClick={() => onSelect('wake')}>Wake now</MenuItem>
+      ) : workspace.remoteOrigin || settled ? null : (
+        <MenuFlyoutItem label="Snooze" ariaLabel="Snooze chat" disabled={!canSnooze}>
+          {resolveSnoozePresets(Date.now()).map((preset) => (
+            <MenuItem key={preset.id} hint={preset.whenLabel} onClick={() => onSelect(`snooze:${preset.id}`)}>
+              {preset.label}
+            </MenuItem>
+          ))}
+        </MenuFlyoutItem>
       )}
       <MenuSwatchRow
         label="Highlight color"

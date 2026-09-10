@@ -208,7 +208,7 @@ test('a record still carrying the retired archive stamp reads as settled', () =>
 test('a fresh record carries zeroed stamps unless seeded', () => {
   assert.deepEqual(
     emptyWorkspaceRegistryFieldStamps(),
-    { name: 0, layoutModel: 0, folderPath: 0, memory: 0, settledAt: 0, settledOverride: 0 },
+    { name: 0, layoutModel: 0, folderPath: 0, memory: 0, settledAt: 0, settledOverride: 0, snoozedUntil: 0 },
   )
   assert.deepEqual(toWorkspaceRegistryRecord(workspace(), 1).fieldEditedAt, emptyWorkspaceRegistryFieldStamps())
 })

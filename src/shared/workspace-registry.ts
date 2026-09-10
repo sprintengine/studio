@@ -65,6 +65,7 @@ export type WorkspaceRegistryFieldStamps = {
   memory: number
   settledAt: number
   settledOverride: number
+  snoozedUntil: number
 }
 
 const WORKSPACE_REGISTRY_STAMPED_FIELDS = [
@@ -74,6 +75,7 @@ const WORKSPACE_REGISTRY_STAMPED_FIELDS = [
   'memory',
   'settledAt',
   'settledOverride',
+  'snoozedUntil',
 ] as const
 
 export type WorkspaceRegistryStampedField = (typeof WORKSPACE_REGISTRY_STAMPED_FIELDS)[number]
@@ -131,7 +133,15 @@ export const WORKSPACE_REGISTRY_TOMBSTONE_TTL_MS = 24 * 60 * 60 * 1000
 const DEFAULT_PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 
 export function emptyWorkspaceRegistryFieldStamps(): WorkspaceRegistryFieldStamps {
-  return { name: 0, layoutModel: 0, folderPath: 0, memory: 0, settledAt: 0, settledOverride: 0 }
+  return {
+    name: 0,
+    layoutModel: 0,
+    folderPath: 0,
+    memory: 0,
+    settledAt: 0,
+    settledOverride: 0,
+    snoozedUntil: 0,
+  }
 }
 
 export function emptyWorkspaceRegistryFile(now = 0): WorkspaceRegistryFile {

@@ -11,25 +11,14 @@ type LayoutSessionNode = {
 }
 
 /**
- * Kill every terminal session the workspace holds. The returned promise settles
- * once main has acknowledged each kill — the pty has been signalled and the
- * session dropped from the registry — which is as close to "this workspace's
- * writers are done" as the renderer can get. Kill failures are absorbed: a
- * session that died first must not hold up the caller.
+ * Every terminal session this workspace holds — the agents' CLI sessions, the
+ * layout's agent and terminal tabs, and the pane's own terminal tabs, which own
+ * ptys the layout knows nothing about.
  *
- * Three callers, and they are the whole list of ways a workspace stops running:
- * Close (the chat is removed), Delete (its state is trashed, and the kill has
- * to land BEFORE the folder goes so a surviving writer cannot recreate it), and
- * Settle (2026-09-07) — a chat that has come to rest holds no ptys, whether a
- * person settled it by hand or the sweep did after three idle days.
- *
- * It lives here rather than in WorkspaceManager, where it grew up, because
- * settling is driven from the sidebar: one copy, so the three paths cannot
- * drift about what "this workspace's terminals" means — the agents' CLI
- * sessions, the layout's agent and terminal tabs, and the pane's own terminal
- * tabs, which own ptys the layout knows nothing about.
+ * One collector, so the paths that stop a workspace running cannot drift about
+ * what "this workspace's terminals" means.
  */
-export async function terminateWorkspaceTerminals(workspace: Workspace): Promise<void> {
+export function workspaceTerminalSessionIds(workspace: Workspace): string[] {
   const sessionIds = new Set<string>()
 
   Object.values(workspace.agents ?? {}).forEach((agent) => {
@@ -64,7 +53,61 @@ export async function terminateWorkspaceTerminals(workspace: Workspace): Promise
     if (tab.kind === 'terminal' && tab.terminalId) sessionIds.add(paneTerminalSessionId(tab.terminalId))
   }
 
+  return [...sessionIds]
+}
+
+/**
+ * Kill every terminal session the workspace holds. The returned promise settles
+ * once main has acknowledged each kill — the pty has been signalled and the
+ * session dropped from the registry — which is as close to "this workspace's
+ * writers are done" as the renderer can get. Kill failures are absorbed: a
+ * session that died first must not hold up the caller.
+ *
+ * Three callers, and they are the whole list of ways a workspace stops running
+ * for good: Close (the chat is removed), Delete (its state is trashed, and the
+ * kill has to land BEFORE the folder goes so a surviving writer cannot recreate
+ * it), and Settle (2026-09-07) — a chat that has come to rest holds no ptys,
+ * whether a person settled it by hand or the sweep did after three idle days.
+ *
+ * It lives here rather than in WorkspaceManager, where it grew up, because
+ * settling is driven from the sidebar.
+ */
+export async function terminateWorkspaceTerminals(workspace: Workspace): Promise<void> {
   await Promise.all(
-    [...sessionIds].map((sessionId) => window.api.terminalKill(sessionId).catch(() => {})),
+    workspaceTerminalSessionIds(workspace).map((sessionId) =>
+      window.api.terminalKill(sessionId).catch(() => {}),
+    ),
+  )
+}
+
+/**
+ * PAUSE every terminal session the workspace holds, rather than killing them.
+ * Snooze's half of the pair (owner ruling, 2026-09-10).
+ *
+ * A snoozed chat must sit exactly as the app's other non-live chats do: no
+ * agent process running, the row just there. Snooze first shipped as
+ * visibility-only — the row left the list and every pty stayed up — which made
+ * a chat you had told to go away the most expensive kind of row in the tree,
+ * holding a CLI process for the whole snooze. Visibility-only is the right rule
+ * for a snooze whose session lives on a SERVER, where hiding costs nothing;
+ * ours holds a live local process, so hiding the row is not putting it away.
+ *
+ * Suspend rather than kill because a snoozed chat is coming back on a clock.
+ * `terminalSuspend` ends the agent PROCESS but keeps the painted, resumable
+ * session, and the first keystroke relaunches it under the same session id with
+ * `--resume` (TerminalView's `resumeFromSuspend`). Nothing here and nothing on
+ * the wake path resumes anything: waking returns the row to the sidebar with
+ * its terminals still paused, and the person's own keystroke is what starts an
+ * agent again.
+ *
+ * Failures are absorbed for the reason the kill path absorbs them: a session
+ * that is already gone must not hold up a gesture whose whole job is to get a
+ * row out of the way.
+ */
+export async function suspendWorkspaceTerminals(workspace: Workspace): Promise<void> {
+  await Promise.all(
+    workspaceTerminalSessionIds(workspace).map((sessionId) =>
+      window.api.terminalSuspend(sessionId).catch(() => {}),
+    ),
   )
 }
