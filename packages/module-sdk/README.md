@@ -47,7 +47,10 @@ contracts, so a published version always matches the app version it ships with.
   gateway, owned by your module's id with duplicate-name rejection. Tool
   availability follows your module's enablement live: a disabled module's
   tools stay listed and answer an actionable enable error instead of running.
-  Declare `ipc:agents`.
+  Declare `ipc:agents`. Skills your module ships ride the same
+  ownership discipline through `registerSkills(skills)`, and
+  `ensureSkillInstalled(workspaceRoot, skillId)` puts one in a workspace on
+  demand — see "Skills a module ships".
 - **Renderer host**: `registerPanel`, `registerWorkspaceType` (workspace
   types may now ship `supervisors` — render-nothing background components
   the shell mounts while your module is enabled, inside a crash boundary and
@@ -256,6 +259,57 @@ onDrop={(event) => {
 
 The contract is drift-guarded: the repo gate fails if the app's MIME, payload
 shape, or parse semantics ever diverge from this package.
+
+## Skills a module ships
+
+A skill is a directory with a `SKILL.md` (plus any harness sidecars, e.g.
+`agents/openai.yaml`). Ship yours inside your module and hand them to the host:
+
+```ts
+export function registerMain(host: MainHost): void {
+  host.registerSkills([
+    {
+      id: 'review-guide',
+      sourceDir: 'skills/review-guide',
+      targetPolicy: 'all-native',
+      description: 'Walk a human reviewer through a code change.',
+    },
+  ])
+}
+```
+
+`sourceDir` is relative to your module root and must stay inside it — the host
+resolves it and rejects a path that escapes. Registration is owned exactly as
+IPC channels and MCP tools are: an `id` a built-in skill or another module
+already holds throws, the whole batch is validated before one skill of it
+lands, and unloading your module takes its skills with it.
+
+`targetPolicy` decides where the skill is copied in a workspace:
+
+| policy | lands in |
+| --- | --- |
+| `'agents'` | `.agents/skills/<id>` — the harness-neutral directory |
+| `'all-native'` | that, plus every installed CLI's own skill directory (`.claude/skills`, `.codex/skills`, …) |
+
+Pick `'all-native'` whenever a prompt invokes the skill by name: a CLI resolves
+an invocation only against its own directory.
+
+A registered skill is a skill. The host installs it check-first — an
+already-installed workspace is not rewritten, a stale copy is refreshed, and a
+copy the user edited by hand is left alone — and stamps it with the same
+managed manifest the app's own skills carry.
+
+To put a skill in a workspace before an agent needs it:
+
+```ts
+const result = await host.ensureSkillInstalled(projectRoot, 'studio-review')
+if (!result.ok) console.warn(`skill not installed: ${result.status}`)
+```
+
+It never throws. `ok: false` with `status: 'unknown-skill'` means nothing
+answers to that id — usually a rename, or a module that failed to load;
+`'local'` and `'modified'` mean a hand-made copy is in the way and was left
+alone (both still report `ok: true`, because the skill IS present).
 
 ## Theme tokens
 

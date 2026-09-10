@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **A module can ship its own skills** (`MainHost.registerSkills`,
+  `MainHost.ensureSkillInstalled`). Skills used to be a closed set compiled
+  into the app, so a module that wanted an agent to run with its own skill had
+  no way to say so — it could spawn an agent and name a skill that was never
+  copied anywhere. `registerSkills([{ id, sourceDir, targetPolicy,
+  description }])` hands the host a directory inside your module root
+  (resolved and containment-checked; a rootless bundled module passes an
+  absolute path) and the host then treats it exactly as it treats its own:
+  same check-first install, same managed manifest, same `'all-native'` fan-out
+  into every installed CLI's native skill directory, and the same resolution
+  at the agent-launch boundary. Ownership matches `registerMcpTools` — an id a
+  built-in or another module holds throws, the batch is validated before one
+  skill of it lands, and unloading the module unregisters its skills.
+  `ensureSkillInstalled(workspaceRoot, skillId)` pre-installs one on demand
+  and never throws; an id nothing answers to now returns
+  `{ ok: false, status: 'unknown-skill' }` (and is logged by the app's launch
+  path) where it used to be a silent no-op. New mirrored types:
+  `ModuleSkillRegistration`, `ModuleSkillTargetPolicy`,
+  `EnsureSkillInstalledResult`.
+
 - **A door surface names and places itself** (Extensions drawer ruling,
   2026-09-05). `GlobalSurfaceDefinition` was `{ id, Component }` while the host
   grew five presentation fields around it, so an SDK module could register a
