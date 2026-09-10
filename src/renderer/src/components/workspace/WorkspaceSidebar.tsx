@@ -5,7 +5,7 @@ import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSess
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { changedFileMarks, checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
-import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
+import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import { PullRequestMark, refreshPullRequestsForLine, shouldLookUpPullRequests } from './PullRequestMark'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
@@ -1494,6 +1494,27 @@ export default function WorkspaceSidebar({
       quietSettledWorkspace(id)
     },
     [setWorkspaceSettled, quietSettledWorkspace]
+  )
+
+  // Snooze by hand (owner ruling, 2026-09-10): the record first, then PAUSE the
+  // ptys — the same order and the same reason as Settle above, and the same
+  // gate on the row actually having something open, because asking main to
+  // suspend a chat whose ptys died with the last app run is a round trip to
+  // say nothing.
+  //
+  // Paused, not killed. A snoozed chat has to sit like every other non-live
+  // chat — no agent process burning while the row is off screen — but it is
+  // coming back on a clock, so the session is kept resumable and the person's
+  // first keystroke relaunches the agent with `--resume`. Waking resumes
+  // nothing; see `suspendWorkspaceTerminals`.
+  const snoozeWorkspaceById = useCallback(
+    (id: WorkspaceId, wakeAt: number) => {
+      setWorkspaceSnoozed(id, wakeAt)
+      const workspace = workspaces.find((candidate) => candidate.id === id)
+      if (!workspace || !rowHasOpenTerminals(workspace, sessionsByWorkspaceId)) return
+      void suspendWorkspaceTerminals(workspace)
+    },
+    [setWorkspaceSnoozed, workspaces, sessionsByWorkspaceId]
   )
 
   // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle
@@ -3937,7 +3958,7 @@ export default function WorkspaceSidebar({
               // wake time already in the past, and the row would sleep for no
               // time at all.
               const preset = resolveSnoozePresets(Date.now()).find((candidate) => candidate.id === presetId)
-              if (preset) setWorkspaceSnoozed(workspace.id, preset.wakeAt)
+              if (preset) snoozeWorkspaceById(workspace.id, preset.wakeAt)
               setContextMenu(null)
               return
             }

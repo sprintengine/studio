@@ -278,8 +278,9 @@ interface WorkspacesSliceActions {
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
   /**
-   * Put a chat to sleep until `wakeAt`, or wake it now with `null`. Visibility
-   * only — the terminals and the agent are untouched. See `utils/workspaceSnooze.ts`.
+   * Put a chat to sleep until `wakeAt`, or wake it now with `null`. The RECORD
+   * only: suspending the chat's terminals is the sidebar's half of the gesture
+   * (`snoozeWorkspaceById`). See `utils/workspaceSnooze.ts`.
    */
   setWorkspaceSnoozed: (id: WorkspaceId, wakeAt: number | null) => void
   /** Returns the ids that CAME TO REST on this tick, for the caller to quiet. */
@@ -982,10 +983,13 @@ export function createWorkspacesSlice(
     // Sleep by hand (snooze, 2026-09-10): the row leaves the active list for
     // its folder's Snoozed shelf until `wakeAt`, and `null` brings it back now.
     //
-    // Nothing schedules the wake and nothing here touches a terminal — the
-    // agent keeps working through the snooze, and the row simply stops reading
-    // as asleep once the stamp is in the past. A hand gesture, so it reports
-    // from whichever window made it, exactly as Settle does.
+    // The RECORD only. Suspending the chat's terminals is the sidebar's half
+    // (`snoozeWorkspaceById`), which is also the layer that kills them for
+    // Settle — the store never talks to a pty.
+    //
+    // Nothing schedules the wake: the row simply stops reading as asleep once
+    // the stamp is in the past. A hand gesture, so it reports from whichever
+    // window made it, exactly as Settle does.
     setWorkspaceSnoozed: (id, wakeAt) => {
       let patch: WorkspaceFieldsPatch | null = null
       set((state) => {

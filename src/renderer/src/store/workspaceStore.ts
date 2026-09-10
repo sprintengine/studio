@@ -259,8 +259,9 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   clearWorkspaceHighlight: (id: WorkspaceId) => void
   setWorkspaceSettled: (id: WorkspaceId, settled: boolean) => void
   /**
-   * Put a chat to sleep until `wakeAt`, or wake it now with `null`. Visibility
-   * only — the terminals and the agent are untouched. See `utils/workspaceSnooze.ts`.
+   * Put a chat to sleep until `wakeAt`, or wake it now with `null`. The RECORD
+   * only: suspending the chat's terminals is the sidebar's half of the gesture
+   * (`snoozeWorkspaceById`). See `utils/workspaceSnooze.ts`.
    */
   setWorkspaceSnoozed: (id: WorkspaceId, wakeAt: number | null) => void
   /** Returns the ids that CAME TO REST on this tick, for the caller to quiet. */

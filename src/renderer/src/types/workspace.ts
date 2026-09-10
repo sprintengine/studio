@@ -950,11 +950,15 @@ export type Workspace = {
   // wake. Set from the row menu's Snooze presets; cleared by opening the chat,
   // by Wake, and by settling.
   //
-  // Snooze is an OVERLAY on the active list, not a second kind of rest: the
-  // chat keeps its terminals and its agent keeps working, and only the row is
-  // suppressed. Nothing schedules the wake — a row is asleep while this stamp
-  // is in the future and awake when it is not, so a wake missed while the app
-  // was closed simply never happens. See `utils/workspaceSnooze.ts`.
+  // Snoozing SUSPENDS the chat's terminals, so a sleeping chat sits like every
+  // other non-live chat — no agent process — and the wake returns the row with
+  // them still paused; the person's first keystroke resumes the agent with
+  // `--resume`. Suspend and not kill is the difference from `settledAt`, which
+  // drops the ptys for good: a snoozed chat is coming back on a known clock.
+  //
+  // Nothing schedules that wake — a row is asleep while this stamp is in the
+  // future and awake when it is not, so a wake missed while the app was closed
+  // simply never happens. See `utils/workspaceSnooze.ts`.
   snoozedUntil?: number | null
   // When the snooze was SET. The line a turn end has to be newer than to count
   // as news and wake the row early — without it a chat snoozed after its agent

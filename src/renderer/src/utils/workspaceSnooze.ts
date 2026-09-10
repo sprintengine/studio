@@ -3,13 +3,24 @@ import type { WorkspaceFieldsPatch } from '../../../shared/workspace-sync'
 
 // Snooze: "not now, ask me again at <time>" (owner ruling, 2026-09-10).
 //
-// It is an OVERLAY on the active list, not a fourth place a chat can live. A
-// snoozed chat is still an active chat — it keeps its terminals, its agent
-// keeps working, its clocks keep running — it is only suppressed from the
-// active list until its wake time passes. That is the whole difference from
-// Settle, which is a statement that the work is DONE and which kills the row's
-// ptys (owner ruling 2026-09-07). Snoozing a working agent must never cost you
-// the agent, so nothing here touches a terminal.
+// A snoozed chat STOPS RUNNING and comes back on a clock. Its terminals are
+// suspended, so it sits exactly as the app's other non-live chats do — no agent
+// process, just a row — and when the wake time passes the row simply returns to
+// the sidebar. Nothing is relaunched: the person's first keystroke resumes the
+// agent under its own session id with `--resume`, the same way returning to a
+// paused chat has always worked (owner ruling, 2026-09-10).
+//
+// Snooze first shipped visibility-only, on the rule that a snooze never touches
+// the agent. That rule does not survive here: visibility-only suits a snooze
+// whose session lives on a SERVER, where hiding costs nothing, while ours holds
+// a live local process — so "hidden" meant a chat you had told to go away was
+// the most expensive row in the tree. The suspend lives in
+// `components/workspace/workspaceTerminalTermination.ts`; this module still
+// only decides WHEN a row is asleep.
+//
+// Suspend, not kill, is the whole distinction from Settle — which says the work
+// is DONE and drops the ptys outright (owner ruling 2026-09-07). A snoozed chat
+// is coming back on a known clock, so its session is kept resumable.
 //
 // TIMER WAKES ARE DERIVED, NOT SCHEDULED. There is no timer, no sweep entry and
 // no wake event: a row is snoozed while `snoozedUntil` is in the future, and
@@ -158,11 +169,17 @@ export type SnoozeLiveState = {
  *  - the agent is blocked on them. Hiding a question defeats the question, and
  *    this can only have become true since the snooze — a row that was already
  *    asking could not be snoozed (`canSnoozeWorkspace`).
- *  - a turn ended after the snooze was set. "Hide this until the agent is
- *    finished" is most of why a person snoozes a working chat, so finishing is
- *    the wake. Strictly AFTER: a row snoozed with a finished turn already on it
- *    was the person saying "I saw that, not now", and re-reading the same
- *    timestamp as news would wake it instantly, every tick, forever.
+ *  - a turn ended after the snooze was set. Strictly AFTER: a row snoozed with
+ *    a finished turn already on it was the person saying "I saw that, not now",
+ *    and re-reading the same timestamp as news would wake it instantly, every
+ *    tick, forever.
+ *
+ * A SAFETY NET, not a headline feature. Snoozing suspends the chat's terminals,
+ * so a sleeping chat has no agent process and normally cannot produce either
+ * signal. What is left are the cases where it still can: a pane mounted from
+ * another machine, whose pty lives on that machine and is not ours to suspend,
+ * and a suspend that failed. In both, the chat is genuinely still running, and
+ * a row still running is a row the shelf should give back.
  *
  * Raising a hand never clears the stored fields — it only stops the row
  * classifying as snoozed, which is what feeds the Woke mark.
@@ -210,8 +227,11 @@ export function isSnoozedWorkspace(
  * snooze underneath it would do nothing visible and then expire into a Woke
  * mark on a row nobody woke.
  *
- * A WORKING agent may be snoozed. Snooze is visibility, never lifecycle: the
- * turn keeps running and finishing it is the wake.
+ * A WORKING agent may be snoozed, and suspending it interrupts the turn (owner,
+ * 2026-09-10: "it shouldn't matter if there's an agent in progress"). That is
+ * the same licence a hand Settle already has, and it costs less here: the CLI
+ * session survives the suspend, so resuming picks the conversation back up
+ * rather than starting over.
  */
 export function canSnoozeWorkspace(
   workspace: Pick<Workspace, 'settledAt' | 'remoteOrigin'>,

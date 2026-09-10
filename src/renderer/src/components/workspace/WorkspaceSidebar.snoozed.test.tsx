@@ -47,20 +47,40 @@ class NoopResizeObserver {
 anyGlobal.ResizeObserver = NoopResizeObserver
 dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
-// No live ptys anywhere. A sleeping chat KEEPS its terminals — that is the
-// whole difference from Settle — so any kill recorded here is a bug, and the
-// list is asserted empty at the end.
+// Snoozing SUSPENDS a chat's terminals and never kills them (owner ruling,
+// 2026-09-10): a snoozed chat must stop costing an agent process, but it is
+// coming back on a clock, so its session stays resumable and the person's own
+// keystroke relaunches it. Both lists are asserted at the end — the kill list
+// empty, the suspend list holding Alpha's pty.
 const killed: string[] = []
+const suspended: string[] = []
+const resumed: string[] = []
+// Alpha holds a live agent pty, so there is something for the snooze to pause.
 domWindow.api = {
   platform: 'darwin',
   detectProjectLogo: async () => null,
-  terminalList: async () => [],
+  terminalList: async () => [
+    {
+      sessionId: 'alpha-pty',
+      workspaceId: 'w1',
+      processAlive: true,
+      kind: 'agent',
+      cli: 'claude-code',
+      activity: { kind: 'idle', since: 1 },
+    },
+  ],
   onTerminalSessionsChanged: () => () => {},
   onSprintRunsChanged: () => () => {},
   listSprintRuns: async () => [],
   getWorkspaceChangeSummary: async () => null,
   terminalKill: async (sessionId: string) => {
     killed.push(sessionId)
+  },
+  terminalSuspend: async (sessionId: string) => {
+    suspended.push(sessionId)
+  },
+  terminalResume: async (sessionId: string) => {
+    resumed.push(sessionId)
   },
 }
 
@@ -83,7 +103,19 @@ async function main(): Promise<void> {
   // Delta's wake time has passed and nobody has opened it: it is back in the
   // active list wearing Woke.
   const workspaces = [
-    workspace('w1', 'Alpha'),
+    workspace('w1', 'Alpha', {
+      agents: {
+        'agent-1': {
+          id: 'agent-1',
+          name: 'Clod',
+          cliSessionId: 'alpha-pty',
+          status: 'idle',
+          execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
+          messages: [],
+          streamBuffer: '',
+        },
+      },
+    }),
     workspace('w2', 'Bravo', { snoozedUntil: createdAt + 2 * HOUR, snoozedAt: createdAt - HOUR }),
     workspace('w3', 'Charlie', { snoozedUntil: createdAt + DAY, snoozedAt: createdAt - HOUR }),
     workspace('w4', 'Delta', { snoozedUntil: createdAt - HOUR, snoozedAt: createdAt - 3 * HOUR }),
@@ -280,10 +312,22 @@ async function main(): Promise<void> {
       presetLabels.some((label) => label.startsWith('Tomorrow')),
       `and the calendar choices follow (got ${presetLabels.join(' | ')})`
     )
+    // Choosing one SUSPENDS the chat's terminals (owner ruling, 2026-09-10).
+    // This is the behaviour the first cut got wrong: a snoozed chat that kept
+    // its ptys running was the most expensive row in the tree, and the point of
+    // the gesture is that the chat stops running until you come back to it.
+    assert.deepEqual(suspended, [], 'nothing is suspended before the choice is made')
+    const anHour = [...dom.window.document.querySelectorAll<HTMLElement>(
+      '[role="menu"][aria-label="Snooze chat"] [data-menu-item="true"]'
+    )].find((el) => el.textContent?.trim().startsWith('In 1 hour'))
+    assert.ok(anHour, 'the 1-hour preset is clickable')
     act(() => {
-      dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      anHour.click()
     })
     await settle()
+    assert.deepEqual(suspended, ['alpha-pty'], "snoozing pauses the chat's agent pty")
+    assert.deepEqual(killed, [], 'and never kills it — the session has to survive to be resumed')
+    assert.deepEqual(resumed, [], 'nothing is resumed by the snooze itself')
 
     // --- a raised hand outranks the snooze --------------------------------
     // Bravo's agent starts asking. Its wake time has not moved, but a question
@@ -324,8 +368,11 @@ async function main(): Promise<void> {
     })
     await settle()
 
-    // Snooze is visibility, never lifecycle: nothing here killed a terminal.
-    assert.deepEqual(killed, [], 'a sleeping chat keeps its agent')
+    // Suspend, never kill, and never an automatic resume: a woken row returns
+    // to the sidebar with its terminals still paused, and the person's own
+    // keystroke is what starts an agent again.
+    assert.deepEqual(killed, [], 'no snooze ever killed a terminal')
+    assert.deepEqual(resumed, [], 'and waking resumed nothing on its own')
 
   } finally {
     act(() => {
