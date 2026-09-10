@@ -16,23 +16,40 @@ import type {
   AgentCliAvailabilityMap,
   CliInstallResult,
   CliRuntimeSettings,
+  CliVersionAdvisory,
+  CliVersionAdvisoryMap,
 } from '../../../../../shared/electron-api'
-import { CliProviderStateLine, GhostButton, PrimaryButton, ProviderRow } from '../../ui'
+import {
+  CliProviderStateLine,
+  GhostButton,
+  PrimaryButton,
+  ProviderRow,
+  type MarkBadge,
+} from '../../ui'
 import type { CliProbeStatus } from '../../ui/cliProviderState'
 import { CliInstallControl } from '../../settings/CliInstallControl'
 import { PluginIcon, pluginTrust, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { cliRuntimeForPlugin } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import type { PluginCatalogEntry, PluginCatalogStatus } from '../../../types/workspace'
-import { agentCliShelfRowState, type CliInstallMethodsLoad } from './agentCliShelfState'
+import {
+  agentCliShelfRowState,
+  cliUpdateAvailable,
+  type CliInstallMethodsLoad,
+} from './agentCliShelfState'
 import type { ConnectorEntry } from './connectorsFacets'
 
 // An agent CLI in the marketplace, on the shared provider anatomy (item 1994).
 // Same row as the installed list in Settings → Agents, read from what this
-// surface actually knows: there is no local health probe here, so the dot and
-// the state line carry the registry's own signing tier — the thing that decides
-// whether you should run this CLI at all — and never imply an install state the
-// registry cannot see. Version is the registry's bundle version, so it is
-// labelled rather than dressed up as a semver.
+// surface actually knows: there is no local health probe here, so the state line
+// carries the registry's own signing tier — the thing that decides whether you
+// should run this CLI at all — and never implies an install state the registry
+// cannot see. Version is the registry's bundle version, so it is labelled rather
+// than dressed up as a semver.
+//
+// No health dot (owner, 2026-09-10). The tier is words on the state line and it
+// is the same word on nearly every row here; a column of identical dots is a
+// status idiom spent on a fact nobody is scanning for, and it crowds the corner
+// the update count needs on the runtime rows beside it.
 //
 // Nothing else in the marketplace wears this anatomy: item 1994 gave it to the
 // Agent CLIs list alone, and the capability-modules list it was measured
@@ -60,7 +77,6 @@ export function AgentCliRegistryRow({
           size={22}
         />
       }
-      health={trust?.tone ?? 'neutral'}
       name={entry.name}
       // No version on a marketplace row. `plugin.latest` is the registry's
       // bundle revision, not the CLI's own version: rendering it in the mono
@@ -98,6 +114,36 @@ export function AgentCliRegistryRow({
 // Agent CLIs with runtime state (MC-1858): the inline entries
 // ---------------------------------------------------------------------------
 
+/**
+ * The corner count on a CLI's mark: one update, or nothing at all.
+ *
+ * The number is always 1, and that is the point — it is the unread pip, not an
+ * inventory. What it buys is the thing the dot could not do: from across the
+ * page, WHICH of the ten marks wants you. The name is in the label because
+ * "1" beside a logo is not a sentence, and the version it is behind is in there
+ * too, so the reader gets what the toast said without opening the row.
+ */
+export function agentCliUpdateBadge(
+  name: string,
+  advisory: CliVersionAdvisory | undefined,
+  /** Whether the CLI is actually on the machine, from this row's own probe.
+   *  The advisory map is NOT cleared when a refresh fails — the slice keeps the
+   *  last good answer on purpose — so a CLI uninstalled since the last good
+   *  check still reads `behind_latest`. Without this the row would recede AND
+   *  wear a pip, which is the one combination `ProviderRow` says cannot happen,
+   *  and the pip would be drawn at 60% inside the receded mark. Settings →
+   *  Agents gates its own advisory line the same way. */
+  present: boolean,
+): MarkBadge | null {
+  if (!present || !cliUpdateAvailable(advisory)) return null
+  const latest = advisory?.latestVersion
+  return {
+    count: 1,
+    tone: 'accent',
+    label: latest ? `${name} — update available: ${latest}` : `${name} — update available`,
+  }
+}
+
 // Everything the CLI shelf needs from the app, passed in by the door so this
 // canvas stays store-free (the automationDefaultCli precedent). The runtime
 // state and its refreshers are the EXISTING detection stack — the availability
@@ -113,6 +159,10 @@ export type CliShelfRuntime = {
   availabilityError: string | null
   catalogEntries: PluginCatalogEntry[]
   catalogStatus: PluginCatalogStatus
+  /** Installed version against the registry's newest, per CLI — the same
+   *  advisories the update toast and the bell row read, so a row's corner count
+   *  and the toast that announced it can never disagree. */
+  versionAdvisories: CliVersionAdvisoryMap
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
   refreshAvailability: (options?: {
     background?: boolean
@@ -127,6 +177,17 @@ export type CliShelfRuntime = {
 // per the 07-26 manage-canvas mockup), state from the shared probe reading, and
 // install through CliInstallControl in the row's own disclosure — never
 // PluginDetailPanel's bundle-download flow.
+//
+// What a row says at a glance, after the owner arrived here from a notification
+// and could not tell which CLI it was about (2026-09-10):
+//
+//   - no health dot. Ten rows, nine of them the same green, and the one fact
+//     the person came for was not among them.
+//   - a corner count on the mark where a CLI is behind its published version.
+//     One update is "1", which is the pip's job: it is not a quantity, it is
+//     "this one, here".
+//   - a CLI this machine does not have recedes a contrast step, so the list
+//     reads as what is here first and what could be here second.
 export function AgentCliRuntimeRows({
   entries,
   registryUrl,
@@ -229,7 +290,12 @@ export function AgentCliRuntimeRows({
                 size={22}
               />
             }
-            health={state.tone}
+            badge={agentCliUpdateBadge(
+              entry.name,
+              runtime.versionAdvisories[pluginId as AgentCli],
+              state.present,
+            )}
+            recessed={!state.present}
             name={entry.name}
             version={state.version}
             stateLine={

@@ -20,7 +20,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type { McpServerConfig, WorkspaceSkill } from '../../../../../../shared/electron-api'
+import type { CliVersionAdvisoryMap, McpServerConfig, WorkspaceSkill } from '../../../../../../shared/electron-api'
 import { LOCAL_SKILL_SOURCE_ID_PREFIX, type SkillHarness, type SkillSource } from '../../../../../../shared/skills'
 import { SKILL_PACK_HARNESSES } from '../../../../../../shared/skill-harnesses'
 import type { AgentComposerConnector } from '../../agentComposer/AgentComposer'
@@ -49,6 +49,10 @@ import {
 } from './extensionsSurfaceTarget'
 import { publishSurfaceView } from '../../surfaceView'
 
+// A stable empty map, so switching version checks off does not hand the shelf a
+// fresh object on every render and re-run every memo below it.
+const EMPTY_CLI_VERSION_ADVISORIES: CliVersionAdvisoryMap = {}
+
 export default function ExtensionsGlobalSurface(): JSX.Element {
   const activeWorkspaceRoot = useWorkspaceStore(
     (s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId)?.folderPath ?? null,
@@ -66,6 +70,13 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   const cliAvailabilityError = useWorkspaceStore((s) => s.cliAvailabilityError)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
+  // Gated on the Settings switch the way Settings → Agents gates its own
+  // advisory line: turning version checks off does not clear what was already
+  // fetched, so a surface that read the map raw would keep drawing update pips
+  // from a check the person switched off.
+  const checkCliVersions = useWorkspaceStore((s) => s.checkCliVersions)
+  const storedCliVersionAdvisories = useWorkspaceStore((s) => s.cliVersionAdvisories)
+  const cliVersionAdvisories = checkCliVersions ? storedCliVersionAdvisories : EMPTY_CLI_VERSION_ADVISORIES
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const refreshCliAvailability = useWorkspaceStore((s) => s.refreshCliAvailability)
   const refreshPluginCatalog = useWorkspaceStore((s) => s.refreshPluginCatalog)
@@ -78,6 +89,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
       availabilityError: cliAvailabilityError,
       catalogEntries: pluginCatalogEntries,
       catalogStatus: pluginCatalogStatus,
+      versionAdvisories: cliVersionAdvisories,
       cliRuntimes,
       refreshAvailability: refreshCliAvailability,
       refreshCatalog: refreshPluginCatalog,
@@ -89,6 +101,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
       cliAvailabilityError,
       pluginCatalogEntries,
       pluginCatalogStatus,
+      cliVersionAdvisories,
       cliRuntimes,
       refreshCliAvailability,
       refreshPluginCatalog,

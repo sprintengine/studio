@@ -65,6 +65,29 @@ of its rows: same primitive, same tone precedence, and the two cannot
 disagree because one derivation feeds both (principles.md, "The app rail",
 item 9).
 
+**On a list row's mark** (2026-09-10) the same corner count is the row's own
+pip: an agent CLI that is behind its published version, a plugin installed at a
+commit its source has moved past. The number is usually 1, and on a row that is
+the point — a rail square's count is a quantity, a row's is a pointer, and the
+number is what makes it a pip rather than one more status colour. It **replaces
+the row's health dot** rather than joining it (`provider-row`, "One status
+idiom"): the owner opened a list of ten agent CLIs from an update notification
+and could not tell which row it was about, because all ten dots were the same
+green. Its ring is `bg.surface`, the ground those lists sit on, and its
+accessible name carries the row's name and the version it is behind ("Codex —
+update available: 0.153.4").
+
+**On a tab** (2026-09-10) it is the same pip again, docked top-right of the tab
+and counting what is waiting INSIDE: "3 updates available" before the tab is
+opened, with a pip on each row underneath saying which. It is not the tab's
+`count` — that is how many things the tab holds and rides beside the label in
+the reading line; this is how many of them want the person, and it sits above
+the words because it is not part of them. On a tab the count is docked by the
+strip in reserved trailing padding rather than overhanging the way `--corner`
+does, because a tab strip scrolls inside an overflow container that clips
+anything hanging past the edge — and it needs no keyline there, since it covers
+the band rather than a glyph.
+
 ## Only a count is a live region (2026-09-02)
 
 The two species announce differently, and this is the part a consumer gets

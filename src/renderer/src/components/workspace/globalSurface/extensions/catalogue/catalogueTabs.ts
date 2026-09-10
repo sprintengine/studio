@@ -58,6 +58,19 @@ export type CatalogueTab = {
   /** A check has seen this source's repository move past the scanned commit. */
   updateAvailable: boolean
   /**
+   * How many things IN this tab are behind their published version: agent CLIs
+   * the registry has moved past, plugins whose source has a newer commit than
+   * the one their receipt was written at.
+   *
+   * The number, not a glyph (owner, 2026-09-10). The owner opened Agent CLIs
+   * from a notification and the page could not say which of ten rows the
+   * notification was about; a count on the tab says how many are in there
+   * before the tab is even opened, and the corner pips on the marks inside say
+   * which. Zero means the tab wears nothing — a badge reading "0" is a badge
+   * spent saying there is no news.
+   */
+  updateCount: number
+  /**
    * The tab this catalogue opens on when the person has not chosen one. At most
    * one tab in a row carries it; a row with none opens on its first source, as
    * every row did before the official-plugins ruling.
@@ -124,6 +137,13 @@ export function deriveCatalogueTabs(input: {
   installedCount: number | null
   /** Per-source count for this kind, keyed by source id. */
   counts: Readonly<Record<string, CatalogueCount>>
+  /**
+   * Per-tab count of things with an update waiting, keyed by source id and by
+   * `installed`. A tab the caller says nothing about wears no badge: silence is
+   * "not counted here", which is not the same claim as zero and must not be
+   * drawn as one.
+   */
+  updateCounts?: Readonly<Record<string, number>>
 }): CatalogueTab[] {
   const installed: CatalogueTab = {
     id: INSTALLED_TAB_ID,
@@ -132,6 +152,7 @@ export function deriveCatalogueTabs(input: {
     state: input.installedCount === null ? { status: 'loading' } : { status: 'ready', count: input.installedCount },
     source: null,
     updateAvailable: false,
+    updateCount: input.updateCounts?.[INSTALLED_TAB_ID] ?? 0,
     isDefault: false,
   }
   // Agent CLIs come from the marketplace registry and nowhere else: a skill
@@ -154,6 +175,7 @@ export function deriveCatalogueTabs(input: {
         state,
         source,
         updateAvailable: sourceHasUpdate(source),
+        updateCount: input.updateCounts?.[source.id] ?? 0,
         // Plugins opens on Anthropic: it is where the plugins are — 292 of
         // them against our own catalogue's handful — and the app's own tab is
         // one click away, still first in the row (official-plugins ruling,

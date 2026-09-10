@@ -18,6 +18,7 @@ import {
   AgentCliRuntimeRows,
   type CliShelfRuntime,
 } from '../../../../panels/ConnectorsPanel/AgentCliShelfRows'
+import { countCliUpdates } from '../../../../panels/ConnectorsPanel/agentCliShelfState'
 import { InstalledExtensionsInventory } from '../../../../panels/ConnectorsPanel/InstalledExtensionsInventory'
 import {
   registryEntriesForKinds,
@@ -95,6 +96,24 @@ export function AgentClisCatalogue({
     return { status: 'ready', count: entries.length }
   }, [connectors.registryLoad, entries.length])
 
+  // The CLIs behind their published version: the number the catalogue tab
+  // wears, and the number of corner pips under it.
+  //
+  // The Installed tab is deliberately NOT counted, for the reason the Plugins
+  // catalogue gives at the same spot. Its rows come from the inventory's own
+  // marketplace update check, which is a different mechanism from these
+  // registry advisories, and it draws no per-row pips at all — so a count on
+  // that tab would send a person into a list with nothing pointing at the rows
+  // it was counting, which is the exact complaint this change exists to fix.
+  const updateCount = useMemo(
+    () =>
+      countCliUpdates(
+        cliRuntime.versionAdvisories,
+        entries.map((entry) => entry.plugin?.cli?.pluginId ?? entry.id),
+      ),
+    [cliRuntime.versionAdvisories, entries],
+  )
+
   const tabs = deriveCatalogueTabs({
     kind: 'agent-clis',
     sources: sources.sources,
@@ -105,6 +124,7 @@ export function AgentClisCatalogue({
     // answers to one word, so it states none and the list speaks for itself.
     installedCount: null,
     counts: { [STUDIO_SKILL_SOURCE_ID]: appCount },
+    updateCounts: { [STUDIO_SKILL_SOURCE_ID]: updateCount },
   })
   const tabId = resolveCatalogueTab(tabs, activeTabId)
 

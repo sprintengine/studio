@@ -60,6 +60,39 @@
   height: var(--sem-icon-size-lg);
 }
 
+/* A provider this machine does not have. It recedes a contrast step — the mark
+ * by opacity because it is an image, the name by dropping to the ink under
+ * `text.primary` — so a scan down the list lands on what IS here and the
+ * absent rows sit behind them. Exactly the move the consuming app's sidebar
+ * makes on a conversation that is not the active one.
+ *
+ * It is NOT a disabled state: every control on the row keeps working, and the
+ * Install button a recessed row carries is the whole reason it is listed. And
+ * it is never the only carrier of the fact — the state line still says "Not
+ * installed" in words. */
+.ds-provider-row--recessed .ds-provider-row__mark {
+  opacity: 0.6;
+}
+
+.ds-provider-row--recessed .ds-provider-row__name {
+  color: var(--sem-color-text-default);
+}
+
+/* The count docked on the mark's TOP-RIGHT: the badge component's corner
+ * species, on a list row rather than on a rail square. The opposite corner
+ * from the health dot, so a surface that draws both reads as two marks rather
+ * than one smudge — though a list should be drawing one or the other (see
+ * component.md, "One status idiom").
+ *
+ * The badge brings its own geometry and its own keyline; all this slot does is
+ * establish that the corner belongs to the mark. */
+.ds-provider-row__badge {
+  /* The keyline in the ground this list actually sits on. The badge component
+   * rings itself in the app ground by default, which is a different colour
+   * here — the same override the app rail makes for its canvas. */
+  border-color: var(--sem-color-bg-surface);
+}
+
 /* Health, docked on the mark's corner: 6px of colour inside a 2px keyline in
  * whatever fill is behind the row. Without the keyline the dot reads as a stain
  * on the logo; with a keyline hard-coded to the resting surface it halos the

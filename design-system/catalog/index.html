@@ -131,6 +131,7 @@
   --sem-radius-control: 7px;
   --sem-radius-overlay: 7px;
   --sem-radius-shell: 9px;
+  --sem-radius-shell-lg: 12px;
   --sem-radius-pill: 999px;
   --sem-motion-duration-fast: 120ms;
   --sem-motion-duration-normal: 180ms;
@@ -5254,6 +5255,39 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   height: var(--sem-icon-size-lg);
 }
 
+/* A provider this machine does not have. It recedes a contrast step — the mark
+ * by opacity because it is an image, the name by dropping to the ink under
+ * `text.primary` — so a scan down the list lands on what IS here and the
+ * absent rows sit behind them. Exactly the move the consuming app's sidebar
+ * makes on a conversation that is not the active one.
+ *
+ * It is NOT a disabled state: every control on the row keeps working, and the
+ * Install button a recessed row carries is the whole reason it is listed. And
+ * it is never the only carrier of the fact — the state line still says "Not
+ * installed" in words. */
+.ds-provider-row--recessed .ds-provider-row__mark {
+  opacity: 0.6;
+}
+
+.ds-provider-row--recessed .ds-provider-row__name {
+  color: var(--sem-color-text-default);
+}
+
+/* The count docked on the mark's TOP-RIGHT: the badge component's corner
+ * species, on a list row rather than on a rail square. The opposite corner
+ * from the health dot, so a surface that draws both reads as two marks rather
+ * than one smudge — though a list should be drawing one or the other (see
+ * component.md, "One status idiom").
+ *
+ * The badge brings its own geometry and its own keyline; all this slot does is
+ * establish that the corner belongs to the mark. */
+.ds-provider-row__badge {
+  /* The keyline in the ground this list actually sits on. The badge component
+   * rings itself in the app ground by default, which is a different colour
+   * here — the same override the app rail makes for its canvas. */
+  border-color: var(--sem-color-bg-surface);
+}
+
 /* Health, docked on the mark's corner: 6px of colour inside a 2px keyline in
  * whatever fill is behind the row. Without the keyline the dot reads as a stain
  * on the logo; with a keyline hard-coded to the resting surface it halos the
@@ -6766,6 +6800,30 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 .ds-tab[aria-selected='true'] {
   color: var(--sem-color-text-primary);
+}
+
+/* The corner count: what is waiting INSIDE this tab, as the badge component's
+ * count species. Docked here rather than by the badge's own `--corner` mode,
+ * which hangs the counter outside its trigger — and outside a tab is the
+ * strip's overflow container, the same clip that ate the active underline.
+ * The tab reserves trailing room for it (`.ds-tab--badged`) and it sits in
+ * that room, still the top-right corner, drawn where it survives.
+ *
+ * No keyline either: `--corner`'s ring exists to lift the badge off the glyph
+ * it covers, and this one covers nothing but the band. */
+.ds-tab-badge {
+  position: absolute;
+  top: var(--sem-space-3xs);
+  right: var(--sem-space-2xs);
+  display: inline-flex;
+}
+
+/* Room for the badge, so revealing it never reflows the label — the same
+ * reservation the closable tab makes for its close glyph. Wide enough for the
+ * two-digit pill, not just the one-digit circle: a count that grows must not
+ * start eating the word it belongs to. */
+.ds-tab--badged {
+  padding-right: var(--sem-space-3xl);
 }
 
 .ds-tab-icon {
@@ -10660,6 +10718,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-control)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.control</code><code class="catalog-token-value">7px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Cards, rows, buttons, and inputs in panel chrome. The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view. Sits on the same 7px step as radius.overlay so a control and the popover it opens share one corner.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-overlay)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.overlay</code><code class="catalog-token-value">7px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Popovers and drawers. Popovers, drawers, and floating surfaces.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-shell)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.shell</code><code class="catalog-token-value">9px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Large overlay and modal shells. Modal shells and the largest overlay surfaces. <strong>Do not:</strong> Operational chrome — larger radii are marketing-only.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-shell-lg)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.shell-lg</code><code class="catalog-token-value">12px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">The window shell's own inset cards. The window shell's inset cards only — the conversations sidebar, the workspace card, the side pane, and each terminal tabset inside the workspace card. One step above `shell` because these are the largest surfaces the product has and they read as objects floating on the window material rather than as overlays over a page. <strong>Do not:</strong> Anything inside a card. A panel, a control, a chip or an overlay stays on `shell` or below. Still under the 16px marketing floor, so it is operational chrome, not a marketing shape.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-pill)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.pill</code><code class="catalog-token-value">999px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Fully-rounded ends. An idiom, not a step of the shape ramp. Badges, status chips, switch tracks and progress rails — anything whose shape says &quot;this is a marker, not a control&quot;. Referenced by liveness and the list-surface pattern, which spelled var(--sem-radius-pill) before this token existed and therefore rendered square. <strong>Do not:</strong> Buttons, inputs, cards and rows — those take radius.control. A pill-shaped button wears the badge shape, and the two stop being tellable apart. Nor is this a ramp step: it sits outside the 3/7/9 scale on purpose, so a tool reading sem.radius.* as a ramp must exclude it.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.fast</code><code class="catalog-token-value">120ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Hover, focus, and small state flips. Hover and focus transitions, small state flips.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.normal</code><code class="catalog-token-value">180ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Reorder and popover enter. Popover enters and list reorders.</p></div></div>
@@ -11080,6 +11139,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>Never interactive, and never a second status idiom beside a <code>status-dot</code> that already says the same thing. A badge carrying meaning takes an <code>ariaLabel</code> (a bare &quot;3&quot; tells a screen reader nothing); one that merely repeats adjacent text is marked <code>decorative</code> so it is not read twice.</p>
 <p><strong>On the app rail</strong> (2026-09-07) the corner count reports unread activity: each section square wears the number of things in its area the person has not seen or that are waiting on them (principles.md, &quot;The app rail&quot;, item 8). It is named, never decorative — nothing beside a glyph says what the number is — and its ring is the rail's own <code>bg.canvas</code>, since the square sits on the canvas rather than the app ground the default ring assumes.</p>
 <p><strong>On a drawer row</strong> (2026-09-08) the same counter is the row's unread pip: the Extensions drawer's rows each wear the news that belongs to them, trailing the label when the column is expanded and docked on the icon's corner — ringed in <code>bg.canvas</code>, the column's ground — when it is collapsed. It replaces the row's status dot while it shows (one status idiom per surface; the count is the one that says how much), and its accessible name carries the row's name and what is counted (&quot;Sprints: 1 waiting on you, 2 new&quot;), because the row beside it names a place, not the news. The app rail's square above the drawer is the sum of its rows: same primitive, same tone precedence, and the two cannot disagree because one derivation feeds both (principles.md, &quot;The app rail&quot;, item 9).</p>
+<p><strong>On a list row's mark</strong> (2026-09-10) the same corner count is the row's own pip: an agent CLI that is behind its published version, a plugin installed at a commit its source has moved past. The number is usually 1, and on a row that is the point — a rail square's count is a quantity, a row's is a pointer, and the number is what makes it a pip rather than one more status colour. It <strong>replaces the row's health dot</strong> rather than joining it (<code>provider-row</code>, &quot;One status idiom&quot;): the owner opened a list of ten agent CLIs from an update notification and could not tell which row it was about, because all ten dots were the same green. Its ring is <code>bg.surface</code>, the ground those lists sit on, and its accessible name carries the row's name and the version it is behind (&quot;Codex — update available: 0.153.4&quot;).</p>
+<p><strong>On a tab</strong> (2026-09-10) it is the same pip again, docked top-right of the tab and counting what is waiting INSIDE: &quot;3 updates available&quot; before the tab is opened, with a pip on each row underneath saying which. It is not the tab's <code>count</code> — that is how many things the tab holds and rides beside the label in the reading line; this is how many of them want the person, and it sits above the words because it is not part of them. On a tab the count is docked by the strip in reserved trailing padding rather than overhanging the way <code>--corner</code> does, because a tab strip scrolls inside an overflow container that clips anything hanging past the edge — and it needs no keyline there, since it covers the band rather than a glyph.</p>
 <h4>Only a count is a live region (2026-09-02)</h4>
 <p>The two species announce differently, and this is the part a consumer gets wrong in both directions.</p>
 <ul><li><strong>Count</strong> — <code>role=&quot;status&quot;</code>, so a value changing in place beside its trigger (the attention bell) is announced. This is what an announcement is *for*: the number moved while the reader was elsewhere.</li><li><strong>Label</strong> — never a live region. <code>role=&quot;img&quot;</code> when it carries an <code>ariaLabel</code> (a bare <code>&lt;span&gt;</code> has no role for the name to hang on), plain text otherwise.</li></ul>
@@ -26354,7 +26415,10 @@ window.addEventListener('resize', repositionAll)
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-provider-row">
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — installed providers, one expanded</p>
+  <p class="demo-label">
+    Light — installed providers, one expanded, one with an update waiting, one
+    absent and receded
+  </p>
 
   <div class="demo-band">
     <h2>Agent CLIs</h2>
@@ -26477,12 +26541,46 @@ window.addEventListener('resize', repositionAll)
     </div>
   </div>
 
-  <!-- Definitively absent: no version at all, and the one action the state earns. -->
-  <div class="ds-provider-row">
+  <!-- An update waiting: the corner count on the mark, and no health dot — this
+       list has picked the count as its one status idiom. The number is 1
+       because the count on a ROW says which, not how many. -->
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CX</span>
+        <span
+          role="status"
+          aria-label="Codex — update available: 0.153.4"
+          class="ds-badge-count ds-badge-count--accent ds-badge-count--corner ds-provider-row__badge"
+          >1</span
+        >
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Codex</span>
+          <span class="ds-provider-row__version">codex-cli 0.153.3</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Ready — <span class="ds-provider-row__id">/opt/homebrew/bin/codex</span>
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="ds-provider-row__disclosure" aria-expanded="false" aria-controls="detail-codex-update" aria-label="Codex details">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <!-- Definitively absent: recessed a contrast step, no version at all, and the
+       one action the state earns. The Install button is at full weight — the row
+       recedes, its controls do not. -->
+  <div class="ds-provider-row ds-provider-row--recessed">
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
         <span class="demo-mono-mark">CU</span>
-        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--warn"></span>
       </span>
       <span class="ds-provider-row__text">
         <span class="ds-provider-row__line">
@@ -26609,6 +26707,55 @@ window.addEventListener('resize', repositionAll)
     </div>
   </div>
 
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CX</span>
+        <span
+          role="status"
+          aria-label="Codex — update available: 0.153.4"
+          class="ds-badge-count ds-badge-count--accent ds-badge-count--corner ds-provider-row__badge"
+          >1</span
+        >
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Codex</span>
+          <span class="ds-provider-row__version">codex-cli 0.153.3</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Ready — <span class="ds-provider-row__id">/opt/homebrew/bin/codex</span>
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="ds-provider-row__disclosure" aria-expanded="false" aria-controls="detail-codex-update-dark" aria-label="Codex details">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <div class="ds-provider-row ds-provider-row--recessed">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">MU</span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Muse Code</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Not installed — no <span class="ds-provider-row__id">muse</span> on PATH
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="demo-ghost">Install</button>
+      </span>
+    </div>
+  </div>
+
   <div class="ds-provider-row ds-provider-row--selected">
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
@@ -26634,15 +26781,17 @@ window.addEventListener('resize', repositionAll)
 <p>It is not the general list row. Reach for <code>list-row</code> when the thing in the row is content the user made; reach for this when the row reports on something outside the product that the product depends on.</p>
 <p>Two facts drive the whole anatomy, and they are separate: <strong>health</strong> (is it reachable) and <strong>enablement</strong> (do you want it on). A provider can be switched on and unreachable, or off and perfectly installed. Nothing here derives one from the other.</p>
 <h4>Anatomy</h4>
-<ul><li><code>ds-provider-row</code> — the group. It owns the row and its expansion, so a disclosure opens inside the row's own box rather than pushing a sibling panel into the list.</li><li><code>ds-provider-row__face</code> — the resting row: <code>space.lg</code> of vertical padding, <code>space.md</code> at the sides, and <strong>no border</strong>. Five bordered bars in a list read as five panels; space and the hover fill do the separating.</li><li><code>ds-provider-row__mark</code> — the brand mark's slot at <code>icon.size.lg</code>. The row sizes the slot and never picks the mark: a provider whose identity is a logo and one whose identity is a glyph must read at one weight.</li><li><code>ds-provider-row__health</code> — 6px of status colour docked on the mark's corner inside a 2px keyline in the fill behind it. The keyline is structural, not decoration: without it the dot reads as a stain on the logo.</li><li><code>ds-provider-row__name</code> + <code>ds-provider-row__version</code> — a baseline pair, name at <code>font.size.body</code> / <code>font.weight.emphasis</code>, version mono at <code>font.size.micro</code>. Neither grows, so they stay adjacent on a row with no trailing control.</li><li><code>ds-provider-row__state</code> — exactly one line, at <code>font.size.meta</code>. <code>ds-provider-row__id</code> marks identifiers inside it.</li><li><code>ds-provider-row__trail</code> — actions, then the disclosure chevron, then the switch. It owns its own clicks: flipping the switch must not also toggle the row.</li><li><code>ds-provider-row__detail</code> — the expansion, indented to the name's left edge.</li><li>The section band above the list is the one chrome row: title left, freshness meta and the controls that act on the whole list right. Not part of this component, but a list of these rows without it has nowhere to put &quot;when was this last checked&quot; and the control that re-checks it.</li></ul>
+<ul><li><code>ds-provider-row</code> — the group. It owns the row and its expansion, so a disclosure opens inside the row's own box rather than pushing a sibling panel into the list.</li><li><code>ds-provider-row__face</code> — the resting row: <code>space.lg</code> of vertical padding, <code>space.md</code> at the sides, and <strong>no border</strong>. Five bordered bars in a list read as five panels; space and the hover fill do the separating.</li><li><code>ds-provider-row__mark</code> — the brand mark's slot at <code>icon.size.lg</code>. The row sizes the slot and never picks the mark: a provider whose identity is a logo and one whose identity is a glyph must read at one weight.</li><li><code>ds-provider-row__health</code> — 6px of status colour docked on the mark's TOP-LEFT corner inside a 2px keyline in the fill behind it. The keyline is structural, not decoration: without it the dot reads as a stain on the logo. <strong>Optional since 2026-09-10</strong> — see &quot;One status idiom&quot; under Usage.</li><li><code>ds-provider-row__badge</code> — the <code>badge</code> component's corner count, docked on the mark's TOP-RIGHT: how many things on this row are waiting for the person. The opposite corner from the dot, so a row that somehow draws both reads as two marks rather than one smudge.</li><li><code>ds-provider-row__name</code> + <code>ds-provider-row__version</code> — a baseline pair, name at <code>font.size.body</code> / <code>font.weight.emphasis</code>, version mono at <code>font.size.micro</code>. Neither grows, so they stay adjacent on a row with no trailing control.</li><li><code>ds-provider-row__state</code> — exactly one line, at <code>font.size.meta</code>. <code>ds-provider-row__id</code> marks identifiers inside it.</li><li><code>ds-provider-row__trail</code> — actions, then the disclosure chevron, then the switch. It owns its own clicks: flipping the switch must not also toggle the row.</li><li><code>ds-provider-row__detail</code> — the expansion, indented to the name's left edge.</li><li>The section band above the list is the one chrome row: title left, freshness meta and the controls that act on the whole list right. Not part of this component, but a list of these rows without it has nowhere to put &quot;when was this last checked&quot; and the control that re-checks it.</li></ul>
 <h4>Variants</h4>
-<ul><li>Default — icon, name, state line. The floor: every provider row has all three.</li><li>Versioned — adds the mono version. <strong>Absent means nothing is rendered there.</strong> A row that says &quot;unknown&quot; where a version goes has spent a high-signal slot on the absence of information.</li><li>Switched (<code>__switch</code> present) — adds enablement. Only for a host with real enablement state to write to.</li><li>Disclosable (<code>ds-provider-row--disclosable</code>) — adds the chevron and the expansion.</li><li>Selected (<code>ds-provider-row--selected</code>) — Tier 1 selection for a list that drives a detail pane: a neutral fill, no left bar, no accent.</li><li><strong>No tone variants of the row itself, deliberately.</strong> An unhealthy provider is reported by its dot and its state line, not by tinting the row. A list where three of nine rows carry a wash has no resting state left.</li></ul>
+<ul><li>Default — icon, name, state line. The floor: every provider row has all three.</li><li>Versioned — adds the mono version. <strong>Absent means nothing is rendered there.</strong> A row that says &quot;unknown&quot; where a version goes has spent a high-signal slot on the absence of information.</li><li>Switched (<code>__switch</code> present) — adds enablement. Only for a host with real enablement state to write to.</li><li>Disclosable (<code>ds-provider-row--disclosable</code>) — adds the chevron and the expansion.</li><li>Selected (<code>ds-provider-row--selected</code>) — Tier 1 selection for a list that drives a detail pane: a neutral fill, no left bar, no accent.</li><li>Badged (<code>__badge</code> present) — a count on the mark's corner. Often &quot;1&quot;, and that is not a mistake: on a row the counter's job is *this one, here*, and the number is what makes it a pip rather than one more status colour.</li><li>Recessed (<code>ds-provider-row--recessed</code>) — the provider is not present on this machine. The mark drops to 60% and the name drops from <code>text.primary</code> to <code>text.default</code>; nothing else changes. <strong>Not a disabled state</strong> — every control keeps working, and the Install button such a row carries is the reason it is listed at all.</li><li><strong>No tone variants of the row itself, deliberately.</strong> An unhealthy provider is reported by its dot and its state line, not by tinting the row. A list where three of nine rows carry a wash has no resting state left.</li></ul>
 <h4>States</h4>
 <ul><li>Hover: <code>bg.hover</code> on the face, and the dot's keyline switches to the same fill so it does not halo. Rows separate by this fill — it is load-bearing, not feedback.</li><li>Selected: <code>bg.selected</code>, keyline follows again.</li><li>Expanded: the chevron rotates 180°; the face does not change fill. The row keeps its position, and the detail opens under it.</li><li>Health: <code>good</code> / <code>warn</code> / <code>danger</code> / <code>neutral</code> on the dot. <code>neutral</code> is the honest tone where a host has no health probe (a marketplace listing) — it is not a fourth severity.</li><li>Unknown health is a real state and not the same as unhealthy. Where a probe failed rather than reported absence, say so on the state line and do not offer the action that assumes absence.</li><li>Reduced motion: the chevron's rotation is switched off. The state still reads from the angle, so nothing is lost.</li><li>No press-scale, no row-level motion. A list of nine rows that each spring on click is nine springs.</li></ul>
 <h4>Usage</h4>
-<ul><li><strong>The state line is mandatory, and it is state.</strong> &quot;Authenticated as <code>&lt;id&gt;</code> · Max subscription&quot;, &quot;Not installed — no <code>grok</code> on PATH&quot;, &quot;Unavailable — startup timed out after 15s&quot;. Never what the provider is or why you might want it — that is a caption, and it belongs to a marketplace detail panel if anywhere.</li><li><strong>The dot is never the only carrier of a state.</strong> It is <code>aria-hidden</code> and the words are what a screen reader gets, which is also what makes the row survive greyscale and colour-blindness.</li><li><strong>One status idiom.</strong> The dot. No tinted pill beside it, no second badge; a pill and a dot saying the same thing is one of them too many.</li><li>Do not render a switch a host cannot honour. A toggle wired to nothing is worse than no toggle: it reports a state the product does not have.</li><li>Do not render a disclosure over an empty panel. Where a provider has nothing to configure on this surface, the row ends at its state line.</li><li>Offer an action only when the state earns it. An Install button on a provider whose probe never completed is a fake affordance — that row's next action is to check again.</li><li>Keep the expansion the per-instance form that already exists. This is disclosure, not navigation: nothing about opening a row changes where the user is.</li></ul>
+<ul><li><strong>The state line is mandatory, and it is state.</strong> &quot;Authenticated as <code>&lt;id&gt;</code> · Max subscription&quot;, &quot;Not installed — no <code>grok</code> on PATH&quot;, &quot;Unavailable — startup timed out after 15s&quot;. Never what the provider is or why you might want it — that is a caption, and it belongs to a marketplace detail panel if anywhere.</li><li><strong>The dot is never the only carrier of a state.</strong> It is <code>aria-hidden</code> and the words are what a screen reader gets, which is also what makes the row survive greyscale and colour-blindness.</li><li><strong>One status idiom, and the list picks which one.</strong> The dot and the corner count are both optional and a list uses one or the other — never both, and never either alongside a tinted pill saying the same thing.</li></ul>
+<p>Which one is decided by what the list is FOR, and the deciding question is what the rows differ by. The dot earns its place where health genuinely varies down the column. Where it does not — an Agent CLIs list where nine of ten rows probe green — it is a status idiom spent on a fact nobody is scanning for, and it crowds out the mark that does have something to say. The owner arrived at exactly that list from an update notification and could not tell which CLI the notification was about (2026-09-10): ten dots, all the same, and the one thing they came for was not among them. The count replaced them.</p>
+<ul><li><strong>A count says which, not how many.</strong> On a rail square it is a quantity; on a row it is a pointer. Give it the row's own name in its accessible label (&quot;Codex — update available: 0.153.4&quot;) — a bare &quot;1&quot; docked on a logo is not a sentence.</li><li><strong>Recede absence, do not grey it out.</strong> A provider the machine does not have belongs in the list — that is how it gets installed — but it should not hold the same weight as one that is there. Drop it a contrast step and leave its controls alone.</li><li>Do not render a switch a host cannot honour. A toggle wired to nothing is worse than no toggle: it reports a state the product does not have.</li><li>Do not render a disclosure over an empty panel. Where a provider has nothing to configure on this surface, the row ends at its state line.</li><li>Offer an action only when the state earns it. An Install button on a provider whose probe never completed is a fake affordance — that row's next action is to check again.</li><li>Keep the expansion the per-instance form that already exists. This is disclosure, not navigation: nothing about opening a row changes where the user is.</li></ul>
 <h4>Accessibility</h4>
-<ul><li>The chevron is a real <code>&lt;button&gt;</code> carrying <code>aria-expanded</code> and <code>aria-controls</code> on the panel it opens, plus an <code>aria-label</code> naming its provider (&quot;Claude Code details&quot;) — a list of nine identical &quot;details&quot; is nine unusable controls.</li><li>Exactly <strong>one</strong> focusable control per disclosure. The face is a mouse target that calls the same handler; it is not a second tab stop and never a <code>role=&quot;button&quot;</code> wrapper around a real button.</li><li>The switch is the <code>switch</code> component's contract: <code>role=&quot;switch&quot;</code>, <code>aria-checked</code>, Space toggles and Enter does not.</li><li>The health dot is <code>aria-hidden</code>; the state line is plain text in the reading order right after the name, so the row announces as name, version, state.</li><li>Focus-visible is a 2px <code>border.focus</code> mark on the chevron and the switch independently — a ring on the chevron, an offset outline on the switch, whose checked fill is <code>border.focus</code>'s own colour. The row itself never takes focus, so it never shows either.</li><li>The chevron pads out to <code>size.hit-target-min</code> around its <code>icon.size.xs</code> glyph. The glyph is what you see; the button is what you hit.</li><li>The face takes a hover fill only when it is disclosable. A fill on hover is this system's promise that the thing under the cursor is actionable, and a row whose only live control is a trailing button cannot keep it.</li><li>Contrast: name, state line, and mono identifiers all clear AA in both modes. The dot is exempt because it is decorative by contract — but the 2px keyline is what keeps it perceptible at all against a brand mark, so it is not optional.</li></ul>
+<ul><li>The chevron is a real <code>&lt;button&gt;</code> carrying <code>aria-expanded</code> and <code>aria-controls</code> on the panel it opens, plus an <code>aria-label</code> naming its provider (&quot;Claude Code details&quot;) — a list of nine identical &quot;details&quot; is nine unusable controls.</li><li>Exactly <strong>one</strong> focusable control per disclosure. The face is a mouse target that calls the same handler; it is not a second tab stop and never a <code>role=&quot;button&quot;</code> wrapper around a real button.</li><li>The switch is the <code>switch</code> component's contract: <code>role=&quot;switch&quot;</code>, <code>aria-checked</code>, Space toggles and Enter does not.</li><li>The health dot is <code>aria-hidden</code>; the state line is plain text in the reading order right after the name, so the row announces as name, version, state.</li><li>The corner count is the opposite: <strong>always named, never decorative</strong>, because nothing else on the row says what it counts. It is the badge component's count species, so it announces as a live region — the number moving while the reader is elsewhere is exactly what that is for.</li><li>Recessed is a contrast change and nothing else. It sets no <code>aria-disabled</code>, removes nothing from the tab order, and adds no state to the announcement — the state line already carries the fact in words. Both inks clear AA.</li><li>Focus-visible is a 2px <code>border.focus</code> mark on the chevron and the switch independently — a ring on the chevron, an offset outline on the switch, whose checked fill is <code>border.focus</code>'s own colour. The row itself never takes focus, so it never shows either.</li><li>The chevron pads out to <code>size.hit-target-min</code> around its <code>icon.size.xs</code> glyph. The glyph is what you see; the button is what you hit.</li><li>The face takes a hover fill only when it is disclosable. A fill on hover is this system's promise that the thing under the cursor is actionable, and a row whose only live control is a trailing button cannot keep it.</li><li>Contrast: name, state line, and mono identifiers all clear AA in both modes. The dot is exempt because it is decorative by contract — but the 2px keyline is what keeps it perceptible at all against a brand mark, so it is not optional.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/provider-row/component.css</summary><pre><code>/* Provider row — extracted from the source product's ProviderRow primitive
@@ -26705,6 +26854,39 @@ window.addEventListener('resize', repositionAll)
 .ds-provider-row__mark &gt; img {
   width: var(--sem-icon-size-lg);
   height: var(--sem-icon-size-lg);
+}
+
+/* A provider this machine does not have. It recedes a contrast step — the mark
+ * by opacity because it is an image, the name by dropping to the ink under
+ * `text.primary` — so a scan down the list lands on what IS here and the
+ * absent rows sit behind them. Exactly the move the consuming app's sidebar
+ * makes on a conversation that is not the active one.
+ *
+ * It is NOT a disabled state: every control on the row keeps working, and the
+ * Install button a recessed row carries is the whole reason it is listed. And
+ * it is never the only carrier of the fact — the state line still says &quot;Not
+ * installed&quot; in words. */
+.ds-provider-row--recessed .ds-provider-row__mark {
+  opacity: 0.6;
+}
+
+.ds-provider-row--recessed .ds-provider-row__name {
+  color: var(--sem-color-text-default);
+}
+
+/* The count docked on the mark's TOP-RIGHT: the badge component's corner
+ * species, on a list row rather than on a rail square. The opposite corner
+ * from the health dot, so a surface that draws both reads as two marks rather
+ * than one smudge — though a list should be drawing one or the other (see
+ * component.md, &quot;One status idiom&quot;).
+ *
+ * The badge brings its own geometry and its own keyline; all this slot does is
+ * establish that the corner belongs to the mark. */
+.ds-provider-row__badge {
+  /* The keyline in the ground this list actually sits on. The badge component
+   * rings itself in the app ground by default, which is a different colour
+   * here — the same override the app rail makes for its canvas. */
+  border-color: var(--sem-color-bg-surface);
 }
 
 /* Health, docked on the mark's corner: 6px of colour inside a 2px keyline in
@@ -26880,6 +27062,8 @@ window.addEventListener('resize', repositionAll)
      so this file also stands alone in a browser; the catalog inlines every
      component's CSS itself and drops this head. --&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../switch/component.css&quot; /&gt;
+&lt;!-- The corner count on a mark is the badge component, unchanged. --&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../badge/component.css&quot; /&gt;
 &lt;style&gt;
   body {
     margin: 0;
@@ -26969,7 +27153,10 @@ window.addEventListener('resize', repositionAll)
 &lt;/head&gt;
 &lt;body&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Light — installed providers, one expanded&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;
+    Light — installed providers, one expanded, one with an update waiting, one
+    absent and receded
+  &lt;/p&gt;
 
   &lt;div class=&quot;demo-band&quot;&gt;
     &lt;h2&gt;Agent CLIs&lt;/h2&gt;
@@ -27092,12 +27279,46 @@ window.addEventListener('resize', repositionAll)
     &lt;/div&gt;
   &lt;/div&gt;
 
-  &lt;!-- Definitively absent: no version at all, and the one action the state earns. --&gt;
-  &lt;div class=&quot;ds-provider-row&quot;&gt;
+  &lt;!-- An update waiting: the corner count on the mark, and no health dot — this
+       list has picked the count as its one status idiom. The number is 1
+       because the count on a ROW says which, not how many. --&gt;
+  &lt;div class=&quot;ds-provider-row ds-provider-row--disclosable&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;CX&lt;/span&gt;
+        &lt;span
+          role=&quot;status&quot;
+          aria-label=&quot;Codex — update available: 0.153.4&quot;
+          class=&quot;ds-badge-count ds-badge-count--accent ds-badge-count--corner ds-provider-row__badge&quot;
+          &gt;1&lt;/span
+        &gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;Codex&lt;/span&gt;
+          &lt;span class=&quot;ds-provider-row__version&quot;&gt;codex-cli 0.153.3&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;
+          Ready — &lt;span class=&quot;ds-provider-row__id&quot;&gt;/opt/homebrew/bin/codex&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-provider-row__disclosure&quot; aria-expanded=&quot;false&quot; aria-controls=&quot;detail-codex-update&quot; aria-label=&quot;Codex details&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__chevron&quot;&gt;
+            &lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;!-- Definitively absent: recessed a contrast step, no version at all, and the
+       one action the state earns. The Install button is at full weight — the row
+       recedes, its controls do not. --&gt;
+  &lt;div class=&quot;ds-provider-row ds-provider-row--recessed&quot;&gt;
     &lt;div class=&quot;ds-provider-row__face&quot;&gt;
       &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
         &lt;span class=&quot;demo-mono-mark&quot;&gt;CU&lt;/span&gt;
-        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__health ds-provider-row__health--warn&quot;&gt;&lt;/span&gt;
       &lt;/span&gt;
       &lt;span class=&quot;ds-provider-row__text&quot;&gt;
         &lt;span class=&quot;ds-provider-row__line&quot;&gt;
@@ -27220,6 +27441,55 @@ window.addEventListener('resize', repositionAll)
         &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;false&quot; aria-label=&quot;Grok Build enabled&quot; class=&quot;ds-switch&quot;&gt;
           &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
         &lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;ds-provider-row ds-provider-row--disclosable&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;CX&lt;/span&gt;
+        &lt;span
+          role=&quot;status&quot;
+          aria-label=&quot;Codex — update available: 0.153.4&quot;
+          class=&quot;ds-badge-count ds-badge-count--accent ds-badge-count--corner ds-provider-row__badge&quot;
+          &gt;1&lt;/span
+        &gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;Codex&lt;/span&gt;
+          &lt;span class=&quot;ds-provider-row__version&quot;&gt;codex-cli 0.153.3&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;
+          Ready — &lt;span class=&quot;ds-provider-row__id&quot;&gt;/opt/homebrew/bin/codex&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-provider-row__disclosure&quot; aria-expanded=&quot;false&quot; aria-controls=&quot;detail-codex-update-dark&quot; aria-label=&quot;Codex details&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot; class=&quot;ds-provider-row__chevron&quot;&gt;
+            &lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+          &lt;/svg&gt;
+        &lt;/button&gt;
+      &lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;ds-provider-row ds-provider-row--recessed&quot;&gt;
+    &lt;div class=&quot;ds-provider-row__face&quot;&gt;
+      &lt;span class=&quot;ds-provider-row__mark&quot;&gt;
+        &lt;span class=&quot;demo-mono-mark&quot;&gt;MU&lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__text&quot;&gt;
+        &lt;span class=&quot;ds-provider-row__line&quot;&gt;
+          &lt;span class=&quot;ds-provider-row__name&quot;&gt;Muse Code&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-provider-row__state&quot;&gt;
+          Not installed — no &lt;span class=&quot;ds-provider-row__id&quot;&gt;muse&lt;/span&gt; on PATH
+        &lt;/span&gt;
+      &lt;/span&gt;
+      &lt;span class=&quot;ds-provider-row__trail&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-ghost&quot;&gt;Install&lt;/button&gt;
       &lt;/span&gt;
     &lt;/div&gt;
   &lt;/div&gt;
@@ -31741,9 +32011,15 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
         <span class="ds-tab-count">12</span>
         <span class="ds-tab-underline" aria-hidden="true"></span>
       </button>
-      <button type="button" class="ds-tab" role="tab" id="lt-tab-done" aria-selected="false" aria-controls="lt-panel-done" tabindex="-1">
+      <!-- Both numbers at once, saying two different things: 86 items in the
+           view (in the reading line), 3 of them waiting on you (above the
+           words, top-right). -->
+      <button type="button" class="ds-tab ds-tab--badged" role="tab" id="lt-tab-done" aria-selected="false" aria-controls="lt-panel-done" tabindex="-1">
         <span>Done</span>
         <span class="ds-tab-count">86</span>
+        <span class="ds-tab-badge" role="status" aria-label="Done: 3 updates available">
+          <span class="ds-badge-count ds-badge-count--accent">3</span>
+        </span>
         <span class="ds-tab-underline" aria-hidden="true"></span>
       </button>
       <button type="button" class="ds-tab" role="tab" id="lt-tab-archived" aria-selected="false" aria-controls="lt-panel-archived" tabindex="-1" disabled>
@@ -31799,9 +32075,12 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
         <span class="ds-tab-count">12</span>
         <span class="ds-tab-underline" aria-hidden="true"></span>
       </button>
-      <button type="button" class="ds-tab" role="tab" id="dk-tab-done" aria-selected="false" aria-controls="dk-panel-done" tabindex="-1">
+      <button type="button" class="ds-tab ds-tab--badged" role="tab" id="dk-tab-done" aria-selected="false" aria-controls="dk-panel-done" tabindex="-1">
         <span>Done</span>
         <span class="ds-tab-count">86</span>
+        <span class="ds-tab-badge" role="status" aria-label="Done: 3 updates available">
+          <span class="ds-badge-count ds-badge-count--accent">3</span>
+        </span>
         <span class="ds-tab-underline" aria-hidden="true"></span>
       </button>
       <button type="button" class="ds-tab" role="tab" id="dk-tab-archived" aria-selected="false" aria-controls="dk-panel-archived" tabindex="-1" disabled>
@@ -31825,10 +32104,10 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <p>The view switcher inside a panel: a row of peers, exactly one active, the active one marked by an accent hairline underline and an ink lift — never an accent fill. Extracted from the shipped <code>Tabs</code> primitive (<code>src/renderer/src/components/ui/Tabs.tsx</code>), whose underline treatment the conformance tests lock: the only elements allowed to carry accent fill are 1px hairlines.</p>
 <p>Use tabs when the choices are views of the same content region. Use a segmented control when they are values of a setting, and the context rail when they are destinations.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Scroller | <code>.ds-tabs-scroller</code> | no — the overflow wrapper: scrolls sideways, never draws a scrollbar, fades each overflowing edge | | Tab list | <code>.ds-tabs</code> | yes — <code>role=&quot;tablist&quot;</code> with an <code>aria-label</code>, one bottom hairline | | Tab | <code>.ds-tab</code> | yes — <code>role=&quot;tab&quot;</code> buttons, <code>font.size.meta</code> | | Icon | <code>.ds-tab-icon</code> | no — a leading glyph, <code>aria-hidden</code> | | Count | <code>.ds-tab-count</code> | no — canonical count, tabular, <code>font.size.micro</code> | | Underline | <code>.ds-tab-underline</code> | yes — the 1px active marker, <code>aria-hidden</code> | | Panel | <code>.ds-tab-panel</code> | yes — <code>role=&quot;tabpanel&quot;</code>, a focusable scroll region |</p>
+<p>| Part | Class | Required | |---|---|---| | Scroller | <code>.ds-tabs-scroller</code> | no — the overflow wrapper: scrolls sideways, never draws a scrollbar, fades each overflowing edge | | Tab list | <code>.ds-tabs</code> | yes — <code>role=&quot;tablist&quot;</code> with an <code>aria-label</code>, one bottom hairline | | Tab | <code>.ds-tab</code> | yes — <code>role=&quot;tab&quot;</code> buttons, <code>font.size.meta</code> | | Icon | <code>.ds-tab-icon</code> | no — a leading glyph, <code>aria-hidden</code> | | Count | <code>.ds-tab-count</code> | no — canonical count, tabular, <code>font.size.micro</code> | | Badge | <code>.ds-tab-badge</code> | no — the <code>badge</code> corner count: what is WAITING in this tab. Needs <code>.ds-tab--badged</code> on the tab for its room | | Underline | <code>.ds-tab-underline</code> | yes — the 1px active marker, <code>aria-hidden</code> | | Panel | <code>.ds-tab-panel</code> | yes — <code>role=&quot;tabpanel&quot;</code>, a focusable scroll region |</p>
 <p>Tabs sit <code>size.control.sm</code> (30px) tall at <code>space.lg</code> inline padding, spaced by <code>space.3xs</code>. Each tab overlaps the row's hairline by 1px so the active underline draws <strong>on</strong> the border, not above it — one line, two meanings. The underline is inset <code>space.sm</code> from each end of its tab: it marks the label, not the hit area.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default</strong> — the row draws its own <code>border.subtle</code>-weight structure with a <code>border.default</code> hairline.</li><li><strong><code>--borderless</code></strong> — no hairline; a parent container owns the row's border. Needed when the tab row shares its band with trailing inline controls — one chrome band, one line. Its tabs also drop the 1px overlap: the line they would reach for is a band they are passengers in, and the band's overflow container clips the overhang — which is the pixel the active underline lives in, so the overlap costs a borderless strip its selection marker entirely.</li><li><strong><code>--icon-only</code></strong> — each tab renders its glyph alone on a <code>size.control.sm</code> square, the glyph steps up to <code>icon.size.sm</code>, and the label becomes the tab's accessible name *and* its tooltip. For a strip on a band that cannot spend width on words — a panel's own chrome row, shared with that panel's actions. Every item must carry an icon.</li></ul>
+<ul><li><strong>Default</strong> — the row draws its own <code>border.subtle</code>-weight structure with a <code>border.default</code> hairline.</li><li><strong><code>--borderless</code></strong> — no hairline; a parent container owns the row's border. Needed when the tab row shares its band with trailing inline controls — one chrome band, one line. Its tabs also drop the 1px overlap: the line they would reach for is a band they are passengers in, and the band's overflow container clips the overhang — which is the pixel the active underline lives in, so the overlap costs a borderless strip its selection marker entirely.</li><li><strong><code>--badged</code></strong> — the tab reserves <code>space.3xl</code> of trailing room and docks a <code>badge</code> count in its top-right: how many things inside want the person. See &quot;A count on a tab is not a badge on a tab&quot; below. Never on <code>--icon-only</code>.</li><li><strong><code>--icon-only</code></strong> — each tab renders its glyph alone on a <code>size.control.sm</code> square, the glyph steps up to <code>icon.size.sm</code>, and the label becomes the tab's accessible name *and* its tooltip. For a strip on a band that cannot spend width on words — a panel's own chrome row, shared with that panel's actions. Every item must carry an icon.</li></ul>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Rest | <code>text.muted</code>, transparent underline | | Hover | Ink lifts to <code>text.primary</code>. No background — the underline idiom marks tabs, not a fill | | Active | <code>text.primary</code> + the accent hairline underline. Never an accent fill or a pill | | Focus-visible | <code>focus.ring</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code> |</p>
 <h4>Usage</h4>
@@ -31836,7 +32115,11 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <p><strong>Selection follows focus.</strong> Arrow keys move focus *and* activate: Left/Right step through enabled tabs with wraparound, Home/End jump to the ends. This is the correct model when switching panels is cheap; if a panel is expensive to mount, keep roving focus but activate on Enter/Space instead — pick one model per product and hold to it.</p>
 <p><strong>Roving tabindex.</strong> Exactly one tab is in the tab order at any time — the active one. Tab from the active tab lands in the panel, not on the next tab.</p>
 <p><strong>Counts are canonical.</strong> A count on a tab is the count of that view. Do not repeat it inside the panel where the two could disagree.</p>
-<p><strong>An icon-only tab keeps its name, it just stops drawing it.</strong> The label becomes <code>aria-label</code> and the tooltip, so the word is one hover or one focus away and unchanged for assistive tech. Dropping the label without either is a blank button, and it is the only thing this variant can get wrong. It draws no count at all: a number pinned to a 30px glyph covers the mark it is badging as soon as it reaches two digits, and five badged glyphs is a row of alarms. Put the count in the tooltip beside the name (&quot;Log · 3,057 commits&quot;).</p>
+<p><strong>A count on a tab is not a badge on a tab</strong> (2026-09-10). They are two different questions and they get two different places:</p>
+<ul><li>the <strong>count</strong> is *how many things are in here*. It rides beside the label, in the reading line, because it is part of what the tab says.</li><li>the <strong>badge</strong> is *how many of them want you* — updates waiting, work blocked on an answer. It sits above the words, top-right, because it is not part of them. It is the same pip the app rail's squares wear, so &quot;there is news here&quot; is one drawing wherever the product says it.</li></ul>
+<p>A tab can carry both, and a tab reading &quot;SprintEngine Studio 10 ③&quot; is saying two true things. What it must not do is draw the badge at zero: a counter reading &quot;0&quot; is a counter spent saying there is no news. Nor may a tab spend the badge on a fact it cannot count — where a source is known to have moved on but no per-item answer exists yet, that is a mark (a glyph), not a number, and the two never show together on one tab.</p>
+<p><strong>A badge on a tab is docked, not overhung.</strong> The <code>badge</code> component's <code>--corner</code> mode hangs the counter outside its trigger; outside a tab is the scroller's clip, which is the same pixel-eating that costs a borderless strip its underline. <code>--badged</code> reserves room and the badge sits inside it — same corner, drawn where it survives, and with no keyline, since it covers the band rather than a glyph.</p>
+<p><strong>An icon-only tab keeps its name, it just stops drawing it.</strong> The label becomes <code>aria-label</code> and the tooltip, so the word is one hover or one focus away and unchanged for assistive tech. Dropping the label without either is a blank button, and it is the only thing this variant can get wrong. It draws no count at all, and no badge either: a number pinned to a 30px glyph covers the mark it is badging as soon as it reaches two digits, and five badged glyphs is a row of alarms. Put the count in the tooltip beside the name (&quot;Log · 3,057 commits&quot;).</p>
 <p><strong>A strip that can outgrow its band scrolls, it does not squeeze.</strong> Wrap it in <code>.ds-tabs-scroller</code>: tabs stay <code>shrink-0</code>, the row scrolls sideways, and the overflowing edges fade. Never a scrollbar — under a 36px band it is a second horizontal line and a third of the row's height. The host routes a plain vertical wheel to <code>scrollLeft</code>, because a horizontal row has no vertical axis to spend that gesture on.</p>
 <p><strong>The panel is a tab stop.</strong> It is usually a scroll container, so it takes <code>tabindex=&quot;0&quot;</code> — otherwise keyboard users cannot scroll it. Only the active panel is rendered; inactive panels are unmounted, not hidden.</p>
 <h4>Accessibility</h4>
@@ -31917,6 +32200,30 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 
 .ds-tab[aria-selected='true'] {
   color: var(--sem-color-text-primary);
+}
+
+/* The corner count: what is waiting INSIDE this tab, as the badge component's
+ * count species. Docked here rather than by the badge's own `--corner` mode,
+ * which hangs the counter outside its trigger — and outside a tab is the
+ * strip's overflow container, the same clip that ate the active underline.
+ * The tab reserves trailing room for it (`.ds-tab--badged`) and it sits in
+ * that room, still the top-right corner, drawn where it survives.
+ *
+ * No keyline either: `--corner`'s ring exists to lift the badge off the glyph
+ * it covers, and this one covers nothing but the band. */
+.ds-tab-badge {
+  position: absolute;
+  top: var(--sem-space-3xs);
+  right: var(--sem-space-2xs);
+  display: inline-flex;
+}
+
+/* Room for the badge, so revealing it never reflows the label — the same
+ * reservation the closable tab makes for its close glyph. Wide enough for the
+ * two-digit pill, not just the one-digit circle: a count that grows must not
+ * start eating the word it belongs to. */
+.ds-tab--badged {
+  padding-right: var(--sem-space-3xl);
 }
 
 .ds-tab-icon {
@@ -32055,6 +32362,8 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 &lt;title&gt;Tabs&lt;/title&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;!-- The corner count on a tab is the badge component, unchanged. --&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../badge/component.css&quot; /&gt;
 &lt;style&gt;
   body {
     margin: 0;
@@ -32140,9 +32449,15 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
         &lt;span class=&quot;ds-tab-count&quot;&gt;12&lt;/span&gt;
         &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;/button&gt;
-      &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;lt-tab-done&quot; aria-selected=&quot;false&quot; aria-controls=&quot;lt-panel-done&quot; tabindex=&quot;-1&quot;&gt;
+      &lt;!-- Both numbers at once, saying two different things: 86 items in the
+           view (in the reading line), 3 of them waiting on you (above the
+           words, top-right). --&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-tab ds-tab--badged&quot; role=&quot;tab&quot; id=&quot;lt-tab-done&quot; aria-selected=&quot;false&quot; aria-controls=&quot;lt-panel-done&quot; tabindex=&quot;-1&quot;&gt;
         &lt;span&gt;Done&lt;/span&gt;
         &lt;span class=&quot;ds-tab-count&quot;&gt;86&lt;/span&gt;
+        &lt;span class=&quot;ds-tab-badge&quot; role=&quot;status&quot; aria-label=&quot;Done: 3 updates available&quot;&gt;
+          &lt;span class=&quot;ds-badge-count ds-badge-count--accent&quot;&gt;3&lt;/span&gt;
+        &lt;/span&gt;
         &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;/button&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;lt-tab-archived&quot; aria-selected=&quot;false&quot; aria-controls=&quot;lt-panel-archived&quot; tabindex=&quot;-1&quot; disabled&gt;
@@ -32198,9 +32513,12 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
         &lt;span class=&quot;ds-tab-count&quot;&gt;12&lt;/span&gt;
         &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;/button&gt;
-      &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;dk-tab-done&quot; aria-selected=&quot;false&quot; aria-controls=&quot;dk-panel-done&quot; tabindex=&quot;-1&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-tab ds-tab--badged&quot; role=&quot;tab&quot; id=&quot;dk-tab-done&quot; aria-selected=&quot;false&quot; aria-controls=&quot;dk-panel-done&quot; tabindex=&quot;-1&quot;&gt;
         &lt;span&gt;Done&lt;/span&gt;
         &lt;span class=&quot;ds-tab-count&quot;&gt;86&lt;/span&gt;
+        &lt;span class=&quot;ds-tab-badge&quot; role=&quot;status&quot; aria-label=&quot;Done: 3 updates available&quot;&gt;
+          &lt;span class=&quot;ds-badge-count ds-badge-count--accent&quot;&gt;3&lt;/span&gt;
+        &lt;/span&gt;
         &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;/button&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;dk-tab-archived&quot; aria-selected=&quot;false&quot; aria-controls=&quot;dk-panel-archived&quot; tabindex=&quot;-1&quot; disabled&gt;

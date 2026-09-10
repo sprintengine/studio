@@ -166,7 +166,7 @@ async function testAgentSpawn(): Promise<void> {
     },
     revealAgentTab: (workspaceId, agentId, name) => reveals.push({ workspaceId, agentId, name }),
     focusFileTab: (workspaceId, absolutePath) => workspaceId === 'ws-1' && absolutePath === '/repo/notes/plan.md',
-    listRuntimes: () => [{ id: 'claude', label: 'Claude Code' }],
+    listRuntimes: () => [{ id: 'claude', label: 'Claude Code', available: true, models: [], isDefault: true }],
     defaultCli: () => defaultCliId,
     pickAgentName: () => 'Sailor',
     newAgentId: () => 'agent-new',
@@ -223,7 +223,9 @@ async function testAgentSpawn(): Promise<void> {
   assert.equal(reveals[reveals.length - 1]!.name, 'Poet', 'reveals under the display name, not the id')
   assert.equal(spawner.focusTab({ workspaceId: 'ws-1', kind: 'agent', id: 'agent-ghost' }), false)
 
-  assert.deepEqual(spawner.listAgentRuntimes(), [{ id: 'claude', label: 'Claude Code' }])
+  assert.deepEqual(spawner.listAgentRuntimes(), [
+    { id: 'claude', label: 'Claude Code', available: true, models: [], isDefault: true },
+  ])
 }
 
 type WorkingRootInput = Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>

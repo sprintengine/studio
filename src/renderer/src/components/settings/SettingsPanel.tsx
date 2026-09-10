@@ -1742,7 +1742,25 @@ export default function SettingsPanel({
                         className="size-icon-lg text-[color:var(--text-default)]"
                       />
                     }
-                    health={state.tone}
+                    // No health dot here either, and for the same reason it
+                    // left the Agent CLIs catalogue (owner, 2026-09-10): this
+                    // is the same list of CLIs, and nine identical green dots
+                    // down a column is a status idiom spent on a fact nobody
+                    // is scanning for. What a person is scanning for is the
+                    // one row that is behind — so that is what the mark says.
+                    badge={
+                      behind
+                        ? {
+                            count: 1,
+                            label: `${plugin.displayName} — update available: ${advisory.latestVersion}`,
+                          }
+                        : null
+                    }
+                    // A CLI this machine does not have recedes a step, so the
+                    // list reads as what is here first. Only a DEFINITIVE
+                    // absence: a probe that never answered is not absence, and
+                    // must not push a likely-installed CLI into the background.
+                    recessed={state.health === 'missing'}
                     name={plugin.displayName}
                     version={state.version}
                     stateLine={

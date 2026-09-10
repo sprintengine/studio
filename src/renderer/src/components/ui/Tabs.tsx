@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { Badge } from './Badge'
 import { Tooltip } from './Tooltip'
 import { FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS } from './tokens'
 
@@ -25,6 +26,23 @@ export type TabItem<T extends string = string> = {
    *  glyph is `aria-hidden`, so without this the state exists for the eye and
    *  for nobody else ("anthropics/skills — update available"). */
   ariaLabel?: string
+  /**
+   * News waiting INSIDE this tab, as the kit's corner counter docked on the
+   * tab's top-right — the same unread pip the app rail's squares and the
+   * Extensions drawer's rows wear, so "there is something here" is one drawing
+   * wherever the product says it (owner, 2026-09-10).
+   *
+   * It is not `count`. `count` is how many things this tab holds and rides
+   * beside the label in the reading line; this is how many of them want the
+   * person, and it sits above the words because it is not part of them.
+   * Undefined or 0 draws nothing: a badge reading "0" is a badge spent saying
+   * there is no news.
+   */
+  badgeCount?: number
+  /** What the corner count is, with the tab in it ("Plugins: 3 updates"). A
+   *  bare number docked on a word is not a sentence, so the badge is always
+   *  named — never `decorative`, because nothing else on the tab says this. */
+  badgeLabel?: string
 }
 
 type TabsProps<T extends string = string> = {
@@ -162,6 +180,13 @@ export function Tabs<T extends string = string>({
         const iconNode =
           typeof item.icon === 'function' ? item.icon({ className: iconClass }) : item.icon
         const closable = Boolean(onCloseItem && item.closeLabel)
+        // An icon-only strip draws no badge: its tab is a 30px square with no
+        // room to dock one clear of the glyph, and the tooltip is where that
+        // strip already puts what the glyph cannot show. A closable tab draws
+        // none either — its trailing padding is already spoken for by the close
+        // glyph, and two things docked in one corner is neither of them.
+        const badged =
+          !iconOnly && !closable && typeof item.badgeCount === 'number' && item.badgeCount > 0
         const tab = (
           <button
             key={closable ? undefined : item.id}
@@ -174,7 +199,22 @@ export function Tabs<T extends string = string>({
             // The glyph carries no words, so the name comes from the label the
             // tooltip is also showing — one name, two renderings. A labelled tab
             // names itself, unless it draws something the label does not say.
-            aria-label={item.ariaLabel ?? (iconOnly ? item.label : undefined)}
+            //
+            // A badged tab is one of those. The counter is a named live region
+            // (it has to be — the number moves while the reader is elsewhere),
+            // and a named child inside a button lands in the button's own
+            // name-from-contents: the tab announced as "Studio: 3 updates
+            // available Studio 10". An explicit name wins over name-from-
+            // contents, so the tab says its piece once and the counter keeps
+            // announcing changes on its own.
+            aria-label={
+              item.ariaLabel
+              ?? (badged
+                ? (item.badgeLabel ?? `${item.label}: ${item.badgeCount} waiting`)
+                : iconOnly
+                  ? item.label
+                  : undefined)
+            }
             disabled={item.disabled}
             tabIndex={selected ? 0 : -1}
             onClick={() => {
@@ -203,12 +243,34 @@ export function Tabs<T extends string = string>({
               // document tab (a page title, a file), so it also caps its
               // width and truncates rather than letting one title own the row.
               closable ? 'max-w-[220px] pr-8' : '',
+              // The corner count sits in reserved trailing padding rather than
+              // overhanging the tab's box: this strip scrolls inside an
+              // `overflow-x` container, which clips anything hanging past the
+              // edge — the same clip that once ate the active underline.
+              badged ? 'pr-6' : '',
               selected
                 ? 'text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]',
               FOCUS_RING_CLASS,
             ].join(' ')}
           >
+            {badged ? (
+              // Docked by this strip rather than by the badge's own `corner`
+              // mode: `corner` hangs the counter 4px outside its trigger, and
+              // outside this trigger is the scroll container's clip. It sits in
+              // the trailing padding reserved above instead — the same top-right
+              // corner, drawn where it survives. No keyline either: `corner`'s
+              // ring exists to lift the badge off the glyph it covers, and this
+              // one covers nothing but the band.
+              <span className="absolute right-1 top-0.5 inline-flex">
+                <Badge
+                  tone="accent"
+                  count={item.badgeCount as number}
+                  max={99}
+                  ariaLabel={item.badgeLabel ?? `${item.label}: ${item.badgeCount} waiting`}
+                />
+              </span>
+            ) : null}
             {iconNode ? <span aria-hidden="true" className="inline-flex">{iconNode}</span> : null}
             {iconOnly ? null : (
               <>

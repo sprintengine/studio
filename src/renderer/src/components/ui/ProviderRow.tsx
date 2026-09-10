@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { Badge, type MarkBadge } from './Badge'
 import { Switch } from './Switch'
 import { FOCUS_RING_CLASS, STATUS_TONE_COLOR_VAR, type StatusTone } from './tokens'
 
@@ -14,7 +15,7 @@ import { FOCUS_RING_CLASS, STATUS_TONE_COLOR_VAR, type StatusTone } from './toke
 //   [22px brand mark + corner health dot]  Name  v1.2.3        [actions] ⌄ [switch]
 //                                          one state line
 //
-// Three rules the props enforce rather than suggest:
+// Four rules the props enforce rather than suggest:
 //
 //  1. **Health and enablement are different axes.** `health` drives the dot;
 //     `enabled` drives the switch. A provider can be switched on and
@@ -27,6 +28,12 @@ import { FOCUS_RING_CLASS, STATUS_TONE_COLOR_VAR, type StatusTone } from './toke
 //  3. **No version placeholder.** `version` absent means nothing is rendered
 //     there. A row that says "unknown" where a version goes has spent a
 //     high-signal slot on the absence of information.
+//  4. **One status idiom per list.** `health` and `badge` are both optional,
+//     and a list picks ONE. A dot on every row in a list where every row is
+//     healthy says nothing while looking like it says something (owner,
+//     2026-09-10: "it didn't tell me which CLIs were needing an update"); a
+//     badge marks the few rows that want the person, and is the number that
+//     says how much.
 //
 // The row draws no border. Rows separate by 12px vertical padding and the
 // standard hover fill — a box per row in a list of five reads as five panels.
@@ -38,8 +45,25 @@ export type ProviderRowProps = {
    *  at the same weight. */
   icon: React.ReactNode
   /** Health of the provider itself: reachable, degraded, unreachable, unknown.
-   *  Never enablement, and never derived from it. */
-  health: StatusTone
+   *  Never enablement, and never derived from it.
+   *
+   *  Omitted (or null) renders NO dot, which is the right call for a list whose
+   *  state line already says the state in words for every row and whose rows are
+   *  overwhelmingly one tone — nine green dots down a column is decoration, and
+   *  it crowds out the badge that does have something to say. */
+  health?: StatusTone | null
+  /** The kit's corner count, docked on the mark's top-right. Omitted, or a
+   *  count of 0, renders nothing. */
+  badge?: MarkBadge | null
+  /**
+   * The provider is not present on this machine. Drops the mark and the name a
+   * contrast step, the way the sidebar recedes a conversation that is not the
+   * active one, so a scan down the list lands on what IS here. It is not a
+   * disabled state and never the only carrier of the fact: the state line still
+   * says "Not installed — no `muse` on PATH", and every control on the row keeps
+   * working (an Install button on a recessed row is the whole point).
+   */
+  recessed?: boolean
   name: string
   /** Rendered mono when known. Absent (or empty) renders nothing — never a
    *  placeholder. Real `--version` output is not always a semver (`grok 0.2.114
@@ -126,6 +150,8 @@ function DisclosureChevron({ expanded }: { expanded: boolean }) {
 export function ProviderRow({
   icon,
   health,
+  badge,
+  recessed = false,
   name,
   version,
   stateLine,
@@ -154,23 +180,50 @@ export function ProviderRow({
   // face, or neither.
   const face = (
     <>
-      <span className="relative mt-px grid size-icon-lg shrink-0 place-items-center">
+      <span
+        className={[
+          'relative mt-px grid size-icon-lg shrink-0 place-items-center',
+          // A brand mark is an image, so its contrast step is opacity rather
+          // than an ink token — the same move the sidebar makes on a row whose
+          // folder is gone. It takes the whole slot, marks included, and that
+          // is fine: a provider that is not here has nothing waiting on it, so
+          // recessed and badged is not a state either axis can produce.
+          recessed ? 'opacity-60' : '',
+        ].join(' ')}
+      >
         {icon}
         {/* The 6px health dot, docked on the mark's corner. aria-hidden: the
             state line carries the meaning, so the colour is never the only
-            thing saying it. */}
-        <span
-          aria-hidden="true"
-          className={[
-            'absolute -left-0.5 -top-0.5 size-1.5 rounded-full',
-            // Tracks the fill the face will actually take. A face that no
-            // longer paints a hover fill must not ring its dot in the hover
-            // colour either, or the keyline halos on a surface-coloured row.
-            disclosable || selectable ? DOT_KEYLINE_HOVER : '',
-            selected ? DOT_KEYLINE_SELECTED : DOT_KEYLINE_RESTING,
-          ].join(' ')}
-          style={{ backgroundColor: STATUS_TONE_COLOR_VAR[health] }}
-        />
+            thing saying it. Absent `health`, the row draws none — see rule 4. */}
+        {health ? (
+          <span
+            aria-hidden="true"
+            className={[
+              'absolute -left-0.5 -top-0.5 size-1.5 rounded-full',
+              // Tracks the fill the face will actually take. A face that no
+              // longer paints a hover fill must not ring its dot in the hover
+              // colour either, or the keyline halos on a surface-coloured row.
+              disclosable || selectable ? DOT_KEYLINE_HOVER : '',
+              selected ? DOT_KEYLINE_SELECTED : DOT_KEYLINE_RESTING,
+            ].join(' ')}
+            style={{ backgroundColor: STATUS_TONE_COLOR_VAR[health] }}
+          />
+        ) : null}
+        {/* The corner count, on the opposite corner from the dot so a surface
+            that somehow wants both still reads as two marks rather than one
+            smudge. Its ring is `--bg-surface`, the ground these lists sit on —
+            the primitive assumes the app ground, which is a different colour
+            here (the app rail overrides it the same way for its canvas). */}
+        {badge && badge.count > 0 ? (
+          <Badge
+            corner
+            tone={badge.tone ?? 'accent'}
+            count={badge.count}
+            max={99}
+            ariaLabel={badge.label}
+            className="border-[color:var(--bg-surface)]"
+          />
+        ) : null}
       </span>
 
       <span className="min-w-0 flex-1">
@@ -183,7 +236,11 @@ export function ProviderRow({
               survives. The 45% cap is the backstop for the pathological case
               an uncapped slot got wrong: a one-letter name beside a full
               sentence of version output. */}
-          <span className="min-w-0 truncate text-body font-semibold text-[color:var(--text-strong)]">
+          <span
+            className={`min-w-0 truncate text-body font-semibold ${
+              recessed ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-strong)]'
+            }`}
+          >
             {name}
           </span>
           {version ? (

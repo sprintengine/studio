@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
 
 import type { CliAvailability } from '../../../../../shared/electron-api'
-import { agentCliPlatformLabel, agentCliShelfRowState, type CliInstallMethodsLoad } from './agentCliShelfState'
+import type { CliVersionAdvisory, CliVersionAdvisoryMap } from '../../../../../shared/electron-api'
+import {
+  agentCliPlatformLabel,
+  agentCliShelfRowState,
+  cliUpdateAvailable,
+  countCliUpdates,
+  type CliInstallMethodsLoad,
+} from './agentCliShelfState'
 
 // MC-1858 — the CLI shelf row's state model, every branch. The contract under
 // test: runtime state comes from the shared probe reading (a missing map entry
@@ -132,3 +139,66 @@ function state(overrides: Partial<Parameters<typeof agentCliShelfRowState>[0]>) 
 assert.equal(agentCliPlatformLabel('darwin', false), 'macOS')
 
 console.log('agent-cli shelf state model passed')
+
+
+// ── present: what the row recedes on ────────────────────────────────────────
+//
+// `present` decides whether a row drops a contrast step, so the states that are
+// merely UNKNOWN must not read as absence: receding a row whose probe never
+// answered puts a CLI that is very likely installed into the background.
+{
+  assert.equal(state({ catalogStatus: 'loading' }).present, true, 'a catalog still loading is not absence')
+  assert.equal(state({ catalogStatus: 'error' }).present, true, 'an unreadable catalog is not absence')
+  assert.equal(state({ inCatalog: false }).present, true, 'built into the app IS present')
+  assert.equal(state({ availability: installed }).present, true, 'an installed CLI is present')
+  assert.equal(
+    state({ availability: undefined, availabilityStatus: 'error' }).present,
+    true,
+    'a FAILED probe is not absence — the row keeps its full weight and offers no Install',
+  )
+  assert.equal(
+    state({ availability: absent, installMethods: someMethods }).present,
+    false,
+    'a definitive negative probe is absence',
+  )
+  assert.equal(
+    state({ availability: absent, installMethods: noMethods }).present,
+    false,
+    'and so is a platform with no install path at all',
+  )
+}
+
+// ── Updates ─────────────────────────────────────────────────────────────────
+//
+// `behind_latest` is the one status that means there is something to do. The
+// other two are silence, and a badge over silence is a badge that cries wolf.
+{
+  const advisory = (status: CliVersionAdvisory['status'], latest: string | null): CliVersionAdvisory => ({
+    cli: 'codex',
+    status,
+    currentVersion: '0.153.3',
+    latestVersion: latest,
+    updateCommand: null,
+    checkedAt: '2026-09-10T00:00:00.000Z',
+  })
+
+  assert.equal(cliUpdateAvailable(advisory('behind_latest', '0.153.4')), true)
+  assert.equal(cliUpdateAvailable(advisory('current', '0.153.3')), false)
+  assert.equal(cliUpdateAvailable(advisory('unknown', null)), false, 'a registry we could not read says nothing')
+  assert.equal(cliUpdateAvailable(undefined), false, 'and neither does a CLI with no advisory at all')
+
+  const advisories = {
+    codex: advisory('behind_latest', '0.153.4'),
+    cursor: { ...advisory('behind_latest', '2.0.0'), cli: 'cursor' },
+    'claude-code': { ...advisory('current', '2.4.1'), cli: 'claude-code' },
+  } as unknown as CliVersionAdvisoryMap
+
+  assert.equal(countCliUpdates(advisories, ['codex', 'cursor', 'claude-code']), 2)
+  assert.equal(
+    countCliUpdates(advisories, ['codex']),
+    1,
+    'counted over what the tab LISTS — a tab saying 2 above one row is two answers to one word',
+  )
+  assert.equal(countCliUpdates(advisories, ['codex', 'codex']), 1, 'a CLI listed twice is still one update')
+  assert.equal(countCliUpdates({}, ['codex']), 0, 'no advisories, no count')
+}

@@ -20,6 +20,25 @@ import { TONE_COLOR_VAR, TONE_SOFT_VAR, type Tone } from './tokens'
 
 type BadgeTone = Tone
 
+/**
+ * A count docked on the corner of a row's MARK — the unread pip, on a list row
+ * rather than on a rail square. One shape for every list that has one, so the
+ * agent CLI rows and the plugin rows cannot end up drawing "there is news here"
+ * two different ways.
+ *
+ * The count is often 1, and that is not a mistake: the pip's job on a row is
+ * "this one, here", and the number is what makes it a pip rather than another
+ * status colour. It is always named — a bare "1" beside a logo tells a screen
+ * reader nothing — so there is no `decorative` option.
+ */
+export type MarkBadge = {
+  count: number
+  /** What the number is, with the row's own name in it: "Codex — update
+   *  available: 0.153.4". */
+  label: string
+  tone?: BadgeTone
+}
+
 export type BadgeProps = {
   tone?: BadgeTone
   /** The word. Ignored when `count` is set. */

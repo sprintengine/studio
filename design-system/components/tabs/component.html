@@ -6,6 +6,8 @@
 <title>Tabs</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
 <link rel="stylesheet" href="component.css" />
+<!-- The corner count on a tab is the badge component, unchanged. -->
+<link rel="stylesheet" href="../badge/component.css" />
 <style>
   body {
     margin: 0;
@@ -91,9 +93,15 @@
         <span class="ds-tab-count">12</span>
         <span class="ds-tab-underline" aria-hidden="true"></span>
       </button>
-      <button type="button" class="ds-tab" role="tab" id="lt-tab-done" aria-selected="false" aria-controls="lt-panel-done" tabindex="-1">
+      <!-- Both numbers at once, saying two different things: 86 items in the
+           view (in the reading line), 3 of them waiting on you (above the
+           words, top-right). -->
+      <button type="button" class="ds-tab ds-tab--badged" role="tab" id="lt-tab-done" aria-selected="false" aria-controls="lt-panel-done" tabindex="-1">
         <span>Done</span>
         <span class="ds-tab-count">86</span>
+        <span class="ds-tab-badge" role="status" aria-label="Done: 3 updates available">
+          <span class="ds-badge-count ds-badge-count--accent">3</span>
+        </span>
         <span class="ds-tab-underline" aria-hidden="true"></span>
       </button>
       <button type="button" class="ds-tab" role="tab" id="lt-tab-archived" aria-selected="false" aria-controls="lt-panel-archived" tabindex="-1" disabled>
@@ -149,9 +157,12 @@
         <span class="ds-tab-count">12</span>
         <span class="ds-tab-underline" aria-hidden="true"></span>
       </button>
-      <button type="button" class="ds-tab" role="tab" id="dk-tab-done" aria-selected="false" aria-controls="dk-panel-done" tabindex="-1">
+      <button type="button" class="ds-tab ds-tab--badged" role="tab" id="dk-tab-done" aria-selected="false" aria-controls="dk-panel-done" tabindex="-1">
         <span>Done</span>
         <span class="ds-tab-count">86</span>
+        <span class="ds-tab-badge" role="status" aria-label="Done: 3 updates available">
+          <span class="ds-badge-count ds-badge-count--accent">3</span>
+        </span>
         <span class="ds-tab-underline" aria-hidden="true"></span>
       </button>
       <button type="button" class="ds-tab" role="tab" id="dk-tab-archived" aria-selected="false" aria-controls="dk-panel-archived" tabindex="-1" disabled>

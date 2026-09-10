@@ -666,6 +666,7 @@ const permissionCarrier = {
   checkCliVersions: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,
+  activeModalSurfaceWorkspaceId: null,
 }
 const permissionSlice = createSettingsSlice((mutator) => mutator(permissionCarrier))
 permissionSlice.setLastAgentSpawnPermissionPreset('bypass')
