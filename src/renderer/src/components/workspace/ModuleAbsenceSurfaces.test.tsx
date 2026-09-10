@@ -5,6 +5,7 @@ import {
   DoorModuleNotInstalledSurface,
   MissingModulePanelSurface,
   ModuleNotInstalledSurface,
+  marketplaceModuleEntry,
   marketplaceModuleForComponent,
   moduleLabelForMode,
 } from './ModuleAbsenceSurfaces'
@@ -93,7 +94,45 @@ function testDoorNotInstalledSurfaceNamesTheDoorAndOffersExtensions(): void {
   assert.doesNotMatch(disabled, /isn’t installed\./, 'a disabled module is never called uninstalled')
 }
 
+// G9. Which registry entry a missing door's module id resolves to. An entry
+// under the same id that ships no module is not it: installing that would put
+// something on the machine that cannot open the door the person is standing at.
+function testMarketplaceModuleEntryRequiresAModuleComponent(): void {
+  assert.deepEqual(marketplaceModuleEntry('calendar', PLUGINS), PLUGINS[0])
+  assert.equal(marketplaceModuleEntry('current-docs-mcp', PLUGINS), null, 'an mcp-only entry never installs a door')
+  assert.equal(marketplaceModuleEntry('review', PLUGINS), null, 'an id the registry does not carry resolves to nothing')
+  assert.equal(marketplaceModuleEntry('   ', PLUGINS), null)
+  assert.deepEqual(marketplaceModuleEntry('  calendar  ', PLUGINS), PLUGINS[0], 'a padded id still resolves')
+}
+
+// G9. The door offers a real Install when the registry carries a module entry
+// for the missing id — but only once the registry has ANSWERED. Rendered
+// statically no effect runs, so the door keeps the signpost it always had,
+// which is also what a machine with no marketplace gets.
+function testDoorSurfaceKeepsTheSignpostUntilTheRegistryAnswers(): void {
+  const html = renderToStaticMarkup(
+    <DoorModuleNotInstalledSurface label="Reviews" moduleId="review" onOpenExtensions={() => {}} />
+  )
+  assert.match(html, /Find it in Plugins/)
+  assert.doesNotMatch(html, /Install Reviews/, 'no button is drawn on a registry that has not answered')
+}
+
+// A module that is on the machine and switched off is a Settings toggle, never
+// an install: the surface must not ask the registry about it at all, so the
+// door for a disabled module keeps exactly one CTA.
+function testDisabledDoorNeverOffersInstall(): void {
+  const html = renderToStaticMarkup(
+    <DoorModuleNotInstalledSurface label="Reviews" moduleId="review" installed onOpenExtensions={() => {}} />
+  )
+  assert.match(html, /The Reviews module is turned off\./)
+  assert.doesNotMatch(html, /Install Reviews/)
+  assert.match(html, /Find it in Plugins/)
+}
+
 testMarketplaceMappingRequiresModuleKindAndPrefix()
+testMarketplaceModuleEntryRequiresAModuleComponent()
+testDoorSurfaceKeepsTheSignpostUntilTheRegistryAnswers()
+testDisabledDoorNeverOffersInstall()
 testNotInstalledSurfaceNamesTheModuleAndOffersInstall()
 testMissingPanelSurfaceFallsBackUntilResolved()
 testModeLabelFallsBackToCapitalizedId()
