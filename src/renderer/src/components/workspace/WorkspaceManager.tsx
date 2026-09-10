@@ -3223,7 +3223,23 @@ export default function WorkspaceManager() {
       }
     }
 
-    if (!result.chat) return
+    if (!result.chat) {
+      // A run that opens no surface and no chat — an `install.module` card is
+      // the first — would otherwise end with the button still reading
+      // "Install" and nothing on screen to say it worked. Main composes the one
+      // sentence worth showing for each action ("Reviews installed. Restart
+      // SprintEngine Studio to use it."); say them.
+      if (!result.surface) {
+        const said = result.outcomes
+          .filter((outcome) => outcome.status === 'done' || outcome.status === 'already')
+          .map((outcome) => outcome.message.trim())
+          .filter((message) => message.length > 0)
+        if (said.length > 0) {
+          showToast({ tone: 'good', title: card.title, description: said.join(' ') })
+        }
+      }
+      return
+    }
     const chat = result.chat
     const chatRoot = result.workspaceRoot
     // The skills the card named, as the workspace actually holds them. A name
