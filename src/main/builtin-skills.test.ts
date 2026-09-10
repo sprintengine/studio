@@ -254,7 +254,6 @@ async function main(): Promise<void> {
       'architecture-deepening',
       'handoff',
       'backlog',
-      'review-guide',
       'frontend-design',
     ]
   )

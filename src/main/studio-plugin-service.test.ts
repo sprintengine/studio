@@ -63,7 +63,7 @@ async function openingAWorkspaceInstallsThePlugin(): Promise<void> {
   assert.notEqual(record, null, `the open recorded an install; warnings=${JSON.stringify(warnings)}`)
   assert.equal(record?.version, '1.0.0')
   assert.equal(record?.claudePluginKey, 'sprintengine-studio@sprintengine-studio')
-  assert.equal(record?.skillDirNames.length, 6)
+  assert.equal(record?.skillDirNames.length, 5)
   assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-sprints', 'SKILL.md')), true)
   assert.equal(existsSync(join(workspace, '.multicode', 'studio-plugin')), true)
   assert.equal(existsSync(join(workspace, '.multicode', 'hooks', 'agent-state.mjs')), true)
@@ -199,7 +199,7 @@ async function noSocketMeansNoHookButStillTheSkills(): Promise<void> {
   const service = createStudioPluginService(built.options)
   await service.ensureInstalled(built.workspace)
   const record = service.installed(built.workspace)
-  assert.equal(record?.skillDirNames.length, 6, 'the skills are what an agent reads; they still land')
+  assert.equal(record?.skillDirNames.length, 5, 'the skills are what an agent reads; they still land')
   assert.equal(record?.hookSettingsPath, '', 'no hook is registered with nothing to report to')
   // And the question was never answered, because it was never asked.
   assert.equal(existsSync(join(built.userData, 'studio-plugin.json')), false)

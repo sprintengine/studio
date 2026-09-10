@@ -23,13 +23,12 @@ const MAX_DESCRIPTION_LENGTH = 1024
 /** The specification's guidance on how long a body may run before it splits. */
 const MAX_BODY_LINES = 500
 
-/** The five areas the item names. A sixth is fine; a missing one is not. */
+/** The four areas the item names. A fifth is fine; a missing one is not. */
 const REQUIRED_AREAS = [
   'studio-sprints',
   'studio-backlog',
   'studio-automations',
   'studio-workspaces',
-  'studio-review',
 ]
 
 async function main(): Promise<void> {
