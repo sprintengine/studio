@@ -9,7 +9,6 @@ import {
   snoozeWakeLabel,
   snoozeWorkspacePatch,
   wakeSnoozedWorkspacePatch,
-  workspaceRaisedHandWhileSnoozed,
   workspaceWokeAt,
 } from './workspaceSnooze'
 
@@ -31,9 +30,6 @@ function ws(fields: Partial<Workspace>): Workspace {
   } as unknown as Workspace
 }
 
-const AWAKE = { needsInput: false }
-const ASKING = { needsInput: true }
-
 // ---------------------------------------------------------------------------
 // The field test
 // ---------------------------------------------------------------------------
@@ -48,23 +44,23 @@ assert.equal(hasSnooze(ws({ snoozedUntil: Number.NaN })), false, 'a NaN stamp is
 // ---------------------------------------------------------------------------
 
 assert.equal(
-  isSnoozedWorkspace(ws({ snoozedUntil: NOW + HOUR, snoozedAt: NOW }), NOW, AWAKE),
+  isSnoozedWorkspace(ws({ snoozedUntil: NOW + HOUR }), NOW),
   true,
   'a wake time in the future is asleep'
 )
 assert.equal(
-  isSnoozedWorkspace(ws({ snoozedUntil: NOW - 1, snoozedAt: NOW - HOUR }), NOW, AWAKE),
+  isSnoozedWorkspace(ws({ snoozedUntil: NOW - 1 }), NOW),
   false,
   'the wake needs no event: a stamp in the past simply stops reading as asleep'
 )
 assert.equal(
-  isSnoozedWorkspace(ws({ snoozedUntil: NOW, snoozedAt: NOW - HOUR }), NOW, AWAKE),
+  isSnoozedWorkspace(ws({ snoozedUntil: NOW }), NOW),
   false,
   'the wake instant itself is awake, so a countdown never sits at zero while hidden'
 )
-assert.equal(isSnoozedWorkspace(ws({}), NOW, AWAKE), false, 'no stamp, never asleep')
+assert.equal(isSnoozedWorkspace(ws({}), NOW), false, 'no stamp, never asleep')
 assert.equal(
-  isSnoozedWorkspace(ws({ snoozedUntil: Number.NaN }), NOW, AWAKE),
+  isSnoozedWorkspace(ws({ snoozedUntil: Number.NaN }), NOW),
   false,
   'malformed data never hides a row'
 )
@@ -72,48 +68,9 @@ assert.equal(
 // A machine asleep past the wake time has nothing to recover: the row is simply
 // awake when it comes back, however long "past" was.
 assert.equal(
-  isSnoozedWorkspace(ws({ snoozedUntil: NOW - 90 * DAY, snoozedAt: NOW - 91 * DAY }), NOW, AWAKE),
+  isSnoozedWorkspace(ws({ snoozedUntil: NOW - 90 * DAY }), NOW),
   false,
   'a wake missed while the app was closed is not a wake owed'
-)
-
-// ---------------------------------------------------------------------------
-// Raising a hand
-// ---------------------------------------------------------------------------
-
-assert.equal(
-  workspaceRaisedHandWhileSnoozed(ws({ snoozedAt: NOW - HOUR }), ASKING),
-  true,
-  'an agent blocked on the person outranks the snooze'
-)
-assert.equal(
-  isSnoozedWorkspace(ws({ snoozedUntil: NOW + HOUR, snoozedAt: NOW - HOUR }), NOW, ASKING),
-  false,
-  'and so the row is not hidden, wake time or not'
-)
-
-assert.equal(
-  workspaceRaisedHandWhileSnoozed(ws({ snoozedAt: NOW - HOUR, lastTurnEndedAt: NOW - MINUTE }), AWAKE),
-  true,
-  'a turn that ended AFTER the snooze is news'
-)
-// The whole reason `snoozedAt` is stored. Without it a chat snoozed after its
-// agent finished would read that same finish as news and wake instantly, every
-// tick, forever.
-assert.equal(
-  workspaceRaisedHandWhileSnoozed(ws({ snoozedAt: NOW - MINUTE, lastTurnEndedAt: NOW - HOUR }), AWAKE),
-  false,
-  'a turn that ended BEFORE the snooze is what the person was dismissing'
-)
-assert.equal(
-  workspaceRaisedHandWhileSnoozed(ws({ snoozedAt: NOW, lastTurnEndedAt: NOW }), AWAKE),
-  false,
-  'the same instant is not strictly after, so it does not wake'
-)
-assert.equal(
-  workspaceRaisedHandWhileSnoozed(ws({ lastTurnEndedAt: NOW + HOUR }), AWAKE),
-  false,
-  'with no snoozedAt there is no line to be newer than'
 )
 
 // ---------------------------------------------------------------------------
@@ -125,77 +82,37 @@ assert.equal(
   true,
   'a running snooze holds the settle sweep off'
 )
-assert.equal(
-  isSnoozeUnexpired(ws({ snoozedUntil: NOW + HOUR, snoozedAt: NOW - DAY, lastTurnEndedAt: NOW }), NOW),
-  true,
-  'and it does so even for a row whose hand is up — the sweep judges that separately'
-)
 assert.equal(isSnoozeUnexpired(ws({ snoozedUntil: NOW - 1 }), NOW), false, 'a spent snooze holds nothing off')
 
 // ---------------------------------------------------------------------------
-// What may be snoozed
+// Nothing wakes a row early
 // ---------------------------------------------------------------------------
 
-assert.equal(canSnoozeWorkspace(ws({}), AWAKE), true, 'an ordinary row may sleep')
-assert.equal(
-  canSnoozeWorkspace(ws({}), ASKING),
-  false,
-  'a row whose agent is asking may not: hiding the question defeats it'
-)
-assert.equal(
-  canSnoozeWorkspace(ws({ settledAt: NOW }), AWAKE),
-  false,
-  'a settled row is already out of the list'
-)
-assert.equal(
-  canSnoozeWorkspace(ws({ remoteOrigin: 'peer' as never }), AWAKE),
-  false,
-  'a Remote-band row has no shelf to sleep in'
-)
-// Snooze is visibility, never lifecycle: the turn keeps running, and finishing
-// it is the wake.
-assert.equal(canSnoozeWorkspace(ws({ settledAt: null }), AWAKE), true, 'a cleared settle stamp does not block')
+// There was an "early wake" rule here: a snoozed row came back before its time
+// if the agent got blocked on the person, or if a turn ended after the snooze.
+// Both are gone (owner, 2026-09-10) and the clock is the whole rule, so these
+// hold the ABSENCE — the states that used to drag a row back and now do not.
 
-// ---------------------------------------------------------------------------
-// Woke
-// ---------------------------------------------------------------------------
-
-assert.equal(workspaceWokeAt(ws({}), NOW, AWAKE), null, 'a row that never slept never woke')
 assert.equal(
-  workspaceWokeAt(ws({ snoozedUntil: NOW + HOUR, snoozedAt: NOW }), NOW, AWAKE),
+  isSnoozedWorkspace(ws({ snoozedUntil: NOW + HOUR, lastTurnEndedAt: NOW }), NOW),
+  true,
+  'a turn ending while the row sleeps does not wake it'
+)
+assert.equal(
+  isSnoozedWorkspace(ws({ snoozedUntil: NOW + HOUR, lastTurnEndedAt: NOW + MINUTE }), NOW),
+  true,
+  'nor does one stamped after the read'
+)
+assert.equal(
+  workspaceWokeAt(ws({ snoozedUntil: NOW + HOUR, lastTurnEndedAt: NOW }), NOW),
   null,
-  'a row still asleep has not woken'
+  'and none of it counts as a wake'
 )
-assert.equal(
-  workspaceWokeAt(ws({ snoozedUntil: NOW - MINUTE, snoozedAt: NOW - HOUR }), NOW, AWAKE),
-  NOW - MINUTE,
-  'a timer wake reports the wake time'
-)
-assert.equal(
-  workspaceWokeAt(
-    ws({ snoozedUntil: NOW + HOUR, snoozedAt: NOW - HOUR, lastTurnEndedAt: NOW - MINUTE }),
-    NOW,
-    AWAKE
-  ),
-  NOW - MINUTE,
-  'an early wake reports what triggered it, not a wake time still in the future'
-)
-assert.equal(
-  workspaceWokeAt(ws({ snoozedUntil: NOW + HOUR, snoozedAt: NOW - HOUR }), NOW, ASKING),
-  NOW - HOUR,
-  'a hand-raise with no turn end falls back to when the snooze was set'
-)
-// The early wake stays authoritative past the scheduled time: reporting
-// `snoozedUntil` then would re-date a wake that already happened.
-assert.equal(
-  workspaceWokeAt(
-    ws({ snoozedUntil: NOW - MINUTE, snoozedAt: NOW - 2 * HOUR, lastTurnEndedAt: NOW - HOUR }),
-    NOW,
-    AWAKE
-  ),
-  NOW - HOUR,
-  'the early wake is not overwritten once the timer also elapses'
-)
+
+// The state that used to be BOTH a blocker and an early wake. A chat asking a
+// question may now be snoozed, and stays snoozed: the question waits in the
+// suspended session and is re-asked when the person resumes the terminal.
+assert.equal(canSnoozeWorkspace(ws({})), true, 'any ordinary row may sleep, whatever its agent is doing')
 
 // ---------------------------------------------------------------------------
 // The countdown
@@ -214,14 +131,14 @@ assert.equal(snoozeWakeLabel(NOW, NOW), 'now', 'and so does the instant itself')
 // ---------------------------------------------------------------------------
 
 assert.deepEqual(
-  snoozeWorkspacePatch(NOW + HOUR, NOW),
-  { snoozedUntil: NOW + HOUR, snoozedAt: NOW },
-  'a snooze writes both halves — the wake, and the line news has to beat'
+  snoozeWorkspacePatch(NOW + HOUR),
+  { snoozedUntil: NOW + HOUR },
+  'a snooze is one field: the wake time is the whole of it'
 )
 assert.deepEqual(
   wakeSnoozedWorkspacePatch(),
-  { snoozedUntil: null, snoozedAt: null },
-  'a wake tombstones both, so an absent key never reads as "no opinion"'
+  { snoozedUntil: null },
+  'and a wake tombstones it, so an absent key never reads as "no opinion"'
 )
 
 // ---------------------------------------------------------------------------

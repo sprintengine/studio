@@ -1389,16 +1389,13 @@ assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a 
   assert.equal(row().snoozedUntil ?? null, null, 'a new chat carries no snooze')
 
   useWorkspaceStore.getState().setWorkspaceSnoozed(snoozeId, wakeAt)
-  assert.equal(row().snoozedUntil, wakeAt, 'Snooze stamps the wake time')
-  assert.equal(typeof row().snoozedAt, 'number', 'and the line a turn end has to beat to wake it early')
-  assert.ok(row().snoozedAt! <= Date.now(), 'which is now, not the future')
+  assert.equal(row().snoozedUntil, wakeAt, 'Snooze stamps the wake time, and that is the whole record of it')
 
-  // Visibility only: nothing about rest, and nothing about the agent.
+  // The record only. Suspending the chat's terminals is the sidebar's half.
   assert.equal(row().settledAt ?? null, null, 'sleeping is not resting')
 
   useWorkspaceStore.getState().setWorkspaceSnoozed(snoozeId, null)
   assert.equal(row().snoozedUntil ?? null, null, 'Wake clears the stamp')
-  assert.equal(row().snoozedAt ?? null, null, 'and its partner, so neither lingers as a stale line')
 
   // Waking a row that never slept is a no-op, not a write: the menu only
   // offers it on a sleeping row, but nothing stops a caller asking twice.
@@ -1411,7 +1408,6 @@ assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a 
   useWorkspaceStore.getState().setWorkspaceSnoozed(snoozeId, wakeAt)
   useWorkspaceStore.getState().setActiveWorkspace(snoozeId)
   assert.equal(row().snoozedUntil ?? null, null, 'opening a sleeping chat wakes it')
-  assert.equal(row().snoozedAt ?? null, null, 'and leaves no half of the pair behind')
   assert.equal(useWorkspaceStore.getState().activeWorkspaceId, snoozeId, 'and it is the active chat')
 
   // Rest supersedes sleep: settling a sleeping row tombstones the snooze, so
@@ -1420,7 +1416,6 @@ assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a 
   useWorkspaceStore.getState().setWorkspaceSettled(snoozeId, true)
   assert.equal(typeof row().settledAt, 'number', 'Settle stamps rest')
   assert.equal(row().snoozedUntil ?? null, null, 'and clears the sleep underneath it')
-  assert.equal(row().snoozedAt ?? null, null, 'both halves of it')
   useWorkspaceStore.getState().setWorkspaceSettled(snoozeId, false)
 
   useWorkspaceStore.getState().setWorkspaceSnoozed('no-such-workspace', wakeAt)

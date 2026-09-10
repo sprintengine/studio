@@ -1000,7 +1000,7 @@ export function createWorkspacesSlice(
         // a field patch — and wake every other window's copy of the row — to
         // say nothing.
         if (wakeAt === null && !hasSnooze(ws)) return
-        patch = wakeAt === null ? wakeSnoozedWorkspacePatch() : snoozeWorkspacePatch(wakeAt, Date.now())
+        patch = wakeAt === null ? wakeSnoozedWorkspacePatch() : snoozeWorkspacePatch(wakeAt)
         Object.assign(ws, patch)
       })
       if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceFields(id, patch)

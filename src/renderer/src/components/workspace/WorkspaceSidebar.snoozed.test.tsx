@@ -116,9 +116,9 @@ async function main(): Promise<void> {
         },
       },
     }),
-    workspace('w2', 'Bravo', { snoozedUntil: createdAt + 2 * HOUR, snoozedAt: createdAt - HOUR }),
-    workspace('w3', 'Charlie', { snoozedUntil: createdAt + DAY, snoozedAt: createdAt - HOUR }),
-    workspace('w4', 'Delta', { snoozedUntil: createdAt - HOUR, snoozedAt: createdAt - 3 * HOUR }),
+    workspace('w2', 'Bravo', { snoozedUntil: createdAt + 2 * HOUR }),
+    workspace('w3', 'Charlie', { snoozedUntil: createdAt + DAY }),
+    workspace('w4', 'Delta', { snoozedUntil: createdAt - HOUR }),
   ]
 
   const noop = () => {}
@@ -333,25 +333,32 @@ async function main(): Promise<void> {
     assert.deepEqual(resumed, [], 'nothing is resumed by the snooze itself')
 
     // --- a raised hand outranks the snooze --------------------------------
-    // Bravo's agent starts asking. Its wake time has not moved, but a question
-    // the person cannot see is a question that defeats itself, so the row
-    // returns to the active list at once.
+    // Bravo's agent starts asking. Nothing happens to the row: the clock is the
+    // only thing that wakes a sleeper (owner, 2026-09-10). The question is not
+    // lost — it waits in the suspended CLI session and is re-asked when the
+    // person resumes the terminal themselves.
     await render({
       ...baseProps,
       activityByWorkspaceId: { w1: 'idle', w2: 'needs-input', w3: 'idle', w4: 'idle' },
     } as unknown as SidebarProps)
-    assert.ok(rowNames().includes('Bravo'), 'a sleeping row whose agent is asking comes back')
-    assert.match(foldRow('Snoozed')?.textContent ?? '', /Snoozed\s*1/, 'and the shelf count drops with it')
-    assert.deepEqual(
-      [...reportedSnoozed],
-      ['w3'],
-      'and the badge is told about it again, so the question it is asking gets counted'
+    // Asserted against the shelf CONTAINER, not the row list: this folder's
+    // shelf was opened earlier in the file, so a row inside it is on screen —
+    // what matters is which side of the fold it is on.
+    const openShelf = dom.window.document.getElementById(
+      foldRow('Snoozed')?.getAttribute('aria-controls') ?? ''
     )
-    const askingMenu = await openMenuOn('Charlie')
-    assert.ok(askingMenu.includes('Wake now'), 'the other sleeper is untouched')
+    assert.ok(openShelf, 'the shelf is there to look inside')
+    assert.ok(
+      openShelf.textContent?.includes('Bravo'),
+      'a sleeping row whose agent is asking stays in the shelf'
+    )
+    assert.match(foldRow('Snoozed')?.textContent ?? '', /Snoozed\s*2/, 'and the shelf count does not move')
+    assert.deepEqual([...reportedSnoozed].sort(), ['w2', 'w3'], 'the badge still skips it')
 
-    // A row that is asking may not be snoozed at all — the entry is there and
-    // disabled, so the reason is visible rather than the action silently absent.
+    // And a row that is asking may itself be snoozed — "you should be able to
+    // snooze whatever you want". This used to be blocked, and had to be: while
+    // a question outranked the snooze, snoozing an asking row would have
+    // un-snoozed it on the next tick.
     await render({
       ...baseProps,
       activityByWorkspaceId: { w1: 'needs-input', w2: 'idle', w3: 'idle', w4: 'idle' },
@@ -362,10 +369,10 @@ async function main(): Promise<void> {
       )
     })
     await settle()
-    const disabled = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[role="menu"] [data-menu-item="true"]')]
+    const askingSnooze = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[role="menu"] [data-menu-item="true"]')]
       .find((el) => el.textContent?.trim() === 'Snooze')
-    assert.ok(disabled, 'Snooze is still listed on a row whose agent is asking')
-    assert.equal(disabled.disabled, true, 'but it cannot be chosen: hiding the question defeats it')
+    assert.ok(askingSnooze, 'Snooze is listed on a row whose agent is asking')
+    assert.equal(askingSnooze.disabled, false, 'and it can be chosen')
     act(() => {
       dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
@@ -384,8 +391,8 @@ async function main(): Promise<void> {
     // person has to undo — the wake needs no event, so the folder returns on the
     // tick the stamp expires.
     const sleepers = [
-      workspace('s1', 'Sleeper', { snoozedUntil: createdAt + 2 * HOUR, snoozedAt: createdAt - HOUR }),
-      workspace('s2', 'Dozer', { snoozedUntil: createdAt + 3 * HOUR, snoozedAt: createdAt - HOUR }),
+      workspace('s1', 'Sleeper', { snoozedUntil: createdAt + 2 * HOUR }),
+      workspace('s2', 'Dozer', { snoozedUntil: createdAt + 3 * HOUR }),
     ]
     const sleeperProps = {
       ...baseProps,
@@ -401,7 +408,7 @@ async function main(): Promise<void> {
     await render({
       ...sleeperProps,
       workspaces: [
-        workspace('s1', 'Sleeper', { snoozedUntil: createdAt - HOUR, snoozedAt: createdAt - 3 * HOUR }),
+        workspace('s1', 'Sleeper', { snoozedUntil: createdAt - HOUR }),
         sleepers[1]!,
       ],
     } as unknown as SidebarProps)

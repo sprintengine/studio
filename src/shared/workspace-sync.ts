@@ -146,7 +146,6 @@ export type WorkspaceFieldsPatch = {
   settledAt?: number | null
   settledOverride?: Workspace['settledOverride']
   snoozedUntil?: number | null
-  snoozedAt?: number | null
   highlight?: Workspace['highlight'] | null
   worktree?: Workspace['worktree']
   lastTerminalActivityAt?: number | null

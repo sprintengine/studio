@@ -960,10 +960,6 @@ export type Workspace = {
   // future and awake when it is not, so a wake missed while the app was closed
   // simply never happens. See `utils/workspaceSnooze.ts`.
   snoozedUntil?: number | null
-  // When the snooze was SET. The line a turn end has to be newer than to count
-  // as news and wake the row early — without it a chat snoozed after its agent
-  // finished would wake on the turn that had already finished.
-  snoozedAt?: number | null
   // True once this workspace's name is settled and auto-titling must never touch
   // it again. Set by the auto-title itself (a name derived from the first real
   // prompt), by a manual rename, and at creation for any workspace given an

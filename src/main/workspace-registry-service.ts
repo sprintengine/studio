@@ -703,7 +703,6 @@ function stampedFieldsForCommand(
         fields.push(['settledOverride', command.payload.editedAt])
       }
       if (command.payload.patch.snoozedUntil !== undefined) fields.push(['snoozedUntil', command.payload.editedAt])
-      if (command.payload.patch.snoozedAt !== undefined) fields.push(['snoozedAt', command.payload.editedAt])
       return fields
     }
     default:

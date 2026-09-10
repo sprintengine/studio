@@ -170,7 +170,6 @@ assert.deepEqual(
   settleWorkspacePatch(ws({ lastTerminalActivityAt: NOW - 5 * DAY }), NOW, 'settled'),
   {
     snoozedUntil: null,
-    snoozedAt: null,
     settledAt: NOW,
     settledOverride: 'settled',
     lastTerminalActivityAt: NOW - 5 * DAY,
@@ -178,7 +177,7 @@ assert.deepEqual(
 )
 assert.deepEqual(
   settleWorkspacePatch(ws({}), NOW, null),
-  { snoozedUntil: null, snoozedAt: null, settledAt: NOW, settledOverride: null },
+  { snoozedUntil: null, settledAt: NOW, settledOverride: null },
   'no input clock, no clock in the patch (absent is "no opinion")'
 )
 assert.deepEqual(wakeWorkspacePatch('active'), { settledAt: null, settledOverride: 'active' })

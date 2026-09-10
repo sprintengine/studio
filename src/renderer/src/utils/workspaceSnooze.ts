@@ -154,93 +154,53 @@ export function hasSnooze(workspace: Pick<Workspace, 'snoozedUntil'>): boolean {
 }
 
 /**
- * What only the caller knows about a row, in the terms this module reasons in.
- * Derived from live sessions the store does not hold, so it arrives as an
- * argument exactly as `decideWorkspaceSettlement`'s blockers do.
- */
-export type SnoozeLiveState = {
-  /** The agent is blocked on the person — a prompt, an approval, a question. */
-  readonly needsInput: boolean
-}
-
-/**
- * A snoozed row RAISES ITS HAND when something outranks the person's "not now":
+ * Is the wake time still ahead? This is the WHOLE test — a snoozed row is one
+ * whose stamp is in the future, and nothing brings it back early.
  *
- *  - the agent is blocked on them. Hiding a question defeats the question, and
- *    this can only have become true since the snooze — a row that was already
- *    asking could not be snoozed (`canSnoozeWorkspace`).
- *  - a turn ended after the snooze was set. Strictly AFTER: a row snoozed with
- *    a finished turn already on it was the person saying "I saw that, not now",
- *    and re-reading the same timestamp as news would wake it instantly, every
- *    tick, forever.
+ * There was an "early wake" rule here, carried over with the rest of the
+ * borrowed model: a snoozed thread came back before its time if the agent got
+ * blocked on the person, or if a turn ended after the snooze was set. Both
+ * are gone (owner, 2026-09-10), and the reasons are worth keeping:
  *
- * A SAFETY NET, not a headline feature. Snoozing suspends the chat's terminals,
- * so a sleeping chat has no agent process and normally cannot produce either
- * signal. What is left are the cases where it still can: a pane mounted from
- * another machine, whose pty lives on that machine and is not ours to suspend,
- * and a suspend that failed. In both, the chat is genuinely still running, and
- * a row still running is a row the shelf should give back.
+ *  - Blocked-on-you was the reason a chat asking a question could not be snoozed
+ *    at all, since snoozing one would have un-snoozed it on the next tick. "You
+ *    should be able to snooze whatever you want" — and under suspend the
+ *    question is not lost, it simply waits in the CLI session and is re-asked
+ *    when the person resumes the terminal themselves.
+ *  - Turn-ended could no longer fire honestly once snoozing suspended the
+ *    terminals: a sleeping chat has no process to finish a turn. What it could
+ *    still do was fire by ACCIDENT — snooze a working chat and a Stop hook
+ *    landing in the moment before the suspend does would un-snooze the row the
+ *    person had just put away.
  *
- * Raising a hand never clears the stored fields — it only stops the row
- * classifying as snoozed, which is what feeds the Woke mark.
- */
-export function workspaceRaisedHandWhileSnoozed(
-  workspace: Pick<Workspace, 'snoozedAt' | 'lastTurnEndedAt'>,
-  live: SnoozeLiveState
-): boolean {
-  if (live.needsInput) return true
-  const { snoozedAt, lastTurnEndedAt } = workspace
-  return (
-    typeof snoozedAt === 'number' &&
-    typeof lastTurnEndedAt === 'number' &&
-    lastTurnEndedAt > snoozedAt
-  )
-}
-
-/**
- * The pure timer test, with no live state: is the wake time still ahead?
- *
- * This is what the SETTLE sweep asks, and why it can ask it without knowing
- * about prompts: a row whose hand is up is `held` on the sweep's own terms and
- * is not a settle candidate anyway.
+ * So the rule is the clock and only the clock, which is also the thing a person
+ * can predict without being told any of the above.
  */
 export function isSnoozeUnexpired(workspace: Pick<Workspace, 'snoozedUntil'>, now: number): boolean {
   return hasSnooze(workspace) && (workspace.snoozedUntil as number) > now
 }
 
 /** The one answer to "is this row asleep right now?". */
-export function isSnoozedWorkspace(
-  workspace: Pick<Workspace, 'snoozedUntil' | 'snoozedAt' | 'lastTurnEndedAt'>,
-  now: number,
-  live: SnoozeLiveState
-): boolean {
-  if (!isSnoozeUnexpired(workspace, now)) return false
-  return !workspaceRaisedHandWhileSnoozed(workspace, live)
+export function isSnoozedWorkspace(workspace: Pick<Workspace, 'snoozedUntil'>, now: number): boolean {
+  return isSnoozeUnexpired(workspace, now)
 }
 
 /**
  * May this row be snoozed at all?
  *
- * A row already blocked on the person may not: hiding the question defeats it,
- * and it would raise its hand on the next tick regardless. A row already at
- * rest may not either — Settle has already taken it out of the list, and a
- * snooze underneath it would do nothing visible and then expire into a Woke
- * mark on a row nobody woke.
+ * Anything the person is looking at may be: a working agent (suspending it
+ * interrupts the turn, which is the licence a hand Settle already has, and the
+ * CLI session survives so resuming picks the conversation back up), and a chat
+ * blocked on a question (the question waits and is re-asked on resume).
  *
- * A WORKING agent may be snoozed, and suspending it interrupts the turn (owner,
- * 2026-09-10: "it shouldn't matter if there's an agent in progress"). That is
- * the same licence a hand Settle already has, and it costs less here: the CLI
- * session survives the suspend, so resuming picks the conversation back up
- * rather than starting over.
+ * The two that may not are the two with nowhere to sleep. A settled row is
+ * already out of the list, so a snooze underneath it would do nothing visible
+ * and then expire into a Woke mark on a row nobody woke. A row born on a paired
+ * machine lives in the Remote band, which has no shelves — the same rule Settle
+ * follows for the same reason.
  */
-export function canSnoozeWorkspace(
-  workspace: Pick<Workspace, 'settledAt' | 'remoteOrigin'>,
-  live: SnoozeLiveState
-): boolean {
-  if (live.needsInput) return false
+export function canSnoozeWorkspace(workspace: Pick<Workspace, 'settledAt' | 'remoteOrigin'>): boolean {
   if (typeof workspace.settledAt === 'number') return false
-  // A row born on a paired machine lives in the Remote band, which has no
-  // shelves to hide it in — the same rule Settle follows for the same reason.
   if (workspace.remoteOrigin) return false
   return true
 }
@@ -252,28 +212,11 @@ export function canSnoozeWorkspace(
  * that comes back does not move to announce itself and needs to say so on its
  * own face. Cleared by opening the row — the mark exists to get you there.
  *
- * A hand-raised wake reports the moment that RAISED it, not the scheduled wake
- * time, so a row that woke early is not later re-dated to a wake that never
- * happened.
+ * The wake time itself is the answer, because it is the only way a row wakes.
  */
-export function workspaceWokeAt(
-  workspace: Pick<Workspace, 'snoozedUntil' | 'snoozedAt' | 'lastTurnEndedAt'>,
-  now: number,
-  live: SnoozeLiveState
-): number | null {
+export function workspaceWokeAt(workspace: Pick<Workspace, 'snoozedUntil'>, now: number): number | null {
   if (!hasSnooze(workspace)) return null
   const wakeAt = workspace.snoozedUntil as number
-  if (workspaceRaisedHandWhileSnoozed(workspace, live)) {
-    const { snoozedAt, lastTurnEndedAt } = workspace
-    if (
-      typeof snoozedAt === 'number' &&
-      typeof lastTurnEndedAt === 'number' &&
-      lastTurnEndedAt > snoozedAt
-    ) {
-      return lastTurnEndedAt
-    }
-    return typeof snoozedAt === 'number' ? snoozedAt : wakeAt
-  }
   return wakeAt <= now ? wakeAt : null
 }
 
@@ -295,18 +238,18 @@ export function snoozeWakeLabel(wakeAt: number, now: number): string {
 
 /**
  * The two transitions as registry field patches, so the row menu, the wake
- * button and the store's clock paths all write the same fields the same way —
- * the reason `workspaceSettle.ts` hands out patches rather than letting each
- * caller assemble one.
+ * button and Settle all write the same field the same way — the reason
+ * `workspaceSettle.ts` hands out patches rather than letting each caller
+ * assemble one.
  *
- * `snoozedAt` is the second half of the pair and not bookkeeping: it is the
- * line a turn end has to be newer than to count as news, so a snooze without
- * it would wake on the turn that finished before it.
+ * One field, since the early-wake rule went: the wake time is the whole of a
+ * snooze. It went with a companion `snoozedAt`, which existed only as the line
+ * a turn end had to beat to count as news.
  */
-export function snoozeWorkspacePatch(wakeAt: number, now: number): WorkspaceFieldsPatch {
-  return { snoozedUntil: wakeAt, snoozedAt: now }
+export function snoozeWorkspacePatch(wakeAt: number): WorkspaceFieldsPatch {
+  return { snoozedUntil: wakeAt }
 }
 
 export function wakeSnoozedWorkspacePatch(): WorkspaceFieldsPatch {
-  return { snoozedUntil: null, snoozedAt: null }
+  return { snoozedUntil: null }
 }

@@ -101,7 +101,6 @@ import {
   resolveSnoozePresets,
   snoozeWakeLabel,
   workspaceWokeAt,
-  type SnoozeLiveState,
   type SnoozePresetId,
 } from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
@@ -1912,36 +1911,21 @@ export default function WorkspaceSidebar({
     [activeWorkspaceId]
   )
 
-  // What the snooze rules need that only this component knows: whether the
-  // agent is blocked on the person. A row that is asking outranks the snooze
-  // (see `workspaceRaisedHandWhileSnoozed`), and it is the one thing that can
-  // never be read off the record.
-  const snoozeLiveOf = useCallback(
-    (workspace: Workspace): SnoozeLiveState => ({
-      needsInput: activityByWorkspaceId[workspace.id] === 'needs-input',
-    }),
-    [activityByWorkspaceId]
-  )
-
-  // Asleep RIGHT NOW: the wake time is ahead and nothing has raised the row's
-  // hand. Reading a chat never sends it to sleep, the same exemption the
-  // Settled shelf gives the row you are in — though in practice opening one
-  // already spent its snooze (`setActiveWorkspace`), so this is the belt to
-  // that braces.
+  // Asleep RIGHT NOW: the wake time is still ahead, and that is the whole test
+  // — nothing brings a row back early. Reading a chat never sends it to sleep,
+  // the same exemption the Settled shelf gives the row you are in, though in
+  // practice opening one already spent its snooze (`setActiveWorkspace`), so
+  // this is the belt to that braces.
   const isAsleep = useCallback(
-    (workspace: Workspace) =>
-      workspace.id !== activeWorkspaceId && isSnoozedWorkspace(workspace, now, snoozeLiveOf(workspace)),
-    [activeWorkspaceId, now, snoozeLiveOf]
+    (workspace: Workspace) => workspace.id !== activeWorkspaceId && isSnoozedWorkspace(workspace, now),
+    [activeWorkspaceId, now]
   )
 
   // A row that came back and has not been opened since. The list's order is
   // deliberately static, so a woken row does not move to announce itself and
-  // has to say so on its own face; opening it clears the stamps and the mark
-  // with them.
-  const wokeAtOf = useCallback(
-    (workspace: Workspace) => workspaceWokeAt(workspace, now, snoozeLiveOf(workspace)),
-    [now, snoozeLiveOf]
-  )
+  // has to say so on its own face; opening it clears the stamp and the mark
+  // with it.
+  const wokeAtOf = useCallback((workspace: Workspace) => workspaceWokeAt(workspace, now), [now])
 
   // The sleeping set, reported up for the rail's Home badge. Held as state and
   // compared by CONTENTS rather than rebuilt into the parent on every tick: the
@@ -2501,11 +2485,9 @@ export default function WorkspaceSidebar({
     // held until you open it. Gold outranks it when both apply.
     // A sleeping row never wears the green "finished while you were away" wash,
     // and never pulses. The mark is a request for attention, and this row's
-    // person has just declined to give it — a turn that ends AFTER the snooze
-    // raises the row's hand and puts it back in the active list wearing the
-    // wash there (`workspaceRaisedHandWhileSnoozed`), which is the one case
-    // where the request is news. In the shelf it is only the thing they
-    // dismissed, pulsing.
+    // person has just declined to give it; a chat whose terminals are suspended
+    // is not finishing anything anyway. The wash is waiting for them when the
+    // row wakes, which is when it is news again.
     const unseenDone = !needsAttention && !options?.snoozed && unseenDoneIds.has(workspace.id)
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
@@ -3884,7 +3866,6 @@ export default function WorkspaceSidebar({
           workspace={workspaceById.get(contextMenu.workspaceId) ?? null}
           isDetachedWindow={isDetachedWindow}
           now={now}
-          needsInput={activityByWorkspaceId[contextMenu.workspaceId] === 'needs-input'}
           onClose={() => setContextMenu(null)}
           onSelect={(action) => {
             const workspace = workspaceById.get(contextMenu.workspaceId)
@@ -4224,7 +4205,6 @@ function WorkspaceContextMenu({
   workspace,
   isDetachedWindow,
   now,
-  needsInput,
   onClose,
   onSelect,
   onPickColor,
@@ -4235,8 +4215,6 @@ function WorkspaceContextMenu({
   isDetachedWindow: boolean
   /** The clock the wake times and the asleep/awake reading are resolved against. */
   now: number
-  /** The agent is blocked on the person — the one snooze input not on the record. */
-  needsInput: boolean
   onClose: () => void
   onSelect: (action: ContextMenuAction) => void
   onPickColor: (color: HighlightColor) => void
@@ -4251,9 +4229,8 @@ function WorkspaceContextMenu({
   const canNewChatInProject = newChatProjectTarget(workspace) !== null
   const starred = isStarred(workspace.highlight)
   const settled = isSettledWorkspace(workspace)
-  const snoozeLive = { needsInput }
-  const snoozed = isSnoozedWorkspace(workspace, now, snoozeLive)
-  const canSnooze = canSnoozeWorkspace(workspace, snoozeLive)
+  const snoozed = isSnoozedWorkspace(workspace, now)
+  const canSnooze = canSnoozeWorkspace(workspace)
   const currentColor = workspace.highlight?.color ?? null
 
   return (

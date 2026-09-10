@@ -66,7 +66,6 @@ export type WorkspaceRegistryFieldStamps = {
   settledAt: number
   settledOverride: number
   snoozedUntil: number
-  snoozedAt: number
 }
 
 const WORKSPACE_REGISTRY_STAMPED_FIELDS = [
@@ -77,7 +76,6 @@ const WORKSPACE_REGISTRY_STAMPED_FIELDS = [
   'settledAt',
   'settledOverride',
   'snoozedUntil',
-  'snoozedAt',
 ] as const
 
 export type WorkspaceRegistryStampedField = (typeof WORKSPACE_REGISTRY_STAMPED_FIELDS)[number]
@@ -143,7 +141,6 @@ export function emptyWorkspaceRegistryFieldStamps(): WorkspaceRegistryFieldStamp
     settledAt: 0,
     settledOverride: 0,
     snoozedUntil: 0,
-    snoozedAt: 0,
   }
 }
 
