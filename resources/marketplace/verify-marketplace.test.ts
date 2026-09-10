@@ -218,8 +218,8 @@ function testRegistryHoldsOnlyWhatAMarketplaceCannotCarry(): void {
       .sort()
       .join('+')
     assert.ok(
-      ['automation', 'cli'].includes(names),
-      `${plugin.id} provides "${names}"; the registry carries agent CLIs and automation starters — anything a Claude marketplace can list belongs in one`
+      ['automation', 'cli', 'module'].includes(names),
+      `${plugin.id} provides "${names}"; the registry carries agent CLIs, automation starters and signed capability modules — anything a Claude marketplace can list belongs in one`
     )
     kinds.set(names, (kinds.get(names) ?? 0) + 1)
   }
@@ -228,8 +228,9 @@ function testRegistryHoldsOnlyWhatAMarketplaceCannotCarry(): void {
     [
       ['automation', 5],
       ['cli', 13],
+      ['module', 1],
     ],
-    'the registry is 13 agent CLIs and 5 automation starters'
+    'the registry is 13 agent CLIs, 5 automation starters and 1 capability module (Reviews)'
   )
 }
 
