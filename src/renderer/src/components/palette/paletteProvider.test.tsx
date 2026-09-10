@@ -160,7 +160,7 @@ async function main(): Promise<void> {
     const palette = harness([provider])
     await palette.mount()
     await palette.type('rev')
-    assert.deepEqual(palette.results.commands, [], 'still warming')
+    assert.deepEqual(palette.results.commands, [] as PaletteCommand[], 'still warming')
     await act(async () => {
       release()
     })

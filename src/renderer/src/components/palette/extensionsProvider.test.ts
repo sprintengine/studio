@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 // row came from, whether the workspace already has it, what mark it wears, and
 // that one source failing does not empty the list.
 
+import type { SkillScanInput } from '../../../../shared/electron-api'
 import type { ScanResult, ScannedPlugin, ScannedSkill, SkillSource } from '../../../../shared/skills'
 import {
   buildExtensionRows,
@@ -117,7 +118,7 @@ run('one warm reads every source\'s cached scan and the registry', async () => {
       transport: 'git',
       sources: [source({ id: 'acme', name: 'Acme' }), source({ id: 'local', name: 'Local', kind: 'local', repo: '' })],
     }),
-    skillsGetScan: async ({ sourceId }) => {
+    skillsGetScan: async ({ sourceId }: SkillScanInput) => {
       asked.push(sourceId)
       return {
         ok: true,
@@ -164,7 +165,7 @@ run('a source whose scan will not read drops out rather than emptying the list',
       transport: 'git',
       sources: [source({ id: 'good', name: 'Good' }), source({ id: 'broken', name: 'Broken' })],
     }),
-    skillsGetScan: async ({ sourceId }) =>
+    skillsGetScan: async ({ sourceId }: SkillScanInput) =>
       sourceId === 'good'
         ? { ok: true, source: source({ id: 'good', name: 'Good' }), scan: scan() }
         : { ok: false, message: 'offline' },
@@ -194,7 +195,7 @@ run('a source nothing has read is not asked for, and is listed as not read yet',
         source({ id: 'fresh', name: 'Fresh', scannedAt: '' }),
       ],
     }),
-    skillsGetScan: async ({ sourceId }) => {
+    skillsGetScan: async ({ sourceId }: SkillScanInput) => {
       asked.push(sourceId)
       return { ok: true, source: source({ id: sourceId, name: sourceId }), scan: scan() }
     },
