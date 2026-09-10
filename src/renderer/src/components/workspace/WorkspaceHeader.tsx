@@ -21,6 +21,7 @@
 import React from 'react'
 import { IconButton, Tooltip } from '../ui'
 import { PanelSwitches } from './PanelSwitches'
+import { APP_RAIL_WIDTH, TRAFFIC_LIGHT_RESERVE } from './AppRail'
 import { AppMenuButton } from './SidebarChrome'
 import { TitleBarFoldProvider, useMeasuredTitleBarFold } from './titleBarFold'
 import { WindowCaptionReserve } from './WindowControls'
@@ -143,10 +144,16 @@ export function WorkspaceHeader<MenuItem extends string>({
   onOpenDiagnostics,
 }: WorkspaceHeaderProps<MenuItem>) {
   // With the sidebar hidden, the app-menu (win-linux) and the open-sidebar /
-  // search / New Agent launcher relocate to the header's left. No traffic-light
-  // reserve any more (app shell, 2026-09-05): the app rail stays put
-  // when the sidebar collapses, and the lights sit in its top reserve.
-  void isFullScreen
+  // search / New Agent launcher relocate to the header's left. The app rail
+  // stays put when the sidebar collapses (app shell, 2026-09-05), so
+  // this strip starts at the rail's edge — but the macOS traffic lights run
+  // PAST that edge: the hiddenInset frame pins them at x:12 and they end at
+  // TRAFFIC_LIGHT_RESERVE (78), 22px beyond the 56px rail. The sidebar's own
+  // chrome row insets by that remainder when it is the strip beside the rail
+  // (SidebarChrome); when it is hidden this strip is, and takes the same inset
+  // — without it the launcher's first glyph sat under the green light. In
+  // fullscreen the lights are hidden and the inset collapses.
+  const trafficLightInset = isMac && !isFullScreen && sidebarCollapsed ? TRAFFIC_LIGHT_RESERVE - APP_RAIL_WIDTH : 0
   // How much room the left block actually has, so the identity cluster knows how
   // much of itself to fold into its overflow menu. Measured off THIS block
   // rather than the window: it is what narrows when the sidebar opens, and the
@@ -156,6 +163,7 @@ export function WorkspaceHeader<MenuItem extends string>({
     <div className="chrome-bar app-drag flex h-[36px] shrink-0 items-center bg-[color:var(--bg-chrome-bar)]">
       {/* Left: (collapsed) window launcher, then panel switches + identity. */}
       <div ref={foldRef} className="flex min-w-0 flex-1 items-center">
+        {trafficLightInset > 0 ? <div aria-hidden="true" className="shrink-0" style={{ width: trafficLightInset }} /> : null}
         {sidebarCollapsed ? (
           <div className="flex shrink-0 items-center gap-0.5 pl-1.5">
             {!isMac ? <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} /> : null}

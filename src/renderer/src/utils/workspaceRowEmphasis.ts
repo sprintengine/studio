@@ -10,53 +10,49 @@
 // tier, and the background tier went a step DOWN the ink scale to widen the
 // gap that is actually load-bearing.
 //
-//  - `active` — someone is using this chat: it is the row you are in, an agent
-//               on it is working, it wants you (blocked on a prompt, or
-//               finished while you were away), or a person touched it inside
-//               the hour. Bold, at the row's own ink. The one selected row
-//               also takes the ink lift, which is selection's channel and no
-//               one else's (`design-system/patterns/selection.html`).
-//  - `quiet`  — background: resting on the shelf, or simply not touched for an
-//               hour. Not bold, and dimmer than the row spec's resting ink —
-//               `text.subtle` rather than `text.muted`, deliberately below
-//               list-row's Rest, which on this near-black rail still read as
-//               foreground. It lifts back on hover, so reaching for a
-//               background chat is never reading dim text.
+// Owner ruling 2026-09-09: the clock is out and the agent is in. A chat touched
+// inside the hour used to reach the foreground on its timestamp alone, which
+// lit rows nobody was in and no agent was on — finish with a chat and it held
+// its weight for another hour. What lights a row now is an agent ALIVE in it: a
+// live session is a thing you can switch into and speak to, and when the last
+// one is gone the chat is a record, however lately it was written. This
+// reverses that half of the 2026-09-07 ruling, which had stripped residency of
+// any visual channel; the argument then was that a live pty on an untouched
+// chat is not motion, and the answer now is that it does not have to be motion
+// to be the place where the work is.
+//
+//  - `active` — an agent is alive in this chat, or it is the row you are in, or
+//               it wants you (blocked on a prompt, or finished while you were
+//               away). Bold, at the row's own ink. The one selected row also
+//               takes the ink lift, which is selection's channel and no one
+//               else's (`design-system/patterns/selection.html`).
+//  - `quiet`  — no agent left in it: a record, not a workbench. Not bold, and
+//               dimmer than the row spec's resting ink — `text.subtle` rather
+//               than `text.muted`, deliberately below list-row's Rest, which on
+//               this near-black rail still read as foreground. It lifts back on
+//               hover, so reaching for a background chat is never reading dim
+//               text.
 export type WorkspaceRowEmphasis = 'active' | 'quiet'
 
-// A chat with nothing happening on it for this long is background. Deliberately
-// far short of the rest threshold (`WORKSPACE_AUTO_SETTLE_AFTER_MS`, three
-// days): dimming and settling answer different questions — "is anyone using
-// this right now" versus "is this chat over" — and the hours between them are
-// exactly the rows the owner pointed at, chats that are still on the list and
-// still theirs but that nobody is in.
-export const WORKSPACE_ROW_QUIET_AFTER_MS = 60 * 60 * 1000 // 1 hour
-
 /**
- * The tier for one row. Pure: everything live — selection, what the agent is
- * doing, the unseen finished mark — arrives as a flag, because the sidebar is
- * the only thing that knows them and this must not grow a second opinion.
+ * The tier for one row. Pure: everything live — selection, residency, what the
+ * agent is doing, the unseen finished mark — arrives as a flag, because the
+ * sidebar is the only thing that knows them and this must not grow a second
+ * opinion.
  *
- * `lastActiveAt` is when the chat last did anything, by anyone: the clock the
- * row's own "2h" label reads (`TerminalRecency.idleSince`), so what the row
- * says and how loudly it says it can never disagree. Null when nothing is
- * known — a row with no clock has no claim on the foreground.
+ * No clock reaches in here. A row's "2h" label and its weight answer different
+ * questions — when this last moved, versus whether an agent is in it now — and
+ * the label is the one that reports time.
  */
 export function workspaceRowEmphasis(input: {
+  /** An agent is alive in this chat: a live PTY session, there to be spoken to. */
+  resident: boolean
   /** The row you are in, in this window. */
   selected: boolean
   /** An agent on this row is mid-turn. */
   working: boolean
   /** Blocked on a prompt, or the unseen "finished while you were away" mark. */
   wantsYou: boolean
-  /** Resting on its folder's Settled shelf. */
-  settled: boolean
-  lastActiveAt: number | null
-  now: number
 }): WorkspaceRowEmphasis {
-  const { selected, working, wantsYou, settled, lastActiveAt, now } = input
-  if (selected || working || wantsYou) return 'active'
-  if (settled) return 'quiet'
-  if (lastActiveAt === null) return 'quiet'
-  return now - lastActiveAt >= WORKSPACE_ROW_QUIET_AFTER_MS ? 'quiet' : 'active'
+  return input.resident || input.selected || input.working || input.wantsYou ? 'active' : 'quiet'
 }

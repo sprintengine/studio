@@ -70,10 +70,9 @@ export function retiredModelNotices(input: {
 }
 
 // The CLI-update toast's copy: "Update available: Codex 0.153.3".
-export function cliUpdateNotice(advisory: CliVersionAdvisory, displayName: (cli: string) => string): Notice {
+export function cliUpdateNotice(advisory: CliVersionAdvisory, displayName: (cli: string) => string): Pick<Notice, 'title'> {
   return {
     title: `Update available: ${displayName(advisory.cli)} ${advisory.latestVersion ?? ''}`.trim(),
-    description: 'Install the update now or review settings.',
   }
 }
 

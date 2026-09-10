@@ -86,7 +86,7 @@ assert.deepEqual(
 
 assert.deepEqual(
   cliUpdateNotice({ cli: 'codex', status: 'behind_latest', currentVersion: '0.153.2', latestVersion: '0.153.3', updateCommand: null, checkedAt: '' }, displayName),
-  { title: 'Update available: Codex 0.153.3', description: 'Install the update now or review settings.' },
+  { title: 'Update available: Codex 0.153.3' },
 )
 assert.deepEqual(updateReadyNotice('Sprint Engine Studio', '0.4.0'), { title: 'Sprint Engine Studio 0.4.0 is ready', description: 'Installs the next time you quit.' })
 
