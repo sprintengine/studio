@@ -34,6 +34,7 @@ known scopes.
 | `backlog.link.open` | Open links and targets attached to Backlog items | Opening a link provider's target |
 | `automations.manage` | Create and manage its own scheduled automations | Registering and running its own automations |
 | `agents:companion` | Run its own background agents inside the workspace | The companion-agents service |
+| `agents:session` | Launch, prompt and stop its own agent terminals | The agent-sessions service (`getAgentSessionService`) |
 | `storage` | Save its own data in the workspace folder and app data | The module storage bags |
 
 ## The `ipc:*` tiers
@@ -69,10 +70,13 @@ external-URL opening) sit outside every tier today; only the legacy
 - Permissions are disclosure first, not a sandbox. Do not describe your module
   as "sandboxed" or "restricted to" its declared scopes — the app does not
   broker most API calls at runtime.
-- Two scopes are genuinely checked, and a module missing them is refused with
+- Three scopes are genuinely checked, and a module missing them is refused with
   `permission_missing`: `ipc:invoke` gates the renderer&rarr;module-main bridge
-  (`MainHost`), and `agents:companion` is checked when a module attaches a
-  companion agent.
+  (`MainHost`), `agents:companion` is checked when a module attaches a
+  companion agent, and `agents:session` is checked on every call to the
+  agent-sessions service. `agents:session` is scoped further, by agent-id
+  namespace: a module reaches the terminal sessions it started and named, never
+  another module's and never the user's own agents.
 - Declaring less than you use is a trust violation users can hold against your
   publisher key; signature verification binds your manifest (including
   `permissions`) to the signed content, so changing declared access requires

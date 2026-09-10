@@ -198,7 +198,14 @@ function executorHarness(
       cliStartRequested: true,
       cliHasLaunched: true,
     } as Workspace['agents'][string]
-    return { ok: true, workspaceId: request.workspaceId, agentId, sessionId: `session-${agentId}` }
+    return {
+      ok: true,
+      workspaceId: request.workspaceId,
+      agentId,
+      sessionId: `session-${agentId}`,
+      cli: request.cli ?? 'claude-code',
+      executionId: `session-${agentId}`,
+    }
   }
 
   return {

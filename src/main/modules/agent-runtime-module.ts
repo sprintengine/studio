@@ -5,6 +5,7 @@ import type { CapabilityManifest } from '../../shared/modules/manifest'
 import {
   AgentControlPlaneToken,
   AgentLaunchServiceToken,
+  AgentSessionsModuleServiceToken,
   SprintCreateServiceToken,
   CompanionAgentServiceToken,
   CompanionAgentsModuleServiceToken,
@@ -30,6 +31,10 @@ import {
   createCompanionAgentService,
   createCompanionAgentsModuleRegistry,
 } from '../companion-agent-service'
+import { createAgentSessionsModuleRegistry } from '../agent-sessions-module-service'
+import { findBuiltinSkill } from '../builtin-skills'
+import { getPluginById } from '../plugin-registry-instance'
+import { resolveSkillInvocation } from '../../shared/skill-invocation'
 import { createModuleWorkspaceContextService, createModuleWorkspaceService } from './module-workspace-service'
 
 // Resolves a module id to the capability permissions it declared in its
@@ -120,6 +125,38 @@ export function createAgentRuntimeModule(
           getModulePermissions: options.getModulePermissions,
         })
       )
+      // Agent sessions: ordinary agent TERMINALS a module owns (D5). Composed
+      // through the same AgentLaunchService every app-level launch uses, so a
+      // module's agent gets the user's CLI, permission default, runtime
+      // overrides, MCP and knowledge graph — and a tab — rather than a
+      // hand-rolled spawn payload. Every method checks `agents:session`.
+      const agentSessions = createAgentSessionsModuleRegistry({
+        launchAgent: (request) => services.agentLaunchService.launch(request),
+        terminal: {
+          list: () => services.terminalRuntime.ipcHandlers.listTerminals(),
+          kill: (sessionId) => services.terminalRuntime.ipcHandlers.killTerminal(sessionId),
+          setReapExempt: (sessionId, exempt) =>
+            services.terminalRuntime.ipcHandlers.setTerminalReapExempt(sessionId, exempt),
+          onAgentSessionExit: (listener) =>
+            services.terminalRuntime.registerAgentSessionExitListener(listener),
+        },
+        sendPrompt: async (sessionId, text) => {
+          const result = await services.agentControlPlane.send({ sessionId }, text, { submit: true })
+          return result.ok ? { ok: true } : { ok: false, message: result.message }
+        },
+        hasWorkspace: (workspaceId) =>
+          services.workspaceSyncService
+            .getSnapshot()
+            .state.workspaces.some((workspace) => workspace.id === workspaceId),
+        // The builtin catalogue today; WP-D widens `findBuiltinSkill` itself to
+        // skills a module registered, so this seam needs no second branch.
+        resolveSkill: (skillId) => findBuiltinSkill(skillId),
+        resolveSkillInvocation: (cli, skillId) =>
+          resolveSkillInvocation(getPluginById(cli)?.manifest.skillIntegration, skillId),
+        getModulePermissions: options.getModulePermissions,
+      })
+      host.provideService(AgentSessionsModuleServiceToken, () => agentSessions)
+      host.onShutdown(() => agentSessions.dispose())
     },
   }
 }

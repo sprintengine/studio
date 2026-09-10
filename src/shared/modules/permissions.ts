@@ -77,6 +77,11 @@ export type CapabilityPermission =
   // companion service DOES check this one explicitly at attach time (there is no
   // shared runtime gate to inherit), so a module must declare it to attach.
   | 'agents:companion'
+  // Launch, prompt and stop the module's OWN agent terminals through the SDK's
+  // scoped agent-sessions service. Runtime-checked like `agents:companion`, and
+  // scoped further by agent-id namespace: a module reaches the sessions it
+  // started and named, never another module's and never the user's.
+  | 'agents:session'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: workspace `.multi-code/modules/<id>/` or per-user app data).
   | 'storage'
@@ -100,6 +105,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.link.open',
   'automations.manage',
   'agents:companion',
+  'agents:session',
   'storage',
 ]
 
@@ -122,6 +128,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'backlog.link.open': 'Open links and targets attached to Backlog items',
   'automations.manage': 'Create and manage its own scheduled automations',
   'agents:companion': 'Run its own background agents inside the workspace',
+  'agents:session': 'Launch, prompt and stop its own agent terminals',
   storage: 'Save its own data in the workspace folder and app data',
 }
 

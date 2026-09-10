@@ -428,6 +428,58 @@ const view = await workspaces.get(workspaceId)
 Renderer panels get the same view from `host.getWorkspace(workspaceId)` (a
 snapshot read, not a subscription — live state is a separate surface).
 
+`list()` on the same service enumerates every open workspace — the main-side
+twin of `RendererHost.listWorkspaces`, and how an MCP tool your module
+contributes answers "which project roots are open" with no window in sight.
+
+## Agent sessions (main)
+
+A module can own an agent TERMINAL: an ordinary agent tab, in the workspace your
+surface was opened from, under the CLI and permission preset the user chose,
+with a skill attached at spawn. Declare `agents:session` (checked on every call)
+and `dependsOn: ['agent-runtime']`.
+
+```ts
+import { getAgentSessionService, type RegisterMain } from '@multicode/module-sdk'
+
+export const registerMain: RegisterMain = (host) => {
+  const agents = getAgentSessionService(host)
+
+  host.registerIpc('my-module:start-guide', async ({ workspaceId, projectRoot, docId }) => {
+    const started = await agents.spawn({
+      workspaceId,               // required: where the agent lives
+      cwd: projectRoot,          // absolute
+      prompt: 'Walk me through this change.',
+      skill: { id: 'my-guide' }, // installed before the CLI starts
+      agentIdPrefix: 'my-guide-', // a namespace you registered
+      agentIdKey: docId,
+      label: 'My guide',
+      role: 'my-guide',
+    })
+    if (!started.ok) return started // unknown_workspace | missing_cwd | unknown_skill | …
+    // Lead the prompt with the CLI's own invocation when it has one:
+    // started.skillInvocation === '/my-guide' on Claude, undefined elsewhere.
+    return started
+  })
+}
+```
+
+- **One agent per key.** `spawn` matches on `${agentIdPrefix}${agentIdKey}`: a
+  live session under that id takes the prompt and comes back `reused: true`
+  (pass `reuseLive: false` to insist on a fresh one), and a dead or suspended
+  one is disposed before the replacement starts. The terminal session id is
+  minted per spawn and is never the agent id.
+- **Follow-ups and endings.** `send(sessionId, text)` delivers one submitted
+  turn through the app's serialized control plane. `kill(sessionId)` ends it.
+  `setReapExempt(sessionId, true)` holds a working agent out of the idle
+  reaper — the host clears the exemption when that session exits, so an
+  unbalanced call cannot strand a process. `onExit(cb)` reports the exits of
+  agents you own; `list()` returns them.
+- **Scope.** Everything here is filtered by the agent-id namespaces your module
+  registered. You cannot see, prompt, or stop another module's agents, or the
+  user's own. (Today main holds no mirror of the renderer's namespace registry;
+  see the CHANGELOG for what that limits.)
+
 ## Creating automations from a module
 
 Beyond registering trigger/action *kinds* (below), a module's `entry.main` can

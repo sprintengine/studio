@@ -680,7 +680,14 @@ function launchHarness(overrides: BackendsOverrides = {}): {
           lastVisibleAt: null,
           activity: { kind: 'idle', since: 1 },
         } as never)
-        return { ok: true, workspaceId: request.workspaceId, agentId, sessionId: 'sess-1' }
+        return {
+          ok: true,
+          workspaceId: request.workspaceId,
+          agentId,
+          sessionId: 'sess-1',
+          cli: request.cli ?? overrides.defaultCli ?? 'claude-code',
+          executionId: 'sess-1',
+        }
       }),
   }
   return { tools: createAutomationTools(backends), requests, worktreeCalls }

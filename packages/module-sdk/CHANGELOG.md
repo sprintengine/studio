@@ -109,6 +109,37 @@
   is signed, and `plugin scaffold`, `plugin sign` and `plugin verify` each end
   with a `Registry entry "provides": [...]` line that is the exact array the
   registry entry needs.
+- **Agent sessions: a module can own an agent TERMINAL** (`getAgentSessionService(host)`,
+  new scope `agents:session`). A module's `entry.main` had two doors to an agent
+  and neither fits a long-lived working one: the companion service drives a
+  conversation-runtime session (no pty, no tab, no CLI of the user's choosing),
+  and `ipc:agents` discloses a renderer surface main-side code cannot reach.
+  The third door is the one the in-tree review guide always actually used — an
+  ordinary agent terminal, spawned in the workspace the module's surface was
+  opened from, under the user's CLI, permission default, runtime overrides, MCP
+  and knowledge graph, with a skill attached at spawn. `spawn` (fresh, or
+  `reused: true` when a live session already answers to the same agent id),
+  `send`, `kill`, `setReapExempt`, `onExit`, `list`. New types:
+  `ModuleAgentSessionRecord`, `ModuleAgentSpawnRequest`, `ModuleAgentSpawnResult`,
+  `ModuleAgentExitEvent`, `ModuleAgentSessionService`.
+
+  Scoping is by agent-id prefix: name your agents `${agentIdPrefix}${agentIdKey}`
+  under a namespace you registered, and `list()` answers for those and nothing
+  else. Every method checks `agents:session` at runtime — the third scope that
+  is genuinely gated, alongside `ipc:invoke` and `agents:companion`.
+
+  *Known limitation.* Agent-id namespaces are registered on the RENDERER host and
+  main holds no mirror of that registry yet, so main cannot verify that a prefix
+  is one you registered. Until it can, a prefix is validated as non-empty and
+  ownership falls back to "prefixes this module has spawned under in this
+  process" — sound (no module can reach another's agents) but forgotten across a
+  restart, so `list()` may under-report sessions spawned before one.
+
+- **`WorkspaceContextService.list()`.** `WorkspaceContextToken` could resolve one
+  workspace id and had no way to enumerate them, so an MCP tool a module
+  contributes — which runs with no window and no renderer to ask — could not
+  answer "which project roots are open". `list(): Promise<ModuleWorkspaceView[]>`
+  is the main-side twin of `RendererHost.listWorkspaces`.
 
 - **A door surface names and places itself** (Extensions drawer ruling,
   2026-09-05). `GlobalSurfaceDefinition` was `{ id, Component }` while the host
