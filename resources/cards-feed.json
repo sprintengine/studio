@@ -3,13 +3,28 @@
   "updatedAt": "2026-09-06T12:00:00Z",
   "cards": [
     {
+      "slug": "power-your-reviews",
+      "kind": "plugin",
+      "hero": true,
+      "title": "Power your reviews",
+      "dek": "A guide agent reads the change and writes the walkthrough, then answers your questions beside the diff.",
+      "credit": "Reviews module",
+      "art": "split",
+      "publishedAt": "2026-09-10",
+      "go": [
+        {
+          "verb": "install.module",
+          "id": "review"
+        }
+      ]
+    },
+    {
       "slug": "big-task-no-problem",
       "kind": "workflow",
       "title": "Big task? No problem.",
       "dek": "Too big for one sitting? An architect works out what the work is, and a roster of agents runs it in parallel.",
       "art": "board",
       "publishedAt": "2026-09-06",
-      "hero": true,
       "go": [
         {
           "verb": "open.surface",
