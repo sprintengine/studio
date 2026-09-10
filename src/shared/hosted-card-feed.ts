@@ -138,6 +138,23 @@ export type CardAction =
   // them would be carrying facts that go stale the moment the marketplace is
   // republished, and a stale commitSha installs the wrong bytes.
   | { verb: 'install.plugin'; source: string; id: string }
+  // A capability module from the app's OWN signed marketplace registry — the
+  // one `readMarketplaceRegistry` reads, not a Claude marketplace a source
+  // points at. `id` is the registry entry's id, and the executor resolves it
+  // there before anything is downloaded.
+  //
+  // It carries no `source` for the reason `install.plugin` carries one: there
+  // is exactly one registry, it ships with the app, and a card that could name
+  // another would be a card choosing where this machine's code comes from.
+  //
+  // A module is code that runs in-process, so the executor honours this verb
+  // ONLY for a `verified` entry — signed by a publisher in
+  // `trusted-publishers.json`. Everything else needs the trust prompt, which is
+  // a disclosure a person reads and answers; R4's "Go goes" removes the card's
+  // own ceremony and does not repeal somebody else's gate (the same rule
+  // `require.cli` follows). Such a card is refused by name, pointing at
+  // Extensions → Plugins where the disclosure lives.
+  | { verb: 'install.module'; id: string }
   // Open a chat with the named tools attached and the prompt sent. Two lists and
   // not one because the composer draft keeps them apart (newChatDraft.ts:
   // `skills: WorkspaceSkill[]` beside `mcpServers: AgentComposerConnector[]`),
@@ -396,6 +413,10 @@ export function parseCardAction(raw: unknown): { ok: true; action: CardAction } 
       const id = text(raw.id)
       return id ? { ok: true, action: { verb, id } } : { ok: false, message: 'install.mcp needs a server id.' }
     }
+    case 'install.module': {
+      const id = text(raw.id)
+      return id ? { ok: true, action: { verb, id } } : { ok: false, message: 'install.module needs a marketplace entry id.' }
+    }
     case 'install.skill':
     case 'install.plugin': {
       const source = text(raw.source)
@@ -465,7 +486,7 @@ export function parseCardAction(raw: unknown): { ok: true; action: CardAction } 
   }
 }
 
-const INSTALL_VERBS: readonly CardActionVerb[] = ['install.mcp', 'install.skill', 'install.plugin']
+const INSTALL_VERBS: readonly CardActionVerb[] = ['install.mcp', 'install.skill', 'install.plugin', 'install.module']
 
 /**
  * The rules a whole card has to obey that no single action can state, and the

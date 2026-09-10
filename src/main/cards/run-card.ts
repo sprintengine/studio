@@ -13,7 +13,7 @@
 // module that already owns that concern and already records provenance:
 // `mcpConfigService` for a catalogue server, `skills/install.ts` (through the
 // skills service) for a skill, `skills/install-plugin.ts` for a plugin,
-// `git-clone.ts` for a clone. Nothing here writes a file and nothing here
+// the marketplace plugin lifecycle for a module, `git-clone.ts` for a clone. Nothing here writes a file and nothing here
 // spawns a process — the acceptance criterion is that no shell command is
 // spawned *by this file*, and the way that is kept true is that this file has
 // no `child_process` import and no `fs` write in it at all. What the installers
@@ -47,7 +47,8 @@
 // is resolved against something this app already holds before it is used: a CLI
 // against the registered agent-CLI plugin ids, an MCP server against the
 // workspace's own installed MCP settings, a skill and a plugin against that
-// source's own scan, and a
+// source's own scan, a module against the app's own signed marketplace
+// registry, and a
 // repository against the `owner/name` shape re-checked here rather than taken
 // on the parser's word. `clone.repo`'s URL is built from a fixed
 // `https://github.com/` prefix and the two validated segments, so a card names
@@ -100,6 +101,9 @@ import type {
   CardRunResult,
   CardSurfaceHandoff,
   GitHubCloneResult,
+  MarketplacePluginRegistryInstallInput,
+  MarketplacePluginRegistryInstallResult,
+  MarketplaceRegistryReadResult,
   McpServerConfig,
   McpSettings,
   McpSyncResult,
@@ -108,6 +112,7 @@ import type {
   SkillPluginInstallOutcome,
   SkillScanOutcome,
 } from '../../shared/electron-api'
+import type { MarketplacePluginEntry } from '../../shared/marketplace'
 import type { CardAction, CardSurfaceView } from '../../shared/hosted-card-feed'
 import { refuseCardActions } from '../../shared/hosted-card-feed'
 import { scanPlugins, skillDirName } from '../../shared/skills'
@@ -164,6 +169,36 @@ export type CardRunDeps = {
   repoOriginName: (dir: string) => Promise<string | null>
   /** `path.join`, injected so the test can assert the join without a platform in it. */
   joinPath: (...segments: string[]) => string
+  /**
+   * The app's own signed marketplace registry — what `install.module` resolves
+   * an id against. One registry, shipped with the app; a card names an entry in
+   * it and can never name where this machine's code comes from.
+   */
+  readMarketplaceRegistry: () => Promise<MarketplaceRegistryReadResult>
+  /**
+   * The marketplace install receipts, which are what make a second Go a no-op
+   * for a module the way `listInstalledPlugins` does for a plugin.
+   */
+  listMarketplaceReceipts: () => Promise<
+    { ok: true; receipts: ReadonlyArray<{ id: string }> } | { ok: false; message: string }
+  >
+  /** `marketplacePluginLifecycle.installFromRegistry()` — the one install path. */
+  installMarketplaceEntry: (
+    input: MarketplacePluginRegistryInstallInput
+  ) => Promise<MarketplacePluginRegistryInstallResult>
+}
+
+/**
+ * The trust tier a registry entry declares about itself, read the same way the
+ * storefront's `pluginTrust` reads it. Only `verified` — signed by a publisher
+ * listed in `trusted-publishers.json` — installs from a card: everything else
+ * ends in a trust prompt, and a prompt is a disclosure a person reads and
+ * answers, not something a hosted feed may answer on their behalf.
+ */
+function marketplaceEntryTier(entry: MarketplacePluginEntry): 'verified' | 'community' | 'unsigned' | 'inline' {
+  if (entry.mcp) return 'inline'
+  if (!entry.signature) return 'unsigned'
+  return entry.publisher.verified ? 'verified' : 'community'
 }
 
 /** `owner/name` and nothing else, re-checked here rather than taken on the parser's word. */
@@ -266,6 +301,8 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
         return requireCli(action)
       case 'install.mcp':
         return installMcp(action)
+      case 'install.module':
+        return installModule(action)
       case 'install.skill':
         return installSkill(action)
       case 'install.plugin':
@@ -434,6 +471,62 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
       for (const server of fresh) added[server.id] = server
     }
     return { status: 'done', message: `${plugin.name} installed.` }
+  }
+
+  async function installModule(
+    action: Extract<CardAction, { verb: 'install.module' }>,
+  ): Promise<Omit<CardActionOutcome, 'index' | 'verb'>> {
+    // Resolved against the registry this build reads before anything is
+    // downloaded — the same rule every other id in this file follows.
+    const registry = await deps.readMarketplaceRegistry()
+    if (!registry.ok) {
+      return { status: 'failed', message: registry.message || 'The marketplace could not be read, so nothing was installed.' }
+    }
+    const entry = registry.marketplace.plugins.find((plugin) => plugin.id === action.id)
+    if (!entry) return { status: 'failed', message: `${action.id} is not in this build's marketplace.` }
+    if (!entry.provides.includes('module')) {
+      return { status: 'failed', message: `${entry.name} is not a module, so install.module cannot install it.` }
+    }
+
+    // A receipt for this entry is what makes a second Go a no-op, exactly as
+    // the plugin receipts do — and it is checked BEFORE the tier, so pressing
+    // Go again on an installed module lands the person in the rest of the card
+    // rather than in a refusal about trust.
+    const receipts = await deps.listMarketplaceReceipts()
+    if (receipts.ok && receipts.receipts.some((receipt) => receipt.id === entry.id)) {
+      return { status: 'already', message: `${entry.name} is already installed.` }
+    }
+
+    const tier = marketplaceEntryTier(entry)
+    if (tier !== 'verified') {
+      // Named rather than silently skipped, and pointing at the one surface
+      // that can show the disclosure this install needs.
+      return {
+        status: 'failed',
+        message: `${entry.name} asks you to trust it before it installs. Add it from Extensions → Plugins, where you can read what it wants first.`,
+      }
+    }
+
+    // No `trustGranted`: a verified entry never asks for one, and passing it
+    // would be this file answering a prompt on somebody's behalf. The workspace
+    // is the app's, as everywhere else here — a module bundle does not need
+    // one, and a bundle that also carries an mcp/skills component says so
+    // itself if there is none.
+    const installed = await deps.installMarketplaceEntry({
+      entry,
+      ...(workspaceRoot ? { workspaceRoot } : {}),
+    })
+    if (!installed.ok) {
+      return { status: 'failed', message: installed.message || `${entry.name} could not be installed.` }
+    }
+    return {
+      status: 'done',
+      // A module's code loads at app launch, so the outcome says what is left
+      // to do rather than implying the door is already there.
+      message: installed.restartRequired
+        ? `${entry.name} installed. Restart SprintEngine Studio to use it.`
+        : `${entry.name} installed.`,
+    }
   }
 
   function openChat(

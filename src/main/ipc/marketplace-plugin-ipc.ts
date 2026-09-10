@@ -23,10 +23,18 @@ import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/
 import type { MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
 import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
 
-export function registerMarketplacePluginIpc(
-  ipcMain: IpcMain,
-  services: Pick<AppServices, 'mcpConfigService' | 'getAutomationsAppFrontDoor'>
-): void {
+export type MarketplacePluginPipelineServices = Pick<AppServices, 'mcpConfigService' | 'getAutomationsAppFrontDoor'>
+
+/**
+ * The verify + install/uninstall pipeline, built once and shared.
+ *
+ * Extracted from `registerMarketplacePluginIpc` when the card executor grew an
+ * `install.module` verb (G4): a card's Go installs a registry entry through the
+ * SAME lifecycle the storefront does — same trust gate, same receipts, same
+ * rollback — and a second construction of it in `cards-ipc.ts` would be a
+ * second set of those rules to keep in step.
+ */
+export function createMarketplacePluginPipeline(services: MarketplacePluginPipelineServices) {
   const trustContext = () => ({
     trustedModules: readTrustedModulesSync(app.getPath('userData')),
     trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
@@ -77,6 +85,15 @@ export function registerMarketplacePluginIpc(
     },
     log: marketplaceLog,
   })
+
+  return { trustContext, log: marketplaceLog, verifier, lifecycle }
+}
+
+export function registerMarketplacePluginIpc(
+  ipcMain: IpcMain,
+  services: MarketplacePluginPipelineServices
+): void {
+  const { trustContext, verifier, lifecycle } = createMarketplacePluginPipeline(services)
 
   ipcMain.handle(
     'marketplace:plugins:verify',
