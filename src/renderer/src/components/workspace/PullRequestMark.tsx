@@ -396,6 +396,69 @@ export function PullRequestMark({
   )
 }
 
+/**
+ * The PROJECT's mark: how many pull requests are open across a project's
+ * conversations (owner, 2026-09-10).
+ *
+ * The complaint it answers is the one the row marks could not: an agent that
+ * has finished leaves the sidebar, and with it any sign that its pull request is
+ * still sitting open. "So it just gives a quick summary of all of the open pull
+ * requests that are in a workspace."
+ *
+ * OPEN ONLY, and this is the difference between this mark and the row's. A
+ * conversation's own mark is a RECORD — it keeps a merged pull request, because
+ * that is the history of that chat. A project's is a to-do: merged and closed
+ * ones have nothing left to do and counting them would make the number grow for
+ * ever and mean less every week.
+ *
+ * A number, not one glyph per pull request. The project line is the row's
+ * filing, not a place to enumerate; the count says how many and the
+ * conversations underneath say which.
+ *
+ * Nothing at all is drawn for zero — the same rule the row mark keeps
+ * (decision 3). There is no "no pull requests here" state, because a project
+ * with none should look exactly like a project in a tree with no GitHub at all.
+ *
+ * Not a button. A row mark opens its one pull request; a count of three has no
+ * single thing to open, and a control that swallowed the click on a folder
+ * header would cost that header its own job.
+ */
+export function ProjectPullRequestMark({
+  openCount,
+  projectName,
+  dim = false,
+}: {
+  openCount: number
+  /** Named in the tooltip and the spoken label: "croissant — 2 pull requests open". */
+  projectName: string
+  dim?: boolean
+}): JSX.Element | null {
+  if (openCount <= 0) return null
+  const words = `${openCount} pull request${openCount === 1 ? '' : 's'} open`
+  return (
+    <Tooltip content={`${projectName} — ${words}`} wrapperClassName="flex shrink-0 items-center">
+      <span
+        role="img"
+        aria-label={`${projectName}, ${words}`}
+        className={`inline-flex shrink-0 items-center gap-0.5 font-mono text-micro tabular-nums ${
+          dim ? 'opacity-60' : ''
+        }`}
+        // The open tone, because every one of them is open — the mark and the
+        // number are saying one thing.
+        style={{ color: PULL_REQUEST_TONE_VAR[pullRequestTone('open')] }}
+      >
+        <PullRequestGlyph state="open" className="icon-xs" />
+        {openCount}
+      </span>
+    </Tooltip>
+  )
+}
+
+/** How many of a conversation's pull requests are still open. */
+export function openPullRequestCount(list: readonly BranchPullRequest[]): number {
+  return list.reduce((count, pr) => (pr.state === 'open' ? count + 1 : count), 0)
+}
+
 /** The mark's own drawing on the peek: the glyph and the number, in the tone. */
 function PeekMarkFace({ pr }: { pr: BranchPullRequest }) {
   return (

@@ -7,7 +7,14 @@ import { useSidebarGitSummaries } from './useSidebarGitSummaries'
 import { changedFileMarks, checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
-import { PullRequestMark, refreshPullRequestsForLine, shouldLookUpPullRequests } from './PullRequestMark'
+import {
+  openPullRequestCount,
+  ProjectPullRequestMark,
+  PullRequestMark,
+  refreshPullRequestsForLine,
+  shouldLookUpPullRequests,
+} from './PullRequestMark'
+import { pullRequestsForRow, useConversationPullRequests } from './useConversationPullRequests'
 import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekRow'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
@@ -1756,6 +1763,42 @@ export default function WorkspaceSidebar({
     for (const group of groups) map.set(group.key, group)
     return map
   }, [groups])
+
+  // ─── The pull requests a chat holds after its agents are gone ──────────
+  //
+  // Owner, 2026-09-10: "he is no longer active, but it doesn't show on his card
+  // that he has an open pull request… if I'm scanning through the old chats I
+  // don't know is there a pull request open that I'm missing."
+  //
+  // A live agent's marks arrive on its terminal session and are drawn on its
+  // own line; those are the more precise answer and this never overrides them
+  // (`pullRequestsForRow`). This is for the rows that have no line left.
+  const allWorkspaceIds = useMemo(() => workspaces.map((workspace) => workspace.id), [workspaces])
+  const conversationPullRequests = useConversationPullRequests(allWorkspaceIds)
+
+  // …and the same fact summed per project, which is the second half of the ask:
+  // "if those agents are suspended or dead, then they won't be showing in the
+  // sidebar but their pull request will be showing beside the project."
+  //
+  // Summed over the project's CONVERSATIONS rather than scanned out of the
+  // repository, so the number beside a project is always the number of rows
+  // under it that have one — a header and its rows can never disagree.
+  //
+  // Open only. A conversation keeps its merged pull requests because that is its
+  // history; a project's count is a to-do, and a merged one has nothing left to
+  // do (`ProjectPullRequestMark`).
+  const openPullRequestsByGroup = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const workspace of workspaces) {
+      const list = conversationPullRequests[workspace.id]
+      if (!list || list.length === 0) continue
+      const open = openPullRequestCount(list)
+      if (open === 0) continue
+      const groupKey = keyOf(workspace)
+      map.set(groupKey, (map.get(groupKey) ?? 0) + open)
+    }
+    return map
+  }, [conversationPullRequests, keyOf, workspaces])
   // ─── One colour per project, worn on the folder glyph ──────────────────
   //
   // Owner review 2026-09-09 (backlog/unfiled/2026-09-09-one-colour-per-project
@@ -1841,6 +1884,9 @@ export default function WorkspaceSidebar({
       return {
         name: group?.displayName ?? 'No folder',
         folderPath,
+        // The project's open pull requests, for the mark this line carries in
+        // the flat stream — where there is no folder header to put it on.
+        openPullRequests: openPullRequestsByGroup.get(groupKey) ?? 0,
         color: resolveProjectColor(projectColors, projectKeyOf(groupKey)),
         // No folder is not a project (decision 6): the dashed grey outline, so
         // "unfiled" reads as its own thing rather than as a seventh project.
@@ -1851,7 +1897,7 @@ export default function WorkspaceSidebar({
         unfiled: !group?.remote && !folderPath,
       }
     },
-    [groupByKey, keyOf, projectKeyOf, projectColors]
+    [groupByKey, keyOf, openPullRequestsByGroup, projectKeyOf, projectColors]
   )
 
   // The row you are in always has a row: a settled chat you selected (or
@@ -2341,7 +2387,13 @@ export default function WorkspaceSidebar({
        * and that line takes the row's clock and its hover actions. Null in the
        * tree, where the header says the project once for all its chats.
        */
-      flatProject?: { name: string; folderPath: string | null; color: ProjectColor | null; unfiled: boolean }
+      flatProject?: {
+        name: string
+        folderPath: string | null
+        color: ProjectColor | null
+        unfiled: boolean
+        openPullRequests: number
+      }
     }
   ) => {
     // When a door-routed full-page surface owns the card region (epic 1704), no
@@ -2436,7 +2488,25 @@ export default function WorkspaceSidebar({
     // the project it came from. So: the branch chip, alone, and no ± diff,
     // which would be live state again.
     const parkedWorktreeBranch = rowIsLive ? null : workspace.worktree?.branch?.trim() || null
-    const metaHasSubstance = rowLines.lines.length > 0 || parkedWorktreeBranch !== null
+    // What this chat holds once nothing is running in it. A row WITH lines
+    // draws its marks on those lines, where they belong to the agent that
+    // opened them; this is only ever the fallback for a row with none
+    // (`pullRequestsForRow`), and it spans every agent the chat ever had —
+    // "in the sidebar, we should just see all the pull requests that are
+    // related to a particular conversation" (owner, 2026-09-10).
+    //
+    // Merged ones included, deliberately. The mark is this chat's record and it
+    // keeps holding a merged pull request; the DIFF is the separate live
+    // reading, and it empties itself once the branch lands.
+    const parkedPullRequests = pullRequestsForRow({
+      hasLiveLines: rowLines.lines.length > 0,
+      conversation: conversationPullRequests[workspace.id],
+    })
+    // The second line exists for either fact now. A parked chat with a pull
+    // request but no worktree branch used to have no line at all, which is
+    // exactly the row the owner could not read anything off.
+    const parkedLine = parkedWorktreeBranch !== null || parkedPullRequests.length > 0
+    const metaHasSubstance = rowLines.lines.length > 0 || parkedLine
 
     // The row's status seat: run glyph / working dots + elapsed / tone dot /
     // idle recency, with the hover-revealed row actions layered over it.
@@ -2826,6 +2896,18 @@ export default function WorkspaceSidebar({
               unfiled={flatProject.unfiled}
             />
             <span className="min-w-0 truncate">{flatProject.name}</span>
+            {/* The project's open pull requests, beside the project's name
+                (owner, 2026-09-10). In the flat stream this line is the only
+                place the project is named, so it is the only place the summary
+                can hang — the tree puts the same mark on its folder header.
+                It repeats down a project's rows exactly as the project's name
+                and colour already do: the line is the row's filing, and this
+                is part of what that filing says. */}
+            <ProjectPullRequestMark
+              openCount={flatProject.openPullRequests}
+              projectName={flatProject.name}
+              dim={emphasis === 'quiet'}
+            />
             {statusSeat}
           </div>
         ) : null}
@@ -2909,7 +2991,7 @@ export default function WorkspaceSidebar({
             where the project line above already took it. */}
         {metaHasSubstance || flatProject ? null : statusSeat}
         </div>
-        {parkedWorktreeBranch ? (
+        {parkedLine ? (
           // The same line container a terminal's line uses, so a parked
           // worktree row is exactly as tall as a live one and its seat sits
           // where every other seat sits.
@@ -2918,12 +3000,20 @@ export default function WorkspaceSidebar({
               emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
             }`}
           >
-            <BranchChip
-              branch={parkedWorktreeBranch}
-              worktree
-              cwd={workspace.folderPath ?? null}
-              dim={emphasis === 'quiet'}
-            />
+            {parkedWorktreeBranch ? (
+              <BranchChip
+                branch={parkedWorktreeBranch}
+                worktree
+                cwd={workspace.folderPath ?? null}
+                dim={emphasis === 'quiet'}
+              />
+            ) : null}
+            {/* After the branch, where a live line puts it, so the two rows
+                read the same way. No ±lines beside it: a parked row's diff is
+                the checkout's present state and not anything this chat did
+                (the-diff-an-agent-made, decision 9) — the pull request is the
+                one fact that is still this conversation's. */}
+            <PullRequestMark pullRequests={parkedPullRequests} dim={emphasis === 'quiet'} />
             {flatProject ? null : statusSeat}
           </div>
         ) : null}
@@ -3265,6 +3355,16 @@ export default function WorkspaceSidebar({
             <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
               {group.displayName}
             </span>
+            {/* What is open across this project's chats, including the ones
+                whose agents have finished and which therefore say nothing for
+                themselves. Inside the header's own button: it is part of what
+                this header says, and it is not a control — a count of three has
+                no single pull request to open, and a button here would steal
+                the header's click. */}
+            <ProjectPullRequestMark
+              openCount={openPullRequestsByGroup.get(group.key) ?? 0}
+              projectName={group.displayName}
+            />
           </RowButton>
           </Tooltip>
           {group.missing ? (

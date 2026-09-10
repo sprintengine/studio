@@ -28,5 +28,16 @@ export function registerWorkflowIpc(ipcMain: IpcMain, services: AppServices): vo
   // runtime that owns the session.
   registerPullRequestIpc(ipcMain, {
     refreshPullRequestsForSession: (sessionId) => services.pullRequestRecord.refreshForSession(sessionId),
+    // Keyed by conversation, for the rows with nothing running in them.
+    listForWorkspaces: (workspaceIds) => {
+      const out: Record<string, ReturnType<typeof services.pullRequestRecord.forWorkspace>> = {}
+      for (const id of workspaceIds) {
+        const list = services.pullRequestRecord.forWorkspace(id)
+        // Only conversations that have something. An empty array per id would
+        // make every answer the size of the question.
+        if (list.length > 0) out[id] = list
+      }
+      return out
+    },
   })
 }

@@ -480,8 +480,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       get: (sessionId) => getTerminalSessionById(sessionId),
       list: () => listLiveTerminalSessions(),
     },
-    onRecordChanged: (change) =>
-      notePullRequestRecordChanged((session) => pullRequestRecord.changeAffectsSession(change, session)),
+    onRecordChanged: (change) => {
+      notePullRequestRecordChanged((session) => pullRequestRecord.changeAffectsSession(change, session))
+      // …and the rows with no session to re-emit (owner, 2026-09-10). The line
+      // above only reaches a chat that still has a terminal alive in it, which
+      // is precisely the chats that never had this problem. This tells the
+      // windows WHICH conversations moved; each one then asks for the lists it
+      // is actually showing, so the record itself never leaves main.
+      if (change.workspaceIds.length > 0) {
+        broadcastToWorkspaceWindows('pullRequest:workspaces-changed', change.workspaceIds)
+      }
+    },
     logWarning: (message, error) => {
       void writeDiagnosticLog({
         level: 'warning',

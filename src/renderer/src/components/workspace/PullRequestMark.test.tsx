@@ -95,6 +95,8 @@ async function main(): Promise<void> {
     resetPullRequestRefreshes,
     shouldLookUpPullRequests,
     sidebarMarkCopy,
+    ProjectPullRequestMark,
+    openPullRequestCount,
   } = mark
 
   const document = dom.window.document
@@ -668,6 +670,77 @@ async function main(): Promise<void> {
     })
     assert.deepEqual(opened, ['https://github.com/acme/multicode/pull/418'])
     view.unmount()
+  })
+
+  // ── the project's summary ────────────────────────────────────────────────
+  //
+  // A different question from a row's mark, and the difference is the point: a
+  // conversation's mark is its RECORD and keeps a merged pull request; the
+  // project's is a to-do and counts only what is still open.
+
+  await run('a project counts only what is still open', () => {
+    assert.equal(
+      openPullRequestCount([
+        pr({ number: 93, state: 'open' }),
+        pr({ number: 91, state: 'merged' }),
+        pr({ number: 88, state: 'closed' }),
+        pr({ number: 95, state: 'open' }),
+      ]),
+      2,
+      'merged and closed have nothing left to do — counting them grows a number that means less every week',
+    )
+    assert.equal(openPullRequestCount([]), 0)
+    assert.equal(openPullRequestCount([pr({ number: 91, state: 'merged' })]), 0)
+  })
+
+  await run('a project with nothing open draws nothing at all', () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    act(() => root.render(<ProjectPullRequestMark openCount={0} projectName="croissant" />))
+    assert.equal(
+      host.textContent,
+      '',
+      'no “none here” state — a project with no pull requests looks like a project in a tree with no GitHub',
+    )
+    act(() => root.unmount())
+    host.remove()
+  })
+
+  await run('a project says how many, and names itself for a reader who cannot hover', () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    act(() => root.render(<ProjectPullRequestMark openCount={2} projectName="croissant" />))
+    assert.match(host.textContent ?? '', /2/, 'the count is the number, not one glyph per pull request')
+    const named = host.querySelector('[role="img"]')
+    assert.equal(
+      named?.getAttribute('aria-label'),
+      'croissant, 2 pull requests open',
+      'the project is named in the spoken label — a bare 2 beside a folder says nothing',
+    )
+    act(() => root.render(<ProjectPullRequestMark openCount={1} projectName="croissant" />))
+    assert.match(
+      host.querySelector('[role="img"]')?.getAttribute('aria-label') ?? '',
+      /1 pull request open/,
+      'and it counts in singular when there is one',
+    )
+    act(() => root.unmount())
+    host.remove()
+  })
+
+  await run('the project mark is not a control — a count of three has nothing single to open', () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    act(() => root.render(<ProjectPullRequestMark openCount={3} projectName="multicode" />))
+    assert.equal(
+      host.querySelector('button'),
+      null,
+      'a button here would steal the folder header\'s own click',
+    )
+    act(() => root.unmount())
+    host.remove()
   })
 
   if (failures.length > 0) {

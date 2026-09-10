@@ -4203,6 +4203,17 @@ export type ElectronApi = {
   // one whose checkout has not resolved yet — so a caller that asks once per
   // session can tell "asked" from "could not ask yet" and try again.
   refreshPullRequestsForSession: (sessionId: string) => Promise<boolean>
+  /**
+   * What these CONVERSATIONS hold, agents running or long gone. Keyed by
+   * conversation because a session dies and a chat does not — the sidebar row
+   * for a finished agent had no way to learn it still had a pull request open
+   * (owner, 2026-09-10). Conversations with nothing are absent from the answer.
+   */
+  listPullRequestsForWorkspaces: (
+    workspaceIds: readonly string[],
+  ) => Promise<Record<string, BranchPullRequest[]>>
+  /** Which conversations' lists moved; the ids only, never the lists. */
+  onPullRequestWorkspacesChanged: (listener: (workspaceIds: string[]) => void) => () => void
   // Open an attachment the peek just handed out: an image goes to the OS image
   // viewer, a file is revealed in the file manager. Takes the attachment's id,
   // never a path — main resolves it against the peek it produced, so a renderer
