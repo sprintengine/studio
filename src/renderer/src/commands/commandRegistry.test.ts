@@ -16,6 +16,7 @@ for (const command of COMMAND_REGISTRY) {
 for (const id of [
   'app.settings.open',
   'commandPalette.open',
+  'search.everywhere',
   'panel.files.toggle',
   'panel.knowledge-graph.toggle',
   'specialist.spawn.architect',
@@ -57,3 +58,24 @@ for (const command of COMMAND_REGISTRY) {
 assert.equal(getCommandDefinition('quickOpen.open'), undefined)
 assert.equal(getCommandDefinition('git.discardAll'), undefined)
 assert.equal(getCommandDefinition('editor.save'), undefined, 'editor save remains Monaco-owned and is not registry-backed in T3')
+
+// Search Everywhere is a command of its own rather than a third binding on the
+// palette (skills-everywhere, 2026-09-10). Disable and rebind are PER COMMAND,
+// so while `Shift Shift` rode `commandPalette.open`, turning the gesture off
+// turned ⌘K off with it. The two raise the same overlay; only their identity
+// differs, and that identity is the whole point.
+const palette = getCommandDefinition('commandPalette.open')
+const everywhere = getCommandDefinition('search.everywhere')
+assert.deepEqual(palette?.defaultKeybindings, ['primary+k', 'primary+shift+p'])
+assert.deepEqual(everywhere?.defaultKeybindings, ['shift shift'])
+assert.equal(
+  (palette?.defaultKeybindings ?? []).includes('shift shift'),
+  false,
+  'the double-tap gesture must not also ride the palette command, or disabling one disables both',
+)
+assert.equal(everywhere?.scopes.includes('global'), true, 'the gesture is global, like the palette')
+assert.deepEqual(
+  everywhere?.handlerPath,
+  palette?.handlerPath,
+  'both commands raise the same overlay — they differ only in what a user can rebind',
+)

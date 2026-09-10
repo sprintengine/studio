@@ -448,7 +448,11 @@ assert.equal(result.kind, 'unmatched')
 assert.equal(result.preventDefault, false, 'the second Shift keydown is not swallowed either')
 result = tapDispatcher.resolveKeyUp(shiftUp(), globalAt(260))
 assert.equal(result.kind, 'matched', 'two Shift taps inside the window fire')
-assert.equal(result.kind === 'matched' ? result.commandId : null, 'commandPalette.open')
+assert.equal(
+  result.kind === 'matched' ? result.commandId : null,
+  'search.everywhere',
+  'the gesture is its own command, so it can be rebound without touching ⌘K',
+)
 
 // Taps further apart than the window re-arm instead of firing.
 const slowTaps = new RendererCommandDispatcher(500, 400)
@@ -521,7 +525,7 @@ inTerminal.resolveKeyUp(shiftUp(), globalAt(7010, { isSuppressedTarget: suppress
 inTerminal.resolve(shiftDown(), globalAt(7100, { isSuppressedTarget: suppressed }))
 result = inTerminal.resolveKeyUp(shiftUp(), globalAt(7110, { isSuppressedTarget: suppressed }))
 assert.equal(result.kind, 'matched', 'double Shift fires inside .xterm, where ⌘K is suppressed')
-assert.equal(result.kind === 'matched' ? result.commandId : null, 'commandPalette.open')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'search.everywhere')
 // ⌘K in that same suppressed target stays withheld — the exemption is the
 // gesture's, not the command's.
 assert.equal(
@@ -535,8 +539,17 @@ disabledTap.resolve(shiftDown(), globalAt(8000))
 disabledTap.resolveKeyUp(shiftUp(), globalAt(8010))
 disabledTap.resolve(shiftDown(), globalAt(8100))
 assert.equal(
-  disabledTap.resolveKeyUp(shiftUp(), globalAt(8110, { disabledCommandIds: new Set(['commandPalette.open']) })).kind,
+  disabledTap.resolveKeyUp(shiftUp(), globalAt(8110, { disabledCommandIds: new Set(['search.everywhere']) })).kind,
   'unmatched',
+)
+// …and disabling the gesture leaves ⌘K alone, which is the whole reason the
+// two are separate commands (skills-everywhere, 2026-09-10).
+assert.equal(
+  new RendererCommandDispatcher().resolve(
+    key({ key: 'k', code: 'KeyK', metaKey: true }),
+    { activeScopes: ['global'], platform: 'darwin', disabledCommandIds: new Set(['search.everywhere']), now: 8200 },
+  ).kind,
+  'matched',
 )
 
 // reset() (the shell calls it when the window loses focus) drops a half-made

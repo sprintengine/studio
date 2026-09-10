@@ -129,14 +129,14 @@ assert.equal(shiftTapVsShiftKey.length, 0)
 // Shift is still told.
 const shiftTapVsPalette = findKeybindingConflicts(
   {
-    commandId: 'custom.searchEverywhere',
-    commandTitle: 'Search Everywhere',
+    commandId: 'custom.myGesture',
+    commandTitle: 'My Gesture',
     keybindings: ['Shift Shift'],
     scopes: ['global'],
   },
   COMMAND_REGISTRY,
 )
 assert.equal(shiftTapVsPalette.some((conflict) => (
-  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'commandPalette.open'
+  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'search.everywhere'
 )), true)
 

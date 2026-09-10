@@ -24,16 +24,33 @@ function rowFor(id: string, keybindings: KeybindingSettings = EMPTY) {
 }
 
 // --- Defaults preserve registry behavior -----------------------------------
-// Double Shift rides the palette command as a third default (the IDE
-// Search Everywhere gesture), so it shows in the row and can be reset/removed
-// like any other binding — the recorder cannot capture it, a lone modifier
-// being ignored there, but the row still displays and disables it.
 const paletteDefault = rowFor('commandPalette.open')
-assert.deepEqual(paletteDefault.defaults, ['primary+k', 'primary+shift+p', 'shift shift'])
-assert.deepEqual(paletteDefault.effective, ['primary+k', 'primary+shift+p', 'shift shift'])
+assert.deepEqual(paletteDefault.defaults, ['primary+k', 'primary+shift+p'])
+assert.deepEqual(paletteDefault.effective, ['primary+k', 'primary+shift+p'])
 assert.equal(paletteDefault.overrides, null)
 assert.equal(paletteDefault.disabled, false)
 assert.equal(paletteDefault.customized, false)
+
+// Double Shift (the IDE Search Everywhere gesture) is a row of its own
+// rather than a third default on the palette (skills-everywhere, 2026-09-10):
+// disable and reset are per row, so while it rode `commandPalette.open` there
+// was no way to turn the gesture off without turning ⌘K off with it. The
+// recorder still cannot capture it — a lone modifier is ignored there — but the
+// row displays it and can disable it.
+const everywhereDefault = rowFor('search.everywhere')
+assert.deepEqual(everywhereDefault.defaults, ['shift shift'])
+assert.deepEqual(everywhereDefault.effective, ['shift shift'])
+assert.equal(everywhereDefault.disabled, false)
+const everywhereDisabled = rowFor('search.everywhere', {
+  overrides: {},
+  disabled: { 'search.everywhere': true },
+})
+assert.deepEqual(everywhereDisabled.effective, [], 'the gesture can be turned off on its own…')
+assert.deepEqual(
+  rowFor('commandPalette.open', { overrides: {}, disabled: { 'search.everywhere': true } }).effective,
+  ['primary+k', 'primary+shift+p'],
+  '…and ⌘K survives it',
+)
 
 // --- Override (add/change a binding) ---------------------------------------
 const paletteOverride = rowFor('commandPalette.open', {
@@ -42,7 +59,7 @@ const paletteOverride = rowFor('commandPalette.open', {
 })
 assert.deepEqual(paletteOverride.overrides, ['primary+j'], 'override is normalized and de-duplicated')
 assert.deepEqual(paletteOverride.effective, ['primary+j'], 'effective follows the override')
-assert.deepEqual(paletteOverride.defaults, ['primary+k', 'primary+shift+p', 'shift shift'], 'defaults are still surfaced')
+assert.deepEqual(paletteOverride.defaults, ['primary+k', 'primary+shift+p'], 'defaults are still surfaced')
 assert.equal(paletteOverride.customized, true)
 
 // --- Disable / reset --------------------------------------------------------

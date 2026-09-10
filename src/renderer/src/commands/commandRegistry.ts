@@ -26,19 +26,31 @@ export const COMMAND_REGISTRY = [
     scopes: ['global'],
     handlerPath: { kind: 'app-menu', command: 'app.updates.check' },
   }),
-  // `Shift Shift` is the familiar IDE search-everywhere gesture, and it is here for
-  // the reason a person reaches for it: their hands are in a terminal and they
-  // want the palette NOW. The dispatcher fires a lone-modifier double tap
-  // regardless of target suppression, so it works inside xterm and Monaco
-  // where ⌘K deliberately does not. It rides `commandPalette.open` for now and
-  // is a single list entry to move should the palette ever split into its own
-  // "search everywhere" command.
   command({
     id: 'commandPalette.open',
     title: 'Open Command Palette',
     category: 'command_palette',
     scopes: ['global'],
-    defaultKeybindings: ['Primary+K', 'Primary+Shift+P', 'Shift Shift'],
+    defaultKeybindings: ['Primary+K', 'Primary+Shift+P'],
+    handlerPath: { kind: 'workspace-manager', handler: 'setCommandPaletteOpen(true)' },
+  }),
+  // Search Everywhere. `Shift Shift` is the familiar IDE gesture and it is here for
+  // the reason a person reaches for it: their hands are in a terminal and they
+  // want the palette NOW. The dispatcher fires a lone-modifier double tap
+  // regardless of target suppression, so it works inside xterm and Monaco where
+  // ⌘K deliberately does not.
+  //
+  // It raises the SAME overlay `commandPalette.open` does, with the same
+  // groups. The two are separate commands only so they are separately
+  // rebindable and separately disableable: disable and rebind are per command,
+  // so while the gesture rode the palette's id, turning off Double Shift meant
+  // turning off ⌘K with it (double-shift review, 2026-09-10).
+  command({
+    id: 'search.everywhere',
+    title: 'Search Everywhere',
+    category: 'command_palette',
+    scopes: ['global'],
+    defaultKeybindings: ['Shift Shift'],
     handlerPath: { kind: 'workspace-manager', handler: 'setCommandPaletteOpen(true)' },
   }),
   // Find in Path. The same overlay `commandPalette.open` raises, opened filtered

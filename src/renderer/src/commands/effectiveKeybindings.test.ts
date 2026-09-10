@@ -64,6 +64,12 @@ assert.equal(
 )
 assert.deepEqual(
   getEffectiveKeybindings('commandPalette.open', { overrides: {}, disabled: {} }),
-  ['primary+k', 'primary+shift+p', 'shift shift'],
+  ['primary+k', 'primary+shift+p'],
+)
+// `Shift Shift` moved onto `search.everywhere`, so disabling the gesture leaves
+// ⌘K standing (skills-everywhere, 2026-09-10).
+assert.deepEqual(
+  getEffectiveKeybindings('search.everywhere', { overrides: {}, disabled: {} }),
+  ['shift shift'],
 )
 
