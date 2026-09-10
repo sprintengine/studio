@@ -1,4 +1,0 @@
-interface:
-  display_name: "Review Guide"
-  short_description: "Walk a human reviewer through a code change, and answer their questions about it."
-  default_prompt: "Use $review-guide to build the walkthrough for the review named in this prompt, and submit it with review_submit_brief."
