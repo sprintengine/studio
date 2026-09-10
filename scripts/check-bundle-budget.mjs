@@ -50,7 +50,7 @@ const ASSETS_DIR = 'out/renderer/assets'
 //
 // Re-baseline deliberately, with fresh `measure-startup.mjs` output attached —
 // never as a quiet bump to make a red build green.
-const CEILING_KB = 2176
+const CEILING_KB = 2160
 
 // Signatures of heavy deps that must only ever appear in lazy chunks.
 // `allow` lists benign exact substrings that happen to contain the signature
