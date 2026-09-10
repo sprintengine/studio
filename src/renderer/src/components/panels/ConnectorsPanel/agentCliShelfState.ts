@@ -11,7 +11,12 @@
 // cliProviderState.ts), and such a CLI is never offered an Install — the same
 // signal deployment pickers already hide uninstalled CLIs on.
 
-import type { CliAvailability, CliInstallMethodInfo } from '../../../../../shared/electron-api'
+import type {
+  CliAvailability,
+  CliInstallMethodInfo,
+  CliVersionAdvisory,
+  CliVersionAdvisoryMap,
+} from '../../../../../shared/electron-api'
 import type { PluginCatalogStatus } from '../../../types/workspace'
 import {
   resolveCliProviderState,
@@ -39,6 +44,13 @@ export type AgentCliShelfRowState = {
   words: string | null
   /** The probe-derived state, when this row is a runtime CLI. */
   provider: CliProviderState | null
+  /** Is this CLI actually on the machine? False ONLY where absence is settled —
+   *  a definitive negative probe, or a platform with no install path at all. A
+   *  probe that never answered is not absence and stays `true`, so an unknown
+   *  row is never receded into the background as if it were missing. The row
+   *  lowers its contrast on this, the way the sidebar recedes a conversation
+   *  that is not the active one. */
+  present: boolean
   /** `install` only on a definitive negative probe WITH at least one install
    *  method for this platform — anything less would be a dead or lying button. */
   action: 'install' | 'none'
@@ -67,7 +79,7 @@ export function agentCliShelfRowState(input: {
   useWsl: boolean
 }): AgentCliShelfRowState {
   if (input.catalogStatus === 'loading') {
-    return { tone: 'neutral', version: null, words: 'Checking…', provider: null, action: 'none' }
+    return { tone: 'neutral', version: null, words: 'Checking…', provider: null, present: true, action: 'none' }
   }
   if (input.catalogStatus === 'error') {
     // The registry read failing is its own fact; guessing "installed" or
@@ -77,6 +89,7 @@ export function agentCliShelfRowState(input: {
       version: null,
       words: 'Runtime state unavailable — the plugin registry could not be read',
       provider: null,
+      present: true,
       action: 'none',
     }
   }
@@ -86,6 +99,8 @@ export function agentCliShelfRowState(input: {
       version: null,
       words: 'Built into the app — nothing to install',
       provider: null,
+      // Built in IS present: it ships inside the app bundle.
+      present: true,
       action: 'none',
     }
   }
@@ -95,7 +110,7 @@ export function agentCliShelfRowState(input: {
     // ready / checking / unknown / probe-failed: the shared probe vocabulary is
     // the state line, and none of them may offer an Install — an unknown probe
     // may well be looking at an installed CLI.
-    return { tone: provider.tone, version: provider.version, words: null, provider, action: 'none' }
+    return { tone: provider.tone, version: provider.version, words: null, provider, present: true, action: 'none' }
   }
 
   // Definitively absent. Installable only once this platform is known to have
@@ -106,6 +121,7 @@ export function agentCliShelfRowState(input: {
       version: null,
       words: `Not available on ${agentCliPlatformLabel(input.platform, input.useWsl)}`,
       provider: null,
+      present: false,
       action: 'none',
     }
   }
@@ -114,6 +130,39 @@ export function agentCliShelfRowState(input: {
     version: null,
     words: null,
     provider,
+    present: false,
     action: input.installMethods.status === 'ready' ? 'install' : 'none',
   }
+}
+
+
+// ── Updates ─────────────────────────────────────────────────────────────────
+
+// A CLI is behind when the advisory says so and nothing else. `behind_latest`
+// is the ONE status that means "there is something to do here": `unknown` is a
+// registry we could not read and `current` is nothing to say, and neither of
+// them earns a count on a row or on the tab above it.
+export function cliUpdateAvailable(advisory: CliVersionAdvisory | undefined): boolean {
+  return advisory?.status === 'behind_latest'
+}
+
+/**
+ * How many of these CLIs are behind their published version — the number the
+ * Agent CLIs tabs wear.
+ *
+ * It counts over the CLIs a tab actually LISTS rather than over the whole
+ * advisory map: a tab that says "3" while showing two rows is the tab and the
+ * list giving two answers to one question, which is the failure the count on
+ * the tab already avoids for its own noun (catalogueTabs).
+ */
+export function countCliUpdates(
+  advisories: CliVersionAdvisoryMap,
+  cliIds: readonly string[],
+): number {
+  const seen = new Set<string>()
+  for (const id of cliIds) {
+    if (seen.has(id)) continue
+    if (cliUpdateAvailable(advisories[id as keyof CliVersionAdvisoryMap])) seen.add(id)
+  }
+  return seen.size
 }

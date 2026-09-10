@@ -9,7 +9,7 @@
 
 import React from 'react'
 
-import { Badge, GhostButton, PrimaryButton, RowButton, TruncatedText } from '../../ui'
+import { Badge, GhostButton, PrimaryButton, RowButton, TruncatedText, type MarkBadge } from '../../ui'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
@@ -40,8 +40,34 @@ function ConnectorChip({ label }: { label: string }) {
   )
 }
 
+// The mark and, when the row has news, the count docked on its corner. Same
+// pip as the agent CLI rows and the app rail's squares (owner, 2026-09-10):
+// what a person scanning a page of extensions needs is WHICH of them wants
+// them, and a chip in the middle of the name line is not something the eye
+// finds from across the page. The chip stays — it is the words — and this is
+// the mark that gets you to them.
+function ConnectorMark({ icon, badge }: { icon: React.ReactNode; badge?: MarkBadge | null }) {
+  if (!badge || badge.count <= 0) return <>{icon}</>
+  return (
+    <span className="relative inline-flex shrink-0">
+      {icon}
+      <Badge
+        corner
+        tone={badge.tone ?? 'accent'}
+        count={badge.count}
+        max={99}
+        ariaLabel={badge.label}
+        // The ground these lists sit on, not the app ground the primitive
+        // assumes.
+        className="border-[color:var(--bg-surface)]"
+      />
+    </span>
+  )
+}
+
 export function ConnectorRow({
   icon,
+  badge,
   name,
   meta,
   summary,
@@ -52,6 +78,9 @@ export function ConnectorRow({
   onOpen,
 }: {
   icon: React.ReactNode
+  /** News waiting on this row, as the kit's corner count on the mark. Null, or
+   *  a count of 0, draws nothing. */
+  badge?: MarkBadge | null
   name: string
   /**
    * The qualifier that tells two rows of the same name apart — the plugin a
@@ -77,7 +106,7 @@ export function ConnectorRow({
     : 'hover:bg-[color:var(--bg-hover)]'
   const content = (
     <>
-      {icon}
+      <ConnectorMark icon={icon} badge={badge} />
       <span className="min-w-0 flex-1">
         {/* overflow-hidden, because the chips are shrink-0: once the name has
             truncated away, a chip row wider than the column would otherwise

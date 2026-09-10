@@ -10,6 +10,8 @@
      so this file also stands alone in a browser; the catalog inlines every
      component's CSS itself and drops this head. -->
 <link rel="stylesheet" href="../switch/component.css" />
+<!-- The corner count on a mark is the badge component, unchanged. -->
+<link rel="stylesheet" href="../badge/component.css" />
 <style>
   body {
     margin: 0;
@@ -99,7 +101,10 @@
 </head>
 <body>
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — installed providers, one expanded</p>
+  <p class="demo-label">
+    Light — installed providers, one expanded, one with an update waiting, one
+    absent and receded
+  </p>
 
   <div class="demo-band">
     <h2>Agent CLIs</h2>
@@ -222,12 +227,46 @@
     </div>
   </div>
 
-  <!-- Definitively absent: no version at all, and the one action the state earns. -->
-  <div class="ds-provider-row">
+  <!-- An update waiting: the corner count on the mark, and no health dot — this
+       list has picked the count as its one status idiom. The number is 1
+       because the count on a ROW says which, not how many. -->
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CX</span>
+        <span
+          role="status"
+          aria-label="Codex — update available: 0.153.4"
+          class="ds-badge-count ds-badge-count--accent ds-badge-count--corner ds-provider-row__badge"
+          >1</span
+        >
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Codex</span>
+          <span class="ds-provider-row__version">codex-cli 0.153.3</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Ready — <span class="ds-provider-row__id">/opt/homebrew/bin/codex</span>
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="ds-provider-row__disclosure" aria-expanded="false" aria-controls="detail-codex-update" aria-label="Codex details">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <!-- Definitively absent: recessed a contrast step, no version at all, and the
+       one action the state earns. The Install button is at full weight — the row
+       recedes, its controls do not. -->
+  <div class="ds-provider-row ds-provider-row--recessed">
     <div class="ds-provider-row__face">
       <span class="ds-provider-row__mark">
         <span class="demo-mono-mark">CU</span>
-        <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--warn"></span>
       </span>
       <span class="ds-provider-row__text">
         <span class="ds-provider-row__line">
@@ -350,6 +389,55 @@
         <button type="button" role="switch" aria-checked="false" aria-label="Grok Build enabled" class="ds-switch">
           <span aria-hidden="true" class="ds-switch-thumb"></span>
         </button>
+      </span>
+    </div>
+  </div>
+
+  <div class="ds-provider-row ds-provider-row--disclosable">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">CX</span>
+        <span
+          role="status"
+          aria-label="Codex — update available: 0.153.4"
+          class="ds-badge-count ds-badge-count--accent ds-badge-count--corner ds-provider-row__badge"
+          >1</span
+        >
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Codex</span>
+          <span class="ds-provider-row__version">codex-cli 0.153.3</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Ready — <span class="ds-provider-row__id">/opt/homebrew/bin/codex</span>
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="ds-provider-row__disclosure" aria-expanded="false" aria-controls="detail-codex-update-dark" aria-label="Codex details">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+            <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </span>
+    </div>
+  </div>
+
+  <div class="ds-provider-row ds-provider-row--recessed">
+    <div class="ds-provider-row__face">
+      <span class="ds-provider-row__mark">
+        <span class="demo-mono-mark">MU</span>
+      </span>
+      <span class="ds-provider-row__text">
+        <span class="ds-provider-row__line">
+          <span class="ds-provider-row__name">Muse Code</span>
+        </span>
+        <span class="ds-provider-row__state">
+          Not installed — no <span class="ds-provider-row__id">muse</span> on PATH
+        </span>
+      </span>
+      <span class="ds-provider-row__trail">
+        <button type="button" class="demo-ghost">Install</button>
       </span>
     </div>
   </div>

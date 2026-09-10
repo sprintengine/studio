@@ -76,6 +76,7 @@ import { SourceTabActions } from '../catalogue/SourceTabActions'
 import { openGitHubSettings, useGitHubTokenConfigured } from '../catalogue/useGitHubToken'
 import { PluginDetailPane } from './PluginDetailPane'
 import {
+  countPluginUpdates,
   derivePluginInstallAvailability,
   derivePluginInstallState,
   derivePluginRows,
@@ -210,11 +211,36 @@ export function PluginsCatalogue({
   }, [appCount, sources.scans, sources.sources])
 
   const mcpServers = useMemo(() => Object.values(connectors.mcpSettings.servers), [connectors.mcpSettings.servers])
+  // The plugins in each source that are installed at a commit the source has
+  // moved past — the number its tab wears, and the number of corner pips under
+  // it. Only sources whose scan has ANSWERED are counted: an unread repository
+  // has no per-plugin answer, and a tab that draws 0 over an unread source
+  // claims "nothing to update here" on no evidence. Such a tab keeps the mark
+  // the sync check gives it instead (CatalogueSurface).
+  //
+  // Installed is not counted here. Its rows come from the inventory's own
+  // marketplace update check, which is a different mechanism from this
+  // commit comparison; one number over the other list would be two answers to
+  // one word.
+  const updateCounts = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const source of sources.sources) {
+      const load = sources.scans[source.id]
+      if (!load || load.status !== 'ready') continue
+      map[source.id] = countPluginUpdates({
+        source,
+        scan: load.scan,
+        installed: sources.installedPlugins,
+      })
+    }
+    return map
+  }, [sources.installedPlugins, sources.scans, sources.sources])
   const tabs = deriveCatalogueTabs({
     kind: 'plugins',
     sources: sources.sources,
     installedCount: mcpServers.length,
     counts,
+    updateCounts,
   })
   const tabId = resolveCatalogueTab(tabs, activeTabId)
   const activeSource = tabs.find((tab) => tab.id === tabId)?.source ?? null
@@ -481,6 +507,15 @@ export function PluginsCatalogue({
           <ConnectorRow
             key={row.pluginId}
             icon={<ExtensionIcon name={row.name} size={36} />}
+            // The pip on the mark, beside the words on the chip: the chip says
+            // what, and this is what a person finds when they are scanning a
+            // page of thirty rows for the one the notification meant (owner,
+            // 2026-09-10).
+            badge={
+              row.install.kind === 'update-available'
+                ? { count: 1, label: `${row.name} — update available` }
+                : null
+            }
             name={row.name}
             summary={row.description || row.components}
             // Not "Plugin": every row under this heading is one. A chip is for

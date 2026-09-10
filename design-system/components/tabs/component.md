@@ -20,6 +20,7 @@ when they are destinations.
 | Tab | `.ds-tab` | yes — `role="tab"` buttons, `font.size.meta` |
 | Icon | `.ds-tab-icon` | no — a leading glyph, `aria-hidden` |
 | Count | `.ds-tab-count` | no — canonical count, tabular, `font.size.micro` |
+| Badge | `.ds-tab-badge` | no — the `badge` corner count: what is WAITING in this tab. Needs `.ds-tab--badged` on the tab for its room |
 | Underline | `.ds-tab-underline` | yes — the 1px active marker, `aria-hidden` |
 | Panel | `.ds-tab-panel` | yes — `role="tabpanel"`, a focusable scroll region |
 
@@ -39,6 +40,11 @@ label, not the hit area.
   would reach for is a band they are passengers in, and the band's overflow
   container clips the overhang — which is the pixel the active underline lives
   in, so the overlap costs a borderless strip its selection marker entirely.
+- **`--badged`** — the tab reserves `space.3xl` of trailing room and docks a
+  `badge` count in its top-right: how many things inside want the person. See
+  "A count on a tab is not a badge on a tab" below. Never on `--icon-only`, and
+  never on a closable tab — that tab's trailing padding is already spoken for by
+  its close glyph, and two things docked in one corner is neither of them.
 - **`--icon-only`** — each tab renders its glyph alone on a
   `size.control.sm` square, the glyph steps up to `icon.size.sm`, and the
   label becomes the tab's accessible name *and* its tooltip. For a strip on a
@@ -73,13 +79,45 @@ active one. Tab from the active tab lands in the panel, not on the next tab.
 **Counts are canonical.** A count on a tab is the count of that view. Do not
 repeat it inside the panel where the two could disagree.
 
+**A count on a tab is not a badge on a tab** (2026-09-10). They are two
+different questions and they get two different places:
+
+- the **count** is *how many things are in here*. It rides beside the label, in
+  the reading line, because it is part of what the tab says.
+- the **badge** is *how many of them want you* — updates waiting, work blocked
+  on an answer. It sits above the words, top-right, because it is not part of
+  them. It is the same pip the app rail's squares wear, so "there is news here"
+  is one drawing wherever the product says it.
+
+A tab can carry both, and a tab reading "SprintEngine Studio 10 ③" is saying
+two true things. What it must not do is draw the badge at zero: a counter
+reading "0" is a counter spent saying there is no news. Nor may a tab spend
+the badge on a fact it cannot count — where a source is known to have moved on
+but no per-item answer exists yet, that is a mark (a glyph), not a number, and
+the two never show together on one tab.
+
+**A badged tab names itself.** The counter is a named live region — it has to
+be, the number moves while the reader is elsewhere — and a named child inside a
+button joins that button's name-from-contents, so the tab announces as "Studio:
+3 updates available Studio 10". Give a badged tab an explicit accessible name:
+an explicit name wins over name-from-contents, the tab says its piece once, and
+the counter goes on announcing its own changes.
+
+**A badge on a tab is docked, not overhung.** The `badge` component's `--corner`
+mode hangs the counter outside its trigger; outside a tab is the scroller's
+clip, which is the same pixel-eating that costs a borderless strip its
+underline. `--badged` reserves room and the badge sits inside it — same corner,
+drawn where it survives, and with no keyline, since it covers the band rather
+than a glyph.
+
 **An icon-only tab keeps its name, it just stops drawing it.** The label
 becomes `aria-label` and the tooltip, so the word is one hover or one focus
 away and unchanged for assistive tech. Dropping the label without either is a
 blank button, and it is the only thing this variant can get wrong. It draws no
-count at all: a number pinned to a 30px glyph covers the mark it is badging as
-soon as it reaches two digits, and five badged glyphs is a row of alarms. Put
-the count in the tooltip beside the name ("Log · 3,057 commits").
+count at all, and no badge either: a number pinned to a 30px glyph covers the
+mark it is badging as soon as it reaches two digits, and five badged glyphs is a
+row of alarms. Put the count in the tooltip beside the name ("Log · 3,057
+commits").
 
 **A strip that can outgrow its band scrolls, it does not squeeze.** Wrap it in
 `.ds-tabs-scroller`: tabs stay `shrink-0`, the row scrolls sideways, and the

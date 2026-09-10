@@ -128,12 +128,26 @@ export function CatalogueSurface<T>({
     // A count that is not known is absent, never zero: a scan still reading,
     // or one that failed, must not render as an empty source.
     count: tab.count ?? undefined,
+    // How many things in this tab are waiting to be updated, as the corner
+    // pip (owner, 2026-09-10) — the number you can read without opening the
+    // tab, matched by a pip on each row's own mark inside it saying which.
+    badgeCount: tab.updateCount,
+    badgeLabel:
+      tab.updateCount > 0
+        ? `${tab.label}: ${tab.updateCount} ${tab.updateCount === 1 ? 'update' : 'updates'} available`
+        : undefined,
     // The hourly check saw this source's repository move past the commit its
     // scan was taken at. The mark rides the tab so it is visible without
     // opening the source, and the glyph is decorative — the tab's name carries
     // the words, and Sync on the head line is where it is acted on.
-    icon: tab.updateAvailable ? <UpdateMark /> : undefined,
-    ariaLabel: tab.updateAvailable ? `${tab.label} — update available` : undefined,
+    //
+    // One mark, not two: where the tab can say HOW MANY, the count says it and
+    // this glyph stands down. The glyph is what is left for a source that has
+    // moved on with nothing countable behind it yet — the scan has not been
+    // taken, so there is no per-item answer to give.
+    icon: tab.updateAvailable && tab.updateCount === 0 ? <UpdateMark /> : undefined,
+    ariaLabel:
+      tab.updateAvailable && tab.updateCount === 0 ? `${tab.label} — update available` : undefined,
   }))
 
   const bar = {

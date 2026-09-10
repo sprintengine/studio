@@ -193,6 +193,24 @@ export function derivePluginRows(input: {
     }))
 }
 
+/**
+ * How many plugins in this source are installed at a commit the source has
+ * moved past — the number its tab wears, and the number of corner pips a person
+ * will find under it.
+ *
+ * It runs the SAME derivation the rows do, unfiltered by the search box: the
+ * count is about the source, not about what is currently typed, and a count
+ * derived a second way is a count that can disagree with the list it labels.
+ */
+export function countPluginUpdates(input: {
+  source: SkillSource
+  scan: ScanResult
+  installed: readonly InstalledPluginRecord[]
+}): number {
+  return derivePluginRows({ ...input, query: '' }).filter((row) => row.install.kind === 'update-available')
+    .length
+}
+
 /** A plugin by the name it goes by now, or any name the marketplace renamed onto it. */
 export function findPlugin(scan: ScanResult, pluginId: string): ScannedPlugin | null {
   return findScannedPlugin(scan, pluginId)

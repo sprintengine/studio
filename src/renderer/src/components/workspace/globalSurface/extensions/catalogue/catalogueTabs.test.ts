@@ -292,4 +292,58 @@ run('a source with nothing installed from it gets no heading', () => {
   assert.deepEqual(groups, [], 'a heading with nothing under it says a source is installed when it is not')
 })
 
+// ── The update count on a tab ───────────────────────────────────────────────
+//
+// It answers a different question from the tab's own count: `count` is how many
+// things are in here, `updateCount` is how many of them want you. The owner
+// arrived at a catalogue from an update notification and the page could not say
+// which of ten rows it meant (2026-09-10).
+
+run('a tab wears the number of things waiting inside it', () => {
+  const tabs = deriveCatalogueTabs({
+    kind: 'plugins',
+    sources: [APP, ACME],
+    installedCount: 4,
+    counts: {
+      [STUDIO_SKILL_SOURCE_ID]: { status: 'ready', count: 9 },
+      'github:acme/skills': { status: 'ready', count: 12 },
+    },
+    updateCounts: { 'github:acme/skills': 3 },
+  })
+  const acme = tabs.find((tab) => tab.id === 'github:acme/skills')
+  assert.equal(acme?.count, 12, 'the tab still says how many it holds')
+  assert.equal(acme?.updateCount, 3, 'and, separately, how many of them are waiting')
+})
+
+run('a tab nobody counted wears nothing, which is not a claim of zero', () => {
+  const tabs = deriveCatalogueTabs({
+    kind: 'plugins',
+    sources: [APP],
+    installedCount: 0,
+    counts: { [STUDIO_SKILL_SOURCE_ID]: { status: 'ready', count: 9 } },
+  })
+  assert.deepEqual(
+    tabs.map((tab) => tab.updateCount),
+    [0, 0],
+    'silence draws no badge — a counter reading 0 is a counter spent saying there is no news',
+  )
+})
+
+run('Installed takes a count only where a caller has one to give', () => {
+  const tabs = deriveCatalogueTabs({
+    kind: 'agent-clis',
+    sources: [APP],
+    installedCount: null,
+    counts: { [STUDIO_SKILL_SOURCE_ID]: { status: 'ready', count: 10 } },
+    updateCounts: { [STUDIO_SKILL_SOURCE_ID]: 2 },
+  })
+  assert.equal(tabs[0]?.id, INSTALLED_TAB_ID)
+  // Neither catalogue counts Installed today: its rows come from the
+  // inventory's own update check and carry no per-row pips, so a number there
+  // would send a person into a list with nothing pointing at what it counted.
+  assert.equal(tabs[0]?.updateCount, 0, 'a tab nobody counted wears nothing')
+  assert.equal(tabs[0]?.count, null, 'and still speaks no holdings count it cannot honestly give')
+  assert.equal(tabs[1]?.updateCount, 2, 'the source tab, whose rows DO carry pips, wears its number')
+})
+
 console.log('catalogue tabs: ok')

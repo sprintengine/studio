@@ -69,6 +69,30 @@
   color: var(--sem-color-text-primary);
 }
 
+/* The corner count: what is waiting INSIDE this tab, as the badge component's
+ * count species. Docked here rather than by the badge's own `--corner` mode,
+ * which hangs the counter outside its trigger — and outside a tab is the
+ * strip's overflow container, the same clip that ate the active underline.
+ * The tab reserves trailing room for it (`.ds-tab--badged`) and it sits in
+ * that room, still the top-right corner, drawn where it survives.
+ *
+ * No keyline either: `--corner`'s ring exists to lift the badge off the glyph
+ * it covers, and this one covers nothing but the band. */
+.ds-tab-badge {
+  position: absolute;
+  top: var(--sem-space-3xs);
+  right: var(--sem-space-2xs);
+  display: inline-flex;
+}
+
+/* Room for the badge, so revealing it never reflows the label — the same
+ * reservation the closable tab makes for its close glyph. Wide enough for the
+ * two-digit pill, not just the one-digit circle: a count that grows must not
+ * start eating the word it belongs to. */
+.ds-tab--badged {
+  padding-right: var(--sem-space-3xl);
+}
+
 .ds-tab-icon {
   display: inline-flex;
   color: inherit;

@@ -11,6 +11,7 @@ import {
   type SkillSource,
 } from '../../../../../../../shared/skills'
 import {
+  countPluginUpdates,
   derivePluginInstallAvailability,
   derivePluginInstallState,
   derivePluginRows,
@@ -356,6 +357,47 @@ run('a plugin opens where a person can read it', () => {
   assert.equal(
     pluginExternalUrl(plugin('a', { origin: { kind: 'linked', repo: 'o/r', ref: '', sha: '', path: '', url: 'https://github.com/o/r.git' } }), SOURCE),
     'https://github.com/o/r.git',
+  )
+})
+
+// ── The number a source's tab wears ─────────────────────────────────────────
+//
+// Same derivation the rows use, so the tab and the list beneath it cannot
+// disagree — and unfiltered by the search box, because the count is about the
+// source rather than about what is currently typed.
+
+run('a source counts the plugins installed at a commit it has moved past', () => {
+  const scan = scanOf([plugin('code-review'), plugin('frontend-design'), plugin('security-guidance')], {
+    commitSha: 'ffffff',
+  })
+  const source = { ...SOURCE, commitSha: 'ffffff' }
+  const installed = [
+    // Behind: installed at the source's old commit.
+    record({ pluginId: 'code-review', claudePluginKey: 'code-review@claude-plugins-official' }),
+    // Current: installed at the commit the source pins now.
+    record({
+      pluginId: 'frontend-design',
+      claudePluginKey: 'frontend-design@claude-plugins-official',
+      commitSha: 'ffffff',
+    }),
+  ]
+  assert.equal(countPluginUpdates({ source, scan, installed }), 1)
+  assert.equal(
+    countPluginUpdates({ source, scan, installed: [] }),
+    0,
+    'nothing installed, nothing to update — not-installed is not an update',
+  )
+})
+
+run('the count ignores the search box', () => {
+  const scan = scanOf([plugin('code-review')], { commitSha: 'ffffff' })
+  const source = { ...SOURCE, commitSha: 'ffffff' }
+  const installed = [record({ pluginId: 'code-review' })]
+  assert.equal(countPluginUpdates({ source, scan, installed }), 1)
+  assert.equal(
+    derivePluginRows({ source, scan, installed, query: 'zzz' }).length,
+    0,
+    'the rows narrow as you type, and the tab above them does not',
   )
 })
 

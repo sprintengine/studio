@@ -536,6 +536,102 @@ const BASE = {
 }
 
 // ---------------------------------------------------------------------------
+// One status idiom: a list picks the dot OR the count, and may pick neither
+// ---------------------------------------------------------------------------
+{
+  // Health omitted: no dot at all. The owner's Agent CLIs list is nine green
+  // dots and one that is not, and the fact they came for is not either of them.
+  const { host, root } = mount(<ProviderRow {...BASE} stateLine="Ready — /usr/local/bin/claude" />)
+  assert.equal(
+    host.querySelector('span[aria-hidden="true"][style*="background-color"]'),
+    null,
+    'a row with no health draws no dot',
+  )
+  assert.match(host.textContent ?? '', /Ready/, 'and the state line still carries the state in words')
+  unmount(root, host)
+}
+
+{
+  const { host, root, render } = mount(
+    <ProviderRow
+      {...BASE}
+      name="Codex"
+      badge={{ count: 1, label: 'Codex — update available: 0.153.4' }}
+      stateLine="Ready"
+    />,
+  )
+  const badge = host.querySelector('[role="status"]')
+  assert.ok(badge, 'the corner count renders')
+  assert.equal(badge?.textContent, '1', 'one update reads as 1 — on a row the count says WHICH, not how many')
+  assert.equal(
+    badge?.getAttribute('aria-label'),
+    'Codex — update available: 0.153.4',
+    'and it is named with the row and the version — a bare "1" on a logo is not a sentence',
+  )
+  assert.match(
+    badge?.className ?? '',
+    /absolute -right-1 -top-1/,
+    'docked on the mark\'s top-right — the opposite corner from the health dot',
+  )
+  assert.match(
+    badge?.className ?? '',
+    /border-\[color:var\(--bg-surface\)\]/,
+    'ringed in the ground these lists sit on, not the app ground the primitive assumes',
+  )
+
+  // Zero is not news. A counter reading 0 is a counter spent saying nothing.
+  render(<ProviderRow {...BASE} name="Codex" badge={{ count: 0, label: 'Codex' }} stateLine="Ready" />)
+  assert.equal(host.querySelector('[role="status"]'), null, 'a count of 0 draws nothing')
+  render(<ProviderRow {...BASE} name="Codex" badge={null} stateLine="Ready" />)
+  assert.equal(host.querySelector('[role="status"]'), null, 'and neither does a null badge')
+  unmount(root, host)
+}
+
+// ---------------------------------------------------------------------------
+// Recessed: absence reads as background, and its controls keep working
+// ---------------------------------------------------------------------------
+{
+  const install = <button type="button">Install</button>
+  const { host, root, render } = mount(
+    <ProviderRow
+      {...BASE}
+      name="Muse Code"
+      recessed
+      actions={install}
+      stateLine="Not installed — no muse on PATH"
+    />,
+  )
+  // The innermost span, not the baseline pair that wraps it.
+  const nameOf = (root: HTMLElement): HTMLElement | undefined =>
+    Array.from(root.querySelectorAll<HTMLElement>('span.truncate')).find(
+      (span) => span.textContent === 'Muse Code',
+    )
+  const name = nameOf(host)
+  assert.ok(name, 'the name renders')
+  assert.match(
+    name?.className ?? '',
+    /text-\[color:var\(--text-default\)\]/,
+    'a recessed name drops one ink step, the way the sidebar recedes an inactive conversation',
+  )
+  const mark = host.querySelector('span.relative.mt-px') as HTMLElement | null
+  assert.match(mark?.className ?? '', /opacity-60/, 'and the mark, being an image, recedes by opacity')
+
+  // Not a disabled state: the row is listed so it can be installed.
+  const button = host.querySelector('button')
+  assert.ok(button && !button.disabled, 'the Install button on a recessed row still works')
+  assert.doesNotMatch(host.innerHTML, /aria-disabled/, 'recessed sets no aria-disabled — it is contrast, not state')
+
+  render(<ProviderRow {...BASE} name="Muse Code" stateLine="Ready" />)
+  const present = nameOf(host)
+  assert.match(
+    present?.className ?? '',
+    /text-\[color:var\(--text-strong\)\]/,
+    'a present provider keeps the full-contrast name',
+  )
+  unmount(root, host)
+}
+
+// ---------------------------------------------------------------------------
 // Host wiring a mounted row cannot observe
 // ---------------------------------------------------------------------------
 const repoRoot = process.cwd()

@@ -1,9 +1,18 @@
 name: CI
 
+# MANUAL ONLY, on purpose. This used to fire on every push to main, where
+# agent-authored commits land in bulk -- 225 in the 34h before this changed --
+# at ~18 billed minutes a run once Windows' 2x multiplier is counted. Sep 2-5
+# that was 73 runs and ~1337 billed minutes with 88% of the jobs red: half a
+# month's Pro allowance spent re-proving the same failures. The pull_request
+# trigger is deliberately absent too.
+#
+# Nothing checks main automatically any more. Run this by hand before a
+# release, or accept that the release workflow's `validate` job (typecheck,
+# marketplace verification, one test) is the only gate left -- and it fires
+# after you have already decided to ship. Restore a trigger here the moment
+# the minutes allow it; a public repo gets unlimited standard-runner minutes.
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:

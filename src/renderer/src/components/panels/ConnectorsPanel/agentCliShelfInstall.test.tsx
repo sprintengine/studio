@@ -170,6 +170,7 @@ async function main(): Promise<void> {
           },
         ] as never,
         catalogStatus: 'ready',
+        versionAdvisories: {},
         cliRuntimes: {},
         refreshAvailability: async (options?: { force?: boolean }) => {
           if (options?.force) {
