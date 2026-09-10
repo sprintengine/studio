@@ -526,36 +526,36 @@ async function main(): Promise<void> {
     // Before the checkout has been resolved to a repository, only the session
     // that opened the pull request is reached.
     assert.equal(
-      record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [] }, onFeature),
+      record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [], workspaceIds: [] }, onFeature),
       false,
       'an unresolved checkout matches nothing yet',
     )
     record.listForSession(onFeature) // kicks off the resolution
     await record.flush()
 
-    assert.equal(record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [] }, onFeature), true)
+    assert.equal(record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [], workspaceIds: [] }, onFeature), true)
     assert.equal(
-      record.changeAffectsSession({ repoKey: APP, branch: 'other', sessionIds: [] }, onFeature),
+      record.changeAffectsSession({ repoKey: APP, branch: 'other', sessionIds: [], workspaceIds: [] }, onFeature),
       false,
       'another branch of the same repository is another conversation',
     )
     assert.equal(
-      record.changeAffectsSession({ repoKey: WEBSITE, branch: 'feature', sessionIds: [] }, onFeature),
+      record.changeAffectsSession({ repoKey: WEBSITE, branch: 'feature', sessionIds: [], workspaceIds: [] }, onFeature),
       false,
       'another repository is another conversation',
     )
     assert.equal(
-      record.changeAffectsSession({ repoKey: APP, branch: null, sessionIds: [] }, onFeature),
+      record.changeAffectsSession({ repoKey: APP, branch: null, sessionIds: [], workspaceIds: [] }, onFeature),
       true,
       'a repository-wide change (a checkout just resolved) reaches everything on it',
     )
     assert.equal(
-      record.changeAffectsSession({ repoKey: WEBSITE, branch: 'site/banner', sessionIds: ['live'] }, onFeature),
+      record.changeAffectsSession({ repoKey: WEBSITE, branch: 'site/banner', sessionIds: ['live'], workspaceIds: [] }, onFeature),
       true,
       'and the conversation that opened one hears about it in any repository',
     )
-    assert.equal(record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [] }, elsewhere), false)
-    assert.equal(record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [] }, {}), false)
+    assert.equal(record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [], workspaceIds: [] }, elsewhere), false)
+    assert.equal(record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [], workspaceIds: [] }, {}), false)
     record.dispose()
   }
 
@@ -1013,6 +1013,123 @@ async function main(): Promise<void> {
     }
     await Promise.all(reads)
     assert.equal(peak, 3, 'and the queue drains rather than deadlocking')
+    record.dispose()
+  }
+
+  // -------------------------------------------------------------------------
+  // A conversation's pull requests outlive its agents (owner, 2026-09-10).
+  //
+  // The complaint this answers: an agent finished, its session went away, and
+  // its pull request went with it — "if I'm scanning through the old chats I
+  // don't know is there a pull request open that I'm missing." The session id
+  // could never answer once the session was gone; the conversation id can.
+  // -------------------------------------------------------------------------
+  {
+    userDataDir = await freshUserDataDir()
+    const clock = makeClock()
+    const changes: PullRequestRecordChange[] = []
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => NOW,
+      timers: clock,
+      resolveRepoKey: resolveAppRepo,
+      onRecordChanged: (change) => changes.push(change),
+      reads: {
+        listBranchPullRequests: async () => ({ settled: true, pullRequests: [] }),
+        readPullRequestState: async () => ({
+          settled: true,
+          state: 'merged',
+          isDraft: false,
+          stateAt: NOW,
+          headRefName: 'skills-everywhere',
+        }),
+      },
+    })
+
+    record.noteCaptured({
+      url: 'https://github.com/acme/app/pull/93',
+      sessionId: 'session-gone',
+      workspaceId: 'chat-1',
+    })
+    await record.flush()
+
+    const mine = record.forWorkspace('chat-1')
+    assert.equal(mine.length, 1, 'the conversation holds the pull request its agent opened')
+    assert.equal(mine[0].number, 93)
+    assert.equal(mine[0].openedByWorkspaceId, 'chat-1')
+    assert.equal(
+      mine[0].state,
+      'merged',
+      'and it keeps holding it once merged — the mark is the record, not a to-do list',
+    )
+    assert.deepEqual(record.forWorkspace('chat-2'), [], 'another conversation gets nothing')
+    assert.deepEqual(record.forWorkspace(''), [], 'and an unnamed one asks for nothing')
+
+    // The change signal has to name conversations too: `sessionIds` can only
+    // ever reach a live session, and the rows this feature exists for have none.
+    assert.ok(
+      changes.some((change) => change.workspaceIds.includes('chat-1')),
+      'a change names the conversations whose rows must re-read',
+    )
+
+    // A second agent in the SAME conversation, on its own branch: the row is the
+    // conversation, not one of its terminals, so it wears both.
+    record.noteCaptured({
+      url: 'https://github.com/acme/app/pull/94',
+      sessionId: 'session-two',
+      workspaceId: 'chat-1',
+    })
+    await record.flush()
+    assert.deepEqual(
+      record.forWorkspace('chat-1').map((entry) => entry.number).sort((a, b) => a - b),
+      [93, 94],
+      'both agents\' pull requests hang off the one conversation',
+    )
+    record.dispose()
+  }
+
+  // A pull request found by a branch lookup first, and captured afterwards,
+  // still learns which conversation it came from: whichever id arrives second
+  // is filled in, and neither is ever overwritten.
+  {
+    userDataDir = await freshUserDataDir()
+    const clock = makeClock()
+    const record = createPullRequestRecord({
+      userDataDir,
+      now: () => NOW,
+      timers: clock,
+      resolveRepoKey: resolveAppRepo,
+      reads: {
+        listBranchPullRequests: async () => ({ settled: true, pullRequests: [pr({ number: 4 })] }),
+        readPullRequestState: async () => ({
+          settled: true,
+          state: 'open',
+          isDraft: false,
+          stateAt: NOW,
+          headRefName: 'feature',
+        }),
+      },
+    })
+
+    await record.ensureLookedUp({ gitRoot: '/repo', branch: 'feature' })
+    await record.flush()
+    assert.equal(
+      record.forBranch(APP, 'feature')[0]?.openedByWorkspaceId,
+      undefined,
+      'a branch lookup names no conversation — nobody here opened it',
+    )
+
+    record.noteCaptured({
+      url: record.forBranch(APP, 'feature')[0].url,
+      sessionId: 'session-a',
+      workspaceId: 'chat-9',
+    })
+    await record.flush()
+    assert.deepEqual(
+      record.forWorkspace('chat-9').map((entry) => entry.number),
+      [4],
+      'and the capture attaches it to the conversation afterwards',
+    )
     record.dispose()
   }
 }

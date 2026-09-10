@@ -39,7 +39,17 @@ import type { Workspace } from '../../types/workspace'
 // facts are pruned on the sweep that follows; a row that gains one joins it and
 // is swept at once, because the membership change re-runs the effect.
 
-const REFRESH_MS = 60_000
+/**
+ * Thirty seconds, down from sixty (owner, 2026-09-10): a branch that had just
+ * been merged went on reading as unmerged for most of a minute, which is long
+ * enough to go and look somewhere else to find out.
+ *
+ * This number and `CHECKOUT_SUMMARY_HOLD_MS` in `workspace-change-summary.ts`
+ * are ONE decision and must move together. The hold has to stay under the
+ * sweep, or every other sweep is answered from a cache the sweep was run to
+ * refresh and the extra ticks buy nothing but wake-ups.
+ */
+const REFRESH_MS = 30_000
 const CONCURRENCY = 4
 
 /**

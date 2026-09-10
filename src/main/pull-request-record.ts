@@ -144,6 +144,13 @@ export type PullRequestRecordChange = {
   repoKey: string
   branch: string | null
   sessionIds: string[]
+  /**
+   * The CONVERSATIONS holding entries in the list that changed. `sessionIds`
+   * above can only ever name live-ish sessions, so it is no use to a sidebar row
+   * whose agents have all exited — and those rows are exactly the ones that had
+   * no mark (owner, 2026-09-10). This is how they learn to re-read.
+   */
+  workspaceIds: string[]
 }
 
 export type PullRequestRecordOptions = {
@@ -177,6 +184,12 @@ export type PullRequestRecord = {
   /** Every pull request this session opened, in any repository, newest first. */
   forSession(sessionId: string): BranchPullRequest[]
   /**
+   * Every pull request this CONVERSATION opened, across all of its agents and
+   * outliving every one of them. What a sidebar row wears when nothing in it is
+   * running any more, and what a project line sums over its conversations.
+   */
+  forWorkspace(workspaceId: string): BranchPullRequest[]
+  /**
    * What a session wears: the union of the two above, de-duplicated by URL and
    * newest first. Synchronous, because the terminal snapshot is built from it on
    * every broadcast. The stored arrays are never mutated in place — a change
@@ -188,7 +201,7 @@ export type PullRequestRecord = {
    * anywhere. Filed by the URL's own repository; its branch is learned from the
    * state read this schedules.
    */
-  noteCaptured(input: { url: string; sessionId?: string }): void
+  noteCaptured(input: { url: string; sessionId?: string; workspaceId?: string }): void
   /** One `gh pr list` per checkout+branch per hold, merged in. Unsettled reads change nothing. */
   ensureLookedUp(input: PullRequestCheckout): Promise<void>
   /** Re-read one pull request's state by URL. Unsettled leaves the last reading standing. */
@@ -270,6 +283,12 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   const located = new Map<string, Located>()
   /** Session → the URLs it opened. Rebuilt from `openedBySessionId` on load. */
   const bySession = new Map<string, Set<string>>()
+  /**
+   * Every entry, by the CONVERSATION that opened it — the index behind
+   * `forWorkspace`. Kept beside `bySession` rather than derived from it,
+   * because the whole point is to answer after the session is gone.
+   */
+  const byWorkspace = new Map<string, Set<string>>()
   /** A checkout's repository, once git has answered. Only settled answers are kept. */
   const repoKeyByCheckout = new Map<string, string>()
   /**
@@ -400,10 +419,15 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     )
   }
 
-  function emitChanged(repoKey: string, branch: string | null, sessionIds: string[]): void {
+  function emitChanged(
+    repoKey: string,
+    branch: string | null,
+    sessionIds: string[],
+    workspaceIds: string[],
+  ): void {
     if (!options.onRecordChanged || disposed) return
     try {
-      options.onRecordChanged({ repoKey, branch, sessionIds })
+      options.onRecordChanged({ repoKey, branch, sessionIds, workspaceIds })
     } catch (error) {
       warn('a pull request record listener failed', error)
     }
@@ -419,6 +443,12 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     return [...ids]
   }
 
+  function workspaceIdsOf(...lists: readonly (readonly BranchPullRequest[])[]): string[] {
+    const ids = new Set<string>()
+    for (const list of lists) for (const entry of list) if (entry.openedByWorkspaceId) ids.add(entry.openedByWorkspaceId)
+    return [...ids]
+  }
+
   /** Keep `located` and `bySession` in step with one list's replacement. */
   function indexList(
     repoKey: string,
@@ -430,13 +460,20 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
       const at = located.get(entry.url)
       if (at && at.repoKey === repoKey && at.branch === branch) located.delete(entry.url)
       if (entry.openedBySessionId) bySession.get(entry.openedBySessionId)?.delete(entry.url)
+      if (entry.openedByWorkspaceId) byWorkspace.get(entry.openedByWorkspaceId)?.delete(entry.url)
     }
     for (const entry of next) {
       located.set(entry.url, { repoKey, branch, entry })
-      if (!entry.openedBySessionId) continue
-      const urls = bySession.get(entry.openedBySessionId) ?? new Set<string>()
-      urls.add(entry.url)
-      bySession.set(entry.openedBySessionId, urls)
+      if (entry.openedBySessionId) {
+        const urls = bySession.get(entry.openedBySessionId) ?? new Set<string>()
+        urls.add(entry.url)
+        bySession.set(entry.openedBySessionId, urls)
+      }
+      if (entry.openedByWorkspaceId) {
+        const urls = byWorkspace.get(entry.openedByWorkspaceId) ?? new Set<string>()
+        urls.add(entry.url)
+        byWorkspace.set(entry.openedByWorkspaceId, urls)
+      }
     }
   }
 
@@ -460,7 +497,12 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     persist(state)
     if (!learnedSomething) return
     reconcileWatch(state, branch)
-    emitChanged(state.repoKey, branch, sessionIdsOf(previous, sorted))
+    emitChanged(
+      state.repoKey,
+      branch,
+      sessionIdsOf(previous, sorted),
+      workspaceIdsOf(previous, sorted),
+    )
   }
 
   function isEntryWatchable(entry: BranchPullRequest): boolean {
@@ -678,8 +720,10 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
         // is asked about again rather than cached as "no repository".
         repoKeyByCheckout.set(key, repoKey)
         // Sessions on this checkout can be answered for now: anything in that
-        // repository may be theirs.
-        emitChanged(repoKey, null, [])
+        // repository may be theirs. No ids either way — the repository has only
+        // just become nameable, so nothing yet knows whose its entries are, and
+        // the re-emit's job here is simply to let every reader ask again.
+        emitChanged(repoKey, null, [], [])
       })()
         .catch((error) => warn('could not resolve a checkout repository', error))
         .finally(() => {
@@ -721,6 +765,30 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
 
   function forSession(sessionId: string): BranchPullRequest[] {
     const urls = bySession.get(sessionId)
+    if (!urls || urls.size === 0) return []
+    const entries: BranchPullRequest[] = []
+    for (const url of urls) {
+      const at = located.get(url)
+      if (at) entries.push(at.entry)
+    }
+    return entries.sort((a, b) => b.openedAt - a.openedAt || b.number - a.number)
+  }
+
+  /**
+   * Every pull request this CONVERSATION opened, whichever agent opened it and
+   * whether or not that agent is still running (owner, 2026-09-10).
+   *
+   * This is what a sidebar row wears once its agents are gone, and what the
+   * project line sums. A conversation with two agents on two branches gets
+   * both — the row is the conversation, not one of its terminals.
+   *
+   * Nothing is filtered by state: a merged pull request stays on its row as
+   * merged ("it should keep holding the PR as merged"). The DIFF beside it is a
+   * separate, live reading and empties itself once the branch lands; these two
+   * facts are deliberately not tied together.
+   */
+  function forWorkspace(workspaceId: string): BranchPullRequest[] {
+    const urls = byWorkspace.get(workspaceId)
     if (!urls || urls.size === 0) return []
     const entries: BranchPullRequest[] = []
     for (const url of urls) {
@@ -815,6 +883,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   return {
     forBranch,
     forSession,
+    forWorkspace,
     listForSession,
 
     noteCaptured(input) {
@@ -827,16 +896,27 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
         const existing = located.get(url)
         if (existing) {
           // Already known — from the branch lookup, or from an earlier capture.
-          // A session id is the one thing this capture can add, and only when
-          // the entry has none: an existing one is never overwritten.
-          if (!input.sessionId || existing.entry.openedBySessionId) return
+          // Whose it is, is the one thing this capture can add, and only where
+          // the entry says nothing yet: an id already written is never
+          // overwritten. The conversation is filled in on its own, so a pull
+          // request first seen by a branch lookup and captured afterwards still
+          // learns which chat it came from.
+          const addsSession = Boolean(input.sessionId) && !existing.entry.openedBySessionId
+          const addsWorkspace = Boolean(input.workspaceId) && !existing.entry.openedByWorkspaceId
+          if (!addsSession && !addsWorkspace) return
           const owner = repos.get(existing.repoKey)
           if (!owner) return
           commit(
             owner,
             existing.branch,
             entriesOf(owner, existing.branch).map((entry) =>
-              entry.url === url ? { ...entry, openedBySessionId: input.sessionId } : entry,
+              entry.url === url
+                ? {
+                    ...entry,
+                    ...(addsSession ? { openedBySessionId: input.sessionId } : {}),
+                    ...(addsWorkspace ? { openedByWorkspaceId: input.workspaceId } : {}),
+                  }
+                : entry,
             ),
           )
           return
@@ -859,6 +939,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
             openedAt: at,
             stateAt: at,
             ...(input.sessionId ? { openedBySessionId: input.sessionId } : {}),
+            ...(input.workspaceId ? { openedByWorkspaceId: input.workspaceId } : {}),
           },
         ])
         void refresh(url)

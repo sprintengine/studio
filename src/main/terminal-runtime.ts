@@ -238,7 +238,7 @@ type TerminalRuntimeOptions = {
   // `cd ../website && gh pr create` opens a pull request the session's cwd knows
   // nothing about (decision 10). Resolving a git root here would file it in the
   // wrong repository.
-  onPullRequestCaptured?(input: { url: string; sessionId: string }): void
+  onPullRequestCaptured?(input: { url: string; sessionId: string; workspaceId?: string }): void
 }
 
 type TerminalIpcHandlers = {
@@ -2449,9 +2449,19 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // so all that is passed is the URL and the session that made it. The id is the
   // app's own session id, resolved above, so the capture can never land on a
   // session main cannot name.
+  //
+  // The CONVERSATION goes with it (owner, 2026-09-10). A session dies and takes
+  // with it the only link between a pull request and the chat it came from, so
+  // an agent that finished left its pull request unattributable and the row it
+  // belonged to went blank. Here is the one moment both ids are in hand; the
+  // conversation's is the one that keeps.
   if (frame.pullRequest && onPullRequestCaptured) {
     try {
-      onPullRequestCaptured({ url: frame.pullRequest.url, sessionId: session.sessionId })
+      onPullRequestCaptured({
+        url: frame.pullRequest.url,
+        sessionId: session.sessionId,
+        workspaceId: session.workspaceId,
+      })
     } catch (error) {
       console.warn('[terminal-runtime] pull request capture failed', error)
     }

@@ -322,16 +322,24 @@ export type CheckoutSummaryShare = {
 }
 
 /**
- * Forty-five seconds, up from fifteen (2026-09-05). The share is now read from
- * the network as well as the sidebar — a paired Studio's Remote band asks
- * `terminal.list` every thirty seconds, and the phone asks when it is open —
- * and a fifteen-second hold meant every one of those asks re-ran the whole
- * branch-span chain (about twenty git spawns per checkout, each spawn a
- * synchronous step on main's event loop). Forty-five keeps the sidebar's own
- * sixty-second sweep fresh, and folds every other reader in between into the
- * read that already happened.
+ * Twenty-two and a half seconds, halved from forty-five (owner, 2026-09-10)
+ * when the sidebar's sweep halved to thirty. It was raised from fifteen to
+ * forty-five on 2026-09-05 because the share is read from the network as well
+ * as the sidebar — a paired Studio's Remote band asks `terminal.list` every
+ * thirty seconds, and the phone asks when it is open — and a short hold meant
+ * every one of those asks re-ran the whole branch-span chain (about twenty git
+ * spawns per checkout, each spawn a synchronous step on main's event loop).
+ *
+ * The number is not free and it is not arbitrary. The hold must stay UNDER the
+ * sidebar's sweep or every other sweep is served the reading it was run to
+ * replace; at thirty, forty-five would have made the faster poll buy nothing.
+ * What halving costs is the thing 09-05 bought: the Remote band's
+ * thirty-second ask now always misses, so that reader pays a full re-read every
+ * time instead of folding into the sidebar's. If main's event loop starts
+ * stuttering on a large registry, this pair — not the sweep alone — is the
+ * first place to look.
  */
-const CHECKOUT_SUMMARY_HOLD_MS = 45_000
+const CHECKOUT_SUMMARY_HOLD_MS = 22_500
 /**
  * How many checkouts are read at once, across every caller of the share. The
  * sidebar queued its own reads four wide; the network path fanned out to every

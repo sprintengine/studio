@@ -38,6 +38,21 @@ export type BranchPullRequest = {
   /** The session whose hooks captured the creation; absent for a branch lookup. */
   openedBySessionId?: string
   /**
+   * The CONVERSATION the pull request came from, written down when it is
+   * captured (owner, 2026-09-10).
+   *
+   * `openedBySessionId` above names a terminal session, and a session dies. Once
+   * it has, nothing could say which chat the pull request belonged to any more,
+   * so a finished agent's pull request fell off its row and the sidebar could
+   * not answer "is there a pull request open here that I am missing". A
+   * conversation outlives every agent in it, so this is the id that keeps.
+   *
+   * Absent on a branch lookup (nobody's conversation opened it — it was found on
+   * a branch) and on every entry written before this existed; both fall back to
+   * matching on the conversation's own branch.
+   */
+  openedByWorkspaceId?: string
+  /**
    * Set by `listForSession` (main): true when this pull request is on the
    * repository AND branch the session's checkout is observed to be on. A
    * session's list is a union (decision 10) that also holds pull requests the
