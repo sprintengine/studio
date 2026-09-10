@@ -18,11 +18,46 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   commandMatchesQuery,
   groupInScope,
+  orderPaletteCommands,
   workspaceSearchKeywords,
   type PaletteCommandGroup,
   type PaletteScope,
 } from '../commandPaletteSearch'
+import {
+  usePaletteProviders,
+  type PaletteCommand,
+  type PaletteProviderContext,
+  type PaletteResultProvider,
+} from '../palette/paletteProvider'
+import {
+  createExtensionsProvider,
+  EXTENSION_ROWS_PER_GROUP,
+  PALETTE_ROW_ICON_SIZE,
+  type ExtensionPluginRow,
+  type ExtensionSkillRow,
+} from '../palette/extensionsProvider'
+import {
+  handSkillToAgent,
+  installPluginRow,
+  installSkillRow,
+  planPluginRow,
+  type ExtensionActionOutcome,
+  type ResolvedSkillOutcome,
+} from '../palette/extensionsActions'
+import type { PaletteAgentTarget } from '../palette/paletteOpenRequest'
+import {
+  listLiveAgentSessions,
+  pickTargetSession,
+  resolveWorkspaceSkill,
+  NO_LIVE_AGENT_MESSAGE,
+  NO_WORKSPACE_FOLDER_MESSAGE,
+  type LiveAgentSession,
+} from '../../utils/useSkillInAgent'
+import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
+import { dispatchExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
+import { showToast } from '../../store/toastStore'
 import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
+import { ExtensionIcon } from './ExtensionIcon'
 import { FOCUS_RING_CLASS, TruncatedText } from './index'
 import { FocusTrap } from './FocusTrap'
 import { OVERLAY_SHELL_CLASS, overlayWidthStyle } from './tokens'
@@ -35,16 +70,39 @@ import { OVERLAY_SHELL_CLASS, overlayWidthStyle } from './tokens'
 // the sidebar "Search workspaces" box used to own.
 type CommandGroup = PaletteCommandGroup
 
-const PALETTE_GROUPS: readonly { key: CommandGroup; label: string }[] = [
-  { key: 'agents', label: 'Agents & workspaces' },
-  { key: 'skills', label: 'Skills' },
-  { key: 'commands', label: 'Commands' },
-  { key: 'actions', label: 'Actions' },
-  { key: 'files', label: 'Files' },
-  { key: 'content', label: 'Text in files' },
-]
+const PALETTE_GROUP_LABELS: Record<CommandGroup, string> = {
+  agents: 'Agents & workspaces',
+  skills: 'Skills',
+  // Everything a source offers that is not a bare skill: the plugins its
+  // marketplace lists, and the first-party registry's entries.
+  extensions: 'Plugins',
+  commands: 'Commands',
+  actions: 'Actions',
+  files: 'Files',
+  content: 'Text in files',
+}
 
-const groupRank = (group: CommandGroup): number => PALETTE_GROUPS.findIndex((entry) => entry.key === group)
+/** The one sentence the input asks for, per scope. */
+const PALETTE_PLACEHOLDER: Record<PaletteScope, string> = {
+  all: 'Search agents, skills, plugins, commands, files, text...',
+  files: 'Search file names and text in files...',
+  extensions: 'Search every skill and plugin, installed or not...',
+}
+
+const PALETTE_INPUT_LABEL: Record<PaletteScope, string> = {
+  all: 'Search agents, skills, plugins, commands, files, and text in files',
+  files: 'Search file names and text in files',
+  extensions: 'Search every skill and plugin in every source',
+}
+
+/** What the scope chip says it is narrowed to, and what widening it means. */
+const SCOPE_CHIPS: Record<Exclude<PaletteScope, 'all'>, { label: string; widenLabel: string }> = {
+  files: { label: 'Files', widenLabel: 'Search everything instead of files' },
+  extensions: {
+    label: 'Skills & plugins',
+    widenLabel: 'Search everything instead of skills and plugins',
+  },
+}
 
 // With no query, each group shows a short preview rather than its full contents,
 // so the first frame stays calm and scannable instead of dumping every command.
@@ -64,6 +122,10 @@ const PALETTE_CONTENT_SEARCH_LIMIT = 100
 // Stable empty fallbacks so store selectors returning a default don't churn refs.
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_DISABLED_SPECIALIST_PACKS: string[] = []
+// The disk provider is memoized on the open-file list, and a fresh `[]` every
+// render would rebuild it every render — which, since the runner re-runs a
+// provider whose identity changed, would restart ripgrep on every render.
+const EMPTY_OPEN_FILES: NonNullable<Workspace['editorState']>['openFiles'] = []
 
 // Results are labelled by their path inside the workspace: an absolute path
 // repeats the workspace root on every row and pushes the part that identifies
@@ -74,19 +136,13 @@ function workspaceRelativePath(rootPath: string, filePath: string): string {
   return filePath.slice(root.length).replace(/^[\\/]+/u, '')
 }
 
-interface Command {
-  id: string
-  label: string
-  description?: string
-  // Extra match text that is searched but never displayed — used so a workspace
-  // switch row still matches on its type label and curated search terms (e.g.
-  // "kanban", "roster") the way the retired sidebar search did, without
-  // crowding those terms into the visible description.
-  keywords?: string
-  shortcut?: string
-  group: CommandGroup
-  run: () => void
-}
+// The row shape is `PaletteCommand` (components/palette/paletteProvider.ts):
+// it is what the providers produce, so it cannot be private to this file any
+// more. `keywords` is still extra match text that is searched but never
+// displayed — a workspace switch row matches on its type label and curated
+// search terms ("kanban", "roster") the way the retired sidebar search did,
+// without crowding those terms into the visible description.
+type Command = PaletteCommand
 
 // A command shape before its source group is stamped on — used by the
 // panel/registry sub-lists that are all one group, so the group is applied once
@@ -118,9 +174,18 @@ interface Props {
   // The published context view module availability predicates evaluate
   // against — same object the dispatcher uses, so both stay in agreement.
   moduleCommandContext: ModuleCommandContext
-  // Which groups the palette opens filtered to. ⌘K opens `all`; ⌘⇧F opens
-  // `files`. Absent behaves as `all`, so existing call sites are unchanged.
+  // Which groups the palette opens filtered to. ⌘K and Shift Shift open `all`;
+  // ⌘⇧F opens `files`; the terminal's star opens `extensions`. Absent behaves
+  // as `all`, so existing call sites are unchanged.
   initialScope?: PaletteScope
+  /**
+   * The agent a chosen skill lands in without asking — the pane the palette was
+   * opened FOR. The terminal star passes its own session, which is what turns
+   * "find a skill, install it, use it here" into one keystroke and one Enter.
+   * Absent means the palette works the target out (the focused agent, the only
+   * live agent, or a question).
+   */
+  preferredTarget?: PaletteAgentTarget | null
 }
 
 export default function CommandPalette({
@@ -134,6 +199,7 @@ export default function CommandPalette({
   commandAvailability,
   moduleCommandContext,
   initialScope = 'all',
+  preferredTarget = null,
 }: Props) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
@@ -163,83 +229,17 @@ export default function CommandPalette({
   const shortcutFor = (commandId: string): string | undefined =>
     getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform) ?? undefined
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
-  const openFiles = activeWorkspace?.editorState?.openFiles ?? []
+  const openFiles = activeWorkspace?.editorState?.openFiles ?? EMPTY_OPEN_FILES
   const activeFolderPath = activeWorkspace?.folderPath ?? null
 
-  // Disk-backed results. The palette's Files group used to list only the editors
-  // already open, so the launcher could not find a file the user had never
-  // opened — let alone a line of text inside one. These two are the same ripgrep
-  // the "Search in files" panel runs, driven off the palette query.
+  // The workspace's own skills. Built-in skills are global and always listed;
+  // installed skill packs are workspace-scoped, so they load only when a
+  // workspace is open. Loading is best-effort: a failed list leaves the Skills
+  // group thinner rather than breaking the palette.
   //
-  // Note the main process keys one active content search per sender (window), so
-  // this and an open ContentSearchPanel supersede each other's ripgrep child.
-  // Harmless — both re-run on their next keystroke — but it is why the cancel
-  // below is unconditional rather than tracked per surface.
-  const [fileMatches, setFileMatches] = useState<FileSearchEntry[]>([])
-  const [contentMatches, setContentMatches] = useState<ContentSearchEntry[]>([])
-  const [diskSearching, setDiskSearching] = useState(false)
-  const [diskSearchError, setDiskSearchError] = useState<string | null>(null)
-  // Monotonic request id: ripgrep runs are cancelled but not instantaneous, so a
-  // slow earlier run must not overwrite the results of a later one.
-  const diskSeqRef = useRef(0)
-
-  const trimmedQuery = query.trim()
-
-  useEffect(() => {
-    if (!activeFolderPath || !trimmedQuery) {
-      diskSeqRef.current += 1
-      setFileMatches([])
-      setContentMatches([])
-      setDiskSearching(false)
-      setDiskSearchError(null)
-      return
-    }
-
-    const requestSeq = ++diskSeqRef.current
-    setDiskSearching(true)
-    setDiskSearchError(null)
-    let searchStarted = false
-
-    const timeout = window.setTimeout(() => {
-      searchStarted = true
-      const wantsContent = trimmedQuery.length >= CONTENT_SEARCH_MIN_QUERY
-      void Promise.all([
-        window.api
-          .searchFiles(activeFolderPath, trimmedQuery, { limit: PALETTE_FILE_SEARCH_LIMIT })
-          .catch((error: unknown) => ({ ok: false as const, message: String(error), engine: null })),
-        wantsContent
-          ? window.api
-              .searchContent(activeFolderPath, trimmedQuery, { limit: PALETTE_CONTENT_SEARCH_LIMIT })
-              .catch((error: unknown) => ({ ok: false as const, message: String(error), engine: null }))
-          : Promise.resolve(null),
-      ]).then(([fileResult, contentResult]) => {
-        if (requestSeq !== diskSeqRef.current) return
-        setFileMatches(fileResult.ok ? fileResult.results : [])
-        setContentMatches(contentResult?.ok ? contentResult.results : [])
-        // Only a failure the user would otherwise read as "no matches" is worth
-        // surfacing; a cancelled run resolves ok with an empty list.
-        const failure = !fileResult.ok ? fileResult.message : contentResult && !contentResult.ok ? contentResult.message : null
-        setDiskSearchError(failure)
-        setDiskSearching(false)
-      })
-    }, DISK_SEARCH_DEBOUNCE_MS)
-
-    return () => {
-      window.clearTimeout(timeout)
-      // Superseded or unmounted: stop the ripgrep child rather than let it run
-      // the whole tree for a query nobody is waiting on.
-      if (searchStarted) void window.api.cancelContentSearch().catch(() => {})
-    }
-  }, [activeFolderPath, trimmedQuery])
-
-  // Skills source (T6). Built-in skills are global and always listed; installed
-  // skill packs are workspace-scoped, so they load only when a workspace is
-  // open. Loading is best-effort: these are an auxiliary group, so a failed
-  // list leaves the Skills group empty rather than breaking the palette — the
-  // command/action/agent groups do not depend on it. Selecting a skill opens the
-  // Connectors surface, which is where skills are browsed, installed, and
-  // managed; per-skill deep-linking is deferred with the rest of global content
-  // navigation (DEF-4).
+  // They are held here rather than inside a provider because TWO providers read
+  // them — the installed-skills provider lists them, and the extensions
+  // provider needs them to know which of a source's skills you already have.
   const [builtinSkills, setBuiltinSkills] = useState<BuiltinSkill[]>([])
   const [installedSkills, setInstalledSkills] = useState<WorkspaceSkill[]>([])
 
@@ -432,30 +432,8 @@ export default function CommandPalette({
       ...moduleCommands,
     ].map((command) => ({ ...command, group: 'commands' as const }))
 
-    // Skills: built-in skills first, then installed skill packs. Both route to
-    // the Plugins modal (their management home) on select.
-    const skillCommands: Command[] = [
-      ...builtinSkills.map((skill) => ({
-        id: `skill-${skill.id}`,
-        label: skill.name,
-        description: skill.description,
-        group: 'skills' as const,
-        run: () => {
-          openExtensionsSurface()
-          onClose()
-        },
-      })),
-      ...installedSkills.map((skill) => ({
-        id: `installed-skill-${skill.id}`,
-        label: skill.name,
-        description: skill.description,
-        group: 'skills' as const,
-        run: () => {
-          openExtensionsSurface()
-          onClose()
-        },
-      })),
-    ]
+    // Skills are a provider now (see below): they are one of three sources that
+    // fetch, and the group also carries every skill the configured SOURCES hold.
 
     return [
       // Agents & workspaces — the switch targets that absorb the sidebar's
@@ -480,7 +458,6 @@ export default function CommandPalette({
             onClose()
           },
         })),
-      ...skillCommands,
       ...registryCommands,
       // Actions — the create/spawn/connect verbs.
       {
@@ -544,66 +521,380 @@ export default function CommandPalette({
           }))
         : []),
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, builtinSkills, installedSkills, specialistActions])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, specialistActions])
 
-  // Disk results are already matched — ripgrep did the matching in the main
-  // process — so they are assembled apart from `commands` and never run back
-  // through `commandMatchesQuery`, which would re-filter a content hit against
-  // its own line text and drop every match whose query spans a word boundary.
-  const diskCommands = useMemo((): Command[] => {
-    if (!activeWorkspaceId || !activeFolderPath) return []
+  // ── Handing a result to an agent ────────────────────────────────────────
+  //
+  // Every skill row in this palette — one the workspace has, one a source
+  // holds, one a plugin ships — ends in the same place: written where the
+  // agent's CLI reads skills, with that CLI's own invocation parked at its
+  // prompt, unsubmitted. What differs is only how the skill comes to exist,
+  // which is what `prepare` carries.
 
-    const openFilePaths = new Set(openFiles.map((file) => file.path))
-    const openOnDisk = (path: string, name: string, lineNumber?: number, column?: number) => {
-      void window.api
-        .readfile(path)
-        .then((content) => {
-          openFileSurface({ workspaceId: activeWorkspaceId, path, name, content, lineNumber, column })
-        })
-        .catch(() => {
-          // A file ripgrep listed can be gone by the time it is picked (a branch
-          // switch, a build). Opening is best-effort; the palette is closing.
-        })
+  // The pane the person was last looking at in this workspace, so a workspace
+  // with several agents still answers without a question.
+  const focusedAgentId = useWorkspaceStore((state) =>
+    state.activeWorkspaceId ? state.focusedAgentByWorkspaceId[state.activeWorkspaceId] : undefined,
+  )
+  const clis = useWorkspaceStore((state) => state.pluginCatalogEntries)
+
+  // The second step, when there IS a question: which agent. It replaces the
+  // result list rather than opening a menu over it — the palette is already a
+  // keyboard surface with a selection, and a popover inside it would be a
+  // second one to arrow around.
+  const [agentChoice, setAgentChoice] = useState<{ title: string; options: Command[] } | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionBusy, setActionBusy] = useState(false)
+  // The guard is a ref, not the state: the flow awaits the session list before
+  // it sets anything, so two Enters inside that wait would both read `false`
+  // from their own render closure and both run the whole trip — two installs
+  // and two invocations parked at the agent — the same hole the door's menu
+  // had, review 2026-09-10. The state still drives what the surface SAYS.
+  const actionBusyRef = useRef(false)
+
+  const runSkillFlow = async (skillName: string, prepare: () => Promise<ResolvedSkillOutcome>) => {
+    if (actionBusyRef.current) return
+    if (!activeFolderPath) {
+      setActionError(NO_WORKSPACE_FOLDER_MESSAGE)
+      return
+    }
+    const workspaceRoot = activeFolderPath
+    const settle = (outcome: ExtensionActionOutcome) => {
+      actionBusyRef.current = false
+      setActionBusy(false)
+      if (!outcome.ok) {
+        setActionError(outcome.message)
+        return
+      }
+      // grok and opencode declare that they re-read their skills directory only
+      // on restart, and nothing used to say so.
+      if (outcome.toast) showToast(outcome.toast)
       onClose()
     }
+    const useIn = async (session: LiveAgentSession) => {
+      if (actionBusyRef.current) return
+      actionBusyRef.current = true
+      setActionBusy(true)
+      setActionError(null)
+      const prepared = await prepare()
+      if (!prepared.ok) {
+        actionBusyRef.current = false
+        setActionBusy(false)
+        setActionError(prepared.message)
+        return
+      }
+      settle(await handSkillToAgent({ workspaceRoot, skill: prepared.skill, session, clis }))
+    }
 
-    return [
-      // A file already open is listed by the in-memory Files rows above; listing
-      // it again from disk would put the same file in the group twice.
-      ...fileMatches
-        .filter((entry) => !openFilePaths.has(entry.path))
-        .map((entry): Command => ({
-          id: `disk-file-${entry.path}`,
-          label: entry.name,
-          description: workspaceRelativePath(activeFolderPath, entry.path),
-          group: 'files',
-          run: () => openOnDisk(entry.path, entry.name),
-        })),
-      ...contentMatches.map((entry, index): Command => ({
-        // Line and column are part of the id: one file legitimately contributes
-        // many rows, and React keys and the selection index both need them apart.
-        id: `disk-content-${entry.path}:${entry.lineNumber}:${entry.column}:${index}`,
-        // The matched line is the row's identity here — the file path is the
-        // supporting detail, which is the inverse of the Files group.
-        label: entry.lineText.trim() || entry.matchText,
-        description: `${workspaceRelativePath(activeFolderPath, entry.path)}:${entry.lineNumber}`,
-        group: 'content',
-        run: () => openOnDisk(entry.path, entry.name, entry.lineNumber, entry.column),
+    const sessions = await listLiveAgentSessions({ workspaceId: activeWorkspaceId })
+    // The pane the palette was opened for wins outright; failing that, the
+    // focused agent; failing that, one live agent is not a question.
+    const target = pickTargetSession(
+      sessions,
+      preferredTarget ?? { agentId: focusedAgentId ?? null },
+    )
+    if (target) {
+      await useIn(target)
+      return
+    }
+
+    // "New agent…" is the shell's route, read from the door's host seam at
+    // click time the way every other host action is — and offered only when a
+    // shell is mounted to take it.
+    const host = getExtensionsSurfaceHost()
+    const options: Command[] = sessions.map((session): Command => ({
+      id: `palette-agent-${session.sessionId}`,
+      label: session.label,
+      description: session.cli,
+      group: 'agents',
+      run: () => void useIn(session),
+    }))
+    if (host) {
+      options.push({
+        id: 'palette-agent-new',
+        label: 'New agent…',
+        description: `Start an agent with ${skillName} attached`,
+        group: 'agents',
+        run: () => {
+          void (async () => {
+            if (actionBusyRef.current) return
+            actionBusyRef.current = true
+            setActionBusy(true)
+            setActionError(null)
+            const prepared = await prepare()
+            actionBusyRef.current = false
+            setActionBusy(false)
+            if (!prepared.ok) {
+              setActionError(prepared.message)
+              return
+            }
+            getExtensionsSurfaceHost()?.onUseSkillInNewAgent(prepared.skill)
+            onClose()
+          })()
+        },
+      })
+    }
+    if (options.length === 0) {
+      setActionError(NO_LIVE_AGENT_MESSAGE)
+      return
+    }
+    setActionError(null)
+    setAgentChoice({ title: `Use ${skillName} in…`, options })
+    setSelected(0)
+  }
+
+  // A skill the workspace already has: nothing to install, just resolve it.
+  const useInstalledSkill = (skillId: string, skillName: string) =>
+    runSkillFlow(skillName, () =>
+      resolveWorkspaceSkill({ workspaceRoot: activeFolderPath, skillId }),
+    )
+
+  // A skill a source holds: installed first when it is not in yet.
+  const onSelectSkill = (row: ExtensionSkillRow) =>
+    runSkillFlow(row.name, () => installSkillRow({ row, workspaceRoot: activeFolderPath }))
+
+  // Open one plugin's detail pane in the Extensions door. The door is opened
+  // first and the full target dispatched after, because the store's opener
+  // latches a view-only target of its own and the last dispatch wins.
+  const deepLinkToPlugin = (row: ExtensionPluginRow) => {
+    openExtensionsSurface({ view: 'plugins' })
+    dispatchExtensionsSurfaceTarget({
+      view: 'plugins',
+      pluginId: row.pluginId,
+      ...(row.sourceId ? { sourceId: row.sourceId } : {}),
+    })
+    onClose()
+  }
+
+  // A plugin: one press only when the answer is unambiguous AND safe. Hooks,
+  // an unread linked repository, several skills or a first-party registry entry
+  // all mean a page — see `planPluginRow`, which owns that ruling.
+  const onSelectPlugin = (row: ExtensionPluginRow) => {
+    const plan = planPluginRow(row)
+    if (plan.kind === 'deep-link') {
+      deepLinkToPlugin(row)
+      return
+    }
+    return runSkillFlow(row.name, () =>
+      installPluginRow({
+        row,
+        workspaceRoot: activeFolderPath,
+        skillDirName: plan.skillDirName,
+      }),
+    )
+  }
+
+  // The providers below are memoized on their DATA, so they must not close over
+  // handlers that are re-created every render; the refs are how a stable
+  // provider reaches the current handler.
+  const useInstalledSkillRef = useRef(useInstalledSkill)
+  useInstalledSkillRef.current = useInstalledSkill
+  const onSelectSkillRef = useRef(onSelectSkill)
+  onSelectSkillRef.current = onSelectSkill
+  const onSelectPluginRef = useRef(onSelectPlugin)
+  onSelectPluginRef.current = onSelectPlugin
+
+  // ── The three fetching sources ──────────────────────────────────────────
+  //
+  // Disk, installed skills, and every source's catalogue. They are providers
+  // (components/palette/paletteProvider.ts) rather than three shapes bolted
+  // onto this component: one of them debounces and cancels a subprocess, one
+  // filters an array in memory, and one warms once and then filters — and the
+  // runner is what knows the difference so this file does not have to.
+
+  // Disk. The palette's Files group used to list only the editors already open,
+  // so the launcher could not find a file the user had never opened — let alone
+  // a line of text inside one. This is the same ripgrep the "Search in files"
+  // panel runs, driven off the palette query.
+  //
+  // Note the main process keys one active content search per sender (window),
+  // so this and an open ContentSearchPanel supersede each other's ripgrep
+  // child. Harmless — both re-run on their next keystroke — but it is why the
+  // cancel is unconditional rather than tracked per surface.
+  const diskProvider = useMemo((): PaletteResultProvider => {
+    const openFilePaths = new Set(openFiles.map((file) => file.path))
+    return {
+      id: 'disk',
+      group: 'files',
+      // Disk search is a subprocess per keystroke, so it waits for a pause the
+      // in-memory filters do not need.
+      debounceMs: DISK_SEARCH_DEBOUNCE_MS,
+      minQueryLength: 1,
+      cancel: () => {
+        void window.api.cancelContentSearch().catch(() => {})
+      },
+      load: async (searchQuery, context): Promise<Command[]> => {
+        if (!activeWorkspaceId || !activeFolderPath) return []
+        const openOnDisk = (path: string, name: string, lineNumber?: number, column?: number) => {
+          void window.api
+            .readfile(path)
+            .then((content) => {
+              openFileSurface({ workspaceId: activeWorkspaceId, path, name, content, lineNumber, column })
+            })
+            .catch(() => {
+              // A file ripgrep listed can be gone by the time it is picked (a
+              // branch switch, a build). Opening is best-effort; the palette is
+              // closing.
+            })
+          // Through the context rather than the captured prop: `onClose` is a
+          // new function on most renders, and a provider rebuilt for that
+          // reason would restart the search it is in the middle of.
+          context.close()
+        }
+        // A single character matches most of a repo, and the cost is paid in
+        // the main process. File names stay cheap enough to match from the
+        // first character; content search — which reads every file's bytes —
+        // waits for a second.
+        const wantsContent = searchQuery.length >= CONTENT_SEARCH_MIN_QUERY
+        const [fileResult, contentResult] = await Promise.all([
+          window.api
+            .searchFiles(activeFolderPath, searchQuery, { limit: PALETTE_FILE_SEARCH_LIMIT })
+            .catch((error: unknown) => ({ ok: false as const, message: String(error), engine: null })),
+          wantsContent
+            ? window.api
+                .searchContent(activeFolderPath, searchQuery, { limit: PALETTE_CONTENT_SEARCH_LIMIT })
+                .catch((error: unknown) => ({ ok: false as const, message: String(error), engine: null }))
+            : Promise.resolve(null),
+        ])
+        // Only a failure the user would otherwise read as "no matches" is worth
+        // surfacing; a cancelled run resolves ok with an empty list.
+        const failure = !fileResult.ok
+          ? fileResult.message
+          : contentResult && !contentResult.ok
+            ? contentResult.message
+            : null
+        if (failure) throw new Error(failure)
+        // Disk results are already matched — ripgrep did the matching in the
+        // main process — so they carry no keywords and are never re-filtered
+        // against their own line text, which would drop every match whose query
+        // spans a word boundary.
+        return [
+          // A file already open is listed by the in-memory Files rows; listing
+          // it again from disk would put the same file in the group twice.
+          ...(fileResult.ok ? fileResult.results : [])
+            .filter((entry) => !openFilePaths.has(entry.path))
+            .map((entry): Command => ({
+              id: `disk-file-${entry.path}`,
+              label: entry.name,
+              description: workspaceRelativePath(activeFolderPath, entry.path),
+              group: 'files',
+              run: () => openOnDisk(entry.path, entry.name),
+            })),
+          ...(contentResult?.ok ? contentResult.results : []).map((entry, index): Command => ({
+            // Line and column are part of the id: one file legitimately
+            // contributes many rows, and React keys and the selection index
+            // both need them apart.
+            id: `disk-content-${entry.path}:${entry.lineNumber}:${entry.column}:${index}`,
+            // The matched line is the row's identity here — the file path is
+            // the supporting detail, which is the inverse of the Files group.
+            label: entry.lineText.trim() || entry.matchText,
+            description: `${workspaceRelativePath(activeFolderPath, entry.path)}:${entry.lineNumber}`,
+            group: 'content',
+            run: () => openOnDisk(entry.path, entry.name, entry.lineNumber, entry.column),
+          })),
+        ]
+      },
+    }
+  }, [activeFolderPath, activeWorkspaceId, openFiles])
+
+  // The skills the workspace already has: the bundled ones and the packs it
+  // installed. Selecting one hands it to a running agent — the same round trip
+  // the doors run — instead of the old behaviour, which was to open the
+  // Extensions door and leave the person to find the row again.
+  const skillsProvider = useMemo((): PaletteResultProvider => {
+    const rows: Command[] = [
+      ...builtinSkills.map((skill): Command => ({
+        id: `skill-${skill.id}`,
+        label: skill.name,
+        description: skill.description,
+        group: 'skills',
+        badge: 'Installed',
+        installed: true,
+        run: () => void useInstalledSkillRef.current(skill.id, skill.name),
+      })),
+      ...installedSkills.map((skill): Command => ({
+        id: `installed-skill-${skill.id}`,
+        label: skill.name,
+        description: skill.description,
+        group: 'skills',
+        badge: 'Installed',
+        installed: true,
+        run: () => void useInstalledSkillRef.current(skill.id, skill.name),
       })),
     ]
-  }, [activeFolderPath, activeWorkspaceId, contentMatches, fileMatches, onClose, openFiles])
+    return {
+      id: 'installed-skills',
+      group: 'skills',
+      respondsToEmptyQuery: true,
+      load: (searchQuery) => orderPaletteCommands(rows, searchQuery).filter((row) => commandMatchesQuery(row, searchQuery)),
+    }
+  }, [builtinSkills, installedSkills])
 
-  // Matches are ordered by group so the arrow keys traverse the same top-to-
-  // bottom order the grouped list renders in. With no query each group shows a
-  // capped preview; a query searches every group at once.
+  // Every skill and plugin every configured source holds, from the cached scans
+  // the Extensions door reads — plus the first-party registry. This is the one
+  // that makes the palette a search for things you have NOT installed.
+  const installedDirNames = useMemo(
+    () => new Set(installedSkills.map((skill) => skill.id)),
+    [installedSkills],
+  )
+  // Constructed once, deliberately: it warms by reading every source's cached
+  // scan, and a provider re-created because the inventory landed or the scope
+  // chip was popped would throw that warm away and read them all again. The two
+  // facts that DO change are read through refs at load time.
+  const installedDirNamesRef = useRef(installedDirNames)
+  installedDirNamesRef.current = installedDirNames
+  // The cap is per group, and it is lifted when the palette is narrowed to
+  // extensions: the scope IS the person saying they want the whole list.
+  const rowLimitRef = useRef(EXTENSION_ROWS_PER_GROUP)
+  rowLimitRef.current = scope === 'extensions' ? Number.MAX_SAFE_INTEGER : EXTENSION_ROWS_PER_GROUP
+  const extensionsProvider = useMemo(
+    () =>
+      createExtensionsProvider({
+        getInstalledDirNames: () => installedDirNamesRef.current,
+        getLimit: () => rowLimitRef.current,
+        onSelectSkill: (row) => void onSelectSkillRef.current(row),
+        onSelectPlugin: (row) => void onSelectPluginRef.current(row),
+      }),
+    [],
+  )
+
+  // Only the providers whose groups the scope admits. A provider whose rows
+  // would be filtered out anyway must not RUN: Find-in-Path would otherwise
+  // read every source's scan for a list it hides, and the terminal star would
+  // start a ripgrep for a snippet nobody asked for.
+  //
+  // `scope` is a dependency of the ARRAY rather than of any provider in it:
+  // popping the chip also lifts or reapplies the per-group cap, and a new array
+  // is how the runner is told to ask again. The provider objects are unchanged,
+  // so a warm already done is not repeated.
+  const providers = useMemo(() => {
+    const active: PaletteResultProvider[] = []
+    if (groupInScope('skills', scope)) active.push(skillsProvider)
+    if (groupInScope('extensions', scope)) active.push(extensionsProvider)
+    if (groupInScope('files', scope)) active.push(diskProvider)
+    return active
+  }, [skillsProvider, extensionsProvider, diskProvider, scope])
+  const providerContext = useMemo(
+    (): PaletteProviderContext => ({
+      workspaceRoot: activeFolderPath,
+      workspaceId: activeWorkspaceId,
+      scope,
+      close: onClose,
+    }),
+    [activeFolderPath, activeWorkspaceId, scope, onClose],
+  )
+  const provided = usePaletteProviders(providers, query, providerContext)
+
+  // Matches are ranked, then grouped in the order the ranking first mentions
+  // each group — so the arrow keys traverse exactly what the eye reads, and a
+  // row that scored best is not buried under a group that merely sorts earlier.
+  // With no query each group shows a capped preview.
   const filtered = useMemo((): Command[] => {
-    const q = query.trim().toLowerCase()
+    const q = query.trim()
     const inScope = (command: Command) => groupInScope(command.group, scope)
     const matched = q ? commands.filter((command) => commandMatchesQuery(command, q)) : commands
-    // Disk results exist only for a query — with an empty one there is nothing
-    // to have searched for, so the resting palette stays the launcher it was.
-    const all = q ? [...matched.filter(inScope), ...diskCommands] : matched.filter(inScope)
-    const ordered = [...all].sort((a, b) => groupRank(a.group) - groupRank(b.group))
+    const all = [...matched, ...provided.commands].filter(inScope)
+    const ordered = orderPaletteCommands(all, q)
     if (q) return ordered
     const perGroup = new Map<CommandGroup, number>()
     return ordered.filter((command) => {
@@ -611,24 +902,41 @@ export default function CommandPalette({
       perGroup.set(command.group, count)
       return count <= PREVIEW_PER_GROUP
     })
-  }, [commands, diskCommands, query, scope])
+  }, [commands, provided.commands, query, scope])
 
-  const groupedResults = useMemo(
-    () =>
-      PALETTE_GROUPS.map((group) => ({
-        ...group,
-        items: filtered.filter((command) => command.group === group.key),
-      })).filter((group) => group.items.length > 0),
-    [filtered],
-  )
+  // Groups appear in the order the RANKING first mentions them, not in a fixed
+  // order the ranking then fights: an exact skill-name match puts Skills at the
+  // top, and the canonical order (PALETTE_GROUP_ORDER) is only the tie-break
+  // inside the scorer. While the palette is asking which agent, the whole list
+  // is that one question.
+  const groupedResults = useMemo((): { key: CommandGroup; label: string; items: Command[] }[] => {
+    if (agentChoice) return [{ key: 'agents', label: agentChoice.title, items: agentChoice.options }]
+    const order: CommandGroup[] = []
+    const items = new Map<CommandGroup, Command[]>()
+    filtered.forEach((command) => {
+      const existing = items.get(command.group)
+      if (existing) existing.push(command)
+      else {
+        order.push(command.group)
+        items.set(command.group, [command])
+      }
+    })
+    return order.map((key) => ({ key, label: PALETTE_GROUP_LABELS[key], items: items.get(key) ?? [] }))
+  }, [filtered, agentChoice])
+
+  // The rows on screen, in the order they are drawn — which is what the arrow
+  // keys traverse. Grouping compacts the ranked list (a group's rows are drawn
+  // together), so the selection index is taken from the grouped order rather
+  // than from `filtered`, or the highlight would drift off the row under it.
+  const visible = useMemo(() => groupedResults.flatMap((group) => group.items), [groupedResults])
 
   // The flat selection index for each command, so a row can highlight/scroll
   // without an O(n) indexOf scan per render.
   const flatIndexById = useMemo(() => {
     const map = new Map<string, number>()
-    filtered.forEach((command, index) => map.set(command.id, index))
+    visible.forEach((command, index) => map.set(command.id, index))
     return map
-  }, [filtered])
+  }, [visible])
 
   // Keep the highlighted row in view as the selection moves by keyboard.
   useEffect(() => {
@@ -638,26 +946,36 @@ export default function CommandPalette({
   const handleKey = (event: React.KeyboardEvent) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      setSelected((current) => Math.min(current + 1, filtered.length - 1))
+      setSelected((current) => Math.min(current + 1, visible.length - 1))
     }
     if (event.key === 'ArrowUp') {
       event.preventDefault()
       setSelected((current) => Math.max(current - 1, 0))
     }
     if (event.key === 'Enter') {
-      filtered[selected]?.run()
+      if (!actionBusy) visible[selected]?.run()
     }
-    // Backspace at an empty query pops the scope token, the way it pops a chip
-    // in a token field — so ⌘⇧F's narrowing is reversible from the keyboard
-    // without reaching for the mouse or reopening as ⌘K.
-    if (event.key === 'Backspace' && !query && scope !== 'all') {
-      event.preventDefault()
-      setScope('all')
-      setSelected(0)
+    if (event.key === 'Backspace' && !query) {
+      // Backspace at an empty query steps back one state: out of the "which
+      // agent" question first, then out of the scope token — the way it pops a
+      // chip in a token field, so ⌘⇧F's narrowing and the star's are both
+      // reversible from the keyboard without reopening the overlay.
+      if (agentChoice) {
+        event.preventDefault()
+        setAgentChoice(null)
+        setActionError(null)
+        setSelected(0)
+        return
+      }
+      if (scope !== 'all') {
+        event.preventDefault()
+        setScope('all')
+        setSelected(0)
+      }
     }
   }
 
-  const activeOptionId = filtered[selected] ? `palette-option-${filtered[selected].id}` : undefined
+  const activeOptionId = visible[selected] ? `palette-option-${visible[selected].id}` : undefined
 
   return (
     <div
@@ -685,7 +1003,7 @@ export default function CommandPalette({
           className={`${OVERLAY_SHELL_CLASS} overflow-hidden outline-none`}
         >
           <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
-            {scope === 'files' ? (
+            {scope !== 'all' ? (
               // The scope reads as a removable token, the way a filter chip does
               // in the panels: it says what the palette is narrowed to, and
               // clicking it (or Backspace at an empty query) widens back to the
@@ -697,10 +1015,10 @@ export default function CommandPalette({
                   setSelected(0)
                   inputRef.current?.focus()
                 }}
-                aria-label="Search everything instead of files"
+                aria-label={SCOPE_CHIPS[scope].widenLabel}
                 className={`flex shrink-0 items-center gap-1 rounded-[var(--radius-xs)] bg-[color:var(--bg-surface-raised)] px-2 py-0.5 text-micro text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
               >
-                Files
+                {SCOPE_CHIPS[scope].label}
                 {/* The kit's close mark, at the chip's scale — the same stroke
                     CloseIconButton draws, not a literal ✕ character. */}
                 <svg className="icon-xs" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -723,43 +1041,43 @@ export default function CommandPalette({
                 setSelected(0)
               }}
               onKeyDown={handleKey}
-              placeholder={
-                scope === 'files'
-                  ? 'Search file names and text in files...'
-                  : 'Search agents, skills, commands, files, text...'
-              }
-              aria-label={
-                scope === 'files'
-                  ? 'Search file names and text in files'
-                  : 'Search agents, skills, commands, files, and text in files'
-              }
+              placeholder={PALETTE_PLACEHOLDER[scope]}
+              aria-label={PALETTE_INPUT_LABEL[scope]}
               role="combobox"
-              aria-expanded={filtered.length > 0}
+              aria-expanded={visible.length > 0}
               aria-controls="command-palette-results"
               aria-activedescendant={activeOptionId}
               className={`flex-1 bg-transparent text-heading text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
             />
-            {/* Disk search is the one part of the palette that is not instant, so
-                it is the one part that says it is working. */}
-            {diskSearching && (
+            {/* The parts of the palette that are not instant are the parts that
+                say they are working: ripgrep, and an install-and-use round trip. */}
+            {(provided.loading || actionBusy) && (
               <span role="status" className="shrink-0 text-micro text-[color:var(--text-disabled)]">
-                Searching…
+                {actionBusy ? 'Working…' : 'Searching…'}
               </span>
             )}
           </div>
 
           <div id="command-palette-results" role="listbox" aria-label="Search results" className="max-h-[360px] overflow-y-auto py-1">
-            {filtered.length === 0 ? (
+            {/* An action that failed says so where the person is looking, and
+                the list stays up: a skill whose install was refused must not
+                also make the palette vanish. */}
+            {actionError && (
+              <p role="alert" className="px-4 py-2 text-meta text-[color:var(--tone-danger)]">
+                {actionError}
+              </p>
+            )}
+            {visible.length === 0 ? (
               // "No results" is only true once the search that would have
               // produced them has finished, and only meaningful when there was a
               // folder to search in the first place.
               <p className="px-4 py-3 text-meta text-[color:var(--text-muted)]">
-                {diskSearchError
-                  ? diskSearchError
-                  : diskSearching
+                {provided.error
+                  ? provided.error
+                  : provided.loading
                     ? 'Searching…'
-                    : trimmedQuery && !activeFolderPath
-                      ? 'Open a folder to search files and their contents.'
+                    : query.trim() && !activeFolderPath
+                      ? 'Open a folder to search files, their contents, and the skills a source holds.'
                       : 'No results'}
               </p>
             ) : (
@@ -785,21 +1103,43 @@ export default function CommandPalette({
                         aria-selected={isSelected}
                         onClick={command.run}
                         onMouseEnter={() => setSelected(index)}
-                        className={`flex cursor-pointer items-center justify-between px-4 py-2 transition-colors ${
+                        className={`flex cursor-pointer items-center gap-2.5 px-4 py-2 transition-colors ${
                           isSelected
                             ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                             : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
                         }`}
                       >
-                        <div className="min-w-0">
-                          {/* A content hit's label is a line of source, not a
-                              title: it reads in mono at body size, with the
-                              file:line beneath it as the locator. */}
-                          <TruncatedText
-                            as="div"
-                            text={command.label}
-                            className={command.group === 'content' ? 'font-mono text-meta' : 'text-heading'}
+                        {/* The plugin's own mark, where it has one — the same
+                            ladder the Extensions door draws (glyph → logo →
+                            the publishing account's avatar → monogram), so a
+                            row reads the same in both places. */}
+                        {command.icon ? (
+                          <ExtensionIcon
+                            name={command.label}
+                            size={PALETTE_ROW_ICON_SIZE}
+                            {...command.icon}
                           />
+                        ) : null}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            {/* A content hit's label is a line of source, not a
+                                title: it reads in mono at body size, with the
+                                file:line beneath it as the locator. */}
+                            <TruncatedText
+                              as="div"
+                              text={command.label}
+                              className={`min-w-0 ${command.group === 'content' ? 'font-mono text-meta' : 'text-heading'}`}
+                            />
+                            {/* Where it came from, or that you already have it —
+                                the one fact a cross-source list cannot leave
+                                out, because the same skill name appears in
+                                several marketplaces. */}
+                            {command.badge ? (
+                              <span className="shrink-0 rounded-[var(--radius-xs)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-subtle)]">
+                                {command.badge}
+                              </span>
+                            ) : null}
+                          </div>
                           {command.description && (
                             <TruncatedText
                               as="div"
