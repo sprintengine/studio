@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-09-10
 
 - **An MCP tool can say that it writes.** `McpToolRegistration.mutates?: boolean`.
   The Studio gateway used to classify mutations from a table of core tool names,
