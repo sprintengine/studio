@@ -91,6 +91,39 @@ JSON
 The `name` must equal the `publisher.name` on the registry entry you are
 standing in for. Then sign both the inner module manifest and the bundle
 `plugin.json` with that key, install, and restart the app.
+### Shipping skills with a module
+
+Skills are not a closed set the app compiles in. A module can carry its own
+skill directories and register them at startup:
+
+```ts
+host.registerSkills([
+  {
+    id: 'review-guide',
+    sourceDir: 'skills/review-guide',      // relative to the module root
+    targetPolicy: 'all-native',            // or 'agents'
+    description: 'Walk a human reviewer through a code change.',
+  },
+])
+```
+
+`sourceDir` must stay inside the module root — the host resolves it and
+rejects anything that escapes. An `id` a built-in skill or another module
+already owns is a registration error, and unloading the module unregisters its
+skills.
+
+From then on the skill is a skill: an agent launched with that skill id gets it
+copied into the workspace before it starts, `targetPolicy: 'all-native'` fans
+it out into every installed CLI's own skill directory (`.claude/skills`,
+`.codex/skills`, …) rather than only `.agents/skills`, and the copy carries the
+same managed manifest as the app's own skills, so a hand-edited copy is never
+overwritten.
+
+To put one in a workspace ahead of time — a skill an agent will be told to
+invoke, or one the user should see listed — call
+`host.ensureSkillInstalled(workspaceRoot, skillId)`. It never throws and
+answers `{ ok, status, message? }`; `status: 'unknown-skill'` means nothing
+answers to that id.
 
 ### Publishing a module to the marketplace
 

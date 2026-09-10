@@ -279,6 +279,50 @@ export type McpToolRegistration = {
   handler: (args: Record<string, unknown>, context?: McpConnectionContext) => Promise<McpToolResult>
 }
 
+// ── Skills a module ships ────────────────────────────────────────────────────
+
+/**
+ * Where a skill must land in a workspace.
+ *
+ * - `'agents'` — the harness-neutral `.agents/skills/<id>` directory only.
+ *   Enough for a skill an agent discovers by reading the directory.
+ * - `'all-native'` — additionally every installed CLI plugin's own native
+ *   skill directory (`.claude/skills`, `.codex/skills`, …). Required when the
+ *   skill is invoked by name in a prompt, because a CLI resolves an invocation
+ *   only against its own directory.
+ */
+export type ModuleSkillTargetPolicy = 'agents' | 'all-native'
+
+/**
+ * One skill your module ships. `sourceDir` is the directory holding the
+ * skill's `SKILL.md` (plus its `agents/` sidecars, when it has them), relative
+ * to your module root; the host resolves it and refuses a path that escapes
+ * the root.
+ *
+ * `id` is the invocation name and must not collide with a built-in skill or
+ * with a skill another module already registered.
+ */
+export type ModuleSkillRegistration = {
+  id: string
+  sourceDir: string
+  targetPolicy: ModuleSkillTargetPolicy
+  description: string
+}
+
+/**
+ * The answer to "is this skill present in that workspace now?".
+ *
+ * `status` carries the installer's own vocabulary — `installed`, `updated`,
+ * `local`, `modified`, `missing-source`, `missing-workspace`, `unknown-skill`,
+ * `install-failed` — so you can tell "we wrote it" from "a hand-made copy is
+ * in the way" from "nobody has ever heard of this skill".
+ */
+export type EnsureSkillInstalledResult = {
+  ok: boolean
+  status: string
+  message?: string
+}
+
 export type MainHost = {
   /** The module currently registering; stamped by the host. */
   readonly moduleId: string
@@ -294,6 +338,26 @@ export type MainHost = {
    * agent-reachable capability — declare the `ipc:agents` permission.
    */
   registerMcpTools(tools: McpToolRegistration[]): void
+  /**
+   * Contribute agent skills your module ships. Each `sourceDir` is relative to
+   * your module root and must stay inside it. Registrations are owned exactly
+   * as IPC channels and MCP tools are: an id a built-in skill or another
+   * module already holds is a registration error, the whole batch is validated
+   * before one skill of it lands, and unloading your module takes its skills
+   * with it.
+   *
+   * A registered skill is a skill: an agent launched with `skill: { id }`
+   * resolves it, and `targetPolicy: 'all-native'` fans it out into every
+   * installed CLI's native skill directory the way a built-in does.
+   */
+  registerSkills(skills: ModuleSkillRegistration[]): void
+  /**
+   * Make a skill present in a workspace now, rather than at the next agent
+   * launch — how you pre-install the skill an agent will be told to invoke.
+   * Works for your own skills and for the app's. Never throws; an unknown id
+   * answers `{ ok: false, status: 'unknown-skill' }`.
+   */
+  ensureSkillInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T

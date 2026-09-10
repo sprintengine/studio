@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
 import { createHash } from 'crypto'
 import { homedir } from 'os'
-import { join, relative, resolve } from 'path'
+import { isAbsolute, join, relative, resolve } from 'path'
 
 import type { LoadedPlugin, PluginSkillInstallTarget, PluginSkillSupport } from '../shared/plugin-manifest'
 import type {
@@ -13,6 +13,7 @@ import type {
   SkillHarness,
 } from '../shared/electron-api'
 import { SKILL_HARNESS_DIR } from '../shared/skill-harnesses'
+import type { EnsureSkillInstalledResult, ModuleSkillRegistration } from '../shared/modules/skills'
 import { STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID } from './skills/studio-plugin'
 import { isPathInsideOrEqual } from './path-containment'
 
@@ -219,6 +220,109 @@ export function findBuiltinSkill(skillId: string): BuiltinSkill | null {
   return BUILTIN_SKILLS.find((skill) => skill.id === skillId) ?? null
 }
 
+// ── Module-owned skills ──────────────────────────────────────────────────────
+//
+// A capability module hands the host its own skills through
+// `MainHost.registerSkills` (src/shared/modules/skills.ts). They live in this
+// process-wide registry rather than in `BUILTIN_SKILLS` because their source
+// bytes come from the module's own tree and their lifetime is the module's:
+// unloading a module takes its skills with it. Everything downstream — status,
+// install fan-out, the managed manifest, `spawnSkillId` at the launch boundary
+// — treats a registered module skill exactly as it treats a bundled one, which
+// is the whole point: a skill a module ships must not be a second-class skill.
+
+export type RegisteredModuleSkill = {
+  moduleId: string
+  /** Absolute, already containment-checked by the host that accepted it. */
+  sourceDir: string
+  skill: BuiltinSkill
+}
+
+const moduleSkills = new Map<string, RegisteredModuleSkill>()
+
+// Module skills carry no version of their own: the module's own release is the
+// version, and the installer already detects a changed skill by hashing its
+// source. A constant keeps the managed manifest well-formed without inventing
+// a number nobody maintains.
+const MODULE_SKILL_VERSION = '1.0.0'
+
+function moduleSkillDisplayName(skillId: string): string {
+  return skillId
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+/**
+ * Take ownership of a module's skills. `sourceDir` must already be absolute:
+ * resolving it against the module root, and refusing anything that escapes it,
+ * is the host's job (it is the only party that knows the root).
+ *
+ * The whole batch is validated before any of it lands, so a module whose
+ * `registerMain` throws on the third skill leaves none of the first two
+ * behind. An id a built-in skill or another module already owns is a
+ * registration error — two skills answering one invocation name is not a state
+ * the launch boundary could resolve.
+ */
+export function registerModuleSkills(moduleId: string, registrations: readonly ModuleSkillRegistration[]): void {
+  const batch = new Map<string, RegisteredModuleSkill>()
+  for (const registration of registrations) {
+    const id = registration.id?.trim() ?? ''
+    if (!id) throw new Error(`Module "${moduleId}" registered a skill with no id.`)
+    if (findBuiltinSkill(id)) {
+      throw new Error(`Skill "${id}" is a built-in skill and cannot be registered by module "${moduleId}".`)
+    }
+    const owner = moduleSkills.get(id)
+    if (owner && owner.moduleId !== moduleId) {
+      throw new Error(`Skill "${id}" is already registered by module "${owner.moduleId}".`)
+    }
+    if (batch.has(id)) {
+      throw new Error(`Skill "${id}" is registered twice by module "${moduleId}".`)
+    }
+    if (!registration.sourceDir || !isAbsolute(registration.sourceDir)) {
+      throw new Error(`Skill "${id}" from module "${moduleId}" needs a resolved absolute source directory.`)
+    }
+    batch.set(id, {
+      moduleId,
+      sourceDir: resolve(registration.sourceDir),
+      skill: {
+        id,
+        name: moduleSkillDisplayName(id),
+        version: MODULE_SKILL_VERSION,
+        description: registration.description,
+        targetPolicy: registration.targetPolicy,
+      },
+    })
+  }
+  for (const [id, entry] of batch) moduleSkills.set(id, entry)
+}
+
+/** Drop every skill a module owns. Called when the host unloads the module. */
+export function unregisterModuleSkills(moduleId: string): void {
+  for (const [id, entry] of [...moduleSkills]) {
+    if (entry.moduleId === moduleId) moduleSkills.delete(id)
+  }
+}
+
+export function findModuleSkill(skillId: string): RegisteredModuleSkill | null {
+  return moduleSkills.get(skillId) ?? null
+}
+
+/** Every registered module skill, in registration order. */
+export function listModuleSkills(): RegisteredModuleSkill[] {
+  return [...moduleSkills.values()]
+}
+
+/**
+ * The one lookup every skill consumer should use: a built-in skill, or a skill
+ * a live module registered. WP-B's agent session service resolves a spawn
+ * request's `skill.id` through this.
+ */
+export function resolveSkillById(skillId: string): BuiltinSkill | null {
+  return findBuiltinSkill(skillId) ?? findModuleSkill(skillId)?.skill ?? null
+}
+
 function skillHarnesses(skill: BuiltinSkill): readonly SkillHarness[] {
   return skill.harnesses && skill.harnesses.length > 0 ? skill.harnesses : DEFAULT_HARNESSES
 }
@@ -260,11 +364,13 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
   const listPlugins = options.listPlugins ?? (() => [])
 
   function getSkill(id: string): BuiltinSkill | null {
-    return findBuiltinSkill(id)
+    return resolveSkillById(id)
   }
 
+  // A module skill's bytes come from the module's own tree, not from the
+  // bundled source root — the only difference between the two kinds.
   function getSourcePath(id: string): string {
-    return join(sourceRoot, id)
+    return findModuleSkill(id)?.sourceDir ?? join(sourceRoot, id)
   }
 
   function staticSkillTargets(workspaceRoot: string, skill: BuiltinSkill): SkillTargetDescriptor[] {
@@ -477,9 +583,70 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
   }
 
   return {
-    list: async (): Promise<BuiltinSkill[]> => BUILTIN_SKILLS,
+    list: async (): Promise<BuiltinSkill[]> => [...BUILTIN_SKILLS, ...listModuleSkills().map((entry) => entry.skill)],
     getStatus,
     install,
+  }
+}
+
+export type BuiltinSkillManager = ReturnType<typeof createBuiltinSkillManager>
+
+// ── The process-wide installer ───────────────────────────────────────────────
+//
+// `ensureSkillInstalled` is the plain function every "make this skill present
+// before the agent launches" caller reaches for: the terminal spawn path, the
+// Backlog automation action, WP-B's module agent-session service, and a module
+// pre-installing its own skill through `MainHost.ensureSkillInstalled`. They
+// all need the same manager — one that knows the installed CLI plugins, so the
+// `all-native` fan-out has targets — which app-services builds once and hands
+// here. Without that call (tests, headless tools) a plugin-less manager is
+// built lazily, so the function is never a hard dependency on app startup.
+
+let defaultSkillManager: BuiltinSkillManager | null = null
+
+export function setDefaultSkillManager(manager: BuiltinSkillManager | null): void {
+  defaultSkillManager = manager
+}
+
+function skillManager(): BuiltinSkillManager {
+  return (defaultSkillManager ??= createBuiltinSkillManager())
+}
+
+/**
+ * Make `skillId` present in `workspaceRoot`, check-first: an already-installed
+ * workspace is not rewritten, a missing or stale copy is filled in, and a copy
+ * the user edited is left alone. Never throws — a launch boundary must not die
+ * because a skill could not be copied.
+ *
+ * An unknown id answers `{ ok: false, status: 'unknown-skill' }` rather than
+ * quietly doing nothing: a skill that no longer exists (a module was disabled,
+ * an id was renamed) is a real failure the caller should be able to see.
+ */
+export async function ensureSkillInstalled(
+  workspaceRoot: string,
+  skillId: string
+): Promise<EnsureSkillInstalledResult> {
+  if (!resolveSkillById(skillId)) {
+    return { ok: false, status: 'unknown-skill', message: `Unknown skill: ${skillId}` }
+  }
+  try {
+    const manager = skillManager()
+    const status = await manager.getStatus(workspaceRoot, skillId)
+    if (!status.ok) return { ok: false, status: status.status, ...(status.message ? { message: status.message } : {}) }
+    if (status.status === 'missing' || status.status === 'update-available') {
+      const installed = await manager.install(workspaceRoot, skillId)
+      return installed.ok
+        ? { ok: true, status: installed.status }
+        : { ok: false, status: installed.status, ...(installed.message ? { message: installed.message } : {}) }
+    }
+    // installed / local / modified: the skill is present in the native dir.
+    return { ok: true, status: status.status }
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'install-failed',
+      message: error instanceof Error ? error.message : String(error),
+    }
   }
 }
 

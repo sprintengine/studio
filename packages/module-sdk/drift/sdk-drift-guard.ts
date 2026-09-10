@@ -68,6 +68,11 @@ import type {
   McpToolRegistration as AppMcpToolRegistration,
   McpToolResult as AppMcpToolResult,
 } from '../../../src/shared/modules/mcp-tools'
+import type {
+  EnsureSkillInstalledResult as AppEnsureSkillInstalledResult,
+  ModuleSkillRegistration as AppModuleSkillRegistration,
+  ModuleSkillTargetPolicy as AppModuleSkillTargetPolicy,
+} from '../../../src/shared/modules/skills'
 import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
 import type {
   ModuleStorageErrorCode as AppModuleStorageErrorCode,
@@ -176,6 +181,9 @@ import type {
   McpConnectionContext as SdkMcpConnectionContext,
   McpConnectionMetadata as SdkMcpConnectionMetadata,
   McpToolRegistration as SdkMcpToolRegistration,
+  EnsureSkillInstalledResult as SdkEnsureSkillInstalledResult,
+  ModuleSkillRegistration as SdkModuleSkillRegistration,
+  ModuleSkillTargetPolicy as SdkModuleSkillTargetPolicy,
   McpToolResult as SdkMcpToolResult,
   ModuleBridgeRefusalCode as SdkModuleBridgeRefusalCode,
   ModuleEventEnvelope as SdkModuleEventEnvelope,
@@ -355,6 +363,16 @@ expectType<IsExact<AppMcpToolRegistration, SdkMcpToolRegistration>>()
 expectType<IsExact<AppMcpConnectionMetadata, SdkMcpConnectionMetadata>>()
 expectType<IsExact<AppMcpConnectionContext, SdkMcpConnectionContext>>()
 expectType<IsExact<AppMainHost['registerMcpTools'], SdkMainHost['registerMcpTools']>>()
+
+// Module-owned skills (WP-D): the registration and result shapes mirror
+// exactly — an optional-property drift here would silently change what a
+// module may ship — and both host methods are pinned exactly, because the
+// one-directional host assertion below would let a parameter widening through.
+expectType<IsExact<AppModuleSkillTargetPolicy, SdkModuleSkillTargetPolicy>>()
+expectType<IsExact<AppModuleSkillRegistration, SdkModuleSkillRegistration>>()
+expectType<IsExact<AppEnsureSkillInstalledResult, SdkEnsureSkillInstalledResult>>()
+expectType<IsExact<AppMainHost['registerSkills'], SdkMainHost['registerSkills']>>()
+expectType<IsExact<AppMainHost['ensureSkillInstalled'], SdkMainHost['ensureSkillInstalled']>>()
 
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()
