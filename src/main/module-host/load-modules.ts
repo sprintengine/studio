@@ -8,7 +8,13 @@ import type {
 } from '../../shared/modules/manifest'
 import { sanitizeNotificationText } from '../../shared/modules/notifications'
 import { resolveModuleEnablement } from '../../shared/modules/resolve'
-import { createMainKernel, type MainHost, type MainKernel, type SidecarSpec } from './main-host'
+import {
+  createMainKernel,
+  type MainHost,
+  type MainKernel,
+  type ModuleSkillHostRegistry,
+  type SidecarSpec,
+} from './main-host'
 
 export type CapabilityModule = {
   manifest: CapabilityManifest
@@ -75,6 +81,14 @@ export function loadMainModules(options: {
   deliverModuleEvent?: (event: ModuleEventEnvelope) => void
   /** Clock override for notification flood-bound tests. */
   now?: () => number
+  /**
+   * Root directory per module id, for containment-checking the skill
+   * directories a module registers. Third-party modules have one (their
+   * install folder); bundled modules do not appear here.
+   */
+  moduleRoots?: Record<string, string>
+  /** Skill registry override, for tests. Defaults to the process-wide one. */
+  skillRegistry?: ModuleSkillHostRegistry
 }): LoadMainModulesResult {
   const { ipcMain, modules, overrides = {}, provideServices, ineligible, launchErrors = [] } = options
   const byId = new Map(modules.map((module) => [module.manifest.id, module]))
@@ -88,6 +102,8 @@ export function loadMainModules(options: {
     deliverModuleEvent: options.deliverModuleEvent,
     now: options.now,
     resolveModuleManifest: (moduleId) => byId.get(moduleId)?.manifest,
+    resolveModuleRoot: (moduleId) => options.moduleRoots?.[moduleId],
+    ...(options.skillRegistry ? { skillRegistry: options.skillRegistry } : {}),
   })
   const hostScope = kernel.hostFor('@host')
   provideServices?.(hostScope)

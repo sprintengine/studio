@@ -106,6 +106,9 @@ const moduleLoad = loadMainModules({
   ipcMain,
   modules: [agentRuntimeModule, ...activeMainModules, ...thirdPartyMainLoad.modules],
   overrides: moduleOverrides,
+  // Skill directories a third-party module registers are resolved against —
+  // and must stay inside — its install folder.
+  moduleRoots: thirdPartyMainLoad.moduleRoots,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,
   // Module events fan out to every open window on the one host-owned channel;
