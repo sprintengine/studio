@@ -196,7 +196,7 @@ function agentTabStatusDot(
   if (session?.suspended) {
     return { tone: 'neutral', pulse: false, label: 'Paused' }
   }
-  if (session?.processAlive && isSessionWorking(session)) {
+  if (isSessionWorking(session)) {
     return { tone: 'good', pulse: true, label: 'Working' }
   }
   if (isSessionFailed(session)) {
@@ -278,7 +278,7 @@ function renderTerminalRecencyIndicator(
   if (!session) return null
   // Active work gets the pulsing green dot. Idle sessions show elapsed idle
   // time instead, beginning at 1m; sub-minute recency renders blank.
-  if (session.processAlive && isSessionWorking(session)) {
+  if (isSessionWorking(session)) {
     return <StatusDot tone="good" pulse label="Working" className="ml-0.5" />
   }
   if (isSessionFailed(session)) {
@@ -1258,7 +1258,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         ? terminalSessions.find((s) => s.sessionId === agentSessionId)
         : undefined
       const currentTaskId = runtimeAgent?.currentTaskId
-      const isWorking = Boolean(agentSession?.processAlive && isSessionWorking(agentSession))
+      const isWorking = isSessionWorking(agentSession)
       // sprint agents show their run lifecycle (in progress / blocked /
       // complete), never a live dot or recency. Everyone else uses the
       // working dot with recency while idle.

@@ -114,9 +114,14 @@ export function deriveSessionStatus(
   // Working: trust the hook's working phases when present; otherwise fall back to
   // "produced output recently". `stalled`/`idle`/`exited` hook phases fall through
   // to idle below.
-  const working = hook
+  //
+  // Gated on `processAlive` for the same reason the needs-input disjunct above
+  // is, and it is the same stale frame: a session suspended (or killed) mid-turn
+  // keeps the working phase and activity it had when its pty died, and nothing
+  // revisits them. A paused agent is not working — it is not running at all.
+  const working = session.processAlive && (hook
     ? WORKING_AGENT_PHASES.has(hook.phase)
-    : session.activity.kind === 'working'
+    : session.activity.kind === 'working')
   if (working) {
     return {
       status: 'working',

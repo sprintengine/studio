@@ -11,6 +11,7 @@ import {
   findLiveSession,
   getTerminalSessionsSignature,
   isLiveTerminal,
+  isSessionWorking,
   pickAgentTabRecency,
   pickTerminalTabRecency,
   tabRecencyLabel,
@@ -29,6 +30,7 @@ async function main(): Promise<void> {
   assertWorkspaceTerminalActivityPriorityAndPersistedRecency()
   assertIdleSinceIsWhenTheAgentFinished()
   assertWorkingSinceOnlyCountsAHookReportedTurn()
+  assertSuspendedSessionNeverReadsAsWorking()
   assertTerminalTabRecencyUsesIdleTransition()
   assertAgentTabRecencyFallbackChain()
   await assertSharedStoreUsesOneUnderlyingSubscription()
@@ -565,6 +567,56 @@ function assertWorkspaceTerminalActivityPriorityAndPersistedRecency(): void {
   assert.deepEqual(
     deriveWorkspaceTerminalActivity('workspace_1', [workingTerminal]),
     { kind: 'working', since: 600 }
+  )
+}
+
+// A session suspended mid-turn keeps the `working` stamp it had when its pty
+// was killed — nothing in main revisits it, and the stall watch that would have
+// expired the phase is disarmed by the suspend. Observed live 2026-09-10: an
+// agent paused one second after launch sat at `starting`/`working` for 70
+// minutes, and the sidebar drew its chat bold, with working dots and no idle
+// clock, the whole time — the row claiming an agent that was not there.
+//
+// So every "is this working" reading is gated on the process being alive, the
+// way the awaiting-input reading already was.
+function assertSuspendedSessionNeverReadsAsWorking(): void {
+  const suspendedMidTurn = session({
+    sessionId: 'session_suspended_mid_turn',
+    processAlive: false,
+    suspended: true,
+    activity: { kind: 'working', since: 1_000 },
+    agentState: { phase: 'thinking', since: 1_000, source: 'hook' },
+    lastPrompt: { at: 1_000, text: 'go' },
+  })
+
+  assert.equal(isSessionWorking(suspendedMidTurn), false)
+  assert.deepEqual(
+    deriveWorkspaceTerminalActivity('workspace_1', [suspendedMidTurn], 900),
+    { kind: 'idle-recency', lastInputAt: 900 },
+    'a paused chat falls back to recency, not to a turn in flight'
+  )
+  assert.equal(
+    deriveWorkspaceDisplayActivity('workspace_1', [suspendedMidTurn], false),
+    'idle',
+    'the row that lights the sidebar and the peek card must go quiet'
+  )
+  assert.equal(
+    deriveWorkspaceWorkingSince('workspace_1', [suspendedMidTurn]),
+    null,
+    'no elapsed counter for a turn whose process is gone'
+  )
+
+  // The gate is liveness alone: a live session mid-turn is untouched, and one
+  // live agent still lights a workspace that also holds a frozen one.
+  const liveMidTurn = session({
+    sessionId: 'session_live_mid_turn',
+    activity: { kind: 'working', since: 2_000 },
+    agentState: { phase: 'thinking', since: 2_000, source: 'hook' },
+  })
+  assert.equal(isSessionWorking(liveMidTurn), true)
+  assert.deepEqual(
+    deriveWorkspaceTerminalActivity('workspace_1', [suspendedMidTurn, liveMidTurn], 900),
+    { kind: 'working', since: 2_000 }
   )
 }
 

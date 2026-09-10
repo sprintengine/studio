@@ -39,10 +39,20 @@ export function isLiveTerminal(
   return Boolean(session?.processAlive)
 }
 
+/**
+ * A turn in flight, in a process that is still there to run it.
+ *
+ * Both halves are load-bearing. `activity` is a stamp, not a subscription: a
+ * session that is suspended (or killed) mid-turn keeps whatever it last said,
+ * and main has no reason to revisit it. So "working" without `processAlive` is
+ * a claim about a process that no longer exists — the same shape of lie that
+ * `workspaceTerminalAwaitingInput` has always gated on, and for the same
+ * reason: it must not outlive the pty and keep the sidebar lit.
+ */
 export function isSessionWorking(
   session: TerminalSessionSnapshot | null | undefined
 ): boolean {
-  return session?.activity.kind === 'working'
+  return Boolean(session?.processAlive) && session?.activity.kind === 'working'
 }
 
 export function isSessionFailed(
@@ -116,6 +126,11 @@ export function deriveWorkspaceTerminalActivity(
     if (session.workspaceId !== workspaceId) continue
     const activity = session.activity
     if (activity.kind === 'working') {
+      // Live processes only (`isSessionWorking`). A chat whose last agent was
+      // paused mid-turn would otherwise read as working for as long as the
+      // frozen session sits in the list: bold row, working dots, no idle
+      // clock — the sidebar claiming an agent that is not there.
+      if (!isSessionWorking(session)) continue
       if (workingSince === null || activity.since < workingSince) workingSince = activity.since
     } else if (activity.kind === 'failed') {
       if (failedAt === null || activity.at > failedAt) {
@@ -246,10 +261,13 @@ export function deriveWorkspaceWorkingSince(
  * these, so a row and its lines can never disagree on who is working.
  */
 function sessionWorkingSince(session: TerminalSessionSnapshot): number | null {
-  if (session.activity.kind !== 'working') return null
+  const activity = session.activity
+  // `isSessionWorking` is the gate (a dead process runs no turn); the kind
+  // check beside it is what narrows `activity` to the variant with a `since`.
+  if (activity.kind !== 'working' || !isSessionWorking(session)) return null
   if (!isHookReportedTurnInFlight(session)) return null
   const promptAt = typeof session.lastPrompt?.at === 'number' ? session.lastPrompt.at : 0
-  return Math.max(session.activity.since, promptAt)
+  return Math.max(activity.since, promptAt)
 }
 
 /**

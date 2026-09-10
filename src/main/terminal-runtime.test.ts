@@ -174,6 +174,7 @@ async function main(): Promise<void> {
     await assertRemoteFramesNeverExceedTheWireCap(runtimeModule)
     await assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule)
     await assertIdleSweepSuspendsRatherThanDisposes(runtimeModule)
+    await assertSuspendSettlesAWorkingAgentToRest(runtimeModule)
     await assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule)
     await assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule)
     await assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule)
@@ -1381,6 +1382,83 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
       await runtime.ipcHandlers.getTerminalStatus('session-awaiting'),
       { processAlive: true, suspended: false },
       'an agent awaiting user input must never be suspended by the reaper'
+    )
+  } finally {
+    await runtime.shutdown()
+  }
+}
+
+// Suspend mid-turn must leave the session AT REST, not frozen mid-claim.
+//
+// `starting`/`thinking`/`tool_use`, and the `working` activity bridged from
+// them, describe a running process — and suspend just killed it. Nothing
+// revisits them afterwards (the stall watch is disarmed, resume spawns fresh),
+// so a phase frozen verbatim outlives its pty and the sidebar draws the chat as
+// a turn in flight until the app restarts. The reaper only suspends an at-rest
+// agent, but the pause control has no such gate, which is how a chat gets stuck
+// bright (observed 2026-09-10: an agent paused a second after launch sat at
+// `starting`/`working` for 70 minutes).
+async function assertSuspendSettlesAWorkingAgentToRest(runtimeModule: RuntimeModule): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-suspend-rest-'))
+  mockPty.spawnCalls = []
+  mockSender.sent = []
+
+  const runtime = runtimeModule.createTerminalRuntime({
+    diagnosticsEnabled: false,
+    requireAuthenticatedUser: () => undefined,
+    logMainPerfEvent: () => undefined,
+  })
+
+  try {
+    const sessionId = 'session-suspend-mid-turn'
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId,
+      cols: 120,
+      rows: 30,
+      cwd: workspaceRoot,
+      cli: 'codex',
+      kind: 'agent',
+      shellOnly: false,
+      workspaceId: 'ws-suspend-rest',
+      agentId: sessionId,
+      visible: false,
+      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const spawned = mockPty.spawnCalls[mockPty.spawnCalls.length - 1]?.process
+    assert.ok(spawned, 'expected a pty')
+
+    // An authoritative hook frame puts the agent mid-turn.
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: sessionId,
+      workspaceId: 'ws-suspend-rest',
+      sessionId: null,
+      phase: 'thinking',
+      event: null,
+      ts: Date.now(),
+    })
+    const midTurn = runtime.ipcHandlers.listTerminals().find((s) => s.sessionId === sessionId)
+    assert.equal(midTurn?.activity.kind, 'working', 'precondition: the agent reads as working')
+    assert.equal(midTurn?.agentState?.phase, 'thinking')
+
+    // Pause it mid-turn, the way the agent pane's suspend control does.
+    runtime.ipcHandlers.suspendTerminal(sessionId)
+    spawned.emitExit({ exitCode: 0 })
+    await delay(20)
+
+    const frozen = runtime.ipcHandlers.listTerminals().find((s) => s.sessionId === sessionId)
+    assert.equal(frozen?.suspended, true, 'the session is still there, frozen and resumable')
+    assert.equal(frozen?.processAlive, false)
+    assert.equal(
+      frozen?.activity.kind,
+      'idle',
+      'a paused chat must not keep claiming a turn in flight'
+    )
+    assert.equal(
+      frozen?.agentState?.phase,
+      'idle',
+      'the phase describes a process that no longer exists; it settles with it'
     )
   } finally {
     await runtime.shutdown()

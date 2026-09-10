@@ -1,3 +1,4 @@
+import { isSessionWorking } from '../../hooks/useTerminalSessions'
 import { formatRelativeMs } from '../../utils/relativeTime'
 import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import type { AgentState, Workspace } from '../../types/workspace'
@@ -45,7 +46,10 @@ function agentStatusOf(
   now: number,
 ): ConversationPeekStatus {
   if (!session) return { kind: 'attention', label: 'Parked' }
-  if (session.activity?.kind === 'working') return { kind: 'working', label: 'Working' }
+  // Working needs a process to do it in (`isSessionWorking`). A session paused
+  // mid-turn keeps its working stamp, and unguarded that stamp outranked the
+  // `Paused` branch below — the card said "Working" about a dead pty.
+  if (isSessionWorking(session)) return { kind: 'working', label: 'Working' }
   if (session.activity?.kind === 'failed') return { kind: 'attention', label: 'Failed' }
   if (session.exitedAt !== null) return { kind: 'idle', label: 'Exited' }
   if (session.suspended) return { kind: 'attention', label: 'Paused' }

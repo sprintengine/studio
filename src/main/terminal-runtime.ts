@@ -1144,6 +1144,42 @@ export function suspendTerminal(sessionId: string): void {
   })
 }
 
+// A frozen view is at rest by construction — the same stamp
+// `createSuspendedPlaceholderSession` puts on the restart-rehydration path,
+// applied to the in-process suspend so the two agree.
+//
+// The suspend branch of `onExit` keeps the session's phase deliberately (unlike
+// a real exit, which stamps `exited`), and that is right for a phase that
+// describes the AGENT — but `starting`/`thinking`/`tool_use`, and the `working`
+// activity bridged from them, describe a RUNNING PROCESS, and the process is
+// what suspend just killed. Frozen verbatim they outlive it: nothing re-reads
+// them (the stall watch that would have expired a working phase is disarmed
+// here, and `resumeSuspendedTerminal` spawns a fresh session), so the sidebar
+// lights a paused chat as a turn in flight until the app restarts. The reaper
+// only ever suspends an at-rest agent, but the pause control has no such gate:
+// pausing mid-turn is exactly how a chat gets stuck bright (observed
+// 2026-09-10, session frozen at `starting` for 70 minutes).
+//
+// Only a working claim is rewritten. An `idle`/`awaiting_input` stamp already
+// says when the agent came to rest, and moving it here would relabel the
+// suspend as the turn's end — the very thing `deriveWorkspaceIdleSince` reads
+// `lastTurnEndedAt` to avoid.
+function settleSuspendedAgentRest(session: TerminalSession): void {
+  const phase = session.agentState?.phase
+  const claimsWork =
+    session.activity.kind === 'working'
+    || phase === 'starting'
+    || phase === 'thinking'
+    || phase === 'tool_use'
+  if (!claimsWork) return
+  // When the turn ended, if one ever did; else the moment the process died,
+  // which is all a session suspended mid-turn can honestly say.
+  const restingSince = session.lastTurnEndedAt ?? Date.now()
+  if (session.agentState) session.agentState = { phase: 'idle', since: restingSince, source: 'lifecycle' }
+  // Broadcast is the caller's: it sends one snapshot for the whole finalize.
+  setTerminalActivity(session, { kind: 'idle', since: restingSince }, { broadcast: false })
+}
+
 function writeTerminalSnapshotSidecar(
   session: TerminalSession,
   payload: { snapshot?: string; rawReplay?: string; cols: number; rows: number }
@@ -2988,6 +3024,9 @@ function attachTerminalSession(
     // would unmount the view). Resume relaunches under the same session id.
     if (terminalSession.suspending || terminalSession.suspended) {
       terminalSession.suspending = false
+      // Order matters: the rest stamp below goes through the ordinary activity
+      // transition, which declines to move a session that is no longer alive.
+      settleSuspendedAgentRest(terminalSession)
       terminalSession.suspended = true
       // Whatever the session was still waiting on died with the process. The
       // count is rendered ("2 running"), so leaving it standing would have a
