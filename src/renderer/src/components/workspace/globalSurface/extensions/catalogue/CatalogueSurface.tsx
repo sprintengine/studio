@@ -42,7 +42,20 @@ export type CatalogueSection<T> = {
   key: string
   label: string
   items: readonly T[]
+  /**
+   * A mark before the heading — the source's avatar, when the sections are
+   * sources rather than a source's folders (a cross-source search). Absent for
+   * the ordinary tab, whose head already wears the one source's mark.
+   */
+  leading?: React.ReactNode
 }
+
+/**
+ * What the search box reads: `tab` filters the open tab and says so; `sources`
+ * reads every source the door holds a scan for (catalogueSearch.ts), and the
+ * field and the pager name that scope instead of the tab.
+ */
+export type CatalogueSearchScope = 'tab' | 'sources'
 
 /** The two ways a source gets added, from the plus after the last tab. */
 export type CatalogueAddMenu = {
@@ -70,7 +83,13 @@ export function CatalogueSurface<T>({
   tabs: readonly CatalogueTab[]
   activeTabId: string
   onSelectTab: (tabId: string) => void
-  search: { query: string; onQueryChange: (value: string) => void; placeholder: string }
+  search: {
+    query: string
+    onQueryChange: (value: string) => void
+    placeholder: string
+    /** Defaults to `tab`. */
+    scope?: CatalogueSearchScope
+  }
   /** Null hides the plus — a kind no source can carry (see catalogueTabs). */
   add: CatalogueAddMenu | null
   /** The head line under the tab row: what this tab is, and its actions. */
@@ -136,6 +155,7 @@ export function CatalogueSurface<T>({
     ariaLabel: tab.updateAvailable ? `${tab.label} — update available` : undefined,
   }))
 
+  const acrossSources = search.scope === 'sources'
   const bar = {
     title,
     actions: (
@@ -146,7 +166,11 @@ export function CatalogueSurface<T>({
             search.onQueryChange(value)
             setPosition({ key: `${activeTabId} ${value.trim()}`, page: 1 })
           }}
-          ariaLabel={`Search ${title.toLowerCase()} in the open tab`}
+          ariaLabel={
+            acrossSources
+              ? `Search ${title.toLowerCase()} across all sources`
+              : `Search ${title.toLowerCase()} in the open tab`
+          }
           placeholder={search.placeholder}
           controlsId={`${TABS_PREFIX}-panel-${activeTabId}`}
         />
@@ -155,6 +179,10 @@ export function CatalogueSurface<T>({
   }
 
   const activeTabLabel = tabs.find((tab) => tab.id === activeTabId)?.label ?? 'this tab'
+  // What the pager is a pager OF: the tab, or — with a query on a search that
+  // reads every source — the whole door.
+  const pagedLabel =
+    acrossSources && search.query.trim() !== '' ? `${title} across all sources` : `${title} in ${activeTabLabel}`
 
   return (
     <GlobalSurfaceShell ariaLabel={title} bar={bar} onBack={back.onBack} canGoBack={back.canGoBack}>
@@ -194,15 +222,28 @@ export function CatalogueSurface<T>({
                   {view.groups.map((group) => {
                     const section = sectionByKey.get(group.key)
                     if (!section || !renderRow) return null
+                    const heading = (
+                      <ConnectorSectionHeading
+                        // A group that started on an earlier page says so,
+                        // rather than repeating its heading as if the rows
+                        // above it were something else.
+                        label={group.continued ? `${group.label} (continued)` : group.label}
+                        count={group.total}
+                      />
+                    )
                     return (
                       <section key={group.key} className="space-y-3">
-                        <ConnectorSectionHeading
-                          // A group that started on an earlier page says so,
-                          // rather than repeating its heading as if the rows
-                          // above it were something else.
-                          label={group.continued ? `${group.label} (continued)` : group.label}
-                          count={group.total}
-                        />
+                        {section.leading ? (
+                          // The source's mark leads its heading, and the
+                          // heading keeps its own rule and count: the kit
+                          // section head, not a second heading idiom.
+                          <div className="flex items-center gap-2.5">
+                            {section.leading}
+                            <div className="min-w-0 flex-1">{heading}</div>
+                          </div>
+                        ) : (
+                          heading
+                        )}
                         {/* Rows breathe: a column gap wide enough that two
                             rows' Install buttons and names do not read as
                             one line, and a row gap that separates rows
@@ -222,7 +263,7 @@ export function CatalogueSurface<T>({
                   pageCount={view.pageCount}
                   rangeLabel={view.rangeLabel}
                   onPageChange={(page) => setPosition({ key: positionKey, page })}
-                  ariaLabel={`${title} in ${activeTabLabel}`}
+                  ariaLabel={pagedLabel}
                 />
               </>
             )}

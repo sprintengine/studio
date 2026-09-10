@@ -42,9 +42,16 @@ dom.window.matchMedia = ((query: string) => ({
   removeListener: () => {},
 })) as unknown as typeof dom.window.matchMedia
 
-import React from 'react'
-import { act } from 'react'
-import { createRoot } from 'react-dom/client'
+// React and react-dom are imported INSIDE main, after the globals above are
+// set: a static import is hoisted above them, and react-dom decides at load
+// whether the `input` event exists (`canUseDOM`). Loaded first, it takes its
+// no-DOM polyfill path and never hears the search box (CliModelPicker.test.tsx
+// keeps the same order for the same reason).
+import type ReactModule from 'react'
+import type { Root } from 'react-dom/client'
+
+let React: typeof ReactModule
+let act: typeof ReactModule.act
 
 import {
   STUDIO_SKILL_SOURCE_ID,
@@ -415,7 +422,7 @@ domWindow.api = new Proxy(api, {
 
 const container = dom.window.document.createElement('div')
 dom.window.document.body.appendChild(container)
-const root = createRoot(container as unknown as Element)
+let root: Root
 
 const settle = async (): Promise<void> => {
   for (let index = 0; index < 8; index += 1) {
@@ -426,6 +433,24 @@ const settle = async (): Promise<void> => {
 }
 
 const text = (): string => container.textContent ?? ''
+const searchInput = (): HTMLInputElement => container.querySelector('input[type="search"]') as HTMLInputElement
+/** Type into the search box the way a person does: a value, and an input event React hears. */
+const typeSearch = async (value: string): Promise<void> => {
+  const input = searchInput()
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')?.set
+    setter?.call(input, value)
+    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+  })
+  await settle()
+}
+const dialog = (): Element | null => dom.window.document.querySelector('[role="dialog"]')
+const closeDialog = async (): Promise<void> => {
+  await act(async () => {
+    ;(dom.window.document.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLElement | null)?.click()
+  })
+  await settle()
+}
 const tabs = (): HTMLElement[] => [...container.querySelectorAll('[role="tab"]')] as HTMLElement[]
 const tabNames = (): string[] => tabs().map((tab) => (tab.textContent ?? '').replace(/\d+$/, '').trim())
 const tabNamed = (name: string): HTMLElement | undefined =>
@@ -443,6 +468,10 @@ async function run(name: string, body: () => void | Promise<void>): Promise<void
 }
 
 async function main(): Promise<void> {
+  React = (await import('react')).default
+  act = (await import('react')).act
+  const { createRoot } = await import('react-dom/client')
+  root = createRoot(container as unknown as Element)
   const { useWorkspaceStore } = await import('../../../../../store/workspaceStore')
   const { default: ExtensionsGlobalSurface } = await import('../ExtensionsGlobalSurface')
   const { dispatchExtensionsSurfaceTarget, consumePendingExtensionsSurfaceTarget } = await import(
@@ -464,14 +493,14 @@ async function main(): Promise<void> {
 
   // ── The three views are one page ────────────────────────────────────────────
 
-  await run('Plugins names itself on the chrome row and searches the open tab there', () => {
+  await run('Plugins names itself on the chrome row and its search reads every source', () => {
     assert.equal(title(), 'Plugins')
     const search = container.querySelector('input[type="search"]')
     assert.ok(search, 'the search field is in the bar, beside the name')
     assert.equal(
       search?.getAttribute('aria-label'),
-      'Search plugins in the open tab',
-      'and it says which list it filters',
+      'Search plugins across all sources',
+      'and it says the search is not scoped to the tab',
     )
   })
 
@@ -519,9 +548,9 @@ async function main(): Promise<void> {
     // what we publish is a template whose `.mcp.json` still holds
     // `__MULTICODE_*`. The built-in row has no such control at all, so its
     // absence is exactly what says the marketplace's copy is not drawn.
-    assert.ok(container.querySelector('[aria-label="Open Studio skills"]'), 'the other plugin does open')
+    assert.ok(container.querySelector('[aria-label="Details for Studio skills"]'), 'the other plugin does open')
     assert.equal(
-      container.querySelector('[aria-label="Open SprintEngine Studio"]'),
+      container.querySelector('[aria-label="Details for SprintEngine Studio"]'),
       null,
       'our plugin is not listed a second time under Plugins',
     )
@@ -552,6 +581,37 @@ async function main(): Promise<void> {
       false,
       'an unscanned repository waits for the tab that shows it',
     )
+  })
+
+  // ── A query reads every source, and reads none it does not already hold ────
+
+  await run('a query searches every source the door holds a scan for, grouped by source', async () => {
+    assert.equal(searchInput().placeholder, 'Search all sources', 'the box says what it reads')
+    await typeSearch('studio')
+    const body = text()
+    assert.ok(body.includes('All sources'), 'the head says the scope changed')
+    assert.ok(body.includes('Searched 1 of 3 sources for “studio”'), 'and how much of the door the answer covers')
+    assert.ok(body.includes('Studio skills'), 'a hit from the one scanned source is listed')
+    assert.ok(
+      body.includes('2 sources not yet read: acme/skills, acme/hub.'),
+      'the sources it did not cover are named, not silently left out',
+    )
+    assert.equal(
+      scanCalls.includes(ACME_SOURCE.id) || scanCalls.includes(HUB_SOURCE.id),
+      false,
+      'and a keystroke never spends a network read on a source nobody has opened',
+    )
+    assert.ok(container.querySelector('nav[aria-label="Plugins across all sources"]'), 'the pager pages the door, not the tab')
+  })
+
+  await run('clearing the box from its own cross returns the tab', async () => {
+    await act(async () => {
+      ;(container.querySelector('button[aria-label="Clear search"]') as HTMLElement).click()
+    })
+    await settle()
+    assert.equal(searchInput().value, '')
+    assert.equal(text().includes('All sources'), false)
+    assert.ok(text().includes('sprintengine/studio-releases'), 'the tab’s own head is back')
   })
 
   // ── A source's head line on Plugins names both populations ──────────────────
@@ -659,14 +719,14 @@ async function main(): Promise<void> {
     // review, 2026-09-06).
     linkedReads.length = 0
     await act(async () => {
-      ;(container.querySelector('button[aria-label="Open Listed only"]') as HTMLElement).click()
+      ;(container.querySelector('button[aria-label="Details for Listed only"]') as HTMLElement).click()
     })
     await settle()
     assert.deepEqual(linkedReads, ['listed-only'], 'it went and read the one whose skills have no descriptions')
 
     linkedReads.length = 0
     await act(async () => {
-      ;(container.querySelector('button[aria-label="Open Read one"]') as HTMLElement).click()
+      ;(container.querySelector('button[aria-label="Details for Read one"]') as HTMLElement).click()
     })
     await settle()
     assert.deepEqual(linkedReads, [], 'and left alone the one that was already read whole')
@@ -792,8 +852,192 @@ async function main(): Promise<void> {
     )
   })
 
+  // ── With every source read: results by source, and a query that survives ───
+
+  await openView('plugins')
+
+  await run('with every source read, the results come grouped under each source’s name', async () => {
+    await typeSearch('read one')
+    const body = text()
+    assert.ok(body.includes('Searched all 3 sources for “read one”'))
+    assert.ok(body.includes('acme/hub'), 'the source the hit came from heads its section')
+    assert.ok(body.includes('Read one'))
+    assert.equal(body.includes('Waiting'), false, 'a plugin that does not match is not listed under it')
+    // The section head wears the source's mark before its name (SourceAvatar).
+    const heading = [...container.querySelectorAll('section')].find((section) =>
+      (section.textContent ?? '').startsWith('acme/hub'),
+    )
+    assert.ok(heading?.querySelector('img, span[aria-hidden]'), 'the source’s avatar or monogram leads its heading')
+  })
+
+  await run('a plugin row’s button says what it does: Details, not Install', () => {
+    // It read "Install" and opened the pane while a skill row's "Install"
+    // installs — the same word, two behaviours. The pane stays the one way
+    // in (hook acknowledgement, what installs where), and the row says so.
+    const button = container.querySelector('button[aria-label="Details for Read one"]')
+    assert.equal(button?.textContent, 'Details')
+    assert.equal(
+      [...container.querySelectorAll('button')].some((candidate) => candidate.textContent === 'Install'),
+      false,
+      'no plugin row promises an install it does not perform',
+    )
+  })
+
+  await run('the query survives a tab change', async () => {
+    await act(async () => {
+      tabNamed('acme/skills')?.click()
+    })
+    await settle()
+    assert.equal(searchInput().value, 'read one', 'the words are still in the box')
+    assert.ok(text().includes('Read one'), 'and the results are still the door’s, not the tab’s')
+    assert.equal(tabNamed('acme/skills')?.getAttribute('aria-selected'), 'true', 'the tab did change underneath')
+  })
+
+  await run('and a switch between Plugins and Skills', async () => {
+    await openView('skills')
+    assert.equal(title(), 'Skills')
+    assert.equal(searchInput().value, 'read one')
+    assert.ok(text().includes('Nothing matches “read one”'), 'the Skills view searched every source for it')
+    assert.ok(text().includes('Searched all 3 sources'))
+  })
+
+  await run('Escape in the box clears it', async () => {
+    await act(async () => {
+      searchInput().dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    await settle()
+    assert.equal(searchInput().value, '')
+    assert.equal(text().includes('All sources'), false)
+  })
+
+  // ── Deep links land on one plugin or one skill ──────────────────────────────
+
+  await run('a link naming a source and a plugin selects the tab and opens the plugin', async () => {
+    await typeSearch('leftover')
+    await act(async () => {
+      dispatchExtensionsSurfaceTarget({ view: 'plugins', sourceId: HUB_SOURCE.id, pluginId: 'read-one' })
+    })
+    await settle()
+    assert.equal(title(), 'Plugins')
+    assert.equal(tabNamed('acme/hub')?.getAttribute('aria-selected'), 'true')
+    assert.equal(searchInput().value, '', 'a link that names a place clears the search standing in front of it')
+    assert.equal(dialog()?.querySelector('#plugin-detail-title')?.textContent, 'Read one')
+    await closeDialog()
+    assert.equal(dialog(), null)
+  })
+
+  await run('a plugin the source no longer lists falls back to the source’s tab with a notice', async () => {
+    await act(async () => {
+      dispatchExtensionsSurfaceTarget({ view: 'plugins', sourceId: HUB_SOURCE.id, pluginId: 'nope' })
+    })
+    await settle()
+    assert.equal(dialog(), null, 'nothing opens')
+    assert.equal(tabNamed('acme/hub')?.getAttribute('aria-selected'), 'true', 'the tab is the nearest thing that exists')
+    assert.ok(
+      text().includes('acme/hub no longer lists a plugin called nope'),
+      `the notice says why (saw: ${text().slice(0, 300)})`,
+    )
+    await act(async () => {
+      ;[...container.querySelectorAll('button')].find((button) => button.textContent === 'Dismiss')?.click()
+    })
+    await settle()
+    assert.equal(text().includes('no longer lists'), false, 'and it can be dismissed')
+  })
+
+  await run('a source no longer in the list falls back to the view with a notice', async () => {
+    await act(async () => {
+      dispatchExtensionsSurfaceTarget({ view: 'skills', sourceId: 'github:gone/gone', skillId: 'skills/x' })
+    })
+    await settle()
+    assert.equal(title(), 'Skills')
+    assert.equal(dialog(), null)
+    assert.ok(text().includes('is not in your list any more'))
+    assert.ok(
+      container.querySelector('[role="tab"][aria-selected="true"]'),
+      'the view stands on a tab that exists rather than on nothing',
+    )
+  })
+
+  await run('a link naming a source and a skill opens the skill’s page', async () => {
+    await act(async () => {
+      dispatchExtensionsSurfaceTarget({ view: 'skills', sourceId: ACME_SOURCE.id, skillId: 'skills/engineering/skill-0' })
+    })
+    await settle()
+    assert.equal(tabNamed('acme/skills')?.getAttribute('aria-selected'), 'true')
+    assert.equal(dialog()?.querySelector('#skill-detail-title')?.textContent, 'skill-0')
+    await closeDialog()
+  })
+
   await act(async () => {
     root.unmount()
+  })
+
+  // ── A link into a source not yet read waits for the read, then opens ────────
+
+  const LATE_SOURCE: SkillSource = {
+    id: 'github:late/plugins',
+    kind: 'github',
+    name: 'plugins',
+    repo: 'late/plugins',
+    monogram: 'LP',
+    blurb: '',
+    commitSha: '',
+    scannedAt: '',
+  }
+  const LATE_SCAN: ScanResult = {
+    ...HUB_SCAN,
+    marketplaceName: 'late',
+    plugins: [{ ...HUB_SCAN.plugins![0], id: 'late-one', name: 'Late one', origin: { kind: 'in-tree', path: 'plugins/late-one' } }],
+  }
+  let releaseLateScan: (() => void) | null = null
+  api.skillsListSources = async () => ({
+    ok: true,
+    sources: [APP_SOURCE, LATE_SOURCE],
+    transport: 'api' as const,
+    gitInstalled: true,
+  })
+  api.skillsGetScan = async ({ sourceId }: { sourceId: string }) => {
+    scanCalls.push(sourceId)
+    if (sourceId === LATE_SOURCE.id) {
+      await new Promise<void>((resolve) => {
+        releaseLateScan = resolve
+      })
+      return { ok: true, source: LATE_SOURCE, scan: LATE_SCAN }
+    }
+    return { ok: true, source: APP_SOURCE, scan: STUDIO_SCAN }
+  }
+
+  const lateContainer = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(lateContainer)
+  const lateRoot = createRoot(lateContainer as unknown as Element)
+  const lateText = (): string => lateContainer.textContent ?? ''
+
+  await run('a link dispatched before the door mounts, into a source not yet read, waits for that read', async () => {
+    scanCalls.length = 0
+    // Dispatched before the surface exists: the latch seeds the first render.
+    dispatchExtensionsSurfaceTarget({ view: 'plugins', sourceId: LATE_SOURCE.id, pluginId: 'late-one' })
+    await act(async () => {
+      lateRoot.render(React.createElement(ExtensionsGlobalSurface))
+    })
+    await settle()
+    assert.ok(scanCalls.includes(LATE_SOURCE.id), 'selecting the tab is what starts the read')
+    assert.ok(lateText().includes('Reading late/plugins…'), 'the tab says it is reading')
+    assert.equal(dialog(), null, 'nothing has opened yet')
+    assert.equal(lateText().includes('could not be opened'), false, 'and nothing has been declared missing')
+  })
+
+  await run('and opens the plugin the moment the scan lands', async () => {
+    assert.ok(releaseLateScan, 'the scan was asked for')
+    await act(async () => {
+      releaseLateScan?.()
+    })
+    await settle()
+    assert.equal(dialog()?.querySelector('#plugin-detail-title')?.textContent, 'Late one')
+    await closeDialog()
+  })
+
+  await act(async () => {
+    lateRoot.unmount()
   })
 
   console.log('extensions catalogue: ok')
