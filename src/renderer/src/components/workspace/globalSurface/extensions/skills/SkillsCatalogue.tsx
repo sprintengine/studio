@@ -190,6 +190,10 @@ export function SkillsCatalogue({
     if (outcome.status === 'landed') {
       if (outcome.source.id !== tabId) onSelectTab(outcome.source.id)
       if (outcome.itemId) setOpenSkill({ sourceId: outcome.source.id, skillId: outcome.itemId })
+      // A link that landed retires the notice an earlier one left: it named
+      // what could not be opened THEN, and standing over the page that just
+      // opened it would read as a warning about this skill (review, 2026-09-10).
+      setLandingNotice(null)
     } else {
       setLandingNotice(outcome.notice)
     }

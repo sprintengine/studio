@@ -883,6 +883,18 @@ async function main(): Promise<void> {
     )
   })
 
+  await run('Details on a row under a search opens the pane from the row’s source, not the open tab’s', async () => {
+    assert.notEqual(tabNamed('acme/hub')?.getAttribute('aria-selected'), 'true', 'the open tab is not the hit’s source')
+    await act(async () => {
+      ;(container.querySelector('button[aria-label="Details for Read one"]') as HTMLElement).click()
+    })
+    await settle()
+    assert.equal(dialog()?.querySelector('#plugin-detail-title')?.textContent, 'Read one', 'acme/hub’s plugin opened')
+    assert.notEqual(tabNamed('acme/hub')?.getAttribute('aria-selected'), 'true', 'without moving the tab under it')
+    await closeDialog()
+    assert.equal(dialog(), null)
+  })
+
   await run('the query survives a tab change', async () => {
     await act(async () => {
       tabNamed('acme/skills')?.click()
@@ -899,6 +911,53 @@ async function main(): Promise<void> {
     assert.equal(searchInput().value, 'read one')
     assert.ok(text().includes('Nothing matches “read one”'), 'the Skills view searched every source for it')
     assert.ok(text().includes('Searched all 3 sources'))
+  })
+
+  await run('Install on a row under a search installs from the row’s source, not the open tab’s', async () => {
+    // A workspace to install into: without one every Install is disabled.
+    // The shape the store persists (agents, openFiles), so the persist step
+    // that runs on every setState has something to walk.
+    useWorkspaceStore.setState({
+      workspaces: [
+        {
+          id: 'w-door',
+          name: 'door',
+          mode: 'standard',
+          folderPath: '/tmp/door',
+          agents: {},
+          openFiles: [],
+          createdAt: 1,
+        } as unknown as ReturnType<typeof useWorkspaceStore.getState>['workspaces'][number],
+      ],
+      activeWorkspaceId: 'w-door',
+    })
+    const installs: { sourceId: string; skillId: string }[] = []
+    api.skillsInstall = async ({ sourceId, skillId }: { sourceId: string; skillId: string }) => (
+      installs.push({ sourceId, skillId }), { ok: true }
+    )
+    await settle()
+    // Stand on our tab and ask for a skill only acme/skills lists.
+    await act(async () => {
+      tabNamed('SprintEngine Studio')?.click()
+    })
+    await settle()
+    await typeSearch('skill-29')
+    assert.equal(tabNamed('SprintEngine Studio')?.getAttribute('aria-selected'), 'true')
+    const button = container.querySelector('button[aria-label="Install skill-29"]') as HTMLElement | null
+    assert.ok(button, 'the other source’s row offers Install')
+    await act(async () => {
+      button?.click()
+    })
+    await settle()
+    assert.deepEqual(
+      installs,
+      [{ sourceId: ACME_SOURCE.id, skillId: 'skills/ops/skill-29' }],
+      'the install names the source the row came from, not the tab that was open',
+    )
+    assert.ok(text().includes('Installed 1 skill.'), `the outcome is stated (saw: ${text().slice(0, 200)})`)
+    delete api.skillsInstall
+    useWorkspaceStore.setState({ activeWorkspaceId: null })
+    await settle()
   })
 
   await run('Escape in the box clears it', async () => {
@@ -965,6 +1024,11 @@ async function main(): Promise<void> {
     await settle()
     assert.equal(tabNamed('acme/skills')?.getAttribute('aria-selected'), 'true')
     assert.equal(dialog()?.querySelector('#skill-detail-title')?.textContent, 'skill-0')
+    assert.equal(
+      text().includes('is not in your list any more'),
+      false,
+      'a link that landed retires the notice the missed one before it left',
+    )
     await closeDialog()
   })
 

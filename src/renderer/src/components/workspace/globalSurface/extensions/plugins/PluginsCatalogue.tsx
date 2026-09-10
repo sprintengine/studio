@@ -349,6 +349,10 @@ export function PluginsCatalogue({
     if (outcome.status === 'landed') {
       if (outcome.source.id !== tabId) onSelectTab(outcome.source.id)
       if (outcome.itemId) openPluginRow(outcome.source.id, outcome.itemId)
+      // A link that landed retires the notice an earlier one left: it named
+      // what could not be opened THEN, and standing over the pane that just
+      // opened it would read as a warning about this plugin (review, 2026-09-10).
+      setLandingNotice(null)
     } else {
       setLandingNotice(outcome.notice)
     }
@@ -767,7 +771,7 @@ export function PluginsCatalogue({
         />
       )
     },
-    [activeSource, addScannedServer, artworkByPlugin, connectors, onLaunchConnector, openPluginRow, openRow, readyScan, sourceById],
+    [addScannedServer, artworkByPlugin, connectors, onLaunchConnector, openPluginRow, openRow, readyScan, sourceById],
   )
 
   // ── Head, notices, body, detail ────────────────────────────────────────────

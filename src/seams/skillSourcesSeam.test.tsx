@@ -448,11 +448,6 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     assert.ok(found, `no button reading "${text}" is on screen`)
     return found
   }
-  const buttonLabelled = (label: string): HTMLButtonElement => {
-    const found = container.querySelector(`[aria-label="${label}"]`)
-    assert.ok(found, `no control labelled "${label}" is on screen`)
-    return found as unknown as HTMLButtonElement
-  }
   const click = async (button: HTMLButtonElement): Promise<void> => {
     await act(async () => {
       button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -467,7 +462,33 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     assert.ok(tab, `no tab for "${tabName}" is on screen`)
     await click(tab as unknown as HTMLButtonElement)
   }
-  /** Narrow the open tab to one skill, so a paged source can be acted on. */
+  /**
+   * The rows ONE source lists under a search. A query reads every source at
+   * once now and groups the hits by source in tab order (skills-everywhere,
+   * 2026-09-10), so "the first button reading prototype" is SprintEngine
+   * Studio's own `prototype`, not mattpocock's; a row has to be found under
+   * the section its source heads.
+   */
+  const sectionOf = (sourceLabel: string): HTMLElement => {
+    const found = [...container.querySelectorAll('section')].find((section) =>
+      (section.textContent ?? '').startsWith(sourceLabel),
+    )
+    assert.ok(found, `no results section headed "${sourceLabel}" is on screen`)
+    return found as unknown as HTMLElement
+  }
+  const buttonWithIn = (sourceLabel: string, text: string): HTMLButtonElement => {
+    const found = ([...sectionOf(sourceLabel).querySelectorAll('button')] as unknown as HTMLButtonElement[]).find(
+      (button) => (button.textContent ?? '').includes(text),
+    )
+    assert.ok(found, `no button reading "${text}" is under ${sourceLabel}`)
+    return found
+  }
+  const buttonLabelledIn = (sourceLabel: string, label: string): HTMLButtonElement => {
+    const found = sectionOf(sourceLabel).querySelector(`[aria-label="${label}"]`)
+    assert.ok(found, `no control labelled "${label}" is under ${sourceLabel}`)
+    return found as unknown as HTMLButtonElement
+  }
+  /** Narrow the door to one skill name — every source's, grouped by source. */
   const filterTo = async (needle: string): Promise<void> => {
     const field = container.querySelector('input[type="search"]') as unknown as HTMLInputElement
     assert.ok(field, 'the tab has a search field')
@@ -588,7 +609,7 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   assert.equal(prototype.name, 'prototype')
   assert.ok(prototype.description.startsWith('Build a throwaway prototype'))
 
-  await click(buttonWith('prototype'))
+  await click(buttonWithIn('mattpocock/skills', 'prototype'))
   await settleUntil('the entry document read', () => markup().includes('Pick a branch'))
   assert.ok(markup().includes('aria-label="Files in this skill"'), 'the reader lists the files')
   for (const path of ['SKILL.md', 'LOGIC.md', 'UI.md', 'agents/openai.yaml']) {
@@ -628,10 +649,12 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   // the batch checkbox column and its footer "Install 2" are gone.
   await openSource('mattpocock/skills')
   await filterTo('prototype')
-  await click(buttonLabelled('Install prototype'))
+  // mattpocock's row, not ours: both sources ship a `prototype`, and the
+  // install below has to be the one whose provenance is asserted further down.
+  await click(buttonLabelledIn('mattpocock/skills', 'Install prototype'))
   await settleUntil('the prototype install', () => markup().includes('Installed 1 skill.'))
   await filterTo('research')
-  await click(buttonLabelled('Install research'))
+  await click(buttonLabelledIn('mattpocock/skills', 'Install research'))
   await settleUntil('the research install', () => markup().includes('Installed 1 skill.'))
 
   const installed = (harness: string, ...rest: string[]): string =>
@@ -653,11 +676,14 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   // checked where it is: on the tab filtered to it.
   for (const dirName of ['prototype', 'research']) {
     await filterTo(dirName)
-    assert.ok(markup().includes('>Installed<'), `the ${dirName} row says it is installed`)
+    assert.ok(
+      sectionOf('mattpocock/skills').innerHTML.includes('>Installed<'),
+      `the ${dirName} row says it is installed`,
+    )
   }
   // A skill nobody installed keeps its one control, which is the offer.
   await filterTo('qa')
-  assert.ok(container.querySelector('[aria-label="Install qa"]'), 'an uninstalled row still offers Install')
+  assert.ok(sectionOf('mattpocock/skills').querySelector('[aria-label="Install qa"]'), 'an uninstalled row still offers Install')
   await filterTo('')
 
   // The installed copy is the one the agent-facing inventory reads, so a skill
