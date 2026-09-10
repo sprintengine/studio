@@ -19,7 +19,6 @@
 export const DEV_ONLY_MODULE_IDS: readonly string[] = [
   'mobile-relay',
   'voice-dictation', // Voice module
-  'review', // not production-ready yet; remove from this list to release
 ]
 
 const DEV_ONLY_MODULE_ID_SET: ReadonlySet<string> = new Set(DEV_ONLY_MODULE_IDS)

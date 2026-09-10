@@ -12,7 +12,7 @@ function ws(mode: Workspace['mode'], highlight?: Workspace['highlight']): Worksp
 // Every mode reads the same, which is the thing this suite now pins.
 const sprint = rowAccent(ws('sprintengine'))
 assert.deepEqual(sprint, rowAccent(ws('standard')), 'a tool row and a chat row wear the same accent')
-assert.deepEqual(sprint, rowAccent(ws('review')), 'a review row is no exception')
+assert.deepEqual(sprint, rowAccent(ws('automations-host')), 'a background host row is no exception')
 assert.deepEqual(
   sprint,
   rowAccent(ws('future-plugin-mode' as Workspace['mode'])),

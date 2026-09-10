@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync, readdirSync } from 'fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -166,8 +167,44 @@ async function testInvalidManifestRejected(): Promise<void> {
   })
 }
 
+// G8: a re-install REPLACES the folder. A file the previous version shipped and
+// this one does not is gone afterwards — it used to survive `cp --force` and
+// keep loading under a trust grant bound to a manifest that never covered it.
+async function testReinstallPrunesStaleFiles(): Promise<void> {
+  await withTempDir(async (dir) => {
+    const root = join(dir, 'modules')
+
+    const first = await writeModuleFolder(dir, 'v1', manifestJson({ version: 1 }))
+    await mkdir(join(first, 'dist'), { recursive: true })
+    await writeFile(join(first, 'dist', 'renderer.mjs'), 'export const old = 1')
+    await writeFile(join(first, 'leftover.txt'), 'stale')
+    assert.equal((await installModuleFolder(first, root, EMPTY_TRUST)).ok, true)
+    assert.equal(existsSync(join(root, 'demo', 'leftover.txt')), true)
+
+    const second = await writeModuleFolder(dir, 'v2', manifestJson({ version: 2 }))
+    await mkdir(join(second, 'dist'), { recursive: true })
+    await writeFile(join(second, 'dist', 'main.cjs'), 'exports.registerMain = () => {}')
+    const reinstall = await installModuleFolder(second, root, EMPTY_TRUST)
+    assert.equal(reinstall.ok, true)
+
+    assert.equal(existsSync(join(root, 'demo', 'dist', 'main.cjs')), true, 'the new files are there')
+    assert.equal(existsSync(join(root, 'demo', 'leftover.txt')), false, 'a file the new version does not ship is gone')
+    assert.equal(existsSync(join(root, 'demo', 'dist', 'renderer.mjs')), false, 'and so is a stale entry bundle')
+
+    // The install staging folder never survives, and never shows up as a module.
+    const listed = await discoverUserModules(root, EMPTY_TRUST)
+    assert.deepEqual(listed.modules.map((entry) => entry.manifest.id), ['demo'])
+    assert.deepEqual(listed.rejected, [])
+    assert.deepEqual(
+      readdirSync(root).filter((name) => name.startsWith('.')),
+      [],
+    )
+  })
+}
+
 async function main(): Promise<void> {
   await testInstallThenDiscover()
+  await testReinstallPrunesStaleFiles()
   await testTrustedClassification()
   await testReservedIdRejected()
   await testReservedIdPublisherLock()

@@ -39,7 +39,12 @@ function moduleView(
 
 function renderRow(
   view: ThirdPartyModuleView,
-  opts: { pending?: boolean; enabled?: boolean; rendererLoadState?: ThirdPartyRendererLoadState } = {}
+  opts: {
+    pending?: boolean
+    enabled?: boolean
+    rendererLoadState?: ThirdPartyRendererLoadState
+    onUninstall?: () => void
+  } = {}
 ): string {
   return renderToStaticMarkup(
     <ThirdPartyModuleRow
@@ -49,6 +54,7 @@ function renderRow(
       rendererLoadState={opts.rendererLoadState}
       onTrustChange={() => {}}
       onEnabledChange={() => {}}
+      {...(opts.onUninstall ? { onUninstall: opts.onUninstall } : {})}
     />
   )
 }
@@ -304,8 +310,35 @@ function testBlockedRendererOnlyModuleStaysBlockedTextOnly(): void {
   assert.equal(countSwitches(html), 1, 'only the trust switch')
 }
 
+// G3. The row carries an Uninstall control exactly when the host gives it a
+// handler — a build whose preload predates the uninstall channel shows no
+// button rather than one that reports an error when pressed. It is offered for
+// every trust state, including an invalid signature (the state where removing
+// it is the ONLY thing left to do), and it goes flat while another action on
+// the same row is in flight.
+function testUninstallControlAppearsOnlyWithAHandler(): void {
+  const view = moduleView('trusted', launch({ status: 'trusted_executable' }))
+  const without = renderRow(view)
+  assert.doesNotMatch(without, /Uninstall/, 'no handler, no control')
+
+  const withHandler = renderRow(view, { onUninstall: () => {} })
+  assert.match(withHandler, /Uninstall/)
+  assert.match(withHandler, /aria-label="Uninstall Demo Module"/)
+  // The two switches the row already had are untouched by it.
+  assert.equal(countSwitches(withHandler), countSwitches(without))
+
+  const invalid = renderRow(moduleView('invalid', launch({ status: 'blocked_invalid', expectedToLoad: false })), {
+    onUninstall: () => {},
+  })
+  assert.match(invalid, /Uninstall/, 'an invalid module is the one you most need to remove')
+
+  const pending = renderRow(view, { pending: true, onUninstall: () => {} })
+  assert.match(pending, /aria-label="Uninstall Demo Module"[^>]*disabled|disabled[^>]*aria-label="Uninstall Demo Module"/)
+}
+
 const tests = [
   testDescribeLaunchMapsEveryStatus,
+  testUninstallControlAppearsOnlyWithAHandler,
   testResolveModuleEnabledPrefersOverrideThenDefault,
   testTrustedExecutableEnabledRow,
   testTrustedExecutableDisabledRowIsNotADeadEnd,

@@ -160,3 +160,12 @@ electron.vite.config.*.mjs
 # this checkout (screenshots, console logs). Not the retired Playwright test
 # harnesses, which are gone; this is another tool's cache.
 .playwright-mcp/
+
+# The source-build-only trusted marketplace publishers (DESIGN D2). A
+# first-party module id is publisher-locked to the release signing key, so a
+# contributor building from source cannot install their own build of one
+# without adding their own dev public key here. It is unioned into the trusted
+# set ONLY when the app is not packaged (src/main/marketplace/trusted-publishers.ts),
+# it is never read by the registry verifier, and a committed copy would be a
+# second signing authority shipped to every user.
+resources/marketplace/trusted-publishers.dev.json

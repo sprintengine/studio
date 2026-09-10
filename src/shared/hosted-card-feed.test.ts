@@ -5,6 +5,7 @@ import {
   HOSTED_CARD_FEED_URL,
   hostedCardFeedUpdatedAtMs,
   parseHostedCardFeed,
+  refuseCardActions,
 } from './hosted-card-feed'
 
 const card = (over: Record<string, unknown> = {}) => ({
@@ -125,6 +126,18 @@ const rejects = (go: unknown, match: RegExp) => {
     id: 'io-github-domdomegg-gmail-mcp',
   })
   rejects({ verb: 'install.mcp' }, /install\.mcp needs a server id/)
+
+  // install.module names an entry in the app's OWN signed registry and carries
+  // no source: there is exactly one registry, it ships with the app, and a card
+  // that could name another would be choosing where this machine's code comes
+  // from. A `source` beside it is copied out, not through.
+  assert.deepEqual(one({ verb: 'install.module', id: 'review', source: 'github:someone/else' }), {
+    verb: 'install.module',
+    id: 'review',
+  })
+  assert.deepEqual(one({ verb: 'install.module', id: '  review  ' }), { verb: 'install.module', id: 'review' })
+  rejects({ verb: 'install.module' }, /install\.module needs a marketplace entry id/)
+  rejects({ verb: 'install.module', id: '   ' }, /install\.module needs a marketplace entry id/)
 
   for (const verb of ['install.skill', 'install.plugin']) {
     assert.deepEqual(one({ verb, source: 'github:sprintengine/studio-releases', id: 'studio-skills/skills/debug' }), {
@@ -342,6 +355,27 @@ const rejects = (go: unknown, match: RegExp) => {
 {
   assert.equal(hostedCardFeedUpdatedAtMs({ updatedAt: '2026-09-06T00:00:00Z' }), Date.parse('2026-09-06T00:00:00Z'))
   assert.equal(hostedCardFeedUpdatedAtMs({ updatedAt: 'never' }), 0)
+}
+
+// install.module is an INSTALL verb for the whole-card rules, so a clone after
+// it is refused: the clone moves the workspace everything after it runs in, and
+// a module installed before it landed in the project the person was already in.
+{
+  assert.match(
+    refuseCardActions([
+      { verb: 'install.module', id: 'review' },
+      { verb: 'clone.repo', repo: 'sprintengine/studio-releases' },
+    ]) ?? '',
+    /clones a project after it has already installed something/,
+  )
+  // The other order is fine.
+  assert.equal(
+    refuseCardActions([
+      { verb: 'clone.repo', repo: 'sprintengine/studio-releases' },
+      { verb: 'install.module', id: 'review' },
+    ]),
+    null,
+  )
 }
 
 console.log('hosted-card-feed: ok')

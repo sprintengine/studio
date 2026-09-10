@@ -1,6 +1,164 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-09-10
+
+- **An MCP tool can say that it writes.** `McpToolRegistration.mutates?: boolean`.
+  The Studio gateway used to classify mutations from a table of core tool names,
+  which a module's tool could never be in — so a module tool that wrote to disk
+  was served to a remote caller holding only the read scope, and left no audit
+  entry. Declare `mutates: true` and the gateway requires `<family>:operate`
+  from a tailnet caller and records every call, refusals included. Omitted means
+  a read, as before.
+- **The host's UI kit, door shell and Monaco are bridged to modules**
+  (Reviews-extraction ruling D6, 2026-09-10). A module that wanted to look like
+  the app had two options, both bad: re-implement the chrome a shade off, or
+  bundle a second copy of React-dependent components and break hooks. Two new
+  subpath entry points now publish the app's own pieces —
+  `@multicode/module-sdk/ui` (`GhostButton`, `OutlineButton`, `PrimaryButton`,
+  `Banner`, `Drawer`, `EmptyState`, `Field`, `Input`, `Textarea`,
+  `InlineNotice`, `KbdChord`, `LifecycleGlyph`, `LinkButton`, `RowButton`,
+  `Section`, `SegmentedControl`, `Select`, `Spinner`, `StatusDot`,
+  `TruncatedText`, `CliModelPickerButton`, `FOCUS_RING_CLASS`) and
+  `@multicode/module-sdk/surface` (`GlobalSurfaceShell`, `useSurfaceBackNav`,
+  `SurfaceRail`, `SurfaceCanvasState`) — alongside `@monaco-editor/react`,
+  which the host has always shipped and now answers for modules too. All three
+  join `react` and friends in the import map the host installs before it
+  evaluates an `entry.renderer` bundle, so there is one React, one Monaco and
+  one kit in the process.
+
+  Both subpaths ship TYPES ONLY: their runtime is a stub that throws
+  `"@multicode/module-sdk/ui is provided by the host at runtime; mark it
+  external in your bundler"`, so forgetting the external is a loud failure at
+  load rather than a silent second React. Add
+  `--external:@monaco-editor/react --external:@multicode/module-sdk/ui
+  --external:@multicode/module-sdk/surface` to your bundle.
+
+  Two things this does NOT give you. Tailwind utility classes written inside a
+  module compile to nothing — the app's Tailwind build scans app source only —
+  so a module that writes its own classes must ship a utilities-only stylesheet
+  (README shows the four-line entry). And the published list is short on
+  purpose: it is a versioned contract pinned in both directions by the drift
+  guard, so a component that is not on it is cheaper copied into your module
+  than frozen here forever.
+- **A modal surface contributes the row that opens it** (D7, 2026-09-10).
+  `ModalSurfaceDefinition.launcher = { label, letter, Glyph }` puts your
+  surface in the workspace pane's kind list — the strip's "+" menu and the
+  pane's empty-state launcher, beside Browser, Terminal, Files, Diff, Git and
+  Backlog. It is the one trigger the shell draws for a modal, and it exists
+  because Reviews was hard-coded into that list: the entry above says
+  "contribute that trigger yourself", which a module reaching for the pane
+  could not do. `letter` must be exactly one character (uppercased for you) and
+  a malformed launcher is a registration error. The shell's own kinds win a
+  letter collision, as does an earlier-registered module: the losing row keeps
+  its label and glyph and simply has no shortcut, rather than taking a key the
+  person already knows.
+
+- **A modal body is told which workspace opened it.** `Component` is now
+  `ComponentType<{ workspaceId?: string }>` (`ModalSurfaceComponent`), and the
+  shell passes the workspace its opener acted from — for a pane row, the
+  workspace the row was picked in. A modal floats over the window rather than
+  mounting inside a workspace card, so it had no way to know what it was acting
+  on but "the active workspace", which can change under an open modal. A
+  zero-prop component still satisfies the type, so an app-level surface needs
+  no change.
+
+- **The open workspaces, not just one.** `RendererHost.listWorkspaces()` and
+  `watchWorkspaces(cb)` return the same `ModuleWorkspaceView` rows
+  `getWorkspace` resolves, for a surface that is not mounted inside any one
+  workspace and so has no id to ask about. The watch fires once with the
+  current list, then on change (deduped by value). Declare
+  `ipc:workspace-read`. Empty — never a throw — before the shell wires
+  workspace state.
+
+- **`RendererHost.watchColorScheme(cb)`** reports the app's resolved
+  `'light' | 'dark'` immediately and on every change (an explicit theme switch,
+  or an OS switch while the preference follows the system). For a themed
+  runtime you HOST and must hand a concrete value — Monaco's base theme, a
+  chart palette. Ordinary module UI should keep reading `THEME_TOKENS` and
+  re-skin without JavaScript. New published type: `ModuleColorScheme`.
+
+- **`watchAgentSessions` takes `undefined` for "every workspace"**, narrowed to
+  the agent-id namespaces your module claimed with `registerAgentIdNamespace`.
+  A module whose `entry.main` spawns agents without a window's knowledge had no
+  workspace id to watch and no way to follow them; this is that watch. Claim no
+  namespace and the unscoped call reports an empty list — it is never a window
+  onto other modules' sessions. A workspace id behaves exactly as before.
+
+- **`listAgentRuntimes()` answers what a picker needs.**
+  `ModuleAgentRuntimeOption` widens from `{ id, label }` to
+  `{ id, label, available, models, isDefault }` (`models` being
+  `ModuleAgentRuntimeModelOption[]` — the manifest, discovered and user-added
+  ids merged, exactly the rows the shell's own model picker shows). A module
+  building a CLI + model picker previously had ids and labels and nothing else
+  to preselect or disable with.
+
+- **`THEME_TOKENS` gains `--motion-normal` and `--motion-ease`** — the app's
+  standard transition duration and easing, guaranteed in every theme by the
+  same per-theme repo gate as the rest. Use them as a pair
+  (`transition: opacity var(--motion-normal) var(--motion-ease)`) so module UI
+  moves at the app's pace instead of inventing its own.
+- **`plugin scaffold` and `plugin sign` write components in canonical order,
+  and print the `provides` array to paste.** A registry entry's `provides` must
+  equal the component kinds the app derives from the bundle, and the app derives
+  them by filtering `MARKETPLACE_COMPONENT_KINDS` (`mcp, skills, module, cli,
+  automation`) — so an author who typed `--component cli --component mcp`, or who
+  hand-wrote `plugin.json`, read one order out of their own file and the
+  downloader computed another. The mismatch surfaced as a registry-mismatch
+  failure on the user's machine, naming two lists that look the same. Both
+  writers of `plugin.json` now key `components` canonically before the manifest
+  is signed, and `plugin scaffold`, `plugin sign` and `plugin verify` each end
+  with a `Registry entry "provides": [...]` line that is the exact array the
+  registry entry needs.
+- **Agent sessions: a module can own an agent TERMINAL** (`getAgentSessionService(host)`,
+  new scope `agents:session`). A module's `entry.main` had two doors to an agent
+  and neither fits a long-lived working one: the companion service drives a
+  conversation-runtime session (no pty, no tab, no CLI of the user's choosing),
+  and `ipc:agents` discloses a renderer surface main-side code cannot reach.
+  The third door is the one the in-tree review guide always actually used — an
+  ordinary agent terminal, spawned in the workspace the module's surface was
+  opened from, under the user's CLI, permission default, runtime overrides, MCP
+  and knowledge graph, with a skill attached at spawn. `spawn` (fresh, or
+  `reused: true` when a live session already answers to the same agent id),
+  `send`, `kill`, `setReapExempt`, `onExit`, `list`. New types:
+  `ModuleAgentSessionRecord`, `ModuleAgentSpawnRequest`, `ModuleAgentSpawnResult`,
+  `ModuleAgentExitEvent`, `ModuleAgentSessionService`.
+
+  Scoping is by agent-id prefix: name your agents `${agentIdPrefix}${agentIdKey}`
+  under a namespace you registered, and `list()` answers for those and nothing
+  else. Every method checks `agents:session` at runtime — the third scope that
+  is genuinely gated, alongside `ipc:invoke` and `agents:companion`.
+
+  *Known limitation.* Agent-id namespaces are registered on the RENDERER host and
+  main holds no mirror of that registry yet, so main cannot verify that a prefix
+  is one you registered. Until it can, a prefix is validated as non-empty and
+  ownership falls back to "prefixes this module has spawned under in this
+  process" — sound (no module can reach another's agents) but forgotten across a
+  restart, so `list()` may under-report sessions spawned before one.
+
+- **`WorkspaceContextService.list()`.** `WorkspaceContextToken` could resolve one
+  workspace id and had no way to enumerate them, so an MCP tool a module
+  contributes — which runs with no window and no renderer to ask — could not
+  answer "which project roots are open". `list(): Promise<ModuleWorkspaceView[]>`
+  is the main-side twin of `RendererHost.listWorkspaces`.
+- **A module can ship its own skills** (`MainHost.registerSkills`,
+  `MainHost.ensureSkillInstalled`). Skills used to be a closed set compiled
+  into the app, so a module that wanted an agent to run with its own skill had
+  no way to say so — it could spawn an agent and name a skill that was never
+  copied anywhere. `registerSkills([{ id, sourceDir, targetPolicy,
+  description }])` hands the host a directory inside your module root
+  (resolved and containment-checked; a rootless bundled module passes an
+  absolute path) and the host then treats it exactly as it treats its own:
+  same check-first install, same managed manifest, same `'all-native'` fan-out
+  into every installed CLI's native skill directory, and the same resolution
+  at the agent-launch boundary. Ownership matches `registerMcpTools` — an id a
+  built-in or another module holds throws, the batch is validated before one
+  skill of it lands, and unloading the module unregisters its skills.
+  `ensureSkillInstalled(workspaceRoot, skillId)` pre-installs one on demand
+  and never throws; an id nothing answers to now returns
+  `{ ok: false, status: 'unknown-skill' }` (and is logged by the app's launch
+  path) where it used to be a silent no-op. New mirrored types:
+  `ModuleSkillRegistration`, `ModuleSkillTargetPolicy`,
+  `EnsureSkillInstalledResult`.
 
 - **A door surface names and places itself** (Extensions drawer ruling,
   2026-09-05). `GlobalSurfaceDefinition` was `{ id, Component }` while the host

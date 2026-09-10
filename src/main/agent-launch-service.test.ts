@@ -394,6 +394,83 @@ run('the launch carries an execution identity, or the run could never finalize',
   })
 })
 
+// The caller-owned half of the launch (WP-B). A module agent session is an
+// ordinary launch that brings its own identity, its own working directory, and
+// its own residency rule — so the composition below is the same one every
+// app-level launch gets, and only these four inputs differ.
+
+run('a caller that owns its agent id keeps it, and the session id is still minted', async () => {
+  const app = harness()
+  const launched = await app.service.launch({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    agentId: 'review-guide-review_1',
+  })
+
+  assert.equal(launched.ok && launched.agentId, 'review-guide-review_1')
+  assert.equal(app.spawns[0]!.agentId, 'review-guide-review_1')
+  assert.equal(
+    app.spawns[0]!.sessionId,
+    'session-minted',
+    'the agent id is never reused as the session id — a Claude-harness CLI refuses one it has seen'
+  )
+  assert.equal(app.spawns[0]!.agentSession?.workId, 'review-guide-review_1')
+})
+
+run('an explicit cwd wins over the workspace folder, which still owns the residency', async () => {
+  const app = harness({ workspaces: [workspace({ folderPath: '/repo/a' })] })
+  const launched = await app.service.launch({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    cwd: '/repo/a/packages/thing',
+  })
+
+  assert.equal(launched.ok, true)
+  assert.equal(app.spawns[0]!.cwd, '/repo/a/packages/thing')
+  assert.equal(app.spawns[0]!.workspaceId, 'ws-1')
+  assert.equal(
+    app.spawns[0]!.agentSession?.workspaceRoot,
+    '/repo/a',
+    'the execution identity still names the project root'
+  )
+})
+
+run('a caller that knows what its agent IS records that role', async () => {
+  const app = harness()
+  await app.service.launch({ workspaceId: 'ws-1', cli: 'claude-code', role: 'review-guide' })
+  assert.equal(app.spawns[0]!.agentSession?.role, 'review-guide')
+
+  const general = harness()
+  await general.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.equal(general.spawns[0]!.agentSession?.role, 'general', 'an app-level launch says nothing')
+})
+
+run('anyWorkspaceMode accepts the workspace the caller named, whatever its mode', async () => {
+  const app = harness({ workspaces: [workspace({ mode: 'sprint-run' })] })
+
+  const refused = await app.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
+  assert.equal(refused.ok, false)
+  assert.equal(!refused.ok && refused.code, 'unsupported_workspace_mode')
+
+  const allowed = await app.service.launch({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    anyWorkspaceMode: true,
+  })
+  assert.equal(allowed.ok, true, JSON.stringify(allowed))
+})
+
+run('the result names the CLI main resolved and the execution id the exit will carry', async () => {
+  const app = harness({ settings: settings({ lastSelectedCli: 'codex' }) })
+  const launched = await app.service.launch({ workspaceId: 'ws-1' })
+
+  assert.ok(launched.ok)
+  if (!launched.ok) return
+  assert.equal(launched.cli, 'codex', 'a caller that named no CLI still learns which one started')
+  assert.equal(launched.executionId, launched.sessionId)
+  assert.equal(app.spawns[0]!.agentSession?.executionId, launched.executionId)
+})
+
 run('dispose kills the agent\'s live sessions and is idempotent', () => {
   const app = harness({
     sessions: [

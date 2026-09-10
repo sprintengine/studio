@@ -1,7 +1,7 @@
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { activeForChannel } from '../../../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
-import { toModuleWorkspaceView } from '../../../shared/modules/workspace-view'
+import { toModuleWorkspaceView, type ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
 import { markStartup } from '../utils/startupTimeline'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { automationsRendererModule } from './automations-module'
@@ -11,7 +11,6 @@ import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
 import { mobileRelayRendererModule } from './mobile-relay-module'
-import { reviewRendererModule } from './review-module'
 import { sprintEngineRendererModule } from './sprint-engine-module'
 import { voiceDictationRendererModule } from './voice-dictation-module'
 import { createRendererHost, type RendererModule } from './renderer-host'
@@ -27,7 +26,6 @@ const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   memoryRendererModule,
   gitRendererModule,
   sprintEngineRendererModule,
-  reviewRendererModule,
   automationsRendererModule,
   mobileRelayRendererModule,
   voiceDictationRendererModule,
@@ -51,7 +49,7 @@ export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest
 const IS_PRODUCTION_BUILD: boolean = (import.meta as { env?: { PROD?: boolean } }).env?.PROD === true
 
 // Active renderer modules for this build channel. Dev-only modules (Voice,
-// Mobile Relay, and the not-yet-production-ready Review) are dropped from a
+// Mobile Relay) are dropped from a
 // packaged (production) renderer
 // bundle so they are absent everywhere downstream: host registration, the
 // enablement universe, profiles, and the Settings → Modules manager. In a dev
@@ -132,8 +130,11 @@ if (typeof window !== 'undefined') {
     import('./agent-session-watch'),
     import('./agent-spawn'),
     import('./registry-snapshot'),
+    import('./workspace-list-watch'),
+    import('./color-scheme-watch'),
+    import('../hooks/useAppTheme'),
   ])
-    .then(([{ useWorkspaceStore }, { moduleSettingsNamespace }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree, { createWorkspaceFileWatcher }, { createAgentSessionWatcher }, { createModuleAgentSpawner }, { buildModuleRegistrySnapshot, collectModuleSurfaces, startModuleRegistrySnapshotMirror }]) => {
+    .then(([{ useWorkspaceStore }, { moduleSettingsNamespace }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree, { createWorkspaceFileWatcher }, { createAgentSessionWatcher }, { createModuleAgentSpawner }, { buildModuleRegistrySnapshot, collectModuleSurfaces, startModuleRegistrySnapshotMirror }, { createWorkspaceListSource }, { createColorSchemeWatcher }, appTheme]) => {
       rendererHost.setModuleEnablementResolver((moduleId) =>
         selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
       )
@@ -191,6 +192,42 @@ if (typeof window !== 'undefined') {
         const workspace = useWorkspaceStore.getState().workspaces.find((entry) => entry.id === workspaceId)
         return workspace ? toModuleWorkspaceView(workspace) : null
       })
+      // The same mapping, one scope up: the whole open list, for a module
+      // surface that is not mounted inside any one workspace.
+      rendererHost.setWorkspaceListSource(
+        createWorkspaceListSource({
+          list: () =>
+            useWorkspaceStore.getState().workspaces
+              .map((workspace) => toModuleWorkspaceView(workspace))
+              .filter((view): view is ModuleWorkspaceView => view !== null),
+          subscribe: (cb) =>
+            useWorkspaceStore.subscribe((state, prev) => {
+              if (state.workspaces !== prev.workspaces) cb()
+            }),
+        })
+      )
+      // Resolved light/dark, from the appearance preference and — while it is
+      // `system` — the OS media query: the same two inputs useResolvedColorScheme
+      // reads, so a module's Monaco and the app's own agree.
+      rendererHost.setColorSchemeWatcher(
+        createColorSchemeWatcher({
+          getScheme: () =>
+            appTheme.resolvedColorScheme(useWorkspaceStore.getState().appSettings.appearance.theme),
+          subscribe: (cb) => {
+            const stopStore = useWorkspaceStore.subscribe((state, prev) => {
+              if (state.appSettings.appearance.theme !== prev.appSettings.appearance.theme) cb()
+            })
+            // Always attached, whatever the preference: the watcher dedupes,
+            // so an OS switch under an explicit theme costs one no-op read
+            // and a `system` preference never misses one.
+            const stopMedia = appTheme.subscribeSystemColorScheme(cb)
+            return () => {
+              stopStore()
+              stopMedia()
+            }
+          },
+        })
+      )
       // Per-module workspace-state bag (MC-1573): reads come straight off the
       // store's `Workspace.moduleState`; writes go through the store action so
       // persistence and cross-window sync see them like any workspace field.
@@ -334,14 +371,31 @@ if (typeof window !== 'undefined') {
           focusFileTab: (workspaceId, absolutePath) => modelRegistry.focusFileTab(workspaceId, absolutePath),
           listRuntimes: () => {
             const state = useWorkspaceStore.getState()
+            const lastSelected = state.appSettings.lastSelectedCli ?? null
             return cliRuntimeOptions
               .selectAgentCliCatalog(
                 state.pluginCatalogStatus,
                 state.pluginCatalogEntries,
                 state.appSettings.cliRuntimes,
-                { map: state.cliAvailability, status: state.cliAvailabilityStatus }
+                { map: state.cliAvailability, status: state.cliAvailabilityStatus },
+                state.appSettings.cliModelCatalog,
+                state.hostedModelCatalogs,
               )
-              .map((option) => ({ id: option.value, label: option.label }))
+              .map((option) => ({
+                id: option.value,
+                label: option.label,
+                // The catalog is availability-filtered, so a row that is here
+                // is installed unless detection explicitly said otherwise
+                // (an option probed after it was added carries no entry yet).
+                available: option.installed !== false,
+                // Ids + labels only: the merged catalog's origin tags and
+                // release dates are picker internals, not module contract.
+                models: (option.modelSelection?.options ?? []).map((model) => ({
+                  id: model.id,
+                  label: model.label ?? model.id,
+                })),
+                isDefault: option.value === lastSelected,
+              }))
           },
           defaultCli: () => useWorkspaceStore.getState().appSettings.lastSelectedCli ?? null,
           pickAgentName: (existing) => agentNames.pickRandomAgentName(existing),

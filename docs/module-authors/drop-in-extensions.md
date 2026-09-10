@@ -22,8 +22,9 @@ environment variable (used by the dev harness); plugins always resolve under
 A capability module extends the app itself — main-process services and IPC,
 renderer panels, workspace types, commands, Backlog actions, settings
 sections, sidebar nav doors, and modal surfaces (`registerModalSurface`: a
-body mounted in the shell's modal shell plus a trigger glyph in the sidebar
-footer's settings cluster) — through the `MainHost` / `RendererHost`
+body mounted in the shell's modal shell, floated over whatever the window is
+showing, optionally with a `launcher` row in the workspace pane's kind list)
+— through the `MainHost` / `RendererHost`
 contracts. Modules are trust-gated: only modules the user has trusted execute
 code.
 
@@ -48,6 +49,81 @@ const result = await workspaces.create({ name: 'Scratch', folderPath: '/abs/path
 
 The promise resolves only after the workspace is confirmed on the
 workspace-sync bus, so a returned id is always a real workspace.
+
+### Developing a first-party module locally
+
+A handful of module ids are **reserved** (`BUNDLED_MODULE_IDS`): the app
+installs one only when its `manifest.json` is signed by a key whose
+fingerprint is listed in `resources/marketplace/trusted-publishers.json`. That
+is what stops anyone shadowing a first-party module — and it also means a
+contributor building the app from source cannot install their own build of
+one, because they do not hold the release signing key.
+
+`resources/marketplace/trusted-publishers.dev.json` is the way through. It has
+the same shape as `trusted-publishers.json`, it is gitignored, and its
+fingerprints are unioned into the trusted set **only when the app is not
+packaged** (`src/main/marketplace/trusted-publishers.ts`). A packaged build
+never reads it, and neither does the registry verifier
+(`npm run verify:marketplace-registry` opens `trusted-publishers.json` by name),
+so a dev key can never become a signing authority for anybody else.
+
+```bash
+# once
+multicode-module keygen --out ~/.config/sprintengine/keys/my-dev.key
+# prints: Public key fingerprint: <fingerprint>
+
+cat > resources/marketplace/trusted-publishers.dev.json <<'JSON'
+{
+  "schemaVersion": 1,
+  "publishers": [
+    {
+      "name": "Multicode Labs",
+      "verified": true,
+      "publicKey": "<the public key the keygen printed>",
+      "fingerprint": "<fingerprint>",
+      "scope": "Local development only; never committed."
+    }
+  ]
+}
+JSON
+```
+
+The `name` must equal the `publisher.name` on the registry entry you are
+standing in for. Then sign both the inner module manifest and the bundle
+`plugin.json` with that key, install, and restart the app.
+### Shipping skills with a module
+
+Skills are not a closed set the app compiles in. A module can carry its own
+skill directories and register them at startup:
+
+```ts
+host.registerSkills([
+  {
+    id: 'review-guide',
+    sourceDir: 'skills/review-guide',      // relative to the module root
+    targetPolicy: 'all-native',            // or 'agents'
+    description: 'Walk a human reviewer through a code change.',
+  },
+])
+```
+
+`sourceDir` must stay inside the module root — the host resolves it and
+rejects anything that escapes. An `id` a built-in skill or another module
+already owns is a registration error, and unloading the module unregisters its
+skills.
+
+From then on the skill is a skill: an agent launched with that skill id gets it
+copied into the workspace before it starts, `targetPolicy: 'all-native'` fans
+it out into every installed CLI's own skill directory (`.claude/skills`,
+`.codex/skills`, …) rather than only `.agents/skills`, and the copy carries the
+same managed manifest as the app's own skills, so a hand-edited copy is never
+overwritten.
+
+To put one in a workspace ahead of time — a skill an agent will be told to
+invoke, or one the user should see listed — call
+`host.ensureSkillInstalled(workspaceRoot, skillId)`. It never throws and
+answers `{ ok, status, message? }`; `status: 'unknown-skill'` means nothing
+answers to that id.
 
 ### Publishing a module to the marketplace
 

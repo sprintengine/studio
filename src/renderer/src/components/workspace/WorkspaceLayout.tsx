@@ -1607,8 +1607,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
   // of blank "Panel unavailable" tabs. Data stays on disk; installing the
   // module and relaunching renders the workspace again. (A DISABLED bundled
   // module still has a registered type and keeps the existing per-tab gating;
-  // shell-owned hidden host modes — sprintengine, automations-host,
-  // reviews-host — are not module-owned surfaces and keep their layouts.)
+  // shell-owned hidden host modes — sprintengine, automations-host — are
+  // not module-owned surfaces and keep their layouts.)
   if (
     workspaceMode !== 'standard'
     && !isModeHiddenFromRail(workspaceMode)

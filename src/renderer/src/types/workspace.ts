@@ -92,37 +92,26 @@ export type {
   McpSettings,
   SpecialistActionId,
 } from '../../../shared/sprintengine/agent-state'
-import type { ReviewWorkspaceState } from '../../../shared/review'
-
-export type { ReviewWorkspaceState }
-
 export type WorkspaceId = string
 export type WorkspaceWindowId = string
 export const STANDARD_WORKSPACE_MODE = 'standard'
-// Guided walkthrough of a pull request, branch, or pasted patch (MC-1677). A
-// single-surface type: one non-closeable review tab, its change set persisted on
-// disk under `.multi-code/review/<workspaceId>/`.
-export const REVIEW_WORKSPACE_MODE = 'review'
 
 export type BundledWorkspaceMode =
   | typeof STANDARD_WORKSPACE_MODE
   | typeof SPRINT_ENGINE_WORKSPACE_MODE
   | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
-  | typeof REVIEWS_HOST_WORKSPACE_MODE
-  | typeof REVIEW_WORKSPACE_MODE
 
 // Lifted to the shared layer so shared contracts can name the mode without
 // importing the renderer; `STANDARD_WORKSPACE_MODE` is its `'standard'` member.
-// The two rail-hidden modes live there too, beside the `isModeHiddenFromRail`
+// The rail-hidden modes live there too, beside the `isModeHiddenFromRail`
 // predicate main also consults. Imported here (so this module's own references
 // resolve) and re-exported so every existing import site keeps resolving here.
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
-  REVIEWS_HOST_WORKSPACE_MODE,
   SPRINT_ENGINE_WORKSPACE_MODE,
   type WorkspaceMode,
 } from '../../../shared/workspace-mode'
-export { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEWS_HOST_WORKSPACE_MODE, SPRINT_ENGINE_WORKSPACE_MODE }
+export { AUTOMATIONS_HOST_WORKSPACE_MODE, SPRINT_ENGINE_WORKSPACE_MODE }
 export type { WorkspaceMode }
 
 export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
@@ -885,14 +874,6 @@ export type Workspace = {
   remoteOrigin?: WorkspaceRemoteOrigin | null
   worktree?: WorkspaceWorktree | null
   sprintEngineContext?: SprintEngineWorkspaceContext | null
-  // LEGACY, READ-ONLY (MC-1856). The human's review progress on a `review`-mode
-  // workspace (MC-1675). The `review` workspace type retired in MC-1708, so
-  // nothing writes this any more — it survives ONLY so persisted rows written
-  // before that retirement can still be lifted onto disk by
-  // `collectReviewStateMigrations`, which is core's job (see the comment there).
-  // Live review progress lives on disk beside the change set, not on a
-  // workspace row. Do not add readers.
-  reviewState?: ReviewWorkspaceState | null
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>

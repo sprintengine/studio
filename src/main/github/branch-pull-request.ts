@@ -29,7 +29,7 @@
 // name is the key the person is thinking in.
 
 import { pullRequestRepository, type BranchPullRequest, type PullRequestState } from '../../shared/git/pull-request'
-import { canonicalPullRequestUrl, parsePullRequestUrl } from '../../shared/review/pr-url'
+import { canonicalPullRequestUrl, parsePullRequestUrl } from '../../shared/git/pr-url'
 import { isRecord } from '../../shared/records'
 import { sharedGhRunner, type GhRunner } from './gh'
 

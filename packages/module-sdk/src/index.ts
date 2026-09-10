@@ -114,6 +114,11 @@ export type CapabilityPermission =
   // Companion Agents service. Unlike the disclosure-only scopes above, the
   // companion service checks this one explicitly at attach time.
   | 'agents:companion'
+  // Launch, prompt and stop the module's OWN agent terminals through the SDK's
+  // scoped Agent Sessions service. Runtime-checked like `agents:companion`, and
+  // scoped further by agent-id namespace: a module reaches the sessions it
+  // started and named, never another module's and never the user's.
+  | 'agents:session'
   // Persist the module's own data through the SDK's scoped storage service
   // (host-placed: workspace `.multi-code/modules/<id>/` or per-user app data).
   | 'storage'
@@ -135,6 +140,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.link.open',
   'automations.manage',
   'agents:companion',
+  'agents:session',
   'storage',
 ]
 
@@ -260,7 +266,61 @@ export type McpToolRegistration = {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /**
+   * Declares that the tool CHANGES state. The Studio gateway reads it for two
+   * decisions: a remote (tailnet) caller must hold `<family>:operate` rather
+   * than the read-only `<family>:read` to invoke it, and every call — including
+   * one refused for want of that scope — is written to the gateway audit with
+   * the calling device. Omitted or false means a read: advertised to every
+   * paired device on the read scope and not audited. Declare it on anything
+   * that writes to disk, spawns a process, or reconfigures the machine.
+   */
+  mutates?: boolean
   handler: (args: Record<string, unknown>, context?: McpConnectionContext) => Promise<McpToolResult>
+}
+
+// ── Skills a module ships ────────────────────────────────────────────────────
+
+/**
+ * Where a skill must land in a workspace.
+ *
+ * - `'agents'` — the harness-neutral `.agents/skills/<id>` directory only.
+ *   Enough for a skill an agent discovers by reading the directory.
+ * - `'all-native'` — additionally every installed CLI plugin's own native
+ *   skill directory (`.claude/skills`, `.codex/skills`, …). Required when the
+ *   skill is invoked by name in a prompt, because a CLI resolves an invocation
+ *   only against its own directory.
+ */
+export type ModuleSkillTargetPolicy = 'agents' | 'all-native'
+
+/**
+ * One skill your module ships. `sourceDir` is the directory holding the
+ * skill's `SKILL.md` (plus its `agents/` sidecars, when it has them), relative
+ * to your module root; the host resolves it and refuses a path that escapes
+ * the root.
+ *
+ * `id` is the invocation name and must not collide with a built-in skill or
+ * with a skill another module already registered.
+ */
+export type ModuleSkillRegistration = {
+  id: string
+  sourceDir: string
+  targetPolicy: ModuleSkillTargetPolicy
+  description: string
+}
+
+/**
+ * The answer to "is this skill present in that workspace now?".
+ *
+ * `status` carries the installer's own vocabulary — `installed`, `updated`,
+ * `local`, `modified`, `missing-source`, `missing-workspace`, `unknown-skill`,
+ * `install-failed` — so you can tell "we wrote it" from "a hand-made copy is
+ * in the way" from "nobody has ever heard of this skill".
+ */
+export type EnsureSkillInstalledResult = {
+  ok: boolean
+  status: string
+  message?: string
 }
 
 export type MainHost = {
@@ -278,6 +338,26 @@ export type MainHost = {
    * agent-reachable capability — declare the `ipc:agents` permission.
    */
   registerMcpTools(tools: McpToolRegistration[]): void
+  /**
+   * Contribute agent skills your module ships. Each `sourceDir` is relative to
+   * your module root and must stay inside it. Registrations are owned exactly
+   * as IPC channels and MCP tools are: an id a built-in skill or another
+   * module already holds is a registration error, the whole batch is validated
+   * before one skill of it lands, and unloading your module takes its skills
+   * with it.
+   *
+   * A registered skill is a skill: an agent launched with `skill: { id }`
+   * resolves it, and `targetPolicy: 'all-native'` fans it out into every
+   * installed CLI's native skill directory the way a built-in does.
+   */
+  registerSkills(skills: ModuleSkillRegistration[]): void
+  /**
+   * Make a skill present in a workspace now, rather than at the next agent
+   * launch — how you pre-install the skill an agent will be told to invoke.
+   * Works for your own skills and for the app's. Never throws; an unknown id
+   * answers `{ ok: false, status: 'unknown-skill' }`.
+   */
+  ensureSkillInstalled(workspaceRoot: string, skillId: string): Promise<EnsureSkillInstalledResult>
   provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T
   getService<T>(token: ServiceToken<T>): T | undefined
   requireService<T>(token: ServiceToken<T>): T
@@ -389,6 +469,13 @@ export type ModuleWorkspaceView = {
  */
 export type WorkspaceContextService = {
   get(workspaceId: string): Promise<ModuleWorkspaceView | null>
+  /**
+   * Every workspace currently open, in registry order. The main-side twin of
+   * `RendererHost.listWorkspaces`, and the only way `entry.main` can answer
+   * "which project roots are open" — an MCP tool your module contributes runs
+   * with no window and no renderer to ask.
+   */
+  list(): Promise<ModuleWorkspaceView[]>
 }
 
 /**
@@ -865,6 +952,168 @@ export function getCompanionAgentsService(host: MainHost): CompanionAgentsServic
   const moduleId = host.moduleId
   return {
     attach: (spec) => registry.attach(moduleId, spec),
+  }
+}
+
+// ── Agent sessions (host-provided, consumed via the service bridge) ──────────
+
+/**
+ * A terminal agent session as a module sees it: the coordinates it needs to
+ * address the session again, and the liveness facts it needs to decide whether
+ * to. Deliberately narrower than the app's own session snapshot — identity and
+ * liveness, never scrollback, cwd, or file-change telemetry.
+ */
+export type ModuleAgentSessionRecord = {
+  sessionId: string
+  agentId: string | null
+  name: string | null
+  cli: string | null
+  workspaceId: string | null
+  executionId: string | null
+  /** The pty is running and not frozen by the idle reaper. */
+  isLive: boolean
+  suspended: boolean
+  reapExempt: boolean
+  startedAt: number
+}
+
+export type ModuleAgentSpawnRequest = {
+  /**
+   * The workspace the agent belongs to. Required: a module surface is always
+   * opened FROM somewhere, and an agent parked in a workspace nobody named is
+   * one the user cannot find again.
+   */
+  workspaceId: string
+  /** Absolute working directory for the agent's terminal. */
+  cwd: string
+  /** Agent CLI plugin id. Absent takes the user's last-selected CLI. */
+  cli?: string
+  /** Model id for CLIs declaring modelSelection; forwarded verbatim. */
+  cliModel?: string
+  /** Delivered as the opening turn on a fresh spawn, or pasted into a reused one. */
+  prompt: string
+  /**
+   * A skill the host installs into the working directory before the CLI starts.
+   * An id the host cannot resolve fails the spawn with `unknown_skill` rather
+   * than starting an agent without the instructions it was meant to run on.
+   * The CLI-native invocation comes back as `skillInvocation` for the prompt to
+   * lead with.
+   */
+  skill?: { id: string }
+  /** Session-manager label for the terminal. Absent picks a name from the shared pool. */
+  label?: string
+  /**
+   * The agent's identity: `${agentIdPrefix}${agentIdKey}`. The prefix must be a
+   * namespace this module registered; the key is whatever the module keys its
+   * agents by (a review id, a document id). Stable across spawns, which is what
+   * `reuseLive` and `list()` match on. Absent mints an app-owned id.
+   */
+  agentIdPrefix?: string
+  agentIdKey?: string
+  /**
+   * The launch permission preset. Absent takes the user's configured default —
+   * never an escalation the module chose for them.
+   */
+  permissionPreset?: 'none' | 'manual' | 'auto' | 'bypass'
+  /**
+   * Deliver the prompt to a live session under the same agent id instead of
+   * spawning a second one (`reused: true`). Default true; a dead or suspended
+   * session under that id is disposed and replaced either way.
+   */
+  reuseLive?: boolean
+  /** Free-form role recorded on the session's agent identity ('review-guide'). */
+  role?: string
+}
+
+export type ModuleAgentSpawnResult =
+  | {
+      ok: true
+      sessionId: string
+      agentId: string
+      executionId: string
+      workspaceId: string
+      cli: string
+      reused: boolean
+      /**
+       * The CLI-native explicit invocation for the requested skill (`/review-guide`
+       * on Claude, `Use $review-guide.` on Codex). Absent when no skill was asked
+       * for, or when this CLI's plugin declares no native skill form — point the
+       * agent at the installed `.agents/skills/<id>/SKILL.md` instead.
+       */
+      skillInvocation?: string
+    }
+  | {
+      ok: false
+      code:
+        | 'unknown_workspace'
+        | 'missing_cwd'
+        | 'no_cli_selected'
+        | 'cli_not_agent_selectable'
+        | 'unknown_skill'
+        | 'spawn_failed'
+        | 'send_failed'
+        | 'permission_missing'
+      message: string
+    }
+
+/** A module agent's terminal ended. Fans out from the runtime's own exit report. */
+export type ModuleAgentExitEvent = {
+  agentId: string | null
+  executionId: string
+  workspaceId: string | null
+  exitCode: number
+}
+
+/**
+ * Terminal agent sessions for a module's `entry.main`, obtained via
+ * `getAgentSessionService(host)`.
+ *
+ * Declare the `agents:session` permission — every method here checks it — and
+ * `dependsOn: ['agent-runtime']` so the service exists before your entry runs.
+ */
+export type ModuleAgentSessionService = {
+  spawn(request: ModuleAgentSpawnRequest): Promise<ModuleAgentSpawnResult>
+  /** One prompt into a live session, submitted as a turn, serialized per session. */
+  send(sessionId: string, text: string): Promise<{ ok: boolean; message?: string }>
+  kill(sessionId: string): void
+  /**
+   * Hold a session out of the idle reaper's reach while it is mid-task. The
+   * host clears the exemption when that session exits, so a module that never
+   * balances its own call cannot leave an unsuspendable pty behind.
+   */
+  setReapExempt(sessionId: string, exempt: boolean): void
+  onExit(listener: (event: ModuleAgentExitEvent) => void): () => void
+  /** Only sessions whose agent id starts with a prefix this module owns. */
+  list(): ModuleAgentSessionRecord[]
+}
+
+type AgentSessionsRegistry = {
+  spawn(moduleId: string, request: ModuleAgentSpawnRequest): Promise<ModuleAgentSpawnResult>
+  send(moduleId: string, sessionId: string, text: string): Promise<{ ok: boolean; message?: string }>
+  kill(moduleId: string, sessionId: string): void
+  setReapExempt(moduleId: string, sessionId: string, exempt: boolean): void
+  onExit(moduleId: string, listener: (event: ModuleAgentExitEvent) => void): () => void
+  list(moduleId: string): ModuleAgentSessionRecord[]
+}
+
+const agentSessionsModuleServiceToken: ServiceToken<AgentSessionsRegistry> =
+  createServiceToken<AgentSessionsRegistry>('agent-sessions.module-service')
+
+/**
+ * The scoped Agent Sessions service for `host`'s module. The raw host registry
+ * takes a module id on every call; this helper closes over `host.moduleId`
+ * exactly like `getCompanionAgentsService`.
+ */
+export function getAgentSessionService(host: MainHost): ModuleAgentSessionService {
+  const registry = host.requireService(agentSessionsModuleServiceToken)
+  const moduleId = host.moduleId
+  return {
+    spawn: (request) => registry.spawn(moduleId, request),
+    send: (sessionId, text) => registry.send(moduleId, sessionId, text),
+    kill: (sessionId) => registry.kill(moduleId, sessionId),
+    setReapExempt: (sessionId, exempt) => registry.setReapExempt(moduleId, sessionId, exempt),
+    onExit: (listener) => registry.onExit(moduleId, listener),
+    list: () => registry.list(moduleId),
   }
 }
 
@@ -1542,6 +1791,12 @@ export type ModalSurfaceIconComponent = ComponentType<{ className?: string }>
  * the shape a modal is for. Contribute the trigger yourself from wherever that
  * is, and call `openModalSurface(id)`.
  *
+ * **Except one trigger the shell does draw for you.** `launcher` puts your
+ * surface's row in the workspace pane's kind list — the strip's "+" menu and
+ * the pane's empty-state launcher, beside Browser, Terminal and Diff — which
+ * is where a workspace-scoped modal is reached for. Picking it opens your
+ * modal and hands your body the workspace it was picked in.
+ *
  * `order` and `Icon` are what the retired cluster read, and they are optional
  * for that reason: nothing renders them today. They are kept rather than
  * deleted so a module that already declares them still compiles, and so a
@@ -1562,8 +1817,55 @@ export type ModalSurfaceDefinition = {
    * here. Deep-link openers dispatch their own state and bypass this.
    */
   onOpen?: () => void
+  /**
+   * Contribute your surface's row to the workspace pane's kind list. Omit it
+   * and the shell draws no trigger at all — you open the modal yourself from
+   * wherever makes sense.
+   */
+  launcher?: ModalSurfaceLauncher
   /** The modal body. */
-  Component: GlobalSurfaceComponent
+  Component: ModalSurfaceComponent
+}
+
+/**
+ * What the shell hands a modal body: the workspace its opener acted from, when
+ * the opener had one (the pane row passes the workspace it was picked in; a
+ * command or a notification passes none). A modal floats over the window
+ * rather than mounting inside a workspace card, so this is what tells your
+ * surface which workspace it is acting on — do not fall back to "the active
+ * one", which can change under an open modal.
+ *
+ * A zero-prop component still satisfies `ModalSurfaceComponent`, so ignore the
+ * prop if your surface is app-level.
+ */
+export type ModalSurfaceComponentProps = {
+  workspaceId?: string
+}
+
+export type ModalSurfaceComponent =
+  | ComponentType<ModalSurfaceComponentProps>
+  | LazyExoticComponent<ComponentType<ModalSurfaceComponentProps>>
+
+/**
+ * The pane row your modal surface contributes. The workspace pane lists the
+ * kinds a workspace can open — Browser, Terminal, Files, Diff, Git, Backlog —
+ * and this appends yours, in the "+" menu and in the pane's empty-state
+ * launcher, drawn exactly like the shell's own.
+ */
+export type ModalSurfaceLauncher = {
+  /** The row's name, e.g. "Reviews". Non-empty; sentence case. */
+  label: string
+  /**
+   * The key that opens your row while the menu or the launcher has focus.
+   * EXACTLY one character (uppercased by the host); anything else is a
+   * registration error. The shell's own kinds win a collision: a letter
+   * already taken by a built-in row (B, T, F, D, G, L) — or by a module row
+   * registered before yours — leaves your row with its label and glyph and no
+   * shortcut at all, rather than stealing a key the person already knows.
+   */
+  letter: string
+  /** The row's mark, in both the menu and the launcher card. */
+  Glyph: ModalSurfaceIconComponent
 }
 
 // ── Agent id namespaces ──────────────────────────────────────────────────────
@@ -1598,6 +1900,9 @@ export type WorkspaceFileWatchEvent = {
   content: string | null
 }
 
+/** The resolved surface of the app's active theme (`watchColorScheme`). */
+export type ModuleColorScheme = 'light' | 'dark'
+
 /** Read-only view of one live agent session (enum-ish fields widened to string). */
 export type ModuleAgentSessionView = {
   /** Multicode's terminal-tracking id (stable per session). */
@@ -1615,11 +1920,34 @@ export type ModuleAgentSessionView = {
   isLive: boolean
 }
 
+/** One model a runtime offers, as a picker row. */
+export type ModuleAgentRuntimeModelOption = {
+  /** Model id to pass as `spawnAgent`'s `cliModel`. */
+  id: string
+  /** Display label; falls back to the id when the catalog names none. */
+  label: string
+}
+
 export type ModuleAgentRuntimeOption = {
   /** Runtime id to pass as `spawnAgent`'s `cli` (e.g. 'claude', 'codex'). */
   id: string
   /** Display label for pickers. */
   label: string
+  /**
+   * Whether this machine has the runtime's binary. Rows detected as missing
+   * are still listed so your picker can show them disabled rather than
+   * pretending the CLI does not exist; spawning one fails.
+   */
+  available: boolean
+  /**
+   * The model ids this runtime offers — the plugin manifest's list merged with
+   * what the CLI reported about itself and the ids the user added, the same
+   * rows the shell's own model picker shows. Empty means the runtime exposes
+   * no model choice: omit `cliModel` and it launches with its own default.
+   */
+  models: ModuleAgentRuntimeModelOption[]
+  /** True for the runtime the user last chose — what a picker should preselect. */
+  isDefault: boolean
 }
 
 export type ModuleSpawnAgentInput = {
@@ -1681,11 +2009,15 @@ export type RendererHost = {
   registerGlobalSurface(definition: GlobalSurfaceDefinition): void
   /**
    * Contribute a modal surface: a body the shell mounts in its modal shell,
-   * plus a trigger glyph in the sidebar footer's settings cluster. Registered
-   * once at boot; trigger and mount gate on your module's enablement, so the
-   * toggle shows/hides both without a reload. An id already claimed by
-   * another module is a registration error, reported as a module load error
-   * that gates off your module's other contributions.
+   * floated over whatever the window is showing. Registered once at boot; the
+   * mount gates on your module's enablement, so the toggle closes an open
+   * modal and restores it on re-enable without a reload. An id already
+   * claimed by another module is a registration error, reported as a module
+   * load error that gates off your module's other contributions.
+   *
+   * Declare `launcher` to put your surface's row in the workspace pane's kind
+   * list; a malformed one (empty label, a `letter` that is not exactly one
+   * character, a missing Glyph) is a registration error too.
    */
   registerModalSurface(definition: ModalSurfaceDefinition): void
   /**
@@ -1713,6 +2045,35 @@ export type RendererHost = {
    * `WorkspaceContextToken`.
    */
   getWorkspace(workspaceId: string): Promise<ModuleWorkspaceView | null>
+  /**
+   * Every open workspace as a read-only view, in the order the shell lists
+   * them — for a surface that is not mounted inside one workspace (a modal
+   * floating over the window, a settings section) and so has no id to
+   * resolve. Empty before the shell wires workspace state (early boot);
+   * never a throw. Declare the `ipc:workspace-read` permission (install-time
+   * disclosure).
+   */
+  listWorkspaces(): Promise<ModuleWorkspaceView[]>
+  /**
+   * Observe the open workspaces: `cb` fires once with the current list, then
+   * on every change (deduped by value, so an unrelated store write does not
+   * wake it). Returns the unsubscriber — call it on unmount. Before the shell
+   * wires workspace state the first call reports an empty list. Declare
+   * `ipc:workspace-read`.
+   */
+  watchWorkspaces(cb: (workspaces: ModuleWorkspaceView[]) => void): () => void
+  /**
+   * Observe the app's resolved light/dark surface: `cb` fires immediately
+   * with the current scheme, then whenever it changes — an explicit theme
+   * switch, or an OS switch while the preference follows the system. Returns
+   * the unsubscriber; call it on unmount.
+   *
+   * This is for a themed runtime you HOST (Monaco's base theme, a chart
+   * library's palette) — something that needs a concrete 'light' | 'dark'
+   * rather than a CSS variable. Ordinary module UI should read THEME_TOKENS
+   * instead and re-skin without JavaScript.
+   */
+  watchColorScheme(cb: (scheme: ModuleColorScheme) => void): () => void
   /**
    * Your module's entry in the workspace's per-module state bag — durable
    * state your module keeps on a workspace (view choices, selection, panel
@@ -1809,12 +2170,22 @@ export type RendererHost = {
     cb: (event: WorkspaceFileWatchEvent) => void
   ): Promise<() => void>
   /**
-   * Observe the workspace's live agent sessions: `cb` fires once with the
-   * current read-only views, then on every change (deduped). Returns the
-   * unsubscriber — call it on unmount. Throws with a named cause when agent
-   * runtime is unavailable. Declare `ipc:agents`.
+   * Observe live agent sessions: `cb` fires once with the current read-only
+   * views, then on every change (deduped). Returns the unsubscriber — call it
+   * on unmount. Throws with a named cause when agent runtime is unavailable.
+   *
+   * A workspace id watches that workspace's sessions, whoever spawned them.
+   * `undefined` watches every workspace, narrowed to sessions whose agent id
+   * falls in a namespace you claimed with `registerAgentIdNamespace` — which
+   * is how you follow agents your own `entry.main` spawned without a
+   * window's knowledge. Claim no namespace and the unscoped watch reports an
+   * empty list; it is never a window onto other modules' sessions.
+   * Declare `ipc:agents`.
    */
-  watchAgentSessions(workspaceId: string, cb: (sessions: ModuleAgentSessionView[]) => void): () => void
+  watchAgentSessions(
+    workspaceId: string | undefined,
+    cb: (sessions: ModuleAgentSessionView[]) => void
+  ): () => void
   /**
    * Spawn an agent session through the app's SHARED session runtime (the
    * same path every shell surface uses) and add its tab to the workspace
@@ -1830,10 +2201,11 @@ export type RendererHost = {
    */
   focusTab(input: ModuleFocusTabInput): boolean
   /**
-   * The agent runtimes currently available to spawn — ids + display labels
-   * from the same availability-filtered catalog the shell's pickers use.
-   * Plugin internals stay unexposed. Throws with a named cause when agent
-   * runtime is unavailable.
+   * The agent runtimes available to spawn, from the same
+   * availability-filtered catalog the shell's own pickers read: id, display
+   * label, whether the binary is on this machine, the runtime's model rows,
+   * and which one the user last chose. Plugin internals stay unexposed.
+   * Throws with a named cause when agent runtime is unavailable.
    */
   listAgentRuntimes(): ModuleAgentRuntimeOption[]
   /**
@@ -1995,6 +2367,11 @@ export const THEME_TOKENS = [
   '--tone-good',
   '--tone-error',
   '--tone-merged',
+  // Motion. `--motion-normal` is a duration, `--motion-ease` a timing
+  // function: use them together on a transition or animation so module UI
+  // moves at the app's pace instead of inventing its own.
+  '--motion-normal',
+  '--motion-ease',
 ] as const
 
 export type ThemeToken = (typeof THEME_TOKENS)[number]

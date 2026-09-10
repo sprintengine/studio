@@ -4,7 +4,7 @@ import { deriveSprintEngineRunGlyph } from './sprintengine'
 import { isSprintEngineWorkspace } from './sprintEngineWorkspace'
 import { isStarred } from './highlight'
 import { workspaceLastActiveAt } from './workspaceRecency'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEWS_HOST_WORKSPACE_MODE } from '../types/workspace'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../types/workspace'
 import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 
 // A chat settles — moves from its folder's active list into the folder's
@@ -62,7 +62,6 @@ export function shouldAutoSettleWorkspace(workspace: Workspace, now: number): bo
   if (isStarred(workspace.highlight)) return false
   if (workspace.remoteOrigin) return false
   if (workspace.mode === AUTOMATIONS_HOST_WORKSPACE_MODE) return false
-  if (workspace.mode === REVIEWS_HOST_WORKSPACE_MODE) return false
   if (now - workspaceLastActiveAt(workspace) < WORKSPACE_AUTO_SETTLE_AFTER_MS) return false
   if (isSprintEngineWorkspace(workspace)) {
     const glyph = deriveSprintEngineRunGlyph({

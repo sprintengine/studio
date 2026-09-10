@@ -161,6 +161,10 @@ export function registerCoreIpc(
     skillsService: services.skillsService,
     mcpConfigService: services.mcpConfigService,
     githubTokenStore: services.githubTokenStore,
+    // For a card's `install.module`: the same marketplace lifecycle the
+    // storefront installs through, which needs this for a bundle that also
+    // carries an automation.
+    getAutomationsAppFrontDoor: services.getAutomationsAppFrontDoor,
   })
   registerCliVersionIpc(ipcMain)
   registerMarketplacePluginIpc(ipcMain, services)

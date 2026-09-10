@@ -119,6 +119,29 @@ async function testAgentSessionWatch(): Promise<void> {
 
   stop()
   assert.equal(listeners.size, 0, 'unsubscribe detaches from the store')
+
+  // No workspace id = every workspace, narrowed to the caller's own agent-id
+  // namespaces. That narrowing is the whole reason the unscoped mode is
+  // answerable: without it, a module would be watching the machine.
+  sessions = [
+    { sessionId: 's-1', workspaceId: 'ws-1', agentId: 'review-guide-abc', agentName: 'Review guide', kind: 'agent', processAlive: true },
+    { sessionId: 's-2', workspaceId: 'ws-2', agentId: 'review-guide-def', agentName: 'Review guide', kind: 'agent', processAlive: true },
+    { sessionId: 's-3', workspaceId: 'ws-2', agentId: 'agent-someone-else', agentName: 'Poet', kind: 'agent', processAlive: true },
+    { sessionId: 's-4', workspaceId: 'ws-1', kind: 'terminal', processAlive: true },
+  ]
+  const mine: unknown[] = []
+  const stopMine = watcher(undefined, (views) => mine.push(views), { agentIdPrefixes: ['review-guide-'] })
+  assert.deepEqual(
+    (mine[0] as Array<{ sessionId: string }>).map((view) => view.sessionId),
+    ['s-1', 's-2'],
+    'an unscoped watch crosses workspaces but stays inside the module\'s namespaces',
+  )
+  stopMine()
+
+  const none: unknown[] = []
+  const stopNone = watcher(undefined, (views) => none.push(views))
+  assert.deepEqual(none, [[]], 'a module that claimed no namespace sees nothing, not everything')
+  stopNone()
 }
 
 async function testAgentSpawn(): Promise<void> {
@@ -270,7 +293,11 @@ async function testAgentRuntimeGate(): Promise<void> {
     cb({ relativePath, content: '{}' })
     return () => {}
   })
-  kernel.setAgentSessionWatcher((_workspaceId, cb) => {
+  const watchScopes: Array<string | undefined> = []
+  const watchPrefixes: Array<readonly string[] | undefined> = []
+  kernel.setAgentSessionWatcher((workspaceId, cb, scope) => {
+    watchScopes.push(workspaceId)
+    watchPrefixes.push(scope?.agentIdPrefixes)
     const emit = (): void => cb([])
     sessionEmitters.add(emit)
     emit()
@@ -279,7 +306,9 @@ async function testAgentRuntimeGate(): Promise<void> {
   kernel.setAgentSpawner({
     spawnAgent: async () => ({ ok: true, agentId: 'agent-1' }),
     focusTab: () => true,
-    listAgentRuntimes: () => [{ id: 'claude', label: 'Claude Code' }],
+    listAgentRuntimes: () => [
+      { id: 'claude', label: 'Claude Code', available: true, models: [{ id: 'opus', label: 'Opus' }], isDefault: true },
+    ],
   })
   kernel.setWorkingRootResolver((workspaceId) => (workspaceId === 'ws-1' ? '/repo' : null))
 
@@ -307,7 +336,20 @@ async function testAgentRuntimeGate(): Promise<void> {
   stopSessions()
   assert.equal(await host.getWorkingRoot('ws-1'), '/repo')
   assert.equal((await host.spawnAgent({ workspaceId: 'ws-1' })).ok, true)
-  assert.deepEqual(host.listAgentRuntimes(), [{ id: 'claude', label: 'Claude Code' }])
+  assert.deepEqual(host.listAgentRuntimes(), [
+    { id: 'claude', label: 'Claude Code', available: true, models: [{ id: 'opus', label: 'Opus' }], isDefault: true },
+  ])
+
+  // The kernel — not the module — decides which prefixes an unscoped watch
+  // sees: they come from this module's own registrations, so a module cannot
+  // name someone else's.
+  kernel.hostFor('test-module').registerAgentIdNamespace({ prefix: 'test-guide-', label: 'Test' })
+  kernel.hostFor('other-module').registerAgentIdNamespace({ prefix: 'other-guide-', label: 'Other' })
+  host.watchAgentSessions(undefined, () => {})()
+  assert.equal(watchScopes.at(-1), undefined, 'an unscoped watch passes no workspace through')
+  assert.deepEqual(watchPrefixes.at(-1), ['test-guide-'], 'and exactly the calling module\'s prefixes')
+  host.watchAgentSessions('ws-1', () => {})()
+  assert.equal(watchPrefixes.at(-1), undefined, 'a workspace-scoped watch is not namespace-narrowed')
 }
 
 async function main(): Promise<void> {

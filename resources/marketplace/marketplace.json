@@ -82,6 +82,27 @@
       ]
     },
     {
+      "id": "review",
+      "name": "Reviews",
+      "publisher": {
+        "name": "Multicode Labs",
+        "verified": true
+      },
+      "summary": "Guided, human-led review of a pull request, branch, or patch.",
+      "category": "Code Quality",
+      "icon": "icons/review.svg",
+      "latest": 1,
+      "source": "https://github.com/sprintengine/studio-releases/tree/main/plugins/review",
+      "provides": [
+        "module"
+      ],
+      "signature": {
+        "algorithm": "ed25519",
+        "publicKey": "MCowBQYDK2VwAyEAptxscrkw0So+0D3Pm2FupKpxqOyaNmpUR909RrGSuX0=",
+        "signature": "Adh22YqGBDvdKxBGlWZQtyk8rmOJAjlPSdXh+b/bAaqa5RQWgb5CDaFlMyYdJb9mvs+xJvjBTMmGSAmPwjg4Aw=="
+      }
+    },
+    {
       "id": "claude-agent",
       "name": "Claude Code",
       "publisher": {

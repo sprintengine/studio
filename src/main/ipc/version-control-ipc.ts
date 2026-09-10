@@ -2,7 +2,7 @@ import type { IpcMain } from 'electron'
 
 import type { VersionControlProviderProbe } from '../../shared/version-control'
 import { probeBinaryVersion } from '../cli-runtime-install'
-import { createDefaultGhRunner } from '../review/providers/github-pr-provider'
+import { createDefaultGhRunner } from '../github/gh'
 import {
   parseGhAuthLogin,
   probeVersionControlProviders,

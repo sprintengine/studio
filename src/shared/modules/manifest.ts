@@ -37,6 +37,20 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'voice-dictation',
 ]
 
+/**
+ * The bundled modules whose enablement takes effect WITHOUT an app restart —
+ * the `liveModuleIds` the main process hands `applyEnablement` (src/main/index.ts).
+ *
+ * Everything else loads its `entry.main` once, at launch, so installing or
+ * enabling it changes nothing until the app is started again. That is a fact
+ * the person installing a module has to be told (D13): the marketplace install
+ * result carries `restartRequired` derived from this list, and the storefront
+ * says so rather than reporting a flat "Installed." for a module that will not
+ * appear until they relaunch. Live enable/disable for the rest is a recorded
+ * follow-up, and this constant is the one place to widen when it lands.
+ */
+export const LIVE_ENABLED_MODULE_IDS: readonly string[] = ['automations']
+
 export type CapabilityCategory =
   | 'core'
   | 'dev-tools'

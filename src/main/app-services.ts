@@ -36,7 +36,7 @@ import {
   updateBacklogTriage,
   updateBacklogType,
 } from './backlog-service'
-import { createBuiltinSkillManager } from './builtin-skills'
+import { createBuiltinSkillManager, ensureSkillInstalled, setDefaultSkillManager } from './builtin-skills'
 import { installMulticodeCliTools } from './cli-install'
 import { MulticodeAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
@@ -199,6 +199,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const builtinSkillManager = createBuiltinSkillManager({
     listPlugins: () => getPluginRegistry().loaded(),
   })
+  // The process-wide `ensureSkillInstalled` — the one the launch boundary,
+  // the Backlog action and `MainHost.ensureSkillInstalled` all call — must use
+  // THIS manager, the only one that knows the installed CLI plugins and can
+  // therefore compute the `all-native` fan-out.
+  setDefaultSkillManager(builtinSkillManager)
 
   // Authoritative agent state: owns the reporter socket + per-workspace install.
   // Created before terminalRuntime so the runtime can install the reporter at
@@ -415,10 +420,23 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // skill dir before launch. Check-first so already-installed workspaces skip
     // the rewrite; install only fills missing or stale native targets.
     ensureBuiltinSkillInstalled: async (workspaceRoot, skillId) => {
-      const status = await builtinSkillManager.getStatus(workspaceRoot, skillId)
-      if (status.ok && (status.status === 'missing' || status.status === 'update-available')) {
-        await builtinSkillManager.install(workspaceRoot, skillId)
-      }
+      const result = await ensureSkillInstalled(workspaceRoot, skillId)
+      if (result.ok) return
+      // An id nothing answers to used to be a silent no-op, so a renamed skill
+      // or a module that failed to load produced an agent invoking a skill
+      // that was never copied — with nothing anywhere saying so.
+      const level = result.status === 'unknown-skill' ? 'warn' : 'log'
+      console[level](
+        `[skills] could not ensure skill "${skillId}" in ${workspaceRoot}: ${result.status}${result.message ? ` — ${result.message}` : ''}`
+      )
+      void writeDiagnosticLog({
+        source: 'terminal',
+        level: result.status === 'unknown-skill' ? 'warning' : 'info',
+        title: `Skill "${skillId}" was not installed`,
+        message: result.message ?? `The skill installer answered "${result.status}".`,
+        details: `status=${result.status} workspaceRoot=${workspaceRoot}`,
+        extensionsRow: 'skills',
+      })
     },
     // Connector launch: keep the generated managed MCP config out of the
     // connector chat's worktree git (`.mcp.json` / `.codex/config.toml`).
@@ -1137,18 +1155,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         // before launch (same getStatus → install seam as Debug Mode). Reports
         // whether the skill is now present; a false result is non-fatal.
         ensureBuiltinSkillInstalled: async (workspaceRoot, skillId) => {
-          try {
-            const status = await builtinSkillManager.getStatus(workspaceRoot, skillId)
-            if (!status.ok) return false
-            if (status.status === 'missing' || status.status === 'update-available') {
-              const installed = await builtinSkillManager.install(workspaceRoot, skillId)
-              return installed.ok
-            }
-            // installed / local / modified: already present in the native dir.
-            return true
-          } catch {
-            return false
+          const result = await ensureSkillInstalled(workspaceRoot, skillId)
+          if (!result.ok && result.status === 'unknown-skill') {
+            console.warn(`[skills] backlog.work asked for unknown skill "${skillId}".`)
           }
+          return result.ok
         },
         }),
         // Remote-control configuration, local socket only: the listener refuses

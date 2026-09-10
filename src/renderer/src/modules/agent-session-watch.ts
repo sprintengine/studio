@@ -41,9 +41,21 @@ export type AgentSessionWatchPorts = {
   subscribe: (cb: () => void) => () => void
 }
 
+// What an all-workspaces watch is narrowed to. A module that spawned its
+// agents outside a window's knowledge (a review guide, a companion) has no
+// workspace id to watch, but it does own an agent-id namespace — so the
+// unscoped watch answers with ITS sessions rather than with every session in
+// the app. The kernel fills this in from the prefixes the calling module
+// registered via `registerAgentIdNamespace`; a module that registered none
+// sees an empty list, never the whole machine.
+export type AgentSessionWatchScope = {
+  agentIdPrefixes?: readonly string[]
+}
+
 export type AgentSessionWatcher = (
-  workspaceId: string,
-  cb: (sessions: ModuleAgentSessionView[]) => void
+  workspaceId: string | undefined,
+  cb: (sessions: ModuleAgentSessionView[]) => void,
+  scope?: AgentSessionWatchScope
 ) => () => void
 
 function toView(record: SessionRecord): ModuleAgentSessionView {
@@ -65,10 +77,22 @@ function viewsSignature(views: ModuleAgentSessionView[]): string {
 }
 
 export function createAgentSessionWatcher(ports: AgentSessionWatchPorts): AgentSessionWatcher {
-  return (workspaceId, cb) => {
+  return (workspaceId, cb, scope) => {
+    // Two modes, deliberately different filters. A named workspace answers
+    // with that workspace's sessions, whoever spawned them — the pane-level
+    // question. No workspace means "mine, wherever they run", which is only
+    // answerable through the module's own agent-id namespaces: without one
+    // there is no way to tell its sessions from anyone else's, and the honest
+    // answer to that is nothing at all.
+    const prefixes = scope?.agentIdPrefixes ?? []
+    const matchesNamespace = (record: SessionRecord): boolean =>
+      record.agentId !== undefined
+      && prefixes.some((prefix) => record.agentId!.startsWith(prefix))
     const snapshot = (): ModuleAgentSessionView[] =>
       ports.getSessions()
-        .filter((record) => record.workspaceId === workspaceId)
+        .filter((record) => (workspaceId === undefined
+          ? matchesNamespace(record)
+          : record.workspaceId === workspaceId))
         .map(toView)
 
     let lastSignature: string | null = null

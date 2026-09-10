@@ -1,5 +1,5 @@
+import type { RegisteredModalSurfaceLauncher, SurfaceIconComponent } from '../../../modules/renderer-host'
 import type { WorkspacePaneTabKind } from '../../../types/workspace'
-import { ReviewsGlyph } from '../surfaceGlyphs'
 
 // The kinds the workspace pane can open, in the order the "+" menu and the
 // empty-state launcher list them. A kind whose module is disabled is absent
@@ -11,10 +11,16 @@ import { ReviewsGlyph } from '../surfaceGlyphs'
 // reaches for it — it sits in the same list as Browser and Diff, because it is
 // the same kind of thing, a view of this workspace's work — but the pane
 // column is too narrow to read a walkthrough in, so the pane hands it off.
+//
+// Those modal rows are CONTRIBUTED, not listed here (D7, 2026-09-10): a module
+// declares one on its modal surface (`registerModalSurface({ launcher })`) and
+// `composePaneKinds` appends it to the static list below. Reviews was the one
+// hard-coded row, and it left with the review module.
 
-// What the launcher and the "+" menu can pick: every tab kind, plus the kinds
-// that open somewhere other than a tab.
-export type PaneLaunchKind = WorkspacePaneTabKind | 'reviews'
+// What the launcher and the "+" menu can pick: every tab kind, plus the ids of
+// contributed modal rows — open strings, because the shell cannot know them.
+// The `(string & {})` arm keeps editor completion on the tab kinds.
+export type PaneLaunchKind = WorkspacePaneTabKind | (string & {})
 
 export type PaneKindDefinition = {
   kind: PaneLaunchKind
@@ -24,7 +30,9 @@ export type PaneKindDefinition = {
   letter: string
   // Capability module the kind belongs to; undefined for core kinds.
   moduleId?: string
-  Glyph: (props: { className?: string }) => JSX.Element
+  // The same component type a module hands the host, so a contributed row's
+  // glyph and a built-in one are the same kind of thing here.
+  Glyph: SurfaceIconComponent
   // Set when picking the kind opens a modal surface rather than a pane tab.
   modalSurfaceId?: string
 }
@@ -95,21 +103,53 @@ function BacklogGlyph({ className }: { className?: string }) {
 // The five general-purpose kinds first, in the order below; Backlog is
 // ours alone and goes last so the shared five keep the low chord numbers.
 // Its letter is L (back-L-og) because B is Browser's.
-export const PANE_KINDS: readonly PaneKindDefinition[] = [
+export const STATIC_PANE_KINDS: readonly PaneKindDefinition[] = [
   { kind: 'browser', label: 'Browser', letter: 'B', Glyph: BrowserGlyph },
   { kind: 'terminal', label: 'Terminal', letter: 'T', Glyph: TerminalGlyph },
   { kind: 'files', label: 'Files', letter: 'F', moduleId: 'dev-tools', Glyph: FilesGlyph },
   { kind: 'diff', label: 'Diff', letter: 'D', moduleId: 'git', Glyph: DiffGlyph },
   { kind: 'git', label: 'Git', letter: 'G', moduleId: 'git', Glyph: GitGlyph },
   { kind: 'backlog', label: 'Backlog', letter: 'L', moduleId: 'backlog', Glyph: BacklogGlyph },
-  // Reviews opens as a modal, never as a tab (see PaneKindDefinition). R is
-  // free: no tab kind starts with it.
-  { kind: 'reviews', label: 'Reviews', letter: 'R', moduleId: 'review', Glyph: ReviewsGlyph, modalSurfaceId: 'reviews' },
 ]
 
+// The list one pane offers: the shell's own kinds, then the rows modules
+// contributed, each dropped when its module is off (absent, never greyed).
+//
+// Static rows win a letter collision. The shell's keys are muscle memory and
+// the person did not install anything to lose them, so a contributed row that
+// wants a taken letter — or one an earlier contributed row already took —
+// keeps its label and glyph and simply has no shortcut; the launchers print
+// nothing in the hint column and no keypress opens it. Two modules cannot be
+// made to agree on letters, so the arbitration has to live here.
+export function composePaneKinds(
+  launchers: readonly RegisteredModalSurfaceLauncher[],
+  moduleEnabled: (moduleId: string) => boolean,
+): PaneKindDefinition[] {
+  const kinds = STATIC_PANE_KINDS.filter(
+    (definition) => !definition.moduleId || moduleEnabled(definition.moduleId),
+  )
+  const taken = new Set(kinds.map((definition) => definition.letter))
+  for (const launcher of launchers) {
+    if (!moduleEnabled(launcher.moduleId)) continue
+    const free = launcher.letter.length > 0 && !taken.has(launcher.letter)
+    if (free) taken.add(launcher.letter)
+    kinds.push({
+      kind: launcher.surfaceId,
+      label: launcher.label,
+      letter: free ? launcher.letter : '',
+      moduleId: launcher.moduleId,
+      Glyph: launcher.Glyph,
+      modalSurfaceId: launcher.surfaceId,
+    })
+  }
+  return kinds
+}
+
+// A tab's own row. Only ever asked about TAB kinds (a contributed row opens a
+// modal and never becomes a tab), so the static list is the whole answer.
 export function paneKindDefinition(kind: PaneLaunchKind): PaneKindDefinition {
   return (
-    PANE_KINDS.find((definition) => definition.kind === kind)
+    STATIC_PANE_KINDS.find((definition) => definition.kind === kind)
     ?? { kind, label: kind, letter: kind[0]?.toUpperCase() ?? '', Glyph: BrowserGlyph }
   )
 }

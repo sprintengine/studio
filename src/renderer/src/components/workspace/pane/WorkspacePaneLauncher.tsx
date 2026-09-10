@@ -16,7 +16,9 @@ export function WorkspacePaneLauncher({ kinds, onPick }: WorkspacePaneLauncherPr
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key.length !== 1 || event.metaKey || event.ctrlKey || event.altKey) return
     const letter = event.key.toUpperCase()
-    const match = kinds.find((definition) => definition.letter === letter)
+    // A contributed row that lost a letter collision has none (composePaneKinds),
+    // so the empty string must never match a keypress.
+    const match = kinds.find((definition) => definition.letter !== '' && definition.letter === letter)
     if (!match) return
     event.preventDefault()
     onPick(match.kind)
@@ -51,9 +53,13 @@ export function WorkspacePaneLauncher({ kinds, onPick }: WorkspacePaneLauncherPr
                   bigger glyph gets its air instead of touching the border. */}
               <Glyph className="icon-lg shrink-0 text-[color:var(--text-subtle)]" />
               <span className="flex-1 text-left">{label}</span>
-              <span aria-hidden="true" className="font-mono text-micro text-[color:var(--text-disabled)]">
-                {letter}
-              </span>
+              {/* Nothing at all when the row has no shortcut — an empty hint
+                  column is the honest way to say "no key opens this". */}
+              {letter ? (
+                <span aria-hidden="true" className="font-mono text-micro text-[color:var(--text-disabled)]">
+                  {letter}
+                </span>
+              ) : null}
             </span>
           </CardButton>
         ))}

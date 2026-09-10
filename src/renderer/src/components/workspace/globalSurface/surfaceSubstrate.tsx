@@ -154,7 +154,7 @@ export { GlobalSurfaceErrorBoundary } from './surfaceErrorBoundary'
 // lifecycle/type iconography, or nothing — the state line carries the words.
 
 export interface SurfaceRailRow {
-  /** Stable selection id (run slug / automation id / reviewId). */
+  /** Stable selection id (run slug / automation id / module record id). */
   id: string
   title: string
   /** The one-line at-a-glance state ("Active · step 3 of 7", "Ran 2h ago · passed"). */

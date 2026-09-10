@@ -18,6 +18,8 @@ export type ThirdPartyMainLoadInput = {
 
 export type ThirdPartyMainLoadPlan = {
   modules: CapabilityModule[]
+  /** Install folder per module id — what contains its entries and its skills. */
+  moduleRoots: Record<string, string>
   ineligible: Record<string, ModuleResolutionErrorCode>
   launchErrors: MainModuleLoadError[]
   diagnostics: ThirdPartyMainLoadDiagnostics
@@ -42,16 +44,19 @@ let launchSnapshot: ThirdPartyMainLaunchSnapshot = {
 
 export function planThirdPartyMainModules(input: ThirdPartyMainLoadInput): ThirdPartyMainLoadPlan {
   const modules: CapabilityModule[] = []
+  const moduleRoots: Record<string, string> = {}
   const ineligible: Record<string, ModuleResolutionErrorCode> = {}
 
   for (const installed of input.modules) {
     modules.push(createThirdPartyMainModule(installed))
+    moduleRoots[installed.manifest.id] = installed.moduleRoot
     if (isLoadEligible(installed.trust.status)) continue
     ineligible[installed.manifest.id] = installed.trust.status === 'invalid' ? 'invalid_signature' : 'untrusted'
   }
 
   return {
     modules,
+    moduleRoots,
     ineligible,
     launchErrors: input.rejected.map(rejectionToLoadError),
     diagnostics: { rejected: input.rejected },

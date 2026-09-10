@@ -7,7 +7,6 @@ import {
   type GhSpawn,
 } from './gh'
 import { createGhCommandRunner } from '../automations/pull-request'
-import { createDefaultGhRunner as createFromReviewProvider } from '../review/providers/github-pr-provider'
 
 // Nothing here spawns a real `gh`: every case injects the spawn seam, so the
 // tests describe the runner's decisions rather than the machine they run on.
@@ -103,16 +102,11 @@ async function main(): Promise<void> {
   }
 
   // ---------------------------------------------------------------------------
-  // ONE runner (epic decision 11): the review provider re-exports this module's
-  // factory rather than owning a second one, and the automations path — the copy
-  // that used to lack the fallback entirely — reaches the same shell retry.
+  // ONE runner (epic decision 11): every caller — the version-control probe, the
+  // review paths, and the automations path that used to lack the fallback
+  // entirely — reaches this module's factory and its shell retry.
   // ---------------------------------------------------------------------------
   {
-    assert.equal(
-      createFromReviewProvider,
-      createDefaultGhRunner,
-      'the review provider re-exports the shared factory, it does not define its own',
-    )
     assert.equal(sharedGhRunner(), sharedGhRunner(), 'one process-wide instance')
   }
   {

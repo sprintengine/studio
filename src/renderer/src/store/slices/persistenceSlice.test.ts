@@ -520,7 +520,7 @@ assert.equal(
 // v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile
 // still carries the persisted `sprintEngineModelCatalog` array of hand-set
 // scores; the ladder drops it and leaves every other setting alone.
-assert.equal(WORKSPACE_STORE_VERSION, 74, 'the Backlog rail-to-pane move is the newest step, at store v74')
+assert.equal(WORKSPACE_STORE_VERSION, 75, 'the reviews-host retirement is the newest step, at store v75')
 
 // v74: the workspace Backlog left the FlexLayout rail for the pane. A v73
 // envelope — which already carries a pane record — still docking `backlog`

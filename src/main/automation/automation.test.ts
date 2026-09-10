@@ -22,10 +22,7 @@ import { loadMainModules, type CapabilityModule } from '../module-host/load-modu
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
 import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME } from './gateway-audit'
 import { createStudioGatewayTools, isStudioGatewayMutation } from './studio-gateway-tools'
-import { createReviewGatewayTools } from '../review/gateway-tools'
-import { reviewChangeSetDir } from '../review/changeset-service'
-import type { BriefRunEvent } from '../review/brief-run-service'
-import { validateReviewBrief, type ReviewBrief, type ReviewChangeSet } from '../../shared/review'
+import { requiredScopeForTool } from './tailnet/tailnet-scopes'
 import { DEFAULT_MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../shared/mcp/protocol'
 import { SPRINTENGINE_TOOL_NAMES } from '../../shared/sprintengineToolNames.generated'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
@@ -679,7 +676,14 @@ function launchHarness(overrides: BackendsOverrides = {}): {
           lastVisibleAt: null,
           activity: { kind: 'idle', since: 1 },
         } as never)
-        return { ok: true, workspaceId: request.workspaceId, agentId, sessionId: 'sess-1' }
+        return {
+          ok: true,
+          workspaceId: request.workspaceId,
+          agentId,
+          sessionId: 'sess-1',
+          cli: request.cli ?? overrides.defaultCli ?? 'claude-code',
+          executionId: 'sess-1',
+        }
       }),
   }
   return { tools: createAutomationTools(backends), requests, worktreeCalls }
@@ -3093,6 +3097,50 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
   assert.equal(isStudioGatewayMutation('browser.click'), true)
   assert.equal(isStudioGatewayMutation('browser.open'), true)
   assert.equal(isStudioGatewayMutation('browser.snapshot'), false)
+
+  // A module's tool classifies itself (D11): core has no table it could appear
+  // in, so `mutates: true` on the registration is what makes a remote caller
+  // need `<family>:operate` and what puts the call in the audit. Read live from
+  // the gateway's own resolver, so a module enabled mid-session is honoured.
+  const moduleWrites: McpToolRegistration = {
+    name: 'widget_write',
+    description: 'writes',
+    inputSchema: { type: 'object' },
+    mutates: true,
+    handler: async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }),
+  }
+  const moduleReads: McpToolRegistration = {
+    name: 'widget_read',
+    description: 'reads',
+    inputSchema: { type: 'object' },
+    handler: async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }),
+  }
+  const resolveWidgetTools = createStudioGatewayTools({
+    appTools: [],
+    sprintEngineMcpHub: { callRunTool: async () => ({}) },
+    resolveModuleTools: () => [
+      { moduleId: 'widgets', moduleDisplayName: 'Widgets', registration: moduleWrites },
+      { moduleId: 'widgets', moduleDisplayName: 'Widgets', registration: moduleReads },
+    ],
+    isModuleEnabled: () => true,
+  })
+  assert.equal(isStudioGatewayMutation('widget_write', resolveWidgetTools), true)
+  assert.equal(isStudioGatewayMutation('widget_read', resolveWidgetTools), false)
+  assert.equal(
+    isStudioGatewayMutation('widget_write'),
+    false,
+    'without a resolver only the core tables answer — nothing is invented'
+  )
+  assert.equal(
+    requiredScopeForTool('widget_write', isStudioGatewayMutation('widget_write', resolveWidgetTools)),
+    'workspace:operate',
+    'a declared write needs the operate scope a remote device must be granted'
+  )
+  assert.equal(
+    requiredScopeForTool('widget_read', isStudioGatewayMutation('widget_read', resolveWidgetTools)),
+    'workspace:read',
+    'and an undeclared one stays on the read scope'
+  )
 }
 
 // MC-1855: two modules registering the same tool name → the second is rejected
@@ -3333,349 +3381,6 @@ async function testStudioGatewayAuditIsRedactedAndRotated(): Promise<void> {
     assert.match(combined, /"tool":"backlog.create"/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
-  }
-}
-
-// --- Review MCP tools on the gateway (plan §3.3) -----------------------------
-
-const REVIEW_ID = 'cs123'
-
-// A valid change set with a branch source, so review_get_changeset has an absolute
-// repoRoot to strip. Two non-binary files with hunks give annotations a real line
-// extent. Hand-built (checkBriefMatchesChangeSet assumes the changeset is valid).
-function reviewFixtureChangeSet(repoRoot: string): ReviewChangeSet {
-  return {
-    schemaVersion: 1,
-    id: 'cs_fixture',
-    source: { kind: 'branch', repoRoot, baseRef: 'main', headRef: 'feature' },
-    title: 'feature → main',
-    baseRef: 'main',
-    headSha: 'abc123def456',
-    files: [
-      {
-        path: 'src/store.ts',
-        status: 'modified',
-        binary: false,
-        additions: 1,
-        deletions: 0,
-        hunks: [
-          {
-            oldStart: 1,
-            oldLines: 2,
-            newStart: 1,
-            newLines: 3,
-            lines: [
-              { kind: 'context', text: 'export const store = {' },
-              { kind: 'add', text: '  next: 1,' },
-              { kind: 'context', text: '}' },
-            ],
-          },
-        ],
-      },
-      {
-        path: 'src/view.tsx',
-        status: 'added',
-        binary: false,
-        additions: 1,
-        deletions: 0,
-        hunks: [
-          { oldStart: 0, oldLines: 0, newStart: 1, newLines: 1, lines: [{ kind: 'add', text: 'export const View = () => null' }] },
-        ],
-      },
-    ],
-    stats: { files: 2, additions: 2, deletions: 0 },
-    fetchedAt: '2026-07-18T00:00:00Z',
-  }
-}
-
-function reviewValidBrief(): ReviewBrief {
-  return {
-    schemaVersion: 1,
-    changeSetId: 'cs_fixture',
-    headSha: 'abc123def456',
-    generatedAt: '2026-07-18T00:00:00Z',
-    overview: {
-      intent: 'Add a next counter to the store and a view that reads it.',
-      blastRadius: 'Touches the store shape and one new view component.',
-      readingGuide: 'Read the store first, then the view that consumes it.',
-      complexity: 'low',
-    },
-    steps: [
-      {
-        id: 'step-store',
-        order: 0,
-        title: 'Store foundation',
-        narrative: 'The store gains a next field; the view later reads it.',
-        files: [{ path: 'src/store.ts', why: 'introduces the next field', readingNote: 'read-closely' }],
-        annotations: [
-          {
-            id: 'ann-1',
-            path: 'src/store.ts',
-            anchor: { side: 'new', startLine: 1, endLine: 2 },
-            kind: 'explain',
-            title: 'New field',
-            summary: 'The store now carries a next counter.',
-            hoverTip: 'This is where the counter enters the store shape.',
-          },
-        ],
-      },
-      {
-        id: 'step-view',
-        order: 1,
-        title: 'View surface',
-        narrative: 'A new component renders against the store.',
-        files: [{ path: 'src/view.tsx', why: 'new component consuming the store', readingNote: 'mechanical-skim' }],
-        annotations: [],
-      },
-    ],
-    knowledgeRefs: [],
-    coverage: { assignedPaths: ['src/store.ts', 'src/view.tsx'], unassignedPaths: [] },
-  }
-}
-
-// Seed a review directory with an ingested change set under a temp project root,
-// and build the review tools scoped to it. `emitted` captures brief-run events.
-// The tools are routed through the REAL contribution path (MC-1855): a module
-// host kernel owns the registration under the `review` module id, and the
-// gateway resolver gates every call on the module's live enablement — exactly
-// the seam review-module.ts registers through in the app.
-function reviewHarness(): {
-  tools: McpToolRegistration[]
-  projectRoot: string
-  reviewDir: string
-  emitted: BriefRunEvent[]
-  /** Flip the Review module the way Settings does, mid-session. */
-  setModuleEnabled: (enabled: boolean) => void
-  /** Re-resolve the gateway's review tool names, as a fresh tools/list would. */
-  listReviewToolNames: () => string[]
-} {
-  const projectRoot = mkdtempSync(join(tmpdir(), 'review-gw-'))
-  const reviewDir = reviewChangeSetDir(projectRoot, REVIEW_ID)
-  mkdirSync(reviewDir, { recursive: true })
-  writeFileSync(join(reviewDir, 'changeset.json'), `${JSON.stringify(reviewFixtureChangeSet(projectRoot), null, 2)}\n`)
-  const emitted: BriefRunEvent[] = []
-  let moduleEnabled = true
-  const kernel = createMainKernel(createFakeIpcMain().ipcMain, {
-    resolveModuleManifest: (moduleId) =>
-      moduleId === 'review'
-        ? {
-            id: 'review',
-            displayName: 'Review',
-            version: 1,
-            publisher: 'multicode',
-            summary: 'Guided review.',
-            defaultEnabled: true,
-          }
-        : undefined,
-  })
-  kernel.hostFor('review').registerMcpTools(
-    createReviewGatewayTools({
-      listOpenProjectRoots: () => [projectRoot],
-      homeDir: () => homedir(),
-      emitBriefRunEvent: (event) => emitted.push(event),
-    })
-  )
-  const resolveGatewayTools = createStudioGatewayTools({
-    appTools: [],
-    sprintEngineMcpHub: { callRunTool: async () => ({}) },
-    resolveModuleTools: () => kernel.mcpToolRegistrations(),
-    isModuleEnabled: (moduleId) => moduleId !== 'review' || moduleEnabled,
-  })
-  // The resolver also carries the canonical run tools; the review tests address
-  // the review slice only.
-  const tools = resolveGatewayTools().filter((registration) => registration.name.startsWith('review_'))
-  return {
-    tools,
-    projectRoot,
-    reviewDir,
-    emitted,
-    setModuleEnabled: (enabled) => {
-      moduleEnabled = enabled
-    },
-    listReviewToolNames: () =>
-      resolveGatewayTools()
-        .filter((registration) => registration.name.startsWith('review_'))
-        .map((registration) => registration.name),
-  }
-}
-
-async function testReviewSubmitBriefHappyPathWritesAtomicallyAndEmits(): Promise<void> {
-  const { tools, projectRoot, reviewDir, emitted } = reviewHarness()
-  try {
-    const submit = await tool(tools, 'review_submit_brief').handler({
-      reviewId: REVIEW_ID,
-      projectRoot,
-      brief: reviewValidBrief() as unknown as Record<string, unknown>,
-    })
-    assert.equal(submit.isError, undefined, 'valid brief submits without error')
-    assert.equal(submit.structuredContent?.ok, true)
-
-    // The brief landed on disk atomically and re-validates.
-    const briefPath = join(reviewDir, 'brief.json')
-    assert.ok(existsSync(briefPath), 'brief.json written')
-    assert.ok(validateReviewBrief(JSON.parse(readFileSync(briefPath, 'utf8'))).ok, 'persisted brief is valid')
-    assert.equal(existsSync(join(reviewDir, '.brief.json.tmp')), false, 'no temp file left behind')
-
-    // The brief-run event fired so an open Reviews door reloads.
-    assert.deepEqual(emitted, [{ workspaceId: REVIEW_ID, phase: 'done' }])
-
-    // The read tools now see the landed brief.
-    const listed = await tool(tools, 'review_list_pending').handler({})
-    const reviews = (listed.structuredContent as { reviews: Array<{ reviewId: string; source: string; hasBrief: boolean }> }).reviews
-    assert.deepEqual(reviews, [{ reviewId: REVIEW_ID, projectRoot, source: 'branch', hasBrief: true }])
-    const got = await tool(tools, 'review_get_brief').handler({ reviewId: REVIEW_ID, projectRoot })
-    assert.equal((got.structuredContent as { brief: ReviewBrief | null }).brief?.changeSetId, 'cs_fixture')
-  } finally {
-    rmSync(projectRoot, { recursive: true, force: true })
-  }
-}
-
-async function testReviewSubmitBriefInvalidReturnsEveryErrorAndWritesNothing(): Promise<void> {
-  const { tools, projectRoot, reviewDir } = reviewHarness()
-  try {
-    // Pre-seed a prior brief so we can prove garbage never overwrites it.
-    const briefPath = join(reviewDir, 'brief.json')
-    const prior = `${JSON.stringify(reviewValidBrief(), null, 2)}\n`
-    writeFileSync(briefPath, prior)
-
-    // A shapeless object fails many schema checks at once.
-    const submit = await tool(tools, 'review_submit_brief').handler({ reviewId: REVIEW_ID, projectRoot, brief: {} })
-    assert.equal(submit.isError, true, 'invalid brief is an error')
-    const errors = (submit.structuredContent as { errors: string[] }).errors
-    assert.ok(Array.isArray(errors) && errors.length > 1, 'returns every validator message, not just the first')
-    assert.equal(readFileSync(briefPath, 'utf8'), prior, 'prior brief.json is untouched')
-
-    // A shaped-but-mismatched brief (wrong changeSetId + dropped coverage) fails the
-    // cross-check and still writes nothing.
-    const mismatched = reviewValidBrief()
-    mismatched.changeSetId = 'cs_wrong'
-    const cross = await tool(tools, 'review_submit_brief').handler({
-      reviewId: REVIEW_ID,
-      projectRoot,
-      brief: mismatched as unknown as Record<string, unknown>,
-    })
-    assert.equal(cross.isError, true)
-    assert.ok((cross.structuredContent as { errors: string[] }).errors.some((e) => /changeSetId/.test(e)))
-    assert.equal(readFileSync(briefPath, 'utf8'), prior, 'a mismatch never overwrites either')
-
-    // A JSON string instead of the brief object is refused before validation.
-    const stringy = await tool(tools, 'review_submit_brief').handler({
-      reviewId: REVIEW_ID,
-      projectRoot,
-      brief: JSON.stringify(reviewValidBrief()),
-    })
-    assert.equal(stringy.isError, true)
-    assert.equal((stringy.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  } finally {
-    rmSync(projectRoot, { recursive: true, force: true })
-  }
-}
-
-async function testReviewSubmitBriefRejectsSeverityAnnotationKind(): Promise<void> {
-  const { tools, projectRoot, reviewDir } = reviewHarness()
-  try {
-    // The no-verdicts firewall: any annotation kind outside explain|context|knowledge
-    // is rejected by the shape validator, so a severity verdict cannot be smuggled in.
-    const brief = reviewValidBrief() as unknown as { steps: Array<{ annotations: Array<{ kind: string }> }> }
-    brief.steps[0].annotations[0].kind = 'severity'
-    const submit = await tool(tools, 'review_submit_brief').handler({
-      reviewId: REVIEW_ID,
-      projectRoot,
-      brief: brief as unknown as Record<string, unknown>,
-    })
-    assert.equal(submit.isError, true, 'a severity kind is rejected')
-    assert.ok((submit.structuredContent as { errors: string[] }).errors.some((e) => /kind/.test(e)), 'names the offending kind')
-    assert.equal(existsSync(join(reviewDir, 'brief.json')), false, 'the firewall wrote no brief')
-  } finally {
-    rmSync(projectRoot, { recursive: true, force: true })
-  }
-}
-
-async function testReviewToolsRejectUnknownTargetAndStripAbsolutePaths(): Promise<void> {
-  const { tools, projectRoot } = reviewHarness()
-  try {
-    const home = homedir()
-
-    // A projectRoot that is not an open project fails cleanly, and the error never
-    // echoes the absolute path the caller guessed.
-    const foreign = await tool(tools, 'review_get_changeset').handler({ reviewId: REVIEW_ID, projectRoot: join(home, 'not-open') })
-    assert.equal(foreign.isError, true)
-    const foreignError = (foreign.structuredContent as { error: { code: string; message: string } }).error
-    assert.equal(foreignError.code, 'unknown_project')
-    assert.ok(!foreignError.message.includes(home), 'the error leaks no absolute machine path')
-
-    // A malformed reviewId is rejected before any path is built.
-    const badId = await tool(tools, 'review_get_brief').handler({ reviewId: '../escape', projectRoot })
-    assert.equal(badId.isError, true)
-    assert.equal((badId.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-
-    // review_get_changeset returns the full change set but strips the branch
-    // source's absolute repoRoot — no machine path in the payload.
-    const got = await tool(tools, 'review_get_changeset').handler({ reviewId: REVIEW_ID, projectRoot })
-    assert.equal(got.isError, undefined)
-    const payload = got.structuredContent as { changeset: { source: Record<string, unknown>; files: unknown[] }; truncated: boolean }
-    assert.equal(payload.truncated, false)
-    assert.equal(payload.changeset.files.length, 2, 'the change set is returned in full')
-    assert.equal(payload.changeset.source.kind, 'branch')
-    assert.equal('repoRoot' in payload.changeset.source, false, 'repoRoot is stripped')
-    assert.ok(!JSON.stringify(payload.changeset.source).includes(projectRoot), 'no absolute project path in the source')
-  } finally {
-    rmSync(projectRoot, { recursive: true, force: true })
-  }
-}
-
-// MC-1805: a disabled Review module makes review unreachable in BOTH processes.
-// The tools stay registered — an agent still sees the capability, and learns why
-// it is refusing — but every one of them refuses before touching a file.
-async function testReviewToolsRefuseWhileTheModuleIsDisabled(): Promise<void> {
-  const { tools, projectRoot, reviewDir, emitted, setModuleEnabled, listReviewToolNames } = reviewHarness()
-  try {
-    setModuleEnabled(false)
-    assert.deepEqual(
-      listReviewToolNames(),
-      ['review_list_pending', 'review_get_changeset', 'review_get_brief', 'review_submit_brief'],
-      'a disabled module still lists its tools on a fresh tools/list resolution'
-    )
-
-    const calls: Array<[string, Record<string, unknown>]> = [
-      ['review_list_pending', {}],
-      ['review_get_changeset', { reviewId: REVIEW_ID, projectRoot }],
-      ['review_get_brief', { reviewId: REVIEW_ID, projectRoot }],
-      [
-        'review_submit_brief',
-        { reviewId: REVIEW_ID, projectRoot, brief: reviewValidBrief() as unknown as Record<string, unknown> },
-      ],
-    ]
-    for (const [name, args] of calls) {
-      const refused = await tool(tools, name).handler(args)
-      assert.equal(refused.isError, true, `${name} refuses`)
-      const error = (refused.structuredContent as { error: { code: string; message: string } }).error
-      assert.equal(error.code, 'review_module_disabled', `${name} names the reason`)
-      assert.equal(
-        error.message,
-        'The Review module is disabled. Enable it in Settings → Modules to use review tools.',
-        `${name} returns the module-disabled sentence verbatim`
-      )
-    }
-
-    // No read and no write happened on behalf of a disabled capability.
-    assert.equal(existsSync(join(reviewDir, 'brief.json')), false, 'no brief was written')
-    assert.deepEqual(emitted, [], 'nothing was announced to open windows')
-
-    // Enablement is read per call, off the same registrations: switching the
-    // module back on in Settings works on the next call, not the next restart.
-    setModuleEnabled(true)
-    const listed = await tool(tools, 'review_list_pending').handler({})
-    assert.equal(listed.isError, undefined, 'an enabled module answers normally')
-    const submitted = await tool(tools, 'review_submit_brief').handler({
-      reviewId: REVIEW_ID,
-      projectRoot,
-      brief: reviewValidBrief() as unknown as Record<string, unknown>,
-    })
-    assert.equal(submitted.structuredContent?.ok, true, 'and the one mutation works again')
-    assert.deepEqual(emitted, [{ workspaceId: REVIEW_ID, phase: 'done' }])
-  } finally {
-    rmSync(projectRoot, { recursive: true, force: true })
   }
 }
 
@@ -4005,7 +3710,7 @@ async function testDevOnlyModulesAreAbsentFromAPackagedBuild(): Promise<void> {
   assert.deepEqual(listedIds, ['backlog'], 'no dev-only module appears in a packaged build')
   assert.equal((listed.structuredContent as { channel: string }).channel, 'production')
 
-  const devOnly = await tool(tools, 'module.status').handler({ id: 'review' })
+  const devOnly = await tool(tools, 'module.status').handler({ id: 'voice-dictation' })
   const error = (devOnly.structuredContent as { error: { code: string; message: string } }).error
   assert.equal(error.code, 'module_not_in_build', 'a dev-only id is absent, not disabled')
   assert.match(error.message, /development builds/)
@@ -4281,11 +3986,6 @@ const tests = [
   testSprintCreateCarriesTheRunRuntime,
   testCliRuntimeListReportsTheRegistry,
   testStudioGatewayAuditIsRedactedAndRotated,
-  testReviewSubmitBriefHappyPathWritesAtomicallyAndEmits,
-  testReviewSubmitBriefInvalidReturnsEveryErrorAndWritesNothing,
-  testReviewSubmitBriefRejectsSeverityAnnotationKind,
-  testReviewToolsRejectUnknownTargetAndStripAbsolutePaths,
-  testReviewToolsRefuseWhileTheModuleIsDisabled,
   testModuleToolsReportTheRegistryTheUserSees,
   testModuleStatusAgreesWithTheToolsTheGatewayServes,
   testDevOnlyModulesAreAbsentFromAPackagedBuild,

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Reviews module icon">
+  <rect width="128" height="128" rx="22" fill="#101820"/>
+  <g transform="translate(16 16) scale(6)" fill="none" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 8s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4Z" stroke="#d7efe7"/>
+    <circle cx="8" cy="8" r="1.8" stroke="#4fc3a1"/>
+  </g>
+</svg>

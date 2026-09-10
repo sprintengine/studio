@@ -166,8 +166,13 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     // Any other mode is not a valid launch host. A restart-restored routing
     // placeholder reports 'standard', which is the permissive answer and matches
     // what the renderer used to conclude from its own record.
+    //
+    // A caller that owns its own residency (a module agent session, which names
+    // the workspace its surface was opened from) opts out with
+    // `anyWorkspaceMode`: refusing there would refuse the workspace the user is
+    // actually standing in.
     const mode = workspace.mode ?? 'standard'
-    if (mode !== 'standard' && mode !== AUTOMATIONS_HOST_WORKSPACE_MODE) {
+    if (!request.anyWorkspaceMode && mode !== 'standard' && mode !== AUTOMATIONS_HOST_WORKSPACE_MODE) {
       return {
         ok: false,
         code: 'unsupported_workspace_mode',
@@ -211,7 +216,10 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     }
 
     const worktreePath = request.worktreePath?.trim() || undefined
-    const cwd = worktreePath ?? workspace.folderPath?.trim() ?? ''
+    // An explicit cwd wins over both: a module agent session runs in a folder
+    // its own surface resolved (a project root the workspace merely holds),
+    // and the workspace still owns the residency around it.
+    const cwd = request.cwd?.trim() || worktreePath || workspace.folderPath?.trim() || ''
     if (!cwd) {
       // Spawning into `process.cwd()` would run the agent inside the app's own
       // install directory. Refuse rather than launch somewhere nobody asked for.
@@ -222,7 +230,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       }
     }
 
-    const agentId = `agent-${cli}-${newAgentSuffix()}`
+    const agentId = request.agentId?.trim() || `agent-${cli}-${newAgentSuffix()}`
     const name = request.name?.trim() || pickRandomAgentName(takenAgentNames(workspace, deps.terminal.list()))
     // The picker constrains specialistId to the catalog; trust it at this
     // boundary, exactly as the renderer path did.
@@ -321,9 +329,11 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
         workspaceId: workspace.id,
         // The PROJECT root, not the run worktree: the engine's teardown matches
         // a run's sessions on the workspace root it was launched for.
-        workspaceRoot: workspace.folderPath?.trim() ?? '',
+        workspaceRoot: workspace.folderPath?.trim() || cwd,
         workId: agentId,
-        role: record.kind,
+        // A caller that knows what this agent IS says so; every app-level
+        // launch is a general or specialist agent and says nothing.
+        role: request.role?.trim() || record.kind,
         displayName: name,
       },
       agentRecord: record,
@@ -336,7 +346,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
         message: spawned.message ?? `Agent "${agentId}" could not be started in workspace "${workspace.id}".`,
       }
     }
-    return { ok: true, workspaceId: workspace.id, agentId, sessionId }
+    return { ok: true, workspaceId: workspace.id, agentId, sessionId, cli, executionId: sessionId }
   }
 
   /**

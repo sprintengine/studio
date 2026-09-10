@@ -1,9 +1,15 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 
 import type { MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import { ACTIVE_RENDERER_MODULE_MANIFESTS, COMING_SOON_MODULE_MANIFESTS } from '../../modules'
 import { getThirdPartyRendererLoadState } from '../../modules/third-party-loader'
-import { EmptyState, PrimaryButton } from '../ui'
+import {
+  classifyVerification,
+  deriveInstallView,
+  summarizeInstallResult,
+  type InstallFlowState,
+} from '../settings/installFlow'
+import { EmptyState, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot } from '../ui'
 
 // Explicit absence surfaces for module-owned UI (MC-1532). A workspace whose
 // mode's module is not installed — fresh machine, uninstalled, marketplace
@@ -61,24 +67,165 @@ export function ModuleNotInstalledSurface({
 export function DoorModuleNotInstalledSurface({
   label,
   installed = false,
+  moduleId,
   onOpenExtensions,
 }: {
   label: string
   /** True when the module is on the machine but disabled — the copy stays honest. */
   installed?: boolean
+  /**
+   * The module this door belongs to (G9). When the marketplace registry carries
+   * a module entry under this id, the door offers a real Install rather than
+   * only a signpost to a catalogue the person then has to search.
+   */
+  moduleId?: string
   onOpenExtensions: () => void
 }) {
+  // Only a module that is genuinely absent can be installed; one that is on the
+  // machine and switched off is a Settings toggle, and offering Install there
+  // would be a button that reinstalls what is already there.
+  const entry = useMarketplaceModuleEntry(installed ? undefined : moduleId)
   return (
     <div role="note" aria-label="Door module not installed" className="h-full">
       <EmptyState
         title={label}
         body={installed ? `The ${label} module is turned off.` : `The ${label} module isn’t installed.`}
         action={
-          <PrimaryButton size="sm" onClick={onOpenExtensions}>
-            Find it in Plugins
-          </PrimaryButton>
+          entry ? (
+            <DoorModuleInstallControls entry={entry} onOpenExtensions={onOpenExtensions} />
+          ) : (
+            <PrimaryButton size="sm" onClick={onOpenExtensions}>
+              Find it in Plugins
+            </PrimaryButton>
+          )
         }
       />
+    </div>
+  )
+}
+
+/**
+ * The marketplace entry for a missing module id, or null.
+ *
+ * Read once per id. A registry that cannot be read leaves the door with the
+ * signpost it always had — a door that cannot reach the marketplace must not
+ * grow a button that fails when pressed.
+ */
+function useMarketplaceModuleEntry(moduleId: string | undefined): MarketplacePluginEntry | null {
+  const [entry, setEntry] = useState<MarketplacePluginEntry | null>(null)
+  useEffect(() => {
+    setEntry(null)
+    if (!moduleId) return
+    if (typeof window.api?.readMarketplaceRegistry !== 'function') return
+    let cancelled = false
+    void window.api
+      .readMarketplaceRegistry()
+      .then((result) => {
+        if (cancelled || !result.ok) return
+        const match = marketplaceModuleEntry(moduleId, result.marketplace.plugins)
+        if (match) setEntry(match)
+      })
+      .catch(() => {
+        // Registry unreachable — the signpost already covers the door.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [moduleId])
+  return entry
+}
+
+/**
+ * Install, from the door the module is missing from (G9).
+ *
+ * The same flow the storefront runs — verify, then install — through the same
+ * `installFlow` view-model, so the two surfaces can never disagree about what a
+ * classification means or what an install says afterwards. What this surface
+ * deliberately does NOT carry is the trust prompt: disclosing the real
+ * permissions of a community or unsigned bundle needs the panel that can show
+ * them, so anything that would prompt is handed to Extensions → Plugins by
+ * name rather than installed from here.
+ *
+ * "Find it in Plugins" stays, as the secondary action: it is the way to the
+ * entry's detail, its source link, and everything this compact state cannot say.
+ */
+function DoorModuleInstallControls({
+  entry,
+  onOpenExtensions,
+}: {
+  entry: MarketplacePluginEntry
+  onOpenExtensions: () => void
+}) {
+  const [flow, setFlow] = useState<InstallFlowState>({ status: 'idle' })
+
+  const install = useCallback(async () => {
+    if (typeof window.api?.verifyMarketplacePlugin !== 'function' || typeof window.api?.installMarketplacePluginFromRegistry !== 'function') {
+      setFlow({ status: 'error', message: 'Installing extensions needs a newer app build. Update and restart.' })
+      return
+    }
+    setFlow({ status: 'verifying' })
+    let verify
+    try {
+      verify = await window.api.verifyMarketplacePlugin(entry)
+    } catch (error) {
+      setFlow({ status: 'error', message: error instanceof Error ? error.message : 'Could not verify this extension.' })
+      return
+    }
+    const outcome = classifyVerification(verify, entry.provides)
+    if (outcome.kind === 'blocked') {
+      setFlow({ status: 'blocked', classification: outcome.classification, message: outcome.message, issues: outcome.issues })
+      return
+    }
+    if (outcome.kind === 'needs-trust') {
+      setFlow({
+        status: 'error',
+        message: `${entry.name} asks you to trust it before it installs. Open it in Plugins, where you can read what it wants first.`,
+      })
+      return
+    }
+    setFlow({ status: 'installing' })
+    try {
+      // No workspace: a module installs into the user module root, and this
+      // door may be open with no project at all.
+      const result = await window.api.installMarketplacePluginFromRegistry({ entry })
+      setFlow(summarizeInstallResult(result))
+    } catch (error) {
+      setFlow({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'The install could not be completed.',
+      })
+    }
+  }, [entry])
+
+  const view = deriveInstallView(flow)
+  return (
+    <div className="flex flex-col items-center gap-2">
+      {view.notice ? (
+        view.notice.tone === 'good' ? (
+          <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
+            <StatusDot tone="good" />
+            <span>{view.notice.message}</span>
+          </div>
+        ) : (
+          <InlineNotice tone={view.notice.tone}>{view.notice.message}</InlineNotice>
+        )
+      ) : null}
+      {view.busy ? (
+        <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
+          <Spinner size={14} />
+          {view.busyLabel}
+        </div>
+      ) : null}
+      <div className="flex items-center gap-2">
+        {view.action ? (
+          <PrimaryButton size="sm" onClick={() => void install()}>
+            {view.action.kind === 'retry' ? view.action.label : `Install ${entry.name}`}
+          </PrimaryButton>
+        ) : null}
+        <GhostButton size="sm" onClick={onOpenExtensions}>
+          Find it in Plugins
+        </GhostButton>
+      </div>
     </div>
   )
 }
@@ -109,6 +256,23 @@ export function marketplaceModuleForComponent(
   if (isPresent(moduleId)) return null
   const entry = plugins.find((plugin) => plugin.id === moduleId && plugin.provides.includes('module'))
   return entry ? { id: entry.id, name: entry.name } : null
+}
+
+/**
+ * The registry entry that would install this module id, or null.
+ *
+ * The `provides` check is the whole rule and is not a formality: an entry may
+ * share an id with a module and ship only skills, and installing that would put
+ * something on the machine that cannot open the door the person is standing at.
+ * Pure, so the rule is asserted without a registry or a renderer.
+ */
+export function marketplaceModuleEntry<T extends Pick<MarketplacePluginEntry, 'id' | 'provides'>>(
+  moduleId: string,
+  plugins: readonly T[],
+): T | null {
+  const id = moduleId.trim()
+  if (!id) return null
+  return plugins.find((plugin) => plugin.id === id && plugin.provides.includes('module')) ?? null
 }
 
 export function MissingModulePanelSurface({

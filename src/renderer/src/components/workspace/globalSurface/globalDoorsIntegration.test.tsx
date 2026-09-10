@@ -11,9 +11,9 @@ import type { ExtensionsSurfaceTarget } from './extensions/extensionsSurfaceTarg
 // their own contract; this one covers the seams between them, which is where an
 // epic assembled by six agents actually breaks:
 //
-//  1. The doors coexist on the REAL renderer kernel — Sprints sits beside
-//     Reviews at the orders the mockup's sidebar shows, each with a
-//     surface behind it, and each vanishes with its module.
+//  1. The doors coexist on the REAL renderer kernel — each sits at the order
+//     the mockup's sidebar shows, with a surface behind it, and each vanishes
+//     with its module.
 //  2. The Sprints door survives an unreadable run index and RECOVERS from it —
 //     the degraded state is a way back, not a dead end (the leg the composition
 //     suite could not reach: its index IPC always resolves).
@@ -271,9 +271,11 @@ async function main(): Promise<void> {
   // boots with — not a hand-built one. Automations, Extensions (user-facing
   // "Plugins") and Design spent 2026-09-01 to 2026-09-05 in the modal registry
   // and are doors again (Extensions drawer ruling: a destination the shell's
-  // own chrome offers routes the card region, it does not float over it). What
-  // is left in the modal registry is Reviews, opened from the workspace pane
-  // strip. Design is owned by its OWN bundled `design` module.
+  // own chrome offers routes the card region, it does not float over it). The
+  // modal registry is now EMPTY in a stock build — Reviews, its last member,
+  // left for the installable Reviews module (2026-09-10), which registers its
+  // own modal surface and pane-row launcher when installed. Design is owned by
+  // its OWN bundled `design` module.
   {
     const host = getRendererHost()
     const entries = host.getSidebarNavEntries()
@@ -338,24 +340,20 @@ async function main(): Promise<void> {
     for (const id of ['design', 'extensions']) {
       assert.ok(host.getGlobalSurface(id)?.Icon, `the ${id} door offers a glyph for its drawer row`)
     }
-    // One modal surface remains, and it is the shape a modal is for: a
-    // pick-and-close task floated over work that stays put.
-    const modalOrder = host.getModalSurfaces().map((surface) => [surface.id, surface.label] as const)
+    // No bundled module registers a modal surface any more, so the registry —
+    // and the contributed pane-launcher rows that ride on it — are empty in a
+    // stock build. That empty case is the one every launcher consumer has to
+    // survive: composePaneKinds keeps the static rows, and no chrome invents a
+    // row for a surface nothing registered.
     assert.deepEqual(
-      modalOrder,
-      [['reviews', 'Reviews']],
-      'the modal registry holds only Reviews (Settings is core and never registered; the diff has no modal at all)',
+      host.getModalSurfaces().map((surface) => [surface.id, surface.label] as const),
+      [],
+      'the modal registry is empty (Settings is core and never registered; Reviews is an installable module now)',
     )
-    // And it carries no glyph, because nothing draws one for a modal surface.
-    // The doors→modals ruling (2026-09-01) put a trigger per modal in the
-    // sidebar footer's settings cluster; the Extensions drawer ruling took the
-    // cluster back four days later, and Reviews is opened from the workspace
-    // pane strip, whose launcher holds its own glyph (paneKinds.tsx). A second
-    // copy in the registry would be a field nothing reads posing as the source.
-    assert.equal(
-      host.getModalSurface('reviews')?.Icon,
-      undefined,
-      'the reviews surface declares no glyph — the pane launcher that opens it carries the one glyph there is',
+    assert.deepEqual(
+      host.getModalSurfaceLaunchers(),
+      [],
+      'and no bundled module contributes a pane-strip launcher row',
     )
     // A door is only as present as its module: turning the module off must take
     // BOTH the row and the page, or the row routes to a page that cannot mount.
@@ -533,32 +531,6 @@ async function main(): Promise<void> {
     sprintsRoot.unmount()
   })
 
-  // ═══ 5. The Reviews door MOUNTS ═══════════════════════════════════════════
-  // Regression for MC-1834: the guide-terminal hook selected workspaces by
-  // mapping to fresh objects inside useShallow, so every render produced a new
-  // snapshot — an infinite re-render loop ("Maximum update depth exceeded")
-  // that tore down the renderer the moment the door opened. Mounting against
-  // the real store with several workspaces resident is the exact trigger; the
-  // unstubbed review IPC resolving `{ ok: false }` is fine — a degraded pane
-  // is a pass, a render loop is the failure.
-  const { default: ReviewsGlobalSurface } = await import('../../../review/door/ReviewsGlobalSurface')
-  useWorkspaceStore.setState({ activeGlobalSurface: 'reviews' } as never)
-  const reviewsRoot = createRoot(container)
-  await act(async () => {
-    reviewsRoot.render(
-      React.createElement(ConfirmDialogProvider, null, React.createElement(ReviewsGlobalSurface)),
-    )
-  })
-  await settle()
-  assert.ok(
-    (container.textContent ?? '').length > 0,
-    'the Reviews door mounts and renders content instead of crashing the tree',
-  )
-  await act(async () => {
-    reviewsRoot.unmount()
-  })
-  console.log('ok - the Reviews door mounts without a re-render storm')
-
   // ═══ 5b. The Design door: empty first-run, then two real groups ══════════
   // Two things only a real mount can prove. First, the MC-2014 trap: the door
   // must mount exactly ONE rail — Extensions grew a second nested SurfaceRail
@@ -652,8 +624,8 @@ async function main(): Promise<void> {
       // `children` is a declared prop of the boundary, so it goes in the props
       // object: createElement's variadic children never satisfy a required one.
       React.createElement(GlobalSurfaceErrorBoundary, {
-        surfaceId: 'reviews',
-        surfaceLabel: 'Reviews',
+        surfaceId: 'sprints',
+        surfaceLabel: 'Sprints',
         onClose: () => {
           closed += 1
         },
@@ -662,7 +634,7 @@ async function main(): Promise<void> {
     )
   })
   assert.ok(
-    container.textContent?.includes('Reviews hit a problem and stopped.'),
+    container.textContent?.includes('Sprints hit a problem and stopped.'),
     'the fallback names the failed surface',
   )
   const fallbackButtons = Array.from(container.querySelectorAll('button'))
@@ -966,7 +938,6 @@ async function main(): Promise<void> {
 
     const doors: Array<[string, React.ComponentType]> = [
       ['sprints', SprintsGlobalSurface],
-      ['reviews', ReviewsGlobalSurface],
     ]
     for (const [id, Surface] of doors) {
       const slot = dom.window.document.createElement('div')

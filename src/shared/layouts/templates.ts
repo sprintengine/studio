@@ -1,7 +1,6 @@
 import type { LayoutTemplate, PreviewSlot } from '../../renderer/src/types/workspace'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
-  REVIEWS_HOST_WORKSPACE_MODE,
   type WorkspaceMode,
 } from '../workspace-mode'
 
@@ -257,27 +256,11 @@ export const AUTOMATIONS_HOST_TEMPLATE: LayoutTemplate = {
   }),
 }
 
-// Rail-hidden and never user-created, so this template is only ever the shape of
-// an empty workspace: guide tabs are added to it one at a time as reviews run.
-export const REVIEWS_HOST_TEMPLATE: LayoutTemplate = {
-  id: 'reviews-host-mode',
-  name: 'Reviews',
-  description: 'Hosts the review guide terminals for one project.',
-  previewSlots: [],
-  layout: {
-    global: { tabSetEnableDrop: true, tabEnableClose: true },
-    borders: [],
-    layout: { type: 'row', children: [] },
-  },
-}
-
 /** The template a workspace of this mode is minted from when none is named. */
 function defaultTemplateForWorkspaceMode(mode: WorkspaceMode | undefined): LayoutTemplate | null {
   switch (mode) {
     case AUTOMATIONS_HOST_WORKSPACE_MODE:
       return AUTOMATIONS_HOST_TEMPLATE
-    case REVIEWS_HOST_WORKSPACE_MODE:
-      return REVIEWS_HOST_TEMPLATE
     default:
       return null
   }
@@ -302,7 +285,7 @@ export function resolveHeadlessLayoutTemplate(input: {
   if (byMode) return byMode
   const templateId = input.templateId?.trim()
   if (templateId) {
-    const named = [...LAYOUT_TEMPLATES, EMPTY_CHAT_TEMPLATE, AUTOMATIONS_HOST_TEMPLATE, REVIEWS_HOST_TEMPLATE]
+    const named = [...LAYOUT_TEMPLATES, EMPTY_CHAT_TEMPLATE, AUTOMATIONS_HOST_TEMPLATE]
       .find((template) => template.id === templateId)
     if (named) return named
   }

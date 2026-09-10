@@ -185,7 +185,36 @@ function parseComponentKinds(raw: unknown): MarketplaceComponentKind[] {
     if (!kinds.includes(value as MarketplaceComponentKind)) kinds.push(value as MarketplaceComponentKind)
   }
   if (issues.length > 0) fail('Invalid --component value:', issues)
-  return kinds
+  // Canonical order, whatever order the flags were typed in (G13). See
+  // `canonicalComponentOrder` for why this is not cosmetic.
+  return MARKETPLACE_COMPONENT_KINDS.filter((kind) => kinds.includes(kind))
+}
+
+/**
+ * The plugin's components, keyed in `MARKETPLACE_COMPONENT_KINDS` order (G13).
+ *
+ * This looks cosmetic and is not. A registry entry's `provides` array must
+ * equal the kinds of the bundle it points at, and the app derives that list by
+ * filtering `MARKETPLACE_COMPONENT_KINDS` — so `provides` is ALWAYS in canonical
+ * order on the app's side, while an author reading their own plugin.json copies
+ * whatever order they happen to see there. `["skills","mcp"]` against a bundle
+ * the downloader reads as `mcp, skills` is a registry mismatch that fails at
+ * install, on the user's machine, with a message about a list that looks
+ * identical to the one they wrote. Writing plugin.json in the canonical order is
+ * how the two are kept from disagreeing at the only point an author looks.
+ */
+function canonicalComponentOrder(components: MarketplacePluginComponents): MarketplacePluginComponents {
+  const ordered: MarketplacePluginComponents = {}
+  for (const kind of MARKETPLACE_COMPONENT_KINDS) {
+    const component = components[kind]
+    if (component !== undefined) ordered[kind] = component
+  }
+  return ordered
+}
+
+/** The `provides` list a registry entry for this bundle must carry, verbatim. */
+function providesForComponents(components: MarketplacePluginComponents): MarketplaceComponentKind[] {
+  return MARKETPLACE_COMPONENT_KINDS.filter((kind) => components[kind] !== undefined)
 }
 
 function assertPluginComponentDigestsMatch(pluginDir: string, manifest: MarketplacePluginManifest): void {
@@ -385,7 +414,10 @@ function pluginScaffold(args: string[]): void {
   }
   mkdirSync(outDir, { recursive: true })
 
-  writeJson(join(outDir, 'plugin.json'), draftValidation.manifest)
+  writeJson(join(outDir, 'plugin.json'), {
+    ...draftValidation.manifest,
+    components: canonicalComponentOrder(draftValidation.manifest.components),
+  })
 
   if (components.mcp) {
     writeJson(join(outDir, components.mcp.path), {
@@ -472,6 +504,7 @@ function pluginScaffold(args: string[]): void {
   }
 
   console.log(`Scaffolded marketplace plugin ${id} at ${outDir}`)
+  console.log(`Registry entry "provides": ${JSON.stringify(providesForComponents(components))}`)
   console.log('Run `multicode-module keygen`, then `multicode-module plugin sign`, then `multicode-module plugin verify`.')
 }
 
@@ -553,7 +586,10 @@ function pluginSign(args: string[]): void {
   }
   const unsignedWithDigests: MarketplacePluginAuthoringManifest = {
     ...unsigned,
-    components: componentsWithDigests.components,
+    // G13: the signed manifest is written back in canonical component order, so
+    // the `provides` an author copies out of it is the one the registry
+    // mismatch gate computes.
+    components: canonicalComponentOrder(componentsWithDigests.components),
   }
   let signature
   try {
@@ -566,6 +602,7 @@ function pluginSign(args: string[]): void {
   const { fingerprint } = verifyModuleSignature(signed)
   console.log(`Signed plugin ${manifest.id}; wrote normalized manifest to ${manifestPath}`)
   console.log(`Signer fingerprint: ${fingerprint}`)
+  console.log(`Registry entry "provides": ${JSON.stringify(providesForComponents(unsignedWithDigests.components))}`)
 }
 
 function pluginVerify(args: string[]): void {
@@ -590,6 +627,7 @@ function pluginVerify(args: string[]): void {
   assertPluginAutomationPayload(sourceDir, manifest.components)
   console.log(`${manifest.id}: plugin signature valid`)
   console.log(`Signer fingerprint: ${fingerprint}`)
+  console.log(`Registry entry "provides": ${JSON.stringify(providesForComponents(manifest.components))}`)
 }
 
 function pluginCommand(args: string[]): void {

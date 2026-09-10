@@ -438,7 +438,7 @@ const surfaceComponent = () => {
   throw new Error('surface component should not be evaluated during registration')
 }
 // A first-party surface and a third-party module's surface register through the
-// same contract — the seam that lets Sprints/Automations/Reviews (and SDK
+// same contract — the seam that lets Sprints/Automations (and SDK
 // modules) contribute a full page without editing WorkspaceManager. ('roadmap'
 // below is an arbitrary module id; the door of that name is long gone.)
 surfaceHost.hostFor('roadmap').registerGlobalSurface({ id: 'roadmap', Component: surfaceComponent })
@@ -679,6 +679,76 @@ assert.deepEqual(
   ['compass', 'design'],
   're-enabling restores the modal surface without re-registration',
 )
+
+// --- The contributed pane row (D7) --------------------------------------------
+// A modal surface may carry the workspace-pane row that opens it. That row is
+// the ONE trigger the shell draws for a modal, so its fields are validated at
+// registration: a malformed launcher would otherwise be a row whose shortcut
+// silently never fires, or a card with nothing drawn in it.
+{
+  const launcherHost = createRendererHost()
+  const glyph = () => {
+    throw new Error('launcher glyph should not be evaluated during registration')
+  }
+  launcherHost.hostFor('acme.reviews').registerModalSurface({
+    id: 'reviews',
+    label: 'Reviews',
+    launcher: { label: '  Reviews  ', letter: 'r', Glyph: glyph },
+    Component: modalComponent,
+  })
+  launcherHost.hostFor('design').registerModalSurface({
+    id: 'design', order: 30, label: 'Design', Component: modalComponent,
+  })
+
+  assert.deepEqual(
+    launcherHost.getModalSurfaceLaunchers().map((launcher) => ({
+      surfaceId: launcher.surfaceId,
+      moduleId: launcher.moduleId,
+      label: launcher.label,
+      letter: launcher.letter,
+    })),
+    [{ surfaceId: 'reviews', moduleId: 'acme.reviews', label: 'Reviews', letter: 'R' }],
+    'a launcher is normalised (trimmed label, uppercased letter) and carries its surface + module; a surface without one contributes no row',
+  )
+  assert.deepEqual(
+    launcherHost.getModalSurfaceLaunchers((moduleId) => moduleId !== 'acme.reviews'),
+    [],
+    'a disabled module\'s row leaves the pane with the module',
+  )
+  assert.equal(
+    launcherHost.getModalSurfaceLaunchers()[0]?.Glyph,
+    glyph,
+    'the glyph is handed through by reference — the pane draws the module\'s own mark',
+  )
+
+  const bad = (launcher: unknown): (() => void) => () =>
+    launcherHost.hostFor('acme.reviews').registerModalSurface({
+      id: `bad-${Math.random()}`,
+      label: 'Bad',
+      launcher: launcher as { label: string; letter: string; Glyph: typeof glyph },
+      Component: modalComponent,
+    })
+  assert.throws(
+    bad({ label: '   ', letter: 'X', Glyph: glyph }),
+    /launcher with an empty label/,
+    'a row with no name is refused — the label IS the row',
+  )
+  assert.throws(
+    bad({ label: 'Bad', letter: 'XY', Glyph: glyph }),
+    /must be exactly one character/,
+    'a multi-character letter is refused: the menu compares a single keypress',
+  )
+  assert.throws(
+    bad({ label: 'Bad', letter: '', Glyph: glyph }),
+    /must be exactly one character/,
+    'and so is an empty one — losing the shortcut is the host\'s call on collision, not the module\'s',
+  )
+  assert.throws(
+    bad({ label: 'Bad', letter: 'X' }),
+    /without a Glyph/,
+    'a row with no mark is refused',
+  )
+}
 
 console.log('renderer host modal surface tests passed')
 
@@ -985,20 +1055,20 @@ testBacklogReaderSeam().catch((err) => {
 
 function testAgentIdNamespaces(): void {
   const kernel = createRendererHost()
-  kernel.hostFor('review').registerAgentIdNamespace({ prefix: 'review-guide-', label: 'Reviews' })
+  kernel.hostFor('notebooks').registerAgentIdNamespace({ prefix: 'notebook-run-', label: 'Notebooks' })
   kernel.hostFor('weather-deck').registerAgentIdNamespace({
     prefix: 'weather-deck-forecaster-',
     label: 'Weather Deck',
   })
 
   assert.equal(
-    kernel.getAgentIdNamespace('review-guide-rv_1')?.label,
-    'Reviews',
+    kernel.getAgentIdNamespace('notebook-run-nb_1')?.label,
+    'Notebooks',
     'an owned agent id resolves to its module\u2019s label',
   )
   assert.equal(
-    kernel.getAgentIdNamespace('review-guide-rv_1')?.moduleId,
-    'review',
+    kernel.getAgentIdNamespace('notebook-run-nb_1')?.moduleId,
+    'notebooks',
     'and to the module that claimed it',
   )
   assert.equal(
@@ -1011,9 +1081,9 @@ function testAgentIdNamespaces(): void {
   // Enablement is live: a disabled module owns nothing, so a session in its
   // namespace stops being adoptable and loses its label rather than pointing at
   // a module the shell will not mount.
-  const enabled = (moduleId: string): boolean => moduleId !== 'review'
+  const enabled = (moduleId: string): boolean => moduleId !== 'notebooks'
   assert.equal(
-    kernel.getAgentIdNamespace('review-guide-rv_1', enabled),
+    kernel.getAgentIdNamespace('notebook-run-nb_1', enabled),
     undefined,
     'a disabled module\u2019s namespace does not resolve',
   )
@@ -1027,13 +1097,13 @@ function testAgentIdNamespaces(): void {
   // contains \u2014 or is contained by \u2014 an existing one makes ownership of a
   // concrete id ambiguous.
   assert.throws(
-    () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'review-guide-x', label: 'Other' }),
-    /overlaps "review-guide-"/,
+    () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'notebook-run-x', label: 'Other' }),
+    /overlaps "notebook-run-"/,
     'a prefix inside an existing namespace is refused',
   )
   assert.throws(
-    () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'review-', label: 'Other' }),
-    /overlaps "review-guide-"/,
+    () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'notebook-', label: 'Other' }),
+    /overlaps "notebook-run-"/,
     'and so is one that would swallow it',
   )
   assert.throws(
@@ -1050,9 +1120,9 @@ function testModuleAppState(): void {
   // Unwired (early boot, tests): reads are undefined, writes report false, and a
   // watch is a working no-op \u2014 never a throw, so module code needs no guard.
   const bare = createRendererHost()
-  assert.equal(bare.hostFor('review').getModuleAppState('guide-defaults'), undefined)
-  assert.equal(bare.hostFor('review').setModuleAppState('guide-defaults', { depth: 'brief' }), false)
-  assert.doesNotThrow(() => bare.hostFor('review').watchModuleAppState(() => {})())
+  assert.equal(bare.hostFor('notebooks').getModuleAppState('run-defaults'), undefined)
+  assert.equal(bare.hostFor('notebooks').setModuleAppState('run-defaults', { depth: 'brief' }), false)
+  assert.doesNotThrow(() => bare.hostFor('notebooks').watchModuleAppState(() => {})())
 
   const kernel = createRendererHost()
   const store = new Map<string, Record<string, unknown>>()
@@ -1062,7 +1132,7 @@ function testModuleAppState(): void {
   // import, the store lands a microtask later, and a watch made in that window
   // must attach when it does rather than silently dying.
   const early: unknown[] = []
-  kernel.hostFor('review').watchModuleAppState((values) => early.push(values['guide-defaults']))
+  kernel.hostFor('notebooks').watchModuleAppState((values) => early.push(values['run-defaults']))
   kernel.setModuleAppStateStore({
     get: (moduleId) => store.get(moduleId) ?? empty,
     set: (moduleId, key, value) => {
@@ -1080,28 +1150,28 @@ function testModuleAppState(): void {
     },
   })
 
-  const review = kernel.hostFor('review')
+  const notebooks = kernel.hostFor('notebooks')
   const weather = kernel.hostFor('weather-deck')
-  review.setModuleAppState('guide-defaults', { depth: 'brief' })
+  notebooks.setModuleAppState('run-defaults', { depth: 'brief' })
   assert.deepEqual(early, [{ depth: 'brief' }], 'a watch made before the store was wired still fires')
-  assert.equal(review.setModuleAppState('guide-defaults', { depth: 'thorough' }), true)
-  assert.deepEqual(review.getModuleAppState('guide-defaults'), { depth: 'thorough' })
+  assert.equal(notebooks.setModuleAppState('run-defaults', { depth: 'thorough' }), true)
+  assert.deepEqual(notebooks.getModuleAppState('run-defaults'), { depth: 'thorough' })
   assert.equal(
-    weather.getModuleAppState('guide-defaults'),
+    weather.getModuleAppState('run-defaults'),
     undefined,
     'the scope is per module \u2014 one module can never read another\u2019s key',
   )
 
   const seen: unknown[] = []
-  const off = review.watchModuleAppState((values) => seen.push(values['guide-defaults']))
+  const off = notebooks.watchModuleAppState((values) => seen.push(values['run-defaults']))
   weather.setModuleAppState('last-outlook', 'clear')
   assert.deepEqual(seen, [], 'a sibling module\u2019s write never wakes this module\u2019s watch')
-  review.setModuleAppState('guide-defaults', { depth: 'brief' })
+  notebooks.setModuleAppState('run-defaults', { depth: 'brief' })
   assert.deepEqual(seen, [{ depth: 'brief' }], 'the module\u2019s own write does')
   off()
-  review.setModuleAppState('guide-defaults', { depth: 'standard' })
+  notebooks.setModuleAppState('run-defaults', { depth: 'standard' })
   assert.equal(seen.length, 1, 'and the unsubscriber stops delivery')
-  assert.deepEqual(review.getModuleAppState('guide-defaults'), { depth: 'standard' })
+  assert.deepEqual(notebooks.getModuleAppState('run-defaults'), { depth: 'standard' })
 }
 
 function testModuleEventSubscription(): void {
@@ -1123,13 +1193,13 @@ function testModuleEventSubscription(): void {
   // later. A subscribe made in that window must still receive — the kernel owns
   // the subscriber set, so an early subscription is not silently dead.
   const received: unknown[] = []
-  const off = kernel.hostFor('review').subscribe('brief-run', (payload) => received.push(payload))
+  const off = kernel.hostFor('notebooks').subscribe('run-status', (payload) => received.push(payload))
   wireSource()
   assert.equal(sourceAttachments, 1, 'wiring the source attaches exactly one listener')
-  emit('review', 'brief-run', { phase: 'done' })
+  emit('notebooks', 'run-status', { phase: 'done' })
   assert.deepEqual(received, [{ phase: 'done' }], 'a module receives its own topic')
-  emit('review', 'other-topic', { phase: 'done' })
-  emit('weather-deck', 'brief-run', { phase: 'done' })
+  emit('notebooks', 'other-topic', { phase: 'done' })
+  emit('weather-deck', 'run-status', { phase: 'done' })
   assert.equal(
     received.length,
     1,
@@ -1137,22 +1207,22 @@ function testModuleEventSubscription(): void {
   )
 
   // Enablement is live on every delivery, not just at subscribe.
-  let reviewEnabled = false
-  kernel.setModuleEnablementResolver((moduleId) => moduleId !== 'review' || reviewEnabled)
-  emit('review', 'brief-run', { phase: 'failed' })
+  let notebooksEnabled = false
+  kernel.setModuleEnablementResolver((moduleId) => moduleId !== 'notebooks' || notebooksEnabled)
+  emit('notebooks', 'run-status', { phase: 'failed' })
   assert.equal(received.length, 1, 'a disabled module stops receiving')
-  reviewEnabled = true
-  emit('review', 'brief-run', { phase: 'failed' })
+  notebooksEnabled = true
+  emit('notebooks', 'run-status', { phase: 'failed' })
   assert.deepEqual(received[1], { phase: 'failed' }, 'and resumes when it is re-enabled')
 
   // A throwing subscriber is contained: the shared preload listener must keep
   // dispatching to every other module.
   const healthy: unknown[] = []
-  kernel.hostFor('review').subscribe('brief-run', () => {
+  kernel.hostFor('notebooks').subscribe('run-status', () => {
     throw new Error('module bug')
   })
-  kernel.hostFor('review').subscribe('brief-run', (payload) => healthy.push(payload))
-  emit('review', 'brief-run', { phase: 'reading' })
+  kernel.hostFor('notebooks').subscribe('run-status', (payload) => healthy.push(payload))
+  emit('notebooks', 'run-status', { phase: 'reading' })
   assert.deepEqual(healthy, [{ phase: 'reading' }], 'a sibling subscriber still receives the emit')
 
   // One source listener backs every subscription, however many there are: the
@@ -1163,7 +1233,7 @@ function testModuleEventSubscription(): void {
 
   const beforeOff = received.length
   off()
-  emit('review', 'brief-run', { phase: 'done' })
+  emit('notebooks', 'run-status', { phase: 'done' })
   assert.equal(received.length, beforeOff, 'the returned closure stops delivery to that subscriber')
   assert.deepEqual(healthy.length, 2, 'while the siblings that did not unsubscribe keep receiving')
 }
@@ -1176,3 +1246,89 @@ function testModuleBoundarySurfaces(): void {
 }
 
 testModuleBoundarySurfaces()
+
+// --- The whole workspace list, and the app's light/dark surface (WP-C) -------
+// Both are for a module surface that is NOT mounted inside one workspace — a
+// modal floating over the window. Both answer before the shell wires them
+// rather than throwing or hanging: a module renders its empty state at early
+// boot instead of waiting for a first delivery that cannot come.
+
+async function testWorkspaceListAndColorScheme(): Promise<void> {
+  const kernel = createRendererHost()
+  const host = kernel.hostFor('acme.reviews')
+
+  assert.deepEqual(await host.listWorkspaces(), [], 'unwired, the list reads empty')
+  const earlyLists: unknown[] = []
+  const stopEarly = host.watchWorkspaces((workspaces) => earlyLists.push(workspaces))
+  assert.deepEqual(earlyLists, [[]], 'and an unwired watch still fires once, with nothing')
+  stopEarly()
+  const earlySchemes: string[] = []
+  const stopEarlyScheme = host.watchColorScheme((scheme) => earlySchemes.push(scheme))
+  assert.deepEqual(earlySchemes, ['dark'], 'an unwired colour watch answers once with the app default')
+  stopEarlyScheme()
+
+  let workspaces = [
+    { id: 'ws-1', name: 'Studio', folderPath: '/repo', mode: 'default' },
+    { id: 'ws-2', name: 'Docs', folderPath: null, mode: 'default' },
+  ]
+  const listListeners = new Set<() => void>()
+  kernel.setWorkspaceListSource({
+    list: () => workspaces.map((workspace) => ({ ...workspace })),
+    watch: (cb) => {
+      let last = ''
+      const emit = (): void => {
+        const next = JSON.stringify(workspaces)
+        if (next === last) return
+        last = next
+        cb(workspaces.map((workspace) => ({ ...workspace })))
+      }
+      listListeners.add(emit)
+      emit()
+      return () => listListeners.delete(emit)
+    },
+  })
+
+  assert.deepEqual(
+    (await host.listWorkspaces()).map((workspace) => workspace.id),
+    ['ws-1', 'ws-2'],
+    'wired, the list is the open workspaces in shell order',
+  )
+  const lists: Array<Array<{ id: string }>> = []
+  const stopList = host.watchWorkspaces((next) => lists.push(next))
+  assert.equal(lists.length, 1, 'a watch fires once with the current list')
+  listListeners.forEach((emit) => emit())
+  assert.equal(lists.length, 1, 'an unchanged list does not re-fire')
+  workspaces = [...workspaces, { id: 'ws-3', name: 'Spike', folderPath: '/spike', mode: 'default' }]
+  listListeners.forEach((emit) => emit())
+  assert.deepEqual(lists[1]?.map((workspace) => workspace.id), ['ws-1', 'ws-2', 'ws-3'], 'a change delivers the new list')
+  stopList()
+  assert.equal(listListeners.size, 0, 'the returned closure detaches the watch')
+
+  let scheme: 'light' | 'dark' = 'light'
+  const schemeListeners = new Set<() => void>()
+  kernel.setColorSchemeWatcher((cb) => {
+    let last: string | null = null
+    const emit = (): void => {
+      if (scheme === last) return
+      last = scheme
+      cb(scheme)
+    }
+    schemeListeners.add(emit)
+    emit()
+    return () => schemeListeners.delete(emit)
+  })
+  const schemes: string[] = []
+  const stopScheme = host.watchColorScheme((next) => schemes.push(next))
+  assert.deepEqual(schemes, ['light'], 'fires immediately with the current scheme')
+  scheme = 'dark'
+  schemeListeners.forEach((emit) => emit())
+  assert.deepEqual(schemes, ['light', 'dark'], 'then on every change')
+  stopScheme()
+  assert.equal(schemeListeners.size, 0, 'and the closure detaches it')
+  console.log('renderer host workspace-list + colour-scheme tests passed')
+}
+
+void testWorkspaceListAndColorScheme().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})

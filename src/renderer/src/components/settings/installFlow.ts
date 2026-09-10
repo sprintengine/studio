@@ -37,6 +37,26 @@ function hasCodeBearingKind(provides: MarketplaceComponentKind[]): boolean {
   return provides.some((kind) => kind === 'module' || kind === 'cli')
 }
 
+/**
+ * Whether installing this bundle needs an open workspace.
+ *
+ * Only the two workspace-scoped kinds do: an MCP server syncs into
+ * `<workspaceRoot>/.mcp.json` and a skill pack copies into the workspace's
+ * harness dirs. A module installs into `~/.multicode/modules/<id>`, a CLI
+ * plugin into the user plugin root — neither touches a project — so a
+ * module-only bundle installs with no workspace open at all, which is what
+ * makes a first-party module installable from a fresh app that has never
+ * opened a folder (D10). An automation needs one, but an automation-only
+ * bundle's own component reports that itself with the sentence that names the
+ * project it wants; keeping it out of this gate leaves that message intact.
+ *
+ * Lives here rather than inline in `BrowseStorefront` so the rule can be
+ * asserted without a renderer, like the rest of the flow.
+ */
+export function installNeedsWorkspace(provides: readonly MarketplaceComponentKind[]): boolean {
+  return provides.some((kind) => kind === 'mcp' || kind === 'skills')
+}
+
 // The blocked classifications: signature problems that offer no install path.
 // 'community' is NOT here — it is trust-grantable; 'verified' installs directly.
 type BlockedClassification = 'unsigned' | 'invalid'
@@ -51,7 +71,10 @@ export type InstallFlowState =
   | { status: 'needs-trust'; permissions: CapabilityPermission[]; files?: string[]; pinnedRef?: string }
   // install-entry IPC in flight (verified direct, or community after trust).
   | { status: 'installing' }
-  | { status: 'installed'; updated: boolean; notices?: string[] }
+  // `restartRequired`: the install landed a module whose main entry only loads
+  // at app launch (G7/D13), so the notice says so instead of a flat "Installed."
+  // that sends the person looking for a door that is not there yet.
+  | { status: 'installed'; updated: boolean; notices?: string[]; restartRequired?: boolean }
   // Hard block (unsigned/invalid): no install affordance is offered.
   | { status: 'blocked'; classification: BlockedClassification; message: string; issues?: string[] }
   // Verify or install failed reachably (network / thrown / install ok:false) —
@@ -124,7 +147,16 @@ export function classifyVerification(
 // retryable `error` with the lifecycle's message + issue detail (never a fake
 // success).
 export function summarizeInstallResult(result: MarketplacePluginRegistryInstallResult): InstallFlowState {
-  if (result.ok) return { status: 'installed', updated: result.updated, ...(result.notices?.length ? { notices: result.notices } : {}) }
+  if (result.ok) {
+    return {
+      status: 'installed',
+      updated: result.updated,
+      ...(result.notices?.length ? { notices: result.notices } : {}),
+      // Main decides this from LIVE_ENABLED_MODULE_IDS and the components it
+      // actually wrote; the renderer keeps no second copy of that list.
+      ...(result.restartRequired ? { restartRequired: true } : {}),
+    }
+  }
   if (result.classification === 'unsigned' || result.classification === 'invalid') {
     return {
       status: 'blocked',
@@ -187,7 +219,13 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
       }
     case 'installing':
       return { action: null, busy: true, busyLabel: 'Installing…', trustPrompt: false, permissions: null, files: null, pinnedRef: null, notice: null }
-    case 'installed':
+    case 'installed': {
+      // A module's code loads at app launch, so an install that landed one is
+      // on disk and not yet in the app. The sentence says the whole state —
+      // what happened, and what is left to do — rather than "Installed." and a
+      // door the person then cannot find.
+      const done = state.updated ? 'Updated to the latest version.' : 'Installed.'
+      const message = state.restartRequired ? `${done} Restart SprintEngine Studio to use it.` : done
       return {
         action: null,
         busy: false,
@@ -199,9 +237,10 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         // notice tone warns so the user sees which listed skills they did not
         // get, rather than the flat "Installed." hiding the gap.
         notice: state.notices?.length
-          ? { tone: 'warn', message: state.updated ? 'Updated to the latest version.' : 'Installed.', issues: state.notices }
-          : { tone: 'good', message: state.updated ? 'Updated to the latest version.' : 'Installed.' },
+          ? { tone: 'warn', message, issues: state.notices }
+          : { tone: 'good', message },
       }
+    }
     case 'blocked':
       // No install affordance (action: null). Invalid is an error tone; unsigned
       // is a warn tone — both still block, and the message carries the reason.

@@ -116,10 +116,22 @@ module.exports = {
   contextBridge: {
     exposeInMainWorld() {},
   },
-  // `isPackaged` is the only app field the main modules these suites import
-  // read, and they read it lazily; a suite that reaches further should fail on
-  // the missing member rather than get a plausible-looking answer.
+  // `isPackaged` and `getPath` are the only app fields the main modules these
+  // suites import read; a suite that reaches further should fail on the missing
+  // member rather than get a plausible-looking answer.
   app: {
     isPackaged: false,
+    // A per-process scratch directory, so a suite that registers an IPC surface
+    // keyed on `userData` (the marketplace install receipts) writes somewhere
+    // disposable instead of the real profile. `MULTICODE_USER_DATA_DIR` wins
+    // when a suite wants to look at what was written.
+    getPath(name) {
+      const override = process.env.MULTICODE_USER_DATA_DIR
+      const base = override && override.trim().length > 0
+        ? override.trim()
+        : require('node:path').join(require('node:os').tmpdir(), `multicode-electron-stub-${process.pid}`)
+      require('node:fs').mkdirSync(base, { recursive: true })
+      return name === 'userData' ? base : require('node:path').join(base, String(name))
+    },
   },
 }
