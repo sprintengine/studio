@@ -89,6 +89,21 @@ export const FOCUS_RING_CLASS = 'focus-visible:focus-ring'
 export const FOCUS_RING_INSET_CLASS = 'focus-visible:focus-ring-inset'
 
 /**
+ * For a ROW that is a `<label>` around a real checkbox — the check row's
+ * `--described` variant (design-system/components/check-row). The input is the
+ * tab stop, but the LABEL is the hit target, so ringing the 16px box inside a
+ * 44px row would mark the smallest part of what the person is operating.
+ * Inward, because the row is full-bleed against a list surface that clips an
+ * outset ring.
+ *
+ * `:focus-visible` and not `:focus`, unlike the text-field wrappers below:
+ * Chromium treats a text input as focus-visible on click, and a checkbox row
+ * that rang on every tick would be drawing a keyboard indicator for something
+ * that was not a keyboard stop.
+ */
+export const FOCUS_RING_WITHIN_CHECKBOX_CLASS = 'has-[input:focus-visible]:focus-ring-inset'
+
+/**
  * For a decorative box drawn next to the real control — a styled checkbox whose
  * `<input class="peer">` is the tab stop and carries the semantics.
  */

@@ -68,6 +68,7 @@ function statusJson(overrides: Record<string, unknown> = {}): string {
         DNSName: 'a-phone.tail1234.ts.net.',
         OS: 'iOS',
         Online: false,
+        LastSeen: '2026-09-08T09:15:00Z',
         TailscaleIPs: ['100.64.0.3'],
       },
     },
@@ -97,6 +98,44 @@ check('the node list is read from Tailscale, self first and reachable before asl
   // The trailing dot MagicDNS puts on a name is not part of the name.
   assert.equal(self.dnsName, 'studio-desktop.tail1234.ts.net')
   assert.equal(parsed.peers[2].online, false)
+})
+
+check('a sleeping peer carries the last time Tailscale heard from it', () => {
+  const parsed = parseTailscaleStatus(statusJson())
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) return
+  const phone = parsed.peers.filter((peer) => peer.hostName === 'a-phone')
+  assert.ok(phone.length === 1, 'the sleeping phone is listed')
+  // Normalised to an ISO string, so the merge and the relative-time formatter
+  // read one shape whatever Tailscale wrote.
+  assert.ok(phone[0].lastSeenAt === '2026-09-08T09:15:00.000Z', `got ${phone[0].lastSeenAt}`)
+})
+
+check('an unknown or zero LastSeen is null rather than a date two thousand years old', () => {
+  const parsed = parseTailscaleStatus(
+    statusJson({
+      Peer: {
+        // Tailscale writes the zero timestamp for a node it has never heard
+        // from; showing that as a last-seen would be a lie with a date on it.
+        zero: {
+          ID: 'n-zero',
+          HostName: 'never-seen',
+          Online: false,
+          LastSeen: '0001-01-01T00:00:00Z',
+          TailscaleIPs: ['100.64.0.4'],
+        },
+        absent: { ID: 'n-absent', HostName: 'no-field', Online: true, TailscaleIPs: ['100.64.0.5'] },
+        junk: { ID: 'n-junk', HostName: 'garbled', Online: false, LastSeen: 'yesterday', TailscaleIPs: ['100.64.0.6'] },
+      },
+    })
+  )
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) return
+  for (const name of ['never-seen', 'no-field', 'garbled']) {
+    const found = parsed.peers.filter((entry) => entry.hostName === name)
+    assert.ok(found.length === 1, `expected exactly one peer named ${name}`)
+    assert.ok(found[0].lastSeenAt === null, `${name} should carry no last-seen, got ${found[0].lastSeenAt}`)
+  }
 })
 
 check('a node with no dialable tailnet address is not offered', () => {

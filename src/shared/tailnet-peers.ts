@@ -38,6 +38,21 @@ export type TailnetPeer = {
   /** True for this machine; a picker lists it but never offers it as a target. */
   isSelf: boolean
   /**
+   * When Tailscale last heard from this node, as an ISO string, or null.
+   *
+   * Tailscale's own `LastSeen`, passed through rather than interpreted: it is
+   * the only last-seen a machine that has never paired with us has, so an
+   * offline row can still say how long ago it was awake. Null covers a node
+   * Tailscale reports without the field and the zero timestamp it writes for a
+   * node it has never seen — both are "we do not know", which is a different
+   * thing from "a long time ago" and must not be shown as one.
+   *
+   * Optional in the TYPE, always set by the scanner: a scan payload held over
+   * from a build older than this field carries no `lastSeenAt` at all, and a
+   * consumer must read a missing one as null rather than as a date.
+   */
+  lastSeenAt?: string | null
+  /**
    * The Studio listener that answered the probe, or null.
    *
    * Null is "nothing answered on the probed port", which covers a peer with its

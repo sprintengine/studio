@@ -520,6 +520,7 @@ expectIncludes(settingsPanel, 'End: visibleSettingsTabs.length - 1', 'Settings c
     ['FOCUS_RING_CLASS', 'focus-visible:focus-ring'],
     ['FOCUS_RING_INSET_CLASS', 'focus-visible:focus-ring-inset'],
     ['FOCUS_RING_PEER_CLASS', 'peer-focus-visible:focus-ring'],
+    ['FOCUS_RING_WITHIN_CHECKBOX_CLASS', 'has-[input:focus-visible]:focus-ring-inset'],
     ['FOCUS_RING_WITHIN_INPUT_CLASS', 'has-[input:focus]:focus-ring'],
     ['FOCUS_RING_WITHIN_TEXTAREA_CLASS', 'has-[textarea:focus]:focus-ring'],
   ] as const) {

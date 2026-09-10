@@ -1,0 +1,71 @@
+/* Scope pill — one machine-readable scope name, shown as a thing the reader can
+ * count and compare rather than as prose.
+ *
+ * The pairing code's grant list is the surface it was drawn for: eight names
+ * like `terminal:control` that the person is being asked to hand to another
+ * machine. They are API strings, they are the strings that appear in the
+ * request, in the audit line and in the popover that says what a machine may
+ * do here — so they are set in mono and the pill's job is to make each one one
+ * OBJECT, countable at a glance, wrapping as a set rather than as a sentence.
+ *
+ * Why it is neither of the two marks the system already has. `badge` and
+ * `micro-chip` are UI-FACE labels: a word in the reader's language ("draft",
+ * "merged", "Default"), sentence case, set in the UI family, sized to trail a
+ * row's title. This is code — a colon-joined identifier the reader will search
+ * for and quote — and a code string in the UI family at 11px is the one place
+ * `l`, `1` and `I` stop being distinguishable. It also takes no tone and never
+ * will (badge's whole vocabulary is tone), and it is a pill rather than the
+ * rectangle micro-chip explicitly claims. Three differences, one cause: the
+ * content is not a word about the thing, it IS the thing. */
+
+.ds-scope-pill {
+  display: inline-flex;
+  align-items: center;
+  /* Never shrinks: a wrapped SET of pills is the reading, and a pill that
+     truncated its own identifier would be showing a scope that does not
+     exist. The container wraps; the pill does not. */
+  flex: none;
+  /* 22px — the sub-control box step the button family already uses for its
+     smallest square. Deliberately NOT a control step: the smallest of those is
+     26px and it means "a person can press this", which this cannot be. A
+     `min-height` rather than a `height`, so a pill in a zoomed or
+     larger-text context grows with its line box instead of clipping it. */
+  min-height: var(--sem-icon-size-lg);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-regular);
+  /* No `tracking-wide`: the UI-face marks open their letter-spacing to make a
+     small word breathe, and opening a mono string's tracking un-does the one
+     thing mono is for — the column grid that makes `:` and `_` findable. */
+  letter-spacing: var(--sem-font-tracking-normal);
+  line-height: var(--sem-font-line-default);
+  white-space: nowrap;
+}
+
+/* The set. Pills wrap as a group and never as a paragraph: the gap is the same
+ * in both axes so a two-row set reads as a grid of objects rather than as a
+ * run-on line that happened to break. */
+.ds-scope-pill-set {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sem-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Missing — a scope that is NOT granted, listed beside the ones that are. One
+ * step of ink and one step of border, and nothing else: the difference between
+ * held and not-held is a matter of fact, not of danger, and a `status.danger`
+ * tint here would tell the reader that a scope they never granted is a
+ * problem. Shape-coded too, by the heading it sits under, because a colour
+ * step alone is not a state. */
+.ds-scope-pill--missing {
+  border-color: var(--sem-color-border-subtle);
+  color: var(--sem-color-text-subtle);
+}

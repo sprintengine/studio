@@ -12,7 +12,7 @@ import type {
   TailnetPushPayload,
   TailnetRemoteStatus,
 } from '../../shared/tailnet'
-import type { FleetEvent } from '../../shared/tailnet-fleet'
+import type { FleetEvent, TailnetForgetMachineResult } from '../../shared/tailnet-fleet'
 import type { TailnetApprovePairRequestResult } from './tailnet/tailnet-service'
 import type { TailnetPeerScan } from '../../shared/tailnet-peers'
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
@@ -185,6 +185,13 @@ export function createAutomationService(options: AutomationServiceOptions) {
       revokeReverseDevice: (deviceId) => {
         tailnetService().revokeDevice(deviceId)
       },
+      // The inbound half of `forgetMachine`: a device that arrived by carried
+      // code or by approval, which this service never minted and could not
+      // otherwise reach.
+      revokeInboundDevice: (deviceId) => {
+        const before = tailnetService().getStatus().devices.length
+        return tailnetService().revokeDevice(deviceId).devices.length < before
+      },
       hasWindow: options.hasWindow,
       onEvent: options.onFleetEvent,
       log: (text) => warn('Tailnet fleet', text),
@@ -283,6 +290,20 @@ export function createAutomationService(options: AutomationServiceOptions) {
     setTailnetNotifications: (enabled: boolean): TailnetRemoteStatus => tailnetService().setNotifications(enabled),
     cancelTailnetPairing: (): TailnetRemoteStatus => tailnetService().cancelPairing(),
     revokeTailnetDevice: (deviceId: string): TailnetRemoteStatus => tailnetService().revokeDevice(deviceId),
+    updateTailnetDeviceScopes: (deviceId: string, scopes: unknown): TailnetRemoteStatus =>
+      tailnetService().updateDeviceScopes(deviceId, scopes),
+    /**
+     * End a pairing in both directions at once (remote-settings-rebuild).
+     *
+     * The only operation that spans both stores, which is why it is composed
+     * here rather than in either of them: the inbound device lives on the
+     * listener's store, the outbound connection on the Fleet's, and a person
+     * revoking a machine in Settings means both.
+     */
+    forgetTailnetMachine: (input: { deviceId?: unknown; connectionId?: unknown }): TailnetForgetMachineResult => ({
+      ...fleetService().forgetMachine(input),
+      status: tailnetService().getStatus(),
+    }),
     approveTailnetPairRequest: (input: {
       id: string
       scopes?: unknown

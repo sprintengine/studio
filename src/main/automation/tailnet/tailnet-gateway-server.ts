@@ -649,6 +649,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       peerNode: await options.peers.resolve(peerAddress),
       peerAddress: peerAddress ?? '',
       collectHash: isRecord(body) ? body.collectHash : undefined,
+      // What the asker asked to be allowed to do. A request, not a grant: it
+      // decides what the answering surface opens pre-ticked to, and the person
+      // there decides what is actually given.
+      requestedScopes: isRecord(body) ? body.scopes : undefined,
     })
     if (!outcome.ok) {
       // 429 for the caps, 400 for a malformed request: a client must be able to

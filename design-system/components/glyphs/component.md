@@ -1,8 +1,9 @@
 # Glyphs
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
-line work, sized only by the `--sem-icon-size-*` ramp. The thirty-four SVGs in
+line work, sized only by the `--sem-icon-size-*` ramp. The thirty-eight SVGs in
 `glyphs/` (close, search, spinner, multicode-mark, git-branch, remote-machine,
+the four `device-*` marks,
 commit, worktree, history, folder, file-typescript, file-generic, the three
 pull-request marks — pull-request-open, pull-request-merged,
 pull-request-closed — and the
@@ -106,6 +107,51 @@ the registry to point at:
 | `SprintEngineMarkIcon` | The SprintEngine brand comet — pair with `--tool-sprintengine-ink` |
 | `AutomationsWorkspaceTypeIcon` | Schedule dial around a lightning bolt — "on a schedule, do work" |
 | `FolderTypeIcon` | The project folder, optionally wearing a workspace's own logo |
+
+### Device identity (16-grid — `AppIcons.tsx`)
+
+The identity family for **a machine on the tailnet**: what kind of thing it is,
+one shape each, at 16px so it leads a settings row without out-weighing the
+name beside it. Added 2026-09-10 for the rebuilt Settings › Remote, where a
+list merges this machine, paired devices, outbound connections and the peer
+scan into one set of rows — and a list that is one row per *machine* has to say
+which machine at a glance.
+
+They are drawn to `remote-machine.svg`'s discipline, deliberately, because that
+mark is the family's fallback and the five have to read as one set: the 16-grid,
+stroke **1.4**, `fill="none"` line work in `currentColor`, rounded rects at
+`rx` 1.3–1.8, and a filled 0.75r dot where a unit needs a light. The Mac's dot
+sits at the same `cx` as the server mark's two, so the two boxes are visibly
+the same drawing at different counts.
+
+| Export | Asset | Drawing |
+|---|---|---|
+| `DeviceMacGlyph` | `glyphs/device-mac.svg` | The flat wide box with one small dot — a Mac mini seen head-on. It is `remote-machine`'s single unit: same width, same corner, same light, one box instead of two |
+| `DeviceDesktopGlyph` | `glyphs/device-desktop.svg` | A monitor on a stand: the screen rect, a short neck, a foot |
+| `DeviceLaptopGlyph` | `glyphs/device-laptop.svg` | An open lid over a base line. The gap between them is the hinge, and it is what separates this from the monitor at a glance |
+| `DevicePhoneGlyph` | `glyphs/device-phone.svg` | A tall rounded rect with a short bottom mark |
+| `RemoteMachineGlyph` | `glyphs/remote-machine.svg` | The family's **fallback**, and the mark for a machine whose kind is unknown. Listed under Utility marks, where it also serves every other "this is elsewhere" surface |
+
+**The mapping is a rule, not a per-caller choice** — `deviceGlyphFor({ os, hostName })`
+in `ui/` is the single implementation, and callers pass an OS string and a host
+name and take what comes back:
+
+1. macOS whose host name says desktop — it contains `mini`, `imac`, `studio` or
+   `pro`, and does **not** contain `book` → `DeviceMacGlyph`.
+2. macOS whose host name contains `book` → `DeviceLaptopGlyph`.
+3. Windows or Linux → `DeviceDesktopGlyph`.
+4. Android or iOS → `DevicePhoneGlyph`.
+5. Anything else, including an absent OS → `RemoteMachineGlyph`.
+
+The `book` exclusion in rule 1 is the whole reason the rule is written down
+once: "MacBook Pro" satisfies both halves of the desktop test, and a rule
+re-derived at each call site gets that backwards on one of them. It is a
+**guess about a name**, which is why the fallback is a real mark rather than an
+empty slot — a machine whose name says nothing is still a machine.
+
+One mark per row, and the glyph never carries the online/offline state: an
+offline row dims its glyph, title and supporting line together with the row's
+own treatment, and the row's words say what happened.
 
 ### Status (16-grid)
 
@@ -347,7 +393,7 @@ working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
 | `RefreshIcon` | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) |
 | `GitBranchGlyph` | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. `glyphs/git-branch.svg` |
 | `PresetDialGlyph` · `LockGlyph` · `UnlockedGlyph` · `SparkGlyph` | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in `AppIcons.tsx`; no standalone asset. |
-| `RemoteMachineGlyph` | The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. `glyphs/remote-machine.svg` |
+| `RemoteMachineGlyph` | Also the Device identity family's fallback (above). The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. `glyphs/remote-machine.svg` |
 
 ### Settings rail (24-grid, one per category)
 

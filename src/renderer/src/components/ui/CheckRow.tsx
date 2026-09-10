@@ -28,7 +28,11 @@
 import React from 'react'
 
 import { CheckboxBox } from './Checkbox'
-import { FOCUS_RING_INSET_CLASS, LIST_CURSOR_MARK_CLASS } from './tokens'
+import {
+  FOCUS_RING_INSET_CLASS,
+  FOCUS_RING_WITHIN_CHECKBOX_CLASS,
+  LIST_CURSOR_MARK_CLASS,
+} from './tokens'
 
 export type CheckRowCheckedState = boolean | 'mixed'
 
@@ -233,3 +237,150 @@ export const CheckRow = React.forwardRef<HTMLDivElement, CheckRowProps>(function
     </div>
   )
 })
+
+// ── The described row ──────────────────────────────────────────────────────
+//
+// Spec: design-system/components/check-row/component.md → `--described`.
+//
+// The SAME row with the name allowed a second line: a title, an optional mono
+// scope name beside it, and one supporting sentence under both, inside a list
+// surface whose rows are divided by hairlines. It is a variant and not a new
+// component because nothing structural changes — box beside name, box as a
+// sibling, name leading — and the base row already conceded the height:
+// `min-height` was always a FLOOR, not a height.
+//
+// It takes the STANDALONE box spelling the spec names, which is why this is a
+// separate component rather than a prop on `CheckRow`: these rows come in
+// eights inside a dialog, not four hundreds inside a listbox, so the kit
+// checkbox goes in WHOLE — input and all — the row is the `<label>` that names
+// it, and there is no `aria-checked` because the input is the state. Space
+// toggles natively for the same reason. Merging the two spellings into one
+// component would have meant a prop that silently swaps a real input for a
+// drawing, which is the one difference a caller must not be able to make by
+// accident.
+
+export type DescribedCheckRowProps = {
+  /** Stable id for the input, so the label and any `aria-describedby` resolve. */
+  id: string
+  /** The name, in the reader's language. */
+  title: React.ReactNode
+  /** The same fact in the system's vocabulary — `terminal:control`. Optional:
+   *  a described row whose subject has no identifier simply has no mono name. */
+  code?: string
+  /** ONE supporting line. Two would be a card. */
+  description: React.ReactNode
+  checked: boolean
+  onChange: (next: boolean) => void
+  disabled?: boolean
+  className?: string
+}
+
+/**
+ * The list surface the described rows sit in: `border.subtle`, `radius.shell`,
+ * `bg.surface-raised`, with the hairline between rows.
+ *
+ * It ships with the row rather than being left to the caller because the
+ * divider's inset and the row's padding are one decision — a host drawing its
+ * own rule would put it at its own inset and the boxes would stop lining up
+ * with it. A plain `<ul>`, never a `listbox`: every row here is its own tab
+ * stop, so there is nothing to rove.
+ */
+export function DescribedCheckRowList({
+  ariaLabel,
+  className,
+  children,
+}: {
+  ariaLabel?: string
+  className?: string
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <ul
+      aria-label={ariaLabel}
+      className={[
+        // `overflow-hidden`: the rows are square-cornered and full-bleed, and
+        // the surface's radius is what clips the first and last row's hover
+        // fill. A rounded fill inset in a padded surface is a card in a card.
+        'list-none overflow-hidden rounded-lg border border-[color:var(--border-subtle)]',
+        'bg-[color:var(--bg-surface-raised)] p-0',
+        // The divider goes BETWEEN rows and never around them, so the
+        // surface's own border is never doubled.
+        '[&>li+li]:border-t [&>li+li]:border-[color:var(--border-subtle)]',
+        className ?? '',
+      ].join(' ')}
+    >
+      {children}
+    </ul>
+  )
+}
+
+/**
+ * One described row. Render it inside `DescribedCheckRowList`; the `<li>` is
+ * the row's own, so the list's hairline rule finds it.
+ */
+export function DescribedCheckRow({
+  id,
+  title,
+  code,
+  description,
+  checked,
+  onChange,
+  disabled = false,
+  className,
+}: DescribedCheckRowProps): JSX.Element {
+  const descriptionId = `${id}-description`
+  return (
+    <li>
+      <label
+        htmlFor={id}
+        className={[
+          // `items-start`: the box sits on the TITLE's line. Centred against a
+          // two-line stack it floats between them and stops reading as
+          // belonging to the title it marks.
+          'flex w-full items-start gap-2.5 px-3 py-2.5 text-meta transition-colors',
+          // The ring is the ROW's, on the INPUT's focus-visible: the input is
+          // the tab stop but the label is the hit target, so ringing the 16px
+          // box inside a 44px row would mark the smallest part of what the
+          // person is operating. Inward, because the row is full-bleed against
+          // a surface that clips an outset ring.
+          FOCUS_RING_WITHIN_CHECKBOX_CLASS,
+          disabled
+            ? 'cursor-not-allowed opacity-50'
+            : 'cursor-pointer hover:bg-[color:var(--bg-hover)]',
+          className ?? '',
+        ].join(' ')}
+      >
+        {/* The kit checkbox WHOLE — input and all. `mt-0.5` is the difference
+            between the 16px box and the meta line box it aligns to. */}
+        <span className="relative mt-0.5 inline-flex size-icon-sm shrink-0 items-center justify-center">
+          <input
+            id={id}
+            type="checkbox"
+            checked={checked}
+            disabled={disabled}
+            aria-describedby={descriptionId}
+            onChange={(event) => onChange(event.target.checked)}
+            className="peer absolute inset-0 h-full w-full cursor-[inherit] opacity-0 disabled:cursor-not-allowed"
+          />
+          <CheckboxBox checked={checked} disabled={disabled} peerFocus />
+        </span>
+        <span className="flex min-w-0 flex-col gap-0.5">
+          {/* `items-baseline`: the mono name sits on the words' line even
+              though it is a type step smaller. */}
+          <span className="flex flex-wrap items-baseline gap-2 font-medium text-[color:var(--text-strong)]">
+            {title}
+            {code ? (
+              // The same fact in the system's vocabulary — a step quieter and a
+              // step smaller, because a mono name that shouted would make the
+              // title decorative.
+              <span className="font-mono text-micro font-normal text-[color:var(--text-subtle)]">{code}</span>
+            ) : null}
+          </span>
+          <span id={descriptionId} className="text-meta text-[color:var(--text-muted)]">
+            {description}
+          </span>
+        </span>
+      </label>
+    </li>
+  )
+}

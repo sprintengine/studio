@@ -87,7 +87,31 @@ different target*. Two unrelated actions welded together are two buttons.
   a count belongs in the heading — "Open · 4" — not repeated down the rows.
 - Offer only targets that resolve. A row for something that is not installed is
   a fake affordance — omit it, never disable it.
-- Keep the menu at two or more rows. One alternative is a plain button — and
+- **Two kinds of menu, and only one of them has a floor** (ruled 2026-09-10).
+  The clause below was written for a menu of **targets** — the same action
+  against a different thing — and it still binds every one of those. It does
+  not bind a menu of **alternatives**: a different *route to the same outcome*,
+  which is what a section header's overflow is. The Remote tab's "Pair a
+  device" is the case that forced the distinction — its one menu row, "Paste a
+  pairing link", is not another device to pair with, it is the other way to
+  reach the same pairing. Promoted to a second visible button it would put two
+  competing verbs on the section header for one job; dropped, the route
+  disappears.
+
+  A menu of alternatives keeps its caret at one row. The test is whether
+  choosing a row could ever **re-point the primary**: for a target it can and
+  does, so a list of one is a list with nothing to choose; for an alternative
+  it cannot, so the count was never what made the menu worth opening. The
+  shipped primitive takes this as `menuKind` — `targets` (the default, and the
+  behaviour below) or `alternatives` — so the choice is made once at the call
+  site and is readable there, rather than inferred from a length.
+
+  Everything else is unchanged either way: the same group chrome, the same
+  hairline, the same hover, the same `aria-haspopup="menu"` on a half that
+  really does open a menu. And the rows of an `alternatives` menu carry no
+  check, for the same reason a derived primary's rows do not — no row is "the
+  one you chose".
+- Keep the menu at two or more rows **of targets**. One alternative target is a plain button — and
   the component holds that rule itself: handed fewer than two targets it draws
   **the primary half alone**, in the group's own chrome, with no chevron and no
   menu. Not a different control and not a lookalike: the same half, the same
@@ -101,6 +125,11 @@ different target*. Two unrelated actions welded together are two buttons.
 
 ## Accessibility
 
+- A single-row `alternatives` menu is a real menu: the half keeps
+  `aria-haspopup="menu"`, the surface keeps `role="menu"`, and the one row is a
+  `menuitem`. Arrow keys and Escape behave exactly as they do at ten rows —
+  a one-row menu is not a special keyboard case, and treating it as one is how
+  a control ends up with a chevron that only responds to the mouse.
 - Two real `<button>`s, so both halves are in the tab order and operable with
   Enter and Space. Never collapse them into one element with a click-position
   test. With a single target there is one real `<button>` and no menu half at

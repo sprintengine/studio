@@ -1,5 +1,5 @@
 import type { RepositoryIdentity } from './repository-identity'
-import type { TailnetScope } from './tailnet'
+import type { TailnetRemoteStatus, TailnetScope } from './tailnet'
 
 // The Fleet: another machine's Studio, mounted in this one (MC-2167).
 //
@@ -378,6 +378,20 @@ export const FLEET_CHECK_REACHABILITY_CHANNEL = 'fleet:check-reachability'
 export const FLEET_LIST_CONNECTIONS_CHANNEL = 'fleet:list-connections'
 export const FLEET_PAIR_CHANNEL = 'fleet:pair'
 export const FLEET_FORGET_CHANNEL = 'fleet:forget'
+/**
+ * Forget a machine in BOTH directions at once (remote-settings-rebuild).
+ *
+ * `fleet:forget` drops only this machine's credential for a peer, and
+ * `tailnet:revoke-device` only the peer's credential for this machine — two
+ * halves of one pairing that a person thinks of as one relationship. A Remote
+ * row's Revoke means "we are not paired any more", so it takes both, and takes
+ * them tolerantly: a machine that only ever drove us has no connection to
+ * forget, and one we only ever drove has no device to revoke.
+ *
+ * Named `tailnet:*` rather than `fleet:*` because it spans both stores; it
+ * lives on the same IPC-only front door as the rest of that family.
+ */
+export const TAILNET_FORGET_MACHINE_CHANNEL = 'tailnet:forget-machine'
 export const FLEET_BROWSE_CHANNEL = 'fleet:browse'
 export const FLEET_CREATE_TERMINAL_CHANNEL = 'fleet:create-terminal'
 /** One remote workspace's checkout facts (branch, branches, worktrees) over `workspace.checkout`. */
@@ -386,3 +400,22 @@ export const FLEET_ATTACH_TERMINAL_CHANNEL = 'fleet:attach-terminal'
 export const FLEET_DETACH_TERMINAL_CHANNEL = 'fleet:detach-terminal'
 export const FLEET_TERMINAL_INPUT_CHANNEL = 'fleet:terminal-input'
 export const FLEET_TERMINAL_RESIZE_CHANNEL = 'fleet:terminal-resize'
+
+/**
+ * What forgetting a machine did, from the Fleet's side.
+ *
+ * The ids are reported back rather than assumed: a caller that passed both and
+ * got one null knows the other half was already gone, which is a different
+ * story from "nothing happened" and the difference a row needs to explain
+ * itself.
+ */
+export type FleetForgetMachineResult = {
+  connections: FleetConnection[]
+  revokedDeviceId: string | null
+  forgottenConnectionId: string | null
+}
+
+/** The same, plus the fresh listener status the inbound revoke produced. */
+export type TailnetForgetMachineResult = FleetForgetMachineResult & {
+  status: TailnetRemoteStatus
+}

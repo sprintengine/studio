@@ -14,6 +14,7 @@ import {
   TAILNET_REVOKE_DEVICE_CHANNEL,
   TAILNET_SET_ENABLED_CHANNEL,
   TAILNET_SET_NOTIFICATIONS_CHANNEL,
+  TAILNET_UPDATE_DEVICE_SCOPES_CHANNEL,
   REMOTE_OPEN_REQUESTED_CHANNEL,
   type TailnetApprovePairRequestView,
   type TailnetLiveState,
@@ -23,6 +24,7 @@ import {
   type TailnetScope,
 } from '../../shared/tailnet'
 import { TAILNET_LIST_PEERS_CHANNEL, type TailnetPeerScan } from '../../shared/tailnet-peers'
+import { TAILNET_FORGET_MACHINE_CHANNEL, type TailnetForgetMachineResult } from '../../shared/tailnet-fleet'
 import type { ElectronApi } from '../../shared/electron-api'
 
 // Status only for the always-on gateway. Its mutations are main services, so
@@ -46,6 +48,13 @@ export const automationApi = {
     ipcRenderer.invoke(TAILNET_CANCEL_PAIRING_CHANNEL) as Promise<TailnetRemoteStatus>,
   tailnetRevokeDevice: (deviceId: string): Promise<TailnetRemoteStatus> =>
     ipcRenderer.invoke(TAILNET_REVOKE_DEVICE_CHANNEL, deviceId) as Promise<TailnetRemoteStatus>,
+  tailnetUpdateDeviceScopes: (deviceId: string, scopes: TailnetScope[]): Promise<TailnetRemoteStatus> =>
+    ipcRenderer.invoke(TAILNET_UPDATE_DEVICE_SCOPES_CHANNEL, deviceId, scopes) as Promise<TailnetRemoteStatus>,
+  tailnetForgetMachine: (input: {
+    deviceId?: string
+    connectionId?: string
+  }): Promise<TailnetForgetMachineResult> =>
+    ipcRenderer.invoke(TAILNET_FORGET_MACHINE_CHANNEL, input) as Promise<TailnetForgetMachineResult>,
   tailnetApprovePairRequest: (id: string, scopes: TailnetScope[], code: string): Promise<TailnetApprovePairRequestView> =>
     ipcRenderer.invoke(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, id, scopes, code) as Promise<TailnetApprovePairRequestView>,
   tailnetDenyPairRequest: (id: string): Promise<TailnetRemoteStatus> =>
@@ -77,6 +86,8 @@ export const automationApi = {
   | 'tailnetOfferPairing'
   | 'tailnetCancelPairing'
   | 'tailnetRevokeDevice'
+  | 'tailnetUpdateDeviceScopes'
+  | 'tailnetForgetMachine'
   | 'tailnetApprovePairRequest'
   | 'tailnetDenyPairRequest'
   | 'tailnetSetNotifications'

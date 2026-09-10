@@ -207,3 +207,95 @@
     transition: none;
   }
 }
+
+/* ── Scope body ──────────────────────────────────────────────────────────
+ * A named CONTENT part for the dialog-role surface: the answer to "what may
+ * that machine do here?", opened from a quiet link-button on a row's meta line
+ * ("6 scopes").
+ *
+ * It is documented as a part rather than left to each host because the shape
+ * has to be identical in three places — the Remote settings row, the inbound
+ * pair-request card, and the mobile companion — and a surface that says what
+ * another machine is permitted to do is the last one that should be drawn
+ * three times with three different orders. The shell still owns the chrome and
+ * still carries no padding of its own; this part brings the inset with it,
+ * which is the rule the Anatomy note states ("content padding belongs to the
+ * content").
+ *
+ * The order is the argument: what is held, a rule, what is not held with the
+ * one action that changes it, and a consequence in plain words. Held first,
+ * because the reader came to find out what is already true. */
+.ds-popover-scope-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-sm) var(--sem-space-lg);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  color: var(--sem-color-text-default);
+}
+
+/* The heading over a list. `meta` at `font.weight.emphasis` — a step BELOW the
+ * body text it introduces, which is what a label over a list is: the surface's
+ * subject is the identifiers, not the words above them. */
+.ds-popover-scope-heading {
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+}
+
+/* The second heading rides a line with its own action — "Not granted" beside
+ * the link-button that grants. The action is inline with the heading rather
+ * than under the list because it acts on the whole group; parked at the bottom
+ * it would read as belonging to the last row. */
+.ds-popover-scope-headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-sm);
+}
+
+/* The second group's heading is one step quieter than the first: the reader
+ * came for what is held, and the ink order says so. */
+.ds-popover-scope-headline .ds-popover-scope-heading {
+  color: var(--sem-color-text-muted);
+}
+
+/* The identifiers, one per line, in mono at `meta`. A list rather than a set of
+ * pills because a popover column is narrow and a wrapped pill set at this width
+ * reads as ragged; the scope-pill component is for the wide surface (the
+ * pairing code card), and this is the same content in a column. */
+.ds-popover-scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-3xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+}
+
+/* Not granted: one step of ink, and nothing else. Never a danger tint — a
+ * scope the person never granted is a fact, not a fault — and never the only
+ * carrier of the difference, which the heading above it states in words. */
+.ds-popover-scope-list--missing {
+  color: var(--sem-color-text-subtle);
+}
+
+/* The hairline between the two groups. One rule, and it is what separates them:
+ * a second heading alone would let the eye run the two lists together. */
+.ds-popover-scope-rule {
+  height: 1px;
+  background: var(--sem-color-border-subtle);
+}
+
+/* The consequence, in the reader's own language — "It can't see chats or
+ * terminals here." One line, `micro`, `text.muted`: it is the sentence that
+ * explains why something they expected to see is missing, and it is the reason
+ * this surface exists rather than a bare list. */
+.ds-popover-scope-note {
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-muted);
+}

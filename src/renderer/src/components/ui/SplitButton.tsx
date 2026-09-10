@@ -3,6 +3,20 @@
 // the last-used target; the chevron half lists every target and re-points the
 // primary.
 //
+// TWO KINDS OF MENU (ruled 2026-09-10, design-system/components/split-button
+// → Usage). The floor below was written for a menu of TARGETS — the same action
+// against a different thing — and still binds every one of those. It does not
+// bind a menu of ALTERNATIVES: a different route to the SAME outcome, which is
+// what a section header's overflow is. The Remote tab's "Pair a device" is the
+// case that forced the distinction: its one row, "Paste a pairing link", is not
+// another device to pair with, it is the other way to reach the same pairing.
+// Promoted to a second visible button it would put two competing verbs on the
+// header for one job; dropped, the route disappears. The test is whether
+// choosing a row could ever RE-POINT the primary — for a target it can, so a
+// list of one has nothing to choose; for an alternative it cannot, so the count
+// was never what made the menu worth opening. `menuKind` says which at the call
+// site rather than leaving it to be inferred from a length.
+//
 // Handed FEWER THAN TWO targets it draws the primary half alone, with the
 // group's own chrome and no chevron. That is the spec's rule ("keep the menu at
 // two or more rows; one alternative is a plain button") made true by the
@@ -82,6 +96,20 @@ export type SplitButtonProps = {
   /** Leading mark on the primary half: what says which target will run. */
   glyph?: React.ReactNode
   items: SplitButtonItem[]
+  /**
+   * What the rows ARE, which is what decides whether one row earns a caret.
+   *
+   * `targets` (the default) — the same action against a different thing, where
+   * choosing a row runs it AND re-points the primary. One target is a list with
+   * nothing to choose, so the group draws the primary half alone.
+   *
+   * `alternatives` — different routes to the same outcome, where no row can
+   * ever become the primary. One row still earns the caret, because the count
+   * was never what made the menu worth opening. Such a menu carries no check,
+   * for the same reason a derived primary's rows do not: no row is "the one you
+   * chose".
+   */
+  menuKind?: 'targets' | 'alternatives'
   onPrimary: () => void
   /** Menu open/close, e.g. to re-probe which targets still resolve. */
   onMenuOpenChange?: (open: boolean) => void
@@ -165,6 +193,7 @@ export function SplitButton({
   menuAriaLabel,
   glyph,
   items,
+  menuKind = 'targets',
   onPrimary,
   onMenuOpenChange,
   primaryRef,
@@ -253,10 +282,13 @@ export function SplitButton({
     </button>
   )
 
-  // One target: the group is its primary half and nothing else. No `Popover` is
+  // One TARGET: the group is its primary half and nothing else. No `Popover` is
   // mounted at all — a menu that can never be opened is still a listener, a
-  // portal and an id.
-  if (items.length < 2) {
+  // portal and an id. An `alternatives` menu is exempt (see the header note):
+  // its single row is a route, not a target, and dropping it drops the route.
+  // An EMPTY menu has no exemption either way — a chevron over nothing is a
+  // control that opens to say nothing, which is the defect the floor exists for.
+  if (items.length === 0 || (items.length < 2 && menuKind === 'targets')) {
     return <span className={[groupClass, className ?? ''].join(' ')}>{primaryHalf}</span>
   }
 

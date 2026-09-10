@@ -293,3 +293,120 @@
     transition: none;
   }
 }
+
+/* ── Described ───────────────────────────────────────────────────────────
+ * The same box-beside-name row with the NAME ALLOWED A SECOND LINE: a title,
+ * an optional mono scope name beside it, and one supporting sentence under
+ * both. It is a variant and not a new component because nothing about the
+ * row's structure changes — the box is still a sibling, the name still leads,
+ * the box is still never inside a control. What changes is how tall the name
+ * is allowed to be, and `min-height` was already a FLOOR rather than a height
+ * ("a row whose content grows is a row that grew, not a row that broke").
+ *
+ * The spelling is the STANDALONE one the box section already names: the row is
+ * a `<label>` wrapping the kit checkbox whole, input and all, because these
+ * rows come in eights inside a dialog rather than in four hundreds inside a
+ * composite widget. Eight tab stops is a keyboard walk; four hundred is why
+ * the composite spelling exists. So there is no `aria-checked` here — the
+ * input is the state — and Space toggles because the input is real.
+ *
+ * The list surface is part of the variant rather than the host's, because the
+ * hairline between two rows and the row's own padding are one decision: a host
+ * that drew its own divider would put it at its own inset and the boxes would
+ * stop lining up with the rule above them. */
+.ds-check-row-list {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface-raised);
+  list-style: none;
+  /* The rows are square-cornered and full-bleed; the surface's radius clips
+     the first and last row's hover fill rather than each row rounding itself
+     (a rounded fill inset in a padded surface is a card in a card). */
+  overflow: hidden;
+}
+
+/* The divider is between rows, never around them: it goes on the second and
+ * subsequent children so the surface's own border is never doubled. The child
+ * may be the row itself or an `<li>` wrapping it — both spellings land here. */
+.ds-check-row-list > * + * {
+  border-top: 1px solid var(--sem-color-border-subtle);
+}
+
+.ds-check-row--described {
+  align-items: flex-start;
+  gap: var(--sem-space-md);
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  /* The whole row is the label, so the pointer says "this is clickable" —
+     unlike the composite row, where the pointer says "pick" and the list owns
+     the click. */
+  cursor: pointer;
+  /* The title wraps and the supporting line wraps; nothing here truncates,
+     because a permission the reader cannot finish reading is not a permission
+     they can grant. */
+  overflow: visible;
+}
+
+/* The box sits on the TITLE's line, not centred against a two-line stack: at
+ * two lines a centred box floats between them and stops reading as belonging
+ * to the title it marks. The nudge is the difference between the 16px box and
+ * the meta line box it aligns to. */
+.ds-check-row--described .ds-check-row-check {
+  margin-top: var(--sem-space-3xs);
+}
+
+/* The ring is the ROW's, even though the input is the tab stop: the label is
+ * the hit target, so a ring on the 16px box inside a 44px row would mark the
+ * smallest part of what the person is actually operating. Inward for the same
+ * reason as the base row — the row is full-bleed against a surface that clips
+ * an outset ring. The box keeps the checkbox component's own treatment
+ * underneath; this is drawn over it, not instead of it. */
+.ds-check-row--described:has(.ds-checkbox-input:focus-visible) {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+.ds-check-row-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--sem-space-3xs);
+}
+
+/* The title line: the name, and beside it the scope it grants. `baseline`
+ * rather than `center` so the mono name sits on the same line as the words
+ * even though it is a step smaller. */
+.ds-check-row-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sem-space-sm);
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+/* The scope name — what the row grants, in the vocabulary the API uses. It is
+ * a step quieter and a step smaller than the title because it is the same fact
+ * said twice: the title says it in the reader's language, this says it in the
+ * system's. A row whose mono name shouted would make the title decorative. */
+.ds-check-row-scope {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-regular);
+  color: var(--sem-color-text-subtle);
+}
+
+/* One supporting line, and one only. Two would be a card. */
+.ds-check-row-supporting {
+  color: var(--sem-color-text-muted);
+  font-size: var(--sem-font-size-meta);
+}
+
+/* Disabled reaches the stack: the row's own `opacity` handles the base row,
+ * but a described row's title is `text.primary` and would still out-weigh a
+ * live row's supporting line at 50%. Nothing new is spelled — the row's
+ * `[aria-disabled='true']` rule above still owns the cursor and the opacity. */
+.ds-check-row--described[aria-disabled='true'] .ds-check-row-title {
+  color: var(--sem-color-text-muted);
+}

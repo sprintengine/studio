@@ -1,5 +1,4 @@
 import type { FleetLiveAttachment, FleetLinkState, FleetMachineReachability } from '../../../../shared/tailnet-fleet'
-import { since } from './peerPickerModel'
 
 // A paired machine's row, wherever one is drawn (the Remote popover, the
 // Fleet, Settings): its phase from the links this app holds to it, and —
@@ -140,4 +139,47 @@ export function drivenTerminalView(
     label: named || session.agentName?.trim() || 'an agent',
     target: { workspaceId: session.workspaceId, agentId: session.agentId },
   }
+}
+
+/**
+ * How long something has been true, without the "ago" — "8 min", "2 h". A row
+ * that already says what the state IS ("not answering") wants the duration of
+ * that state, not a second sentence about when it last was not (owner ruling
+ * 2026-09-05).
+ *
+ * Lived in `peerPickerModel` until the peer picker was replaced by the merged
+ * Machines list (remote-settings-rebuild); it moved here rather than dying with
+ * it because the phase text above is its only caller.
+ */
+export function since(thenMs: number, nowMs: number): string {
+  const seconds = Math.max(0, Math.round((nowMs - thenMs) / 1000))
+  if (seconds < 60) return 'under a min'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} h`
+  const days = Math.round(hours / 24)
+  return `${days} ${days === 1 ? 'day' : 'days'}`
+}
+
+/**
+ * The platform word on a machine row's supporting line, or null.
+ *
+ * Four sources feed the Machines list and each spells the OS its own way —
+ * Tailscale says `macOS`, `windows`, `linux`, `android`, `iOS`; a pairing
+ * record may say nothing at all. This maps what we get onto the words a person
+ * uses, and returns NULL rather than a guess for anything unrecognised: a row
+ * reading "linux-ish" or echoing a raw `win32` says less than a row that leaves
+ * the slot out and lets the name and the glyph carry it.
+ */
+export function platformLabel(os: string | null | undefined): string | null {
+  const value = (os ?? '').trim().toLowerCase()
+  if (!value) return null
+  if (value.includes('mac') || value.includes('darwin') || value.includes('osx')) return 'macOS'
+  if (value.includes('ios') || value.includes('iphone') || value.includes('ipad')) return 'iOS'
+  // After the macOS test: "darwin" contains "win".
+  if (value.includes('win')) return 'Windows'
+  if (value.includes('android')) return 'Android'
+  if (value.includes('linux')) return 'Linux'
+  return null
 }

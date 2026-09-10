@@ -628,6 +628,8 @@ code {
 #ds-view-component-provider-row:checked ~ .ds-catalog #component-provider-row { display: block; }
 #ds-view-component-row-button:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-row-button:checked ~ .ds-catalog #component-row-button { display: block; }
+#ds-view-component-scope-pill:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-scope-pill:checked ~ .ds-catalog #component-scope-pill { display: block; }
 #ds-view-component-section:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-section:checked ~ .ds-catalog #component-section { display: block; }
 #ds-view-component-segmented-control:checked ~ .ds-catalog #components { display: block; }
@@ -734,6 +736,8 @@ code {
 #ds-view-component-provider-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-provider-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-row-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-row-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-row-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-row-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-scope-pill:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-scope-pill"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-scope-pill:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-scope-pill"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-section:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-section"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-section:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-section"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-segmented-control:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-segmented-control"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -1824,6 +1828,123 @@ code {
   .ds-check-row-twisty {
     transition: none;
   }
+}
+
+/* ── Described ───────────────────────────────────────────────────────────
+ * The same box-beside-name row with the NAME ALLOWED A SECOND LINE: a title,
+ * an optional mono scope name beside it, and one supporting sentence under
+ * both. It is a variant and not a new component because nothing about the
+ * row's structure changes — the box is still a sibling, the name still leads,
+ * the box is still never inside a control. What changes is how tall the name
+ * is allowed to be, and `min-height` was already a FLOOR rather than a height
+ * ("a row whose content grows is a row that grew, not a row that broke").
+ *
+ * The spelling is the STANDALONE one the box section already names: the row is
+ * a `<label>` wrapping the kit checkbox whole, input and all, because these
+ * rows come in eights inside a dialog rather than in four hundreds inside a
+ * composite widget. Eight tab stops is a keyboard walk; four hundred is why
+ * the composite spelling exists. So there is no `aria-checked` here — the
+ * input is the state — and Space toggles because the input is real.
+ *
+ * The list surface is part of the variant rather than the host's, because the
+ * hairline between two rows and the row's own padding are one decision: a host
+ * that drew its own divider would put it at its own inset and the boxes would
+ * stop lining up with the rule above them. */
+.ds-check-row-list {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface-raised);
+  list-style: none;
+  /* The rows are square-cornered and full-bleed; the surface's radius clips
+     the first and last row's hover fill rather than each row rounding itself
+     (a rounded fill inset in a padded surface is a card in a card). */
+  overflow: hidden;
+}
+
+/* The divider is between rows, never around them: it goes on the second and
+ * subsequent children so the surface's own border is never doubled. The child
+ * may be the row itself or an `<li>` wrapping it — both spellings land here. */
+.ds-check-row-list > * + * {
+  border-top: 1px solid var(--sem-color-border-subtle);
+}
+
+.ds-check-row--described {
+  align-items: flex-start;
+  gap: var(--sem-space-md);
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  /* The whole row is the label, so the pointer says "this is clickable" —
+     unlike the composite row, where the pointer says "pick" and the list owns
+     the click. */
+  cursor: pointer;
+  /* The title wraps and the supporting line wraps; nothing here truncates,
+     because a permission the reader cannot finish reading is not a permission
+     they can grant. */
+  overflow: visible;
+}
+
+/* The box sits on the TITLE's line, not centred against a two-line stack: at
+ * two lines a centred box floats between them and stops reading as belonging
+ * to the title it marks. The nudge is the difference between the 16px box and
+ * the meta line box it aligns to. */
+.ds-check-row--described .ds-check-row-check {
+  margin-top: var(--sem-space-3xs);
+}
+
+/* The ring is the ROW's, even though the input is the tab stop: the label is
+ * the hit target, so a ring on the 16px box inside a 44px row would mark the
+ * smallest part of what the person is actually operating. Inward for the same
+ * reason as the base row — the row is full-bleed against a surface that clips
+ * an outset ring. The box keeps the checkbox component's own treatment
+ * underneath; this is drawn over it, not instead of it. */
+.ds-check-row--described:has(.ds-checkbox-input:focus-visible) {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+.ds-check-row-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--sem-space-3xs);
+}
+
+/* The title line: the name, and beside it the scope it grants. `baseline`
+ * rather than `center` so the mono name sits on the same line as the words
+ * even though it is a step smaller. */
+.ds-check-row-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sem-space-sm);
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+/* The scope name — what the row grants, in the vocabulary the API uses. It is
+ * a step quieter and a step smaller than the title because it is the same fact
+ * said twice: the title says it in the reader's language, this says it in the
+ * system's. A row whose mono name shouted would make the title decorative. */
+.ds-check-row-scope {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-regular);
+  color: var(--sem-color-text-subtle);
+}
+
+/* One supporting line, and one only. Two would be a card. */
+.ds-check-row-supporting {
+  color: var(--sem-color-text-muted);
+  font-size: var(--sem-font-size-meta);
+}
+
+/* Disabled reaches the stack: the row's own `opacity` handles the base row,
+ * but a described row's title is `text.primary` and would still out-weigh a
+ * live row's supporting line at 50%. Nothing new is spelled — the row's
+ * `[aria-disabled='true']` rule above still owns the cursor and the opacity. */
+.ds-check-row--described[aria-disabled='true'] .ds-check-row-title {
+  color: var(--sem-color-text-muted);
 }
 
 /* components/checkbox/component.css */
@@ -5192,6 +5313,98 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   }
 }
 
+/* ── Scope body ──────────────────────────────────────────────────────────
+ * A named CONTENT part for the dialog-role surface: the answer to "what may
+ * that machine do here?", opened from a quiet link-button on a row's meta line
+ * ("6 scopes").
+ *
+ * It is documented as a part rather than left to each host because the shape
+ * has to be identical in three places — the Remote settings row, the inbound
+ * pair-request card, and the mobile companion — and a surface that says what
+ * another machine is permitted to do is the last one that should be drawn
+ * three times with three different orders. The shell still owns the chrome and
+ * still carries no padding of its own; this part brings the inset with it,
+ * which is the rule the Anatomy note states ("content padding belongs to the
+ * content").
+ *
+ * The order is the argument: what is held, a rule, what is not held with the
+ * one action that changes it, and a consequence in plain words. Held first,
+ * because the reader came to find out what is already true. */
+.ds-popover-scope-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-sm) var(--sem-space-lg);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  color: var(--sem-color-text-default);
+}
+
+/* The heading over a list. `meta` at `font.weight.emphasis` — a step BELOW the
+ * body text it introduces, which is what a label over a list is: the surface's
+ * subject is the identifiers, not the words above them. */
+.ds-popover-scope-heading {
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+}
+
+/* The second heading rides a line with its own action — "Not granted" beside
+ * the link-button that grants. The action is inline with the heading rather
+ * than under the list because it acts on the whole group; parked at the bottom
+ * it would read as belonging to the last row. */
+.ds-popover-scope-headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-sm);
+}
+
+/* The second group's heading is one step quieter than the first: the reader
+ * came for what is held, and the ink order says so. */
+.ds-popover-scope-headline .ds-popover-scope-heading {
+  color: var(--sem-color-text-muted);
+}
+
+/* The identifiers, one per line, in mono at `meta`. A list rather than a set of
+ * pills because a popover column is narrow and a wrapped pill set at this width
+ * reads as ragged; the scope-pill component is for the wide surface (the
+ * pairing code card), and this is the same content in a column. */
+.ds-popover-scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-3xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+}
+
+/* Not granted: one step of ink, and nothing else. Never a danger tint — a
+ * scope the person never granted is a fact, not a fault — and never the only
+ * carrier of the difference, which the heading above it states in words. */
+.ds-popover-scope-list--missing {
+  color: var(--sem-color-text-subtle);
+}
+
+/* The hairline between the two groups. One rule, and it is what separates them:
+ * a second heading alone would let the eye run the two lists together. */
+.ds-popover-scope-rule {
+  height: 1px;
+  background: var(--sem-color-border-subtle);
+}
+
+/* The consequence, in the reader's own language — "It can't see chats or
+ * terminals here." One line, `micro`, `text.muted`: it is the sentence that
+ * explains why something they expected to see is missing, and it is the reason
+ * this surface exists rather than a bare list. */
+.ds-popover-scope-note {
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-muted);
+}
+
 /* components/provider-row/component.css */
 /* Provider row — extracted from the source product's ProviderRow primitive
  * (src/renderer/src/components/ui/ProviderRow.tsx), the shared anatomy for the
@@ -5544,6 +5757,79 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-row-button--dashed {
   border: 1px dashed var(--sem-color-border-default);
   color: var(--sem-color-text-muted);
+}
+
+/* components/scope-pill/component.css */
+/* Scope pill — one machine-readable scope name, shown as a thing the reader can
+ * count and compare rather than as prose.
+ *
+ * The pairing code's grant list is the surface it was drawn for: eight names
+ * like `terminal:control` that the person is being asked to hand to another
+ * machine. They are API strings, they are the strings that appear in the
+ * request, in the audit line and in the popover that says what a machine may
+ * do here — so they are set in mono and the pill's job is to make each one one
+ * OBJECT, countable at a glance, wrapping as a set rather than as a sentence.
+ *
+ * Why it is neither of the two marks the system already has. `badge` and
+ * `micro-chip` are UI-FACE labels: a word in the reader's language ("draft",
+ * "merged", "Default"), sentence case, set in the UI family, sized to trail a
+ * row's title. This is code — a colon-joined identifier the reader will search
+ * for and quote — and a code string in the UI family at 11px is the one place
+ * `l`, `1` and `I` stop being distinguishable. It also takes no tone and never
+ * will (badge's whole vocabulary is tone), and it is a pill rather than the
+ * rectangle micro-chip explicitly claims. Three differences, one cause: the
+ * content is not a word about the thing, it IS the thing. */
+
+.ds-scope-pill {
+  display: inline-flex;
+  align-items: center;
+  /* Never shrinks: a wrapped SET of pills is the reading, and a pill that
+     truncated its own identifier would be showing a scope that does not
+     exist. The container wraps; the pill does not. */
+  flex: none;
+  /* 22px — the sub-control box step the button family already uses for its
+     smallest square. Deliberately NOT a control step: the smallest of those is
+     26px and it means "a person can press this", which this cannot be. A
+     `min-height` rather than a `height`, so a pill in a zoomed or
+     larger-text context grows with its line box instead of clipping it. */
+  min-height: var(--sem-icon-size-lg);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-regular);
+  /* No `tracking-wide`: the UI-face marks open their letter-spacing to make a
+     small word breathe, and opening a mono string's tracking un-does the one
+     thing mono is for — the column grid that makes `:` and `_` findable. */
+  letter-spacing: var(--sem-font-tracking-normal);
+  line-height: var(--sem-font-line-default);
+  white-space: nowrap;
+}
+
+/* The set. Pills wrap as a group and never as a paragraph: the gap is the same
+ * in both axes so a two-row set reads as a grid of objects rather than as a
+ * run-on line that happened to break. */
+.ds-scope-pill-set {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sem-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Missing — a scope that is NOT granted, listed beside the ones that are. One
+ * step of ink and one step of border, and nothing else: the difference between
+ * held and not-held is a matter of fact, not of danger, and a `status.danger`
+ * tint here would tell the reader that a scope they never granted is a
+ * problem. Shape-coded too, by the heading it sits under, because a colour
+ * step alone is not a state. */
+.ds-scope-pill--missing {
+  border-color: var(--sem-color-border-subtle);
+  color: var(--sem-color-text-subtle);
 }
 
 /* components/section/component.css */
@@ -7832,6 +8118,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     background: var(--sem-color-bg-surface);
     overflow: hidden;
   }
+.ds-embed-component-check-row .demo-described {
+    max-width: 520px;
+  }
 .ds-embed-component-check-row .demo-list:focus-visible {
     outline: var(--sem-focus-ring);
     outline-offset: var(--sem-focus-ring-offset);
@@ -8854,6 +9143,16 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     inset: auto;
     animation: none;
   }
+.ds-embed-component-popover .demo-scope-specimen {
+    position: relative;
+    max-width: 280px;
+    margin-bottom: var(--sem-space-lg);
+  }
+.ds-embed-component-popover .demo-scope-specimen .ds-popover {
+    position: relative;
+    inset: auto;
+    animation: none;
+  }
 .ds-embed-component-popover .demo-error-actions {
     display: flex;
     align-items: center;
@@ -9002,6 +9301,40 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     border: 1px solid var(--sem-color-border-subtle);
     border-radius: var(--sem-radius-shell);
     background: var(--sem-color-bg-surface);
+  }
+.ds-embed-component-scope-pill {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-scope-pill .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-scope-pill .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-scope-pill .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+.ds-embed-component-scope-pill .demo-card {
+    max-width: 460px;
+    padding: var(--sem-space-xl);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised);
+  }
+.ds-embed-component-scope-pill .demo-heading {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-scope-pill .demo-heading--second {
+    margin-top: var(--sem-space-lg);
+    color: var(--sem-color-text-muted);
   }
 .ds-embed-component-section {
     margin: 0;
@@ -10483,6 +10816,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-popover" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-provider-row" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-row-button" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-scope-pill" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-section" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-segmented-control" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-select" />
@@ -10556,6 +10890,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-popover">Popover</label>
 <label class="catalog-nav-item" for="ds-view-component-provider-row">Provider row</label>
 <label class="catalog-nav-item" for="ds-view-component-row-button">Row button</label>
+<label class="catalog-nav-item" for="ds-view-component-scope-pill">Scope pill</label>
 <label class="catalog-nav-item" for="ds-view-component-section">Section</label>
 <label class="catalog-nav-item" for="ds-view-component-segmented-control">Segmented control</label>
 <label class="catalog-nav-item" for="ds-view-component-select">Select</label>
@@ -10765,6 +11100,22 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <path d="M3.25 8h9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
 </svg><figcaption>delete-changelist</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <rect x="2" y="2.6" width="12" height="8.4" rx="1.4" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <path d="M8 11v2.4M5.4 13.4h5.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+</svg><figcaption>device-desktop</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <rect x="3" y="2.8" width="10" height="7.4" rx="1.3" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <path d="M1.8 12.2h12.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+</svg><figcaption>device-laptop</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <rect x="2" y="5.2" width="12" height="5.6" rx="1.6" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <circle cx="4.7" cy="8" r="0.75" fill="currentColor"/>
+</svg><figcaption>device-mac</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <rect x="4.7" y="1.7" width="6.6" height="12.6" rx="1.8" stroke="currentColor" stroke-width="1.4" fill="none"/>
+  <path d="M6.9 12.1h2.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+</svg><figcaption>device-phone</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <path d="M3.25 12.75 3.9 10.1 10.4 3.6a1.2 1.2 0 0 1 1.7 0l.3.3a1.2 1.2 0 0 1 0 1.7l-6.5 6.5-2.65.65Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
   <path d="M9.3 4.7 11.3 6.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -13403,6 +13754,86 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               <span class="ds-check-row-dir"></span>
             </div>
   </div>
+  <p class="demo-label demo-label--second">The <code>--described</code> variant: the same box-beside-name row with the name allowed a second line, inside its own list surface. Standalone spelling — the kit checkbox whole, so Space toggles and the row is the label.</p>
+  <ul class="ds-check-row-list demo-described">
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="l-desc-1">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="l-desc-1" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">View workspaces <span class="ds-check-row-scope">workspace:read</span></span>
+            <span class="ds-check-row-supporting">Chats, agents, branches and files.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="l-desc-2">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="l-desc-2" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Operate workspaces <span class="ds-check-row-scope">workspace:operate</span></span>
+            <span class="ds-check-row-supporting">Launch agents and open workspaces.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="l-desc-3">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="l-desc-3" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Watch chats &amp; terminals <span class="ds-check-row-scope">terminal:observe</span></span>
+            <span class="ds-check-row-supporting">Read live conversations and shell output.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="l-desc-4">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="l-desc-4" />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Drive chats &amp; terminals <span class="ds-check-row-scope">terminal:control</span></span>
+            <span class="ds-check-row-supporting">Type into conversations and shells. Arbitrary shell on this machine.</span>
+          </span>
+        </label>
+      </li>
+  </ul>
+
 </div>
 
 <div class="demo-stage" data-mode="dark">
@@ -13617,6 +14048,86 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               <span class="ds-check-row-dir"></span>
             </div>
   </div>
+  <p class="demo-label demo-label--second">The <code>--described</code> variant: the same box-beside-name row with the name allowed a second line, inside its own list surface. Standalone spelling — the kit checkbox whole, so Space toggles and the row is the label.</p>
+  <ul class="ds-check-row-list demo-described">
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="d-desc-1">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="d-desc-1" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">View workspaces <span class="ds-check-row-scope">workspace:read</span></span>
+            <span class="ds-check-row-supporting">Chats, agents, branches and files.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="d-desc-2">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="d-desc-2" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Operate workspaces <span class="ds-check-row-scope">workspace:operate</span></span>
+            <span class="ds-check-row-supporting">Launch agents and open workspaces.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="d-desc-3">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="d-desc-3" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Watch chats &amp; terminals <span class="ds-check-row-scope">terminal:observe</span></span>
+            <span class="ds-check-row-supporting">Read live conversations and shell output.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="d-desc-4">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="d-desc-4" />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Drive chats &amp; terminals <span class="ds-check-row-scope">terminal:control</span></span>
+            <span class="ds-check-row-supporting">Type into conversations and shells. Arbitrary shell on this machine.</span>
+          </span>
+        </label>
+      </li>
+  </ul>
+
 </div>
 </div>
 <div class="catalog-doc">
@@ -13624,7 +14135,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>Two questions live on one 24px line, and the whole component is about keeping them apart: <strong>the tick is a value the row carries; the fill and the edge are where the person is.</strong> A row can be checked and unselected, selected and unchecked, or both at once, and none of those four states may be mistaken for another.</p>
 <p><strong>Why neither existing row could be it.</strong> [list-row](../list-row/component.md) caps at four visual elements at rest, and this row spends five before it has said anything — box, glyph, name, directory, trailing — and its row *is* the <code>&lt;button&gt;</code>, which a checkbox may not sit inside. [row-button](../row-button/component.md) owns no height at all, and the floor is the point here: four hundred files step at one pitch or the list reads as noise.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-check-row</code> | yes — a <code>&lt;div&gt;</code> with <code>role=&quot;option&quot;</code> or <code>role=&quot;treeitem&quot;</code>, never a <code>&lt;button&gt;</code> | | Cursor | <code>.ds-check-row-cursor</code> | no — the keyboard cursor mark, <code>aria-hidden</code> | | Twisty | <code>.ds-check-row-twisty</code> | <code>--tree</code> only — the disclosure chevron, <code>aria-hidden</code> | | Twisty (leaf) | <code>.ds-check-row-twisty--leaf</code> | <code>--tree</code> only — the slot kept, the mark dropped | | Check | <code>.ds-check-row-check</code> | yes — the 16px box slot, holding <code>components/checkbox</code>'s box | | Glyph | <code>.ds-check-row-glyph</code> | yes — a reserved 16px slot, present whether or not it is filled | | Name | <code>.ds-check-row-name</code> | yes — <code>flex: none</code>; never the part that truncates | | Directory | <code>.ds-check-row-dir</code> | no — <code>text.muted</code>, takes the remaining width, truncates first | | Trailing | <code>.ds-check-row-trailing</code> | no — display only: a status letter, a size, a count | | Body | <code>.ds-check-row-body</code> | no — a <code>&lt;button&gt;</code> wrapping glyph/name/directory, for a row outside a composite widget | | Depth | <code>--ds-check-row-depth</code> | <code>--tree</code> only — a unitless level, multiplying one <code>space.lg</code> step |</p>
+<p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-check-row</code> | yes — a <code>&lt;div&gt;</code> with <code>role=&quot;option&quot;</code> or <code>role=&quot;treeitem&quot;</code>, never a <code>&lt;button&gt;</code> | | Cursor | <code>.ds-check-row-cursor</code> | no — the keyboard cursor mark, <code>aria-hidden</code> | | Twisty | <code>.ds-check-row-twisty</code> | <code>--tree</code> only — the disclosure chevron, <code>aria-hidden</code> | | Twisty (leaf) | <code>.ds-check-row-twisty--leaf</code> | <code>--tree</code> only — the slot kept, the mark dropped | | Check | <code>.ds-check-row-check</code> | yes — the 16px box slot, holding <code>components/checkbox</code>'s box | | Glyph | <code>.ds-check-row-glyph</code> | yes — a reserved 16px slot, present whether or not it is filled | | Name | <code>.ds-check-row-name</code> | yes — <code>flex: none</code>; never the part that truncates | | Directory | <code>.ds-check-row-dir</code> | no — <code>text.muted</code>, takes the remaining width, truncates first | | Trailing | <code>.ds-check-row-trailing</code> | no — display only: a status letter, a size, a count | | Body | <code>.ds-check-row-body</code> | no — a <code>&lt;button&gt;</code> wrapping glyph/name/directory, for a row outside a composite widget | | Depth | <code>--ds-check-row-depth</code> | <code>--tree</code> only — a unitless level, multiplying one <code>space.lg</code> step | | List | <code>.ds-check-row-list</code> | <code>--described</code> only — the surface the rows sit in: <code>border.subtle</code>, <code>radius.shell</code>, <code>bg.surface-raised</code>, hairlines between rows | | Text | <code>.ds-check-row-text</code> | <code>--described</code> only — the two-line stack that replaces the single <code>-name</code> | | Title | <code>.ds-check-row-title</code> | <code>--described</code> only — the name, at <code>font.weight.medium</code> on <code>text.primary</code> | | Scope | <code>.ds-check-row-scope</code> | <code>--described</code>, optional — the mono name of what the row grants, <code>font.size.micro</code> on <code>text.subtle</code>, beside the title | | Supporting | <code>.ds-check-row-supporting</code> | <code>--described</code> only — ONE line, <code>font.size.meta</code> on <code>text.muted</code> |</p>
 <p><strong>Five elements at rest, under a recorded amendment.</strong> <code>principles.md</code> caps a repeated row at four, and this row spends five. The amendment is dated 2026-09-09 and lives beside the ceiling itself, not here: the ceiling counts what a row *says*, and the fifth element here is a <strong>control</strong>, which answers in 16px a question the row would otherwise need a whole second surface for. Its two conditions bind this row — the things it is *read* for still cap at four (glyph, name, directory, trailing mark), and it reveals nothing on hover, because the ceiling and the two-trailing-actions allowance are not additive.</p>
 <p>So nothing else goes in: no second glyph, no chip, no revealed action. The list's toolbar and the row's context menu are where actions live.</p>
 <h4>The box is a sibling, never a descendant</h4>
@@ -13639,10 +14150,16 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>``<code> &lt;div role=&quot;group&quot; aria-label=&quot;Changed files&quot; tabindex=&quot;0&quot; aria-activedescendant=&quot;…&quot;&gt; &lt;div&gt;                                    ← one per group, no role …group-header band: chevron, checkbox, overflow…   ← real controls, no listbox &lt;div id=&quot;…-rows&quot; hidden={collapsed}&gt;   ← what aria-controls folds &lt;div role=&quot;listbox&quot; aria-multiselectable aria-label=&quot;Changes&quot;&gt; &lt;div role=&quot;option&quot; …&gt;              ← check rows, and nothing else </code>``</p>
 <ul><li><strong>The outer element is <code>role=&quot;group&quot;</code>, and it owns the walk.</strong> <code>group</code> supports <code>aria-activedescendant</code>, so one cursor crosses every group: arrows step from the last row of one list into the first of the next, and Space and Enter keep working wherever the cursor is. A tab stop per group would make &quot;walk the changes&quot; a different gesture depending on how many changelists the person happens to have.</li><li><strong>The rows' listbox owns <code>option</code>s and nothing else.</strong> Anything that is not a row — a cap notice, an empty-group line, a footer — goes in the folded region *beside* the listbox, not inside it.</li><li><strong>The band's controls are real, focusable controls.</strong> That is the whole point of them being per-GROUP: a handful of tab stops buys the keyboard a real chevron and a real tri-state box, where per-ROW controls would have cost four hundred. The row's box stays a drawing for exactly the same reason.</li></ul>
 <p>An ungrouped flat list is unchanged: one <code>role=&quot;listbox&quot;</code>, one tab stop, no bands.</p>
+<h4>Why a described row is a variant and not a new component</h4>
+<p>It is <strong>the same row</strong>: box beside name, box as a sibling, box never inside a control, name leading and never the part that truncates. Every structural claim this page makes still holds. What the variant changes is one thing — the name is allowed a second line — and the base row already conceded that ground in Usage: <code>min-height</code> is &quot;the 24px hit-target floor, not a fixed height: a row whose content grows is a row that grew, not a row that broke&quot;. A row that grows is not a different row.</p>
+<p>The temptation is to call it one, because it looks different at a glance: it is taller, it wraps, it sits on a bordered surface. But a new component would have to re-decide the box (sibling or descendant?), the name's flex behaviour, the hover fill, the selection tiers, the disabled treatment and the focus ring — and every one of those answers would be this page's, copied. That is exactly how five surfaces came to draw five checkboxes. The test the system applies is not &quot;does it look different&quot; but <strong>&quot;does anything about the row's structure change&quot;</strong>, and here nothing does.</p>
+<p>Two things it does NOT get, which is what keeps it a variant rather than a card:</p>
+<ul><li><strong>One supporting line, never two.</strong> A second line is a card, and the system has <code>task-card</code> for that.</li><li><strong>No trailing slot, no glyph slot, no tree.</strong> The described row's elements are box, title, scope, supporting — four, which is the repeated-row ceiling <code>principles.md</code> sets, with the box as the amendment's fifth *control*. The base row's glyph and trailing slots are unavailable here rather than merely unused: filling them would put six things on a row that already wraps.</li></ul>
+<p><strong>It takes the STANDALONE box spelling</strong>, not the composite one. These rows come in eights inside a dialog, not four hundreds inside a listbox: the kit checkbox goes in whole, the row is the <code>&lt;label&gt;</code> that names it, and the row carries no <code>aria-checked</code> because the input is the state. Eight tab stops is a keyboard walk; four hundred is the reason the composite spelling exists at all.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default</strong> — the flat list row: box, glyph, name, directory, trailing.</li><li><strong><code>--tree</code></strong> — adds the chevron slot ahead of the box and a depth indent. The indent is a <strong>unitless depth</strong> (<code>--ds-check-row-depth: 2</code>) multiplying one <code>space.lg</code> step, not a pixel value, so a tree cannot drift off the scale one level at a time and a surface that wants a tighter tree changes one step rather than every row. Expansion is <code>aria-expanded</code> <strong>on the row</strong>, which is what a <code>treeitem</code> announces; the chevron is decoration, because a control inside the row would be a second tab stop per level.</li></ul>
+<ul><li><strong>Default</strong> — the flat list row: box, glyph, name, directory, trailing.</li><li><strong><code>--described</code></strong> — the same row with the <strong>name allowed a second line</strong>: a title, an optional mono scope name beside it, and one supporting sentence under both, inside a <code>.ds-check-row-list</code> surface whose rows are divided by hairlines. For a short set of consequential choices — the eight tailnet scopes on the pairing dialog — where the name alone does not say what granting it does. See the ruling below.</li><li><strong><code>--tree</code></strong> — adds the chevron slot ahead of the box and a depth indent. The indent is a <strong>unitless depth</strong> (<code>--ds-check-row-depth: 2</code>) multiplying one <code>space.lg</code> step, not a pixel value, so a tree cannot drift off the scale one level at a time and a surface that wants a tighter tree changes one step rather than every row. Expansion is <code>aria-expanded</code> <strong>on the row</strong>, which is what a <code>treeitem</code> announces; the chevron is decoration, because a control inside the row would be a second tab stop per level.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Transparent ground, <code>text.default</code> name, <code>text.muted</code> directory | | Hover | <code>bg.hover</code>. Background only — no shadow, scale, or border that shifts the row | | Focus-visible | <code>focus.ring</code>, drawn <strong>inward</strong>: the row is full-bleed against its list's edges, which clip an outset ring | | Selected (focused pane) | <code>bg.selected</code> + a 2px inset <code>accent.primary</code> edge + <code>text.primary</code>. The edge reads through <code>--ds-selection-edge</code> (defaulting to the accent), so a host can neutralise it for the resting tier rather than owning two rules | | Selected (resting pane) | <code>bg.selected-resting</code>, <strong>no edge</strong>, <code>text.default</code> | | Cursored | <code>.ds-check-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter | | Checked | <code>aria-checked=&quot;true&quot;</code> — the box takes the accent fill and the tick | | Mixed | <code>aria-checked=&quot;mixed&quot;</code> — the accent fill and the dash. Mixed outranks checked | | Disabled | <code>aria-disabled=&quot;true&quot;</code>, <code>opacity: 0.5</code>, <code>not-allowed</code>. Stays in the walk |</p>
+<p>| State | Treatment | |---|---| | Rest | Transparent ground, <code>text.default</code> name, <code>text.muted</code> directory | | Hover | <code>bg.hover</code>. Background only — no shadow, scale, or border that shifts the row | | Focus-visible | <code>focus.ring</code>, drawn <strong>inward</strong>: the row is full-bleed against its list's edges, which clip an outset ring | | Selected (focused pane) | <code>bg.selected</code> + a 2px inset <code>accent.primary</code> edge + <code>text.primary</code>. The edge reads through <code>--ds-selection-edge</code> (defaulting to the accent), so a host can neutralise it for the resting tier rather than owning two rules | | Selected (resting pane) | <code>bg.selected-resting</code>, <strong>no edge</strong>, <code>text.default</code> | | Cursored | <code>.ds-check-row-cursor</code> — a 2px <code>text.primary</code> mark in the leading gutter | | Checked | <code>aria-checked=&quot;true&quot;</code> — the box takes the accent fill and the tick | | Mixed | <code>aria-checked=&quot;mixed&quot;</code> — the accent fill and the dash. Mixed outranks checked | | Disabled | <code>aria-disabled=&quot;true&quot;</code>, <code>opacity: 0.5</code>, <code>not-allowed</code>. Stays in the walk | | Described, rest | <code>bg.surface-raised</code> from the list beneath it, <code>text.primary</code> title, <code>text.muted</code> supporting, <code>text.subtle</code> scope | | Described, hover | <code>bg.hover</code> across the whole row — the row is the label, so anything less would advertise a smaller target than the click has | | Described, focus-visible | The row rings inward on the INPUT's <code>:focus-visible</code>, not the box's. Space toggles, natively, because the input is real |</p>
 <p>Every one of these is [list-row](../list-row/component.md)'s, verbatim and deliberately. A second selection idiom on the row beside the rail would be a second answer to &quot;where am I&quot;, and the two channels this row already carries (state and choice) is the most one 24px line can hold.</p>
 <p><strong>Disabled is <code>aria-disabled</code>, never the attribute.</strong> The row is an item in a composite widget: it stays in the walk, and a person must be able to reach it and be told why it cannot be ticked.</p>
 <p><strong>The directory lifts one step on a selected row, and no further.</strong> The mockup lifted it to <code>text.primary</code> alongside the name; at that point the row's two halves weigh the same and the filename stops being the thing you find.</p>
@@ -13650,9 +14167,11 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>The name does not flex.</strong> It is what the person is scanning for, so it is never the part that gets cut. The directory takes what is left and truncates from the end, where a path is least informative. A name wider than the whole row is clipped by the row rather than pushing the directory out of it.</p>
 <p><strong>One row, one pitch.</strong> <code>min-height</code> is the 24px hit-target floor, not a fixed height: a row whose content grows is a row that grew, not a row that broke. Two file lists at two pitches in one product is the defect this floor exists to prevent.</p>
 <p><strong>Two colour channels, never three</strong> (<code>principles.md</code> → &quot;Identity colour&quot;, amended 2026-09-09). The glyph may wear its language's kind hue and the name may wear a status tint, because the hue identifies and the tint grades — the glyph is the same blue on a modified, added and deleted <code>.ts</code> row. Nothing else in the row takes a colour, and interaction state paints over both.</p>
+<p><strong>A described row's whole surface is the label.</strong> The <code>&lt;label&gt;</code> wraps the box, the title, the scope and the supporting line, so the click target is the row and the accessible name is everything in it. Half-labelled rows — a label around the title only, with the sentence outside it — are how a reader ends up told &quot;View workspaces&quot; and never told what it lets in.</p>
+<p><strong>The scope name is the same fact in the system's vocabulary</strong>, said beside the title rather than under it. It is smaller and quieter for that reason: the title is the sentence a person reads, the mono name is what they would search for or quote in an issue. A row whose mono name out-weighed its title would have made the title decoration.</p>
 <p><strong>Do not put anything interactive in the trailing slot</strong>, and do not add a hover-revealed action. At this density the reveal would be the fifth and sixth elements, and the row would move under the pointer.</p>
 <h4>Accessibility</h4>
-<ul><li>The row is a <code>&lt;div role=&quot;option&quot;&gt;</code> (a flat list) or <code>&lt;div role=&quot;treeitem&quot;&gt;</code> (a tree), never a <code>&lt;button&gt;</code> — so the box may sit inside it, and so the list can be one tab stop.</li><li><strong>The list is one tab stop</strong> — in a grouped list, the <code>role=&quot;group&quot;</code> that holds the per-group listboxes is that stop (see the ruling above). It carries <code>tabindex=&quot;0&quot;</code>, drives the row with <code>aria-activedescendant</code>, and each row carries a stable <code>id</code>. Arrow keys move the cursor, Space toggles the cursored row's <code>aria-checked</code>, and Enter opens.</li><li><code>aria-checked</code> is <code>true</code> / <code>false</code> / <code>&quot;mixed&quot;</code> and is the *only* announced form of the tick in composite mode; the drawn box is <code>aria-hidden</code>, so it is never met twice.</li><li>Selection is <code>aria-selected</code>, which is a different question from <code>aria-checked</code> and must not be conflated: a person can stage a file they are not looking at, and look at a file they have not staged. An <code>option</code> always declares it — that is what a listbox is — while a <code>treeitem</code> declares it only when it *is* selected, because a tree emitting <code>aria-selected=&quot;false&quot;</code> on every node announces itself as selectable even when nothing in it can be picked.</li><li>A <code>treeitem</code> carries <code>aria-level</code>, and <code>aria-expanded</code> when it has children. A leaf declares neither <code>aria-expanded</code> nor a chevron mark, but keeps the chevron's slot.</li><li>The glyph is <code>aria-hidden</code>; the name carries the meaning. Where the glyph's kind is information a person needs, it goes in the row's accessible name or a tooltip, not in the hue alone.</li><li>The status tint on a name is never the only carrier of the status: the trailing slot's letter, or a visually-hidden clause, says &quot;modified&quot; in text.</li><li>Reduced motion removes the ground transition and the chevron's rotation; it never removes the state change.</li></ul>
+<ul><li>The row is a <code>&lt;div role=&quot;option&quot;&gt;</code> (a flat list) or <code>&lt;div role=&quot;treeitem&quot;&gt;</code> (a tree), never a <code>&lt;button&gt;</code> — so the box may sit inside it, and so the list can be one tab stop.</li><li><strong>The list is one tab stop</strong> — in a grouped list, the <code>role=&quot;group&quot;</code> that holds the per-group listboxes is that stop (see the ruling above). It carries <code>tabindex=&quot;0&quot;</code>, drives the row with <code>aria-activedescendant</code>, and each row carries a stable <code>id</code>. Arrow keys move the cursor, Space toggles the cursored row's <code>aria-checked</code>, and Enter opens.</li><li><code>aria-checked</code> is <code>true</code> / <code>false</code> / <code>&quot;mixed&quot;</code> and is the *only* announced form of the tick in composite mode; the drawn box is <code>aria-hidden</code>, so it is never met twice.</li><li>Selection is <code>aria-selected</code>, which is a different question from <code>aria-checked</code> and must not be conflated: a person can stage a file they are not looking at, and look at a file they have not staged. An <code>option</code> always declares it — that is what a listbox is — while a <code>treeitem</code> declares it only when it *is* selected, because a tree emitting <code>aria-selected=&quot;false&quot;</code> on every node announces itself as selectable even when nothing in it can be picked.</li><li><strong>A described row is the standalone spelling and is announced by its input.</strong> It is a <code>&lt;label&gt;</code> around a real <code>&lt;input type=&quot;checkbox&quot;&gt;</code>: the row is not an <code>option</code>, carries no <code>role</code> and no <code>aria-checked</code>, and needs none — the input is the state and the tab stop, Space toggles it natively, and the label's whole content (title, scope, supporting line) is its accessible name. The list around them is a plain <code>&lt;ul&gt;</code>, not a <code>listbox</code>: nothing roves, because every row is its own tab stop.</li><li><strong>The described row's focus ring is the ROW's.</strong> The input is the tab stop, but the label is the hit target, so ringing the 16px box inside a 44px row would mark the smallest part of what the person is operating. The ring is drawn inward, for the base row's reason — the row is full-bleed against a surface that clips an outset ring.</li><li>A <code>treeitem</code> carries <code>aria-level</code>, and <code>aria-expanded</code> when it has children. A leaf declares neither <code>aria-expanded</code> nor a chevron mark, but keeps the chevron's slot.</li><li>The glyph is <code>aria-hidden</code>; the name carries the meaning. Where the glyph's kind is information a person needs, it goes in the row's accessible name or a tooltip, not in the hue alone.</li><li>The status tint on a name is never the only carrier of the status: the trailing slot's letter, or a visually-hidden clause, says &quot;modified&quot; in text.</li><li>Reduced motion removes the ground transition and the chevron's rotation; it never removes the state change.</li></ul>
 <h4>Shipped implementation</h4>
 <p><code>src/renderer/src/components/ui/CheckRow.tsx</code>, exporting <code>CheckRow</code>. The box it draws is <code>CheckboxBox</code> — [checkbox](../checkbox/component.md)'s own drawing, exported from <code>ui/Checkbox.tsx</code> on 2026-09-09 so the decorative box and the control are one picture rather than two.</p>
 <p><strong>Not shipped: <code>.ds-check-row-body</code>.</strong> The React primitive implements the composite mode only, which is what both consuming surfaces need. The body button is the framework-neutral spelling for the standalone case and is specified here so a surface that needs it does not invent one; it grows a primitive when a surface actually asks for it, not before.</p>
@@ -13953,6 +14472,123 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     transition: none;
   }
 }
+
+/* ── Described ───────────────────────────────────────────────────────────
+ * The same box-beside-name row with the NAME ALLOWED A SECOND LINE: a title,
+ * an optional mono scope name beside it, and one supporting sentence under
+ * both. It is a variant and not a new component because nothing about the
+ * row's structure changes — the box is still a sibling, the name still leads,
+ * the box is still never inside a control. What changes is how tall the name
+ * is allowed to be, and `min-height` was already a FLOOR rather than a height
+ * (&quot;a row whose content grows is a row that grew, not a row that broke&quot;).
+ *
+ * The spelling is the STANDALONE one the box section already names: the row is
+ * a `&lt;label&gt;` wrapping the kit checkbox whole, input and all, because these
+ * rows come in eights inside a dialog rather than in four hundreds inside a
+ * composite widget. Eight tab stops is a keyboard walk; four hundred is why
+ * the composite spelling exists. So there is no `aria-checked` here — the
+ * input is the state — and Space toggles because the input is real.
+ *
+ * The list surface is part of the variant rather than the host's, because the
+ * hairline between two rows and the row's own padding are one decision: a host
+ * that drew its own divider would put it at its own inset and the boxes would
+ * stop lining up with the rule above them. */
+.ds-check-row-list {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface-raised);
+  list-style: none;
+  /* The rows are square-cornered and full-bleed; the surface's radius clips
+     the first and last row's hover fill rather than each row rounding itself
+     (a rounded fill inset in a padded surface is a card in a card). */
+  overflow: hidden;
+}
+
+/* The divider is between rows, never around them: it goes on the second and
+ * subsequent children so the surface's own border is never doubled. The child
+ * may be the row itself or an `&lt;li&gt;` wrapping it — both spellings land here. */
+.ds-check-row-list &gt; * + * {
+  border-top: 1px solid var(--sem-color-border-subtle);
+}
+
+.ds-check-row--described {
+  align-items: flex-start;
+  gap: var(--sem-space-md);
+  padding: var(--sem-space-md) var(--sem-space-lg);
+  /* The whole row is the label, so the pointer says &quot;this is clickable&quot; —
+     unlike the composite row, where the pointer says &quot;pick&quot; and the list owns
+     the click. */
+  cursor: pointer;
+  /* The title wraps and the supporting line wraps; nothing here truncates,
+     because a permission the reader cannot finish reading is not a permission
+     they can grant. */
+  overflow: visible;
+}
+
+/* The box sits on the TITLE's line, not centred against a two-line stack: at
+ * two lines a centred box floats between them and stops reading as belonging
+ * to the title it marks. The nudge is the difference between the 16px box and
+ * the meta line box it aligns to. */
+.ds-check-row--described .ds-check-row-check {
+  margin-top: var(--sem-space-3xs);
+}
+
+/* The ring is the ROW's, even though the input is the tab stop: the label is
+ * the hit target, so a ring on the 16px box inside a 44px row would mark the
+ * smallest part of what the person is actually operating. Inward for the same
+ * reason as the base row — the row is full-bleed against a surface that clips
+ * an outset ring. The box keeps the checkbox component's own treatment
+ * underneath; this is drawn over it, not instead of it. */
+.ds-check-row--described:has(.ds-checkbox-input:focus-visible) {
+  outline: var(--sem-focus-ring);
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+.ds-check-row-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--sem-space-3xs);
+}
+
+/* The title line: the name, and beside it the scope it grants. `baseline`
+ * rather than `center` so the mono name sits on the same line as the words
+ * even though it is a step smaller. */
+.ds-check-row-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sem-space-sm);
+  color: var(--sem-color-text-primary);
+  font-weight: var(--sem-font-weight-medium);
+}
+
+/* The scope name — what the row grants, in the vocabulary the API uses. It is
+ * a step quieter and a step smaller than the title because it is the same fact
+ * said twice: the title says it in the reader's language, this says it in the
+ * system's. A row whose mono name shouted would make the title decorative. */
+.ds-check-row-scope {
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-regular);
+  color: var(--sem-color-text-subtle);
+}
+
+/* One supporting line, and one only. Two would be a card. */
+.ds-check-row-supporting {
+  color: var(--sem-color-text-muted);
+  font-size: var(--sem-font-size-meta);
+}
+
+/* Disabled reaches the stack: the row's own `opacity` handles the base row,
+ * but a described row's title is `text.primary` and would still out-weigh a
+ * live row's supporting line at 50%. Nothing new is spelled — the row's
+ * `[aria-disabled='true']` rule above still owns the cursor and the opacity. */
+.ds-check-row--described[aria-disabled='true'] .ds-check-row-title {
+  color: var(--sem-color-text-muted);
+}
 </code></pre></details>
 <details class="catalog-source"><summary>components/check-row/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
 &lt;html lang=&quot;en&quot;&gt;
@@ -13989,6 +14625,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     border-radius: var(--sem-radius-overlay);
     background: var(--sem-color-bg-surface);
     overflow: hidden;
+  }
+  .demo-described {
+    max-width: 520px;
   }
   .demo-list:focus-visible {
     outline: var(--sem-focus-ring);
@@ -14218,6 +14857,86 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
             &lt;/div&gt;
   &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;The &lt;code&gt;--described&lt;/code&gt; variant: the same box-beside-name row with the name allowed a second line, inside its own list surface. Standalone spelling — the kit checkbox whole, so Space toggles and the row is the label.&lt;/p&gt;
+  &lt;ul class=&quot;ds-check-row-list demo-described&quot;&gt;
+      &lt;li&gt;
+        &lt;label class=&quot;ds-check-row ds-check-row--described&quot; for=&quot;l-desc-1&quot;&gt;
+          &lt;span class=&quot;ds-check-row-check ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; id=&quot;l-desc-1&quot; checked /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-check-row-text&quot;&gt;
+            &lt;span class=&quot;ds-check-row-title&quot;&gt;View workspaces &lt;span class=&quot;ds-check-row-scope&quot;&gt;workspace:read&lt;/span&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-check-row-supporting&quot;&gt;Chats, agents, branches and files.&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/label&gt;
+      &lt;/li&gt;
+      &lt;li&gt;
+        &lt;label class=&quot;ds-check-row ds-check-row--described&quot; for=&quot;l-desc-2&quot;&gt;
+          &lt;span class=&quot;ds-check-row-check ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; id=&quot;l-desc-2&quot; checked /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-check-row-text&quot;&gt;
+            &lt;span class=&quot;ds-check-row-title&quot;&gt;Operate workspaces &lt;span class=&quot;ds-check-row-scope&quot;&gt;workspace:operate&lt;/span&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-check-row-supporting&quot;&gt;Launch agents and open workspaces.&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/label&gt;
+      &lt;/li&gt;
+      &lt;li&gt;
+        &lt;label class=&quot;ds-check-row ds-check-row--described&quot; for=&quot;l-desc-3&quot;&gt;
+          &lt;span class=&quot;ds-check-row-check ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; id=&quot;l-desc-3&quot; checked /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-check-row-text&quot;&gt;
+            &lt;span class=&quot;ds-check-row-title&quot;&gt;Watch chats &amp;amp; terminals &lt;span class=&quot;ds-check-row-scope&quot;&gt;terminal:observe&lt;/span&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-check-row-supporting&quot;&gt;Read live conversations and shell output.&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/label&gt;
+      &lt;/li&gt;
+      &lt;li&gt;
+        &lt;label class=&quot;ds-check-row ds-check-row--described&quot; for=&quot;l-desc-4&quot;&gt;
+          &lt;span class=&quot;ds-check-row-check ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; id=&quot;l-desc-4&quot; /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-check-row-text&quot;&gt;
+            &lt;span class=&quot;ds-check-row-title&quot;&gt;Drive chats &amp;amp; terminals &lt;span class=&quot;ds-check-row-scope&quot;&gt;terminal:control&lt;/span&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-check-row-supporting&quot;&gt;Type into conversations and shells. Arbitrary shell on this machine.&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/label&gt;
+      &lt;/li&gt;
+  &lt;/ul&gt;
+
 &lt;/div&gt;
 
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
@@ -14432,6 +15151,86 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
               &lt;span class=&quot;ds-check-row-dir&quot;&gt;&lt;/span&gt;
             &lt;/div&gt;
   &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;The &lt;code&gt;--described&lt;/code&gt; variant: the same box-beside-name row with the name allowed a second line, inside its own list surface. Standalone spelling — the kit checkbox whole, so Space toggles and the row is the label.&lt;/p&gt;
+  &lt;ul class=&quot;ds-check-row-list demo-described&quot;&gt;
+      &lt;li&gt;
+        &lt;label class=&quot;ds-check-row ds-check-row--described&quot; for=&quot;d-desc-1&quot;&gt;
+          &lt;span class=&quot;ds-check-row-check ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; id=&quot;d-desc-1&quot; checked /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-check-row-text&quot;&gt;
+            &lt;span class=&quot;ds-check-row-title&quot;&gt;View workspaces &lt;span class=&quot;ds-check-row-scope&quot;&gt;workspace:read&lt;/span&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-check-row-supporting&quot;&gt;Chats, agents, branches and files.&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/label&gt;
+      &lt;/li&gt;
+      &lt;li&gt;
+        &lt;label class=&quot;ds-check-row ds-check-row--described&quot; for=&quot;d-desc-2&quot;&gt;
+          &lt;span class=&quot;ds-check-row-check ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; id=&quot;d-desc-2&quot; checked /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-check-row-text&quot;&gt;
+            &lt;span class=&quot;ds-check-row-title&quot;&gt;Operate workspaces &lt;span class=&quot;ds-check-row-scope&quot;&gt;workspace:operate&lt;/span&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-check-row-supporting&quot;&gt;Launch agents and open workspaces.&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/label&gt;
+      &lt;/li&gt;
+      &lt;li&gt;
+        &lt;label class=&quot;ds-check-row ds-check-row--described&quot; for=&quot;d-desc-3&quot;&gt;
+          &lt;span class=&quot;ds-check-row-check ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; id=&quot;d-desc-3&quot; checked /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-check-row-text&quot;&gt;
+            &lt;span class=&quot;ds-check-row-title&quot;&gt;Watch chats &amp;amp; terminals &lt;span class=&quot;ds-check-row-scope&quot;&gt;terminal:observe&lt;/span&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-check-row-supporting&quot;&gt;Read live conversations and shell output.&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/label&gt;
+      &lt;/li&gt;
+      &lt;li&gt;
+        &lt;label class=&quot;ds-check-row ds-check-row--described&quot; for=&quot;d-desc-4&quot;&gt;
+          &lt;span class=&quot;ds-check-row-check ds-checkbox-control&quot;&gt;
+            &lt;input class=&quot;ds-checkbox-input&quot; type=&quot;checkbox&quot; id=&quot;d-desc-4&quot; /&gt;
+            &lt;span class=&quot;ds-checkbox-box&quot; aria-hidden=&quot;true&quot;&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--check&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M3.5 8.5 L6.5 11.5 L12.5 5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              &lt;svg class=&quot;ds-checkbox-mark ds-checkbox-mark--dash&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2.2&quot;&gt;
+                &lt;path d=&quot;M4 8h8&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/span&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-check-row-text&quot;&gt;
+            &lt;span class=&quot;ds-check-row-title&quot;&gt;Drive chats &amp;amp; terminals &lt;span class=&quot;ds-check-row-scope&quot;&gt;terminal:control&lt;/span&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-check-row-supporting&quot;&gt;Type into conversations and shells. Arbitrary shell on this machine.&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/label&gt;
+      &lt;/li&gt;
+  &lt;/ul&gt;
+
 &lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
@@ -18389,6 +19188,28 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <rect x="4" y="13" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.7"/>
       <rect x="13" y="13" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.7"/>
     </symbol>
+    <symbol id="g-device-mac" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="5.2" width="12" height="5.6" rx="1.6" stroke="currentColor" stroke-width="1.4"/>
+      <circle cx="4.7" cy="8" r="0.75" fill="currentColor"/>
+    </symbol>
+    <symbol id="g-device-desktop" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="2.6" width="12" height="8.4" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M8 11v2.4M5.4 13.4h5.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-device-laptop" viewBox="0 0 16 16" fill="none">
+      <rect x="3" y="2.8" width="10" height="7.4" rx="1.3" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M1.8 12.2h12.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-device-phone" viewBox="0 0 16 16" fill="none">
+      <rect x="4.7" y="1.7" width="6.6" height="12.6" rx="1.8" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M6.9 12.1h2.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="g-remote-machine" viewBox="0 0 16 16" fill="none">
+      <rect x="2" y="2.8" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
+      <rect x="2" y="8.6" width="12" height="4.6" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
+      <circle cx="4.7" cy="5.1" r="0.75" fill="currentColor"/>
+      <circle cx="4.7" cy="10.9" r="0.75" fill="currentColor"/>
+    </symbol>
   </defs>
 </svg>
 
@@ -18418,6 +19239,17 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-comment"/></svg><span class="demo-name">comment</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-new-chat"/></svg><span class="demo-name">new-chat</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-warning"/></svg><span class="demo-name">warning</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2 class="demo-heading">Device identity — 16-grid, stroke 1.4, one shape per kind of machine</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-mac"/></svg><span class="demo-name">device-mac</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-desktop"/></svg><span class="demo-name">device-desktop</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-laptop"/></svg><span class="demo-name">device-laptop</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-phone"/></svg><span class="demo-name">device-phone</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-remote-machine"/></svg><span class="demo-name">remote-machine · fallback</span></span>
     </div>
   </div>
 
@@ -18538,6 +19370,17 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
   </div>
 
   <div class="demo-section">
+    <h2 class="demo-heading">Device identity — 16-grid, stroke 1.4, one shape per kind of machine</h2>
+    <div class="demo-row">
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-mac"/></svg><span class="demo-name">device-mac</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-desktop"/></svg><span class="demo-name">device-desktop</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-laptop"/></svg><span class="demo-name">device-laptop</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-device-phone"/></svg><span class="demo-name">device-phone</span></span>
+      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-remote-machine"/></svg><span class="demo-name">remote-machine · fallback</span></span>
+    </div>
+  </div>
+
+  <div class="demo-section">
     <h2 class="demo-heading">Lifecycle tones on the dark ramp</h2>
     <div class="demo-row">
       <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="To do"><use href="#g-lc-todo"/></svg><span class="demo-name">todo</span></span>
@@ -18577,7 +19420,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 </div>
 </div>
 <div class="catalog-doc">
-<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The thirty-four SVGs in <code>glyphs/</code> (close, search, spinner, multicode-mark, git-branch, remote-machine, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
+<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The thirty-eight SVGs in <code>glyphs/</code> (close, search, spinner, multicode-mark, git-branch, remote-machine, the four <code>device-*</code> marks, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
 <p>A glyph is not decoration and not a status pill. It answers exactly one question — *which thing is this* (identity), *where is it in its pipeline* (lifecycle), *who is working on it* (role), *what kind of capability* (capability), *which runtime* (CLI), or *what will this control do* (action) — and each question has its own family below. A surface that reaches for two families to answer one question has the wrong hierarchy, not the wrong icon.</p>
 <h4>Anatomy</h4>
 <p>Two drawing grids, each with its own stroke discipline:</p>
@@ -18595,6 +19438,14 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h5>Workspace-type identity (24-grid, registry-resolved)</h5>
 <p><code>WorkspaceTypeIcon</code> is the dispatcher: it resolves a workspace mode through the renderer host registry, gated on module enablement when <code>moduleOverrides</code> is passed, and degrades to the standard glyph for anything disabled or unknown. Consumers go through it; the concrete marks exist for the registry to point at:</p>
 <p>| Mark | Drawing | |---|---| | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher | | <code>SprintEngineWorkspaceTypeIcon</code> | Three-node crew triangle | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>FolderTypeIcon</code> | The project folder, optionally wearing a workspace's own logo |</p>
+<h5>Device identity (16-grid — <code>AppIcons.tsx</code>)</h5>
+<p>The identity family for <strong>a machine on the tailnet</strong>: what kind of thing it is, one shape each, at 16px so it leads a settings row without out-weighing the name beside it. Added 2026-09-10 for the rebuilt Settings › Remote, where a list merges this machine, paired devices, outbound connections and the peer scan into one set of rows — and a list that is one row per *machine* has to say which machine at a glance.</p>
+<p>They are drawn to <code>remote-machine.svg</code>'s discipline, deliberately, because that mark is the family's fallback and the five have to read as one set: the 16-grid, stroke <strong>1.4</strong>, <code>fill=&quot;none&quot;</code> line work in <code>currentColor</code>, rounded rects at <code>rx</code> 1.3–1.8, and a filled 0.75r dot where a unit needs a light. The Mac's dot sits at the same <code>cx</code> as the server mark's two, so the two boxes are visibly the same drawing at different counts.</p>
+<p>| Export | Asset | Drawing | |---|---|---| | <code>DeviceMacGlyph</code> | <code>glyphs/device-mac.svg</code> | The flat wide box with one small dot — a Mac mini seen head-on. It is <code>remote-machine</code>'s single unit: same width, same corner, same light, one box instead of two | | <code>DeviceDesktopGlyph</code> | <code>glyphs/device-desktop.svg</code> | A monitor on a stand: the screen rect, a short neck, a foot | | <code>DeviceLaptopGlyph</code> | <code>glyphs/device-laptop.svg</code> | An open lid over a base line. The gap between them is the hinge, and it is what separates this from the monitor at a glance | | <code>DevicePhoneGlyph</code> | <code>glyphs/device-phone.svg</code> | A tall rounded rect with a short bottom mark | | <code>RemoteMachineGlyph</code> | <code>glyphs/remote-machine.svg</code> | The family's <strong>fallback</strong>, and the mark for a machine whose kind is unknown. Listed under Utility marks, where it also serves every other &quot;this is elsewhere&quot; surface |</p>
+<p><strong>The mapping is a rule, not a per-caller choice</strong> — <code>deviceGlyphFor({ os, hostName })</code> in <code>ui/</code> is the single implementation, and callers pass an OS string and a host name and take what comes back:</p>
+<p>1. macOS whose host name says desktop — it contains <code>mini</code>, <code>imac</code>, <code>studio</code> or <code>pro</code>, and does <strong>not</strong> contain <code>book</code> → <code>DeviceMacGlyph</code>. 2. macOS whose host name contains <code>book</code> → <code>DeviceLaptopGlyph</code>. 3. Windows or Linux → <code>DeviceDesktopGlyph</code>. 4. Android or iOS → <code>DevicePhoneGlyph</code>. 5. Anything else, including an absent OS → <code>RemoteMachineGlyph</code>.</p>
+<p>The <code>book</code> exclusion in rule 1 is the whole reason the rule is written down once: &quot;MacBook Pro&quot; satisfies both halves of the desktop test, and a rule re-derived at each call site gets that backwards on one of them. It is a <strong>guess about a name</strong>, which is why the fallback is a real mark rather than an empty slot — a machine whose name says nothing is still a machine.</p>
+<p>One mark per row, and the glyph never carries the online/offline state: an offline row dims its glyph, title and supporting line together with the row's own treatment, and the row's words say what happened.</p>
 <h5>Status (16-grid)</h5>
 <p>There is one status vocabulary, and it is <code>LifecycleGlyph</code> (below). The 24-grid <code>PriorityIcon</code> / <code>StatusIcon</code> pair that used to sit here is gone: it was a second answer to the same question, drawn on a different grid, and the folder status enum it keyed off is now <code>FolderStatus</code> in the shared layer with no glyph family of its own.</p>
 <p>One status idiom per surface: a surface shows the 6 px <code>StatusDot</code> *or* a <code>LifecycleGlyph</code>, never both.</p>
@@ -18637,7 +19488,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>| Export | Concept | Shape | Asset | |---|---|---|---| | <code>RollbackGlyph</code> | Discard a file's changes | The undo arrow: a hook doubling back on itself. <strong>Not</strong> <code>ResetIcon</code> — that is &quot;restore a default&quot;, a 24-grid settings act, and this one throws work away | <code>glyphs/rollback.svg</code> | | <code>MoveToChangelistGlyph</code> | Move files between changelists | Two opposed arrows, one over the other | <code>glyphs/move-to-changelist.svg</code> | | <code>StashGlyph</code> | Stash uncommitted work | The drawer. One drawing, shared with the Stashes view above | <code>glyphs/stash.svg</code> | | <code>GroupByGlyph</code> | Grouping options | The target: a ring crossed by four ticks | <code>glyphs/group-by.svg</code> | | <code>ExpandAllGlyph</code> | Expand every group | Two chevrons apart | <code>glyphs/expand-all.svg</code> | | <code>CollapseAllGlyph</code> | Collapse every group | The same two chevrons, together | <code>glyphs/collapse-all.svg</code> | | <code>NextDifferenceGlyph</code> · <code>PreviousDifferenceGlyph</code> | Step to the next / previous hunk | An arrow travelling to a rule — the hunk boundary it lands on. ONE drawing, mirrored about y = 8 for the other direction, the way <code>ChevronDownIcon</code> is rotated rather than twinned; a bare chevron would say *disclosure*, which stepping is not. React applies the mirror as a transform; the folder ships both, because a framework-neutral asset a consumer has to transform is not a framework-neutral asset | <code>glyphs/next-difference.svg</code> · <code>glyphs/previous-difference.svg</code> | | <code>ShowDiffGlyph</code> | Open this file's diff | Two opposed arrows about a centre line: one running right over it, one running left under it — two versions read against each other. <strong>Not</strong> <code>NextDifferenceGlyph</code>, which the diff window spends on *step to the next hunk*: one mark answering &quot;open the comparison&quot; in one window and &quot;move within the comparison&quot; in the other teaches that the mark means nothing in particular (added 2026-09-09, review of T5/T6) | <code>glyphs/show-diff.svg</code> | | <code>SideBySideGlyph</code> | Diff layout: two panes | A frame split by one vertical line | <code>glyphs/side-by-side.svg</code> | | <code>UnifiedGlyph</code> | Diff layout: one pane | The same frame, unsplit. The pair is a two-state toggle, and the presence or absence of the divider *is* the difference | <code>glyphs/unified.svg</code> | | <code>GearGlyph</code> | Settings on a toolbar | A real toothed gear. <code>GeneralSettingsIcon</code> is sliders on the 24-grid rail and the <code>config</code> file kind is an identity mark, so neither serves an action toolbar | <code>glyphs/gear.svg</code> | | <code>OpenInEditorGlyph</code> | Open the file in an editor | The pencil on the page: the one mark in this family that leaves the diff rather than rearranging it, so it is not another frame (added 2026-09-09 for the diff window's toolbar, T4) | <code>glyphs/open-in-editor.svg</code> | | <code>WriteCommitMessageGlyph</code> | Compose the commit message | Three lines of a message with a crossed spark beside them: *text, composed for you*. A pencil would say a person types it, which is <code>OpenInEditorGlyph</code>'s job | <code>glyphs/write-commit-message.svg</code> | | <code>NewChangelistGlyph</code> · <code>DeleteChangelistGlyph</code> | Make / remove a changelist | The bare plus and the bare minus at the family's weight. The changelist is already named by the menu row beside them, so the operator is the whole mark; <code>FolderPlusIcon</code> is a 24-grid folder and a changelist is not a folder (added 2026-09-09, T6) | <code>glyphs/new-changelist.svg</code> · <code>glyphs/delete-changelist.svg</code> | | <code>EditChangelistGlyph</code> | Rename a changelist | The pencil WITHOUT the page. <code>OpenInEditorGlyph</code> is the pencil on a page and means &quot;hand this file to an editor&quot;; renaming a list touches no file, so it keeps the tool and drops the page | <code>glyphs/edit-changelist.svg</code> | | <code>KebabGlyph</code> | More actions (the overflow trigger) | Three dots stacked, <code>r=1.15</code> at y 3.4 / 8 / 12.6. The one mark in this folder made of FILLS: a dot has no line work, and a stroked dot is a circle pretending to be a point. One drawing since 2026-09-09 — <code>OverflowMenu</code> drew it on a 14-grid and the Git group band hand-rolled a 16-grid copy | <code>glyphs/kebab.svg</code> | | <code>CreatePatchGlyph</code> | Write the selection out as a patch | A page carrying a diff's two marks, one added line over one taken away: a patch is a file *of* a difference, so the glyph is both. Not <code>WriteCommitMessageGlyph</code>'s prose lines, and not another frame — every frame in this family is a layout | <code>glyphs/create-patch.svg</code> |</p>
 <p>Reused, not redrawn, by the same two surfaces: <code>RefreshIcon</code> (re-read the working tree), <code>FileTypeGlyph</code> <code>lock</code> (the padlock), <code>glyphs/commit.svg</code>, <code>glyphs/worktree.svg</code>, <code>glyphs/history.svg</code> (the view strip), and <code>ChevronDownIcon</code> rotated for disclosure.</p>
 <h5>Utility marks (16-grid)</h5>
-<p>| Export | Meaning | |---|---| | <code>StarGlyph(filled, stroked)</code> | The one star path for starred/favorite — solid when earned, outlined for menu unstarred states. Caller owns size and ink | | <code>RefreshIcon</code> | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) | | <code>GitBranchGlyph</code> | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. <code>glyphs/git-branch.svg</code> | | <code>PresetDialGlyph</code> · <code>LockGlyph</code> · <code>UnlockedGlyph</code> · <code>SparkGlyph</code> | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in <code>AppIcons.tsx</code>; no standalone asset. | | <code>RemoteMachineGlyph</code> | The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. <code>glyphs/remote-machine.svg</code> |</p>
+<p>| Export | Meaning | |---|---| | <code>StarGlyph(filled, stroked)</code> | The one star path for starred/favorite — solid when earned, outlined for menu unstarred states. Caller owns size and ink | | <code>RefreshIcon</code> | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) | | <code>GitBranchGlyph</code> | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. <code>glyphs/git-branch.svg</code> | | <code>PresetDialGlyph</code> · <code>LockGlyph</code> · <code>UnlockedGlyph</code> · <code>SparkGlyph</code> | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in <code>AppIcons.tsx</code>; no standalone asset. | | <code>RemoteMachineGlyph</code> | Also the Device identity family's fallback (above). The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. <code>glyphs/remote-machine.svg</code> |</p>
 <h5>Settings rail (24-grid, one per category)</h5>
 <p><code>GeneralSettingsIcon</code> (sliders), <code>ProfileSettingsIcon</code> (person), <code>AppearanceSettingsIcon</code> (half-filled disc), <code>ShortcutsSettingsIcon</code> (keyboard), <code>AgentsSettingsIcon</code> (robot), <code>ProvidersSettingsIcon</code> (plug), <code>SpecialistPacksSettingsIcon</code> (package cube), <code>GithubSettingsIcon</code> (branch), <code>TrackersSettingsIcon</code> (tagged file), <code>KnowledgeGraphSettingsIcon</code> (node triangle), <code>DesignSystemSettingsIcon</code> (disc, square and triangle), <code>ModulesSettingsIcon</code> (2 × 2 grid), <code>MobileSettingsIcon</code> (phone), <code>RemoteSettingsIcon</code> (two linked machines). All at <code>iconStroke</code> so the rail reads as one set.</p>
 <h4>States</h4>
@@ -19025,6 +19876,28 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;rect x=&quot;4&quot; y=&quot;13&quot; width=&quot;7&quot; height=&quot;7&quot; rx=&quot;1.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
       &lt;rect x=&quot;13&quot; y=&quot;13&quot; width=&quot;7&quot; height=&quot;7&quot; rx=&quot;1.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
     &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-device-mac&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;rect x=&quot;2&quot; y=&quot;5.2&quot; width=&quot;12&quot; height=&quot;5.6&quot; rx=&quot;1.6&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
+      &lt;circle cx=&quot;4.7&quot; cy=&quot;8&quot; r=&quot;0.75&quot; fill=&quot;currentColor&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-device-desktop&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;rect x=&quot;2&quot; y=&quot;2.6&quot; width=&quot;12&quot; height=&quot;8.4&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
+      &lt;path d=&quot;M8 11v2.4M5.4 13.4h5.2&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-device-laptop&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;rect x=&quot;3&quot; y=&quot;2.8&quot; width=&quot;10&quot; height=&quot;7.4&quot; rx=&quot;1.3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
+      &lt;path d=&quot;M1.8 12.2h12.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-device-phone&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;rect x=&quot;4.7&quot; y=&quot;1.7&quot; width=&quot;6.6&quot; height=&quot;12.6&quot; rx=&quot;1.8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
+      &lt;path d=&quot;M6.9 12.1h2.2&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;
+    &lt;/symbol&gt;
+    &lt;symbol id=&quot;g-remote-machine&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
+      &lt;rect x=&quot;2&quot; y=&quot;2.8&quot; width=&quot;12&quot; height=&quot;4.6&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
+      &lt;rect x=&quot;2&quot; y=&quot;8.6&quot; width=&quot;12&quot; height=&quot;4.6&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
+      &lt;circle cx=&quot;4.7&quot; cy=&quot;5.1&quot; r=&quot;0.75&quot; fill=&quot;currentColor&quot;/&gt;
+      &lt;circle cx=&quot;4.7&quot; cy=&quot;10.9&quot; r=&quot;0.75&quot; fill=&quot;currentColor&quot;/&gt;
+    &lt;/symbol&gt;
   &lt;/defs&gt;
 &lt;/svg&gt;
 
@@ -19054,6 +19927,17 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-comment&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;comment&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-new-chat&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;new-chat&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-warning&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;warning&lt;/span&gt;&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-section&quot;&gt;
+    &lt;h2 class=&quot;demo-heading&quot;&gt;Device identity — 16-grid, stroke 1.4, one shape per kind of machine&lt;/h2&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-mac&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-mac&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-desktop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-desktop&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-laptop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-laptop&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-phone&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-phone&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-remote-machine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;remote-machine · fallback&lt;/span&gt;&lt;/span&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 
@@ -19170,6 +20054,17 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-check&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;check&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-new-chat&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;new-chat&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-warning&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;warning&lt;/span&gt;&lt;/span&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;div class=&quot;demo-section&quot;&gt;
+    &lt;h2 class=&quot;demo-heading&quot;&gt;Device identity — 16-grid, stroke 1.4, one shape per kind of machine&lt;/h2&gt;
+    &lt;div class=&quot;demo-row&quot;&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-mac&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-mac&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-desktop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-desktop&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-laptop&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-laptop&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-device-phone&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;device-phone&lt;/span&gt;&lt;/span&gt;
+      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-remote-machine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;remote-machine · fallback&lt;/span&gt;&lt;/span&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 
@@ -25690,6 +26585,32 @@ ENOENT: no such file or directory</span>
       </div>
     </div>
   </div>
+  <p class="demo-label">The scope body — a named content part on the <code>dialog</code> role: what is held, a hairline, what is not held with the one action that changes it, and the consequence in plain words.</p>
+  <div class="demo-scope-specimen">
+    <div class="ds-popover" data-demo-static role="dialog" aria-labelledby="l-scope-h">
+      <div class="ds-popover-scope-body">
+        <div class="ds-popover-scope-heading" id="l-scope-h">Granted scopes</div>
+        <ul class="ds-popover-scope-list">
+          <li>workspace:read</li>
+          <li>workspace:operate</li>
+          <li>sprint:read</li>
+          <li>sprint:operate</li>
+          <li>backlog:read</li>
+          <li>backlog:operate</li>
+        </ul>
+        <div class="ds-popover-scope-rule"></div>
+        <div class="ds-popover-scope-headline">
+          <span class="ds-popover-scope-heading">Not granted</span>
+          <button type="button" class="ds-link-button">Grant</button>
+        </div>
+        <ul class="ds-popover-scope-list ds-popover-scope-list--missing">
+          <li>terminal:observe</li>
+          <li>terminal:control</li>
+        </ul>
+        <div class="ds-popover-scope-note">It can't see chats or terminals here.</div>
+      </div>
+    </div>
+  </div>
   <div class="demo-canvas" data-context-for="pop-light-context">Right-click for the pointer variant</div>
   <div class="ds-popover ds-popover--pointer" id="pop-light-context" role="menu" aria-label="Canvas actions" hidden>
     <div class="demo-menu">
@@ -25738,15 +26659,47 @@ ENOENT: no such file or directory</span>
     </div>
   </div>
 
+  <p class="demo-label">The scope body — a named content part on the <code>dialog</code> role: what is held, a hairline, what is not held with the one action that changes it, and the consequence in plain words.</p>
+  <div class="demo-scope-specimen">
+    <div class="ds-popover" data-demo-static role="dialog" aria-labelledby="d-scope-h">
+      <div class="ds-popover-scope-body">
+        <div class="ds-popover-scope-heading" id="d-scope-h">Granted scopes</div>
+        <ul class="ds-popover-scope-list">
+          <li>workspace:read</li>
+          <li>workspace:operate</li>
+          <li>sprint:read</li>
+          <li>sprint:operate</li>
+          <li>backlog:read</li>
+          <li>backlog:operate</li>
+        </ul>
+        <div class="ds-popover-scope-rule"></div>
+        <div class="ds-popover-scope-headline">
+          <span class="ds-popover-scope-heading">Not granted</span>
+          <button type="button" class="ds-link-button">Grant</button>
+        </div>
+        <ul class="ds-popover-scope-list ds-popover-scope-list--missing">
+          <li>terminal:observe</li>
+          <li>terminal:control</li>
+        </ul>
+        <div class="ds-popover-scope-note">It can't see chats or terminals here.</div>
+      </div>
+    </div>
+  </div>
 </div>
 </div>
 <div class="catalog-doc">
 <p>The anchored overlay engine. One surface, lifted to the end of <code>&lt;body&gt;</code> and positioned in fixed viewport coordinates, so it escapes every scroll container and stacking context on the page. Everything dropdown-shaped in the product — overflow menus, filter menus, select listboxes, pickers — composes this shell rather than owning its own portal, its own Escape handler, and its own outside-click logic. Extracted from the source product's <code>Popover</code> and <code>PointerPopover</code> primitives (<code>src/renderer/src/components/ui/</code>).</p>
 <p>Use a tooltip instead when the content is a description and nothing in it is clickable — a surface that can swallow a click is a popover, and the two have different keyboard contracts. Use a modal when the task must block the page: a popover is light-dismiss by design and never scrims.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Trigger | — | the consumer's own control, carrying <code>aria-haspopup</code>, <code>aria-expanded</code>, and — only while open — <code>aria-controls</code> | | Surface | <code>.ds-popover</code> | yes — <code>role=&quot;menu&quot;</code>, <code>&quot;listbox&quot;</code>, or <code>&quot;dialog&quot;</code>, with a required <code>aria-label</code> and a stable <code>id</code> | | Content | — | host-owned; the shell carries chrome only and no padding of its own |</p>
+<p>| Part | Class | Required | |---|---|---| | Trigger | — | the consumer's own control, carrying <code>aria-haspopup</code>, <code>aria-expanded</code>, and — only while open — <code>aria-controls</code> | | Surface | <code>.ds-popover</code> | yes — <code>role=&quot;menu&quot;</code>, <code>&quot;listbox&quot;</code>, or <code>&quot;dialog&quot;</code>, with a required <code>aria-label</code> and a stable <code>id</code> | | Content | — | host-owned; the shell carries chrome only and no padding of its own | | Scope body | <code>.ds-popover-scope-body</code> | a named content part — see below | | Scope heading | <code>.ds-popover-scope-heading</code> | scope body — <code>font.size.meta</code> at <code>font.weight.emphasis</code> | | Scope headline | <code>.ds-popover-scope-headline</code> | scope body — the second heading on a line with its inline action | | Scope list | <code>.ds-popover-scope-list</code> | scope body — mono identifiers at <code>font.size.meta</code>, one per line | | Scope list (missing) | <code>.ds-popover-scope-list--missing</code> | scope body — the ungranted set, one ink step quieter | | Scope rule | <code>.ds-popover-scope-rule</code> | scope body — the hairline between the two groups | | Scope note | <code>.ds-popover-scope-note</code> | scope body — one <code>font.size.micro</code> consequence line |</p>
 <p>The shell decides the border, radius, background, shadow, layer, and entrance. It deliberately carries <strong>no padding</strong>: a menu list wants full-bleed rows with vertical inset, a dialog-role body wants an even inset, and neither should fight a default. Content padding belongs to the content.</p>
 <p>Position is written by the consumer as viewport coordinates into the custom properties <code>--ds-popover-top</code>, <code>--ds-popover-right</code>, <code>--ds-popover-bottom</code>, and <code>--ds-popover-left</code> — set the one or two edges that anchor the surface and leave the rest <code>auto</code>. Anchor by the edge nearest the trigger (left for a <code>start</code> placement, right for <code>end</code>; bottom when flipped above) so the surface's measured size never enters the math on its anchored axis: the glued edge cannot drift by a surface-width when a measurement is momentarily stale. The consumer also mirrors the trigger's width into <code>--ds-popover-trigger-width</code> so width-coupled surfaces (a select's listbox) can set <code>min-width: var(--ds-popover-trigger-width)</code> without an inline width clobbering their own floor.</p>
+<h5>The scope body — a named content part</h5>
+<p>Content is host-owned everywhere else in this family. This one shape is named because it must be <strong>identical in three places</strong>: the Remote settings machine row (opened from a quiet link-button reading &quot;6 scopes&quot;), the inbound pair-request card, and the mobile companion. A surface whose job is to say what another machine may do on this one is the last one that should be drawn three times in three orders.</p>
+<p>It hosts on the <code>dialog</code> role — it holds a heading, a rule and an action, none of which belong in a <code>menu</code> — and it brings its own inset, which is the Anatomy note's rule rather than an exception to it: the shell carries no padding, so content padding belongs to the content.</p>
+<p>The order is the argument, and it is fixed:</p>
+<p>``<code> &lt;div class=&quot;ds-popover&quot; role=&quot;dialog&quot; aria-labelledby=&quot;…&quot;&gt; &lt;div class=&quot;ds-popover-scope-body&quot;&gt; &lt;div class=&quot;ds-popover-scope-heading&quot; id=&quot;…&quot;&gt;Granted scopes&lt;/div&gt;   ← what is held &lt;ul class=&quot;ds-popover-scope-list&quot;&gt;…&lt;/ul&gt;                            ← mono, one per line &lt;div class=&quot;ds-popover-scope-rule&quot;&gt;&lt;/div&gt;                           ← the hairline &lt;div class=&quot;ds-popover-scope-headline&quot;&gt;                             ← what is not held… &lt;span class=&quot;ds-popover-scope-heading&quot;&gt;Not granted&lt;/span&gt; …a link-button reading &quot;Grant&quot;…                                   ← …and the one act that changes it &lt;/div&gt; &lt;ul class=&quot;ds-popover-scope-list ds-popover-scope-list--missing&quot;&gt;…&lt;/ul&gt; &lt;div class=&quot;ds-popover-scope-note&quot;&gt;It can't see chats or terminals here.&lt;/div&gt; &lt;/div&gt; &lt;/div&gt; </code>``</p>
+<ul><li><strong>Held first.</strong> The reader opened this to find out what is already true; a surface that led with what is missing would read as a prompt to grant rather than as an answer.</li><li><strong>The action is inline with its heading, not under the list.</strong> &quot;Grant&quot; acts on the whole ungranted group, and parked at the bottom it reads as belonging to the last row. It is a [link button](../link-button/component.md) — one quiet verb inside a surface that is already an aside — never a filled button: this popover is not a view and has no primary action budget.</li><li><strong>The consequence line is the reason the surface exists.</strong> &quot;It can't see chats or terminals here&quot; is what the reader actually came to find out; a bare pair of lists leaves them to derive it from two identifiers they may not know. One line, <code>micro</code>, <code>text.muted</code>, and only when something is actually missing — a note that is always there is decoration.</li><li><strong>Never a danger tint on the missing list.</strong> One ink step, reinforced by a heading that says the same thing in words. A scope the person never granted is a fact, not a fault.</li><li><strong>A second group is read-only.</strong> Where the same machine also has an outbound half with a different set, it goes under its own heading (&quot;What you can do there&quot;) with no action beside it: this surface acts only on the grant *this* machine controls.</li><li><strong>Identifiers stay a column here, not pills.</strong> The wide surface — the pairing code card — sets the same content as [scope pills](../scope-pill/component.md); a popover column is too narrow for a wrapped pill set to read as anything but ragged.</li></ul>
 <h4>Variants</h4>
 <ul><li><strong>Placement</strong> — <code>bottom-start</code> (default), <code>bottom-end</code>, <code>top-start</code>, <code>top-end</code>. A placement is a preference, not a promise: the surface flips to the other vertical side when its preferred side has no room, and clamps <code>8px</code> inside the viewport on both axes. The clamp bounds height as well as position: a surface taller than the viewport is capped to it and scrolls its content, so the last rows of a long menu are never off-screen. The gap between trigger and surface is <code>4px</code>.</li><li><code>.ds-popover--pointer</code> — coordinate-anchored instead of trigger-anchored: opens at a viewport point (a right-click, a text caret, a drop location) and clamps inside the viewport. It sits at <code>z.menu</code>, one layer above the trigger-anchored surface, because a context menu is summoned *over* whatever is already open — including an open popover. Same shell, same chrome; only the anchor and the layer differ. In the shipped kit this is <code>PointerPopover</code> (rich coordinate-anchored content) and the surface <code>ContextMenu</code> shares.</li></ul>
 <ul><li><strong>Material</strong> — <code>raised</code> (default) or <code>glass</code>. Raised is the ordinary surface. Glass is <code>bg.surface-raised</code> at <code>glass.opacity</code> over a <code>backdrop-filter</code> of <code>glass.blur</code> and <code>glass.saturation</code>, and it is opt-in per surface, never the family default: it exists for a card drawn deliberately over live app content that the reader should still see (the conversation peek over a running terminal; the composer's skill type-ahead over the transcript being read). Elevation and radius do not change with it — the popover family keeps <code>shadow.popover</code> and <code>radius.overlay</code> in both materials. Both shells carry it: the trigger-anchored surface (<code>Popover</code>, since 2026-09-08) and the pointer-anchored one (<code>PointerPopover</code>). See the toast spec for the blur ruling this opts into; nothing outside the kit may borrow the utility.</li></ul>
@@ -25758,6 +26711,7 @@ ENOENT: no such file or directory</span>
 <p>| State | Treatment | |---|---| | Closed | Not in the document (or <code>hidden</code>) — out of view and out of the accessibility tree | | Open | Entrance: a 4px drop-and-fade at <code>motion.duration.normal</code> / <code>motion.ease.standard</code> — the one sanctioned popover entrance; removed under reduced motion | | Open, trigger scrolled | The surface <strong>repositions</strong> to track its trigger (scroll in the capture phase, and resize) — unlike a tooltip, which dismisses, because a popover holds state a scroll must not throw away | | Stacked | A popover opened from inside another stacks above it; each keeps its own surface |</p>
 <p>Until the first measurement lands, the surface is kept invisible so the first paint never flashes at 0,0.</p>
 <h4>Usage</h4>
+<p><strong>A trigger-anchored surface is anchored by the consumer's own control</strong>, not by this component: the shell is portaled to <code>&lt;body&gt;</code> and positioned from the coordinates the consumer writes into <code>--ds-popover-*</code>. So a caller &quot;anchors&quot; a popover by rendering its own trigger — a link button, a chip, a row's meta-line verb — carrying <code>aria-haspopup</code>, a live <code>aria-expanded</code> and, while open, the surface's <code>aria-controls</code>, and by handing the shell that trigger's rect. The shell's content is arbitrary: any children at all, at whatever role the consumer declares. Nothing about the scope body above needs a new shell.</p>
 <p><strong>Light dismiss, exactly three ways.</strong> Escape, a pointer-down outside, or the consumer closing it (picking an item, toggling the trigger). No scrim: the page stays visible and clickable-through-to — the outside click that dismisses also lands where it fell.</p>
 <p><strong>Escape closes the topmost surface only.</strong> Open popovers form a stack; an Escape consumed by the top one never reaches the one below, and never reaches a dialog hosting them. One press, one layer.</p>
 <p><strong>A pointer landing in a surface stacked above counts as inside.</strong> Every surface is portaled to <code>&lt;body&gt;</code>, so a popover opened from inside another is not a DOM descendant of it — a naive <code>contains()</code> check reads a click on the nested surface as an outside click and unmounts it before its own click lands, silently dropping the choice the user just made. This clause exists because that was a real defect.</p>
@@ -25986,6 +26940,98 @@ ENOENT: no such file or directory</span>
     transition: none;
   }
 }
+
+/* ── Scope body ──────────────────────────────────────────────────────────
+ * A named CONTENT part for the dialog-role surface: the answer to &quot;what may
+ * that machine do here?&quot;, opened from a quiet link-button on a row's meta line
+ * (&quot;6 scopes&quot;).
+ *
+ * It is documented as a part rather than left to each host because the shape
+ * has to be identical in three places — the Remote settings row, the inbound
+ * pair-request card, and the mobile companion — and a surface that says what
+ * another machine is permitted to do is the last one that should be drawn
+ * three times with three different orders. The shell still owns the chrome and
+ * still carries no padding of its own; this part brings the inset with it,
+ * which is the rule the Anatomy note states (&quot;content padding belongs to the
+ * content&quot;).
+ *
+ * The order is the argument: what is held, a rule, what is not held with the
+ * one action that changes it, and a consequence in plain words. Held first,
+ * because the reader came to find out what is already true. */
+.ds-popover-scope-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-sm) var(--sem-space-lg);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  color: var(--sem-color-text-default);
+}
+
+/* The heading over a list. `meta` at `font.weight.emphasis` — a step BELOW the
+ * body text it introduces, which is what a label over a list is: the surface's
+ * subject is the identifiers, not the words above them. */
+.ds-popover-scope-heading {
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+}
+
+/* The second heading rides a line with its own action — &quot;Not granted&quot; beside
+ * the link-button that grants. The action is inline with the heading rather
+ * than under the list because it acts on the whole group; parked at the bottom
+ * it would read as belonging to the last row. */
+.ds-popover-scope-headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-sm);
+}
+
+/* The second group's heading is one step quieter than the first: the reader
+ * came for what is held, and the ink order says so. */
+.ds-popover-scope-headline .ds-popover-scope-heading {
+  color: var(--sem-color-text-muted);
+}
+
+/* The identifiers, one per line, in mono at `meta`. A list rather than a set of
+ * pills because a popover column is narrow and a wrapped pill set at this width
+ * reads as ragged; the scope-pill component is for the wide surface (the
+ * pairing code card), and this is the same content in a column. */
+.ds-popover-scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-3xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+}
+
+/* Not granted: one step of ink, and nothing else. Never a danger tint — a
+ * scope the person never granted is a fact, not a fault — and never the only
+ * carrier of the difference, which the heading above it states in words. */
+.ds-popover-scope-list--missing {
+  color: var(--sem-color-text-subtle);
+}
+
+/* The hairline between the two groups. One rule, and it is what separates them:
+ * a second heading alone would let the eye run the two lists together. */
+.ds-popover-scope-rule {
+  height: 1px;
+  background: var(--sem-color-border-subtle);
+}
+
+/* The consequence, in the reader's own language — &quot;It can't see chats or
+ * terminals here.&quot; One line, `micro`, `text.muted`: it is the sentence that
+ * explains why something they expected to see is missing, and it is the reason
+ * this surface exists rather than a bare list. */
+.ds-popover-scope-note {
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-muted);
+}
 </code></pre></details>
 <details class="catalog-source"><summary>components/popover/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
 &lt;html lang=&quot;en&quot;&gt;
@@ -25994,6 +27040,7 @@ ENOENT: no such file or directory</span>
 &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
 &lt;title&gt;Popover&lt;/title&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../link-button/component.css&quot; /&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
 &lt;style&gt;
   body {
@@ -26110,6 +27157,19 @@ ENOENT: no such file or directory</span>
     inset: auto;
     animation: none;
   }
+  /* The scope-body specimen is parked for the same reason the error one is:
+     the catalog embeds this demo with scripts off, and the anatomy has to be
+     readable there. Marked static so the lifting script skips it. */
+  .demo-scope-specimen {
+    position: relative;
+    max-width: 280px;
+    margin-bottom: var(--sem-space-lg);
+  }
+  .demo-scope-specimen .ds-popover {
+    position: relative;
+    inset: auto;
+    animation: none;
+  }
   .demo-error-actions {
     display: flex;
     align-items: center;
@@ -26198,6 +27258,32 @@ ENOENT: no such file or directory&lt;/span&gt;
       &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;The scope body — a named content part on the &lt;code&gt;dialog&lt;/code&gt; role: what is held, a hairline, what is not held with the one action that changes it, and the consequence in plain words.&lt;/p&gt;
+  &lt;div class=&quot;demo-scope-specimen&quot;&gt;
+    &lt;div class=&quot;ds-popover&quot; data-demo-static role=&quot;dialog&quot; aria-labelledby=&quot;l-scope-h&quot;&gt;
+      &lt;div class=&quot;ds-popover-scope-body&quot;&gt;
+        &lt;div class=&quot;ds-popover-scope-heading&quot; id=&quot;l-scope-h&quot;&gt;Granted scopes&lt;/div&gt;
+        &lt;ul class=&quot;ds-popover-scope-list&quot;&gt;
+          &lt;li&gt;workspace:read&lt;/li&gt;
+          &lt;li&gt;workspace:operate&lt;/li&gt;
+          &lt;li&gt;sprint:read&lt;/li&gt;
+          &lt;li&gt;sprint:operate&lt;/li&gt;
+          &lt;li&gt;backlog:read&lt;/li&gt;
+          &lt;li&gt;backlog:operate&lt;/li&gt;
+        &lt;/ul&gt;
+        &lt;div class=&quot;ds-popover-scope-rule&quot;&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-popover-scope-headline&quot;&gt;
+          &lt;span class=&quot;ds-popover-scope-heading&quot;&gt;Not granted&lt;/span&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-link-button&quot;&gt;Grant&lt;/button&gt;
+        &lt;/div&gt;
+        &lt;ul class=&quot;ds-popover-scope-list ds-popover-scope-list--missing&quot;&gt;
+          &lt;li&gt;terminal:observe&lt;/li&gt;
+          &lt;li&gt;terminal:control&lt;/li&gt;
+        &lt;/ul&gt;
+        &lt;div class=&quot;ds-popover-scope-note&quot;&gt;It can't see chats or terminals here.&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
   &lt;div class=&quot;demo-canvas&quot; data-context-for=&quot;pop-light-context&quot;&gt;Right-click for the pointer variant&lt;/div&gt;
   &lt;div class=&quot;ds-popover ds-popover--pointer&quot; id=&quot;pop-light-context&quot; role=&quot;menu&quot; aria-label=&quot;Canvas actions&quot; hidden&gt;
     &lt;div class=&quot;demo-menu&quot;&gt;
@@ -26246,6 +27332,32 @@ ENOENT: no such file or directory&lt;/span&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 
+  &lt;p class=&quot;demo-label&quot;&gt;The scope body — a named content part on the &lt;code&gt;dialog&lt;/code&gt; role: what is held, a hairline, what is not held with the one action that changes it, and the consequence in plain words.&lt;/p&gt;
+  &lt;div class=&quot;demo-scope-specimen&quot;&gt;
+    &lt;div class=&quot;ds-popover&quot; data-demo-static role=&quot;dialog&quot; aria-labelledby=&quot;d-scope-h&quot;&gt;
+      &lt;div class=&quot;ds-popover-scope-body&quot;&gt;
+        &lt;div class=&quot;ds-popover-scope-heading&quot; id=&quot;d-scope-h&quot;&gt;Granted scopes&lt;/div&gt;
+        &lt;ul class=&quot;ds-popover-scope-list&quot;&gt;
+          &lt;li&gt;workspace:read&lt;/li&gt;
+          &lt;li&gt;workspace:operate&lt;/li&gt;
+          &lt;li&gt;sprint:read&lt;/li&gt;
+          &lt;li&gt;sprint:operate&lt;/li&gt;
+          &lt;li&gt;backlog:read&lt;/li&gt;
+          &lt;li&gt;backlog:operate&lt;/li&gt;
+        &lt;/ul&gt;
+        &lt;div class=&quot;ds-popover-scope-rule&quot;&gt;&lt;/div&gt;
+        &lt;div class=&quot;ds-popover-scope-headline&quot;&gt;
+          &lt;span class=&quot;ds-popover-scope-heading&quot;&gt;Not granted&lt;/span&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-link-button&quot;&gt;Grant&lt;/button&gt;
+        &lt;/div&gt;
+        &lt;ul class=&quot;ds-popover-scope-list ds-popover-scope-list--missing&quot;&gt;
+          &lt;li&gt;terminal:observe&lt;/li&gt;
+          &lt;li&gt;terminal:control&lt;/li&gt;
+        &lt;/ul&gt;
+        &lt;div class=&quot;ds-popover-scope-note&quot;&gt;It can't see chats or terminals here.&lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
 &lt;/div&gt;
 
 &lt;script&gt;
@@ -27742,6 +28854,243 @@ window.addEventListener('resize', repositionAll)
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--bleed&quot;&gt;Full-bleed option&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--bleed&quot; aria-current=&quot;true&quot;&gt;Full-bleed, chosen&lt;/button&gt;
   &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-scope-pill" class="catalog-view catalog-component">
+<h3>Scope pill</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-scope-pill">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the granted set, wrapping as a group of objects rather than as a sentence.</p>
+  <div class="demo-card">
+    <p class="demo-heading" id="l-granted">Granted scopes</p>
+    <ul class="ds-scope-pill-set" aria-labelledby="l-granted">
+      <li class="ds-scope-pill">workspace:read</li>
+      <li class="ds-scope-pill">workspace:operate</li>
+      <li class="ds-scope-pill">sprint:read</li>
+      <li class="ds-scope-pill">sprint:operate</li>
+      <li class="ds-scope-pill">backlog:read</li>
+      <li class="ds-scope-pill">backlog:operate</li>
+    </ul>
+    <p class="demo-heading demo-heading--second" id="l-missing">Not granted</p>
+    <ul class="ds-scope-pill-set" aria-labelledby="l-missing">
+      <li class="ds-scope-pill ds-scope-pill--missing">terminal:observe</li>
+      <li class="ds-scope-pill ds-scope-pill--missing">terminal:control</li>
+    </ul>
+  </div>
+  <p class="demo-label demo-label--second">A single pill inline, at rest. There is no other state.</p>
+  <span class="ds-scope-pill">terminal:control</span>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same pills from the same tokens.</p>
+  <div class="demo-card">
+    <p class="demo-heading" id="d-granted">Granted scopes</p>
+    <ul class="ds-scope-pill-set" aria-labelledby="d-granted">
+      <li class="ds-scope-pill">workspace:read</li>
+      <li class="ds-scope-pill">workspace:operate</li>
+      <li class="ds-scope-pill">sprint:read</li>
+      <li class="ds-scope-pill">sprint:operate</li>
+      <li class="ds-scope-pill">backlog:read</li>
+      <li class="ds-scope-pill">backlog:operate</li>
+    </ul>
+    <p class="demo-heading demo-heading--second" id="d-missing">Not granted</p>
+    <ul class="ds-scope-pill-set" aria-labelledby="d-missing">
+      <li class="ds-scope-pill ds-scope-pill--missing">terminal:observe</li>
+      <li class="ds-scope-pill ds-scope-pill--missing">terminal:control</li>
+    </ul>
+  </div>
+  <p class="demo-label demo-label--second">A single pill inline, at rest. There is no other state.</p>
+  <span class="ds-scope-pill">terminal:control</span>
+</div>
+</div>
+<div class="catalog-doc">
+<p>One machine-readable <strong>scope name</strong> in a pill: <code>terminal:control</code>, <code>workspace:read</code>. It is the mark for a permission identifier wherever the product shows the person the actual strings — the pairing code's grant list, the popover that says what a paired machine may do here, the request a peer sent.</p>
+<p>Set in mono, at <code>font.size.micro</code>, on <code>radius.pill</code> with a <code>border.default</code> hairline and a <code>bg.surface</code> ground. 22px tall, <code>space.sm</code> of inline padding. Display only, always.</p>
+<h4>Why neither existing mark could be it</h4>
+<p>Read [badge](../badge/component.md) and [micro-chip](../micro-chip/component.md) first; this entry exists because both were tried and both were wrong for the same underlying reason.</p>
+<p><strong>They are UI-face labels. This is code.</strong> A badge says &quot;draft&quot;, &quot;merged&quot;, &quot;3&quot;. A micro chip says &quot;Default&quot;. Those are words *about* the thing beside them, written in the reader's language, in the UI family, in sentence case. A scope pill's content is not a word about anything — it <strong>is</strong> the identifier, the same string that appears in the pairing request, in the audit line, and in the <code>terminal:observe</code> a person will paste into a search box or an issue. Three consequences follow, and each of them is a rule one of those two components holds the other way:</p>
+<p>| | badge | micro-chip | scope pill | |---|---|---|---| | Family | UI | UI | <strong>mono</strong> | | Tone | <code>status.*-soft</code> fills, a tone per state | none, permanently | none, permanently | | Shape | <code>radius.pill</code> | <code>radius.chip</code> (rectangular, explicitly) | <code>radius.pill</code> | | Content | a state word or a count | one fact, one or two words | an API identifier | | Tracking | — | <code>tracking.wide</code> | <code>tracking.normal</code> |</p>
+<ul><li><strong>The family is not a style choice here.</strong> <code>terminal:control</code> at 11px in the UI family is exactly where <code>l</code> / <code>1</code> / <code>I</code> and <code>:</code> / <code>;</code> stop being distinguishable, and a person reading this list is deciding what another machine may do on this one. Mono is what makes the string checkable.</li><li><strong>It can never take a tone</strong>, which rules out the badge family outright: the badge's whole vocabulary is <code>status.*-soft</code> fills that grade a state, and a scope has no state. It is held or it is not, and *that* is said by the heading above the set, not by a colour on the pill.</li><li><strong>It is a pill, and micro-chip hands the rectangle back on purpose</strong> — that entry quotes badge's ruling that &quot;<code>radius.chip</code> is the right token for a *rectangular* chip&quot;. A wrapped set of eight colon-joined strings needs the round end to read as eight objects rather than as one broken line; the rectangle at that density reads as a table with no rules.</li></ul>
+<p>The shortest form of the test: reach for a badge when the mark would change, for a micro chip when it would not, and for this when the mark is not a word at all.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Pill | <code>.ds-scope-pill</code> | yes — an inline <code>&lt;span&gt;</code> (or an <code>&lt;li&gt;</code> inside a set) holding exactly one scope name | | Set | <code>.ds-scope-pill-set</code> | no — the wrapping container, <code>space.xs</code> in both axes |</p>
+<p>No glyph slot, no dismiss affordance, no count, no truncation. A pill holds one identifier and the whole of it: a scope shown as <code>terminal:cont…</code> is a scope that does not exist.</p>
+<h4>Variants</h4>
+<ul><li><strong>Granted (no modifier).</strong> <code>border.default</code>, <code>text.default</code>, <code>bg.surface</code>. The default, because the common list is the list of what a machine *has*.</li><li><strong><code>--missing</code>.</strong> One step quieter on both axes — <code>border.subtle</code> and <code>text.subtle</code> — for a scope listed as *not* granted beside the ones that are. It is deliberately not a <code>status.danger</code> tint: a scope the person never granted is a fact, not a fault, and tinting it red would say the opposite of what the surface means. The difference is shape-coded by the heading the set sits under (&quot;Granted scopes&quot; / &quot;Not granted&quot;); the ink step alone is never the only carrier.</li><li><strong>No tone variants, ever.</strong> See above. A scope pill that went green would be a second status idiom on a surface whose whole content is already a permission state.</li></ul>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Rest | The only state | | Hover / focus / pressed | None. It is not interactive and must not advertise a click it does not have | | Inside a hovered row | Unchanged — the row paints <code>bg.hover</code> behind it; the pill's own <code>bg.surface</code> ground is what keeps the identifier legible over it | | Disabled | Not a state this has. A pill in a disabled region dims with the region |</p>
+<h4>Usage</h4>
+<ul><li><strong>One scope per pill, and the pill never truncates.</strong> A set that does not fit wraps to another line. If the surface cannot afford the wrap, it is showing too many scopes and wants the popover's mono list instead.</li><li><strong>Use a set, not a sentence.</strong> Comma-joining scopes into prose is what this replaces: the reader is counting and comparing, and prose defeats both.</li><li><strong>The heading carries the meaning, the pill carries the name.</strong> &quot;Granted scopes&quot; over a set; &quot;Not granted&quot; over a <code>--missing</code> set. Never a pill that tries to say both, and never a mixed set where held and unheld sit together separated only by ink.</li><li><strong>Never interactive.</strong> No <code>onClick</code>, no dismiss ✕, no filter behaviour. A scope a person can act on is a [check row](../check-row/component.md) — that is what the pairing dialog uses — or a [button](../button/component.md). The pill is what the choice looks like once it has been made.</li><li><strong>Not a general-purpose mono chip.</strong> It is named for what it holds. A commit SHA, a branch name and a file path are not scopes; if one of those wants a mark, that is a new entry with its own argument, not this one widened.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>Plain text in the document, read in the surface's reading order. It takes no <code>role</code> and no <code>aria-label</code>: the identifier is the content, and naming it would say the same string twice.</li><li><strong>The set takes the accessible name, not the pill.</strong> A <code>&lt;ul class=&quot;ds-scope-pill-set&quot;&gt;</code> with an <code>aria-label</code> (&quot;Scopes in this code&quot;) is what tells a screen-reader user what the eight strings underneath it are; without it they arrive as eight unexplained identifiers.</li><li><strong><code>--missing</code> is never announced by its colour.</strong> The heading above the set is the only thing that says &quot;not granted&quot;, and it is real text, so the quieter ink is reinforcement rather than information.</li><li><code>text.default</code> on <code>bg.surface</code> clears AA at the 11px step, and the hairline gives the pill a non-text edge at 3:1. The <code>--missing</code> step keeps its hairline for the same reason: the mark survives greyscale because it never depended on a colour.</li><li>Never focusable, and it adds no tab stop to a surface that is already a popover or a card.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/ScopePill.tsx</code>, exporting <code>ScopePill</code> and <code>ScopePillSet</code> through the kit barrel (<code>ui/index.ts</code>).</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/scope-pill/component.css</summary><pre><code>/* Scope pill — one machine-readable scope name, shown as a thing the reader can
+ * count and compare rather than as prose.
+ *
+ * The pairing code's grant list is the surface it was drawn for: eight names
+ * like `terminal:control` that the person is being asked to hand to another
+ * machine. They are API strings, they are the strings that appear in the
+ * request, in the audit line and in the popover that says what a machine may
+ * do here — so they are set in mono and the pill's job is to make each one one
+ * OBJECT, countable at a glance, wrapping as a set rather than as a sentence.
+ *
+ * Why it is neither of the two marks the system already has. `badge` and
+ * `micro-chip` are UI-FACE labels: a word in the reader's language (&quot;draft&quot;,
+ * &quot;merged&quot;, &quot;Default&quot;), sentence case, set in the UI family, sized to trail a
+ * row's title. This is code — a colon-joined identifier the reader will search
+ * for and quote — and a code string in the UI family at 11px is the one place
+ * `l`, `1` and `I` stop being distinguishable. It also takes no tone and never
+ * will (badge's whole vocabulary is tone), and it is a pill rather than the
+ * rectangle micro-chip explicitly claims. Three differences, one cause: the
+ * content is not a word about the thing, it IS the thing. */
+
+.ds-scope-pill {
+  display: inline-flex;
+  align-items: center;
+  /* Never shrinks: a wrapped SET of pills is the reading, and a pill that
+     truncated its own identifier would be showing a scope that does not
+     exist. The container wraps; the pill does not. */
+  flex: none;
+  /* 22px — the sub-control box step the button family already uses for its
+     smallest square. Deliberately NOT a control step: the smallest of those is
+     26px and it means &quot;a person can press this&quot;, which this cannot be. A
+     `min-height` rather than a `height`, so a pill in a zoomed or
+     larger-text context grows with its line box instead of clipping it. */
+  min-height: var(--sem-icon-size-lg);
+  padding: 0 var(--sem-space-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-surface);
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-regular);
+  /* No `tracking-wide`: the UI-face marks open their letter-spacing to make a
+     small word breathe, and opening a mono string's tracking un-does the one
+     thing mono is for — the column grid that makes `:` and `_` findable. */
+  letter-spacing: var(--sem-font-tracking-normal);
+  line-height: var(--sem-font-line-default);
+  white-space: nowrap;
+}
+
+/* The set. Pills wrap as a group and never as a paragraph: the gap is the same
+ * in both axes so a two-row set reads as a grid of objects rather than as a
+ * run-on line that happened to break. */
+.ds-scope-pill-set {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sem-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Missing — a scope that is NOT granted, listed beside the ones that are. One
+ * step of ink and one step of border, and nothing else: the difference between
+ * held and not-held is a matter of fact, not of danger, and a `status.danger`
+ * tint here would tell the reader that a scope they never granted is a
+ * problem. Shape-coded too, by the heading it sits under, because a colour
+ * step alone is not a state. */
+.ds-scope-pill--missing {
+  border-color: var(--sem-color-border-subtle);
+  color: var(--sem-color-text-subtle);
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/scope-pill/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Scope pill&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+  .demo-card {
+    max-width: 460px;
+    padding: var(--sem-space-xl);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised);
+  }
+  .demo-heading {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-heading--second {
+    margin-top: var(--sem-space-lg);
+    color: var(--sem-color-text-muted);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — the granted set, wrapping as a group of objects rather than as a sentence.&lt;/p&gt;
+  &lt;div class=&quot;demo-card&quot;&gt;
+    &lt;p class=&quot;demo-heading&quot; id=&quot;l-granted&quot;&gt;Granted scopes&lt;/p&gt;
+    &lt;ul class=&quot;ds-scope-pill-set&quot; aria-labelledby=&quot;l-granted&quot;&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;workspace:read&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;workspace:operate&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;sprint:read&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;sprint:operate&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;backlog:read&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;backlog:operate&lt;/li&gt;
+    &lt;/ul&gt;
+    &lt;p class=&quot;demo-heading demo-heading--second&quot; id=&quot;l-missing&quot;&gt;Not granted&lt;/p&gt;
+    &lt;ul class=&quot;ds-scope-pill-set&quot; aria-labelledby=&quot;l-missing&quot;&gt;
+      &lt;li class=&quot;ds-scope-pill ds-scope-pill--missing&quot;&gt;terminal:observe&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill ds-scope-pill--missing&quot;&gt;terminal:control&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;A single pill inline, at rest. There is no other state.&lt;/p&gt;
+  &lt;span class=&quot;ds-scope-pill&quot;&gt;terminal:control&lt;/span&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same pills from the same tokens.&lt;/p&gt;
+  &lt;div class=&quot;demo-card&quot;&gt;
+    &lt;p class=&quot;demo-heading&quot; id=&quot;d-granted&quot;&gt;Granted scopes&lt;/p&gt;
+    &lt;ul class=&quot;ds-scope-pill-set&quot; aria-labelledby=&quot;d-granted&quot;&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;workspace:read&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;workspace:operate&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;sprint:read&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;sprint:operate&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;backlog:read&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill&quot;&gt;backlog:operate&lt;/li&gt;
+    &lt;/ul&gt;
+    &lt;p class=&quot;demo-heading demo-heading--second&quot; id=&quot;d-missing&quot;&gt;Not granted&lt;/p&gt;
+    &lt;ul class=&quot;ds-scope-pill-set&quot; aria-labelledby=&quot;d-missing&quot;&gt;
+      &lt;li class=&quot;ds-scope-pill ds-scope-pill--missing&quot;&gt;terminal:observe&lt;/li&gt;
+      &lt;li class=&quot;ds-scope-pill ds-scope-pill--missing&quot;&gt;terminal:control&lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;demo-label demo-label--second&quot;&gt;A single pill inline, at rest. There is no other state.&lt;/p&gt;
+  &lt;span class=&quot;ds-scope-pill&quot;&gt;terminal:control&lt;/span&gt;
 &lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
@@ -30527,9 +31876,12 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <h4>States</h4>
 <ul><li>Hover: the hovered half alone takes <code>bg.hover</code> and lifts to <code>text.primary</code>. The other half does not move — the halves are separately clickable and must say so.</li><li>Open: while the menu is on screen the chevron half stays at <code>bg.hover</code> via <code>[aria-expanded=&quot;true&quot;]</code>, tying the surface to the half that opened it.</li><li>Focus-visible: the shared <code>focus.ring</code> outline, at a <strong>negative</strong> <code>focus.ring-offset</code> because the group clips its overflow — an outward gap would be cut off on the joined edge. Each half draws independently.</li><li>Disabled: 45% opacity and <code>not-allowed</code> on both halves. Disable the whole group or neither: a live primary beside a dead menu reads as a bug.</li><li>No press-scale. The group would scale as one object while only one half was pressed.</li></ul>
 <h4>Usage</h4>
-<ul><li>The primary half must announce what it will do without a caption — that is the glyph's job. If the target cannot be shown in the resting state, this is the wrong control. The half's content may be the MARK itself rather than a verb — a pull request's state glyph and its number — where the mark is what you would quote to a colleague and a verb over it would say less.</li><li>Choosing from the menu runs that target immediately <strong>and</strong> becomes the new primary. A menu that only re-points the primary makes every switch two clicks.</li><li><strong>Unless the primary is a rule rather than a memory.</strong> Where the resting half is derived — &quot;the most recent pull request still open&quot;, not &quot;the target you last used&quot; — choosing a row runs it and the primary does NOT move: it is the rule's answer, and a click cannot change what the rule says. Such a menu carries no check either, because no row is &quot;the one you chose&quot;. Read the clause above as the default and this as its one exception; a menu that is neither is a menu that has not decided what its primary means.</li><li><strong>Group the rows when they have states rather than being peers.</strong> The grouping is the menu's own (<code>.ds-menu-group-label</code>, one heading per run of rows, empty groups omitted rather than shown as a heading over nothing), and a count belongs in the heading — &quot;Open · 4&quot; — not repeated down the rows.</li><li>Offer only targets that resolve. A row for something that is not installed is a fake affordance — omit it, never disable it.</li><li>Keep the menu at two or more rows. One alternative is a plain button — and the component holds that rule itself: handed fewer than two targets it draws <strong>the primary half alone</strong>, in the group's own chrome, with no chevron and no menu. Not a different control and not a lookalike: the same half, the same height, the same hover fill and the same focus ring, because a surface whose target list grows from one to two must not change size or hit area under the reader. (The conversation peek's pull request mark is exactly that surface, and its lone arm was a text link until 2026-09-09: a ~15px target beside the split shape's 24px one.)</li><li>Persist the primary where the choice belongs (per app, per project) and fall back to the first available target when the remembered one is gone.</li></ul>
+<ul><li>The primary half must announce what it will do without a caption — that is the glyph's job. If the target cannot be shown in the resting state, this is the wrong control. The half's content may be the MARK itself rather than a verb — a pull request's state glyph and its number — where the mark is what you would quote to a colleague and a verb over it would say less.</li><li>Choosing from the menu runs that target immediately <strong>and</strong> becomes the new primary. A menu that only re-points the primary makes every switch two clicks.</li><li><strong>Unless the primary is a rule rather than a memory.</strong> Where the resting half is derived — &quot;the most recent pull request still open&quot;, not &quot;the target you last used&quot; — choosing a row runs it and the primary does NOT move: it is the rule's answer, and a click cannot change what the rule says. Such a menu carries no check either, because no row is &quot;the one you chose&quot;. Read the clause above as the default and this as its one exception; a menu that is neither is a menu that has not decided what its primary means.</li><li><strong>Group the rows when they have states rather than being peers.</strong> The grouping is the menu's own (<code>.ds-menu-group-label</code>, one heading per run of rows, empty groups omitted rather than shown as a heading over nothing), and a count belongs in the heading — &quot;Open · 4&quot; — not repeated down the rows.</li><li>Offer only targets that resolve. A row for something that is not installed is a fake affordance — omit it, never disable it.</li><li><strong>Two kinds of menu, and only one of them has a floor</strong> (ruled 2026-09-10). The clause below was written for a menu of <strong>targets</strong> — the same action against a different thing — and it still binds every one of those. It does not bind a menu of <strong>alternatives</strong>: a different *route to the same outcome*, which is what a section header's overflow is. The Remote tab's &quot;Pair a device&quot; is the case that forced the distinction — its one menu row, &quot;Paste a pairing link&quot;, is not another device to pair with, it is the other way to reach the same pairing. Promoted to a second visible button it would put two competing verbs on the section header for one job; dropped, the route disappears.</li></ul>
+<p>A menu of alternatives keeps its caret at one row. The test is whether choosing a row could ever <strong>re-point the primary</strong>: for a target it can and does, so a list of one is a list with nothing to choose; for an alternative it cannot, so the count was never what made the menu worth opening. The shipped primitive takes this as <code>menuKind</code> — <code>targets</code> (the default, and the behaviour below) or <code>alternatives</code> — so the choice is made once at the call site and is readable there, rather than inferred from a length.</p>
+<p>Everything else is unchanged either way: the same group chrome, the same hairline, the same hover, the same <code>aria-haspopup=&quot;menu&quot;</code> on a half that really does open a menu. And the rows of an <code>alternatives</code> menu carry no check, for the same reason a derived primary's rows do not — no row is &quot;the one you chose&quot;.</p>
+<ul><li>Keep the menu at two or more rows <strong>of targets</strong>. One alternative target is a plain button — and the component holds that rule itself: handed fewer than two targets it draws <strong>the primary half alone</strong>, in the group's own chrome, with no chevron and no menu. Not a different control and not a lookalike: the same half, the same height, the same hover fill and the same focus ring, because a surface whose target list grows from one to two must not change size or hit area under the reader. (The conversation peek's pull request mark is exactly that surface, and its lone arm was a text link until 2026-09-09: a ~15px target beside the split shape's 24px one.)</li><li>Persist the primary where the choice belongs (per app, per project) and fall back to the first available target when the remembered one is gone.</li></ul>
 <h4>Accessibility</h4>
-<ul><li>Two real <code>&lt;button&gt;</code>s, so both halves are in the tab order and operable with Enter and Space. Never collapse them into one element with a click-position test. With a single target there is one real <code>&lt;button&gt;</code> and no menu half at all — nothing announces a menu that does not exist.</li><li>The primary half carries an <code>aria-label</code> naming its resolved target (&quot;Open in VS Code&quot;) when the visible label is only the verb.</li><li>The menu half carries <code>aria-haspopup=&quot;menu&quot;</code> and a live <code>aria-expanded</code>, and it owns the popover's <code>aria-controls</code>.</li><li>The surface is <code>role=&quot;menu&quot;</code>; each row is <code>role=&quot;menuitemcheckbox&quot;</code> with <code>aria-checked</code> on the current default — the check is state, not decoration, so it must not be conveyed by the glyph alone.</li><li>Arrow keys rove within the open menu, Escape closes it and returns focus to the chevron half.</li><li>Contrast: label and glyph clear AA in both modes; the internal hairline is decorative and is never the only thing separating the halves — hover and focus both resolve which half is live.</li></ul>
+<ul><li>A single-row <code>alternatives</code> menu is a real menu: the half keeps <code>aria-haspopup=&quot;menu&quot;</code>, the surface keeps <code>role=&quot;menu&quot;</code>, and the one row is a <code>menuitem</code>. Arrow keys and Escape behave exactly as they do at ten rows — a one-row menu is not a special keyboard case, and treating it as one is how a control ends up with a chevron that only responds to the mouse.</li><li>Two real <code>&lt;button&gt;</code>s, so both halves are in the tab order and operable with Enter and Space. Never collapse them into one element with a click-position test. With a single target there is one real <code>&lt;button&gt;</code> and no menu half at all — nothing announces a menu that does not exist.</li><li>The primary half carries an <code>aria-label</code> naming its resolved target (&quot;Open in VS Code&quot;) when the visible label is only the verb.</li><li>The menu half carries <code>aria-haspopup=&quot;menu&quot;</code> and a live <code>aria-expanded</code>, and it owns the popover's <code>aria-controls</code>.</li><li>The surface is <code>role=&quot;menu&quot;</code>; each row is <code>role=&quot;menuitemcheckbox&quot;</code> with <code>aria-checked</code> on the current default — the check is state, not decoration, so it must not be conveyed by the glyph alone.</li><li>Arrow keys rove within the open menu, Escape closes it and returns focus to the chevron half.</li><li>Contrast: label and glyph clear AA in both modes; the internal hairline is decorative and is never the only thing separating the halves — hover and focus both resolve which half is live.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/split-button/component.css</summary><pre><code>/* Split button — one bordered group carrying two targets: a default action and
@@ -32107,7 +33459,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <p>| Part | Class | Required | |---|---|---| | Scroller | <code>.ds-tabs-scroller</code> | no — the overflow wrapper: scrolls sideways, never draws a scrollbar, fades each overflowing edge | | Tab list | <code>.ds-tabs</code> | yes — <code>role=&quot;tablist&quot;</code> with an <code>aria-label</code>, one bottom hairline | | Tab | <code>.ds-tab</code> | yes — <code>role=&quot;tab&quot;</code> buttons, <code>font.size.meta</code> | | Icon | <code>.ds-tab-icon</code> | no — a leading glyph, <code>aria-hidden</code> | | Count | <code>.ds-tab-count</code> | no — canonical count, tabular, <code>font.size.micro</code> | | Badge | <code>.ds-tab-badge</code> | no — the <code>badge</code> corner count: what is WAITING in this tab. Needs <code>.ds-tab--badged</code> on the tab for its room | | Underline | <code>.ds-tab-underline</code> | yes — the 1px active marker, <code>aria-hidden</code> | | Panel | <code>.ds-tab-panel</code> | yes — <code>role=&quot;tabpanel&quot;</code>, a focusable scroll region |</p>
 <p>Tabs sit <code>size.control.sm</code> (30px) tall at <code>space.lg</code> inline padding, spaced by <code>space.3xs</code>. Each tab overlaps the row's hairline by 1px so the active underline draws <strong>on</strong> the border, not above it — one line, two meanings. The underline is inset <code>space.sm</code> from each end of its tab: it marks the label, not the hit area.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default</strong> — the row draws its own <code>border.subtle</code>-weight structure with a <code>border.default</code> hairline.</li><li><strong><code>--borderless</code></strong> — no hairline; a parent container owns the row's border. Needed when the tab row shares its band with trailing inline controls — one chrome band, one line. Its tabs also drop the 1px overlap: the line they would reach for is a band they are passengers in, and the band's overflow container clips the overhang — which is the pixel the active underline lives in, so the overlap costs a borderless strip its selection marker entirely.</li><li><strong><code>--badged</code></strong> — the tab reserves <code>space.3xl</code> of trailing room and docks a <code>badge</code> count in its top-right: how many things inside want the person. See &quot;A count on a tab is not a badge on a tab&quot; below. Never on <code>--icon-only</code>.</li><li><strong><code>--icon-only</code></strong> — each tab renders its glyph alone on a <code>size.control.sm</code> square, the glyph steps up to <code>icon.size.sm</code>, and the label becomes the tab's accessible name *and* its tooltip. For a strip on a band that cannot spend width on words — a panel's own chrome row, shared with that panel's actions. Every item must carry an icon.</li></ul>
+<ul><li><strong>Default</strong> — the row draws its own <code>border.subtle</code>-weight structure with a <code>border.default</code> hairline.</li><li><strong><code>--borderless</code></strong> — no hairline; a parent container owns the row's border. Needed when the tab row shares its band with trailing inline controls — one chrome band, one line. Its tabs also drop the 1px overlap: the line they would reach for is a band they are passengers in, and the band's overflow container clips the overhang — which is the pixel the active underline lives in, so the overlap costs a borderless strip its selection marker entirely.</li><li><strong><code>--badged</code></strong> — the tab reserves <code>space.3xl</code> of trailing room and docks a <code>badge</code> count in its top-right: how many things inside want the person. See &quot;A count on a tab is not a badge on a tab&quot; below. Never on <code>--icon-only</code>, and never on a closable tab — that tab's trailing padding is already spoken for by its close glyph, and two things docked in one corner is neither of them.</li><li><strong><code>--icon-only</code></strong> — each tab renders its glyph alone on a <code>size.control.sm</code> square, the glyph steps up to <code>icon.size.sm</code>, and the label becomes the tab's accessible name *and* its tooltip. For a strip on a band that cannot spend width on words — a panel's own chrome row, shared with that panel's actions. Every item must carry an icon.</li></ul>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Rest | <code>text.muted</code>, transparent underline | | Hover | Ink lifts to <code>text.primary</code>. No background — the underline idiom marks tabs, not a fill | | Active | <code>text.primary</code> + the accent hairline underline. Never an accent fill or a pill | | Focus-visible | <code>focus.ring</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code> |</p>
 <h4>Usage</h4>
@@ -32118,6 +33470,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 <p><strong>A count on a tab is not a badge on a tab</strong> (2026-09-10). They are two different questions and they get two different places:</p>
 <ul><li>the <strong>count</strong> is *how many things are in here*. It rides beside the label, in the reading line, because it is part of what the tab says.</li><li>the <strong>badge</strong> is *how many of them want you* — updates waiting, work blocked on an answer. It sits above the words, top-right, because it is not part of them. It is the same pip the app rail's squares wear, so &quot;there is news here&quot; is one drawing wherever the product says it.</li></ul>
 <p>A tab can carry both, and a tab reading &quot;SprintEngine Studio 10 ③&quot; is saying two true things. What it must not do is draw the badge at zero: a counter reading &quot;0&quot; is a counter spent saying there is no news. Nor may a tab spend the badge on a fact it cannot count — where a source is known to have moved on but no per-item answer exists yet, that is a mark (a glyph), not a number, and the two never show together on one tab.</p>
+<p><strong>A badged tab names itself.</strong> The counter is a named live region — it has to be, the number moves while the reader is elsewhere — and a named child inside a button joins that button's name-from-contents, so the tab announces as &quot;Studio: 3 updates available Studio 10&quot;. Give a badged tab an explicit accessible name: an explicit name wins over name-from-contents, the tab says its piece once, and the counter goes on announcing its own changes.</p>
 <p><strong>A badge on a tab is docked, not overhung.</strong> The <code>badge</code> component's <code>--corner</code> mode hangs the counter outside its trigger; outside a tab is the scroller's clip, which is the same pixel-eating that costs a borderless strip its underline. <code>--badged</code> reserves room and the badge sits inside it — same corner, drawn where it survives, and with no keyline, since it covers the band rather than a glyph.</p>
 <p><strong>An icon-only tab keeps its name, it just stops drawing it.</strong> The label becomes <code>aria-label</code> and the tooltip, so the word is one hover or one focus away and unchanged for assistive tech. Dropping the label without either is a blank button, and it is the only thing this variant can get wrong. It draws no count at all, and no badge either: a number pinned to a 30px glyph covers the mark it is badging as soon as it reaches two digits, and five badged glyphs is a row of alarms. Put the count in the tooltip beside the name (&quot;Log · 3,057 commits&quot;).</p>
 <p><strong>A strip that can outgrow its band scrolls, it does not squeeze.</strong> Wrap it in <code>.ds-tabs-scroller</code>: tabs stay <code>shrink-0</code>, the row scrolls sideways, and the overflowing edges fade. Never a scrollbar — under a 36px band it is a second horizontal line and a third of the row's height. The host routes a plain vertical wheel to <code>scrollLeft</code>, because a horizontal row has no vertical axis to spend that gesture on.</p>

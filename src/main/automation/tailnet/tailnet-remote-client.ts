@@ -215,6 +215,13 @@ export async function requestPairingFromMachine(input: {
   endpoint: TailnetEndpoint
   deviceName: string
   collectHash: string
+  /**
+   * What this machine asks to be allowed to do there. Omitted rather than
+   * defaulted when the caller names nothing: the far end owns that default, and
+   * sending our idea of it would make an older listener and a newer one
+   * disagree about a set neither of us chose.
+   */
+  scopes?: readonly TailnetScope[]
 }): Promise<RemoteCallOutcome<{ requestId: string; comparisonCode: string; expiresAt: string }>> {
   let answer: JsonAnswer
   try {
@@ -222,7 +229,11 @@ export async function requestPairingFromMachine(input: {
       endpoint: input.endpoint,
       method: 'POST',
       path: TAILNET_PAIR_REQUEST_PATH,
-      body: { deviceName: input.deviceName, collectHash: input.collectHash },
+      body: {
+        deviceName: input.deviceName,
+        collectHash: input.collectHash,
+        ...(input.scopes ? { scopes: [...input.scopes] } : {}),
+      },
     })
   } catch (error) {
     return {

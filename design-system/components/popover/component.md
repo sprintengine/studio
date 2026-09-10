@@ -20,6 +20,13 @@ popover is light-dismiss by design and never scrims.
 | Trigger | — | the consumer's own control, carrying `aria-haspopup`, `aria-expanded`, and — only while open — `aria-controls` |
 | Surface | `.ds-popover` | yes — `role="menu"`, `"listbox"`, or `"dialog"`, with a required `aria-label` and a stable `id` |
 | Content | — | host-owned; the shell carries chrome only and no padding of its own |
+| Scope body | `.ds-popover-scope-body` | a named content part — see below |
+| Scope heading | `.ds-popover-scope-heading` | scope body — `font.size.meta` at `font.weight.emphasis` |
+| Scope headline | `.ds-popover-scope-headline` | scope body — the second heading on a line with its inline action |
+| Scope list | `.ds-popover-scope-list` | scope body — mono identifiers at `font.size.meta`, one per line |
+| Scope list (missing) | `.ds-popover-scope-list--missing` | scope body — the ungranted set, one ink step quieter |
+| Scope rule | `.ds-popover-scope-rule` | scope body — the hairline between the two groups |
+| Scope note | `.ds-popover-scope-note` | scope body — one `font.size.micro` consequence line |
 
 The shell decides the border, radius, background, shadow, layer, and entrance.
 It deliberately carries **no padding**: a menu list wants full-bleed rows with
@@ -37,6 +44,63 @@ also mirrors the trigger's width into `--ds-popover-trigger-width` so
 width-coupled surfaces (a select's listbox) can set
 `min-width: var(--ds-popover-trigger-width)` without an inline width clobbering
 their own floor.
+
+### The scope body — a named content part
+
+Content is host-owned everywhere else in this family. This one shape is named
+because it must be **identical in three places**: the Remote settings machine
+row (opened from a quiet link-button reading "6 scopes"), the inbound
+pair-request card, and the mobile companion. A surface whose job is to say what
+another machine may do on this one is the last one that should be drawn three
+times in three orders.
+
+It hosts on the `dialog` role — it holds a heading, a rule and an action, none
+of which belong in a `menu` — and it brings its own inset, which is the
+Anatomy note's rule rather than an exception to it: the shell carries no
+padding, so content padding belongs to the content.
+
+The order is the argument, and it is fixed:
+
+```
+<div class="ds-popover" role="dialog" aria-labelledby="…">
+  <div class="ds-popover-scope-body">
+    <div class="ds-popover-scope-heading" id="…">Granted scopes</div>   ← what is held
+    <ul class="ds-popover-scope-list">…</ul>                            ← mono, one per line
+    <div class="ds-popover-scope-rule"></div>                           ← the hairline
+    <div class="ds-popover-scope-headline">                             ← what is not held…
+      <span class="ds-popover-scope-heading">Not granted</span>
+      …a link-button reading "Grant"…                                   ← …and the one act that changes it
+    </div>
+    <ul class="ds-popover-scope-list ds-popover-scope-list--missing">…</ul>
+    <div class="ds-popover-scope-note">It can't see chats or terminals here.</div>
+  </div>
+</div>
+```
+
+- **Held first.** The reader opened this to find out what is already true; a
+  surface that led with what is missing would read as a prompt to grant rather
+  than as an answer.
+- **The action is inline with its heading, not under the list.** "Grant" acts on
+  the whole ungranted group, and parked at the bottom it reads as belonging to
+  the last row. It is a [link button](../link-button/component.md) — one quiet
+  verb inside a surface that is already an aside — never a filled button: this
+  popover is not a view and has no primary action budget.
+- **The consequence line is the reason the surface exists.** "It can't see chats
+  or terminals here" is what the reader actually came to find out; a bare pair
+  of lists leaves them to derive it from two identifiers they may not know.
+  One line, `micro`, `text.muted`, and only when something is actually
+  missing — a note that is always there is decoration.
+- **Never a danger tint on the missing list.** One ink step, reinforced by a
+  heading that says the same thing in words. A scope the person never granted
+  is a fact, not a fault.
+- **A second group is read-only.** Where the same machine also has an outbound
+  half with a different set, it goes under its own heading ("What you can do
+  there") with no action beside it: this surface acts only on the grant *this*
+  machine controls.
+- **Identifiers stay a column here, not pills.** The wide surface — the pairing
+  code card — sets the same content as [scope pills](../scope-pill/component.md);
+  a popover column is too narrow for a wrapped pill set to read as anything but
+  ragged.
 
 ## Variants
 
@@ -121,6 +185,15 @@ Until the first measurement lands, the surface is kept invisible so the first
 paint never flashes at 0,0.
 
 ## Usage
+
+**A trigger-anchored surface is anchored by the consumer's own control**, not
+by this component: the shell is portaled to `<body>` and positioned from the
+coordinates the consumer writes into `--ds-popover-*`. So a caller "anchors" a
+popover by rendering its own trigger — a link button, a chip, a row's meta-line
+verb — carrying `aria-haspopup`, a live `aria-expanded` and, while open, the
+surface's `aria-controls`, and by handing the shell that trigger's rect. The
+shell's content is arbitrary: any children at all, at whatever role the
+consumer declares. Nothing about the scope body above needs a new shell.
 
 **Light dismiss, exactly three ways.** Escape, a pointer-down outside, or the
 consumer closing it (picking an item, toggling the trigger). No scrim: the page

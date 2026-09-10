@@ -34,6 +34,9 @@
     background: var(--sem-color-bg-surface);
     overflow: hidden;
   }
+  .demo-described {
+    max-width: 520px;
+  }
   .demo-list:focus-visible {
     outline: var(--sem-focus-ring);
     outline-offset: var(--sem-focus-ring-offset);
@@ -262,6 +265,86 @@
               <span class="ds-check-row-dir"></span>
             </div>
   </div>
+  <p class="demo-label demo-label--second">The <code>--described</code> variant: the same box-beside-name row with the name allowed a second line, inside its own list surface. Standalone spelling — the kit checkbox whole, so Space toggles and the row is the label.</p>
+  <ul class="ds-check-row-list demo-described">
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="l-desc-1">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="l-desc-1" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">View workspaces <span class="ds-check-row-scope">workspace:read</span></span>
+            <span class="ds-check-row-supporting">Chats, agents, branches and files.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="l-desc-2">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="l-desc-2" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Operate workspaces <span class="ds-check-row-scope">workspace:operate</span></span>
+            <span class="ds-check-row-supporting">Launch agents and open workspaces.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="l-desc-3">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="l-desc-3" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Watch chats &amp; terminals <span class="ds-check-row-scope">terminal:observe</span></span>
+            <span class="ds-check-row-supporting">Read live conversations and shell output.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="l-desc-4">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="l-desc-4" />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Drive chats &amp; terminals <span class="ds-check-row-scope">terminal:control</span></span>
+            <span class="ds-check-row-supporting">Type into conversations and shells. Arbitrary shell on this machine.</span>
+          </span>
+        </label>
+      </li>
+  </ul>
+
 </div>
 
 <div class="demo-stage" data-mode="dark">
@@ -476,6 +559,86 @@
               <span class="ds-check-row-dir"></span>
             </div>
   </div>
+  <p class="demo-label demo-label--second">The <code>--described</code> variant: the same box-beside-name row with the name allowed a second line, inside its own list surface. Standalone spelling — the kit checkbox whole, so Space toggles and the row is the label.</p>
+  <ul class="ds-check-row-list demo-described">
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="d-desc-1">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="d-desc-1" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">View workspaces <span class="ds-check-row-scope">workspace:read</span></span>
+            <span class="ds-check-row-supporting">Chats, agents, branches and files.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="d-desc-2">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="d-desc-2" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Operate workspaces <span class="ds-check-row-scope">workspace:operate</span></span>
+            <span class="ds-check-row-supporting">Launch agents and open workspaces.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="d-desc-3">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="d-desc-3" checked />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Watch chats &amp; terminals <span class="ds-check-row-scope">terminal:observe</span></span>
+            <span class="ds-check-row-supporting">Read live conversations and shell output.</span>
+          </span>
+        </label>
+      </li>
+      <li>
+        <label class="ds-check-row ds-check-row--described" for="d-desc-4">
+          <span class="ds-check-row-check ds-checkbox-control">
+            <input class="ds-checkbox-input" type="checkbox" id="d-desc-4" />
+            <span class="ds-checkbox-box" aria-hidden="true">
+              <svg class="ds-checkbox-mark ds-checkbox-mark--check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3.5 8.5 L6.5 11.5 L12.5 5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <svg class="ds-checkbox-mark ds-checkbox-mark--dash" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M4 8h8" stroke-linecap="round" />
+              </svg>
+            </span>
+          </span>
+          <span class="ds-check-row-text">
+            <span class="ds-check-row-title">Drive chats &amp; terminals <span class="ds-check-row-scope">terminal:control</span></span>
+            <span class="ds-check-row-supporting">Type into conversations and shells. Arbitrary shell on this machine.</span>
+          </span>
+        </label>
+      </li>
+  </ul>
+
 </div>
 </body>
 </html>

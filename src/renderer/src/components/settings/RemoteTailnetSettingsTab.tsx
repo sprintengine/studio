@@ -2,36 +2,54 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { encodeQrCode } from '../../../../shared/qr-code'
 import {
-  type TailnetDevice,
   type TailnetPairingOfferView,
+  type TailnetPairingState,
   type TailnetRemoteStatus,
   type TailnetScope,
 } from '../../../../shared/tailnet'
+import { mergeMachines, type TailnetMachine } from '../../../../shared/tailnet-machines'
 import type { TailnetPeerScan } from '../../../../shared/tailnet-peers'
-import { FOCUS_RING_CLASS, InlineNotice, Input, LinkButton, OutlineButton, PrimaryButton, StatusDot } from '../ui'
-import { MetaCell, SettingsPageHeader, SettingsSectionTitle, SettingToggle, formatDate } from './SettingsAtoms'
-import { deviceSummary, outstandingPairingNote, pairingExpiry, tailnetReadiness } from './tailnetPanelModel'
-import { PeerPicker } from '../remote/PeerPicker'
+import {
+  GhostButton,
+  InlineNotice,
+  Input,
+  LinkButton,
+  OutlineButton,
+  PrimaryButton,
+  ScopePill,
+  ScopePillSet,
+  SplitButton,
+  StatusDot,
+} from '../ui'
+import { SettingsPageHeader, SettingsSectionTitle, SettingToggle } from './SettingsAtoms'
+import { outstandingPairingNote, pairingExpiry, tailnetReadiness } from './tailnetPanelModel'
+import { MachineList, MachineRow } from '../remote/MachineRow'
+import { PairDeviceModal, type PairDeviceTarget } from '../remote/PairDeviceModal'
+import { STANDARD_SCOPES } from '../remote/scopePickerModel'
 import { PairRequestCard } from '../remote/PairRequestCard'
 import { OutboundPairRequestCard } from '../remote/OutboundPairRequestCard'
 import { useTailnetPresence } from '../workspace/topbar/useTailnetPresence'
 
-// Settings → Remote: tailnet remote control, both directions.
+// Settings → Remote (remote-settings-rebuild): one switch and one list of
+// machines.
 //
-// Downward (who may drive this machine): whether Tailscale is up, where the
-// listener is reachable, the one-time pairing code as a scannable square, and
-// the paired devices with revoke.
+// What this replaced was four sections that were really one question. "This
+// machine" printed a tailnet address, a port and an endpoint nobody types;
+// "Paired devices" listed the machines that may drive this one; "Machines on
+// your tailnet" listed the same machines again from Tailscale's side, behind a
+// Scan button; and a "Pairing" section owned the code. One machine could appear
+// in three of them, with a different name and a different verb in each, and the
+// thing a person actually wanted to know — what may that machine do here — was
+// a bare scope count with no way to see it or change it.
 //
-// Outward (what this machine can drive): the tailnet's other machines, and
-// which of them answer as a Studio — so connecting is picking a name off a
-// list rather than typing an address.
+// So: `mergeMachines` folds the three sources into one row per Tailscale node,
+// the scan runs by itself, and the scope set is the one link on the row. The
+// only remaining chrome is the split button that starts a pairing.
 //
-// Everything here is IPC-only (`tailnet:*`). The matching `tailnet.*` gateway
-// tools let an agent ON THIS MACHINE drive the same service over the local
-// socket, so the two surfaces cannot answer differently — but that family is
-// refused over the tailnet itself, so no paired remote device can pair another
-// device or widen its own reach. That is a decision of the epic, not an
-// accident of this panel.
+// Everything here is IPC-only (`tailnet:*` / `fleet:*`). The matching
+// `tailnet.*` gateway tools let an agent ON THIS MACHINE drive the same
+// service, but that family is refused over the tailnet itself, so no paired
+// remote device can pair another device or widen its own reach.
 
 /** The pairing code's countdown; a code with a minute left should look like it. */
 const EXPIRY_TICK_MS = 1000
@@ -42,10 +60,11 @@ export function RemoteTailnetSettingsTab() {
   const [status, setStatus] = useState<TailnetRemoteStatus | null>(null)
   const [offer, setOffer] = useState<TailnetPairingOfferView | null>(null)
   const [scan, setScan] = useState<TailnetPeerScan | null>(null)
-  const [scanning, setScanning] = useState(false)
-  const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null)
-  // A pairing link carried from a machine nobody is sitting at (the Fleet
-  // panel's fallback, moved here when that panel was retired).
+  const [pairTarget, setPairTarget] = useState<PairDeviceTarget | null>(null)
+  // A pairing link carried from a machine nobody is sitting at (a server, a
+  // headless box). Behind the split button's caret now rather than a footer
+  // disclosure, but the same flow.
+  const [pasteOpen, setPasteOpen] = useState(false)
   const [pairingLink, setPairingLink] = useState('')
   const [action, setAction] = useState<ActionState>({ tone: 'idle', message: '' })
   const [now, setNow] = useState(() => Date.now())
@@ -67,8 +86,7 @@ export function RemoteTailnetSettingsTab() {
 
   // Live updates (remote-sessions-ux): every pushed payload carries fresh
   // status, so a pair request arriving — or being answered from any other
-  // surface — lands here without a refetch. The fetch-on-mount above stays the
-  // initial read; this keeps it true afterwards.
+  // surface — lands here without a refetch.
   useEffect(() => {
     // Tolerant of a host without the push bridge: the tab then stays
     // fetch-on-action, exactly as it was before the channel existed.
@@ -77,7 +95,7 @@ export function RemoteTailnetSettingsTab() {
       if (payload.revision < appliedRevision.current) return
       appliedRevision.current = payload.revision
       setStatus(payload.status)
-      // The local offer holds the one-time CODE (main never re-serves it),
+      // The local offer holds the one-time TOKEN (main never re-serves it),
       // but the pairing's existence is main's fact: cancelled or replaced
       // from any other surface, a dead QR must not stay on screen.
       setOffer((current) =>
@@ -88,16 +106,14 @@ export function RemoteTailnetSettingsTab() {
 
   const outstandingPairing = status?.pairing ?? null
   const pendingRequestCount = status?.pairRequests.length ?? 0
-  // The outward half — machines this Studio drives, requests it has made,
-  // whether each paired machine answers — from the same pushed presence the
-  // Remote glyph reads, so this tab and the popover cannot disagree.
+  // The outward half — machines this Studio drives, requests it has made — from
+  // the same pushed presence the Remote glyph reads, so this tab and the
+  // popover cannot disagree.
   const presence = useTailnetPresence()
   const askingCount = presence.fleetRequests.length
 
-  // Only ticks while a countdown is on screen — an outbound offer, a request
-  // whose Allow must go dead the second it lapses, or one this machine is
-  // waiting on: an idle panel should not wake once a second for a number
-  // nobody is looking at.
+  // Only ticks while a countdown is on screen: an idle panel should not wake
+  // once a second for a number nobody is looking at.
   useEffect(() => {
     if (!offer && !outstandingPairing && pendingRequestCount === 0 && askingCount === 0) return undefined
     setNow(Date.now())
@@ -108,14 +124,52 @@ export function RemoteTailnetSettingsTab() {
   const readiness = tailnetReadiness(status)
   const enabled = status?.enabled ?? false
   const busy = action.tone === 'busy'
-  const devices = status?.devices ?? []
   const pairRequests = status?.pairRequests ?? []
+
+  // The scan is not a button any more. It was one because it shells out to
+  // `tailscale status`, which felt like something to ask for — but the answer
+  // is the LIST, and a list behind a button is a list a person has to be told
+  // to fetch. It runs on mount and again whenever the listener's state moves,
+  // which is the only thing that can change what a peer would answer.
+  useEffect(() => {
+    if (readiness.state === 'loading') return
+    let cancelled = false
+    void window.api
+      .tailnetListPeers()
+      .then((next) => {
+        if (!cancelled) setScan(next)
+      })
+      .catch(() => {
+        // Silent: the merged list still has every paired machine, and a red
+        // band over a tab whose main content is fine would be the loudest
+        // thing on it. A scan that failed shows as machines the tailnet knows
+        // about being absent, which is what actually happened.
+        if (!cancelled) setScan(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [readiness.state])
+
+  const machines = useMemo(
+    () =>
+      mergeMachines({
+        // Only used when the scan produced no self row — Tailscale absent or
+        // down — so the tab still says which machine you are sitting at.
+        self: { name: 'This machine', os: window.api.platform },
+        devices: status?.devices ?? [],
+        connections: presence.fleet,
+        peers: scan?.peers ?? [],
+        now,
+      }),
+    [status?.devices, presence.fleet, scan, now]
+  )
 
   const run = async (message: string, work: () => Promise<void>): Promise<void> => {
     setAction({ tone: 'busy', message })
     try {
       await work()
-      setAction({ tone: 'idle', message: '' })
+      setAction((current) => (current.tone === 'busy' ? { tone: 'idle', message: '' } : current))
     } catch (error) {
       setAction({ tone: 'error', message: describe(error, 'That did not work.') })
     }
@@ -129,13 +183,27 @@ export function RemoteTailnetSettingsTab() {
       if (!next) setOffer(null)
     })
 
-  const offerPairing = (): Promise<void> =>
-    run('Creating a pairing code.', async () => {
-      const next = await window.api.tailnetOfferPairing()
-      setOffer(next)
+  const createPairing = (scopes: TailnetScope[], target: PairDeviceTarget): void => {
+    setPairTarget(null)
+    if (target.kind === 'peer') {
+      // Both ways, always (owner ruling 2026-09-10): the same set is what we
+      // ask for over there and what we grant back here.
+      void run(`Asking ${target.machineName} to pair.`, async () => {
+        const result = await window.api.fleetRequestPairing(target.endpoint, {
+          scopes,
+          reverseScopes: scopes,
+        })
+        if (!result.ok) setAction({ tone: 'error', message: result.message })
+      })
+      return
+    }
+    void run('Creating a pairing code.', async () => {
+      setPasteOpen(false)
+      setOffer(await window.api.tailnetOfferPairing(scopes))
       setNow(Date.now())
       await refresh()
     })
+  }
 
   const cancelPairing = (): Promise<void> =>
     run('Cancelling the pairing code.', async () => {
@@ -143,42 +211,28 @@ export function RemoteTailnetSettingsTab() {
       setOffer(null)
     })
 
-  const revokeDevice = async (device: TailnetDevice): Promise<void> => {
-    setRevokingDeviceId(device.id)
-    try {
-      await run(`Revoking ${device.name}.`, async () => {
-        setStatus(await window.api.tailnetRevokeDevice(device.id))
+  // Revoke ends BOTH halves: the device that machine holds here and the
+  // credential this machine holds there. A row offering one Revoke that left
+  // the other direction live is how a "revoked" machine kept answering.
+  const forgetMachine = (machine: TailnetMachine): Promise<void> =>
+    run(`Revoking ${machine.name}.`, async () => {
+      const result = await window.api.tailnetForgetMachine({
+        deviceId: machine.inbound?.deviceId,
+        connectionId: machine.outbound?.connectionId,
       })
-    } finally {
-      setRevokingDeviceId(null)
-    }
-  }
-
-  const scanPeers = async (): Promise<void> => {
-    setScanning(true)
-    try {
-      await run('Looking for machines on your tailnet.', async () => {
-        setScan(await window.api.tailnetListPeers())
-      })
-    } finally {
-      setScanning(false)
-    }
-  }
-
-  // Connect (pair-from-the-scan-and-stay-paired, phase 1): ask the machine,
-  // and let main own the wait. The waiting card below, and the one in the
-  // Remote popover, show the code the moment the ask is accepted.
-  const connect = (endpoint: string, reverseScopes: TailnetScope[] | null): Promise<void> =>
-    run('Asking that machine to pair.', async () => {
-      const result = await window.api.fleetRequestPairing(endpoint, reverseScopes ? { reverseScopes } : undefined)
-      if (!result.ok) {
-        setAction({ tone: 'error', message: result.message })
-        return
-      }
+      setStatus(result.status)
     })
 
+  const grantStandard = (machine: TailnetMachine): Promise<void> => {
+    const deviceId = machine.inbound?.deviceId
+    if (!deviceId) return Promise.resolve()
+    return run(`Widening what ${machine.name} may do.`, async () => {
+      setStatus(await window.api.tailnetUpdateDeviceScopes(deviceId, [...STANDARD_SCOPES]))
+    })
+  }
+
   // Pair by a carried link: the possession-based path for a machine with
-  // nobody in front of it to approve a request — a server, a headless box.
+  // nobody in front of it to approve a request.
   const pairByLink = (): Promise<void> => {
     const link = pairingLink.trim()
     if (!link) return Promise.resolve()
@@ -189,14 +243,10 @@ export function RemoteTailnetSettingsTab() {
         return
       }
       setPairingLink('')
+      setPasteOpen(false)
       setAction({ tone: 'idle', message: `Paired with ${result.connection.machineName}.` })
     })
   }
-
-  const toggleNotifications = (next: boolean): Promise<void> =>
-    run(next ? 'Turning notifications on.' : 'Turning notifications off.', async () => {
-      setStatus(await window.api.tailnetSetNotifications(next))
-    })
 
   const copy = async (value: string, label: string): Promise<void> => {
     try {
@@ -207,11 +257,13 @@ export function RemoteTailnetSettingsTab() {
     }
   }
 
+  const pairing = offer ?? outstandingPairing
+
   return (
     <div role="tabpanel" id="settings-panel-remote" aria-labelledby="settings-tab-remote" className="space-y-5">
-      {/* The listener's state is the page's fact, on the header band. No
-          `label` on the dot: it sits beside text saying the same thing, which
-          is exactly when the primitive asks to stay decorative. */}
+      {/* The listener's state is the page's only status word. No `label` on
+          the dot: it sits beside text saying the same thing, which is exactly
+          when the primitive asks to stay decorative. */}
       <SettingsPageHeader
         title="Remote"
         meta={
@@ -226,17 +278,15 @@ export function RemoteTailnetSettingsTab() {
         <InlineNotice tone="error">{action.message}</InlineNotice>
       ) : action.message ? (
         // Confirmations ("Pairing link copied.") need somewhere to land, or the
-        // control that produced them looks like it did nothing. aria-live so the
-        // acknowledgement reaches a screen reader too.
+        // control that produced them looks like it did nothing.
         <p aria-live="polite" className="text-body leading-5 text-[color:var(--text-muted)]">
           {action.message}
         </p>
       ) : null}
 
-      <div className="divide-y divide-[color:var(--border-subtle)]">
+      <div>
         <SettingToggle
           label="Remote control over your tailnet"
-          description="Paired devices get the same tools a local agent has."
           enabled={enabled}
           onChange={(next) => void toggleEnabled(next)}
           // Turning it OFF stays available whatever the state; only turning it
@@ -244,59 +294,103 @@ export function RemoteTailnetSettingsTab() {
           disabled={busy || (!enabled && !readiness.canTurnOn)}
           requirement={readiness.canTurnOn ? undefined : 'Needs Tailscale'}
         />
-        <SettingToggle
-          label="Pairing notifications"
-          description="When a machine asks to pair, answers, or revokes."
-          enabled={status?.notifications ?? true}
-          onChange={(next) => void toggleNotifications(next)}
-          disabled={busy || !status}
-        />
       </div>
 
-      <section>
-        <SettingsSectionTitle className="mb-1.5">This machine</SettingsSectionTitle>
-        <div className="grid gap-x-6 gap-y-3 text-body sm:grid-cols-2">
-          <MetaCell
-            label="Tailnet address"
-            value={status?.tailnetAddress ?? 'Not on a tailnet'}
-            tone={status?.tailnetAddress ? undefined : 'muted'}
-          />
-          <MetaCell
-            label="Listening on"
-            value={status?.endpoint ?? 'Not listening'}
-            tone={status?.endpoint ? 'positive' : 'muted'}
-          />
-          <MetaCell label="Port" value={String(status?.port ?? '—')} />
-        </div>
-      </section>
-
-      <section>
-        <SettingsSectionTitle
-          className="mb-1.5"
-          action={
-            <div className="flex items-center gap-2">
-              {offer || outstandingPairing ? (
-                <OutlineButton size="xs" onClick={() => void cancelPairing()} disabled={busy}>
+      <section className="space-y-2">
+        {pairing ? (
+          <>
+            {/* The header swaps rather than a second section appearing: the
+                code IS what the Machines header is doing right now, and Cancel
+                belongs where the action that started it stood. */}
+            <SettingsSectionTitle
+              action={
+                <GhostButton size="xs" onClick={() => void cancelPairing()} disabled={busy}>
                   Cancel
-                </OutlineButton>
-              ) : null}
-              <PrimaryButton size="xs" onClick={() => void offerPairing()} disabled={busy || !readiness.canPair}>
-                {offer || outstandingPairing ? 'New code' : 'Pair a device'}
-              </PrimaryButton>
-            </div>
-          }
-        >
-          Pairing
-        </SettingsSectionTitle>
-        {offer ? (
-          <PairingOffer offer={offer} now={now} onCopy={(value, label) => void copy(value, label)} />
-        ) : outstandingPairing ? (
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            {outstandingPairingNote(outstandingPairing, now)}
-          </p>
+                </GhostButton>
+              }
+            >
+              Pair a device
+            </SettingsSectionTitle>
+            <PairingCodeCard
+              offer={offer}
+              pairing={outstandingPairing}
+              now={now}
+              onCopy={(value, label) => void copy(value, label)}
+            />
+          </>
+        ) : (
+          <SettingsSectionTitle
+            count={machines.length}
+            action={
+              <SplitButton
+                label="Pair a device"
+                primaryAriaLabel="Pair a device"
+                menuAriaLabel="More ways to pair"
+                // One row, and it still earns the caret: "Paste a pairing link"
+                // is another ROUTE to the same pairing, never another target,
+                // so it can never become the primary (split-button, 2026-09-10).
+                menuKind="alternatives"
+                items={[
+                  {
+                    id: 'paste',
+                    label: 'Paste a pairing link',
+                    onSelect: () => setPasteOpen(true),
+                  },
+                ]}
+                onPrimary={() => setPairTarget({ kind: 'code' })}
+              />
+            }
+          >
+            Machines
+          </SettingsSectionTitle>
+        )}
+
+        {pasteOpen && !pairing ? (
+          <div className="flex items-center gap-2">
+            <Input
+              value={pairingLink}
+              onChange={(event) => setPairingLink(event.target.value)}
+              placeholder="multicode-tailnet://pair?…"
+              aria-label="Pairing link"
+              autoFocus
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void pairByLink()
+                if (event.key === 'Escape') setPasteOpen(false)
+              }}
+            />
+            <PrimaryButton size="md" onClick={() => void pairByLink()} disabled={!pairingLink.trim() || busy}>
+              Pair
+            </PrimaryButton>
+          </div>
+        ) : null}
+
+        {machines.length > 0 ? (
+          <MachineList ariaLabel="Machines">
+            {machines.map((machine) => (
+              <MachineRow
+                key={machine.key}
+                machine={machine}
+                now={now}
+                busy={busy}
+                onPair={(target) =>
+                  setPairTarget(
+                    scan
+                      ? {
+                          kind: 'peer',
+                          endpoint: `${peerAddressOf(target, scan)}:${scan.probedPort}`,
+                          machineName: target.name,
+                        }
+                      : { kind: 'code' }
+                  )
+                }
+                onRevoke={(target) => void forgetMachine(target)}
+                onGrant={(target) => void grantStandard(target)}
+              />
+            ))}
+          </MachineList>
         ) : (
           <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            {readiness.canPair ? 'Scan the code from the other machine. It works once.' : 'Start the listener first.'}
+            {scan?.unavailableReason ?? 'No machines yet.'}
           </p>
         )}
       </section>
@@ -327,121 +421,56 @@ export function RemoteTailnetSettingsTab() {
         </section>
       ) : null}
 
-      <section>
-        <SettingsSectionTitle className="mb-1.5" count={devices.length}>
-          Paired devices
-        </SettingsSectionTitle>
-        {devices.length > 0 ? (
-          <div className="divide-y divide-[color:var(--bg-selected)]">
-            {devices.map((device) => (
-              <div
-                key={device.id}
-                className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-body font-medium text-[color:var(--text-strong)]">{device.name}</span>
-                    {device.origin.kind === 'agent' ? (
-                      <span className="shrink-0 rounded-[3px] border border-[color:var(--border-default)] px-1 text-micro text-[color:var(--text-muted)]">
-                        agent-minted
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="mt-0.5 text-meta text-[color:var(--text-muted)]">
-                    {deviceSummary(device, formatDate)}
-                  </div>
-                </div>
-                <OutlineButton
-                  size="xs"
-                  tone="danger"
-                  onClick={() => void revokeDevice(device)}
-                  disabled={revokingDeviceId === device.id}
-                  className="justify-self-start sm:justify-self-end"
-                >
-                  {revokingDeviceId === device.id ? 'Revoking' : 'Revoke'}
-                </OutlineButton>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">No devices paired.</p>
-        )}
-      </section>
-
-      <section>
-        <SettingsSectionTitle className="mb-1.5">Machines on your tailnet</SettingsSectionTitle>
-        <PeerPicker
-          intro="Connect to another Studio."
-          scan={scan}
-          scanning={scanning}
-          connections={presence.fleet}
-          reachability={presence.fleetReachability}
-          devices={status?.devices ?? []}
-          now={now}
-          onScan={() => void scanPeers()}
-          onConnect={(endpoint, reverseScopes) => void connect(endpoint, reverseScopes)}
-          canOfferReverse={readiness.state === 'listening'}
-          busy={busy}
-          waitingOn={presence.fleetRequests[0]?.machineName ?? null}
-        />
-        {/* The carried code stays: a machine with nobody in front of it
-            cannot approve anything, which is the normal case for a server. */}
-        <details className="mt-3 border-t border-[color:var(--border-subtle)] pt-2">
-          <summary className={`cursor-pointer text-meta text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}>
-            Paste a pairing link instead
-          </summary>
-          <div className="mt-2 flex items-center gap-2">
-            <Input
-              value={pairingLink}
-              onChange={(event) => setPairingLink(event.target.value)}
-              placeholder="multicode-tailnet://pair?…"
-              aria-label="Pairing link"
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void pairByLink()
-              }}
-            />
-            <PrimaryButton size="md" onClick={() => void pairByLink()} disabled={!pairingLink.trim() || busy}>
-              Pair
-            </PrimaryButton>
-          </div>
-        </details>
-      </section>
+      <PairDeviceModal
+        open={pairTarget !== null}
+        target={pairTarget ?? { kind: 'code' }}
+        onClose={() => setPairTarget(null)}
+        onCreate={createPairing}
+        busy={busy}
+      />
     </div>
   )
 }
 
+/** The scan row this machine came from, for the endpoint a request would dial. */
+function peerAddressOf(machine: TailnetMachine, scan: TailnetPeerScan): string {
+  const peer = scan.peers.find(
+    (candidate) => candidate.hostName === machine.name || candidate.dnsName === machine.key
+  )
+  return peer?.address ?? machine.name
+}
+
 /**
- * One pairing code, as a square and as text.
+ * One pairing code, as a square and as a link.
  *
  * Both forms carry the same string. The square is for the common case — point
- * the other machine's camera at it — and the text is for every case the camera
- * cannot cover: a headless box, a remote session, a screen reader.
+ * the other machine's camera at it — and the link is for every case a camera
+ * cannot cover: a headless box, a remote session, a screen reader. The pills
+ * are the point of the card: what this code will grant, in the same identifiers
+ * the machine row's popover will show once it is redeemed.
  */
-function PairingOffer({
+function PairingCodeCard({
   offer,
+  pairing,
   now,
   onCopy,
 }: {
-  offer: TailnetPairingOfferView
+  offer: TailnetPairingOfferView | null
+  pairing: TailnetPairingState | null
   now: number
   onCopy: (value: string, label: string) => void
 }) {
-  const url = offer.pairingUrl
+  const url = offer?.pairingUrl ?? null
   const matrix = useMemo(() => (url ? encodeQrCode(url) : null), [url])
+  const scopes = offer?.scopes ?? pairing?.scopes ?? []
+  const expiresAt = offer?.expiresAt ?? pairing?.expiresAt ?? null
 
   return (
-    <div className="mt-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-4 py-3">
-      <div className="flex flex-wrap items-start gap-4">
-        {matrix ? (
-          <QrSquare matrix={matrix} label="Pairing code" />
-        ) : (
-          <p className="text-body leading-5 text-[color:var(--text-muted)]">
-            {/* Explicit rather than a blank space where a square should be. */}
-            {url ? 'Too long to draw. Copy the link instead.' : 'The listener is not running.'}
-          </p>
-        )}
-        <div className="min-w-0 flex-1 space-y-2">
-          {url ? (
+    <div className="flex flex-wrap items-start gap-6 rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-4">
+      {matrix ? <QrSquare matrix={matrix} label="Pairing code" /> : null}
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        {offer ? (
+          url ? (
             // No underline: one drawn under a mono URL collides with its
             // glyphs (design-system/components/link-button → Variants).
             <LinkButton
@@ -452,12 +481,34 @@ function PairingOffer({
             >
               {url}
             </LinkButton>
-          ) : null}
-          <div className="text-meta text-[color:var(--text-muted)]">
-            {pairingExpiry(offer.expiresAt, now)} · works once · grants {offer.scopes.length} scopes
+          ) : (
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">The listener is not running.</p>
+          )
+        ) : (
+          // The token is returned once and never re-readable, so a panel
+          // reopened over a live code knows one exists without knowing what it
+          // says. Saying exactly that is the only honest option.
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">
+            {pairing ? outstandingPairingNote(pairing, now) : null}
+          </p>
+        )}
+        {expiresAt ? (
+          <div className="text-meta text-[color:var(--text-muted)]">{pairingExpiry(expiresAt, now)}</div>
+        ) : null}
+        {scopes.length > 0 ? (
+          <ScopePillSet ariaLabel="Scopes in this code">
+            {scopes.map((scope) => (
+              <ScopePill key={scope} scope={scope} />
+            ))}
+          </ScopePillSet>
+        ) : null}
+        {url ? (
+          <div>
+            <OutlineButton size="sm" onClick={() => onCopy(url, 'Pairing link')}>
+              Copy link
+            </OutlineButton>
           </div>
-          <div className="text-meta text-[color:var(--text-muted)]">{offer.scopes.join(', ')}</div>
-        </div>
+        ) : null}
       </div>
     </div>
   )
@@ -490,7 +541,7 @@ function QrSquare({ matrix, label }: { matrix: { size: number; modules: boolean[
       viewBox={`0 0 ${extent} ${extent}`}
       role="img"
       aria-label={label}
-      className="h-40 w-40 shrink-0 rounded-sm"
+      className="h-32 w-32 shrink-0 rounded-sm"
       shapeRendering="crispEdges"
     >
       <rect width={extent} height={extent} fill="#ffffff" /> {/* design-tokens-allow: QR polarity is functional — a camera reads dark-on-light, so this square must not follow the theme */}

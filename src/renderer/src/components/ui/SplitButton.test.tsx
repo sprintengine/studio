@@ -20,6 +20,7 @@ function group(props: {
   quiet?: boolean
   disabled?: boolean
   items?: React.ComponentProps<typeof SplitButton>['items']
+  menuKind?: React.ComponentProps<typeof SplitButton>['menuKind']
   primaryData?: React.ComponentProps<typeof SplitButton>['primaryData']
 }): Element {
   const host = dom.window.document.createElement('div')
@@ -157,6 +158,41 @@ run('fewer than two targets draw the primary half alone, in the same chrome', ()
   )
   assert.equal(buttons[0].getAttribute('aria-label'), 'Open in VS Code')
   assert.equal(halves(group({ items: [] })).length, 1, 'no targets at all is the same shape')
+})
+
+run('one ALTERNATIVE still earns the caret, where one target does not', () => {
+  // The 2026-09-10 ruling (design-system/components/split-button → Usage). The
+  // floor above is about TARGETS — choosing one re-points the primary, so a list
+  // of one has nothing to choose. An alternative is a different route to the
+  // SAME outcome and can never become the primary, so the count was never what
+  // made the menu worth opening: Settings › Remote's "Pair a device" would
+  // otherwise lose "Paste a pairing link" entirely, or promote it to a second
+  // competing verb on the section header.
+  const one = [{ id: 'paste', label: 'Paste a pairing link', onSelect: () => {} }]
+  const alternatives = group({ items: one, menuKind: 'alternatives' })
+  const buttons = halves(alternatives)
+  assert.equal(buttons.length, 2, 'the caret survives a one-row alternatives menu')
+  assert.ok(
+    alternatives.querySelector('[aria-haspopup="menu"]'),
+    'and it is a real menu button, not a chevron-shaped decoration',
+  )
+
+  assert.equal(
+    halves(group({ items: one })).length,
+    1,
+    'the default is unchanged: one TARGET is still the primary half alone',
+  )
+  assert.equal(
+    halves(group({ items: [], menuKind: 'alternatives' })).length,
+    1,
+    'and an EMPTY menu has no exemption — a chevron over nothing opens to say nothing',
+  )
+
+  assert.equal(
+    alternatives.getAttribute('class')?.trim(),
+    group({}).getAttribute('class')?.trim(),
+    'same group chrome either way — menuKind is a rule about rows, not a restyle',
+  )
 })
 
 run('the primary half carries the host surface’s own marker when it is given one', () => {

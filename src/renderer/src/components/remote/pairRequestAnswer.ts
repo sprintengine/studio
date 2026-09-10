@@ -3,32 +3,28 @@ import React from 'react'
 import type { TailnetScope } from '../../../../shared/tailnet'
 import { showToast } from '../../store/toastStore'
 
-// Answering a pair request, in one place: the scope vocabulary, the code
-// normaliser, and the IPC round trip with its inline-mismatch rule. Two
-// surfaces answer now — the full card (the Remote popover and Settings →
-// Remote) and the toast the request arrives as (owner ruling 2026-09-05) —
-// and neither may drift from the other on what a wrong code does.
+// Answering a pair request, in one place: the code normaliser and the IPC
+// round trip with its inline-mismatch rule. Two surfaces answer — the full card
+// (the Remote popover and Settings → Remote) and the toast the request arrives
+// as (owner ruling 2026-09-05) — and neither may drift from the other on what a
+// wrong code does.
 
-// The scope choices, in the mockup's four combined rows: operate implies read
-// within a family (shared/tailnet's own rule), so one checkbox per family
-// grants the pair, and the terminal tier — arbitrary shell — stays its own
-// named line, never bundled and never pre-ticked.
-export const PAIR_SCOPE_ROWS: Array<{ label: string; scopes: TailnetScope[]; note?: string; defaultOn: boolean }> = [
-  { label: 'Workspaces — read & operate', scopes: ['workspace:read', 'workspace:operate'], defaultOn: true },
-  { label: 'Sprints — read & operate', scopes: ['sprint:read', 'sprint:operate'], defaultOn: true },
-  { label: 'Backlog — read & operate', scopes: ['backlog:read', 'backlog:operate'], defaultOn: true },
-  { label: 'Terminals — control', scopes: ['terminal:observe', 'terminal:control'], note: 'arbitrary shell', defaultOn: false },
-]
-
-/**
- * What an answer given WITHOUT the checkboxes grants — the toast's Allow, and
- * the picker's outbound offer. Terminal control is absent by the same rule
- * that leaves it unticked on the card: arbitrary shell is never granted by a
- * surface that did not show the words.
- */
-export const DEFAULT_PAIR_SCOPES: TailnetScope[] = PAIR_SCOPE_ROWS.filter((row) => row.defaultOn).flatMap(
-  (row) => row.scopes
-)
+// The scope VOCABULARY moved to `scopePickerModel.ts` and the rows to
+// `ScopePicker.tsx` (remote-settings-rebuild). What used to live here was four
+// combined family rows with the terminal tier unticked, plus a
+// `DEFAULT_PAIR_SCOPES` constant for the surfaces that showed no rows at all —
+// the toast's Allow and the peer picker's reverse grant. Both are gone:
+//
+//   * there is no house default any more. An inbound request carries
+//     `requestedScopes`, and every surface that answers one grants exactly
+//     that, so the toast and the card can no longer disagree about what Allow
+//     means.
+//   * an OUTBOUND pairing is chosen in the Pair a device dialog, where all
+//     eight rows are on screen with the words "Arbitrary shell on this
+//     machine" against the last of them (owner ruling 2026-09-10).
+//
+// What remains here is the part both surfaces genuinely share: the typed code
+// and the IPC round trip, with its inline-mismatch rule.
 
 /** Digits only, at most six: "481 972" read off a screen is the same answer as "481972". */
 function normalizeTypedCode(value: string): string {

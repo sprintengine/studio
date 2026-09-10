@@ -70,6 +70,10 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
     return service.fleet().requestPairing({
       endpoint: record?.endpoint,
       deviceName: record?.deviceName,
+      // Both halves of a both-ways pairing carry their own set: `scopes` is
+      // what this machine asks to do THERE, `reverseScopes` what that machine
+      // may do here. Absent leaves each end's own default in force.
+      scopes: record?.scopes,
       reverseScopes: record?.reverseScopes,
     })
   })

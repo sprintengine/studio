@@ -26,6 +26,7 @@ import {
   type FleetPairRequestView,
   type FleetRequestPairingResult,
   type FleetCheckoutRequest,
+  type FleetForgetMachineResult,
   type FleetWorkspaceCheckoutResult,
 } from '../../../shared/tailnet-fleet'
 import { createTailnetFleetStore, type StoredFleetConnection, type TailnetFleetStore } from './tailnet-fleet-store'
@@ -125,6 +126,7 @@ export type TailnetFleetService = {
    * request is answered, lapses, or is cancelled, and every phase is broadcast
    * as a `pair-request` fleet event.
    *
+   * `scopes` is what this machine asks to be allowed to do THERE;
    * `reverseScopes` (phase 6) offers the machine asked a device HERE with those
    * scopes, so approving over there pairs both ways in the one exchange.
    * Refused when this machine's own listener is not running: a grant to a
@@ -133,6 +135,13 @@ export type TailnetFleetService = {
   requestPairing(input: {
     endpoint: unknown
     deviceName?: unknown
+    /**
+     * What to ask that machine to let THIS one do — the outbound half. Sent
+     * with the request so the person answering sees the set that was asked
+     * for; they still decide what is granted. Absent leaves the far end's
+     * default (`TAILNET_STRUCTURED_SCOPES`) in force.
+     */
+    scopes?: unknown
     reverseScopes?: unknown
   }): Promise<FleetRequestPairingResult>
   /**
@@ -151,6 +160,17 @@ export type TailnetFleetService = {
    */
   adoptReverseGrant(input: { grant: TailnetReverseGrant; askerName: string; peerNode: string | null }): FleetConnection | null
   forget(connectionId: unknown): FleetConnection[]
+  /**
+   * End a pairing in both directions (remote-settings-rebuild).
+   *
+   * A person looking at a machine in Settings sees one relationship, not two
+   * credentials; Revoke there must not leave the other half live. Either id may
+   * be absent — a machine that only ever drove this one has no connection here,
+   * and one this machine only ever drove has no device here — and an id that is
+   * already gone is not an error, because "we are not paired any more" is the
+   * state the caller asked for and the state it gets.
+   */
+  forgetMachine(input: { deviceId?: unknown; connectionId?: unknown }): FleetForgetMachineResult
   browse(connectionId: unknown): Promise<FleetBrowse>
   listRuns(
     connectionId: unknown,
@@ -222,6 +242,16 @@ export type TailnetFleetServiceOptions = {
   } | null
   /** Take back a reverse device when the request it was minted for did not complete. */
   revokeReverseDevice?: (deviceId: string) => void
+  /**
+   * Revoke a device on THIS machine's listener, whatever minted it.
+   *
+   * Distinct from `revokeReverseDevice`, which undoes a grant this service
+   * itself just made when a request failed. This is the inbound half of
+   * `forgetMachine`, and it may be a device that arrived by carried code or by
+   * approval — nothing this service ever created. Returns whether a device was
+   * actually there, so the caller can report which halves it ended.
+   */
+  revokeInboundDevice?: (deviceId: string) => boolean
   /** Whether a window is open — the reachability timer only runs while one is. Defaults to always. */
   hasWindow?: () => boolean
   /** Injected in tests, which cannot wait minutes. */
@@ -470,6 +500,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   async function requestPairing(input: {
     endpoint: unknown
     deviceName?: unknown
+    scopes?: unknown
     reverseScopes?: unknown
   }): Promise<FleetRequestPairingResult> {
     const endpoint = parseTailnetEndpoint(typeof input.endpoint === 'string' ? input.endpoint : '')
@@ -533,10 +564,15 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     // The secret stays here; only its hash is sent. Collecting the token later
     // means presenting it, so knowing the request id is not enough to take it.
     const collectSecret = randomBytes(24).toString('base64url')
+    // Undefined, not an empty array, when nothing was asked for: the far end's
+    // default is the one that applies, and an empty list would read as a
+    // request for no access at all.
+    const requestScopes = input.scopes === undefined ? undefined : normalizeTailnetScopes(input.scopes)
     const asked = await requestPairingFromMachine({
       endpoint,
       deviceName: name,
       collectHash: hashSecret(collectSecret),
+      ...(requestScopes && requestScopes.length > 0 ? { scopes: requestScopes } : {}),
     })
     if (!asked.ok) {
       if (reverse) options.revokeReverseDevice?.(reverse.deviceId)
@@ -1439,6 +1475,28 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     }
   }
 
+  /**
+   * Drop this machine's credential for one peer, and everything hanging off it.
+   *
+   * Shared by `forget` and the outbound half of `forgetMachine` so the two can
+   * never diverge on what forgetting entails: the reachability record, the live
+   * panes (which have no credential left to reconnect with), the watch, the
+   * stored token, and the broadcast that tells every window.
+   */
+  function forgetConnection(connectionId: string): { id: string; machineName: string } | null {
+    const forgotten = store.find(connectionId)
+    reachability.delete(connectionId)
+    for (const attachment of [...attachments.values()]) {
+      if (attachment.connectionId === connectionId) finish(attachment, 'This machine was removed from your fleet.')
+    }
+    stopWatch(connectionId)
+    store.forget(connectionId)
+    if (forgotten) broadcast({ kind: 'machine-forgotten', connectionId, machineName: forgotten.machineName })
+    // Never the stored record itself: it carries the device token, and nothing
+    // above this line is allowed to hold one.
+    return forgotten ? { id: forgotten.id, machineName: forgotten.machineName } : null
+  }
+
   return {
     start,
     onWake,
@@ -1455,21 +1513,32 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     collectPairing,
     cancelPairing,
     adoptReverseGrant,
-    forget(connectionId): FleetConnection[] {
-      if (typeof connectionId === 'string') {
-        const forgotten = store.find(connectionId)
-        reachability.delete(connectionId)
-        // Panes attached to a machine we just forgot have no credential left to
-        // reconnect with; end them rather than leaving them retrying forever.
-        for (const attachment of [...attachments.values()]) {
-          if (attachment.connectionId === connectionId) finish(attachment, 'This machine was removed from your fleet.')
-        }
-        stopWatch(connectionId)
-        store.forget(connectionId)
-        if (forgotten) {
-          broadcast({ kind: 'machine-forgotten', connectionId, machineName: forgotten.machineName })
+    forgetMachine(input): FleetForgetMachineResult {
+      const deviceId = typeof input.deviceId === 'string' && input.deviceId ? input.deviceId : null
+      const connectionId = typeof input.connectionId === 'string' && input.connectionId ? input.connectionId : null
+      // Inbound first. The outbound forget below tears down live attachments,
+      // and doing it in this order means a machine cannot slip a request in
+      // through the door we are about to stop watching.
+      let revokedDeviceId: string | null = null
+      if (deviceId) {
+        try {
+          revokedDeviceId = options.revokeInboundDevice?.(deviceId) === true ? deviceId : null
+        } catch (error) {
+          // The outbound half is still worth ending: half a pairing removed is
+          // better than none, and the caller sees which half by the nulls.
+          options.log?.(`Could not revoke device ${deviceId}: ${message(error)}`)
         }
       }
+      const forgotten = connectionId ? forgetConnection(connectionId) : null
+      return {
+        connections: store.list(),
+        revokedDeviceId,
+        forgottenConnectionId: forgotten ? forgotten.id : null,
+      }
+    },
+
+    forget(connectionId): FleetConnection[] {
+      if (typeof connectionId === 'string') forgetConnection(connectionId)
       return store.list()
     },
     browse,

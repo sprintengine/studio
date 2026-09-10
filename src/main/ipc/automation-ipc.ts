@@ -12,9 +12,12 @@ import {
   TAILNET_REVOKE_DEVICE_CHANNEL,
   TAILNET_SET_ENABLED_CHANNEL,
   TAILNET_SET_NOTIFICATIONS_CHANNEL,
+  TAILNET_UPDATE_DEVICE_SCOPES_CHANNEL,
 } from '../../shared/tailnet'
+import { TAILNET_FORGET_MACHINE_CHANNEL } from '../../shared/tailnet-fleet'
 import { TAILNET_LIST_PEERS_CHANNEL } from '../../shared/tailnet-peers'
 import type { AutomationService } from '../automation/automation-service'
+import { asRecord } from '../../shared/records'
 
 // Status only: a window reads whether the gateway is up and may turn it off.
 // The respond half of the old renderer-delegate pair went with the delegate
@@ -55,6 +58,19 @@ export function registerAutomationIpc(ipcMain: IpcMain, service: AutomationServi
   ipcMain.handle(TAILNET_REVOKE_DEVICE_CHANNEL, (_event, deviceId: unknown) =>
     service.revokeTailnetDevice(typeof deviceId === 'string' ? deviceId : '')
   )
+  // Widening an existing pairing is the same authority as granting one, so it
+  // is on this same IPC-only door and nowhere else. `tailnet-scopes.ts` says
+  // why the family has no gateway tool: a device that could widen its own grant
+  // would make revoking the device it came in on meaningless.
+  ipcMain.handle(TAILNET_UPDATE_DEVICE_SCOPES_CHANNEL, (_event, deviceId: unknown, scopes: unknown) =>
+    service.updateTailnetDeviceScopes(typeof deviceId === 'string' ? deviceId : '', scopes)
+  )
+  // Both halves of one pairing, ended together: the device that machine holds
+  // here, and the credential this machine holds there. Either may be absent.
+  ipcMain.handle(TAILNET_FORGET_MACHINE_CHANNEL, (_event, input: unknown) => {
+    const record = asRecord(input)
+    return service.forgetTailnetMachine({ deviceId: record?.deviceId, connectionId: record?.connectionId })
+  })
   // Discovery is a read of the local Tailscale daemon plus a probe of a public
   // health endpoint, so it changes nothing and is safe to call with the
   // listener off. It is still IPC-only for the same reason as the rest: a

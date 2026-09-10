@@ -33,6 +33,12 @@ const agentLaunchArgs: Array<Record<string, unknown>> = []
 type Harness = {
   server: TailnetGatewayServer
   devices: TailnetDeviceStore
+  /**
+   * THIS machine's inbound device store — the mirror of `devices`, which is the
+   * remote's. `forgetMachine` is the only operation that touches both stores at
+   * once, so the test needs both ends of the pairing to be real.
+   */
+  localDevices: TailnetDeviceStore
   port: number
   remoteDir: string
   localDir: string
@@ -76,6 +82,7 @@ async function startHarness(): Promise<Harness> {
   const port = address.port
 
   const events: FleetEvent[] = []
+  const localDevices = createTailnetDeviceStore({ resolveUserDataDir: () => localDir })
   const fleet = createTailnetFleetService({
     resolveUserDataDir: () => localDir,
     resolveDeviceName: () => 'laptop',
@@ -83,6 +90,9 @@ async function startHarness(): Promise<Harness> {
     // the point is that this degrades rather than blocking the pairing.
     resolvePeerName: async () => null,
     onEvent: (event) => events.push(event),
+    // Wired exactly as the app wires it: the inbound half of `forgetMachine`
+    // reaches this machine's own listener store.
+    revokeInboundDevice: (deviceId) => localDevices.revokeDevice(deviceId),
   })
 
   return {
@@ -90,6 +100,7 @@ async function startHarness(): Promise<Harness> {
       return server
     },
     devices,
+    localDevices,
     port,
     remoteDir,
     localDir,
@@ -955,6 +966,71 @@ async function waitUntil(condition: () => boolean, what: string, timeoutMs = 20_
     await delay(10)
   }
 }
+
+test('forgetting a machine ends both halves of the pairing at once', async () => {
+  const harness = await startHarness()
+  try {
+    const connectionId = await harness.pair(['workspace:read'])
+    // The other direction: a device THIS machine granted that one, as a
+    // both-ways pairing or an approved request would have left behind.
+    const inbound = harness.localDevices.mintDevice({
+      name: 'mac-mini',
+      scopes: ['workspace:read'],
+      origin: { kind: 'reverse', by: 'mac-mini.tail1234.ts.net' },
+    })
+    assert.equal(harness.localDevices.listDevices().length, 1)
+    assert.equal(harness.fleet.listConnections().length, 1)
+
+    const result = harness.fleet.forgetMachine({ deviceId: inbound.device.id, connectionId })
+    assert.deepEqual(result.connections, [])
+    assert.equal(result.revokedDeviceId, inbound.device.id)
+    assert.equal(result.forgottenConnectionId, connectionId)
+    // Both stores, not just the report.
+    assert.equal(harness.localDevices.listDevices().length, 0)
+    assert.equal(harness.fleet.listConnections().length, 0)
+    // And every window hears it, exactly as a one-sided forget announces.
+    assert.ok(harness.events.some((event) => event.kind === 'machine-forgotten'))
+  } finally {
+    await harness.close()
+  }
+})
+
+test('forgetting tolerates a machine that is only paired one way', async () => {
+  const harness = await startHarness()
+  try {
+    // Outbound only: this machine drives that one, and was never granted a
+    // device here. Nothing to revoke, and that is not a failure.
+    const connectionId = await harness.pair(['workspace:read'])
+    const outboundOnly = harness.fleet.forgetMachine({ connectionId })
+    assert.equal(outboundOnly.revokedDeviceId, null)
+    assert.equal(outboundOnly.forgottenConnectionId, connectionId)
+    assert.deepEqual(outboundOnly.connections, [])
+
+    // Inbound only: that machine drives this one, and there is no credential
+    // here to forget.
+    const inbound = harness.localDevices.mintDevice({
+      name: 'a-phone',
+      scopes: ['workspace:read'],
+      origin: { kind: 'approval', by: null },
+    })
+    const inboundOnly = harness.fleet.forgetMachine({ deviceId: inbound.device.id })
+    assert.equal(inboundOnly.revokedDeviceId, inbound.device.id)
+    assert.equal(inboundOnly.forgottenConnectionId, null)
+    assert.equal(harness.localDevices.listDevices().length, 0)
+
+    // Neither half left, or ids that were never real: the caller asked for "we
+    // are not paired any more", which is already true, so it is not an error.
+    const nothing = harness.fleet.forgetMachine({ deviceId: 'tnd_gone', connectionId: 'tnc_gone' })
+    assert.deepEqual(nothing, { connections: [], revokedDeviceId: null, forgottenConnectionId: null })
+    assert.deepEqual(harness.fleet.forgetMachine({}), {
+      connections: [],
+      revokedDeviceId: null,
+      forgottenConnectionId: null,
+    })
+  } finally {
+    await harness.close()
+  }
+})
 
 async function runAll(): Promise<void> {
   for (const entry of queued) {

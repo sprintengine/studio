@@ -33,6 +33,11 @@ at one pitch or the list reads as noise.
 | Trailing | `.ds-check-row-trailing` | no — display only: a status letter, a size, a count |
 | Body | `.ds-check-row-body` | no — a `<button>` wrapping glyph/name/directory, for a row outside a composite widget |
 | Depth | `--ds-check-row-depth` | `--tree` only — a unitless level, multiplying one `space.lg` step |
+| List | `.ds-check-row-list` | `--described` only — the surface the rows sit in: `border.subtle`, `radius.shell`, `bg.surface-raised`, hairlines between rows |
+| Text | `.ds-check-row-text` | `--described` only — the two-line stack that replaces the single `-name` |
+| Title | `.ds-check-row-title` | `--described` only — the name, at `font.weight.medium` on `text.primary` |
+| Scope | `.ds-check-row-scope` | `--described`, optional — the mono name of what the row grants, `font.size.micro` on `text.subtle`, beside the title |
+| Supporting | `.ds-check-row-supporting` | `--described` only — ONE line, `font.size.meta` on `text.muted` |
 
 **Five elements at rest, under a recorded amendment.** `principles.md` caps a
 repeated row at four, and this row spends five. The amendment is dated
@@ -116,9 +121,50 @@ The shape that keeps both promises:
 An ungrouped flat list is unchanged: one `role="listbox"`, one tab stop, no
 bands.
 
+## Why a described row is a variant and not a new component
+
+It is **the same row**: box beside name, box as a sibling, box never inside a
+control, name leading and never the part that truncates. Every structural
+claim this page makes still holds. What the variant changes is one thing — the
+name is allowed a second line — and the base row already conceded that ground
+in Usage: `min-height` is "the 24px hit-target floor, not a fixed height: a row
+whose content grows is a row that grew, not a row that broke". A row that grows
+is not a different row.
+
+The temptation is to call it one, because it looks different at a glance: it is
+taller, it wraps, it sits on a bordered surface. But a new component would have
+to re-decide the box (sibling or descendant?), the name's flex behaviour, the
+hover fill, the selection tiers, the disabled treatment and the focus ring —
+and every one of those answers would be this page's, copied. That is exactly
+how five surfaces came to draw five checkboxes. The test the system applies is
+not "does it look different" but **"does anything about the row's structure
+change"**, and here nothing does.
+
+Two things it does NOT get, which is what keeps it a variant rather than a card:
+
+- **One supporting line, never two.** A second line is a card, and the system
+  has `task-card` for that.
+- **No trailing slot, no glyph slot, no tree.** The described row's elements are
+  box, title, scope, supporting — four, which is the repeated-row ceiling
+  `principles.md` sets, with the box as the amendment's fifth *control*. The
+  base row's glyph and trailing slots are unavailable here rather than merely
+  unused: filling them would put six things on a row that already wraps.
+
+**It takes the STANDALONE box spelling**, not the composite one. These rows come
+in eights inside a dialog, not four hundreds inside a listbox: the kit checkbox
+goes in whole, the row is the `<label>` that names it, and the row carries no
+`aria-checked` because the input is the state. Eight tab stops is a keyboard
+walk; four hundred is the reason the composite spelling exists at all.
+
 ## Variants
 
 - **Default** — the flat list row: box, glyph, name, directory, trailing.
+- **`--described`** — the same row with the **name allowed a second line**:
+  a title, an optional mono scope name beside it, and one supporting sentence
+  under both, inside a `.ds-check-row-list` surface whose rows are divided by
+  hairlines. For a short set of consequential choices — the eight tailnet
+  scopes on the pairing dialog — where the name alone does not say what
+  granting it does. See the ruling below.
 - **`--tree`** — adds the chevron slot ahead of the box and a depth indent.
   The indent is a **unitless depth** (`--ds-check-row-depth: 2`) multiplying one
   `space.lg` step, not a pixel value, so a tree cannot drift off the scale one
@@ -140,6 +186,9 @@ bands.
 | Checked | `aria-checked="true"` — the box takes the accent fill and the tick |
 | Mixed | `aria-checked="mixed"` — the accent fill and the dash. Mixed outranks checked |
 | Disabled | `aria-disabled="true"`, `opacity: 0.5`, `not-allowed`. Stays in the walk |
+| Described, rest | `bg.surface-raised` from the list beneath it, `text.primary` title, `text.muted` supporting, `text.subtle` scope |
+| Described, hover | `bg.hover` across the whole row — the row is the label, so anything less would advertise a smaller target than the click has |
+| Described, focus-visible | The row rings inward on the INPUT's `:focus-visible`, not the box's. Space toggles, natively, because the input is real |
 
 Every one of these is [list-row](../list-row/component.md)'s, verbatim and
 deliberately. A second selection idiom on the row beside the rail would be a
@@ -172,6 +221,18 @@ may wear a status tint, because the hue identifies and the tint grades — the
 glyph is the same blue on a modified, added and deleted `.ts` row. Nothing
 else in the row takes a colour, and interaction state paints over both.
 
+**A described row's whole surface is the label.** The `<label>` wraps the box,
+the title, the scope and the supporting line, so the click target is the row
+and the accessible name is everything in it. Half-labelled rows — a label
+around the title only, with the sentence outside it — are how a reader ends up
+told "View workspaces" and never told what it lets in.
+
+**The scope name is the same fact in the system's vocabulary**, said beside the
+title rather than under it. It is smaller and quieter for that reason: the
+title is the sentence a person reads, the mono name is what they would search
+for or quote in an issue. A row whose mono name out-weighed its title would
+have made the title decoration.
+
 **Do not put anything interactive in the trailing slot**, and do not add a
 hover-revealed action. At this density the reveal would be the fifth and sixth
 elements, and the row would move under the pointer.
@@ -195,6 +256,18 @@ elements, and the row would move under the pointer.
   when it *is* selected, because a tree emitting `aria-selected="false"` on
   every node announces itself as selectable even when nothing in it can be
   picked.
+- **A described row is the standalone spelling and is announced by its input.**
+  It is a `<label>` around a real `<input type="checkbox">`: the row is not an
+  `option`, carries no `role` and no `aria-checked`, and needs none — the input
+  is the state and the tab stop, Space toggles it natively, and the label's
+  whole content (title, scope, supporting line) is its accessible name. The
+  list around them is a plain `<ul>`, not a `listbox`: nothing roves, because
+  every row is its own tab stop.
+- **The described row's focus ring is the ROW's.** The input is the tab stop,
+  but the label is the hit target, so ringing the 16px box inside a 44px row
+  would mark the smallest part of what the person is operating. The ring is
+  drawn inward, for the base row's reason — the row is full-bleed against a
+  surface that clips an outset ring.
 - A `treeitem` carries `aria-level`, and `aria-expanded` when it has children.
   A leaf declares neither `aria-expanded` nor a chevron mark, but keeps the
   chevron's slot.

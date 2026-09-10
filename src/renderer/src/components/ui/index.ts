@@ -159,6 +159,25 @@ export { Checkbox } from './Checkbox'
 // rather than hand-rolling at 24px.
 export { CheckRow } from './CheckRow'
 export type { CheckRowCheckedState, CheckRowProps } from './CheckRow'
+// The `--described` variant of the same row (design-system/components/check-row):
+// box + title + optional mono scope name + one supporting line, in a list
+// surface. A separate export rather than a prop because it takes the spec's
+// STANDALONE box spelling — the kit checkbox whole, the row as its `<label>` —
+// and a prop that silently swapped a real input for a drawing is the one
+// difference a caller must not be able to make by accident.
+export { DescribedCheckRow, DescribedCheckRowList } from './CheckRow'
+export type { DescribedCheckRowProps } from './CheckRow'
+// One machine-readable scope name in a pill (design-system/components/scope-pill).
+// Not a Badge and not a MicroChip: those are UI-face labels, and this content is
+// the identifier itself.
+export { ScopePill, ScopePillSet } from './ScopePill'
+export type { ScopePillProps } from './ScopePill'
+// The one implementation of "which device glyph does this machine get?"
+// (design-system/components/glyphs → Device identity). A function, not a switch
+// per call site: the `book` exclusion in the macOS-desktop rule is a trap that
+// gets re-derived backwards.
+export { deviceGlyphFor } from './deviceGlyph'
+export type { DeviceGlyphComponent, DeviceGlyphInput } from './deviceGlyph'
 export { GroupHeader, GroupHeaderAction } from './GroupHeader'
 export type { GroupHeaderProps } from './GroupHeader'
 export { Toolbar, ToolbarButton, ToolbarDivider, ToolbarSpacer } from './Toolbar'
@@ -189,6 +208,7 @@ export {
   COMPOSER_SURFACE_CLASS,
   FOCUS_RING_CLASS,
   FOCUS_RING_INSET_CLASS,
+  FOCUS_RING_WITHIN_CHECKBOX_CLASS,
   FOCUS_RING_WITHIN_INPUT_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
   LIST_CURSOR_MARK_CLASS,

@@ -2302,6 +2302,59 @@ export async function testAnOversizedUploadIsCutOffAndLeavesNothingBehind(): Pro
   }
 }
 
+/**
+ * Widening a pairing from this keyboard (remote-settings-rebuild).
+ *
+ * The one direction the store never had: scopes could be granted at pairing and
+ * refreshed from the far end, but never widened here, so a device paired before
+ * the terminal tier existed could only be revoked and paired again. The widen
+ * must reach disk — a grant that does not survive a restart silently narrows
+ * itself — and an id the store does not hold must be an error rather than a
+ * quiet no-op, because a surface acting on a row that is gone has to know.
+ */
+async function testWideningADevicesScopesPersistsAndAnUnknownIdThrows(): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-scopes-'))
+  try {
+    const store = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
+    const minted = store.mintDevice({
+      name: 'mac-mini',
+      scopes: [...TAILNET_STRUCTURED_SCOPES],
+      origin: { kind: 'code', by: null },
+    })
+    assert.deepEqual(minted.device.scopes, [...TAILNET_STRUCTURED_SCOPES])
+    assert.equal(minted.device.scopes.includes('terminal:control'), false)
+
+    const widened = store.updateDeviceScopes(minted.device.id, [...TAILNET_SCOPES])
+    assert.deepEqual(widened.scopes, [...TAILNET_SCOPES])
+    assert.equal(widened.scopes.length, 8)
+    assert.deepEqual(store.listDevices()[0]?.scopes, [...TAILNET_SCOPES])
+
+    // A second store over the same directory is what the next launch sees.
+    const reloaded = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
+    assert.deepEqual(reloaded.listDevices()[0]?.scopes, [...TAILNET_SCOPES])
+
+    // It replaces rather than merges, so the same call takes access away — and
+    // normalises, so a duplicate or a scope outside the vocabulary is dropped
+    // rather than stored.
+    const narrowed = reloaded.updateDeviceScopes(minted.device.id, [
+      'workspace:read',
+      'workspace:read',
+      'not:a:scope',
+    ])
+    assert.deepEqual(narrowed.scopes, ['workspace:read'])
+    assert.deepEqual(
+      createTailnetDeviceStore({ resolveUserDataDir: () => dir }).listDevices()[0]?.scopes,
+      ['workspace:read']
+    )
+
+    assert.throws(() => reloaded.updateDeviceScopes('tnd_never_existed', [...TAILNET_SCOPES]), /tnd_never_existed/)
+    // And the throw changed nothing.
+    assert.equal(reloaded.listDevices().length, 1)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 const tests = [
   testBindAddressAllowsOnlyTailnetOrLoopback,
   testDisabledMeansNoListeningTcpSocket,
@@ -2337,6 +2390,7 @@ const tests = [
   testAnOversizedUploadIsCutOffAndLeavesNothingBehind,
   testARemoteClientOpensATerminalHereAttachesAndDrivesIt,
   testEndpointAndPairingUrlFormatting,
+  testWideningADevicesScopesPersistsAndAnUnknownIdThrows,
   testTheBridgePairsThenDrivesTheGatewayFromAnotherMachine,
   testTheBridgeFailsCleanlyWhenTheDeviceIsRevoked,
   testTheBridgeRefusesIncompleteOrConflictingRemoteInvocations,

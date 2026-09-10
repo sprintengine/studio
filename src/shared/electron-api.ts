@@ -114,6 +114,7 @@ import type {
   FleetPairResult,
   FleetTerminalEvent,
   FleetRequestPairingResult,
+  TailnetForgetMachineResult,
 } from './tailnet-fleet'
 import type {
   AutomationsBuiltinInstallInput,
@@ -3523,6 +3524,24 @@ export type ElectronApi = {
   tailnetCancelPairing: () => Promise<TailnetRemoteStatus>
   tailnetRevokeDevice: (deviceId: string) => Promise<TailnetRemoteStatus>
   /**
+   * Replace a paired device's scopes from this machine (remote-settings-rebuild).
+   *
+   * The set REPLACES what the device had, so this narrows as readily as it
+   * widens. Rejects when no device holds that id: a row acting on something
+   * that is no longer there must hear about it rather than report success.
+   */
+  tailnetUpdateDeviceScopes: (deviceId: string, scopes: TailnetScope[]) => Promise<TailnetRemoteStatus>
+  /**
+   * End a pairing in BOTH directions: revoke the device that machine holds
+   * here, and forget the credential this machine holds there. Either id may be
+   * omitted, and an id that is already gone is not an error — the result says
+   * which halves were actually ended.
+   */
+  tailnetForgetMachine: (input: {
+    deviceId?: string
+    connectionId?: string
+  }) => Promise<TailnetForgetMachineResult>
+  /**
    * Answer a pairing request from another machine (MC-2233). The scopes are the
    * ones chosen here, and this is the only surface that can grant the terminal
    * tier to a person rather than to an agent on the local socket.
@@ -3571,7 +3590,12 @@ export type ElectronApi = {
    */
   fleetRequestPairing: (
     endpoint: string,
-    options?: { reverseScopes?: TailnetScope[] }
+    options?: {
+      /** What to ask that machine to let THIS one do. The far end's default applies when omitted. */
+      scopes?: TailnetScope[]
+      /** What that machine may do HERE, granted in the same exchange. Omitted asks one way only. */
+      reverseScopes?: TailnetScope[]
+    }
   ) => Promise<FleetRequestPairingResult>
   fleetCancelPairing: (requestId: string) => Promise<void>
   /** Re-check whether one paired machine (or every one, with no id) answers right now (phase 4). */

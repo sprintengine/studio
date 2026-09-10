@@ -2,8 +2,6 @@ import assert from 'node:assert/strict'
 
 import type { TailnetRemoteStatus } from '../../../../shared/tailnet'
 import {
-  deviceOriginText,
-  deviceSummary,
   outstandingPairingNote,
   pairingExpiry,
   pairRequestAnswerable,
@@ -116,6 +114,10 @@ check('a code the panel cannot re-show is still admitted to, not hidden', () => 
   // but the offer is still live in the main process. Hiding it would leave a
   // credential nobody can cancel; pretending none exists would put a fresh
   // "Pair a device" over a code someone is carrying to the other machine.
+  //
+  // ONE clause now (remote-settings-rebuild): the card it sits in draws the
+  // expiry and the granted scopes as pills, so the note only has to say that a
+  // code exists and what to do about it.
   const now = Date.parse('2026-08-07T12:00:00Z')
   const note = outstandingPairingNote(
     { scopes: ['sprint:read', 'sprint:operate'], expiresAt: '2026-08-07T12:07:00Z' },
@@ -123,49 +125,7 @@ check('a code the panel cannot re-show is still admitted to, not hidden', () => 
   )
   assert.match(note, /already active/u)
   assert.match(note, /expires in 7 min/u)
-  assert.match(note, /2 scopes/u)
-  assert.match(note, /only be shown once/u)
-})
-
-check('a device that has never connected says so rather than showing a blank', () => {
-  const format = (value: string): string => `[${value}]`
-  assert.equal(
-    deviceSummary(
-      {
-        id: 'd1',
-        name: 'Laptop',
-        scopes: ['sprint:read'],
-        createdAt: 'x',
-        lastSeenAt: null,
-        lastPeerNode: null,
-        origin: { kind: 'code', by: null },
-      },
-      format
-    ),
-    'Paired by code · 1 scopes · Never connected'
-  )
-  assert.equal(
-    deviceSummary(
-      {
-        id: 'd2',
-        name: 'Laptop',
-        scopes: ['sprint:read', 'sprint:operate'],
-        createdAt: 'x',
-        lastSeenAt: '2026-08-07T10:00:00Z',
-        lastPeerNode: 'laptop.tail1234.ts.net',
-        origin: { kind: 'approval', by: 'laptop.tail1234.ts.net' },
-      },
-      format
-    ),
-    'Paired by approval from laptop.tail1234.ts.net · 2 scopes · Last seen [2026-08-07T10:00:00Z] from laptop.tail1234.ts.net'
-  )
-})
-
-check('a device says where it came from, so a test grant an agent left behind is recognisable as one', () => {
-  assert.equal(deviceOriginText({ origin: { kind: 'agent', by: 'agent-claude-code-qaOXA0' } }), 'Created by an agent (agent-claude-code-qaOXA0)')
-  assert.equal(deviceOriginText({ origin: { kind: 'agent', by: null } }), 'Created by an agent')
-  assert.equal(deviceOriginText({ origin: { kind: 'reverse', by: 'Mac mini' } }), 'Granted when this device asked to drive Mac mini')
-  assert.equal(deviceOriginText({ origin: { kind: 'unknown', by: null } }), 'Paired before origins were kept')
+  assert.ok(!/scopes/u.test(note), 'the pills carry the scopes; the note does not repeat them')
 })
 
 check('a waiting request names who is asking, and says when it cannot vouch for the name', () => {

@@ -6,6 +6,7 @@ import { hashSecret } from '../../mobile/bridge/crypto'
 import {
   normalizeTailnetScopes,
   PAIR_REQUEST_CODE_ATTEMPTS,
+  TAILNET_STRUCTURED_SCOPES,
   type TailnetDevice,
   type TailnetDeviceOrigin,
   type TailnetPairingState,
@@ -156,6 +157,18 @@ export type TailnetDeviceStore = {
   /** The device this bearer token belongs to, or null. Reads live state, so a revoke lands on the next call. */
   authenticate(bearerToken: string | null | undefined): TailnetDevice | null
   revokeDevice(deviceId: string): boolean
+  /**
+   * Replace one device's scope set from THIS keyboard, and persist it.
+   *
+   * The only path that widens an existing pairing locally. Every other write to
+   * a device's scopes is a refresh of what the far end says it granted us
+   * (`tailnet-fleet-store.updateScopes`), which can only ever narrow what we
+   * believe; this is the person here deciding a machine they already trust may
+   * do more. It replaces rather than merges, so the same call takes a scope
+   * away, and it throws on an id it does not hold rather than silently doing
+   * nothing — a widen that lands on no device must not report success.
+   */
+  updateDeviceScopes(deviceId: string, scopes: unknown): TailnetDevice
   /** Fires with the revoked device id so live streams for it can be closed. */
   onDeviceRevoked(listener: (deviceId: string) => void): () => void
   recordSeen(deviceId: string, peerNode: string | null): void
@@ -172,6 +185,13 @@ export type TailnetDeviceStore = {
     peerAddress: string
     /** SHA-256 of the secret the asker must present to collect. */
     collectHash: unknown
+    /**
+     * What the asker asked to be allowed to do, so the surface answering can
+     * open on that rather than a house default. Anything outside the
+     * vocabulary is dropped; naming nothing records the structured set, which
+     * is what every path defaulted to before askers could ask.
+     */
+    requestedScopes?: unknown
   }): TailnetPairRequestResult
   /** Requests still awaiting an answer here. Never includes answered ones. */
   listPairRequests(): TailnetPairRequest[]
@@ -375,6 +395,20 @@ export function createTailnetDeviceStore(options: {
       return true
     },
 
+    updateDeviceScopes(deviceId, scopes): TailnetDevice {
+      const device = devices.find((candidate) => candidate.id === deviceId)
+      if (!device) throw new Error(`No paired device with id ${deviceId}.`)
+      // Normalised, so a caller cannot store a scope outside the vocabulary or
+      // the same grant twice, and a widened device compares equal to a freshly
+      // minted one holding the same set.
+      device.scopes = normalizeTailnetScopes(scopes)
+      // Unlike last-seen, this is authorization: a widen that does not survive
+      // a restart would silently narrow again, so the write must reach the
+      // caller if it fails.
+      persist()
+      return publicDevice(device)
+    },
+
     onDeviceRevoked(listener): () => void {
       revokeListeners.add(listener)
       return () => revokeListeners.delete(listener)
@@ -450,6 +484,7 @@ export function createTailnetDeviceStore(options: {
         comparisonCode: nextComparisonCode(),
         createdAt: new Date(nowMs).toISOString(),
         expiresAt: new Date(nowMs + pairRequestTtlMs).toISOString(),
+        requestedScopes: readRequestedScopes(input.requestedScopes),
       }
       pairRequests.set(request.id, { request, collectHash, state: { kind: 'pending' }, codeAttempts: 0 })
       return { ok: true, request }
@@ -597,6 +632,20 @@ export function createTailnetDeviceStore(options: {
       }
     },
   }
+}
+
+/**
+ * What an asker asked for, or the structured set when it asked for nothing.
+ *
+ * The default is the server's, not the client's: an older build sends no
+ * scopes at all, and a request that arrived asking for nothing must read as the
+ * same request it would have been before this field existed rather than as one
+ * asking for no access at all.
+ */
+function readRequestedScopes(value: unknown): TailnetScope[] {
+  if (value === undefined || value === null) return [...TAILNET_STRUCTURED_SCOPES]
+  const named = normalizeTailnetScopes(value)
+  return named.length > 0 ? named : [...TAILNET_STRUCTURED_SCOPES]
 }
 
 function publicDevice(device: StoredDevice | TailnetDevice): TailnetDevice {

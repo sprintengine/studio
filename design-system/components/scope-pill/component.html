@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scope pill</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-label--second {
+    margin-top: var(--sem-space-xl);
+  }
+  .demo-card {
+    max-width: 460px;
+    padding: var(--sem-space-xl);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-shell);
+    background: var(--sem-color-bg-surface-raised);
+  }
+  .demo-heading {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-heading--second {
+    margin-top: var(--sem-space-lg);
+    color: var(--sem-color-text-muted);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — the granted set, wrapping as a group of objects rather than as a sentence.</p>
+  <div class="demo-card">
+    <p class="demo-heading" id="l-granted">Granted scopes</p>
+    <ul class="ds-scope-pill-set" aria-labelledby="l-granted">
+      <li class="ds-scope-pill">workspace:read</li>
+      <li class="ds-scope-pill">workspace:operate</li>
+      <li class="ds-scope-pill">sprint:read</li>
+      <li class="ds-scope-pill">sprint:operate</li>
+      <li class="ds-scope-pill">backlog:read</li>
+      <li class="ds-scope-pill">backlog:operate</li>
+    </ul>
+    <p class="demo-heading demo-heading--second" id="l-missing">Not granted</p>
+    <ul class="ds-scope-pill-set" aria-labelledby="l-missing">
+      <li class="ds-scope-pill ds-scope-pill--missing">terminal:observe</li>
+      <li class="ds-scope-pill ds-scope-pill--missing">terminal:control</li>
+    </ul>
+  </div>
+  <p class="demo-label demo-label--second">A single pill inline, at rest. There is no other state.</p>
+  <span class="ds-scope-pill">terminal:control</span>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same pills from the same tokens.</p>
+  <div class="demo-card">
+    <p class="demo-heading" id="d-granted">Granted scopes</p>
+    <ul class="ds-scope-pill-set" aria-labelledby="d-granted">
+      <li class="ds-scope-pill">workspace:read</li>
+      <li class="ds-scope-pill">workspace:operate</li>
+      <li class="ds-scope-pill">sprint:read</li>
+      <li class="ds-scope-pill">sprint:operate</li>
+      <li class="ds-scope-pill">backlog:read</li>
+      <li class="ds-scope-pill">backlog:operate</li>
+    </ul>
+    <p class="demo-heading demo-heading--second" id="d-missing">Not granted</p>
+    <ul class="ds-scope-pill-set" aria-labelledby="d-missing">
+      <li class="ds-scope-pill ds-scope-pill--missing">terminal:observe</li>
+      <li class="ds-scope-pill ds-scope-pill--missing">terminal:control</li>
+    </ul>
+  </div>
+  <p class="demo-label demo-label--second">A single pill inline, at rest. There is no other state.</p>
+  <span class="ds-scope-pill">terminal:control</span>
+</div>
+</body>
+</html>

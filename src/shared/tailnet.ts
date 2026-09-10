@@ -129,6 +129,14 @@ export const TAILNET_SET_ENABLED_CHANNEL = 'tailnet:set-enabled'
 export const TAILNET_OFFER_PAIRING_CHANNEL = 'tailnet:offer-pairing'
 export const TAILNET_CANCEL_PAIRING_CHANNEL = 'tailnet:cancel-pairing'
 export const TAILNET_REVOKE_DEVICE_CHANNEL = 'tailnet:revoke-device'
+/**
+ * Replace a paired device's scopes from this machine (remote-settings-rebuild).
+ *
+ * IPC-only, exactly like the rest of this family and for the same reason
+ * `tailnet-scopes.ts` gives: a device that could widen its own grant would make
+ * revoking the device it came in on meaningless. Only this keyboard may.
+ */
+export const TAILNET_UPDATE_DEVICE_SCOPES_CHANNEL = 'tailnet:update-device-scopes'
 
 /** What `offer-pairing` returns: the one-time code, shown once and never re-readable. */
 export type TailnetPairingOfferView = {
@@ -173,6 +181,26 @@ export type TailnetPairRequest = {
   comparisonCode: string
   createdAt: string
   expiresAt: string
+  /**
+   * The scopes the asking machine asked for.
+   *
+   * A request, never a grant: what is actually granted is whatever the person
+   * here approves, and the approving surface may tick any subset or superset of
+   * this. It exists so that surface can open pre-ticked to what was asked for
+   * rather than to a house default the asker never wanted — the difference
+   * between answering the question that was put and answering a different one.
+   *
+   * An asker that names nothing (an older build, or a client that does not
+   * care) is recorded as `TAILNET_STRUCTURED_SCOPES`, the same set every
+   * pairing path defaulted to before this field existed.
+   *
+   * Optional in the TYPE, always present at runtime: this machine's store fills
+   * it on every request it accepts. It is optional because a status payload
+   * from a main process older than this field would not carry one, and a
+   * consumer must read it as `request.requestedScopes ?? TAILNET_STRUCTURED_SCOPES`
+   * rather than as an empty grant.
+   */
+  requestedScopes?: TailnetScope[]
 }
 
 /** What a requesting client learns when it polls its own request. */

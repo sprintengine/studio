@@ -45,10 +45,13 @@ export const fleetApi = {
     ipcRenderer.invoke(FLEET_PAIR_CHANNEL, { pairingUrl }) as Promise<FleetPairResult>,
   fleetRequestPairing: (
     endpoint: string,
-    options?: { reverseScopes?: TailnetScope[] }
+    options?: { scopes?: TailnetScope[]; reverseScopes?: TailnetScope[] }
   ): Promise<FleetRequestPairingResult> =>
     ipcRenderer.invoke(FLEET_REQUEST_PAIRING_CHANNEL, {
       endpoint,
+      // Omitted rather than sent empty when the caller names nothing, so each
+      // end's own default stays in force.
+      ...(options?.scopes ? { scopes: options.scopes } : {}),
       ...(options?.reverseScopes ? { reverseScopes: options.reverseScopes } : {}),
     }) as Promise<FleetRequestPairingResult>,
   fleetCheckReachability: (connectionId?: string): Promise<FleetLiveState> =>

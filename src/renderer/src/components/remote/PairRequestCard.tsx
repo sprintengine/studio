@@ -1,9 +1,15 @@
 import React from 'react'
 
-import { PAIR_REQUEST_CODE_ATTEMPTS, type TailnetPairRequest } from '../../../../shared/tailnet'
-import { Checkbox, Input, OutlineButton, PrimaryButton, StatusDot } from '../ui'
+import {
+  PAIR_REQUEST_CODE_ATTEMPTS,
+  TAILNET_STRUCTURED_SCOPES,
+  type TailnetPairRequest,
+  type TailnetScope,
+} from '../../../../shared/tailnet'
+import { Input, OutlineButton, PrimaryButton, StatusDot } from '../ui'
 import { pairRequestAnswerable } from '../settings/tailnetPanelModel'
-import { PAIR_SCOPE_ROWS, usePairRequestAnswer } from './pairRequestAnswer'
+import { ScopePicker } from './ScopePicker'
+import { usePairRequestAnswer } from './pairRequestAnswer'
 
 // The ACTING surface for a request from another machine, shared by the
 // Remote popover and Settings → Remote (pair-from-the-scan-and-stay-paired,
@@ -16,9 +22,13 @@ import { PAIR_SCOPE_ROWS, usePairRequestAnswer } from './pairRequestAnswer'
 // reaches every surface over the push channel, so no double-approve is
 // possible.
 //
-// This is the surface that CHOOSES SCOPES. The toast the request arrives as
-// answers with the defaults alone (`DEFAULT_PAIR_SCOPES`); anyone who wants
-// to hand over terminal control comes here.
+// This is the surface that CHOOSES SCOPES, and it opens pre-ticked to what the
+// asking machine ASKED FOR (`requestedScopes`) rather than to a house default
+// the asker never wanted — the difference between answering the question that
+// was put and answering a different one. The rows are the same `ScopePicker`
+// the Pair a device dialog uses, so one set of words decides what a scope means
+// in both directions. The toast the request arrives as grants exactly the
+// requested set; anyone who wants to change it comes here.
 
 export function PairRequestCard({
   request,
@@ -30,16 +40,23 @@ export function PairRequestCard({
   now: number
   variant?: 'card' | 'flush'
 }) {
-  const [granted, setGranted] = React.useState<ReadonlySet<string>>(
-    () => new Set(PAIR_SCOPE_ROWS.filter((row) => row.defaultOn).map((row) => row.label))
+  // A request from a build older than `requestedScopes` carries none, and reads
+  // as the structured set — what every pairing path defaulted to before the
+  // field existed.
+  const requested = React.useMemo<TailnetScope[]>(
+    () => [...(request.requestedScopes ?? TAILNET_STRUCTURED_SCOPES)],
+    [request.requestedScopes]
   )
+  const [scopes, setScopes] = React.useState<TailnetScope[]>(requested)
+  // A request replaced under the cursor (answered elsewhere, re-asked) must not
+  // leave the previous asker's ticks on screen.
+  React.useEffect(() => setScopes(requested), [requested])
   const { code, setCode, codeError, busy, answer } = usePairRequestAnswer(request.id)
   const inputId = React.useId()
   const helpId = `${inputId}-help`
   const msLeft = Math.max(0, Date.parse(request.expiresAt) - now)
   const minutes = Math.floor(msLeft / 60_000)
   const seconds = Math.floor((msLeft % 60_000) / 1000)
-  const scopes = PAIR_SCOPE_ROWS.filter((row) => granted.has(row.label)).flatMap((row) => row.scopes)
   // Settings' own rule: a lapsed request stays on screen until the channel
   // clears it, with its buttons dead and the reason stated — not failing.
   const answerable = pairRequestAnswerable(request, now)
@@ -95,32 +112,13 @@ export function PairRequestCard({
             ?? `Allow enables at six digits. ${PAIR_REQUEST_CODE_ATTEMPTS} wrong codes decline the request.`}
         </p>
       </div>
-      <div className="flex flex-col gap-1 pb-2">
-        {PAIR_SCOPE_ROWS.map((row) => (
-          // The kit checkbox, not a browser `accent-color` one: same row shape
-          // (the primitive's own label is `flex items-center gap-2` at `meta`),
-          // and the box now carries the shared focus ring every other control
-          // in this card already has.
-          <Checkbox
-            key={row.label}
-            checked={granted.has(row.label)}
-            disabled={disabled}
-            onChange={(checked) => {
-              setGranted((current) => {
-                const next = new Set(current)
-                if (checked) next.add(row.label)
-                else next.delete(row.label)
-                return next
-              })
-            }}
-            label={
-              <>
-                {row.label}
-                {row.note ? <span className="text-[color:var(--text-subtle)]">({row.note})</span> : null}
-              </>
-            }
-          />
-        ))}
+      <div className="pb-2">
+        <ScopePicker
+          value={scopes}
+          onChange={setScopes}
+          disabled={disabled}
+          idPrefix={`pair-request-${request.id}`}
+        />
       </div>
       <div className="flex items-center gap-2">
         <span className="font-mono text-micro tabular-nums text-[color:var(--tone-warn)]">

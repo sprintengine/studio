@@ -94,6 +94,69 @@ export function RemoteMachineGlyph({ className }: IconProps) {
   )
 }
 
+// ── Device identity ───────────────────────────────────────────────────────
+//
+// Spec: design-system/components/glyphs/component.md → "Device identity".
+//
+// What KIND of machine a tailnet row is about. `RemoteMachineGlyph` above says
+// "elsewhere"; these four say "elsewhere, and it is a Mac mini / a monitor / a
+// laptop / a phone" — which is what the rebuilt Settings › Remote needs, because
+// its list is one row per machine and merges this device, paired devices,
+// outbound connections and the peer scan into a single set.
+//
+// Drawn to RemoteMachineGlyph's discipline on purpose, since that mark is this
+// family's fallback and the five have to read as one set: 16-grid, stroke 1.4,
+// `fill="none"` line work in currentColor, rounded rects at rx 1.3-1.8, and a
+// filled 0.75r dot where a unit needs a light. The Mac's dot sits at the same cx
+// as the server mark's two, so the two boxes are visibly the same drawing at
+// different counts. Framework-neutral copies live at
+// design-system/glyphs/device-{mac,desktop,laptop,phone}.svg.
+//
+// Never pick one of these by hand at a call site — `deviceGlyphFor` in
+// `ui/deviceGlyph` owns the rule, and the reason is in its own comment.
+
+// The flat wide box with one small dot: a Mac mini seen head-on, which is
+// remote-machine's single unit at the same width, corner and light.
+export function DeviceMacGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="2" y="5.2" width="12" height="5.6" rx="1.6" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="4.7" cy="8" r="0.75" fill="currentColor" />
+    </svg>
+  )
+}
+
+// A monitor on a stand: screen, a short neck, a foot.
+export function DeviceDesktopGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="2" y="2.6" width="12" height="8.4" rx="1.4" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 11v2.4M5.4 13.4h5.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// An open lid over a base line. The GAP between them is the hinge, and it is
+// what separates this from the monitor at 16px.
+export function DeviceLaptopGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="3" y="2.8" width="10" height="7.4" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M1.8 12.2h12.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+// A tall rounded rect with a short bottom mark.
+export function DevicePhoneGlyph({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
+      <rect x="4.7" y="1.7" width="6.6" height="12.6" rx="1.8" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M6.9 12.1h2.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 // The permission-preset vocabulary (remote-sessions-ux / selector-menus-premium),
 // a set that reads at a glance and is drawn ONCE: a quiet dial
 // for the CLI's own default, a closed lock for Manual, a spark for Auto, an

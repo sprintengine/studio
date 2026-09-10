@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
+import { TAILNET_STRUCTURED_SCOPES } from '../../shared/tailnet'
 import type { FleetEvent } from '../../shared/tailnet-fleet'
 import { createTailnetDeviceStore, type TailnetDeviceStore } from './tailnet/tailnet-devices'
 import { createTailnetFleetService, type TailnetFleetService } from './tailnet/tailnet-fleet-service'
@@ -210,6 +211,50 @@ check('the interval keeps checking while a window is open, and one probe per mac
   } finally {
     await laptop.close()
     await mini.close()
+  }
+})
+
+check('the scopes an asker asks for reach the machine being asked, and nothing named is the structured set', async () => {
+  const laptop = await startMachine('laptop')
+  const mini = await startMachine('mini')
+  try {
+    // Both halves of a both-ways pairing, each with its own set: `scopes` is
+    // what the laptop asks to do on the mini, `reverseScopes` what the mini may
+    // do on the laptop. They are deliberately different here — one field
+    // standing in for both is the bug this closes.
+    const asked = await laptop.fleet.requestPairing({
+      endpoint: `127.0.0.1:${mini.port}`,
+      scopes: ['workspace:read', 'terminal:observe', 'terminal:control'],
+      reverseScopes: ['workspace:read'],
+    })
+    assert.ok(asked.ok, asked.ok ? '' : asked.message)
+    const pending = mini.devices.listPairRequests()
+    assert.equal(pending.length, 1)
+    // Normalised into vocabulary order, so the answering card can compare it to
+    // a preset without caring what order the asker listed them in.
+    assert.deepEqual(pending[0].requestedScopes, ['workspace:read', 'terminal:observe', 'terminal:control'])
+    // A request is not a grant: nothing has been given yet.
+    assert.equal(mini.devices.listDevices().length, 0)
+    laptop.fleet.cancelPairing(asked.request.requestId)
+  } finally {
+    await laptop.close()
+    await mini.close()
+  }
+
+  const laptop2 = await startMachine('laptop2')
+  const mini2 = await startMachine('mini2')
+  try {
+    // An asker that names nothing — an older build, or a client with no opinion
+    // — is recorded as the set every pairing path defaulted to before askers
+    // could ask, not as a request for no access at all.
+    const asked = await laptop2.fleet.requestPairing({ endpoint: `127.0.0.1:${mini2.port}` })
+    assert.ok(asked.ok, asked.ok ? '' : asked.message)
+    const pending = mini2.devices.listPairRequests()
+    assert.deepEqual(pending[0]?.requestedScopes, [...TAILNET_STRUCTURED_SCOPES])
+    laptop2.fleet.cancelPairing(asked.request.requestId)
+  } finally {
+    await laptop2.close()
+    await mini2.close()
   }
 })
 

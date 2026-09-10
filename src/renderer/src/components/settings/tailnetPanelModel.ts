@@ -1,4 +1,4 @@
-import type { TailnetDevice, TailnetPairRequest, TailnetRemoteStatus } from '../../../../shared/tailnet'
+import type { TailnetPairRequest, TailnetRemoteStatus } from '../../../../shared/tailnet'
 import type { Tone } from '../ui'
 
 // The Remote (tailnet) settings panel's view model, kept DOM-free so the rules
@@ -114,48 +114,23 @@ export function pairingExpiry(expiresAt: string, now: number): string {
  * What to say about a pairing offer the panel can see but cannot show.
  *
  * The code is returned once and never re-readable, so a panel that was closed
- * and reopened knows a code is outstanding without knowing what it says. Saying
- * exactly that is the only honest option: hiding it would leave a live
- * credential with no way to cancel it, and pretending none exists would put a
- * "Pair a device" button over a code someone may be walking across the room.
+ * and reopened knows a code is outstanding without knowing what it says. One
+ * clause, because the card around it already carries the expiry and the scope
+ * pills: everything the old three-sentence version explained is now drawn.
  */
 export function outstandingPairingNote(pairing: { scopes: string[]; expiresAt: string }, now: number): string {
-  return `A pairing code is already active — ${pairingExpiry(pairing.expiresAt, now).toLowerCase()}, granting ${pairing.scopes.length} scopes. It can only be shown once, so create a new one if you no longer have it.`
+  return `A code is already active — ${pairingExpiry(pairing.expiresAt, now).toLowerCase()}. Create a new one if you no longer have it.`
 }
 
-/**
- * Where a device came from, in the words a person can place it by
- * (pair-from-the-scan-and-stay-paired, phase 5). The agent case names the
- * agent: a test grant an agent left behind is the row nobody could place.
- */
-export function deviceOriginText(device: Pick<TailnetDevice, 'origin'>): string {
-  const { kind, by } = device.origin
-  switch (kind) {
-    case 'approval':
-      return by ? `Paired by approval from ${by}` : 'Paired by approval'
-    case 'code':
-      return 'Paired by code'
-    case 'agent':
-      return by ? `Created by an agent (${by})` : 'Created by an agent'
-    case 'reverse':
-      return by ? `Granted when this device asked to drive ${by}` : 'Granted when this device asked to drive it'
-    case 'unknown':
-      return 'Paired before origins were kept'
-  }
-}
+// `deviceOriginText` and `deviceSummary` went with the device list they were
+// the second line of (remote-settings-rebuild). The machine row says platform,
+// scope count and last-seen; where a pairing came from — "paired by approval
+// from …", "created by an agent" — turned out to be a fact nobody ever acted
+// on, and the row it padded is now one line shorter for it.
 
-/** The device list's secondary line: where it came from, scopes granted, and where it was last seen. */
-export function deviceSummary(device: TailnetDevice, formatDate: (value: string) => string): string {
-  const scopes = device.scopes.length > 0 ? `${device.scopes.length} scopes` : 'No scopes'
-  const seen = device.lastSeenAt
-    ? `Last seen ${formatDate(device.lastSeenAt)}${device.lastPeerNode ? ` from ${device.lastPeerNode}` : ''}`
-    : 'Never connected'
-  return `${deviceOriginText(device)} · ${scopes} · ${seen}`
-}
-
-// The peer list moved to `components/remote/peerPickerModel.ts` (pair-from-
-// the-scan-and-stay-paired, phase 1): one view for Settings and the Fleet,
-// with Connect on the rows that can take it.
+// The peer list is gone with the peer picker: Settings → Remote now draws ONE
+// merged list from `shared/tailnet-machines.ts`, which is where the rows for
+// paired devices, fleet connections and scanned peers are folded together.
 
 /**
  * A waiting request's secondary line: who is asking, and from where.

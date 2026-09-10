@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Popover</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../link-button/component.css" />
 <link rel="stylesheet" href="component.css" />
 <style>
   body {
@@ -121,6 +122,19 @@
     inset: auto;
     animation: none;
   }
+  /* The scope-body specimen is parked for the same reason the error one is:
+     the catalog embeds this demo with scripts off, and the anatomy has to be
+     readable there. Marked static so the lifting script skips it. */
+  .demo-scope-specimen {
+    position: relative;
+    max-width: 280px;
+    margin-bottom: var(--sem-space-lg);
+  }
+  .demo-scope-specimen .ds-popover {
+    position: relative;
+    inset: auto;
+    animation: none;
+  }
   .demo-error-actions {
     display: flex;
     align-items: center;
@@ -209,6 +223,32 @@ ENOENT: no such file or directory</span>
       </div>
     </div>
   </div>
+  <p class="demo-label">The scope body — a named content part on the <code>dialog</code> role: what is held, a hairline, what is not held with the one action that changes it, and the consequence in plain words.</p>
+  <div class="demo-scope-specimen">
+    <div class="ds-popover" data-demo-static role="dialog" aria-labelledby="l-scope-h">
+      <div class="ds-popover-scope-body">
+        <div class="ds-popover-scope-heading" id="l-scope-h">Granted scopes</div>
+        <ul class="ds-popover-scope-list">
+          <li>workspace:read</li>
+          <li>workspace:operate</li>
+          <li>sprint:read</li>
+          <li>sprint:operate</li>
+          <li>backlog:read</li>
+          <li>backlog:operate</li>
+        </ul>
+        <div class="ds-popover-scope-rule"></div>
+        <div class="ds-popover-scope-headline">
+          <span class="ds-popover-scope-heading">Not granted</span>
+          <button type="button" class="ds-link-button">Grant</button>
+        </div>
+        <ul class="ds-popover-scope-list ds-popover-scope-list--missing">
+          <li>terminal:observe</li>
+          <li>terminal:control</li>
+        </ul>
+        <div class="ds-popover-scope-note">It can't see chats or terminals here.</div>
+      </div>
+    </div>
+  </div>
   <div class="demo-canvas" data-context-for="pop-light-context">Right-click for the pointer variant</div>
   <div class="ds-popover ds-popover--pointer" id="pop-light-context" role="menu" aria-label="Canvas actions" hidden>
     <div class="demo-menu">
@@ -257,6 +297,32 @@ ENOENT: no such file or directory</span>
     </div>
   </div>
 
+  <p class="demo-label">The scope body — a named content part on the <code>dialog</code> role: what is held, a hairline, what is not held with the one action that changes it, and the consequence in plain words.</p>
+  <div class="demo-scope-specimen">
+    <div class="ds-popover" data-demo-static role="dialog" aria-labelledby="d-scope-h">
+      <div class="ds-popover-scope-body">
+        <div class="ds-popover-scope-heading" id="d-scope-h">Granted scopes</div>
+        <ul class="ds-popover-scope-list">
+          <li>workspace:read</li>
+          <li>workspace:operate</li>
+          <li>sprint:read</li>
+          <li>sprint:operate</li>
+          <li>backlog:read</li>
+          <li>backlog:operate</li>
+        </ul>
+        <div class="ds-popover-scope-rule"></div>
+        <div class="ds-popover-scope-headline">
+          <span class="ds-popover-scope-heading">Not granted</span>
+          <button type="button" class="ds-link-button">Grant</button>
+        </div>
+        <ul class="ds-popover-scope-list ds-popover-scope-list--missing">
+          <li>terminal:observe</li>
+          <li>terminal:control</li>
+        </ul>
+        <div class="ds-popover-scope-note">It can't see chats or terminals here.</div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>

@@ -157,7 +157,25 @@ function readNode(value: unknown, isSelf: boolean): Omit<TailnetPeer, 'studio'> 
     // status is by definition up.
     online: isSelf ? true : value.Online === true,
     isSelf,
+    lastSeenAt: readLastSeen(value.LastSeen),
   }
+}
+
+/**
+ * Tailscale's `LastSeen` as an ISO string, or null.
+ *
+ * Two shapes mean "unknown" and both must become null rather than a date: the
+ * field being absent, and the zero timestamp (`0001-01-01T00:00:00Z`) Tailscale
+ * writes for a node it has never heard from. Rendering that zero as a last-seen
+ * would tell a person their laptop was last awake two thousand years ago.
+ * Anything before the epoch is treated the same way — a clock that far out is
+ * not a fact worth repeating.
+ */
+function readLastSeen(value: unknown): string | null {
+  if (typeof value !== 'string' || !value) return null
+  const parsed = Date.parse(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  return new Date(parsed).toISOString()
 }
 
 /**

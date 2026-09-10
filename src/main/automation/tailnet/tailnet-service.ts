@@ -70,6 +70,16 @@ export type TailnetRemoteService = {
   cancelPairing(): TailnetRemoteStatus
   revokeDevice(deviceId: string): TailnetRemoteStatus
   /**
+   * Widen (or narrow) an already-paired device's scopes from this keyboard.
+   *
+   * The counterpart to revoke, and the answer to the one thing pairing could
+   * not do: a device paired before the terminal tier existed, or paired for a
+   * narrower job, could only ever be revoked and paired again. Throws on an
+   * unknown id — the caller is a surface acting on a row it can see, so an id
+   * that is not here is a bug, not a state to render.
+   */
+  updateDeviceScopes(deviceId: string, scopes: unknown): TailnetRemoteStatus
+  /**
    * Answer a pairing request that arrived from another machine (MC-2233).
    *
    * The scopes are the ones chosen HERE. This is the first surface on which a
@@ -753,6 +763,15 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
     revokeDevice(deviceId): TailnetRemoteStatus {
       devices.revokeDevice(deviceId)
       emit({ kind: 'devices-changed' })
+      return getStatus()
+    },
+
+    updateDeviceScopes(deviceId, scopes): TailnetRemoteStatus {
+      devices.updateDeviceScopes(typeof deviceId === 'string' ? deviceId : '', scopes)
+      // What a device may do changed, so what `tools/list` answers for it did
+      // too — and every window showing the row needs the new set.
+      emit({ kind: 'devices-changed' })
+      server?.notifyToolsListChanged()
       return getStatus()
     },
 
