@@ -374,6 +374,39 @@ async function main(): Promise<void> {
     assert.deepEqual(killed, [], 'no snooze ever killed a terminal')
     assert.deepEqual(resumed, [], 'and waking resumed nothing on its own')
 
+    // --- a folder of nothing but sleepers keeps its line -------------------
+    // A project whose every chat has SETTLED leaves the sidebar (2026-09-07):
+    // nothing is going on there. Sleeping is not that — the chats are coming
+    // back on a clock the person set — and taking the folder away would take
+    // the "Snoozed N" line that is the only way to see them or wake them
+    // early (owner, 2026-09-10).
+    const allAsleep = [
+      workspace('s1', 'Sleeper', { snoozedUntil: createdAt + 2 * HOUR, snoozedAt: createdAt - HOUR }),
+      workspace('s2', 'Dozer', { snoozedUntil: createdAt + 3 * HOUR, snoozedAt: createdAt - HOUR }),
+    ]
+    await render({
+      ...baseProps,
+      workspaces: allAsleep,
+      activeWorkspaceId: null,
+      activityByWorkspaceId: { s1: 'idle', s2: 'idle' },
+    } as unknown as SidebarProps)
+    assert.deepEqual(rowNames(), [], 'no chat is in the active list')
+    const sleepersShelf = foldRow('Snoozed')
+    assert.ok(sleepersShelf, 'but the folder is still drawn, carrying its Snoozed line')
+    assert.match(sleepersShelf.textContent ?? '', /Snoozed\s*2/, 'with both sleepers counted')
+
+    // Settled is still the one that takes the folder with it.
+    await render({
+      ...baseProps,
+      workspaces: [
+        workspace('s1', 'Sleeper', { settledAt: createdAt - HOUR }),
+        workspace('s2', 'Dozer', { settledAt: createdAt - HOUR }),
+      ],
+      activeWorkspaceId: null,
+      activityByWorkspaceId: { s1: 'idle', s2: 'idle' },
+    } as unknown as SidebarProps)
+    assert.equal(foldRow('Settled'), null, 'a folder with nothing but rest leaves the sidebar entirely')
+
   } finally {
     act(() => {
       root.unmount()

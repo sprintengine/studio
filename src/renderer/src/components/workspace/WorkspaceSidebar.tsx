@@ -1973,9 +1973,16 @@ export default function WorkspaceSidebar({
   // A folder returns the moment anything in it wakes, is un-settled, or is
   // selected — the active chat is never shelved, so opening one of its chats
   // from search or New chat brings its project back with it.
+  //
+  // SETTLED only, deliberately: a folder whose chats are merely asleep stays
+  // (owner, 2026-09-10). The ruling above is about projects with nothing going
+  // on, and a snoozed chat is the opposite of that — it is coming back, on a
+  // clock the person set. Taking its folder away with it would also take the
+  // "Snoozed 1" line that is the only way to see it exists or wake it early,
+  // and rest is the one that means "no longer asking for a place here".
   const activeGroups = useMemo(
-    () => groups.filter((group) => !group.workspaces.every((w) => isShelved(w) || isAsleep(w))),
-    [groups, isShelved, isAsleep]
+    () => groups.filter((group) => !group.workspaces.every(isShelved)),
+    [groups, isShelved]
   )
 
   // The Remote band's reads and rows (remote-sessions-in-the-sidebar): each
