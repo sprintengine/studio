@@ -1555,6 +1555,56 @@ async function testCommunityModuleInstallGrantsTrustAndUninstallRevokes(): Promi
   })
 }
 
+// G3. Settings → Modules knows a module's id, never the id of the bundle that
+// installed it — those need not match — so an uninstall named by the module id
+// has to reach the receipt that owns it and take the whole bundle out. An id
+// nothing installed is refused by name rather than reported as a success.
+async function testUninstallResolvesAModuleIdToItsOwningReceipt(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const signer = generateKeyPairSync('ed25519')
+    const components: BundleComponents = { module: { path: 'module', id: 'granted-module' } }
+    const bundle = await writeBundle(temp, 'granted-plugin', components, signer, 1)
+    bundle.entry.publisher.verified = false
+    const folders = new Map([['granted-plugin', bundle.files]])
+    const { services, workspaceRoot, moduleRoot } = await createServices(
+      temp,
+      createGithubFetcher(folders),
+      { trustedModules: new Map() }
+    )
+    const userDataDir = join(temp, 'userdata')
+    useRealTrustStore(services, userDataDir)
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+
+    const installed = await lifecycle.installFromRegistry({ entry: bundle.entry, workspaceRoot, trustGranted: true })
+    assert.equal(installed.ok, true, JSON.stringify(installed))
+    assert.equal(existsSync(join(moduleRoot, 'granted-module')), true)
+
+    // Neither an unrelated id nor a component id that is not a module resolves.
+    const unknown = await lifecycle.uninstall({ pluginId: 'not-a-thing', workspaceRoot })
+    assert.equal(unknown.ok, false)
+    if (!unknown.ok) assert.match(unknown.message, /not-a-thing is not installed/)
+
+    // The module's own id — what the Settings row carries — removes the bundle.
+    const removed = await lifecycle.uninstall({ pluginId: 'granted-module', workspaceRoot })
+    assert.equal(removed.ok, true, JSON.stringify(removed))
+    if (!removed.ok) return
+    assert.equal(removed.id, bundle.entry.id, 'the receipt that owns the module is the one that was removed')
+    assert.notEqual(bundle.entry.id, 'granted-module', 'the bundle id and its module id really do differ here')
+    assert.equal(existsSync(join(moduleRoot, 'granted-module')), false)
+    assert.equal(readTrustedModulesSync(userDataDir).has('granted-module'), false)
+
+    // And the receipt is gone with it, so a re-install is an install and not an
+    // update of something that is no longer there.
+    const receipts = await readMarketplacePluginInstallReceipts(services.receiptStorePath)
+    assert.equal(receipts.ok, true)
+    if (receipts.ok) assert.deepEqual(receipts.receipts.map((receipt) => receipt.id), [])
+
+    // A second uninstall is refused rather than silently succeeding.
+    const again = await lifecycle.uninstall({ pluginId: 'granted-module', workspaceRoot })
+    assert.equal(again.ok, false)
+  })
+}
+
 // The grant is transactional with the receipt: if the receipt cannot be
 // written, the files roll back and the trust store ends exactly as it started,
 // including a fingerprint the user had trusted before this install.
@@ -1694,6 +1744,7 @@ async function main(): Promise<void> {
   await testTrustWriteFailuresAreSurfacedNotSwallowed()
   await testCommunityBundleRequiresTrustGrant()
   await testCommunityModuleInstallGrantsTrustAndUninstallRevokes()
+  await testUninstallResolvesAModuleIdToItsOwningReceipt()
   await testFailedReceiptWriteLeavesTrustStoreUnchanged()
   await testFailedUpdateKeepsThePreviousModuleTrust()
   await testUnsignedMcpSkillsBundleRoutesThroughTrust()

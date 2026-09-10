@@ -296,8 +296,63 @@ function testPluginPackRejectsMissingComponent(): void {
   assert.match(packed.stderr, /declared path.*does not exist/)
 }
 
+// G13. `provides` on a registry entry has to equal the kinds the app derives
+// from the bundle, and the app derives them by filtering
+// MARKETPLACE_COMPONENT_KINDS — so an author who copies the order out of their
+// own plugin.json must find the canonical one there, whatever order they typed
+// the --component flags in. Both writers of plugin.json (scaffold and sign)
+// keep it, and both print the exact `provides` array to paste.
+function testPluginComponentOrderIsCanonical(): void {
+  const keyPath = join(workDir, 'order-key.pem')
+  assert.equal(runCli(['keygen', '--out', keyPath]).status, 0)
+  const pluginDir = join(workDir, 'component-order-plugin')
+
+  // Flags in a deliberately scrambled order.
+  const scaffolded = runCli([
+    'plugin', 'scaffold', 'component-order-plugin-fixture',
+    '--out', pluginDir,
+    '--component', 'cli',
+    '--component', 'skills',
+    '--component', 'mcp',
+    '--component', 'module',
+  ])
+  assert.equal(scaffolded.status, 0, scaffolded.stderr)
+  const canonical = ['mcp', 'skills', 'module', 'cli']
+  assert.deepEqual(
+    Object.keys(JSON.parse(readFileSync(join(pluginDir, 'plugin.json'), 'utf8')).components),
+    canonical,
+    'plugin scaffold writes components in MARKETPLACE_COMPONENT_KINDS order',
+  )
+  assert.match(scaffolded.stdout, /Registry entry "provides": \["mcp","skills","module","cli"\]/)
+
+  // And a hand-scrambled plugin.json is re-ordered by `plugin sign` rather than
+  // signed in the order it was typed.
+  const manifest = JSON.parse(readFileSync(join(pluginDir, 'plugin.json'), 'utf8'))
+  manifest.components = {
+    cli: manifest.components.cli,
+    module: manifest.components.module,
+    skills: manifest.components.skills,
+    mcp: manifest.components.mcp,
+  }
+  writeFileSync(join(pluginDir, 'plugin.json'), `${JSON.stringify(manifest, null, 2)}\n`)
+  const signed = runCli(['plugin', 'sign', pluginDir, '--key', keyPath])
+  assert.equal(signed.status, 0, signed.stderr)
+  assert.deepEqual(
+    Object.keys(JSON.parse(readFileSync(join(pluginDir, 'plugin.json'), 'utf8')).components),
+    canonical,
+    'plugin sign writes the signed manifest back in canonical component order',
+  )
+  assert.match(signed.stdout, /Registry entry "provides": \["mcp","skills","module","cli"\]/)
+  // The re-ordered manifest is still the one that verifies: order is normalized
+  // BEFORE the signature is computed, not after.
+  const verified = runCli(['plugin', 'verify', pluginDir])
+  assert.equal(verified.status, 0, verified.stderr)
+  assert.match(verified.stdout, /Registry entry "provides": \["mcp","skills","module","cli"\]/)
+}
+
 try {
   testKeygen()
+  testPluginComponentOrderIsCanonical()
   const signedModuleDir = testCliSignThenAppTrustFlowAccepts()
   testSignNormalizesManifestOnDisk()
   testTamperRejectedByBothPaths(signedModuleDir)

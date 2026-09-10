@@ -12,6 +12,7 @@ import { componentKindLabels, externalSourceHref } from './storefrontView'
 import {
   classifyVerification,
   deriveInstallView,
+  installNeedsWorkspace,
   summarizeInstallResult,
   type InstallFlowState,
 } from './installFlow'
@@ -71,8 +72,9 @@ export function PluginDetailPanel({
   // MCP servers and skill packs install into the open workspace; modules and
   // CLIs install to the user dirs. Block install with an honest hint when a
   // workspace-scoped component has no workspace, rather than letting the click
-  // fail downstream.
-  const needsWorkspace = plugin.provides.some((kind) => kind === 'mcp' || kind === 'skills')
+  // fail downstream. The rule itself lives in `installFlow` so it can be
+  // asserted without a renderer.
+  const needsWorkspace = installNeedsWorkspace(plugin.provides)
   const workspaceBlocked = needsWorkspace && !workspaceRoot
 
   const runInstall = useCallback(

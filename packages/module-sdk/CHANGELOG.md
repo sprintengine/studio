@@ -97,6 +97,18 @@
   same per-theme repo gate as the rest. Use them as a pair
   (`transition: opacity var(--motion-normal) var(--motion-ease)`) so module UI
   moves at the app's pace instead of inventing its own.
+- **`plugin scaffold` and `plugin sign` write components in canonical order,
+  and print the `provides` array to paste.** A registry entry's `provides` must
+  equal the component kinds the app derives from the bundle, and the app derives
+  them by filtering `MARKETPLACE_COMPONENT_KINDS` (`mcp, skills, module, cli,
+  automation`) — so an author who typed `--component cli --component mcp`, or who
+  hand-wrote `plugin.json`, read one order out of their own file and the
+  downloader computed another. The mismatch surfaced as a registry-mismatch
+  failure on the user's machine, naming two lists that look the same. Both
+  writers of `plugin.json` now key `components` canonically before the manifest
+  is signed, and `plugin scaffold`, `plugin sign` and `plugin verify` each end
+  with a `Registry entry "provides": [...]` line that is the exact array the
+  registry entry needs.
 
 - **A door surface names and places itself** (Extensions drawer ruling,
   2026-09-05). `GlobalSurfaceDefinition` was `{ id, Component }` while the host

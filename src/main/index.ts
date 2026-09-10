@@ -13,7 +13,7 @@ import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { AutomationsAppFrontDoorToken } from './module-host/service-tokens'
 import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from './modules/agent-runtime-module'
-import type { CapabilityManifest } from '../shared/modules/manifest'
+import { LIVE_ENABLED_MODULE_IDS, type CapabilityManifest } from '../shared/modules/manifest'
 import { createBundledMainModules } from './modules'
 import { isFirstPartyAutomationProviderModule, type AutomationProviderPermissionChecker } from './automations/provider-registry'
 import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
@@ -134,7 +134,7 @@ const recomputeMainEnablement = (overrides: Record<string, boolean>): void => {
 }
 recomputeMainEnablement(moduleOverrides)
 applyModuleEnablementLive = async (overrides) => {
-  const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: ['automations'] })
+  const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: LIVE_ENABLED_MODULE_IDS })
   const automationsError = report.errors.find((error) => error.id === 'automations')
   if (automationsError) return { ok: false, message: automationsError.message }
   // A module with no live-loadable main half takes its toggle through the

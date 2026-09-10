@@ -56,6 +56,9 @@ export function resolveActiveModalSurface(
         <DoorModuleNotInstalledSurface
           label={entry?.label ?? doorLabelForSurfaceId(surfaceId)}
           installed={installed}
+          // A never-registered modal's id IS its module's id, which is what
+          // lets the surface offer a real Install for it (G9).
+          moduleId={entry?.moduleId ?? surfaceId}
           onOpenExtensions={() =>
             openExtensions({ view: EXTENSIONS_DRAWER_VIEWS.plugins, installed })
           }
@@ -92,6 +95,9 @@ export function resolveActiveDoorSurface(
         <DoorModuleNotInstalledSurface
           label={doorLabelForSurfaceId(surfaceId, entry?.label)}
           installed={installed}
+          // Same rule as the modal above: a door that never registered is named
+          // by its module's id, so the registry can be asked about it (G9).
+          moduleId={entry?.moduleId ?? surfaceId}
           onOpenExtensions={() =>
             openExtensions({ view: EXTENSIONS_DRAWER_VIEWS.plugins, installed })
           }

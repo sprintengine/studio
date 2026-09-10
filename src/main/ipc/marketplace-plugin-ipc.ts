@@ -3,6 +3,8 @@ import { app, type IpcMain } from 'electron'
 import type {
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
+  MarketplacePluginUninstallInput,
+  MarketplacePluginUninstallResult,
   MarketplacePluginVerifyResult,
   MarketplaceRegistryReadInput,
   MarketplaceUpdateStatesResult,
@@ -21,10 +23,18 @@ import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/
 import type { MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
 import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
 
-export function registerMarketplacePluginIpc(
-  ipcMain: IpcMain,
-  services: Pick<AppServices, 'mcpConfigService' | 'getAutomationsAppFrontDoor'>
-): void {
+export type MarketplacePluginPipelineServices = Pick<AppServices, 'mcpConfigService' | 'getAutomationsAppFrontDoor'>
+
+/**
+ * The verify + install/uninstall pipeline, built once and shared.
+ *
+ * Extracted from `registerMarketplacePluginIpc` when the card executor grew an
+ * `install.module` verb (G4): a card's Go installs a registry entry through the
+ * SAME lifecycle the storefront does — same trust gate, same receipts, same
+ * rollback — and a second construction of it in `cards-ipc.ts` would be a
+ * second set of those rules to keep in step.
+ */
+export function createMarketplacePluginPipeline(services: MarketplacePluginPipelineServices) {
   const trustContext = () => ({
     trustedModules: readTrustedModulesSync(app.getPath('userData')),
     trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
@@ -76,6 +86,15 @@ export function registerMarketplacePluginIpc(
     log: marketplaceLog,
   })
 
+  return { trustContext, log: marketplaceLog, verifier, lifecycle }
+}
+
+export function registerMarketplacePluginIpc(
+  ipcMain: IpcMain,
+  services: MarketplacePluginPipelineServices
+): void {
+  const { trustContext, verifier, lifecycle } = createMarketplacePluginPipeline(services)
+
   ipcMain.handle(
     'marketplace:plugins:verify',
     async (_event, entry: MarketplacePluginEntry): Promise<MarketplacePluginVerifyResult> => {
@@ -109,6 +128,23 @@ export function registerMarketplacePluginIpc(
     async (_event, input: MarketplacePluginRegistryInstallInput): Promise<MarketplacePluginRegistryInstallResult> => {
       try {
         return await lifecycle.updateFromRegistry(input)
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
+  // The other end of install (G3). The lifecycle has been able to uninstall a
+  // receipt since it was written; nothing could call it, so a marketplace
+  // install was a one-way door — the files were removable only by hand, and the
+  // receipt that says what they were stayed behind either way. It takes the
+  // same envelope install does, because removing an MCP component writes the
+  // CLI configs and needs the workspace and settings to do it.
+  ipcMain.handle(
+    'marketplace:plugins:uninstall',
+    async (_event, input: MarketplacePluginUninstallInput): Promise<MarketplacePluginUninstallResult> => {
+      try {
+        return await lifecycle.uninstall(input)
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }

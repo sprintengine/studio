@@ -591,6 +591,14 @@ export type MarketplacePluginInstallResult =
       // entry lists that shipped without bundled content and so were not
       // installed. Surfaced to the user; never hidden behind ok:true.
       notices?: string[]
+      /**
+       * The install landed a module whose code only loads at app launch, so
+       * nothing it contributes is there yet (D13). Derived in main from
+       * `LIVE_ENABLED_MODULE_IDS` — the renderer is told the answer rather than
+       * keeping its own copy of which modules are live-enabled. Absent or false
+       * means the install is fully in effect.
+       */
+      restartRequired?: boolean
     }
   | {
       ok: false
@@ -3961,6 +3969,12 @@ export type ElectronApi = {
   verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>
   installMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
   updateMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
+  // Removes an installed marketplace plugin: its module folders, CLI plugins
+  // and skill copies, its MCP servers out of the synced configs, and its module
+  // trust grants. `pluginId` is the marketplace entry's id, or the id of a
+  // module it installed. An added automation is deliberately left in place —
+  // it is the user's from the moment it lands.
+  uninstallMarketplacePlugin: (input: MarketplacePluginUninstallInput) => Promise<MarketplacePluginUninstallResult>
   readMarketplacePluginUpdateStates: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceUpdateStatesResult>
   conversationProvidersList: (input?: ConversationProvidersListInput) => Promise<ConversationProviderListResult>
   conversationProviderModels: (input: ConversationProviderModelsInput) => Promise<ConversationProviderModelsResult>

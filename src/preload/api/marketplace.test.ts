@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createMarketplaceApi } from './marketplace'
 import type {
   MarketplacePluginRegistryInstallResult,
+  MarketplacePluginUninstallResult,
   MarketplacePluginVerifyResult,
   MarketplaceRegistryReadResult,
   MarketplaceUpdateStatesResult,
@@ -48,6 +49,11 @@ async function main(): Promise<void> {
     permissions: ['network'],
     sourceUrl: 'https://example.com/plugins/bundle-plugin/',
   }
+  const uninstallResponse: MarketplacePluginUninstallResult = {
+    ok: true,
+    id: 'bundle-plugin',
+    removed: [{ kind: 'module', id: 'bundle-module' }],
+  }
   const updateStatesResponse: MarketplaceUpdateStatesResult = {
     ok: true,
     checked: true,
@@ -74,6 +80,7 @@ async function main(): Promise<void> {
         return entryInput.entry?.mcp ? inlineInstallResponse : registryInstallResponse
       }
       if (channel === 'marketplace:plugins:update-entry') return { ...registryInstallResponse, updated: true }
+      if (channel === 'marketplace:plugins:uninstall') return uninstallResponse
       if (channel === 'marketplace:plugins:update-states') return updateStatesResponse
       return registryInstallResponse
     },
@@ -129,6 +136,10 @@ async function main(): Promise<void> {
   const registryInstalled = await api.installMarketplacePluginFromRegistry(entryInput)
   const inlineInstalled = await api.installMarketplacePluginFromRegistry(inlineEntryInput)
   const registryUpdated = await api.updateMarketplacePluginFromRegistry({ ...entryInput, trustGranted: true })
+  // G3: uninstall speaks the same envelope install does — an MCP component's
+  // removal writes the CLI configs, which needs the workspace and settings.
+  const uninstallInput = { pluginId: 'bundle-plugin', workspaceRoot: '/tmp/workspace' }
+  const uninstalled = await api.uninstallMarketplacePlugin(uninstallInput)
   const updateStates = await api.readMarketplacePluginUpdateStates({ forceRefresh: true })
   assert.deepEqual(registry, registryResponse)
   assert.deepEqual(verified, verifyResponse)
@@ -136,6 +147,7 @@ async function main(): Promise<void> {
   assert.deepEqual(inlineInstalled, inlineInstallResponse)
   assert.equal(inlineInstalled.ok && inlineInstalled.classification, 'unsigned')
   assert.equal(registryUpdated.updated, true)
+  assert.deepEqual(uninstalled, uninstallResponse)
   assert.deepEqual(updateStates, updateStatesResponse)
   assert.deepEqual(calls, [
     { channel: 'marketplace:registry:read', args: [{ forceRefresh: true }] },
@@ -143,6 +155,7 @@ async function main(): Promise<void> {
     { channel: 'marketplace:plugins:install-entry', args: [entryInput] },
     { channel: 'marketplace:plugins:install-entry', args: [inlineEntryInput] },
     { channel: 'marketplace:plugins:update-entry', args: [{ ...entryInput, trustGranted: true }] },
+    { channel: 'marketplace:plugins:uninstall', args: [uninstallInput] },
     { channel: 'marketplace:plugins:update-states', args: [{ forceRefresh: true }] },
   ])
 

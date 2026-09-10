@@ -89,14 +89,14 @@ assert.equal(connectorFacet(''), 'Other')
   assert.equal(stripe.canLaunch, false)
 }
 
-// Registry plugins that provide neither mcp nor skills are not connectors and are
-// dropped from the surface.
+// A module entry IS listed in the Plugins catalogue (D10); a cli-only entry has
+// its own canvas and is dropped from this one.
 {
   const entries = buildConnectorEntries([
     plugin({ id: 'theme-pack', provides: ['module'] }),
     plugin({ id: 'cli-only', provides: ['cli'] }),
   ])
-  assert.equal(entries.length, 0)
+  assert.deepEqual(entries.map((entry) => entry.id), ['theme-pack'])
 }
 
 // --- installed settings servers present as listings for the launch rail -----
@@ -212,8 +212,8 @@ assert.deepEqual(sectionConnectors([]), [])
 
 
 // --- registry entries by kind (MC-1847 C2) ---------------------------------
-// Module/cli plugins browse on the door's own kind canvases; the connector grid
-// keeps its mcp/skills subset. Same normalized row shape from one builder.
+// The Plugins catalogue lists mcp, skills and module entries (D10); cli entries
+// keep their own canvas. Same normalized row shape from one builder.
 {
   const roadmapModule = plugin({ id: 'roadmap-module', name: 'Roadmap', provides: ['module'] })
   const cursorCli = plugin({ id: 'cursor-cli', name: 'Cursor', provides: ['cli'] })
@@ -228,11 +228,11 @@ assert.deepEqual(sectionConnectors([]), [])
     registryEntriesForKinds(all, ['cli']).map((entry) => entry.id),
     ['cursor-cli', 'full-stack'],
   )
-  // The connector grid path is the same builder with mcp/skills — module- and
-  // cli-only plugins stay out of it.
+  // The catalogue path is the same builder with mcp/skills/module: a
+  // module-only plugin is listed, a cli-only one is not.
   assert.deepEqual(
     buildConnectorEntries(all).map((entry) => entry.id),
-    ['stripe-mcp', 'full-stack'],
+    ['stripe-mcp', 'roadmap-module', 'full-stack'],
   )
   // Kind entries are never launchable and keep the registry install route.
   const [moduleEntry] = registryEntriesForKinds(all, ['module'])
@@ -261,8 +261,14 @@ assert.deepEqual(sectionConnectors([]), [])
   assert.deepEqual(entry.componentLabels, ['Module'])
   assert.equal(entry.canLaunch, false)
   assert.equal(entry.canLaunch, false, 'a module-only plugin is never launchable')
-  assert.deepEqual(buildConnectorEntries([calendar]), [])
-  // A mixed bundle (mcp + module) is a connector too, but its connector row
+  // Listed, never launchable: install still gates launch.
+  const calendarRows = buildConnectorEntries([calendar])
+  assert.deepEqual(calendarRows.map((row) => row.id), ['multicode-calendar'])
+  assert.equal(calendarRows[0].canLaunch, false)
+  assert.deepEqual(calendarRows[0].componentLabels, ['Module'])
+  // A cli-only plugin still keeps to its own canvas.
+  assert.deepEqual(buildConnectorEntries([plugin({ id: 'cursor-only', name: 'Cursor', provides: ['cli'] })]), [])
+  // A mixed bundle (mcp + module) is listed once, and its row
   // never launches from the registry side — install still gates launch.
   const mixed = plugin({ id: 'suite', name: 'Suite', provides: ['mcp', 'module'] })
   const gridRows = buildConnectorEntries([mixed])

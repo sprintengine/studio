@@ -34,9 +34,26 @@ import type {
   SkillInstalledPluginsOutcome,
   SkillScanOutcome,
 } from '../../shared/electron-api'
+import type { MarketplacePluginEntry } from '../../shared/marketplace'
 import type { CardAction } from '../../shared/hosted-card-feed'
 import type { ScanResult, ScannedPlugin, ScannedSkill, SkillSource } from '../../shared/skills'
 import { refuseCard, runCard, type CardRunDeps } from './run-card'
+
+// The registry entry a card's `install.module` names: first-party, signed, and
+// verified — the only tier the executor installs from a card, because every
+// other tier ends in a trust prompt a person has to read.
+const VERIFIED_MODULE_ENTRY: MarketplacePluginEntry = {
+  id: 'review',
+  name: 'Reviews',
+  publisher: { name: 'Multicode Labs', verified: true },
+  summary: 'Guided, human-led review of a pull request, branch, or patch.',
+  category: 'Code Quality',
+  icon: 'icons/review.svg',
+  latest: 1,
+  provides: ['module'],
+  source: 'https://github.com/sprintengine/studio-releases/tree/main/plugins/review',
+  signature: { algorithm: 'ed25519', publicKey: 'YWJj', signature: 'ZGVm' },
+}
 
 const WORKSPACE = '/tmp/workspace'
 const PARENT = '/tmp/projects'
@@ -163,6 +180,38 @@ function recorder(overrides: Partial<CardRunDeps> = {}): Recorder {
       return null
     },
     joinPath: (...segments) => segments.join('/'),
+    readMarketplaceRegistry: async () => {
+      calls.push('readMarketplaceRegistry')
+      return {
+        ok: true,
+        state: 'ok',
+        registryUrl: 'https://registry.test/marketplace.json',
+        source: 'bundled',
+        stale: false,
+        fetchedAt: '2026-09-10T00:00:00.000Z',
+        marketplace: { schemaVersion: 1, plugins: [VERIFIED_MODULE_ENTRY] },
+      }
+    },
+    listMarketplaceReceipts: async () => {
+      calls.push('listMarketplaceReceipts')
+      return { ok: true, receipts: [] }
+    },
+    installMarketplaceEntry: async (input) => {
+      calls.push(`installMarketplaceEntry ${input.entry.id} trustGranted=${String(input.trustGranted ?? false)}`)
+      return {
+        ok: true,
+        id: input.entry.id,
+        displayName: input.entry.name,
+        version: input.entry.latest,
+        trust: 'trusted',
+        loadEligible: true,
+        installed: [{ kind: 'module', id: input.entry.id }],
+        restartRequired: true,
+        classification: 'verified',
+        sourceUrl: 'https://example.test/plugins/review',
+        updated: false,
+      }
+    },
     ...overrides,
   }
   return { calls, deps }
@@ -680,6 +729,135 @@ async function main(): Promise<void> {
     assert.equal(result.chat?.model, null, 'and its own default model row is null, not a missing field')
     assert.equal(result.chat?.permissionPreset, 'manual', 'the preset the row carried is the preset handed back')
   }
+
+  // --- install.module (G4) --------------------------------------------------
+
+  // The happy path: the id resolves in the app's own registry, the receipts say
+  // it is not there, and the install goes through the storefront's lifecycle
+  // with NO trust grant — a verified entry never asks for one, and passing one
+  // would be the executor answering a prompt on somebody's behalf.
+  {
+    const { calls, deps } = recorder()
+    const result = await run([{ verb: 'install.module', id: 'review' }], deps)
+    assert.equal(result.ok, true, result.message)
+    assert.deepEqual(calls, [
+      'readMarketplaceRegistry',
+      'listMarketplaceReceipts',
+      'installMarketplaceEntry review trustGranted=false',
+    ])
+    assert.equal(result.outcomes[0].status, 'done')
+    // A module loads at app launch, so the outcome says what is left to do.
+    assert.equal(result.outcomes[0].message, 'Reviews installed. Restart SprintEngine Studio to use it.')
+  }
+
+  // A second press is a no-op, and it is decided by the receipts BEFORE the
+  // trust tier — so an installed module never turns a repeat Go into a
+  // refusal about trust.
+  {
+    const { calls, deps } = recorder({
+      listMarketplaceReceipts: async () => ({ ok: true, receipts: [{ id: 'review' }] }),
+    })
+    const result = await run([{ verb: 'install.module', id: 'review' }], deps)
+    assert.equal(result.ok, true)
+    assert.equal(result.outcomes[0].status, 'already')
+    assert.equal(result.outcomes[0].message, 'Reviews is already installed.')
+    assert.equal(calls.includes('installMarketplaceEntry review trustGranted=false'), false, 'nothing was installed twice')
+  }
+
+  // An id nothing in this build's registry carries is refused by name, and
+  // nothing is downloaded.
+  {
+    const { calls, deps } = recorder()
+    const result = await run([{ verb: 'install.module', id: 'not-a-module' }], deps)
+    assert.equal(result.ok, false)
+    assert.match(result.message ?? '', /not-a-module is not in this build's marketplace/)
+    assert.deepEqual(calls, ['readMarketplaceRegistry'])
+  }
+
+  // An entry that is in the registry but carries no module component cannot be
+  // installed by this verb — the executor would be installing something else.
+  {
+    const { deps } = recorder({
+      readMarketplaceRegistry: async () => ({
+        ok: true,
+        state: 'ok',
+        registryUrl: 'https://registry.test/marketplace.json',
+        source: 'bundled',
+        stale: false,
+        fetchedAt: '2026-09-10T00:00:00.000Z',
+        marketplace: {
+          schemaVersion: 1,
+          plugins: [{ ...VERIFIED_MODULE_ENTRY, provides: ['skills'] }],
+        },
+      }),
+    })
+    const result = await run([{ verb: 'install.module', id: 'review' }], deps)
+    assert.equal(result.ok, false)
+    assert.match(result.message ?? '', /is not a module/)
+  }
+
+  // Every tier below `verified` needs a trust prompt, which is a disclosure a
+  // person reads and answers. The card is refused, by name, pointing at the one
+  // surface that can show it — the same rule `require.cli` follows for a CLI
+  // install command.
+  for (const untrusted of [
+    { ...VERIFIED_MODULE_ENTRY, publisher: { name: 'Somebody', verified: false } },
+    { ...VERIFIED_MODULE_ENTRY, signature: undefined },
+  ]) {
+    const { calls, deps } = recorder({
+      readMarketplaceRegistry: async () => ({
+        ok: true,
+        state: 'ok',
+        registryUrl: 'https://registry.test/marketplace.json',
+        source: 'bundled',
+        stale: false,
+        fetchedAt: '2026-09-10T00:00:00.000Z',
+        marketplace: { schemaVersion: 1, plugins: [untrusted as MarketplacePluginEntry] },
+      }),
+    })
+    const result = await run([{ verb: 'install.module', id: 'review' }], deps)
+    assert.equal(result.ok, false)
+    assert.match(result.message ?? '', /asks you to trust it before it installs/)
+    assert.match(result.message ?? '', /Extensions → Plugins/)
+    assert.equal(calls.some((call) => call.startsWith('installMarketplaceEntry')), false)
+  }
+
+  // A registry that cannot be read fails the action rather than reporting that
+  // the module is missing — "could not check" is never "not there".
+  {
+    const { deps } = recorder({
+      readMarketplaceRegistry: async () => ({
+        ok: false,
+        state: 'fetch-error',
+        registryUrl: 'https://registry.test/marketplace.json',
+        message: 'The marketplace could not be reached.',
+      }),
+    })
+    const result = await run([{ verb: 'install.module', id: 'review' }], deps)
+    assert.equal(result.ok, false)
+    assert.match(result.message ?? '', /could not be reached/)
+  }
+
+  // A failed install is the lifecycle's own sentence, never a fabricated one.
+  {
+    const { deps } = recorder({
+      installMarketplaceEntry: async () => ({ ok: false, message: 'Plugin bundle signature is invalid.' }),
+    })
+    const result = await run([{ verb: 'install.module', id: 'review' }], deps)
+    assert.equal(result.ok, false)
+    assert.equal(result.message, 'Plugin bundle signature is invalid.')
+  }
+
+  // And it is an INSTALL verb for the whole-card rules: a clone that comes
+  // after it would install into the project the person was already in and then
+  // move the run somewhere else.
+  assert.match(
+    refuseCard([
+      { verb: 'install.module', id: 'review' },
+      { verb: 'clone.repo', repo: 'sprintengine/studio-releases' },
+    ]) ?? '',
+    /clones a project after it has already installed something/,
+  )
 
   console.log('run-card.test.ts: ok')
 }
