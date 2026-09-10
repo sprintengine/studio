@@ -12,6 +12,21 @@ import type { Workspace } from '../types/workspace'
  *  curated search terms so those match without crowding the visible row. */
 export interface CommandSearchFields {
   label: string
+  /**
+   * The row's own name, when the visible label wraps it in one of the palette's
+   * own verbs — "Switch to: <workspace>", "Spawn: <specialist>", "Toggle <panel>".
+   *
+   * Scored at the LABEL bands alongside `label`, best tier wins. Without it
+   * those rows can never reach exact or prefix: the verb sits in front of the
+   * name, so the obvious query — the workspace's own name — is a word start
+   * (600) and loses to any file whose name merely begins with the same letters
+   * (800). Group order used to hide that, because group order came first;
+   * ranking by score exposed it (skills-everywhere review, 2026-09-10).
+   *
+   * Both are scored rather than one replacing the other, so "switch" still
+   * finds the switch rows.
+   */
+  searchLabel?: string
   description?: string
   keywords?: string
 }
@@ -124,6 +139,15 @@ function matchTier(text: string | undefined, normalizedQuery: string): MatchTier
   return /[^a-z0-9]/u.test(haystack.charAt(at - 1)) ? 'word' : 'substring'
 }
 
+/** The cleaner of two tiers on the same field band; null when neither matched. */
+function bestTier(a: MatchTier | null, b: MatchTier | null): MatchTier | null {
+  if (!a) return b
+  if (!b) return a
+  return TIER_RANK[a] <= TIER_RANK[b] ? a : b
+}
+
+const TIER_RANK: Record<MatchTier, number> = { exact: 0, prefix: 1, word: 2, substring: 3 }
+
 const LABEL_SCORE: Record<MatchTier, number> = {
   exact: PALETTE_SCORE.labelExact,
   prefix: PALETTE_SCORE.labelPrefix,
@@ -146,7 +170,7 @@ const DETAIL_SCORE: Record<MatchTier, number> = {
 export function scoreCommandMatch(command: CommandSearchFields, query: string): number {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return PALETTE_SCORE.empty
-  const label = matchTier(command.label, normalized)
+  const label = bestTier(matchTier(command.label, normalized), matchTier(command.searchLabel, normalized))
   if (label) return LABEL_SCORE[label]
   const description = matchTier(command.description, normalized)
   const keywords = matchTier(command.keywords, normalized)
@@ -190,12 +214,30 @@ export function comparePaletteMatches(
  * The ranked list, in the order the palette renders and the arrow keys
  * traverse. Stable, so rows that tie keep the order their providers produced
  * them in — which is how a source's own ordering survives.
+ *
+ * Each row is scored once, not once per comparison: with every source's skills
+ * and plugins in the list this sorts a few thousand rows per keystroke, and
+ * scoring inside the comparator lower-cased three fields of two rows some
+ * n·log(n) times over. Same order as `comparePaletteMatches`, by construction —
+ * that function stays the statement of the rule and the thing the tests read.
  */
 export function orderPaletteCommands<T extends PaletteRankable>(
   commands: readonly T[],
   query: string,
 ): T[] {
-  return [...commands].sort((a, b) => comparePaletteMatches(a, b, query))
+  return commands
+    .map((command, index) => ({ command, index, score: scoreCommandMatch(command, query) }))
+    .sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score
+      if (a.command.installed !== undefined && b.command.installed !== undefined) {
+        const installedDelta = Number(b.command.installed) - Number(a.command.installed)
+        if (installedDelta !== 0) return installedDelta
+      }
+      const groupDelta = paletteGroupRank(a.command.group) - paletteGroupRank(b.command.group)
+      if (groupDelta !== 0) return groupDelta
+      return a.index - b.index
+    })
+    .map((entry) => entry.command)
 }
 
 /** A workspace type's label + curated search terms joined into one match

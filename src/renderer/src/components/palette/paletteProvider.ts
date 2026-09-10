@@ -40,6 +40,12 @@ export type PaletteRowIcon = {
 export interface PaletteCommand {
   id: string
   label: string
+  /**
+   * The row's own name when the label wraps it in one of the palette's verbs
+   * ("Switch to: <workspace>"). Ranked, never displayed — see
+   * `CommandSearchFields.searchLabel` in commandPaletteSearch.ts for why.
+   */
+  searchLabel?: string
   description?: string
   /** Searched, never displayed: a workspace's mode terms, a plugin's keywords. */
   keywords?: string
@@ -78,8 +84,15 @@ export interface PaletteResultProvider {
   id: string
   /** The group its rows land in. Used for the runner's own bookkeeping only. */
   group: PaletteCommandGroup
-  /** Fetch once when the palette opens. Failures are the provider's to swallow. */
-  warm?: (context: PaletteProviderContext) => void | Promise<void>
+  /**
+   * Fetch once when the palette opens. Failures are the provider's to swallow.
+   *
+   * `refresh` asks the runner to re-run this provider's `load` now, before the
+   * warm has settled — for a warm with a fast leg and a slow one, so the rows
+   * the fast leg produced are on screen while the slow one is still out. The
+   * runner asks again on its own when the whole warm settles.
+   */
+  warm?: (context: PaletteProviderContext, refresh: () => void) => void | Promise<void>
   load: (query: string, context: PaletteProviderContext) => PaletteCommand[] | Promise<PaletteCommand[]>
   /** Below this many characters the provider is not asked at all. Default 0. */
   minQueryLength?: number
@@ -158,7 +171,7 @@ export function usePaletteProviders(
         if (mounted.current) setWarmTick((tick) => tick + 1)
       }
       try {
-        void Promise.resolve(provider.warm(contextRef.current)).then(done, done)
+        void Promise.resolve(provider.warm(contextRef.current, done)).then(done, done)
       } catch {
         // A provider that cannot even start warming lists nothing rather than
         // taking the palette down with it.

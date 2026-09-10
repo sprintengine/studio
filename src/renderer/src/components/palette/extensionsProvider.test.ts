@@ -16,8 +16,11 @@ import {
   loadExtensionsCatalogue,
   rowBadge,
   selectExtensionCommands,
+  SOURCE_NOT_READ_BADGE,
   type ExtensionPluginRow,
   type ExtensionSkillRow,
+  type ExtensionSourceRow,
+  type ExtensionsCatalogue,
   type ExtensionsCatalogueApi,
 } from './extensionsProvider'
 
@@ -102,7 +105,7 @@ function scan(overrides: Partial<ScanResult> = {}): ScanResult {
 }
 
 const noop = () => {}
-const handlers = { onSelectSkill: noop, onSelectPlugin: noop }
+const handlers = { onSelectSkill: noop, onSelectPlugin: noop, onSelectSource: noop }
 
 // ── One warm ─────────────────────────────────────────────────────────────────
 
@@ -176,6 +179,142 @@ run('a source whose scan will not read drops out rather than emptying the list',
   assert.deepEqual(catalogue.registry, [])
 })
 
+// `skillsGetScan` on a source with no cached scan READS THE REPOSITORY right
+// then (src/main/skills/index.ts, getScan) — right for a door tab a person just
+// opened, wrong for a warm on ⌘K. So a never-read source is not asked for; it is
+// listed as a row that says so (skills-everywhere review, 2026-09-10).
+run('a source nothing has read is not asked for, and is listed as not read yet', async () => {
+  const asked: string[] = []
+  const api: ExtensionsCatalogueApi = {
+    skillsListSources: async () => ({
+      ok: true,
+      transport: 'git',
+      sources: [
+        source({ id: 'read', name: 'Read' }),
+        source({ id: 'fresh', name: 'Fresh', scannedAt: '' }),
+      ],
+    }),
+    skillsGetScan: async ({ sourceId }) => {
+      asked.push(sourceId)
+      return { ok: true, source: source({ id: sourceId, name: sourceId }), scan: scan() }
+    },
+    readMarketplaceRegistry: async () => ({ ok: false, message: 'offline' }),
+  } as unknown as ExtensionsCatalogueApi
+
+  const catalogue = await loadExtensionsCatalogue(api)
+  assert.deepEqual(asked, ['read'], 'the unread source would have cost a GitHub read')
+  assert.deepEqual(catalogue.unread.map((entry) => entry.id), ['fresh'])
+
+  const rows = buildExtensionRows(catalogue, new Set())
+  const row = rows.find((entry): entry is ExtensionSourceRow => entry.kind === 'source')
+  assert.equal(row?.name, 'Fresh')
+  assert.equal(row?.sourceId, 'fresh')
+  assert.equal(rowBadge(row as ExtensionSourceRow), SOURCE_NOT_READ_BADGE)
+  assert.match(row?.description ?? '', /Not read yet/)
+})
+
+// The registry leg is a conditional GET with a fifteen-second timeout; the
+// source legs are IPC. The sources must not wait on the network.
+run('the sources are handed over the moment they land, before the registry answers', async () => {
+  let releaseRegistry: () => void = () => {}
+  const registryGate = new Promise<void>((resolve) => {
+    releaseRegistry = resolve
+  })
+  const api: ExtensionsCatalogueApi = {
+    skillsListSources: async () => ({ ok: true, transport: 'git', sources: [source({ id: 'acme', name: 'Acme' })] }),
+    skillsGetScan: async () => ({
+      ok: true,
+      source: source({ id: 'acme', name: 'Acme' }),
+      scan: scan({ skills: [skill('skills/review')] }),
+    }),
+    readMarketplaceRegistry: async () => {
+      await registryGate
+      return {
+        ok: true,
+        state: 'ok',
+        registryUrl: 'https://example.test/registry.json',
+        source: 'cache',
+        stale: false,
+        fetchedAt: '2026-09-10T00:00:00.000Z',
+        marketplace: {
+          schemaVersion: 1,
+          plugins: [
+            {
+              id: 'studio-notes',
+              name: 'Notes',
+              publisher: { name: 'SprintEngine', verified: true },
+              summary: 'Keep notes',
+              category: 'productivity',
+              latest: 1,
+              provides: [],
+            },
+          ],
+        },
+      }
+    },
+  } as unknown as ExtensionsCatalogueApi
+
+  const partials: ExtensionsCatalogue[] = []
+  const whole = loadExtensionsCatalogue(api, (partial) => partials.push(partial))
+  // Let the source legs settle while the registry is still held.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(partials.length, 1, 'the sources arrived on their own')
+  assert.equal(partials[0].sources.length, 1)
+  assert.deepEqual(partials[0].registry, [], 'without the registry, which is still out')
+
+  releaseRegistry()
+  const catalogue = await whole
+  assert.equal(catalogue.sources.length, 1)
+  assert.equal(catalogue.registry.length, 1, 'and the whole answer has both')
+})
+
+run('the provider shows the source rows first and adds the registry when it lands', async () => {
+  let releaseRegistry: () => void = () => {}
+  const registryGate = new Promise<void>((resolve) => {
+    releaseRegistry = resolve
+  })
+  const api = {
+    skillsListSources: async () => ({ ok: true, transport: 'git', sources: [source({ id: 'acme', name: 'Acme' })] }),
+    skillsGetScan: async () => ({
+      ok: true,
+      source: source({ id: 'acme', name: 'Acme' }),
+      scan: scan({ skills: [skill('skills/review')] }),
+    }),
+    readMarketplaceRegistry: async () => {
+      await registryGate
+      return {
+        ok: true,
+        state: 'ok',
+        registryUrl: null,
+        source: 'cache',
+        stale: false,
+        fetchedAt: '',
+        marketplace: {
+          schemaVersion: 1,
+          plugins: [
+            { id: 'studio-notes', name: 'Notes', publisher: { name: 'S', verified: true }, summary: '', category: '', latest: 1, provides: [] },
+          ],
+        },
+      }
+    },
+  } as unknown as ExtensionsCatalogueApi
+  const provider = createExtensionsProvider({ api, getInstalledDirNames: () => new Set(), ...handlers })
+
+  let refreshes = 0
+  const warming = provider.warm?.({} as never, () => {
+    refreshes += 1
+  })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(refreshes, 1, 'the provider asked to be re-run when the sources landed')
+  const early = (await provider.load('', {} as never)) as { label: string }[]
+  assert.deepEqual(early.map((row) => row.label), ['review'], 'the source rows, with no registry yet')
+
+  releaseRegistry()
+  await warming
+  const late = (await provider.load('', {} as never)) as { label: string }[]
+  assert.deepEqual(late.map((row) => row.label).sort(), ['Notes', 'review'], 'the registry joined the same list')
+})
+
 // ── Rows ─────────────────────────────────────────────────────────────────────
 
 const acme = source({ id: 'acme', name: 'Acme Skills', repo: 'acme/skills' })
@@ -196,7 +335,7 @@ const withArtwork = plugin('telegram', {
   },
 })
 
-const catalogue = {
+const catalogue: ExtensionsCatalogue = {
   sources: [
     {
       source: acme,
@@ -206,6 +345,7 @@ const catalogue = {
       }),
     },
   ],
+  unread: [],
   registry: [],
   registryUrl: null,
 }
@@ -261,20 +401,34 @@ run('the install-time facts ride the plugin row so nothing has to re-read the sc
     componentsKnown: false,
     origin: { kind: 'linked', repo: 'someone/else', ref: 'main', sha: '', path: '', url: '' },
   })
+  const served = plugin('served', {
+    components: {
+      skills: [skill('plugins/served/skills/serve')],
+      commands: [],
+      agents: [],
+      hooks: [],
+      mcpServers: [{ id: 'served', name: 'served', transport: 'stdio', command: 'npx', args: ['served'] } as never],
+      lspServers: [],
+      missingSkills: [],
+    },
+  })
   const rows = buildExtensionRows(
-    { sources: [{ source: acme, scan: scan({ plugins: [hooked, linked] }) }], registry: [], registryUrl: null },
+    { sources: [{ source: acme, scan: scan({ plugins: [hooked, linked, served] }) }], unread: [], registry: [], registryUrl: null },
     new Set(),
   ) as ExtensionPluginRow[]
   const byId = new Map(rows.map((row) => [row.pluginId, row]))
   assert.equal(byId.get('watcher')?.hooks, true)
+  assert.equal(byId.get('watcher')?.mcp, false)
   assert.deepEqual(byId.get('watcher')?.skillDirNames, ['watch'])
   assert.equal(byId.get('unread')?.componentsKnown, false)
+  assert.equal(byId.get('served')?.mcp, true, 'an MCP server is a command the CLI would launch; the row says so')
 })
 
 run('a registry entry is a plugin row that knows it is one', () => {
   const rows = buildExtensionRows(
     {
       sources: [],
+      unread: [],
       registryUrl: 'https://example.test/registry.json',
       registry: [
         {
@@ -308,7 +462,7 @@ run('the filter reads the hidden fields too — category, author, keywords, tags
     tags: ['community-managed'],
   })
   const rows = buildExtensionRows(
-    { sources: [{ source: acme, scan: scan({ plugins: [tagged] }) }], registry: [], registryUrl: null },
+    { sources: [{ source: acme, scan: scan({ plugins: [tagged] }) }], unread: [], registry: [], registryUrl: null },
     new Set(),
   )
   for (const query of ['observability', 'grafana', 'metrics', 'community-managed', 'Acme']) {
@@ -325,7 +479,7 @@ run('each group is capped on its own, so skills cannot crowd out plugins', () =>
   const many = Array.from({ length: EXTENSION_ROWS_PER_GROUP + 5 }, (_, index) => skill(`skills/s${index}`))
   const manyPlugins = Array.from({ length: EXTENSION_ROWS_PER_GROUP + 5 }, (_, index) => plugin(`p${index}`))
   const rows = buildExtensionRows(
-    { sources: [{ source: acme, scan: scan({ skills: many, plugins: manyPlugins }) }], registry: [], registryUrl: null },
+    { sources: [{ source: acme, scan: scan({ skills: many, plugins: manyPlugins }) }], unread: [], registry: [], registryUrl: null },
     new Set(),
   )
   const capped = selectExtensionCommands(rows, '', handlers)
@@ -343,6 +497,7 @@ run('selecting a row calls the handler for its kind, with the row', () => {
   const commands = selectExtensionCommands(rows, '', {
     onSelectSkill: (row) => picked.push(`skill:${row.skillId}`),
     onSelectPlugin: (row) => picked.push(`plugin:${row.pluginId}`),
+    onSelectSource: (row) => picked.push(`source:${row.sourceId}`),
   })
   commands.forEach((command) => command.run())
   assert.deepEqual(picked, ['skill:skills/review', 'skill:plugins/telegram/skills/send', 'plugin:telegram'])
@@ -377,7 +532,7 @@ run('the provider warms once and reads the changing facts at load time', async (
   })
 
   assert.deepEqual(await provider.load('review', {} as never), [], 'nothing before the warm, rather than a guess')
-  await provider.warm?.({} as never)
+  await provider.warm?.({} as never, () => {})
   assert.equal(scans, 1)
 
   const first = (await provider.load('', {} as never)) as { installed?: boolean }[]

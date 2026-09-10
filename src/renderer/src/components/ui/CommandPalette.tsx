@@ -35,8 +35,10 @@ import {
   PALETTE_ROW_ICON_SIZE,
   type ExtensionPluginRow,
   type ExtensionSkillRow,
+  type ExtensionSourceRow,
 } from '../palette/extensionsProvider'
 import {
+  decidePaletteTarget,
   handSkillToAgent,
   installPluginRow,
   installSkillRow,
@@ -47,12 +49,12 @@ import {
 import type { PaletteAgentTarget } from '../palette/paletteOpenRequest'
 import {
   listLiveAgentSessions,
-  pickTargetSession,
   resolveWorkspaceSkill,
   NO_LIVE_AGENT_MESSAGE,
   NO_WORKSPACE_FOLDER_MESSAGE,
   type LiveAgentSession,
 } from '../../utils/useSkillInAgent'
+import { requestTerminalFocus, type TerminalFocusTarget } from '../../utils/terminalFocusRequest'
 import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import { dispatchExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { showToast } from '../../store/toastStore'
@@ -287,6 +289,13 @@ export default function CommandPalette({
     }
   }, [activeFolderPath])
 
+  // The terminal an invocation was just parked in, when one was. Set right
+  // before the palette closes over a successful paste, and read by the
+  // focus-restore cleanup below: the whole point of the round trip is that the
+  // person's next keystroke is Enter at THAT prompt, and "whatever opened the
+  // palette" is the star button, or a sidebar, or a Monaco editor — not it.
+  const focusAfterCloseRef = useRef<TerminalFocusTarget | null>(null)
+
   // Initial focus into the input, and focus back to whatever opened the palette
   // when it closes — the same open/close contract `Modal` carries, so dismissing
   // the palette leaves the keyboard where it started (MC-2109). Its own effect,
@@ -296,16 +305,33 @@ export default function CommandPalette({
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     inputRef.current?.focus()
     return () => {
+      // The pane that took the paste, when a pane is still mounted to answer;
+      // otherwise the opener, as before. `requestTerminalFocus` is synchronous
+      // and says whether anyone took it, so there is no guessing here.
+      const pasted = focusAfterCloseRef.current
+      if (pasted && requestTerminalFocus(pasted)) return
       if (opener?.isConnected) opener.focus()
     }
   }, [])
 
+  // Escape steps OUT of the "which agent" question before it closes the
+  // palette: the question replaced the result list, and the way back to that
+  // list must not be "reopen the palette and search again". Read through a ref
+  // so the listener is not re-bound on every state change.
+  const agentChoiceOpenRef = useRef(false)
+  const dismissAgentChoiceRef = useRef<() => void>(() => {})
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // A child surface (menu, popover) that already handled Escape marks the
       // event; the palette must not also close — same guard Modal carries.
       if (event.defaultPrevented) return
-      if (event.key === 'Escape') onClose()
+      if (event.key !== 'Escape') return
+      if (agentChoiceOpenRef.current) {
+        event.preventDefault()
+        dismissAgentChoiceRef.current()
+        return
+      }
+      onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -361,6 +387,7 @@ export default function CommandPalette({
           {
             id: 'panel.files.toggle',
             label: 'Toggle File Explorer',
+            searchLabel: 'File Explorer',
             shortcut: shortcutFor('panel.files.toggle'),
             run: () => {
               // Files is a workspace-pane tab (browser-pane epic).
@@ -371,6 +398,7 @@ export default function CommandPalette({
           {
             id: 'panel.editor.toggle',
             label: 'Toggle Code Editor',
+            searchLabel: 'Code Editor',
             shortcut: shortcutFor('panel.editor.toggle'),
             run: () => {
               togglePanelRailComponent(activeWorkspace.id, 'editor', 'Editor')
@@ -380,6 +408,7 @@ export default function CommandPalette({
           {
             id: 'panel.git.toggle',
             label: 'Toggle Git Panel',
+            searchLabel: 'Git Panel',
             shortcut: shortcutFor('panel.git.toggle'),
             run: () => {
               useWorkspaceStore.getState().togglePaneKind(activeWorkspace.id, 'git')
@@ -394,6 +423,7 @@ export default function CommandPalette({
                 {
                   id: 'panel.knowledge-graph.toggle',
                   label: 'Toggle Knowledge Graph',
+                  searchLabel: 'Knowledge Graph',
                   shortcut: shortcutFor('panel.knowledge-graph.toggle'),
                   run: () => {
                     togglePanelRailComponent(activeWorkspace.id, 'memory-graph', 'Knowledge Graph')
@@ -449,6 +479,10 @@ export default function CommandPalette({
         .map((workspace): Command => ({
           id: `switch-${workspace.id}`,
           label: `Switch to: ${workspace.name}`,
+          // The workspace's own name is the obvious query for this row, and
+          // "Switch to: " in front of it would hold it to a word-start score
+          // that any file beginning with the same letters beats.
+          searchLabel: workspace.name,
           description:
             workspace.folderPath ?? (workspace.id === activeWorkspaceId ? 'active workspace' : undefined),
           keywords: workspaceSearchKeywords(workspace.mode),
@@ -475,6 +509,7 @@ export default function CommandPalette({
             ...specialistActions.map((action): Command => ({
               id: `spawn-specialist-${action.id}`,
               label: `Spawn: ${action.label}`,
+              searchLabel: action.label,
               description: `${action.shortLabel} specialist with the selected CLI`,
               shortcut: getSpecialistCommandId(action.id) ? shortcutFor(getSpecialistCommandId(action.id)!) : undefined,
               group: 'actions' as const,
@@ -521,7 +556,7 @@ export default function CommandPalette({
           }))
         : []),
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, specialistActions])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, specialistActions])
 
   // ── Handing a result to an agent ────────────────────────────────────────
   //
@@ -559,7 +594,7 @@ export default function CommandPalette({
       return
     }
     const workspaceRoot = activeFolderPath
-    const settle = (outcome: ExtensionActionOutcome) => {
+    const settle = (session: LiveAgentSession, outcome: ExtensionActionOutcome) => {
       actionBusyRef.current = false
       setActionBusy(false)
       if (!outcome.ok) {
@@ -569,6 +604,12 @@ export default function CommandPalette({
       // grok and opencode declare that they re-read their skills directory only
       // on restart, and nothing used to say so.
       if (outcome.toast) showToast(outcome.toast)
+      // The invocation is at that agent's prompt, unsubmitted; the keyboard
+      // goes there with it (see the focus-restore effect).
+      focusAfterCloseRef.current =
+        session.workspaceId && session.agentId
+          ? { workspaceId: session.workspaceId, agentId: session.agentId }
+          : null
       onClose()
     }
     const useIn = async (session: LiveAgentSession) => {
@@ -583,18 +624,16 @@ export default function CommandPalette({
         setActionError(prepared.message)
         return
       }
-      settle(await handSkillToAgent({ workspaceRoot, skill: prepared.skill, session, clis }))
+      settle(session, await handSkillToAgent({ workspaceRoot, skill: prepared.skill, session, clis }))
     }
 
     const sessions = await listLiveAgentSessions({ workspaceId: activeWorkspaceId })
-    // The pane the palette was opened for wins outright; failing that, the
-    // focused agent; failing that, one live agent is not a question.
-    const target = pickTargetSession(
-      sessions,
-      preferredTarget ?? { agentId: focusedAgentId ?? null },
-    )
-    if (target) {
-      await useIn(target)
+    // The pane the palette was opened for wins while it is live and is never
+    // replaced by a guess once it is not; with no pane named, the focused
+    // agent, then one live agent — see `decidePaletteTarget` for the ruling.
+    const decision = decidePaletteTarget(sessions, preferredTarget, focusedAgentId)
+    if (decision.kind === 'use') {
+      await useIn(decision.session)
       return
     }
 
@@ -635,11 +674,17 @@ export default function CommandPalette({
       })
     }
     if (options.length === 0) {
-      setActionError(NO_LIVE_AGENT_MESSAGE)
+      setActionError(decision.notice ?? NO_LIVE_AGENT_MESSAGE)
       return
     }
-    setActionError(null)
+    setActionError(decision.notice)
     setAgentChoice({ title: `Use ${skillName} in…`, options })
+    setSelected(0)
+  }
+  agentChoiceOpenRef.current = agentChoice !== null
+  dismissAgentChoiceRef.current = () => {
+    setAgentChoice(null)
+    setActionError(null)
     setSelected(0)
   }
 
@@ -666,9 +711,18 @@ export default function CommandPalette({
     onClose()
   }
 
+  // A source nothing has read yet: the read happens in the door, on purpose,
+  // not as a side effect of a palette warm — so the row opens that source's
+  // tab, where opening it IS the read.
+  const onSelectSource = (row: ExtensionSourceRow) => {
+    openExtensionsSurface({ view: 'skills' })
+    dispatchExtensionsSurfaceTarget({ view: 'skills', sourceId: row.sourceId })
+    onClose()
+  }
+
   // A plugin: one press only when the answer is unambiguous AND safe. Hooks,
-  // an unread linked repository, several skills or a first-party registry entry
-  // all mean a page — see `planPluginRow`, which owns that ruling.
+  // MCP servers, an unread linked repository, several skills or a first-party
+  // registry entry all mean a page — see `planPluginRow`, which owns that ruling.
   const onSelectPlugin = (row: ExtensionPluginRow) => {
     const plan = planPluginRow(row)
     if (plan.kind === 'deep-link') {
@@ -693,6 +747,8 @@ export default function CommandPalette({
   onSelectSkillRef.current = onSelectSkill
   const onSelectPluginRef = useRef(onSelectPlugin)
   onSelectPluginRef.current = onSelectPlugin
+  const onSelectSourceRef = useRef(onSelectSource)
+  onSelectSourceRef.current = onSelectSource
 
   // ── The three fetching sources ──────────────────────────────────────────
   //
@@ -854,6 +910,7 @@ export default function CommandPalette({
         getLimit: () => rowLimitRef.current,
         onSelectSkill: (row) => void onSelectSkillRef.current(row),
         onSelectPlugin: (row) => void onSelectPluginRef.current(row),
+        onSelectSource: (row) => onSelectSourceRef.current(row),
       }),
     [],
   )

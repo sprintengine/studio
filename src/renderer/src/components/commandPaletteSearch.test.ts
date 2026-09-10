@@ -147,8 +147,10 @@ run('every group is in the canonical order exactly once', () => {
 // wherever its group happened to fall, under a workspace whose folder path
 // merely contained the letters. These are the four tiers that fixed it.
 
-const scored = (fields: { label: string; description?: string; keywords?: string }, query: string) =>
-  scoreCommandMatch(fields, query)
+const scored = (
+  fields: { label: string; searchLabel?: string; description?: string; keywords?: string },
+  query: string,
+) => scoreCommandMatch(fields, query)
 
 run('an exact name beats a prefix beats a word start beats a buried match', () => {
   assert.equal(scored({ label: 'backlog' }, 'backlog'), PALETTE_SCORE.labelExact)
@@ -240,6 +242,105 @@ run('group order is the last tie-break, not the first', () => {
 run('ordering is stable, so a provider\'s own order survives a tie', () => {
   const rows = ['one', 'two', 'three'].map((label) => row(label, 'skills'))
   assert.deepEqual(orderPaletteCommands(rows, '').map((entry) => entry.label), ['one', 'two', 'three'])
+})
+
+// What the scorer must NOT have changed for the people who already use the
+// palette: with nothing typed it is the launcher it was — canonical group
+// order, insertion order inside a group — and the obvious query for each of
+// the old first rows still puts that row first (review, 2026-09-10).
+run('an empty query keeps the old group order and each group\'s insertion order', () => {
+  const rows = [
+    row('Toggle File Explorer', 'commands'),
+    row('Switch to: beta', 'agents'),
+    row('New Chat', 'actions'),
+    row('Switch to: alpha', 'agents'),
+    row('README.md', 'files'),
+    row('review', 'skills', { installed: true }),
+    row('Toggle Git Panel', 'commands'),
+    row('const x = 1', 'content'),
+  ]
+  assert.deepEqual(
+    orderPaletteCommands(rows, '').map((entry) => entry.label),
+    [
+      'Switch to: beta',
+      'Switch to: alpha',
+      'review',
+      'Toggle File Explorer',
+      'Toggle Git Panel',
+      'New Chat',
+      'README.md',
+      'const x = 1',
+    ],
+  )
+})
+
+run('the old first rows still come first for their obvious queries', () => {
+  const rows = [
+    row('a line that mentions switch to nothing', 'content'),
+    row('switch.ts', 'files'),
+    row('Switch to: alpha', 'agents', { description: '/Users/me/new-chat-notes' }),
+    row('Toggle Git Panel', 'commands'),
+    row('New Chat', 'actions'),
+    row('.gitignore', 'files'),
+    row('git status', 'content'),
+  ]
+  const first = (query: string) => orderPaletteCommands(rows, query)[0].label
+  // Same tier as the file (both prefixes); the canonical order breaks the tie.
+  assert.equal(first('switch'), 'Switch to: alpha')
+  // "New Chat" is a label prefix; the workspace whose PATH contains it is a
+  // detail match — which is the regression the scorer was written to fix.
+  assert.equal(first('new chat'), 'New Chat')
+  // `.gitignore` and `git status` are a word start and a prefix on things that
+  // are not commands; the command's own word start ties the file and the
+  // canonical order keeps Commands ahead of Files — but a CONTENT line that
+  // begins with the query is a prefix, and outranks the command's word start.
+  assert.equal(first('git'), 'git status')
+})
+
+run('a row\'s own name is scored at the label bands, past the palette\'s own verb', () => {
+  const switchRow = { label: 'Switch to: croissant', searchLabel: 'croissant' }
+  // Without `searchLabel` this is a word start (600), because "Switch to: "
+  // sits in front of the only word anyone would type.
+  assert.equal(scored(switchRow, 'croissant'), PALETTE_SCORE.labelExact)
+  assert.equal(scored({ label: 'Toggle Git Panel', searchLabel: 'Git Panel' }, 'git panel'), PALETTE_SCORE.labelExact)
+  // Both strings are scored, not one instead of the other, so the verb is
+  // still a way to find the row.
+  assert.equal(scored(switchRow, 'switch'), PALETTE_SCORE.labelPrefix)
+  // And the better of the two wins rather than whichever is checked first.
+  assert.equal(scored({ label: 'croissant', searchLabel: 'a croissant' }, 'croissant'), PALETTE_SCORE.labelExact)
+})
+
+run('typing a workspace\'s own name puts its switch row above a file that merely starts with it', () => {
+  const rows: PaletteRankable[] = [
+    { label: 'croissant.config.ts', group: 'files' },
+    { label: 'croissantry helper', group: 'content' },
+    { label: 'Switch to: croissant', searchLabel: 'croissant', group: 'agents' },
+  ]
+  assert.equal(orderPaletteCommands(rows, 'croissant')[0].label, 'Switch to: croissant')
+  // The same rule for the other two verb-prefixed kinds.
+  const panels: PaletteRankable[] = [
+    { label: 'git-panel.tsx', group: 'files' },
+    { label: 'Toggle Git Panel', searchLabel: 'Git Panel', group: 'commands' },
+  ]
+  assert.equal(orderPaletteCommands(panels, 'git panel')[0].label, 'Toggle Git Panel')
+})
+
+run('the decorated sort agrees with comparePaletteMatches on every pair', () => {
+  const rows = [
+    row('review', 'skills', { installed: false }),
+    row('review', 'skills', { installed: true }),
+    row('review', 'commands'),
+    row('code review', 'content'),
+    row('previews', 'files'),
+    row('x', 'agents', { keywords: 'review' }),
+  ]
+  const ordered = orderPaletteCommands(rows, 'review')
+  for (let i = 0; i < ordered.length - 1; i += 1) {
+    assert.ok(
+      comparePaletteMatches(ordered[i], ordered[i + 1], 'review') <= 0,
+      `${ordered[i].label} must not sort after ${ordered[i + 1].label}`,
+    )
+  }
 })
 
 console.log('commandPaletteSearch: all assertions passed')

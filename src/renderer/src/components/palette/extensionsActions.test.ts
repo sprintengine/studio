@@ -15,12 +15,14 @@ import type {
   WorkspaceSkill,
 } from '../../../../shared/electron-api'
 import {
+  decidePaletteTarget,
   installPluginRow,
   planPluginRow,
   useSkillRowInAgent,
   type ExtensionsActionApi,
 } from './extensionsActions'
 import type { ExtensionPluginRow, ExtensionSkillRow } from './extensionsProvider'
+import { AGENT_NO_LONGER_RUNNING_MESSAGE, type LiveAgentSession } from '../../utils/useSkillInAgent'
 
 let failures = 0
 // Each case installs its OWN fake bridge on `globalThis.window`, so they are
@@ -122,6 +124,7 @@ const pluginRow = (overrides: Partial<ExtensionPluginRow> = {}): ExtensionPlugin
   icon: {},
   registry: false,
   hooks: false,
+  mcp: false,
   componentsKnown: true,
   skillDirNames: ['send'],
   ...overrides,
@@ -214,6 +217,13 @@ run('a plugin that declares hooks is a page, never a one-press install', () => {
   assert.deepEqual(plan, { kind: 'deep-link', reason: 'hooks' })
 })
 
+// The main process does not gate MCP servers the way it gates hooks, so this
+// is the only place the ruling can live: a stdio server is a command the CLI
+// will launch, and a palette row never showed it (review, 2026-09-10).
+run('a plugin that declares MCP servers is a page too — nothing gates them downstream', () => {
+  assert.deepEqual(planPluginRow(pluginRow({ mcp: true })), { kind: 'deep-link', reason: 'mcp' })
+})
+
 run('the other three shapes a scan cannot vouch for are pages too', () => {
   assert.equal(planPluginRow(pluginRow({ componentsKnown: false })).kind, 'deep-link')
   assert.equal(planPluginRow(pluginRow({ skillDirNames: ['a', 'b'] })).kind, 'deep-link')
@@ -268,6 +278,40 @@ run('the install receipt outranks the scan on which directory now exists', async
   assert.equal(resolved.ok, true)
   assert.equal(resolved.ok ? resolved.skill.id : '', 'send')
   assert.equal(calls.some((call) => call.name === 'workspaceSkillsList'), true)
+})
+
+// ── Which agent ──────────────────────────────────────────────────────────────
+// The star names a session. That is an instruction, not a hint: honoured while
+// it is live, and never swapped for "the one agent left" once it is not —
+// because the one left is exactly the one the person did not point at.
+
+const live = (sessionId: string, agentId: string): LiveAgentSession =>
+  ({ sessionId, agentId, workspaceId: 'ws', label: agentId, snapshot: {} as never }) as LiveAgentSession
+
+run('the pane the palette was opened for is used while it is live', () => {
+  const sessions = [live('s1', 'a1'), live('s2', 'a2')]
+  const decision = decidePaletteTarget(sessions, { sessionId: 's2' }, 'a1')
+  assert.equal(decision.kind, 'use')
+  assert.equal(decision.kind === 'use' ? decision.session.sessionId : '', 's2', 'over the focused agent')
+})
+
+run('a named pane that has exited is a question with a reason, not a guess at the one agent left', () => {
+  const decision = decidePaletteTarget([live('s2', 'a2')], { sessionId: 's1' }, 'a2')
+  assert.deepEqual(decision, { kind: 'ask', notice: AGENT_NO_LONGER_RUNNING_MESSAGE })
+})
+
+run('with no pane named, the focused agent wins, then a lone live agent, then a question', () => {
+  const two = [live('s1', 'a1'), live('s2', 'a2')]
+  assert.equal(
+    (decidePaletteTarget(two, null, 'a2') as { session: LiveAgentSession }).session.sessionId,
+    's2',
+  )
+  assert.equal(
+    (decidePaletteTarget([live('s1', 'a1')], null, undefined) as { session: LiveAgentSession }).session.sessionId,
+    's1',
+  )
+  assert.deepEqual(decidePaletteTarget(two, null, 'gone'), { kind: 'ask', notice: null })
+  assert.deepEqual(decidePaletteTarget([], null, null), { kind: 'ask', notice: null })
 })
 
 async function main(): Promise<void> {

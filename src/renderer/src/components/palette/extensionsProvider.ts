@@ -24,6 +24,7 @@ import {
   pluginArtwork,
   pluginsByFolder,
   skillArtwork,
+  sourceArtwork,
 } from '../workspace/globalSurface/extensions/catalogue/pluginArtwork'
 import { skillPluginFolder } from '../workspace/globalSurface/extensions/skills/skillsSurfaceModel'
 import { resolveIconUrl } from '../settings/BrowseStorefront'
@@ -50,6 +51,17 @@ export type ExtensionsSourceScan = {
 
 export type ExtensionsCatalogue = {
   sources: ExtensionsSourceScan[]
+  /**
+   * Sources that have never been read, so there is no cached scan to list.
+   *
+   * They are NOT asked for. `skillsGetScan` on a source with no cached scan
+   * reads the repository right then (src/main/skills/index.ts, `getScan`) —
+   * the right rule for a door tab a person just opened, and the wrong one for a
+   * search box that warms on a keyboard shortcut: N unread sources would be N
+   * GitHub reads every time the palette opened. They are listed instead, as a
+   * row that says so and opens the door on that source.
+   */
+  unread: SkillSource[]
   /** The first-party registry's entries, and the URL its relative icons resolve against. */
   registry: MarketplacePluginEntry[]
   registryUrl: string | null
@@ -57,8 +69,14 @@ export type ExtensionsCatalogue = {
 
 export const EMPTY_EXTENSIONS_CATALOGUE: ExtensionsCatalogue = {
   sources: [],
+  unread: [],
   registry: [],
   registryUrl: null,
+}
+
+/** A source is read once something has read it. '' is the store's "never". */
+export function sourceHasBeenRead(source: Pick<SkillSource, 'scannedAt'>): boolean {
+  return source.scannedAt !== ''
 }
 
 /** Only the calls this module makes, so a test can hand it four functions. */
@@ -75,27 +93,43 @@ export type ExtensionsCatalogueApi = Pick<
  * there leaves the source rows standing. The palette is a search box, and a
  * search box that refuses to search because one of five sources is unreachable
  * is worse than one that searches the other four.
+ *
+ * The two legs are not the same speed. The sources are cached scans — an IPC
+ * round trip each. The registry is a conditional GET with a fifteen-second
+ * timeout (src/main/marketplace/registry-client.ts), which offline or on a
+ * captive network is fifteen seconds of an empty Skills group. So `onSources`
+ * hands the source rows over the moment they land, and the returned promise
+ * is the whole answer.
  */
 export async function loadExtensionsCatalogue(
   api: ExtensionsCatalogueApi,
+  onSources?: (partial: ExtensionsCatalogue) => void,
 ): Promise<ExtensionsCatalogue> {
-  const [sources, registry] = await Promise.all([
-    loadSourceScans(api),
-    loadRegistry(api),
-  ])
-  return { sources, ...registry }
+  const sourcesLeg = loadSourceScans(api)
+  const registryLeg = loadRegistry(api)
+  if (onSources) {
+    void sourcesLeg.then((sources) => onSources({ ...EMPTY_EXTENSIONS_CATALOGUE, ...sources }))
+  }
+  const [sources, registry] = await Promise.all([sourcesLeg, registryLeg])
+  return { ...sources, ...registry }
 }
 
-async function loadSourceScans(api: ExtensionsCatalogueApi): Promise<ExtensionsSourceScan[]> {
+async function loadSourceScans(
+  api: ExtensionsCatalogueApi,
+): Promise<Pick<ExtensionsCatalogue, 'sources' | 'unread'>> {
   let listed: Awaited<ReturnType<ExtensionsCatalogueApi['skillsListSources']>>
   try {
     listed = await api.skillsListSources()
   } catch {
-    return []
+    return { sources: [], unread: [] }
   }
-  if (!listed.ok) return []
+  if (!listed.ok) return { sources: [], unread: [] }
+  // Only sources that have been read are asked for — see `unread` on the
+  // catalogue type for why the others must not be.
+  const read = listed.sources.filter(sourceHasBeenRead)
+  const unread = listed.sources.filter((source) => !sourceHasBeenRead(source))
   const scans = await Promise.all(
-    listed.sources.map(async (source): Promise<ExtensionsSourceScan | null> => {
+    read.map(async (source): Promise<ExtensionsSourceScan | null> => {
       try {
         const outcome = await api.skillsGetScan({ sourceId: source.id })
         // The scan carries its own copy of the source record (a read may have
@@ -106,7 +140,7 @@ async function loadSourceScans(api: ExtensionsCatalogueApi): Promise<ExtensionsS
       }
     }),
   )
-  return scans.filter((entry): entry is ExtensionsSourceScan => entry !== null)
+  return { sources: scans.filter((entry): entry is ExtensionsSourceScan => entry !== null), unread }
 }
 
 async function loadRegistry(
@@ -160,13 +194,35 @@ export type ExtensionPluginRow = {
   registry: boolean
   /** Declares hooks — shell commands, which must never be installed silently. */
   hooks: boolean
+  /**
+   * Declares MCP servers. `skillsInstallPlugin` writes their configs alongside
+   * the skills, and a stdio server is a command the agent's CLI will launch —
+   * a page's worth of reading, not a side effect of picking a skill.
+   */
+  mcp: boolean
   /** False for a linked plugin nobody has opened: its skills are unknown, not none. */
   componentsKnown: boolean
   /** The directory names of the skills it ships, when they are known. */
   skillDirNames: string[]
 }
 
-export type ExtensionRow = ExtensionSkillRow | ExtensionPluginRow
+/**
+ * A configured source nothing has read yet. It has no skills or plugins to
+ * list — not none, unknown — so its one row says so and opens the door on it,
+ * where the read happens on purpose rather than as a side effect of ⌘K.
+ */
+export type ExtensionSourceRow = {
+  kind: 'source'
+  id: string
+  sourceId: string
+  sourceName: string
+  name: string
+  description: string
+  keywords: string
+  icon: PaletteRowIcon
+}
+
+export type ExtensionRow = ExtensionSkillRow | ExtensionPluginRow | ExtensionSourceRow
 
 /** Everything a row is searched by, in one string. */
 function matchText(parts: readonly (string | undefined)[]): string {
@@ -205,7 +261,30 @@ export function buildExtensionRows(
   for (const entry of catalogue.registry) {
     rows.push(registryRow(entry, catalogue.registryUrl))
   }
+  for (const source of catalogue.unread) {
+    rows.push(unreadSourceRow(source))
+  }
   return rows
+}
+
+/** What the row for a never-read source says under its name. */
+export const SOURCE_NOT_READ_DESCRIPTION =
+  'Not read yet — open it in the Extensions door to list its skills and plugins here.'
+
+/** The badge on a never-read source's row. */
+export const SOURCE_NOT_READ_BADGE = 'Not read yet'
+
+function unreadSourceRow(source: SkillSource): ExtensionSourceRow {
+  return {
+    kind: 'source',
+    id: `ext-source-${source.id}`,
+    sourceId: source.id,
+    sourceName: source.name,
+    name: source.name,
+    description: SOURCE_NOT_READ_DESCRIPTION,
+    keywords: matchText([source.repo, source.path, source.blurb]),
+    icon: extensionIconProps(sourceArtwork(source, source.name, PALETTE_ROW_ICON_SIZE)),
+  }
 }
 
 function skillRow(
@@ -249,6 +328,7 @@ function pluginRow(plugin: ScannedPlugin, source: SkillSource): ExtensionPluginR
     icon: extensionIconProps(pluginArtwork(plugin, source, PALETTE_ROW_ICON_SIZE)),
     registry: false,
     hooks: plugin.components.hooks.length > 0,
+    mcp: plugin.components.mcpServers.length > 0,
     componentsKnown: plugin.componentsKnown,
     skillDirNames: plugin.components.skills.map((skill) => skillDirName(skill.id)),
   }
@@ -278,6 +358,7 @@ function registryRow(entry: MarketplacePluginEntry, registryUrl: string | null):
     // A registry entry never installs from here, so its hooks and components
     // are the storefront's business, not this row's.
     hooks: false,
+    mcp: false,
     componentsKnown: true,
     skillDirNames: (entry.skills ?? []).map((skill: { path?: string; name: string }) => skillDirName(skill.path ?? skill.name)),
   }
@@ -285,13 +366,14 @@ function registryRow(entry: MarketplacePluginEntry, registryUrl: string | null):
 
 // ── Rows → palette commands ──────────────────────────────────────────────────
 
-/** "Installed", or where it would come from. */
+/** "Installed", where it would come from, or that nothing has read it yet. */
 export function rowBadge(row: ExtensionRow): string {
   if (row.kind === 'skill') return row.installed ? 'Installed' : row.sourceName
+  if (row.kind === 'source') return SOURCE_NOT_READ_BADGE
   return row.sourceName
 }
 
-/** Which group a row lands in: a skill among skills, a plugin among extensions. */
+/** Which group a row lands in: a skill among skills, everything else among extensions. */
 export function rowGroup(row: ExtensionRow): PaletteCommandGroup {
   return row.kind === 'skill' ? 'skills' : 'extensions'
 }
@@ -314,15 +396,16 @@ export type ExtensionsProviderDeps = {
   onSelectSkill: (row: ExtensionSkillRow) => void
   /** Selecting a plugin: install, deep-link, or both — the caller decides. */
   onSelectPlugin: (row: ExtensionPluginRow) => void
+  /** Selecting a never-read source: open the door on it, where the read happens. */
+  onSelectSource: (row: ExtensionSourceRow) => void
   /** Overridable for tests; defaults to the real preload bridge. */
   api?: ExtensionsCatalogueApi
 }
 
 /** A row as the palette renders it. */
-export function extensionRowToCommand(
-  row: ExtensionRow,
-  deps: Pick<ExtensionsProviderDeps, 'onSelectSkill' | 'onSelectPlugin'>,
-): PaletteCommand {
+type RowHandlers = Pick<ExtensionsProviderDeps, 'onSelectSkill' | 'onSelectPlugin' | 'onSelectSource'>
+
+export function extensionRowToCommand(row: ExtensionRow, deps: RowHandlers): PaletteCommand {
   return {
     id: row.id,
     label: row.name,
@@ -334,7 +417,8 @@ export function extensionRowToCommand(
     installed: row.kind === 'skill' ? row.installed : undefined,
     run: () => {
       if (row.kind === 'skill') deps.onSelectSkill(row)
-      else deps.onSelectPlugin(row)
+      else if (row.kind === 'plugin') deps.onSelectPlugin(row)
+      else deps.onSelectSource(row)
     },
   }
 }
@@ -349,7 +433,7 @@ export function extensionRowToCommand(
 export function selectExtensionCommands(
   rows: readonly ExtensionRow[],
   query: string,
-  deps: Pick<ExtensionsProviderDeps, 'onSelectSkill' | 'onSelectPlugin'> & { limit?: number },
+  deps: RowHandlers & { limit?: number },
 ): PaletteCommand[] {
   const commands = rows
     .map((row) => extensionRowToCommand(row, deps))
@@ -375,26 +459,32 @@ export function selectExtensionCommands(
 export function createExtensionsProvider(deps: ExtensionsProviderDeps): PaletteResultProvider {
   const api = deps.api ?? window.api
   let catalogue: ExtensionsCatalogue | null = null
-  // Rows are rebuilt only when the inventory behind them changes — which is
-  // once, when `workspaceSkillsList` lands — rather than on every keystroke.
-  let cachedFor: ReadonlySet<string> | null = null
+  // Rows are rebuilt only when what they are built FROM changes — the catalogue
+  // (twice per warm at most: sources, then sources and registry) and the
+  // inventory (once, when `workspaceSkillsList` lands) — not on every keystroke.
+  let builtFrom: { catalogue: ExtensionsCatalogue; installed: ReadonlySet<string> } | null = null
   let rows: ExtensionRow[] = []
 
   return {
     id: 'extensions',
     group: 'extensions',
     respondsToEmptyQuery: true,
-    warm: async () => {
-      catalogue = await loadExtensionsCatalogue(api)
+    warm: async (_context, refresh) => {
+      // The sources land first and are shown first; the registry, which may be
+      // waiting on a network that is not there, joins when it arrives.
+      catalogue = await loadExtensionsCatalogue(api, (partial) => {
+        catalogue = partial
+        refresh()
+      })
     },
     load: (query) => {
       // Still warming: no rows rather than a stale list. The runner asks again
       // when the warm settles.
       if (!catalogue) return []
-      const installedDirNames = deps.getInstalledDirNames()
-      if (cachedFor !== installedDirNames) {
-        rows = buildExtensionRows(catalogue, installedDirNames)
-        cachedFor = installedDirNames
+      const installed = deps.getInstalledDirNames()
+      if (!builtFrom || builtFrom.catalogue !== catalogue || builtFrom.installed !== installed) {
+        rows = buildExtensionRows(catalogue, installed)
+        builtFrom = { catalogue, installed }
       }
       return selectExtensionCommands(rows, query, { ...deps, limit: deps.getLimit?.() })
     },

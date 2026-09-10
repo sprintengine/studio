@@ -6,10 +6,11 @@
 //
 //   • a skill you have        → hand it to the agent;
 //   • a skill you do not have → install it from its source, THEN hand it over;
-//   • a plugin with no hooks and exactly one skill → the same, in one press;
-//   • anything else about a plugin — hooks, an unread linked repository, more
-//     than one skill, a first-party registry entry — → open its page in the
-//     Extensions door and let the person decide there.
+//   • a plugin with no hooks, no MCP servers and exactly one skill → the same,
+//     in one press;
+//   • anything else about a plugin — hooks, MCP servers, an unread linked
+//     repository, more than one skill, a first-party registry entry — → open
+//     its page in the Extensions door and let the person decide there.
 //
 // The hooks clause is the one that matters. A plugin's hooks are shell commands
 // that run on the agent's tool calls, and `skillsInstallPlugin` refuses to
@@ -18,13 +19,22 @@
 // passes it: a plugin with hooks is a deep link, and the acknowledgement stays
 // where a person can read what they are agreeing to.
 //
+// MCP servers are the same shape of thing one rung down. The main process does
+// not gate them, so the door installs them with the skills — but the door shows
+// the server's command before Install, and a palette row shows a name and a
+// sentence. A person who picked "a skill" and got a process registered with
+// their CLI was not asked; so a plugin that declares any is a page here too
+// (skills-everywhere review, 2026-09-10).
+//
 // Store-free and DOM-free: the deep link arrives as a callback, so the whole
 // decision is testable against a fake `window.api`.
 
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import type { ShowToastInput } from '../../store/toastStore'
 import {
+  AGENT_NO_LONGER_RUNNING_MESSAGE,
   NO_WORKSPACE_FOLDER_MESSAGE,
+  pickTargetSession,
   resolveWorkspaceSkill,
   skillRestartToast,
   useSkillInAgent,
@@ -128,6 +138,8 @@ export type PluginDeepLinkReason =
   | 'registry'
   /** It declares hooks — shell commands, and an acknowledgement to read. */
   | 'hooks'
+  /** It declares MCP servers — commands the CLI would launch, unshown here. */
+  | 'mcp'
   /** A linked plugin nobody has opened: its components are unknown, not empty. */
   | 'unread'
   /** More than one skill, so which one is a question. */
@@ -143,16 +155,55 @@ export type PluginRowPlan =
  * What selecting a plugin row should do, decided from the scan alone.
  *
  * Pure, and the whole safety argument: `install-and-use` is reachable only for
- * a plugin whose components have been READ, that declares no hooks, and that
- * ships exactly one skill. Every other shape is a page.
+ * a plugin whose components have been READ, that declares no hooks and no MCP
+ * servers, and that ships exactly one skill. Every other shape is a page.
  */
 export function planPluginRow(row: ExtensionPluginRow): PluginRowPlan {
   if (row.registry) return { kind: 'deep-link', reason: 'registry' }
   if (row.hooks) return { kind: 'deep-link', reason: 'hooks' }
+  if (row.mcp) return { kind: 'deep-link', reason: 'mcp' }
   if (!row.componentsKnown) return { kind: 'deep-link', reason: 'unread' }
   if (row.skillDirNames.length === 0) return { kind: 'deep-link', reason: 'nothing-to-run' }
   if (row.skillDirNames.length > 1) return { kind: 'deep-link', reason: 'choice' }
   return { kind: 'install-and-use', skillDirName: row.skillDirNames[0] }
+}
+
+// ── Which agent ──────────────────────────────────────────────────────────────
+
+/** Where a chosen skill goes: into one session now, or to the person to say. */
+export type PaletteTargetDecision =
+  | { kind: 'use'; session: LiveAgentSession }
+  | {
+      kind: 'ask'
+      /** Something to say above the question, when the reason for it is news. */
+      notice: string | null
+    }
+
+/**
+ * The one agent to use without asking, or the fact that there is a question.
+ *
+ * A pane that asked for the palette (the terminal's star) named its session,
+ * and that is an instruction, not a hint: it is used when it is still live and
+ * it is NOT replaced by a guess when it is not. `pickTargetSession`'s "one live
+ * agent is not a question" is the right rule when nobody said which agent — it
+ * is the wrong rule when somebody did and that agent has since exited, because
+ * the one agent left is precisely the one the person did not point at. So a
+ * named session that has gone is a question, with a line saying why
+ * (skills-everywhere review, 2026-09-10).
+ *
+ * Absent a named session, the focused agent wins, then a lone live agent.
+ */
+export function decidePaletteTarget(
+  sessions: readonly LiveAgentSession[],
+  preferred: { sessionId: string } | null | undefined,
+  focusedAgentId: string | null | undefined,
+): PaletteTargetDecision {
+  if (preferred) {
+    const named = sessions.find((session) => session.sessionId === preferred.sessionId)
+    return named ? { kind: 'use', session: named } : { kind: 'ask', notice: AGENT_NO_LONGER_RUNNING_MESSAGE }
+  }
+  const picked = pickTargetSession(sessions, { agentId: focusedAgentId ?? null })
+  return picked ? { kind: 'use', session: picked } : { kind: 'ask', notice: null }
 }
 
 export type PluginRowInput = {
