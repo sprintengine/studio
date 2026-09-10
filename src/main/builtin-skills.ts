@@ -90,17 +90,6 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     targetPolicy: ALL_NATIVE_TARGET_POLICY,
   },
   {
-    id: 'review-guide',
-    name: 'Review Guide',
-    version: '1.0.0',
-    description: 'Walk a human reviewer through a code change, and answer their questions about it.',
-    // The guide runs as an ordinary terminal agent under whichever CLI the
-    // reviewer picked, so the skill must land in that CLI's native skill dir
-    // (.claude/skills, .codex/skills, ...), not just .agents/. The review guide
-    // service ensure-installs it at spawn via spawnSkillId.
-    targetPolicy: ALL_NATIVE_TARGET_POLICY,
-  },
-  {
     id: 'frontend-design',
     name: 'Frontend Design',
     version: '1.0.0',

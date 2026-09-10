@@ -1,5 +1,5 @@
 // A workspace's kind. `'standard'` is the only mode shared contracts pin by
-// name; every other mode (sprintengine, review, automations-host, …) is renderer-
+// name; every other mode (sprintengine, automations-host, …) is renderer-
 // owned and flows through shared boundaries as an open string. Lifted here from
 // `renderer/src/types/workspace.ts` so shared contracts (e.g. `automation.ts`,
 // the main-process automation surface) can name the type without importing the
@@ -11,13 +11,6 @@ export type WorkspaceMode = 'standard' | (string & {})
 export const AUTOMATIONS_HOST_WORKSPACE_MODE = 'automations-host'
 // Execution residency for a Sprint Engine run's agent terminals (item 1767).
 export const SPRINT_ENGINE_WORKSPACE_MODE = 'sprintengine'
-// Residency for a project's review guide terminals (MC-1911). One per project
-// root, created on demand by the Reviews door. The guide runs WITH the project
-// as its cwd — it reads the change, the code around it, and the knowledge graph
-// — but its terminal is not the project's work, so it does not belong among the
-// reviewer's own agents. The Reviews door is how it is found and opened.
-export const REVIEWS_HOST_WORKSPACE_MODE = 'reviews-host'
-
 // True when a workspace of this mode must not appear in the normal workspace
 // rail: an instance-level door surface took over finding and steering it, so
 // listing it again under one project would claim it belongs there. Hidden means
@@ -26,12 +19,11 @@ export const REVIEWS_HOST_WORKSPACE_MODE = 'reviews-host'
 //
 // It lives in `shared` because both processes need the same answer and main
 // cannot import the renderer: the renderer's `isHiddenFromRail` delegates here,
-// and the review guide's workspace resolution (`guide-terminal-service.ts`)
-// consults it to keep the guide out of every OTHER hidden workspace.
+// and main-side workspace resolution consults it to keep background work out of
+// every hidden workspace.
 export function isModeHiddenFromRail(mode: WorkspaceMode): boolean {
   return (
     mode === AUTOMATIONS_HOST_WORKSPACE_MODE
     || mode === SPRINT_ENGINE_WORKSPACE_MODE
-    || mode === REVIEWS_HOST_WORKSPACE_MODE
   )
 }

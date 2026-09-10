@@ -1155,8 +1155,8 @@ export interface SettingsSliceState {
   // workspace are mutually exclusive — the sidebar selection invariant.
   activeGlobalSurface: string | null
   // The active modal surface for this window (doors→modals, 2026-09-01): a
-  // registered modal-surface id ('settings', 'diff', 'reviews', or a
-  // third-party id) or null. Automations, Design and Plugins left this field
+  // registered modal-surface id ('settings', 'diff', or a module-registered
+  // id) or null. Automations, Design and Plugins left this field
   // for `activeGlobalSurface` (Extensions drawer ruling, 2026-09-05): the
   // product's own destinations route the card region rather than floating over
   // it. Per-window and transient like

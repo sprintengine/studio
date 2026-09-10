@@ -168,10 +168,11 @@ assert.equal(
 
 // An open modal surface (doors→modals, 2026-09-01) closes on activation the
 // same way, on both paths: a reveal must land on a visible workspace, not one
-// behind the modal's scrim. `reviews` and `settings` because those are what a
-// modal IS now — Automations, Design and Plugins went back to being doors
-// (Extensions drawer ruling, 2026-09-05) and are covered by the door path above.
-useWorkspaceStore.getState().openModalSurface('reviews', { workspaceId: secondId })
+// behind the modal's scrim. A module-registered id and `settings` because those
+// are what a modal IS now — Automations, Design and Plugins went back to being
+// doors (Extensions drawer ruling, 2026-09-05) and are covered by the door path
+// above.
+useWorkspaceStore.getState().openModalSurface('notebooks', { workspaceId: secondId })
 useWorkspaceStore.getState().setActiveWorkspace(firstId)
 assert.equal(
   useWorkspaceStore.getState().activeModalSurface,

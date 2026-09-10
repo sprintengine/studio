@@ -3134,53 +3134,6 @@ body:has([data-selection-pane]:focus-within)
   content: none;
 }
 
-/* ============================================================================
-   Review walkthrough (T7 / MC-1680) — Monaco glue + earned pane motion.
-   Token-only; the surface chrome itself lives in the panels/review components.
-   ========================================================================== */
-
-/* Guide hover-tip lines: a dotted accent underline + help cursor. The hover
-   content rides a Monaco decoration hoverMessage, so no provider is needed. */
-.monaco-editor .review-hint-line {
-  text-decoration: underline dotted var(--accent-primary);
-  text-underline-offset: 3px;
-  text-decoration-thickness: 1px;
-  cursor: help;
-}
-
-/* Comment gutter affordance: a small accent "+" on the hovered changed line. */
-.monaco-editor .review-comment-glyph {
-  cursor: pointer;
-}
-.monaco-editor .review-comment-glyph::before {
-  content: '+';
-  display: block;
-  text-align: center;
-  font-weight: 600;
-  color: var(--accent-primary);
-}
-
-/* Step-pane continuity: content fades and settles when the active pane changes,
-   never a hard swap. One easing, the normal duration, reduced-motion honored. */
-.review-pane-enter {
-  animation: review-pane-in var(--motion-normal) var(--motion-ease);
-}
-@keyframes review-pane-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .review-pane-enter {
-    animation: none;
-  }
-}
-
 /* Glass window material (macOS vibrancy; data-window-material="glass" is
  * stamped by the index.html boot script and useAppTheme). The OS composites
  * the frost from the desktop behind the window, so this costs nothing per

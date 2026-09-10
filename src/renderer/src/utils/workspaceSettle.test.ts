@@ -81,11 +81,6 @@ assert.equal(
   false,
   'automations host never settles'
 )
-assert.equal(
-  shouldAutoSettleWorkspace(ws({ mode: 'reviews-host' as Workspace['mode'] }), NOW),
-  false,
-  'reviews host never settles'
-)
 
 // Sprints with pending work never settle; finished merged runs do.
 const sprintState = (tasks: { status: string }[], vcs?: { pullRequestState: string }) =>

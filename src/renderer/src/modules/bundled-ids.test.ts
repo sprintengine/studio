@@ -9,23 +9,26 @@ import { BUNDLED_RENDERER_MODULE_MANIFESTS } from './index'
 // module is added or renamed without updating BUNDLED_MODULE_IDS, a
 // third-party module could install under the real id; this test catches that.
 //
-// RETIRED ids stay reserved on purpose. A module id the app once shipped is
-// still an id a person recognises and a first-party trust decision keys on
-// (`isFirstPartyAutomationProviderModule`), so releasing it back into the
-// third-party namespace would let an impostor inherit that trust. They are
-// listed here, not silently tolerated, so the set stays deliberate.
-const RETIRED_RESERVED_IDS = ['switchboard', 'design-wizard']
+// RESERVED-BUT-UNBUNDLED ids stay in BUNDLED_MODULE_IDS on purpose. A module id
+// the app once shipped — or ships today as an installable module rather than an
+// in-tree one — is still an id a person recognises and a first-party trust
+// decision keys on (`isFirstPartyAutomationProviderModule`), so releasing it
+// back into the third-party namespace would let an impostor inherit that trust.
+// `review` is the extracted Reviews module (publisher-locked reservation); the
+// others are retired. They are listed here, not silently tolerated, so the set
+// stays deliberate.
+const RETIRED_RESERVED_IDS = ['switchboard', 'design-wizard', 'review']
 
 const bundled = [...BUNDLED_RENDERER_MODULE_MANIFESTS.map((m) => m.id)].sort()
 const reserved = [...BUNDLED_MODULE_IDS].sort()
 assert.deepEqual(
   reserved.filter((id) => !RETIRED_RESERVED_IDS.includes(id)),
   bundled,
-  'BUNDLED_MODULE_IDS must match the bundled renderer module ids, plus the retired reserved ids',
+  'BUNDLED_MODULE_IDS must match the bundled renderer module ids, plus the reserved-but-unbundled ids',
 )
 for (const id of RETIRED_RESERVED_IDS) {
-  assert.ok(reserved.includes(id), `retired module id "${id}" must stay reserved`)
-  assert.ok(!bundled.includes(id), `retired module id "${id}" must not be a live bundled module`)
+  assert.ok(reserved.includes(id), `reserved module id "${id}" must stay reserved`)
+  assert.ok(!bundled.includes(id), `reserved module id "${id}" must not be a live bundled module`)
 }
 
 console.log('bundled-ids guard passed')

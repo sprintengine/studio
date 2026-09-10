@@ -1,7 +1,6 @@
 import type { CapabilityModule } from '../module-host/load-modules'
 import { automationsModule, createAutomationsModule, type AutomationsModuleOptions } from './automations-module'
 import { mobileRelayModule } from './mobile-relay-module'
-import { reviewModule } from './review-module'
 import { sprintEngineModule } from './sprint-engine-module'
 
 export type BundledMainModuleOptions = {
@@ -18,7 +17,6 @@ export type BundledMainModuleOptions = {
 export function createBundledMainModules(options: BundledMainModuleOptions = {}): CapabilityModule[] {
   return [
     sprintEngineModule,
-    reviewModule,
     options.automations ? createAutomationsModule(options.automations) : automationsModule,
     mobileRelayModule,
   ]

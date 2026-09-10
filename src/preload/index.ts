@@ -29,7 +29,6 @@ import { memoryActivityApi } from './api/memoryActivity'
 import { mcpApi } from './api/mcp'
 import { modulesApi } from './api/modules'
 import { pluginsApi } from './api/plugins'
-import { reviewApi } from './api/review'
 import { skillsApi } from './api/skills'
 import { mobileBridgeApi } from './api/mobile-bridge'
 import { soulsApi } from './api/souls'
@@ -65,7 +64,6 @@ const api = {
   ...fleetApi,
   ...automationsApi,
   ...backlogApi,
-  ...reviewApi,
   ...builtinSkillsApi,
   ...clipboardApi,
   ...cliRuntimeApi,

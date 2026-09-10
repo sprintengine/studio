@@ -92,8 +92,8 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
   const workflow = await readdir(join(TEMPLATE_ROOT, STUDIO_SKILLS_PLUGIN_ID, 'skills'), { withFileTypes: true })
   assert.equal(
     workflow.filter((entry) => entry.isDirectory()).length,
-    10,
-    'the ten workflow skills ship inside the marketplace'
+    9,
+    'the nine workflow skills ship inside the marketplace'
   )
   // Every file the plugin needs must be IN THE REPOSITORY. `.mcp.json` in
   // particular: the root `.gitignore` entry for the generated workspace config
@@ -107,7 +107,7 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
     )
   }
   const dirs = await listStudioPluginSkillDirs(read.template)
-  assert.equal(dirs.length >= 5, true, 'one skill per area: sprints, backlog, automations, workspaces, review')
+  assert.equal(dirs.length >= 4, true, 'one skill per area: sprints, backlog, automations, workspaces')
   // …and ONLY those. The workflow skills live in the marketplace beside this
   // plugin, not inside it, precisely so a workspace open does not install
   // twelve general-purpose skills nobody asked for — and so `builtin-skills.ts`

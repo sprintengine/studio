@@ -254,12 +254,11 @@ test('folder keys are case- and separator-insensitive with no trailing slash', (
 test('reuse resolves the folder’s host for the one-per-project modes only', () => {
   const records = [
     workspace({ id: 'auto', mode: 'automations-host', folderPath: '/repo' }),
-    workspace({ id: 'rev', mode: 'reviews-host', folderPath: '/repo' }),
     workspace({ id: 'std', mode: 'standard', folderPath: '/repo' }),
   ]
   assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/Repo/')?.id, 'auto')
   assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/repo')?.id, 'auto')
-  assert.equal(resolveWorkspaceReuseTarget(records, 'reviews-host', '/repo')?.id, 'rev')
+  assert.equal(resolveWorkspaceReuseTarget(records, 'sprintengine', '/repo'), null, 'non-reuse modes never reuse')
   assert.equal(resolveWorkspaceReuseTarget(records, 'standard', '/repo'), null, 'standard workspaces never reuse')
   assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', null), null, 'a folderless host cannot collide')
   assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/other'), null)

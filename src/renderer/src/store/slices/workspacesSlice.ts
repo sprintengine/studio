@@ -61,7 +61,6 @@ import type {
 } from '../../types/workspace'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
-  REVIEWS_HOST_WORKSPACE_MODE,
 } from '../../types/workspace'
 import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../../../../shared/workspace-title'
 import { SPRINT_ENGINE_MODULE_ID, reconcileWorkspaceModuleState } from './workspaceModuleState'
@@ -1186,18 +1185,14 @@ export function createWorkspacesSlice(
           options?.windowId
           ?? (state.activeWorkspaceId ? findWorkspaceWindow(state, state.activeWorkspaceId)?.id : null)
           ?? state.primaryWorkspaceWindowId
-        // A background host — Automations (item 1707) or Reviews (MC-1911) — is
-        // strictly one-per-project. Every
+        // A background host — Automations (item 1707) — is strictly
+        // one-per-project. Every
         // creation path funnels here, so reusing the folder's existing host at
         // this boundary is what guarantees a duplicate can never be minted,
-        // whatever the caller believed. Both are created by code rather than by a
+        // whatever the caller believed. It is created by code rather than by a
         // person, which is exactly why the check has to be inside `set()`: two
         // calls in one tick each read the store before either writes.
-        const hostMode = isAutomationsHost
-          ? AUTOMATIONS_HOST_WORKSPACE_MODE
-          : explicitMode === REVIEWS_HOST_WORKSPACE_MODE
-            ? REVIEWS_HOST_WORKSPACE_MODE
-            : null
+        const hostMode = isAutomationsHost ? AUTOMATIONS_HOST_WORKSPACE_MODE : null
         const hostFolderKey = hostMode ? workspaceFolderKey(folderPath) : null
         const existingHost = hostFolderKey
           ? state.workspaces.find((workspace) =>
@@ -1357,14 +1352,12 @@ export function createWorkspacesSlice(
           ...(titleLocked ? { titleLocked: true } : {}),
           mode: isAutomationsHost
             ? AUTOMATIONS_HOST_WORKSPACE_MODE
-            : explicitMode === REVIEWS_HOST_WORKSPACE_MODE
-              ? REVIEWS_HOST_WORKSPACE_MODE
-              // Module-contributed workspace types: the explicit mode
-              // from buildModuleTypeCreation IS the identity every
-              // mode-derived surface (panel scopes, run glyphs, the
-              // not-installed state, creation re-resolution) keys on —
-              // dropping it to 'standard' silently strips all of them.
-              : explicitMode ?? 'standard',
+            // Module-contributed workspace types: the explicit mode
+            // from buildModuleTypeCreation IS the identity every
+            // mode-derived surface (panel scopes, run glyphs, the
+            // not-installed state, creation re-resolution) keys on —
+            // dropping it to 'standard' silently strips all of them.
+            : explicitMode ?? 'standard',
           folderPath,
           folderMissing: false,
           ...(options?.remoteOrigin ? { remoteOrigin: options.remoteOrigin } : {}),
