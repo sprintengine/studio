@@ -1,18 +1,24 @@
-/* Command palette — one field over a grouped result list: the keyboard route
- * to everything the product can do or open. Extracted from the shipped
- * CommandPalette primitive (src/renderer/src/components/ui/CommandPalette.tsx).
+/* Command palette — a scope strip and one field over a grouped result list:
+ * the keyboard route to everything the product can do or open. Extracted from
+ * the shipped CommandPalette primitive
+ * (src/renderer/src/components/ui/CommandPalette.tsx).
  *
- * The shell is the MODAL's — radius, border, ground, elevation and width all
- * come from the overlay scale (components/modal). What is specified here is
- * the part above the shell: the combobox-over-listbox anatomy, the grouped
- * rows, and the cursor that marks the row Enter would act on.
+ * The shell is the MODAL's — radius, border, elevation and width all come
+ * from the overlay scale (components/modal). Its GROUND is its own: glass
+ * (owner ruling 2026-09-10), the same recipe as the toast card, affordable
+ * here because the shipped palette holds the terminal repaint pause for its
+ * lifetime — see "Material" in component.md. What is specified here beyond
+ * that is the part above the shell: the scope strip, the combobox-over-listbox
+ * anatomy, the grouped rows, and the cursor that marks the row Enter would act
+ * on.
  *
  * The rows are a CURSOR, not focus: focus never leaves the input, so nothing
  * below draws a focus ring on a row. `aria-activedescendant` says which row is
  * marked; `.ds-command-palette-option[aria-selected="true"]` paints it. */
 
 /* Full-viewport scrim. Never a backdrop-filter — a blur here re-samples every
- * pane under it every frame (principles, "Motion"). */
+ * pane under it every frame (principles, "Motion"). The glass is the SHELL's,
+ * a bounded area; the scrim stays a plain tone. */
 .ds-command-palette-scrim {
   position: fixed;
   inset: 0;
@@ -36,62 +42,68 @@
   max-width: 95vw;
   border: 1px solid var(--sem-color-border-subtle);
   border-radius: var(--sem-radius-shell);
-  background: var(--sem-color-bg-surface);
+  /* Glass (ruling 2026-09-10): bg.surface-raised at glass.opacity over a
+   * blur-and-saturate of what is behind — the toast's recipe on a dialog-scale
+   * shell. Not the modal's plain bg.surface: the palette is the one shell whose
+   * ground is a material rather than a tone, and it still takes the modal's
+   * radius, border and elevation, because a glass shell is not a different
+   * kind of shell. */
+  /* ds-lint-allow: both mix inputs are tokens (bg.surface-raised at glass.opacity); the mix itself is the glass */
+  background: color-mix(in srgb, var(--sem-color-bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
   box-shadow: var(--sem-shadow-modal);
   font-family: var(--sem-font-family-ui);
-  /* The one local addition to the shell: the query row's hairline has to be
+  /* The one local addition to the shell: the bands' hairlines have to be
    * clipped by the shell's corners. */
   overflow: hidden;
   outline: none;
 }
 
-/* The one band of chrome. Narrowing is a token INSIDE the field; there is no
- * second row of tabs, filters or tools above the list. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ds-command-palette {
+    background: var(--sem-color-bg-surface-raised);
+  }
+}
+
+/* ONE band of chrome above the list, two lines inside it: the scope strip and
+ * the field. The band draws the single hairline, under the field; the strip
+ * is the tabs component's borderless variant, so the active tab's own accent
+ * underline is the only mark between the two lines. Two hairlines here — one
+ * under the strip, one under the field — would be the "two stacked bands of
+ * chrome" the principles reject on sight. */
+.ds-command-palette-band {
+  border-bottom: 1px solid var(--sem-color-border-default);
+}
+
+/* The scope strip: `.ds-tabs.ds-tabs--borderless` (components/tabs), inset so
+ * the first tab's label lines up over the field's leading mark. All, then the
+ * four narrowings. A tab is the person saying which question they are asking —
+ * skills, chats, files, or actions — so the answer never has to be guessed
+ * from where a row landed in the mixed list. */
+.ds-command-palette-tabs {
+  padding: var(--sem-space-2xs) var(--sem-space-sm) 0;
+}
+
+/* The field's row. It draws no hairline of its own — the band owns it. */
 .ds-command-palette-query {
   display: flex;
   align-items: center;
   gap: var(--sem-space-sm);
   padding: var(--sem-space-lg) var(--sem-space-xl);
-  border-bottom: 1px solid var(--sem-color-border-default);
 }
 
-/* The leading mark. Decoration, and it says so — disabled ink, aria-hidden. */
+/* The leading mark: the kit's search glyph (glyphs/search.svg), not a ⌘ —
+ * the field is a search, and the chord that opened it is not what it is for.
+ * Decoration, and it says so — disabled ink, aria-hidden. */
 .ds-command-palette-hint {
   flex: none;
-  font-size: var(--sem-font-size-heading);
-  color: var(--sem-color-text-disabled);
-}
-
-/* The scope token: a removable chip, not a tab. Clicking it — or Backspace at
- * an empty query — widens back to the full launcher without reopening. */
-.ds-command-palette-scope {
   display: inline-flex;
-  align-items: center;
-  gap: var(--sem-space-2xs);
-  flex: none;
-  padding: var(--sem-space-3xs) var(--sem-space-sm);
-  border: none;
-  border-radius: var(--sem-radius-chip);
-  background: var(--sem-color-bg-surface-raised);
-  font-family: var(--sem-font-family-ui);
-  font-size: var(--sem-font-size-micro);
-  color: var(--sem-color-text-muted);
-  cursor: pointer;
-  transition: color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
-}
-
-.ds-command-palette-scope:hover {
-  color: var(--sem-color-text-primary);
-}
-
-.ds-command-palette-scope:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
-}
-
-.ds-command-palette-scope svg {
-  width: var(--sem-icon-size-xs);
-  height: var(--sem-icon-size-xs);
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  padding: var(--sem-space-3xs);
+  box-sizing: border-box;
+  color: var(--sem-color-text-disabled);
 }
 
 /* The field carries no chrome of its own: the query row IS the field's box,
@@ -112,16 +124,27 @@
 }
 
 .ds-command-palette-input:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
+  /* No ring (owner ruling 2026-09-10). The shell IS the field: it opens with
+   * the caret in it, the caret is the focus signal, and a 2px ring drawn the
+   * width of a bordered band read as a second box around the only thing on
+   * screen. The strip keeps its ring, so a keyboard walk still shows where
+   * focus went; coming back to the field shows the caret. */
+  outline: none;
 }
 
-/* Disk search is the one part of the palette that is not instant, so it is
- * the one part that says it is working. */
+/* The working note — a search in flight, or an install-and-use round trip —
+ * is a line IN the list, never beside the query: a note on the field's own
+ * line read as part of what was typed. The word and the liveness component's
+ * working dots (components/liveness), not a static ellipsis: the marker the
+ * system already uses for "alive right now, for an unknown duration". */
 .ds-command-palette-status {
-  flex: none;
-  font-size: var(--sem-font-size-micro);
-  color: var(--sem-color-text-disabled);
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  margin: 0;
+  padding: var(--sem-space-lg) var(--sem-space-xl);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
 }
 
 /* Height cap plus scroll, so the shell never grows past the viewport and the
@@ -133,26 +156,43 @@
   padding: var(--sem-space-2xs) 0;
 }
 
-/* Name, a rule filling the line, and the group's count. Hidden from assistive
- * tech because the group element carries the same name as its label. */
+/* The group's name, and nothing else: quieter ink than the rows beneath it,
+ * no rule filling the line, no count (owner ruling 2026-09-10 — the rule and
+ * the number were chrome between every group and the next). Hidden from
+ * assistive tech because the group element carries the same name. */
 .ds-command-palette-group-heading {
-  display: flex;
-  align-items: center;
-  gap: var(--sem-space-lg);
   padding: var(--sem-space-xs) var(--sem-space-xl) var(--sem-space-2xs);
-  font-size: var(--sem-font-size-micro);
-  font-weight: var(--sem-font-weight-medium);
-  color: var(--sem-color-text-disabled);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
 }
 
-.ds-command-palette-group-rule {
-  flex: 1;
-  height: 1px;
-  background: var(--sem-color-border-subtle);
+/* The row's mark, when it has one: a file's kind glyph (components/glyphs,
+ * the file-type vocabulary, in its kind's hue) or a skill's or plugin's own
+ * artwork down the extension-icon ladder. It is the same mark the File
+ * Explorer or the Extensions door draws for the same thing, which is what
+ * lets a list of forty hits be scanned before it is read. A command or a chat
+ * wears none — the verb is the whole row. Decorative: the label names it. */
+.ds-command-palette-option-mark {
+  flex: none;
+  display: inline-flex;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
 }
 
-.ds-command-palette-group-count {
-  font-variant-numeric: tabular-nums;
+/* A chat's mark is the sidebar's provider chip — the agent CLI's glyph on a
+ * round raised ground with a subtle hairline — so a chat is recognised here by
+ * the same mark it wears there. The glyph inside sits at icon.size.xs. */
+.ds-command-palette-option-mark--chip {
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-surface-raised);
+}
+
+.ds-command-palette-option-mark--chip svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
 }
 
 /* A row IS the action: one label, one optional locator, one optional chord,
@@ -163,7 +203,10 @@
   justify-content: space-between;
   gap: var(--sem-space-lg);
   padding: var(--sem-space-sm) var(--sem-space-xl);
-  color: var(--sem-color-text-muted);
+  /* The sidebar's row ink: text.default at rest, text.primary under the
+   * cursor. Muted put the one thing a person came to read a step below its
+   * own heading. */
+  color: var(--sem-color-text-default);
   cursor: pointer;
   transition:
     background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
@@ -182,7 +225,14 @@
   color: var(--sem-color-text-primary);
 }
 
+/* The text takes the room between the mark and the chord, and stacks its two
+ * lines: the name, then the locator beneath it. `flex: 1` is what keeps a row
+ * that has a mark from pushing its text to the far end of the space-between
+ * row. */
 .ds-command-palette-option-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-width: 0;
 }
 
@@ -213,8 +263,9 @@
   font-family: var(--sem-font-family-mono);
 }
 
-/* The chord, spelled the kbd-chord way (components/kbd-chord) rather than as
- * a private capsule — see Known drift. */
+/* The chord: the kbd-chord capsule (components/kbd-chord), one capsule per
+ * rendered chord. Spelled here so the demo stands alone; the primitive
+ * consumes `KbdChord` itself. */
 .ds-command-palette-shortcut {
   flex: none;
   display: inline-flex;
@@ -244,8 +295,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ds-command-palette-option,
-  .ds-command-palette-scope {
+  .ds-command-palette-option {
     transition: none;
   }
 }

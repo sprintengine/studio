@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Command palette</title>
 <link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../tabs/component.css" />
+<link rel="stylesheet" href="../liveness/component.css" />
 <link rel="stylesheet" href="component.css" />
 <style>
   body {
@@ -39,76 +41,82 @@
 </head>
 <body>
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — resting scope, a capped preview per group, and the cursor on the second row.</p>
+  <p class="demo-label">Light — the resting page: the actions, then the chats most recently spoken in; the cursor on the second row.</p>
   <div class="demo-scrim">
     <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-band">
+        <div class="ds-tabs ds-tabs--borderless ds-command-palette-tabs" role="tablist" aria-label="Search in">
+          <button type="button" class="ds-tab" role="tab" id="demo-tab-all" aria-selected="true" aria-controls="demo-palette-results" tabindex="0">
+            <span>All</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-tab-skills" aria-selected="false" aria-controls="demo-palette-results" tabindex="-1">
+            <span>Skills</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-tab-conversations" aria-selected="false" aria-controls="demo-palette-results" tabindex="-1">
+            <span>Conversations</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-tab-files" aria-selected="false" aria-controls="demo-palette-results" tabindex="-1">
+            <span>Files</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-tab-actions" aria-selected="false" aria-controls="demo-palette-results" tabindex="-1">
+            <span>Actions</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+        </div>
       <div class="ds-command-palette-query">
-        <span class="ds-command-palette-hint" aria-hidden="true">&#8984;</span>
+        <span class="ds-command-palette-hint" aria-hidden="true"><svg viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <input
           class="ds-command-palette-input"
           type="text"
           role="combobox"
           aria-expanded="true"
           aria-controls="demo-palette-results"
-          aria-activedescendant="demo-option-review"
-          aria-label="Search agents, skills, commands, files, and text in files"
-          placeholder="Search agents, skills, commands, files, text&#8230;"
+          aria-activedescendant="demo-option-settings"
+          aria-label="Search chats, skills, plugins, files, text in files, and actions"
+          placeholder="Search chats, skills, plugins, files, text, actions&#8230;"
         />
       </div>
+      </div>
       <div class="ds-command-palette-results" id="demo-palette-results" role="listbox" aria-label="Search results">
-        <div class="ds-command-palette-group" role="group" aria-label="Agents &amp; workspaces">
+        <div class="ds-command-palette-group" role="group" aria-label="Actions">
           <div class="ds-command-palette-group-heading" aria-hidden="true">
-            <span>Agents &amp; workspaces</span>
-            <span class="ds-command-palette-group-rule"></span>
-            <span class="ds-command-palette-group-count">2</span>
-          </div>
-          <div class="ds-command-palette-option" id="demo-option-tokens" role="option" aria-selected="false">
-            <span class="ds-command-palette-option-text">
-              <span class="ds-command-palette-option-label">Token ramp audit</span>
-              <span class="ds-command-palette-option-detail">Workspace &#183; running</span>
-            </span>
-          </div>
-          <div class="ds-command-palette-option" id="demo-option-review" role="option" aria-selected="true">
-            <span class="ds-command-palette-option-text">
-              <span class="ds-command-palette-option-label">Review guide</span>
-              <span class="ds-command-palette-option-detail">Workspace &#183; waiting on you</span>
-            </span>
-          </div>
-        </div>
-        <div class="ds-command-palette-group" role="group" aria-label="Commands">
-          <div class="ds-command-palette-group-heading" aria-hidden="true">
-            <span>Commands</span>
-            <span class="ds-command-palette-group-rule"></span>
-            <span class="ds-command-palette-group-count">2</span>
+            <span>Actions</span>
           </div>
           <div class="ds-command-palette-option" id="demo-option-newchat" role="option" aria-selected="false">
+            <svg class="ds-command-palette-option-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 8l4 4" stroke="currentColor" stroke-width="1.7"/></svg>
             <span class="ds-command-palette-option-text">
               <span class="ds-command-palette-option-label">New chat</span>
             </span>
             <kbd class="ds-command-palette-shortcut">&#8984;N</kbd>
           </div>
-          <div class="ds-command-palette-option" id="demo-option-settings" role="option" aria-selected="false">
+          <div class="ds-command-palette-option" id="demo-option-settings" role="option" aria-selected="true">
+            <svg class="ds-command-palette-option-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
             <span class="ds-command-palette-option-text">
               <span class="ds-command-palette-option-label">Open settings</span>
             </span>
             <kbd class="ds-command-palette-shortcut">&#8984;,</kbd>
           </div>
         </div>
-        <div class="ds-command-palette-group" role="group" aria-label="Text in files">
+        <div class="ds-command-palette-group" role="group" aria-label="Recent conversations">
           <div class="ds-command-palette-group-heading" aria-hidden="true">
-            <span>Text in files</span>
-            <span class="ds-command-palette-group-rule"></span>
-            <span class="ds-command-palette-group-count">1</span>
+            <span>Recent conversations</span>
           </div>
-          <div
-            class="ds-command-palette-option ds-command-palette-option--source"
-            id="demo-option-source"
-            role="option"
-            aria-selected="false"
-          >
+          <div class="ds-command-palette-option" id="demo-option-tokens" role="option" aria-selected="false">
+            <span class="ds-command-palette-option-mark ds-command-palette-option-mark--chip" aria-hidden="true"><svg viewBox="0 0 248 248" fill="none"><path d="M52.4285 162.873L98.7844 136.879L99.5485 134.602L98.7844 133.334H96.4921L88.7237 132.862L62.2346 132.153L39.3113 131.207L17.0249 130.026L11.4214 128.844L6.2 121.873L6.7094 118.447L11.4214 115.257L18.171 115.847L33.0711 116.911L55.485 118.447L71.6586 119.392L95.728 121.873H99.5485L100.058 120.337L98.7844 119.392L97.7656 118.447L74.5877 102.732L49.4995 86.1905L36.3823 76.62L29.3779 71.7757L25.8121 67.2858L24.2839 57.3608L30.6515 50.2716L39.3113 50.8623L41.4763 51.4531L50.2636 58.1879L68.9842 72.7209L93.4357 90.6804L97.0015 93.6343L98.4374 92.6652L98.6571 91.9801L97.0015 89.2625L83.757 65.2772L69.621 40.8192L63.2534 30.6579L61.5978 24.632C60.9565 22.1032 60.579 20.0111 60.579 17.4246L67.8381 7.49965L71.9133 6.19995L81.7193 7.49965L85.7946 11.0443L91.9074 24.9865L101.714 46.8451L116.996 76.62L121.453 85.4816L123.873 93.6343L124.764 96.1155H126.292V94.6976L127.566 77.9197L129.858 57.3608L132.15 30.8942L132.915 23.4505L136.608 14.4708L143.994 9.62643L149.725 12.344L154.437 19.0788L153.8 23.4505L150.998 41.6463L145.522 70.1215L141.957 89.2625H143.994L146.414 86.7813L156.093 74.0206L172.266 53.698L179.398 45.6635L187.803 36.802L193.152 32.5484H203.34L210.726 43.6549L207.415 55.1159L196.972 68.3492L188.312 79.5739L175.896 96.2095L168.191 109.585L168.882 110.689L170.738 110.53L198.755 104.504L213.91 101.787L231.994 98.7149L240.144 102.496L241.036 106.395L237.852 114.311L218.495 119.037L195.826 123.645L162.07 131.592L161.696 131.893L162.137 132.547L177.36 133.925L183.855 134.279H199.774L229.447 136.524L237.215 141.605L241.8 147.867L241.036 152.711L229.065 158.737L213.019 154.956L175.45 145.977L162.587 142.787H160.805V143.85L171.502 154.366L191.242 172.089L215.82 195.011L217.094 200.682L213.91 205.172L210.599 204.699L188.949 188.394L180.544 181.069L161.696 165.118H160.422V166.772L164.752 173.152L187.803 207.771L188.949 218.405L187.294 221.832L181.308 223.959L174.813 222.777L161.187 203.754L147.305 182.486L136.098 163.345L134.745 164.2L128.075 235.42L125.019 239.082L117.887 241.8L111.902 237.31L108.718 229.984L111.902 215.452L115.722 196.547L118.779 181.541L121.58 162.873L123.291 156.636L123.14 156.219L121.773 156.449L107.699 175.752L86.304 204.699L69.3663 222.777L65.291 224.431L58.2867 220.768L58.9235 214.27L62.8713 208.48L86.304 178.705L100.44 160.155L109.551 149.507L109.462 147.967L108.959 147.924L46.6977 188.512L35.6182 189.93L30.7788 185.44L31.4156 178.115L33.7079 175.752L52.4285 162.873Z" fill="#D97757"/></svg> <!-- ds-lint-allow: Claude's brand mark, its own hue by definition (CliIcon.tsx) --></span>
             <span class="ds-command-palette-option-text">
-              <span class="ds-command-palette-option-label">const OVERLAY_WIDTH_PX = {</span>
-              <span class="ds-command-palette-option-detail">src/renderer/src/components/ui/tokens.ts:246</span>
+              <span class="ds-command-palette-option-label">Token ramp audit</span>
+              <span class="ds-command-palette-option-detail">Workspace &#183; running</span>
+            </span>
+          </div>
+          <div class="ds-command-palette-option" id="demo-option-review" role="option" aria-selected="false">
+            <span class="ds-command-palette-option-mark ds-command-palette-option-mark--chip" aria-hidden="true"><svg viewBox="112 80 288 352" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M384 416H128V96H384V416ZM320 160H192V352H320V160Z"/><path d="M320 224V352H192V224H320Z"/></svg></span>
+            <span class="ds-command-palette-option-text">
+              <span class="ds-command-palette-option-label">Review guide</span>
+              <span class="ds-command-palette-option-detail">Workspace &#183; waiting on you</span>
             </span>
           </div>
         </div>
@@ -116,14 +124,34 @@
     </div>
   </div>
 
-  <p class="demo-label">Narrowed to a scope, and the working note &#8212; the one part of the search that is not instant.</p>
+  <p class="demo-label">Narrowed to Files by the strip, and the working note &#8212; the one part of the search that is not instant.</p>
   <div class="demo-scrim">
     <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-band">
+        <div class="ds-tabs ds-tabs--borderless ds-command-palette-tabs" role="tablist" aria-label="Search in">
+          <button type="button" class="ds-tab" role="tab" id="demo-scoped-tab-all" aria-selected="false" aria-controls="demo-palette-scoped" tabindex="-1">
+            <span>All</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-scoped-tab-skills" aria-selected="false" aria-controls="demo-palette-scoped" tabindex="-1">
+            <span>Skills</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-scoped-tab-conversations" aria-selected="false" aria-controls="demo-palette-scoped" tabindex="-1">
+            <span>Conversations</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-scoped-tab-files" aria-selected="true" aria-controls="demo-palette-scoped" tabindex="0">
+            <span>Files</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-scoped-tab-actions" aria-selected="false" aria-controls="demo-palette-scoped" tabindex="-1">
+            <span>Actions</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+        </div>
       <div class="ds-command-palette-query">
-        <button type="button" class="ds-command-palette-scope" aria-label="Search everything instead of files">
-          Files
-          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-        </button>
+        <span class="ds-command-palette-hint" aria-hidden="true"><svg viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <input
           class="ds-command-palette-input"
           type="text"
@@ -134,42 +162,89 @@
           placeholder="Search file names and text in files&#8230;"
           value="tokens"
         />
-        <span class="ds-command-palette-status" role="status">Searching&#8230;</span>
+      </div>
       </div>
       <div class="ds-command-palette-results" id="demo-palette-scoped" role="listbox" aria-label="Search results">
-        <p class="ds-command-palette-empty">Searching&#8230;</p>
+        <p class="ds-command-palette-status" role="status">Searching <span class="ds-working-dots" role="img" aria-label="Searching"><span class="ds-working-dot"></span><span class="ds-working-dot"></span><span class="ds-working-dot"></span></span></p>
       </div>
     </div>
   </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
-  <p class="demo-label">Dark &#8212; and the fourth empty sentence: nothing to search, which is not the same as nothing found.</p>
+  <p class="demo-label">Dark &#8212; nothing matched.</p>
   <div class="demo-scrim">
     <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-band">
+        <div class="ds-tabs ds-tabs--borderless ds-command-palette-tabs" role="tablist" aria-label="Search in">
+          <button type="button" class="ds-tab" role="tab" id="demo-empty-tab-all" aria-selected="true" aria-controls="demo-palette-empty" tabindex="0">
+            <span>All</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-empty-tab-skills" aria-selected="false" aria-controls="demo-palette-empty" tabindex="-1">
+            <span>Skills</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-empty-tab-conversations" aria-selected="false" aria-controls="demo-palette-empty" tabindex="-1">
+            <span>Conversations</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-empty-tab-files" aria-selected="false" aria-controls="demo-palette-empty" tabindex="-1">
+            <span>Files</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-empty-tab-actions" aria-selected="false" aria-controls="demo-palette-empty" tabindex="-1">
+            <span>Actions</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+        </div>
       <div class="ds-command-palette-query">
-        <span class="ds-command-palette-hint" aria-hidden="true">&#8984;</span>
+        <span class="ds-command-palette-hint" aria-hidden="true"><svg viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <input
           class="ds-command-palette-input"
           type="text"
           role="combobox"
           aria-expanded="false"
           aria-controls="demo-palette-empty"
-          aria-label="Search agents, skills, commands, files, and text in files"
-          placeholder="Search agents, skills, commands, files, text&#8230;"
+          aria-label="Search chats, skills, plugins, files, text in files, and actions"
+          placeholder="Search chats, skills, plugins, files, text, actions&#8230;"
           value="ramp"
         />
       </div>
+      </div>
       <div class="ds-command-palette-results" id="demo-palette-empty" role="listbox" aria-label="Search results">
-        <p class="ds-command-palette-empty">Open a folder to search files and their contents.</p>
+        <p class="ds-command-palette-empty">No results</p>
       </div>
     </div>
   </div>
 
   <div class="demo-scrim">
     <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-band">
+        <div class="ds-tabs ds-tabs--borderless ds-command-palette-tabs" role="tablist" aria-label="Search in">
+          <button type="button" class="ds-tab" role="tab" id="demo-dark-tab-all" aria-selected="true" aria-controls="demo-palette-dark-results" tabindex="0">
+            <span>All</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-dark-tab-skills" aria-selected="false" aria-controls="demo-palette-dark-results" tabindex="-1">
+            <span>Skills</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-dark-tab-conversations" aria-selected="false" aria-controls="demo-palette-dark-results" tabindex="-1">
+            <span>Conversations</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-dark-tab-files" aria-selected="false" aria-controls="demo-palette-dark-results" tabindex="-1">
+            <span>Files</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-dark-tab-actions" aria-selected="false" aria-controls="demo-palette-dark-results" tabindex="-1">
+            <span>Actions</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+        </div>
       <div class="ds-command-palette-query">
-        <span class="ds-command-palette-hint" aria-hidden="true">&#8984;</span>
+        <span class="ds-command-palette-hint" aria-hidden="true"><svg viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <input
           class="ds-command-palette-input"
           type="text"
@@ -177,17 +252,16 @@
           aria-expanded="true"
           aria-controls="demo-palette-dark-results"
           aria-activedescendant="demo-dark-option-skill"
-          aria-label="Search agents, skills, commands, files, and text in files"
-          placeholder="Search agents, skills, commands, files, text&#8230;"
+          aria-label="Search chats, skills, plugins, files, text in files, and actions"
+          placeholder="Search chats, skills, plugins, files, text, actions&#8230;"
           value="skill"
         />
+      </div>
       </div>
       <div class="ds-command-palette-results" id="demo-palette-dark-results" role="listbox" aria-label="Search results">
         <div class="ds-command-palette-group" role="group" aria-label="Skills">
           <div class="ds-command-palette-group-heading" aria-hidden="true">
             <span>Skills</span>
-            <span class="ds-command-palette-group-rule"></span>
-            <span class="ds-command-palette-group-count">2</span>
           </div>
           <div class="ds-command-palette-option" id="demo-dark-option-skill" role="option" aria-selected="true">
             <span class="ds-command-palette-option-text">

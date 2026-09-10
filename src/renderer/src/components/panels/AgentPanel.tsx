@@ -201,7 +201,7 @@ export default function AgentPanel({
   const openSkillSearch = () => {
     if (!effectiveSessionId) return
     requestPaletteOpen({
-      scope: 'extensions',
+      scope: 'skills',
       target: { sessionId: effectiveSessionId, cli: cli ?? undefined, workspaceId },
     })
   }

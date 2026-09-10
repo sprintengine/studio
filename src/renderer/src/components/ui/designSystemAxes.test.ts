@@ -192,7 +192,9 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // the product now draws `OVERLAY_SHELL_CLASS` instead of its own radius.
     // 3 → 2, 2026-09-08: the dead `ActionFeedback` / `__preview__` primitives
     // went with the knip sweep; banked, not left as headroom.
-    'components/ui': 2,
+    // 2 → 1, 2026-09-10: the palette's hand-rolled `rounded` shortcut chip
+    // became the kit's `KbdChord` — the drift its own spec had recorded.
+    'components/ui': 1,
     // New directory, 2026-09-08: a MOVE out of `components/workspace` when the
     // HTML artifact frame left the deleted Design Wizard's folder.
     'components/htmlArtifact': 8,

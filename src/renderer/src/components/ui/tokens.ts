@@ -303,3 +303,18 @@ export function overlayWidthStyle(width: OverlayWidth): { width: number; maxWidt
  */
 export const OVERLAY_SHELL_CLASS =
   'rounded-[var(--radius-lg)] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)]'
+
+/**
+ * The shell's chrome without its ground — the dialog-scale twin of
+ * OVERLAY_CHROME_CLASS, for the one shell that paints its own: the command
+ * palette, which is glass (owner ruling 2026-09-10; the `surface-glass`
+ * utility, see design-system/components/command-palette, "Material"). Same
+ * reason the popover family has the split: `background` and `background-color`
+ * on one element resolve by stylesheet order, so the plain ground cannot be
+ * layered under the glass one. Radius, border and elevation are unchanged —
+ * a glass shell is not a different kind of shell.
+ *
+ * Written out in full, per the literal rule above.
+ */
+export const OVERLAY_SHELL_CHROME_CLASS =
+  'rounded-[var(--radius-lg)] border border-[color:var(--border-subtle)] shadow-[var(--shadow-modal)]'

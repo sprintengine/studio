@@ -21,6 +21,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { PaletteCommandGroup, PaletteScope } from '../commandPaletteSearch'
+import type { SpecialistIcon } from '../../specialists/specialistActions'
+import type { Workspace } from '../../types/workspace'
+
+/**
+ * The mark a row that is not a file or an extension wears — named, not drawn,
+ * because this module renders nothing. The palette maps each to the glyph the
+ * rest of the product already uses for the same thing: the compose mark the
+ * sidebar's "New chat" wears, the specialist's own icon from the spawn menu,
+ * the search glyph, and for a chat the agent CLI's mark in the sidebar's
+ * round chip (or the workspace type's icon when no agent has run in it).
+ * A command wears none: the verb is the whole row.
+ */
+export type PaletteRowMark =
+  | { kind: 'new-chat' }
+  | { kind: 'specialist'; icon: SpecialistIcon }
+  | { kind: 'search' }
+  | { kind: 'chat'; workspaceId: string; mode: Workspace['mode'] }
 
 /** The artwork a row wears, in the props `ExtensionIcon` takes. */
 export type PaletteRowIcon = {
@@ -53,6 +70,17 @@ export interface PaletteCommand {
   group: PaletteCommandGroup
   /** The mark beside the name, for rows that have one. */
   icon?: PaletteRowIcon
+  /**
+   * The file this row is about, by name, for the rows that are about one — a
+   * file match, an open editor, a line of text in a file. The palette draws
+   * the kind glyph the File Explorer and the Git changes list wear for the
+   * same name (`FileTypeGlyph`), so a `.ts` row is recognised by the same
+   * blue tile everywhere the product names a file. Never an icon of ours:
+   * this module renders nothing, so it says WHICH file and the palette draws.
+   */
+  file?: string
+  /** The row's glyph, for the rows that are neither a file nor an extension. */
+  mark?: PaletteRowMark
   /** A short chip after the name: the source's name, "Installed", "Available". */
   badge?: string
   /** Tri-state on purpose — see `PaletteRankable` in commandPaletteSearch.ts. */

@@ -1,5 +1,6 @@
 import { getRendererHost } from '../modules'
 import type { Workspace } from '../types/workspace'
+import { sortWorkspacesByUserMessage } from '../utils/workspaceRecency'
 
 // Pure search logic for the global-search palette (CommandPalette.tsx), split
 // out so the query matching and workspace-keyword derivation can be unit-tested
@@ -76,23 +77,80 @@ export function paletteGroupRank(group: PaletteCommandGroup): number {
   return index === -1 ? PALETTE_GROUP_ORDER.length : index
 }
 
-/** Which groups the palette is filtered to. `all` is the global launcher (⌘K
- *  and Shift Shift); `files` is Find-in-Path (⌘⇧F) — the same overlay with the
- *  non-file groups hidden, so a snippet of code is not ranked against command
- *  rows; `extensions` is the terminal star — skills and plugins only, because
- *  that trigger asks one question and it is not "which workspace". */
-export type PaletteScope = 'all' | 'files' | 'extensions'
+/**
+ * Which groups the palette is filtered to — the tab strip across the top of
+ * the shell (owner ruling 2026-09-10, after the IDE Search Everywhere).
+ *
+ * `all` is the global launcher (⌘K and Shift Shift). The other four are the
+ * same list narrowed to one question each: `actions` is what the product can
+ * DO (commands and the create/spawn verbs), `skills` is every skill and plugin
+ * in every source (the terminal star opens here), `files` is Find-in-Path
+ * (⌘⇧F) — file names and text in files, so a snippet of code is never ranked
+ * against a command row — and `conversations` is the chats and workspaces the
+ * sidebar lists, found by title and folder.
+ *
+ * A scope is a filter over one list, not a second component: widening back
+ * from any of them is a state change rather than a reopen.
+ */
+export type PaletteScope = 'all' | 'skills' | 'conversations' | 'files' | 'actions'
+
+/** The strip's left-to-right order: the launcher first, then the four
+ *  narrowings in the order they are reached for. */
+export const PALETTE_SCOPE_ORDER: readonly PaletteScope[] = [
+  'all',
+  'skills',
+  'conversations',
+  'files',
+  'actions',
+]
 
 const SCOPE_GROUPS: Record<Exclude<PaletteScope, 'all'>, ReadonlySet<PaletteCommandGroup>> = {
+  skills: new Set<PaletteCommandGroup>(['skills', 'extensions']),
+  conversations: new Set<PaletteCommandGroup>(['agents']),
   files: new Set<PaletteCommandGroup>(['files', 'content']),
-  extensions: new Set<PaletteCommandGroup>(['skills', 'extensions']),
+  actions: new Set<PaletteCommandGroup>(['commands', 'actions']),
 }
 
-/** True when a group is visible under the given scope. The scope is a filter
- *  over one list, not a second component: `all` admits everything, so widening
- *  back from `files` is a state change rather than a reopen. */
+/** True when a group is visible under the given scope. `all` admits
+ *  everything; every other scope admits exactly its own groups, and every
+ *  group belongs to exactly one of them, so the four narrowings partition the
+ *  launcher rather than overlap it. */
 export function groupInScope(group: PaletteCommandGroup, scope: PaletteScope): boolean {
   return scope === 'all' || SCOPE_GROUPS[scope].has(group)
+}
+
+// ── The resting page ─────────────────────────────────────────────────────────
+//
+// No query, the All tab: the launcher is not a preview of every group but a
+// landing page (owner ruling 2026-09-10) — the actions, then the chats
+// most recently spoken in, in the sidebar's own order. What a person opens ⌘K
+// for without a query is to start something or to get back to something; the
+// other groups are one keystroke or one tab away.
+
+/** How many chats the resting page lists: a screen's worth, not the sidebar again. */
+export const RESTING_RECENT_CONVERSATIONS = 8
+
+/**
+ * The two sections of the resting page, from the palette's in-memory rows.
+ * `actions` is the whole actions group in its own order; `recent` is the
+ * switch row of each workspace in `sortWorkspacesByUserMessage` order, capped.
+ * A workspace with no row (hidden from the rail) is skipped, not blanked.
+ */
+export function composeRestingPage<T extends { id: string; group: PaletteCommandGroup }>(
+  commands: readonly T[],
+  workspaces: readonly Workspace[],
+): { actions: T[]; recent: T[] } {
+  const byId = new Map(commands.map((command) => [command.id, command] as const))
+  const recent = sortWorkspacesByUserMessage([...workspaces])
+    .map((workspace) => byId.get(workspaceSwitchRowId(workspace.id)))
+    .filter((command): command is T => command !== undefined)
+    .slice(0, RESTING_RECENT_CONVERSATIONS)
+  return { actions: commands.filter((command) => command.group === 'actions'), recent }
+}
+
+/** The id of the row that switches to a workspace — spelled once, read twice. */
+export function workspaceSwitchRowId(workspaceId: string): string {
+  return `switch-${workspaceId}`
 }
 
 // ── Ranking ──────────────────────────────────────────────────────────────────

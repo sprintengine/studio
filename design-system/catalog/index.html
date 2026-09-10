@@ -2209,21 +2209,27 @@ code {
 }
 
 /* components/command-palette/component.css */
-/* Command palette — one field over a grouped result list: the keyboard route
- * to everything the product can do or open. Extracted from the shipped
- * CommandPalette primitive (src/renderer/src/components/ui/CommandPalette.tsx).
+/* Command palette — a scope strip and one field over a grouped result list:
+ * the keyboard route to everything the product can do or open. Extracted from
+ * the shipped CommandPalette primitive
+ * (src/renderer/src/components/ui/CommandPalette.tsx).
  *
- * The shell is the MODAL's — radius, border, ground, elevation and width all
- * come from the overlay scale (components/modal). What is specified here is
- * the part above the shell: the combobox-over-listbox anatomy, the grouped
- * rows, and the cursor that marks the row Enter would act on.
+ * The shell is the MODAL's — radius, border, elevation and width all come
+ * from the overlay scale (components/modal). Its GROUND is its own: glass
+ * (owner ruling 2026-09-10), the same recipe as the toast card, affordable
+ * here because the shipped palette holds the terminal repaint pause for its
+ * lifetime — see "Material" in component.md. What is specified here beyond
+ * that is the part above the shell: the scope strip, the combobox-over-listbox
+ * anatomy, the grouped rows, and the cursor that marks the row Enter would act
+ * on.
  *
  * The rows are a CURSOR, not focus: focus never leaves the input, so nothing
  * below draws a focus ring on a row. `aria-activedescendant` says which row is
  * marked; `.ds-command-palette-option[aria-selected="true"]` paints it. */
 
 /* Full-viewport scrim. Never a backdrop-filter — a blur here re-samples every
- * pane under it every frame (principles, "Motion"). */
+ * pane under it every frame (principles, "Motion"). The glass is the SHELL's,
+ * a bounded area; the scrim stays a plain tone. */
 .ds-command-palette-scrim {
   position: fixed;
   inset: 0;
@@ -2247,62 +2253,68 @@ code {
   max-width: 95vw;
   border: 1px solid var(--sem-color-border-subtle);
   border-radius: var(--sem-radius-shell);
-  background: var(--sem-color-bg-surface);
+  /* Glass (ruling 2026-09-10): bg.surface-raised at glass.opacity over a
+   * blur-and-saturate of what is behind — the toast's recipe on a dialog-scale
+   * shell. Not the modal's plain bg.surface: the palette is the one shell whose
+   * ground is a material rather than a tone, and it still takes the modal's
+   * radius, border and elevation, because a glass shell is not a different
+   * kind of shell. */
+  /* ds-lint-allow: both mix inputs are tokens (bg.surface-raised at glass.opacity); the mix itself is the glass */
+  background: color-mix(in srgb, var(--sem-color-bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
   box-shadow: var(--sem-shadow-modal);
   font-family: var(--sem-font-family-ui);
-  /* The one local addition to the shell: the query row's hairline has to be
+  /* The one local addition to the shell: the bands' hairlines have to be
    * clipped by the shell's corners. */
   overflow: hidden;
   outline: none;
 }
 
-/* The one band of chrome. Narrowing is a token INSIDE the field; there is no
- * second row of tabs, filters or tools above the list. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ds-command-palette {
+    background: var(--sem-color-bg-surface-raised);
+  }
+}
+
+/* ONE band of chrome above the list, two lines inside it: the scope strip and
+ * the field. The band draws the single hairline, under the field; the strip
+ * is the tabs component's borderless variant, so the active tab's own accent
+ * underline is the only mark between the two lines. Two hairlines here — one
+ * under the strip, one under the field — would be the "two stacked bands of
+ * chrome" the principles reject on sight. */
+.ds-command-palette-band {
+  border-bottom: 1px solid var(--sem-color-border-default);
+}
+
+/* The scope strip: `.ds-tabs.ds-tabs--borderless` (components/tabs), inset so
+ * the first tab's label lines up over the field's leading mark. All, then the
+ * four narrowings. A tab is the person saying which question they are asking —
+ * skills, chats, files, or actions — so the answer never has to be guessed
+ * from where a row landed in the mixed list. */
+.ds-command-palette-tabs {
+  padding: var(--sem-space-2xs) var(--sem-space-sm) 0;
+}
+
+/* The field's row. It draws no hairline of its own — the band owns it. */
 .ds-command-palette-query {
   display: flex;
   align-items: center;
   gap: var(--sem-space-sm);
   padding: var(--sem-space-lg) var(--sem-space-xl);
-  border-bottom: 1px solid var(--sem-color-border-default);
 }
 
-/* The leading mark. Decoration, and it says so — disabled ink, aria-hidden. */
+/* The leading mark: the kit's search glyph (glyphs/search.svg), not a ⌘ —
+ * the field is a search, and the chord that opened it is not what it is for.
+ * Decoration, and it says so — disabled ink, aria-hidden. */
 .ds-command-palette-hint {
   flex: none;
-  font-size: var(--sem-font-size-heading);
-  color: var(--sem-color-text-disabled);
-}
-
-/* The scope token: a removable chip, not a tab. Clicking it — or Backspace at
- * an empty query — widens back to the full launcher without reopening. */
-.ds-command-palette-scope {
   display: inline-flex;
-  align-items: center;
-  gap: var(--sem-space-2xs);
-  flex: none;
-  padding: var(--sem-space-3xs) var(--sem-space-sm);
-  border: none;
-  border-radius: var(--sem-radius-chip);
-  background: var(--sem-color-bg-surface-raised);
-  font-family: var(--sem-font-family-ui);
-  font-size: var(--sem-font-size-micro);
-  color: var(--sem-color-text-muted);
-  cursor: pointer;
-  transition: color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
-}
-
-.ds-command-palette-scope:hover {
-  color: var(--sem-color-text-primary);
-}
-
-.ds-command-palette-scope:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
-}
-
-.ds-command-palette-scope svg {
-  width: var(--sem-icon-size-xs);
-  height: var(--sem-icon-size-xs);
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  padding: var(--sem-space-3xs);
+  box-sizing: border-box;
+  color: var(--sem-color-text-disabled);
 }
 
 /* The field carries no chrome of its own: the query row IS the field's box,
@@ -2323,16 +2335,27 @@ code {
 }
 
 .ds-command-palette-input:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
+  /* No ring (owner ruling 2026-09-10). The shell IS the field: it opens with
+   * the caret in it, the caret is the focus signal, and a 2px ring drawn the
+   * width of a bordered band read as a second box around the only thing on
+   * screen. The strip keeps its ring, so a keyboard walk still shows where
+   * focus went; coming back to the field shows the caret. */
+  outline: none;
 }
 
-/* Disk search is the one part of the palette that is not instant, so it is
- * the one part that says it is working. */
+/* The working note — a search in flight, or an install-and-use round trip —
+ * is a line IN the list, never beside the query: a note on the field's own
+ * line read as part of what was typed. The word and the liveness component's
+ * working dots (components/liveness), not a static ellipsis: the marker the
+ * system already uses for "alive right now, for an unknown duration". */
 .ds-command-palette-status {
-  flex: none;
-  font-size: var(--sem-font-size-micro);
-  color: var(--sem-color-text-disabled);
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  margin: 0;
+  padding: var(--sem-space-lg) var(--sem-space-xl);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
 }
 
 /* Height cap plus scroll, so the shell never grows past the viewport and the
@@ -2344,26 +2367,43 @@ code {
   padding: var(--sem-space-2xs) 0;
 }
 
-/* Name, a rule filling the line, and the group's count. Hidden from assistive
- * tech because the group element carries the same name as its label. */
+/* The group's name, and nothing else: quieter ink than the rows beneath it,
+ * no rule filling the line, no count (owner ruling 2026-09-10 — the rule and
+ * the number were chrome between every group and the next). Hidden from
+ * assistive tech because the group element carries the same name. */
 .ds-command-palette-group-heading {
-  display: flex;
-  align-items: center;
-  gap: var(--sem-space-lg);
   padding: var(--sem-space-xs) var(--sem-space-xl) var(--sem-space-2xs);
-  font-size: var(--sem-font-size-micro);
-  font-weight: var(--sem-font-weight-medium);
-  color: var(--sem-color-text-disabled);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
 }
 
-.ds-command-palette-group-rule {
-  flex: 1;
-  height: 1px;
-  background: var(--sem-color-border-subtle);
+/* The row's mark, when it has one: a file's kind glyph (components/glyphs,
+ * the file-type vocabulary, in its kind's hue) or a skill's or plugin's own
+ * artwork down the extension-icon ladder. It is the same mark the File
+ * Explorer or the Extensions door draws for the same thing, which is what
+ * lets a list of forty hits be scanned before it is read. A command or a chat
+ * wears none — the verb is the whole row. Decorative: the label names it. */
+.ds-command-palette-option-mark {
+  flex: none;
+  display: inline-flex;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
 }
 
-.ds-command-palette-group-count {
-  font-variant-numeric: tabular-nums;
+/* A chat's mark is the sidebar's provider chip — the agent CLI's glyph on a
+ * round raised ground with a subtle hairline — so a chat is recognised here by
+ * the same mark it wears there. The glyph inside sits at icon.size.xs. */
+.ds-command-palette-option-mark--chip {
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-surface-raised);
+}
+
+.ds-command-palette-option-mark--chip svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
 }
 
 /* A row IS the action: one label, one optional locator, one optional chord,
@@ -2374,7 +2414,10 @@ code {
   justify-content: space-between;
   gap: var(--sem-space-lg);
   padding: var(--sem-space-sm) var(--sem-space-xl);
-  color: var(--sem-color-text-muted);
+  /* The sidebar's row ink: text.default at rest, text.primary under the
+   * cursor. Muted put the one thing a person came to read a step below its
+   * own heading. */
+  color: var(--sem-color-text-default);
   cursor: pointer;
   transition:
     background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
@@ -2393,7 +2436,14 @@ code {
   color: var(--sem-color-text-primary);
 }
 
+/* The text takes the room between the mark and the chord, and stacks its two
+ * lines: the name, then the locator beneath it. `flex: 1` is what keeps a row
+ * that has a mark from pushing its text to the far end of the space-between
+ * row. */
 .ds-command-palette-option-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-width: 0;
 }
 
@@ -2424,8 +2474,9 @@ code {
   font-family: var(--sem-font-family-mono);
 }
 
-/* The chord, spelled the kbd-chord way (components/kbd-chord) rather than as
- * a private capsule — see Known drift. */
+/* The chord: the kbd-chord capsule (components/kbd-chord), one capsule per
+ * rendered chord. Spelled here so the demo stands alone; the primitive
+ * consumes `KbdChord` itself. */
 .ds-command-palette-shortcut {
   flex: none;
   display: inline-flex;
@@ -2455,8 +2506,7 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ds-command-palette-option,
-  .ds-command-palette-scope {
+  .ds-command-palette-option {
     transition: none;
   }
 }
@@ -11067,9 +11117,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.hit-target-min</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The smallest permitted pointer target. A floor, not a size: every step of size.control.* clears it. Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area. <strong>Do not:</strong> Shrinking a target below this because the glyph inside is small.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-offset</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The transparent gap between a focused control and its focus outline. outline-offset, wherever focus.ring is applied. The gap is what keeps focus readable on a control whose own fill is the accent: color.border-focus and accent.primary resolve to the same hue, so a zero-offset ring on an accent fill has nothing to contrast against. <strong>Do not:</strong> A wider offset to make focus louder — the gap is spatial separation, not emphasis.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring</code><code class="catalog-token-value">2px solid var(--sem-color-border-focus)</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The single focus treatment: an outline drawn on :focus-visible at focus.ring-offset. Keyboard focus on every interactive element. Apply as `outline` on :focus-visible together with focus.ring-offset, never on :focus. An outline rather than a box-shadow ring: the offset gap is transparent and shows whatever surface is actually behind the control, where a ring offset has to be told that background and gets it wrong the moment the control changes surface. <strong>Do not:</strong> Hover, selection, or validation — focus is its own signal and never shares a treatment. Never at a zero offset, and never suppressed without a replacement.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.blur</code><code class="catalog-token-value">12px</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Backdrop blur radius of the one glass surface — the toast card. The toast card only (owner ruling 2026-09-04): a corner-sized surface whose blur area is a fraction of the viewport. Dark mode blurs a little more because the lighter glass over near-black needs it to read as a pane. <strong>Do not:</strong> Any scrim, modal, drawer, popover, menu, or full-width surface — blur over terminal panes re-samples every frame and was measured at ~10fps on a full-window scrim. The conformance lint pins glass to the toast.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.opacity</code><code class="catalog-token-value">0.8</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">How much of bg.surface-raised the glass keeps; the rest is the page showing through. The toast card's ground: color-mix(bg.surface-raised, glass.opacity) over the blur. Where backdrop-filter is unsupported the card falls back to solid bg.surface-raised. <strong>Do not:</strong> Tinting any other surface translucent.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.saturation</code><code class="catalog-token-value">1.14</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Saturation boost applied with the blur so what shows through stays lively rather than grey. Paired with glass.blur in the toast's backdrop-filter. Dark mode boosts less: near-black grounds have little to saturate and over-boosting shows as colour fringing. <strong>Do not:</strong> Anywhere glass.blur is not.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.blur</code><code class="catalog-token-value">12px</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Backdrop blur radius of the glass surfaces — the toast card, the popover family's glass material, and the command palette's shell. Four kit shells and nothing else: the toast card (owner ruling 2026-09-04, a corner-sized area), the popover family's opt-in glass material (2026-09-07/08), and the command palette's shell (2026-09-10), which holds the terminal repaint pause while it is up so the blur beneath it is computed once rather than on every PTY chunk. Dark mode blurs a little more because the lighter glass over near-black needs it to read as a pane. <strong>Do not:</strong> Any scrim, drawer, menu, or full-width surface, and any modal other than the palette — blur over terminal panes re-samples every frame and was measured at ~10fps on a full-window scrim; the palette escapes that only by pausing the panes. The conformance lint pins glass to the four shells.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.opacity</code><code class="catalog-token-value">0.8</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">How much of bg.surface-raised the glass keeps; the rest is the page showing through. The glass shells' ground: color-mix(bg.surface-raised, glass.opacity) over the blur. Where backdrop-filter is unsupported each falls back to solid bg.surface-raised. <strong>Do not:</strong> Tinting any other surface translucent.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.glass.saturation</code><code class="catalog-token-value">1.14</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Saturation boost applied with the blur so what shows through stays lively rather than grey. Paired with glass.blur in the glass shells' backdrop-filter. Dark mode boosts less: near-black grounds have little to saturate and over-boosting shows as colour fringing. <strong>Do not:</strong> Anywhere glass.blur is not.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.sticky</code><code class="catalog-token-value">10</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Sticky panel headers and column headers. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.pane</code><code class="catalog-token-value">20</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">In-flow depth: docked panes and in-canvas floating chrome (a side pane, a canvas toolbar, an agent bubble) — above sticky headers, below every overlay. The in-flow depth step for chrome that floats within a pane or canvas without leaving the document flow: docked side panes, canvas toolbars and rails, in-canvas bubbles. Sits above `z.sticky` so a docked pane covers the headers behind it; sits below `z.drawer`, so every overlay still wins. <strong>Do not:</strong> Anything that scrims, traps focus or portals to the body — that is an overlay and takes `z.drawer`, `z.modal`, `z.popover`, `z.menu` or `z.toast`. Never a raw `z-20` utility: consume the token so the ladder stays one ladder.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.float</code><code class="catalog-token-value">30</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">In-flow depth: panel-internal popovers and HUDs that float over a pane's own content — above docked panes, below every overlay. The top in-flow depth step: a panel-internal popover, HUD or tray that floats over its own pane's content and must clear a docked `z.pane` sibling, but stays inside the pane and portals nowhere. Sits directly below `z.drawer`. <strong>Do not:</strong> Surfaces that leave their pane (portalled popovers, menus, dialogs) — they take the overlay layers. Never a raw `z-30` utility, and never a value between this and `z.drawer`: a surface that needs one is the wrong kind of surface.</p></div></div>
@@ -11330,7 +11380,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Status is earned</h4>
 <ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot and a tinted pill saying the same thing.</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
 <h4>Motion</h4>
-<ul><li>One easing curve (<code>motion.ease.standard</code>) and three durations. Hover and focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li><strong>Three eased motions, and that is the whole set:</strong> the switch thumb as it crosses its track, the hover/press response every interactive surface shares, and a popover's entrance. A surface picks one of the three; it does not declare its own transition. A fourth is a system change, argued here first — and a per-component <code>transition</code> restating a duration the tokens already name is the tell that one was added by accident. An entrance a *pattern* owns (a rail swapping its contents) is not a fourth motion: it composes the same duration and easing pair rather than introducing a curve of its own.</li><li>At most one thing animates at a time, and it means one of exactly two things: *alive right now* (a streaming or running pulse) or *just changed* (a reorder, a just-moved flash). Ambient decoration is not motion, it is noise.</li><li>Motion is never the sole signal of a state change — the accessible name and the visible label carry it too.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>, including the <code>:active</code> press scale.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from <code>overlay.scrim</code> plus the shell's shadow. The toast card is the one sanctioned glass surface (ruling 2026-09-04): a corner-sized blur, pinned to the toast by the conformance lint.</li></ul>
+<ul><li>One easing curve (<code>motion.ease.standard</code>) and three durations. Hover and focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li><strong>Three eased motions, and that is the whole set:</strong> the switch thumb as it crosses its track, the hover/press response every interactive surface shares, and a popover's entrance. A surface picks one of the three; it does not declare its own transition. A fourth is a system change, argued here first — and a per-component <code>transition</code> restating a duration the tokens already name is the tell that one was added by accident. An entrance a *pattern* owns (a rail swapping its contents) is not a fourth motion: it composes the same duration and easing pair rather than introducing a curve of its own.</li><li>At most one thing animates at a time, and it means one of exactly two things: *alive right now* (a streaming or running pulse) or *just changed* (a reorder, a just-moved flash). Ambient decoration is not motion, it is noise.</li><li>Motion is never the sole signal of a state change — the accessible name and the visible label carry it too.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>, including the <code>:active</code> press scale.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from <code>overlay.scrim</code> plus the shell's shadow. Glass is a material of four kit shells and nothing else, pinned there by the conformance lint: the toast card (ruling 2026-09-04, a corner-sized blur), the popover family's opt-in <code>material=&quot;glass&quot;</code> (2026-09-07/08), and the command palette's shell (2026-09-10) — the last affordable only because the palette pauses terminal repaints while it is up, so the blur beneath it is computed once. The scrims behind all of them stay plain tones.</li></ul>
 <h4>Accessibility</h4>
 <p>A gate, not a preference. No design system supplies it for you.</p>
 <ul><li>WCAG 2.1 AA, semantic HTML, and full keyboard operation on every surface.</li><li>Body text clears AA on its own surface. <code>text.subtle</code> and <code>text.disabled</code> never carry actionable copy alone. The ink ramp orders identically in both modes — <code>default</code> darker than <code>muted</code> darker than <code>subtle</code> darker than <code>disabled</code> — so a token means the same thing in either theme.</li><li>Visible focus on everything focusable, in a sensible order, never removed.</li><li>Status conveyed by shape or label, never by color alone.</li><li>Real labels on controls; <code>aria-label</code> on every icon-only button. Icons that duplicate adjacent text are <code>aria-hidden</code>.</li><li>Overlays: Escape closes the topmost surface only, focus is restored to the trigger, and a modal traps focus while open.</li><li>Design the states, not the happy path. Every data surface distinguishes populated, empty, loading, error, unavailable, and permission-denied. A failed dependency must never render identically to an empty list.</li></ul>
@@ -16235,76 +16285,82 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-command-palette">
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — resting scope, a capped preview per group, and the cursor on the second row.</p>
+  <p class="demo-label">Light — the resting page: the actions, then the chats most recently spoken in; the cursor on the second row.</p>
   <div class="demo-scrim">
     <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-band">
+        <div class="ds-tabs ds-tabs--borderless ds-command-palette-tabs" role="tablist" aria-label="Search in">
+          <button type="button" class="ds-tab" role="tab" id="demo-tab-all" aria-selected="true" aria-controls="demo-palette-results" tabindex="0">
+            <span>All</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-tab-skills" aria-selected="false" aria-controls="demo-palette-results" tabindex="-1">
+            <span>Skills</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-tab-conversations" aria-selected="false" aria-controls="demo-palette-results" tabindex="-1">
+            <span>Conversations</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-tab-files" aria-selected="false" aria-controls="demo-palette-results" tabindex="-1">
+            <span>Files</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-tab-actions" aria-selected="false" aria-controls="demo-palette-results" tabindex="-1">
+            <span>Actions</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+        </div>
       <div class="ds-command-palette-query">
-        <span class="ds-command-palette-hint" aria-hidden="true">&#8984;</span>
+        <span class="ds-command-palette-hint" aria-hidden="true"><svg viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <input
           class="ds-command-palette-input"
           type="text"
           role="combobox"
           aria-expanded="true"
           aria-controls="demo-palette-results"
-          aria-activedescendant="demo-option-review"
-          aria-label="Search agents, skills, commands, files, and text in files"
-          placeholder="Search agents, skills, commands, files, text&#8230;"
+          aria-activedescendant="demo-option-settings"
+          aria-label="Search chats, skills, plugins, files, text in files, and actions"
+          placeholder="Search chats, skills, plugins, files, text, actions&#8230;"
         />
       </div>
+      </div>
       <div class="ds-command-palette-results" id="demo-palette-results" role="listbox" aria-label="Search results">
-        <div class="ds-command-palette-group" role="group" aria-label="Agents &amp; workspaces">
+        <div class="ds-command-palette-group" role="group" aria-label="Actions">
           <div class="ds-command-palette-group-heading" aria-hidden="true">
-            <span>Agents &amp; workspaces</span>
-            <span class="ds-command-palette-group-rule"></span>
-            <span class="ds-command-palette-group-count">2</span>
-          </div>
-          <div class="ds-command-palette-option" id="demo-option-tokens" role="option" aria-selected="false">
-            <span class="ds-command-palette-option-text">
-              <span class="ds-command-palette-option-label">Token ramp audit</span>
-              <span class="ds-command-palette-option-detail">Workspace &#183; running</span>
-            </span>
-          </div>
-          <div class="ds-command-palette-option" id="demo-option-review" role="option" aria-selected="true">
-            <span class="ds-command-palette-option-text">
-              <span class="ds-command-palette-option-label">Review guide</span>
-              <span class="ds-command-palette-option-detail">Workspace &#183; waiting on you</span>
-            </span>
-          </div>
-        </div>
-        <div class="ds-command-palette-group" role="group" aria-label="Commands">
-          <div class="ds-command-palette-group-heading" aria-hidden="true">
-            <span>Commands</span>
-            <span class="ds-command-palette-group-rule"></span>
-            <span class="ds-command-palette-group-count">2</span>
+            <span>Actions</span>
           </div>
           <div class="ds-command-palette-option" id="demo-option-newchat" role="option" aria-selected="false">
+            <svg class="ds-command-palette-option-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 8l4 4" stroke="currentColor" stroke-width="1.7"/></svg>
             <span class="ds-command-palette-option-text">
               <span class="ds-command-palette-option-label">New chat</span>
             </span>
             <kbd class="ds-command-palette-shortcut">&#8984;N</kbd>
           </div>
-          <div class="ds-command-palette-option" id="demo-option-settings" role="option" aria-selected="false">
+          <div class="ds-command-palette-option" id="demo-option-settings" role="option" aria-selected="true">
+            <svg class="ds-command-palette-option-mark" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
             <span class="ds-command-palette-option-text">
               <span class="ds-command-palette-option-label">Open settings</span>
             </span>
             <kbd class="ds-command-palette-shortcut">&#8984;,</kbd>
           </div>
         </div>
-        <div class="ds-command-palette-group" role="group" aria-label="Text in files">
+        <div class="ds-command-palette-group" role="group" aria-label="Recent conversations">
           <div class="ds-command-palette-group-heading" aria-hidden="true">
-            <span>Text in files</span>
-            <span class="ds-command-palette-group-rule"></span>
-            <span class="ds-command-palette-group-count">1</span>
+            <span>Recent conversations</span>
           </div>
-          <div
-            class="ds-command-palette-option ds-command-palette-option--source"
-            id="demo-option-source"
-            role="option"
-            aria-selected="false"
-          >
+          <div class="ds-command-palette-option" id="demo-option-tokens" role="option" aria-selected="false">
+            <span class="ds-command-palette-option-mark ds-command-palette-option-mark--chip" aria-hidden="true"><svg viewBox="0 0 248 248" fill="none"><path d="M52.4285 162.873L98.7844 136.879L99.5485 134.602L98.7844 133.334H96.4921L88.7237 132.862L62.2346 132.153L39.3113 131.207L17.0249 130.026L11.4214 128.844L6.2 121.873L6.7094 118.447L11.4214 115.257L18.171 115.847L33.0711 116.911L55.485 118.447L71.6586 119.392L95.728 121.873H99.5485L100.058 120.337L98.7844 119.392L97.7656 118.447L74.5877 102.732L49.4995 86.1905L36.3823 76.62L29.3779 71.7757L25.8121 67.2858L24.2839 57.3608L30.6515 50.2716L39.3113 50.8623L41.4763 51.4531L50.2636 58.1879L68.9842 72.7209L93.4357 90.6804L97.0015 93.6343L98.4374 92.6652L98.6571 91.9801L97.0015 89.2625L83.757 65.2772L69.621 40.8192L63.2534 30.6579L61.5978 24.632C60.9565 22.1032 60.579 20.0111 60.579 17.4246L67.8381 7.49965L71.9133 6.19995L81.7193 7.49965L85.7946 11.0443L91.9074 24.9865L101.714 46.8451L116.996 76.62L121.453 85.4816L123.873 93.6343L124.764 96.1155H126.292V94.6976L127.566 77.9197L129.858 57.3608L132.15 30.8942L132.915 23.4505L136.608 14.4708L143.994 9.62643L149.725 12.344L154.437 19.0788L153.8 23.4505L150.998 41.6463L145.522 70.1215L141.957 89.2625H143.994L146.414 86.7813L156.093 74.0206L172.266 53.698L179.398 45.6635L187.803 36.802L193.152 32.5484H203.34L210.726 43.6549L207.415 55.1159L196.972 68.3492L188.312 79.5739L175.896 96.2095L168.191 109.585L168.882 110.689L170.738 110.53L198.755 104.504L213.91 101.787L231.994 98.7149L240.144 102.496L241.036 106.395L237.852 114.311L218.495 119.037L195.826 123.645L162.07 131.592L161.696 131.893L162.137 132.547L177.36 133.925L183.855 134.279H199.774L229.447 136.524L237.215 141.605L241.8 147.867L241.036 152.711L229.065 158.737L213.019 154.956L175.45 145.977L162.587 142.787H160.805V143.85L171.502 154.366L191.242 172.089L215.82 195.011L217.094 200.682L213.91 205.172L210.599 204.699L188.949 188.394L180.544 181.069L161.696 165.118H160.422V166.772L164.752 173.152L187.803 207.771L188.949 218.405L187.294 221.832L181.308 223.959L174.813 222.777L161.187 203.754L147.305 182.486L136.098 163.345L134.745 164.2L128.075 235.42L125.019 239.082L117.887 241.8L111.902 237.31L108.718 229.984L111.902 215.452L115.722 196.547L118.779 181.541L121.58 162.873L123.291 156.636L123.14 156.219L121.773 156.449L107.699 175.752L86.304 204.699L69.3663 222.777L65.291 224.431L58.2867 220.768L58.9235 214.27L62.8713 208.48L86.304 178.705L100.44 160.155L109.551 149.507L109.462 147.967L108.959 147.924L46.6977 188.512L35.6182 189.93L30.7788 185.44L31.4156 178.115L33.7079 175.752L52.4285 162.873Z" fill="#D97757"/></svg> <!-- ds-lint-allow: Claude's brand mark, its own hue by definition (CliIcon.tsx) --></span>
             <span class="ds-command-palette-option-text">
-              <span class="ds-command-palette-option-label">const OVERLAY_WIDTH_PX = {</span>
-              <span class="ds-command-palette-option-detail">src/renderer/src/components/ui/tokens.ts:246</span>
+              <span class="ds-command-palette-option-label">Token ramp audit</span>
+              <span class="ds-command-palette-option-detail">Workspace &#183; running</span>
+            </span>
+          </div>
+          <div class="ds-command-palette-option" id="demo-option-review" role="option" aria-selected="false">
+            <span class="ds-command-palette-option-mark ds-command-palette-option-mark--chip" aria-hidden="true"><svg viewBox="112 80 288 352" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M384 416H128V96H384V416ZM320 160H192V352H320V160Z"/><path d="M320 224V352H192V224H320Z"/></svg></span>
+            <span class="ds-command-palette-option-text">
+              <span class="ds-command-palette-option-label">Review guide</span>
+              <span class="ds-command-palette-option-detail">Workspace &#183; waiting on you</span>
             </span>
           </div>
         </div>
@@ -16312,14 +16368,34 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     </div>
   </div>
 
-  <p class="demo-label">Narrowed to a scope, and the working note &#8212; the one part of the search that is not instant.</p>
+  <p class="demo-label">Narrowed to Files by the strip, and the working note &#8212; the one part of the search that is not instant.</p>
   <div class="demo-scrim">
     <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-band">
+        <div class="ds-tabs ds-tabs--borderless ds-command-palette-tabs" role="tablist" aria-label="Search in">
+          <button type="button" class="ds-tab" role="tab" id="demo-scoped-tab-all" aria-selected="false" aria-controls="demo-palette-scoped" tabindex="-1">
+            <span>All</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-scoped-tab-skills" aria-selected="false" aria-controls="demo-palette-scoped" tabindex="-1">
+            <span>Skills</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-scoped-tab-conversations" aria-selected="false" aria-controls="demo-palette-scoped" tabindex="-1">
+            <span>Conversations</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-scoped-tab-files" aria-selected="true" aria-controls="demo-palette-scoped" tabindex="0">
+            <span>Files</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-scoped-tab-actions" aria-selected="false" aria-controls="demo-palette-scoped" tabindex="-1">
+            <span>Actions</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+        </div>
       <div class="ds-command-palette-query">
-        <button type="button" class="ds-command-palette-scope" aria-label="Search everything instead of files">
-          Files
-          <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-        </button>
+        <span class="ds-command-palette-hint" aria-hidden="true"><svg viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <input
           class="ds-command-palette-input"
           type="text"
@@ -16330,42 +16406,89 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
           placeholder="Search file names and text in files&#8230;"
           value="tokens"
         />
-        <span class="ds-command-palette-status" role="status">Searching&#8230;</span>
+      </div>
       </div>
       <div class="ds-command-palette-results" id="demo-palette-scoped" role="listbox" aria-label="Search results">
-        <p class="ds-command-palette-empty">Searching&#8230;</p>
+        <p class="ds-command-palette-status" role="status">Searching <span class="ds-working-dots" role="img" aria-label="Searching"><span class="ds-working-dot"></span><span class="ds-working-dot"></span><span class="ds-working-dot"></span></span></p>
       </div>
     </div>
   </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
-  <p class="demo-label">Dark &#8212; and the fourth empty sentence: nothing to search, which is not the same as nothing found.</p>
+  <p class="demo-label">Dark &#8212; nothing matched.</p>
   <div class="demo-scrim">
     <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-band">
+        <div class="ds-tabs ds-tabs--borderless ds-command-palette-tabs" role="tablist" aria-label="Search in">
+          <button type="button" class="ds-tab" role="tab" id="demo-empty-tab-all" aria-selected="true" aria-controls="demo-palette-empty" tabindex="0">
+            <span>All</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-empty-tab-skills" aria-selected="false" aria-controls="demo-palette-empty" tabindex="-1">
+            <span>Skills</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-empty-tab-conversations" aria-selected="false" aria-controls="demo-palette-empty" tabindex="-1">
+            <span>Conversations</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-empty-tab-files" aria-selected="false" aria-controls="demo-palette-empty" tabindex="-1">
+            <span>Files</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-empty-tab-actions" aria-selected="false" aria-controls="demo-palette-empty" tabindex="-1">
+            <span>Actions</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+        </div>
       <div class="ds-command-palette-query">
-        <span class="ds-command-palette-hint" aria-hidden="true">&#8984;</span>
+        <span class="ds-command-palette-hint" aria-hidden="true"><svg viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <input
           class="ds-command-palette-input"
           type="text"
           role="combobox"
           aria-expanded="false"
           aria-controls="demo-palette-empty"
-          aria-label="Search agents, skills, commands, files, and text in files"
-          placeholder="Search agents, skills, commands, files, text&#8230;"
+          aria-label="Search chats, skills, plugins, files, text in files, and actions"
+          placeholder="Search chats, skills, plugins, files, text, actions&#8230;"
           value="ramp"
         />
       </div>
+      </div>
       <div class="ds-command-palette-results" id="demo-palette-empty" role="listbox" aria-label="Search results">
-        <p class="ds-command-palette-empty">Open a folder to search files and their contents.</p>
+        <p class="ds-command-palette-empty">No results</p>
       </div>
     </div>
   </div>
 
   <div class="demo-scrim">
     <div class="ds-command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1">
+      <div class="ds-command-palette-band">
+        <div class="ds-tabs ds-tabs--borderless ds-command-palette-tabs" role="tablist" aria-label="Search in">
+          <button type="button" class="ds-tab" role="tab" id="demo-dark-tab-all" aria-selected="true" aria-controls="demo-palette-dark-results" tabindex="0">
+            <span>All</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-dark-tab-skills" aria-selected="false" aria-controls="demo-palette-dark-results" tabindex="-1">
+            <span>Skills</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-dark-tab-conversations" aria-selected="false" aria-controls="demo-palette-dark-results" tabindex="-1">
+            <span>Conversations</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-dark-tab-files" aria-selected="false" aria-controls="demo-palette-dark-results" tabindex="-1">
+            <span>Files</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="ds-tab" role="tab" id="demo-dark-tab-actions" aria-selected="false" aria-controls="demo-palette-dark-results" tabindex="-1">
+            <span>Actions</span>
+            <span class="ds-tab-underline" aria-hidden="true"></span>
+          </button>
+        </div>
       <div class="ds-command-palette-query">
-        <span class="ds-command-palette-hint" aria-hidden="true">&#8984;</span>
+        <span class="ds-command-palette-hint" aria-hidden="true"><svg viewBox="0 0 11 11" fill="none"><circle cx="4.5" cy="4.5" r="3" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M7 7l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <input
           class="ds-command-palette-input"
           type="text"
@@ -16373,17 +16496,16 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
           aria-expanded="true"
           aria-controls="demo-palette-dark-results"
           aria-activedescendant="demo-dark-option-skill"
-          aria-label="Search agents, skills, commands, files, and text in files"
-          placeholder="Search agents, skills, commands, files, text&#8230;"
+          aria-label="Search chats, skills, plugins, files, text in files, and actions"
+          placeholder="Search chats, skills, plugins, files, text, actions&#8230;"
           value="skill"
         />
+      </div>
       </div>
       <div class="ds-command-palette-results" id="demo-palette-dark-results" role="listbox" aria-label="Search results">
         <div class="ds-command-palette-group" role="group" aria-label="Skills">
           <div class="ds-command-palette-group-heading" aria-hidden="true">
             <span>Skills</span>
-            <span class="ds-command-palette-group-rule"></span>
-            <span class="ds-command-palette-group-count">2</span>
           </div>
           <div class="ds-command-palette-option" id="demo-dark-option-skill" role="option" aria-selected="true">
             <span class="ds-command-palette-option-text">
@@ -16404,47 +16526,61 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </div>
 </div>
 <div class="catalog-doc">
-<p>One field over a grouped result list: the keyboard route to everything the product can do or open. It is the launcher, not a search screen — a person opens it, types, presses Enter and it is gone. Extracted from the shipped <code>CommandPalette</code> primitive (<code>src/renderer/src/components/ui/CommandPalette.tsx</code>).</p>
-<p>It is a [modal](../modal/component.md) shell in every respect the modal spec governs — chrome, width step, focus trap, scrim, restore — and it earns the scrim by the three tests in the principles: the workspace underneath stays the subject, nothing that names a place leads to it, and it is a task with an end. What it adds, and what this entry specifies, is the part above the shell: the <strong>combobox-over-listbox</strong> contract, the grouped result anatomy, and the rule that keeps a launcher from turning into a browser.</p>
+<p>A scope strip and one field over a grouped result list: the keyboard route to everything the product can do or open. It is the launcher, not a search screen — a person opens it, types, presses Enter and it is gone. Extracted from the shipped <code>CommandPalette</code> primitive (<code>src/renderer/src/components/ui/CommandPalette.tsx</code>).</p>
+<p>It is a [modal](../modal/component.md) shell in every respect the modal spec governs — chrome, width step, focus trap, scrim, restore — and it earns the scrim by the three tests in the principles: the workspace underneath stays the subject, nothing that names a place leads to it, and it is a task with an end. What it adds, and what this entry specifies, is the part above the shell: the <strong>scope strip</strong> that says which question is being asked, the <strong>combobox-over-listbox</strong> contract, the grouped result anatomy, the row marks, and the rule that keeps a launcher from turning into a browser. Its ground is the one thing it takes from nowhere else: <strong>glass</strong> — see Material.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Scrim | <code>.ds-command-palette-scrim</code> | yes — full-viewport <code>overlay.scrim</code> at <code>z.modal</code>, dismissing on a press that both starts and ends on it | | Shell | <code>.ds-command-palette</code> | yes — the modal shell's chrome at the <code>palette</code> width step (600px, capped <code>95vw</code>), clipping its own corners | | Query row | <code>.ds-command-palette-query</code> | yes — one band, <code>space.lg</code>/<code>space.xl</code> insets, one <code>border.default</code> hairline beneath | | Leading hint | <code>.ds-command-palette-hint</code> | yes, when no scope — the <code>⌘</code> mark in <code>text.disabled</code>; it is decoration and says so | | Scope token | <code>.ds-command-palette-scope</code> | no — the removable chip naming the narrowing, <code>radius.chip</code> on <code>bg.surface-raised</code> | | Input | <code>.ds-command-palette-input</code> | yes — <code>role=&quot;combobox&quot;</code>, transparent, <code>font.size.heading</code> | | Working note | <code>.ds-command-palette-status</code> | no — <code>role=&quot;status&quot;</code>, for the one part of the search that is not instant | | Results | <code>.ds-command-palette-results</code> | yes — <code>role=&quot;listbox&quot;</code> with a required label, height-capped and scrolling | | Group | <code>.ds-command-palette-group</code> | no — <code>role=&quot;group&quot;</code> with the group's name as its label | | Group heading | <code>.ds-command-palette-group-heading</code> | with a group — name, a <code>border.subtle</code> rule filling the line, and a tabular count; <code>aria-hidden</code> | | Option | <code>.ds-command-palette-option</code> | yes — <code>role=&quot;option&quot;</code>, a stable <code>id</code>, <code>aria-selected</code> | | Option label | <code>.ds-command-palette-option-label</code> | yes — truncating; <code>font.size.heading</code>, or mono for a line-of-source hit | | Option detail | <code>.ds-command-palette-option-detail</code> | no — the locator under the label, <code>font.size.micro</code> in <code>text.disabled</code> | | Shortcut | <code>.ds-command-palette-shortcut</code> | no — the command's chord, trailing | | Empty | <code>.ds-command-palette-empty</code> | no — the one-sentence state when nothing matched |</p>
-<p><strong>The shell is the modal's, not its own.</strong> Radius, border, ground, elevation and width all come from the overlay scale; the palette's one local addition is <code>overflow: hidden</code>, so the query row's hairline is clipped by the shell's corners. It keeps its own scrim only because it sits at <strong>15vh from the top</strong> rather than centred, which no dialog does — a launcher belongs under the person's hands, not in the middle of the screen.</p>
-<p><strong>The query row is the only chrome.</strong> No toolbar, no tabs, no filter strip: narrowing is a token inside the field, and everything else the palette knows is in the list.</p>
+<p>| Part | Class | Required | |---|---|---| | Scrim | <code>.ds-command-palette-scrim</code> | yes — full-viewport <code>overlay.scrim</code> at <code>z.modal</code>, dismissing on a press that both starts and ends on it; a plain tone, never a blur | | Shell | <code>.ds-command-palette</code> | yes — the modal shell's chrome at the <code>palette</code> width step (600px, capped <code>95vw</code>) on the glass ground, clipping its own corners | | Band | <code>.ds-command-palette-band</code> | yes — the one band of chrome: the strip and the field, one <code>border.default</code> hairline beneath | | Scope strip | <code>.ds-command-palette-tabs</code> | yes — a borderless [tabs](../tabs/component.md) strip, <code>role=&quot;tablist&quot;</code> labelled &quot;Search in&quot;: All, then the four narrowings | | Query row | <code>.ds-command-palette-query</code> | yes — <code>space.lg</code>/<code>space.xl</code> insets, no hairline of its own | | Leading hint | <code>.ds-command-palette-hint</code> | yes — the kit's search glyph in <code>text.disabled</code>; it is decoration and says so | | Input | <code>.ds-command-palette-input</code> | yes — <code>role=&quot;combobox&quot;</code>, transparent, <code>font.size.heading</code> | | Working note | <code>.ds-command-palette-status</code> | no — <code>role=&quot;status&quot;</code>, a line in the list: the word and the liveness working dots, for a search in flight or an install round trip | | Results | <code>.ds-command-palette-results</code> | yes — <code>role=&quot;listbox&quot;</code> with a required label, height-capped and scrolling | | Group | <code>.ds-command-palette-group</code> | no — <code>role=&quot;group&quot;</code> with the group's name as its label | | Group heading | <code>.ds-command-palette-group-heading</code> | with a group — the name alone, <code>font.size.meta</code> in <code>text.muted</code>; no rule, no count; <code>aria-hidden</code> | | Option | <code>.ds-command-palette-option</code> | yes — <code>role=&quot;option&quot;</code>, a stable <code>id</code>, <code>aria-selected</code> | | Option mark | <code>.ds-command-palette-option-mark</code> | no — a file's kind glyph in its kind's hue, a skill's or plugin's own artwork, an action's glyph, or (<code>--chip</code>) a chat's provider chip; <code>aria-hidden</code> | | Option label | <code>.ds-command-palette-option-label</code> | yes — truncating; <code>font.size.heading</code>, or mono for a line-of-source hit | | Option detail | <code>.ds-command-palette-option-detail</code> | no — the locator under the label, <code>font.size.micro</code> in <code>text.disabled</code> | | Shortcut | <code>.ds-command-palette-shortcut</code> | no — the command's chord, trailing, a [kbd-chord](../kbd-chord/component.md) capsule | | Empty | <code>.ds-command-palette-empty</code> | no — the one-sentence state when nothing matched |</p>
+<p><strong>The shell is the modal's, not its own — except its ground.</strong> Radius, border, elevation and width all come from the overlay scale; the palette's local additions are the glass ground (Material, below) and <code>overflow: hidden</code>, so the band's hairline is clipped by the shell's corners. It keeps its own scrim only because it sits at <strong>15vh from the top</strong> rather than centred, which no dialog does — a launcher belongs under the person's hands, not in the middle of the screen.</p>
+<p><strong>One band of chrome, two lines in it.</strong> The strip and the field share a band that draws a single hairline, under the field; the strip is the tabs component's borderless variant, so the active tab's own accent underline is the only mark between the two lines. A hairline under the strip *and* one under the field would be the two stacked bands of chrome the principles reject on sight. Everything else the palette knows is in the list.</p>
+<h4>Material</h4>
+<p>The shell is <strong>glass</strong> (owner ruling 2026-09-10): <code>bg.surface-raised</code> at <code>glass.opacity</code> over a <code>backdrop-filter</code> of <code>glass.blur</code> and <code>glass.saturation</code> — the toast card's recipe — under the modal's own radius, <code>border.subtle</code> hairline and <code>shadow.modal</code>. Where <code>backdrop-filter</code> is unsupported the shell is solid <code>bg.surface-raised</code>.</p>
+<p>The blur ban (principles, &quot;Motion&quot;; the modal and drawer specs) exists because a blur over a streaming terminal is re-sampled on every PTY chunk, and a full-viewport scrim doing that was measured at ~10fps. The palette is allowed what the modal is not for a reason the earlier glass surfaces did not have: the shipped primitive <strong>holds the terminal repaint pause</strong> for its lifetime — the same hold <code>Modal</code> takes, which stops every pane writing while a dialog covers the app. Over paused panes the blur is computed once and sits still, and the area is the shell's, not the viewport's. The <strong>scrim stays a plain tone</strong>; the ruling is for the shell alone, and the conformance lint pins the glass utility to the four kit shells that carry it.</p>
 <h4>Variants</h4>
-<ul><li><strong>Scope: all (default)</strong> — every group is searched at once, and the leading slot holds the <code>⌘</code> hint.</li><li><strong>Scope: files</strong> — the palette opens narrowed, and the hint is replaced by a removable token reading the scope's name. The token is a <strong>chip, not a tab</strong>: it says what the field is narrowed to and clicking it widens back to the full launcher without reopening the overlay. Backspace at an empty query pops it, exactly as it pops a chip in a token field, so the narrowing is reversible from the keyboard.</li><li><strong>Groups</strong> are a fixed, ordered set, and the order on screen is the order the arrow keys traverse. A group with no matches is not rendered — an empty heading groups nothing.</li><li><strong>The line-of-source option</strong> is the one row that inverts label and detail: the matched line is the identity (mono, <code>font.size.meta</code>) and the <code>path:line</code> beneath it is the locator. Everywhere else the name is the label and the path is the detail.</li></ul>
+<p>The scope strip has five tabs, and they <strong>partition</strong> the launcher: every group is under exactly one of the four narrowings, so the person never has to wonder which tab a thing is under, and nothing is found twice.</p>
+<ul><li><strong>All (default)</strong> — every group is searched at once. ⌘K and Shift Shift open here.</li><li><strong>Skills</strong> — every skill and plugin in every configured source, installed or not. The terminal's star opens here, and this tab lifts the per-group row cap: the tab *is* the person saying they want the whole list.</li><li><strong>Conversations</strong> — the chats and workspaces the sidebar lists, by title and folder.</li><li><strong>Files</strong> — file names and text in files: Find-in-Path. ⌘⇧F opens here, so a snippet of code is never ranked against a command row.</li><li><strong>Actions</strong> — commands and the create/spawn verbs: what the product can do.</li></ul>
+<p>Choosing a tab narrows the same list without reopening the overlay, and focus returns to the field. Backspace at an empty query steps back to All, so ⌘⇧F's narrowing and the star's are both reversible without leaving the field for the strip. A tab, not a chip: the earlier scope token said what the field was narrowed to but could not offer the other narrowings, and the difficulty it left — &quot;am I looking for a skill, a chat, or a file, and where did that land&quot; — is exactly what a strip answers at a glance (owner, 2026-09-10).</p>
+<ul><li><strong>Groups</strong> are a fixed, ordered set, and the order on screen is the order the arrow keys traverse. A group with no matches is not rendered — an empty heading groups nothing.</li><li><strong>The line-of-source option</strong> is the one row that inverts label and detail: the matched line is the identity (mono, <code>font.size.meta</code>) and the <code>path:line</code> beneath it is the locator. Everywhere else the name is the label and the path is the detail.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Resting (no query) | Each group shows a capped preview rather than its full contents — the first frame is scannable, not a dump of every command | | Typing | The in-memory groups filter on the keystroke; disk-backed groups debounce and appear beneath the rest | | Working | The <code>role=&quot;status&quot;</code> note in the query row. It is the only part that can be slow, so it is the only part that says it is working | | Active option | <code>bg.selected</code> with <code>text.primary</code> ink — a cursor, moved by the arrows and by the pointer entering a row, never DOM focus | | Hover (inactive row) | <code>bg.hover</code> and <code>text.primary</code>, at <code>motion.duration.fast</code> | | Empty | One sentence, and it distinguishes *searching*, *nothing matched*, *nothing to search yet*, and *the search failed* — four states, four sentences, never one &quot;No results&quot; standing in for all of them |</p>
+<p>| State | Treatment | |---|---| | Resting (no query, All) | The resting page: <strong>Actions</strong> — the create/spawn/search verbs, each with its glyph and chord — then <strong>Recent conversations</strong>, the chats most recently spoken in, in the sidebar's order, a screen's worth. Not a preview of every group (owner ruling 2026-09-10) | | Resting (no query, a narrowing) | The tab's groups show a capped preview rather than their full contents | | Typing | The in-memory groups filter on the keystroke; disk-backed groups debounce and appear beneath the rest | | Working | The <code>role=&quot;status&quot;</code> line in the list — &quot;Searching&quot; or &quot;Working&quot; beside the [liveness](../liveness/component.md) working dots. Never beside the query (a note on the field's own line read as part of what was typed), and never a static ellipsis pretending to move | | Rest (row) | <code>text.default</code> — the sidebar's row ink. The heading above it is the quieter one, not the row | | Active option | <code>bg.selected</code> with <code>text.primary</code> ink — a cursor, moved by the arrows and by the pointer entering a row, never DOM focus | | Hover (inactive row) | <code>bg.hover</code> and <code>text.primary</code>, at <code>motion.duration.fast</code> | | Empty | One line, and it distinguishes *searching* (the working note), *nothing matched*, and *the search failed* — never one &quot;No results&quot; standing in for a failure |</p>
 <p>The active row scrolls itself into view (<code>block: 'nearest'</code>) as the selection moves, so a keyboard walk never runs off the bottom of the capped list.</p>
 <h4>Usage</h4>
 <p><strong>The palette is a launcher, not a destination.</strong> Every row's job is to close it. There is no multi-select, no inline editing, no detail pane, no state that survives the dismiss beyond the scope it was opened with.</p>
 <p><strong>Group order is reading order is key order.</strong> The vertical order of the groups is the order the arrow keys traverse, because a selection that jumps between sections in an order the eye cannot predict is a list nobody can drive.</p>
-<p><strong>Preview at rest, everything on a query.</strong> With no query each group is capped; a query searches every group at once. A resting palette that lists all several hundred commands has answered a question nobody asked.</p>
-<p><strong>Say which nothing it is.</strong> &quot;No results&quot; is only true once the search that would have produced them has finished, and only meaningful when there was something to search. Populated, empty, loading, error and *unavailable* are five different sentences here — the principles require a failed dependency to never render identically to an empty list.</p>
-<p><strong>One row, one action.</strong> A row carries a label, an optional locator, and an optional chord. No trailing buttons, no per-row menus: the row IS the action, and a second target inside it is a second thing Enter might mean.</p>
-<p><strong>Rebuilding it in a framework:</strong> what must survive is the combobox/listbox pairing with <code>aria-activedescendant</code> (focus never leaves the field), the fixed group order, the four empty sentences, the height cap with scroll-into-view, and focus returning to the opener on close.</p>
+<p><strong>The resting page is a page, not a preview.</strong> With no query on All, the palette shows what a person opens it for before they have typed: the actions, then the chats they were most recently in. A resting palette that lists a sample of every group — six workspaces, six commands, six skills — has answered a question nobody asked, under headings nobody read. A query searches every group at once; a narrowing at rest previews its own groups, capped.</p>
+<p><strong>Say which nothing it is.</strong> &quot;No results&quot; is only true once the search that would have produced them has finished. Populated, empty, loading and error are four different states here — the principles require a failed dependency to never render identically to an empty list. What the palette does *not* say is why a search had nothing to look through (&quot;open a folder to…&quot;): that sentence told the person about the app's state when they had asked about their query, and went (owner, 2026-09-10).</p>
+<p><strong>One row, one action.</strong> A row carries a mark, a label, an optional locator, and an optional chord. No trailing buttons, no per-row menus: the row IS the action, and a second target inside it is a second thing Enter might mean.</p>
+<p><strong>The mark is the one the thing wears everywhere else.</strong> A file row draws the file-type glyph the File Explorer and the Git changes list draw for the same name, in its kind's hue; a skill or plugin row draws its own artwork down the Extensions door's ladder (glyph → logo → the publishing account's avatar → monogram); an action draws the glyph its other entry point already wears (the sidebar's compose mark on New chat, the specialist's icon from the spawn menu, the search glyph); a chat draws the sidebar's provider chip — the agent CLI's mark on a round raised ground, or the workspace type's icon when no agent has run in it. A row that is recognised by its mark before it is read is what lets a list be scanned, and on the resting page the glyph is what makes an action row read as an action. A panel or git command wears none: the verb is the whole row, and a glyph invented for it would be decoration.</p>
+<p><strong>The heading is a word.</strong> <code>text.muted</code> at <code>font.size.meta</code>, above rows in <code>text.default</code>: the quiet thing is the label and the loud thing is the row. The rule that filled the line and the count at its end were chrome between every group and the next, and went (owner, 2026-09-10).</p>
+<p><strong>Rebuilding it in a framework:</strong> what must survive is the combobox/listbox pairing with <code>aria-activedescendant</code> (focus never leaves the field), the tablist whose panel is the result list, the partition of groups across the tabs, the fixed group order, the three empty sentences, the height cap with scroll-into-view, focus returning to the opener on close — and, if the shell is glass, the terminal repaint hold that makes it affordable.</p>
 <h4>Accessibility</h4>
-<ul><li>The shell is <code>role=&quot;dialog&quot;</code> with <code>aria-modal=&quot;true&quot;</code>, a required <code>aria-label</code>, and a real <strong>focus trap</strong> — the claim and the behaviour arrive together. A modal a keyboard can walk out of is a modal in name only.</li><li><strong>Focus never leaves the input.</strong> The field is <code>role=&quot;combobox&quot;</code> with <code>aria-expanded</code>, <code>aria-controls</code> pointing at the list, and <code>aria-activedescendant</code> naming the active option's <code>id</code>. The rows are the cursor idiom, not tab stops: one tab stop, and Enter acts on the marked row.</li><li>The list carries <code>role=&quot;listbox&quot;</code> and its own label; each group carries <code>role=&quot;group&quot;</code> and the group's name, which is what makes the visual heading safe to mark <code>aria-hidden</code> — the name reaches a screen reader through the group, not through the divider line.</li><li>The input's <code>aria-label</code> is a full sentence naming what is searched, and it changes with the scope. The placeholder is not the label.</li><li>The working note is <code>role=&quot;status&quot;</code> (polite): it reports progress without interrupting typing.</li><li>Opening focuses the field; closing returns focus to the element that opened the palette, so a keyboard user lands back where they were.</li><li>Escape closes — and only when nothing inside has already handled it, so a menu or popover opened from within the palette consumes its own Escape first. One press, one layer.</li><li>The scrim dismisses on a press that <strong>starts</strong> on it. A drag that began inside the field and was released over the scrim is a text selection, not a dismissal.</li></ul>
+<ul><li>The shell is <code>role=&quot;dialog&quot;</code> with <code>aria-modal=&quot;true&quot;</code>, a required <code>aria-label</code>, and a real <strong>focus trap</strong> — the claim and the behaviour arrive together. A modal a keyboard can walk out of is a modal in name only.</li><li><strong>Focus never leaves the input.</strong> The field is <code>role=&quot;combobox&quot;</code> with <code>aria-expanded</code>, <code>aria-controls</code> pointing at the list, and <code>aria-activedescendant</code> naming the active option's <code>id</code>. The rows are the cursor idiom, not tab stops: Enter acts on the marked row.</li><li><strong>The field draws no focus ring</strong> (owner ruling 2026-09-10) — the one exception to &quot;visible focus, never removed&quot;, and a narrow one: the shell opens with the caret in the field, the caret is the focus signal, and the strip beside it keeps its ring, so a keyboard walk out to the tabs and back is still visible at every step. A ring the width of the band read as a second box around the only thing on screen.</li><li><strong>The strip is one tab stop</strong> (the tabs component's roving focus): Tab from the field reaches it, the arrows move between scopes, and choosing one returns focus to the field. Its <code>aria-controls</code> and the combobox's both name the result list — the list carries one id per scope, so the tab's panel and the combobox's popup are the same element and both references resolve. The strip is labelled &quot;Search in&quot;.</li><li>The list carries <code>role=&quot;listbox&quot;</code> and its own label; each group carries <code>role=&quot;group&quot;</code> and the group's name, which is what makes the visual heading safe to mark <code>aria-hidden</code> — the name reaches a screen reader through the group, not through the divider line.</li><li>The input's <code>aria-label</code> is a full sentence naming what is searched, and it changes with the scope. The placeholder is not the label.</li><li>The working note is <code>role=&quot;status&quot;</code> (polite): it reports progress without interrupting typing.</li><li>Opening focuses the field; closing returns focus to the element that opened the palette, so a keyboard user lands back where they were.</li><li>Escape closes — and only when nothing inside has already handled it, so a menu or popover opened from within the palette consumes its own Escape first. One press, one layer.</li><li>The scrim dismisses on a press that <strong>starts</strong> on it. A drag that began inside the field and was released over the scrim is a text selection, not a dismissal.</li></ul>
 <h4>Known drift</h4>
-<ul><li><strong>The shortcut chip is hand-rolled.</strong> The trailing chord renders as a bare <code>&lt;kbd&gt;</code> with a local fill and a <code>rounded</code> utility that lands on none of the 3 / 7 / 9 radius steps, while [kbd-chord](../kbd-chord/component.md) is the system's mark for exactly this. The CSS here spells the chord the kbd-chord way; the primitive should consume that component.</li><li><strong>A line-of-source label sets at <code>font.size.meta</code> (12px)</strong>, under the 13px floor the type rules put on primary content — and on a content hit that line *is* the primary content. Either the row's identity moves up to <code>font.size.body</code>, or the floor gains a documented exception for a mono code excerpt. Recorded here rather than quietly kept.</li><li><strong>The group heading's count is invisible to a screen reader.</strong> Marking the whole heading <code>aria-hidden</code> is right for the rule and the label (both are restated by the group's own name), but it also hides the count, which nothing else states. The count belongs on the group's accessible name.</li><li>The results cap is a literal <code>360px</code>. It is a layout measure rather than a token, like the side pane's rails, but it is undocumented in the source.</li></ul>
+<ul><li><strong>A line-of-source label sets at <code>font.size.meta</code> (12px)</strong>, under the 13px floor the type rules put on primary content — and on a content hit that line *is* the primary content. Either the row's identity moves up to <code>font.size.body</code>, or the floor gains a documented exception for a mono code excerpt. Recorded here rather than quietly kept.</li><li>The results cap is a literal <code>360px</code>. It is a layout measure rather than a token, like the side pane's rails, but it is undocumented in the source.</li></ul>
 <h4>Shipped implementation</h4>
-<p><code>src/renderer/src/components/ui/CommandPalette.tsx</code> — default export, outside the kit barrel. It composes <code>OVERLAY_SHELL_CLASS</code> and <code>overlayWidthStyle('palette')</code> from <code>ui/tokens.ts</code> (the shell chrome and the width step this system's [modal](../modal/component.md) entry defines), <code>FocusTrap</code> for the modality claim, and <code>TruncatedText</code> for both text lines.</p>
+<p><code>src/renderer/src/components/ui/CommandPalette.tsx</code> — default export, outside the kit barrel. It composes <code>OVERLAY_SHELL_CHROME_CLASS</code> plus the <code>surface-glass</code> utility and <code>overlayWidthStyle('palette')</code> from <code>ui/tokens.ts</code> (the shell chrome and the width step this system's [modal](../modal/component.md) entry defines, with the glass ground in place of the shell's tone), <code>Tabs</code> for the strip, <code>FileTypeGlyph</code> and <code>ExtensionIcon</code> for the marks, <code>KbdChord</code> for the chords, <code>FocusTrap</code> for the modality claim, <code>TruncatedText</code> for both text lines, and <code>acquireTerminalRepaintPause</code> for the hold that makes the glass affordable.</p>
 </div>
 </div>
-<details class="catalog-source"><summary>components/command-palette/component.css</summary><pre><code>/* Command palette — one field over a grouped result list: the keyboard route
- * to everything the product can do or open. Extracted from the shipped
- * CommandPalette primitive (src/renderer/src/components/ui/CommandPalette.tsx).
+<details class="catalog-source"><summary>components/command-palette/component.css</summary><pre><code>/* Command palette — a scope strip and one field over a grouped result list:
+ * the keyboard route to everything the product can do or open. Extracted from
+ * the shipped CommandPalette primitive
+ * (src/renderer/src/components/ui/CommandPalette.tsx).
  *
- * The shell is the MODAL's — radius, border, ground, elevation and width all
- * come from the overlay scale (components/modal). What is specified here is
- * the part above the shell: the combobox-over-listbox anatomy, the grouped
- * rows, and the cursor that marks the row Enter would act on.
+ * The shell is the MODAL's — radius, border, elevation and width all come
+ * from the overlay scale (components/modal). Its GROUND is its own: glass
+ * (owner ruling 2026-09-10), the same recipe as the toast card, affordable
+ * here because the shipped palette holds the terminal repaint pause for its
+ * lifetime — see &quot;Material&quot; in component.md. What is specified here beyond
+ * that is the part above the shell: the scope strip, the combobox-over-listbox
+ * anatomy, the grouped rows, and the cursor that marks the row Enter would act
+ * on.
  *
  * The rows are a CURSOR, not focus: focus never leaves the input, so nothing
  * below draws a focus ring on a row. `aria-activedescendant` says which row is
  * marked; `.ds-command-palette-option[aria-selected=&quot;true&quot;]` paints it. */
 
 /* Full-viewport scrim. Never a backdrop-filter — a blur here re-samples every
- * pane under it every frame (principles, &quot;Motion&quot;). */
+ * pane under it every frame (principles, &quot;Motion&quot;). The glass is the SHELL's,
+ * a bounded area; the scrim stays a plain tone. */
 .ds-command-palette-scrim {
   position: fixed;
   inset: 0;
@@ -16468,62 +16604,68 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   max-width: 95vw;
   border: 1px solid var(--sem-color-border-subtle);
   border-radius: var(--sem-radius-shell);
-  background: var(--sem-color-bg-surface);
+  /* Glass (ruling 2026-09-10): bg.surface-raised at glass.opacity over a
+   * blur-and-saturate of what is behind — the toast's recipe on a dialog-scale
+   * shell. Not the modal's plain bg.surface: the palette is the one shell whose
+   * ground is a material rather than a tone, and it still takes the modal's
+   * radius, border and elevation, because a glass shell is not a different
+   * kind of shell. */
+  /* ds-lint-allow: both mix inputs are tokens (bg.surface-raised at glass.opacity); the mix itself is the glass */
+  background: color-mix(in srgb, var(--sem-color-bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
+  backdrop-filter: blur(var(--sem-glass-blur)) saturate(var(--sem-glass-saturation));
   box-shadow: var(--sem-shadow-modal);
   font-family: var(--sem-font-family-ui);
-  /* The one local addition to the shell: the query row's hairline has to be
+  /* The one local addition to the shell: the bands' hairlines have to be
    * clipped by the shell's corners. */
   overflow: hidden;
   outline: none;
 }
 
-/* The one band of chrome. Narrowing is a token INSIDE the field; there is no
- * second row of tabs, filters or tools above the list. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .ds-command-palette {
+    background: var(--sem-color-bg-surface-raised);
+  }
+}
+
+/* ONE band of chrome above the list, two lines inside it: the scope strip and
+ * the field. The band draws the single hairline, under the field; the strip
+ * is the tabs component's borderless variant, so the active tab's own accent
+ * underline is the only mark between the two lines. Two hairlines here — one
+ * under the strip, one under the field — would be the &quot;two stacked bands of
+ * chrome&quot; the principles reject on sight. */
+.ds-command-palette-band {
+  border-bottom: 1px solid var(--sem-color-border-default);
+}
+
+/* The scope strip: `.ds-tabs.ds-tabs--borderless` (components/tabs), inset so
+ * the first tab's label lines up over the field's leading mark. All, then the
+ * four narrowings. A tab is the person saying which question they are asking —
+ * skills, chats, files, or actions — so the answer never has to be guessed
+ * from where a row landed in the mixed list. */
+.ds-command-palette-tabs {
+  padding: var(--sem-space-2xs) var(--sem-space-sm) 0;
+}
+
+/* The field's row. It draws no hairline of its own — the band owns it. */
 .ds-command-palette-query {
   display: flex;
   align-items: center;
   gap: var(--sem-space-sm);
   padding: var(--sem-space-lg) var(--sem-space-xl);
-  border-bottom: 1px solid var(--sem-color-border-default);
 }
 
-/* The leading mark. Decoration, and it says so — disabled ink, aria-hidden. */
+/* The leading mark: the kit's search glyph (glyphs/search.svg), not a ⌘ —
+ * the field is a search, and the chord that opened it is not what it is for.
+ * Decoration, and it says so — disabled ink, aria-hidden. */
 .ds-command-palette-hint {
   flex: none;
-  font-size: var(--sem-font-size-heading);
-  color: var(--sem-color-text-disabled);
-}
-
-/* The scope token: a removable chip, not a tab. Clicking it — or Backspace at
- * an empty query — widens back to the full launcher without reopening. */
-.ds-command-palette-scope {
   display: inline-flex;
-  align-items: center;
-  gap: var(--sem-space-2xs);
-  flex: none;
-  padding: var(--sem-space-3xs) var(--sem-space-sm);
-  border: none;
-  border-radius: var(--sem-radius-chip);
-  background: var(--sem-color-bg-surface-raised);
-  font-family: var(--sem-font-family-ui);
-  font-size: var(--sem-font-size-micro);
-  color: var(--sem-color-text-muted);
-  cursor: pointer;
-  transition: color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
-}
-
-.ds-command-palette-scope:hover {
-  color: var(--sem-color-text-primary);
-}
-
-.ds-command-palette-scope:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
-}
-
-.ds-command-palette-scope svg {
-  width: var(--sem-icon-size-xs);
-  height: var(--sem-icon-size-xs);
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  padding: var(--sem-space-3xs);
+  box-sizing: border-box;
+  color: var(--sem-color-text-disabled);
 }
 
 /* The field carries no chrome of its own: the query row IS the field's box,
@@ -16544,16 +16686,27 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 .ds-command-palette-input:focus-visible {
-  outline: var(--sem-focus-ring);
-  outline-offset: var(--sem-focus-ring-offset);
+  /* No ring (owner ruling 2026-09-10). The shell IS the field: it opens with
+   * the caret in it, the caret is the focus signal, and a 2px ring drawn the
+   * width of a bordered band read as a second box around the only thing on
+   * screen. The strip keeps its ring, so a keyboard walk still shows where
+   * focus went; coming back to the field shows the caret. */
+  outline: none;
 }
 
-/* Disk search is the one part of the palette that is not instant, so it is
- * the one part that says it is working. */
+/* The working note — a search in flight, or an install-and-use round trip —
+ * is a line IN the list, never beside the query: a note on the field's own
+ * line read as part of what was typed. The word and the liveness component's
+ * working dots (components/liveness), not a static ellipsis: the marker the
+ * system already uses for &quot;alive right now, for an unknown duration&quot;. */
 .ds-command-palette-status {
-  flex: none;
-  font-size: var(--sem-font-size-micro);
-  color: var(--sem-color-text-disabled);
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  margin: 0;
+  padding: var(--sem-space-lg) var(--sem-space-xl);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
 }
 
 /* Height cap plus scroll, so the shell never grows past the viewport and the
@@ -16565,26 +16718,43 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   padding: var(--sem-space-2xs) 0;
 }
 
-/* Name, a rule filling the line, and the group's count. Hidden from assistive
- * tech because the group element carries the same name as its label. */
+/* The group's name, and nothing else: quieter ink than the rows beneath it,
+ * no rule filling the line, no count (owner ruling 2026-09-10 — the rule and
+ * the number were chrome between every group and the next). Hidden from
+ * assistive tech because the group element carries the same name. */
 .ds-command-palette-group-heading {
-  display: flex;
-  align-items: center;
-  gap: var(--sem-space-lg);
   padding: var(--sem-space-xs) var(--sem-space-xl) var(--sem-space-2xs);
-  font-size: var(--sem-font-size-micro);
-  font-weight: var(--sem-font-weight-medium);
-  color: var(--sem-color-text-disabled);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
 }
 
-.ds-command-palette-group-rule {
-  flex: 1;
-  height: 1px;
-  background: var(--sem-color-border-subtle);
+/* The row's mark, when it has one: a file's kind glyph (components/glyphs,
+ * the file-type vocabulary, in its kind's hue) or a skill's or plugin's own
+ * artwork down the extension-icon ladder. It is the same mark the File
+ * Explorer or the Extensions door draws for the same thing, which is what
+ * lets a list of forty hits be scanned before it is read. A command or a chat
+ * wears none — the verb is the whole row. Decorative: the label names it. */
+.ds-command-palette-option-mark {
+  flex: none;
+  display: inline-flex;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
 }
 
-.ds-command-palette-group-count {
-  font-variant-numeric: tabular-nums;
+/* A chat's mark is the sidebar's provider chip — the agent CLI's glyph on a
+ * round raised ground with a subtle hairline — so a chat is recognised here by
+ * the same mark it wears there. The glyph inside sits at icon.size.xs. */
+.ds-command-palette-option-mark--chip {
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-pill);
+  background: var(--sem-color-bg-surface-raised);
+}
+
+.ds-command-palette-option-mark--chip svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
 }
 
 /* A row IS the action: one label, one optional locator, one optional chord,
@@ -16595,7 +16765,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   justify-content: space-between;
   gap: var(--sem-space-lg);
   padding: var(--sem-space-sm) var(--sem-space-xl);
-  color: var(--sem-color-text-muted);
+  /* The sidebar's row ink: text.default at rest, text.primary under the
+   * cursor. Muted put the one thing a person came to read a step below its
+   * own heading. */
+  color: var(--sem-color-text-default);
   cursor: pointer;
   transition:
     background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
@@ -16614,7 +16787,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   color: var(--sem-color-text-primary);
 }
 
+/* The text takes the room between the mark and the chord, and stacks its two
+ * lines: the name, then the locator beneath it. `flex: 1` is what keeps a row
+ * that has a mark from pushing its text to the far end of the space-between
+ * row. */
 .ds-command-palette-option-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-width: 0;
 }
 
@@ -16645,8 +16825,9 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   font-family: var(--sem-font-family-mono);
 }
 
-/* The chord, spelled the kbd-chord way (components/kbd-chord) rather than as
- * a private capsule — see Known drift. */
+/* The chord: the kbd-chord capsule (components/kbd-chord), one capsule per
+ * rendered chord. Spelled here so the demo stands alone; the primitive
+ * consumes `KbdChord` itself. */
 .ds-command-palette-shortcut {
   flex: none;
   display: inline-flex;
@@ -16676,8 +16857,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ds-command-palette-option,
-  .ds-command-palette-scope {
+  .ds-command-palette-option {
     transition: none;
   }
 }
@@ -16689,6 +16869,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
 &lt;title&gt;Command palette&lt;/title&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../tabs/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../liveness/component.css&quot; /&gt;
 &lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
 &lt;style&gt;
   body {
@@ -16723,76 +16905,82 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 &lt;/head&gt;
 &lt;body&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Light — resting scope, a capped preview per group, and the cursor on the second row.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — the resting page: the actions, then the chats most recently spoken in; the cursor on the second row.&lt;/p&gt;
   &lt;div class=&quot;demo-scrim&quot;&gt;
     &lt;div class=&quot;ds-command-palette&quot; role=&quot;dialog&quot; aria-modal=&quot;true&quot; aria-label=&quot;Command palette&quot; tabindex=&quot;-1&quot;&gt;
+      &lt;div class=&quot;ds-command-palette-band&quot;&gt;
+        &lt;div class=&quot;ds-tabs ds-tabs--borderless ds-command-palette-tabs&quot; role=&quot;tablist&quot; aria-label=&quot;Search in&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-tab-all&quot; aria-selected=&quot;true&quot; aria-controls=&quot;demo-palette-results&quot; tabindex=&quot;0&quot;&gt;
+            &lt;span&gt;All&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-tab-skills&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-results&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Skills&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-tab-conversations&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-results&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Conversations&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-tab-files&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-results&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Files&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-tab-actions&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-results&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Actions&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/div&gt;
       &lt;div class=&quot;ds-command-palette-query&quot;&gt;
-        &lt;span class=&quot;ds-command-palette-hint&quot; aria-hidden=&quot;true&quot;&gt;&amp;#8984;&lt;/span&gt;
+        &lt;span class=&quot;ds-command-palette-hint&quot; aria-hidden=&quot;true&quot;&gt;&lt;svg viewBox=&quot;0 0 11 11&quot; fill=&quot;none&quot;&gt;&lt;circle cx=&quot;4.5&quot; cy=&quot;4.5&quot; r=&quot;3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; fill=&quot;none&quot;/&gt;&lt;path d=&quot;M7 7l2.5 2.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;/span&gt;
         &lt;input
           class=&quot;ds-command-palette-input&quot;
           type=&quot;text&quot;
           role=&quot;combobox&quot;
           aria-expanded=&quot;true&quot;
           aria-controls=&quot;demo-palette-results&quot;
-          aria-activedescendant=&quot;demo-option-review&quot;
-          aria-label=&quot;Search agents, skills, commands, files, and text in files&quot;
-          placeholder=&quot;Search agents, skills, commands, files, text&amp;#8230;&quot;
+          aria-activedescendant=&quot;demo-option-settings&quot;
+          aria-label=&quot;Search chats, skills, plugins, files, text in files, and actions&quot;
+          placeholder=&quot;Search chats, skills, plugins, files, text, actions&amp;#8230;&quot;
         /&gt;
       &lt;/div&gt;
+      &lt;/div&gt;
       &lt;div class=&quot;ds-command-palette-results&quot; id=&quot;demo-palette-results&quot; role=&quot;listbox&quot; aria-label=&quot;Search results&quot;&gt;
-        &lt;div class=&quot;ds-command-palette-group&quot; role=&quot;group&quot; aria-label=&quot;Agents &amp;amp; workspaces&quot;&gt;
+        &lt;div class=&quot;ds-command-palette-group&quot; role=&quot;group&quot; aria-label=&quot;Actions&quot;&gt;
           &lt;div class=&quot;ds-command-palette-group-heading&quot; aria-hidden=&quot;true&quot;&gt;
-            &lt;span&gt;Agents &amp;amp; workspaces&lt;/span&gt;
-            &lt;span class=&quot;ds-command-palette-group-rule&quot;&gt;&lt;/span&gt;
-            &lt;span class=&quot;ds-command-palette-group-count&quot;&gt;2&lt;/span&gt;
-          &lt;/div&gt;
-          &lt;div class=&quot;ds-command-palette-option&quot; id=&quot;demo-option-tokens&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
-            &lt;span class=&quot;ds-command-palette-option-text&quot;&gt;
-              &lt;span class=&quot;ds-command-palette-option-label&quot;&gt;Token ramp audit&lt;/span&gt;
-              &lt;span class=&quot;ds-command-palette-option-detail&quot;&gt;Workspace &amp;#183; running&lt;/span&gt;
-            &lt;/span&gt;
-          &lt;/div&gt;
-          &lt;div class=&quot;ds-command-palette-option&quot; id=&quot;demo-option-review&quot; role=&quot;option&quot; aria-selected=&quot;true&quot;&gt;
-            &lt;span class=&quot;ds-command-palette-option-text&quot;&gt;
-              &lt;span class=&quot;ds-command-palette-option-label&quot;&gt;Review guide&lt;/span&gt;
-              &lt;span class=&quot;ds-command-palette-option-detail&quot;&gt;Workspace &amp;#183; waiting on you&lt;/span&gt;
-            &lt;/span&gt;
-          &lt;/div&gt;
-        &lt;/div&gt;
-        &lt;div class=&quot;ds-command-palette-group&quot; role=&quot;group&quot; aria-label=&quot;Commands&quot;&gt;
-          &lt;div class=&quot;ds-command-palette-group-heading&quot; aria-hidden=&quot;true&quot;&gt;
-            &lt;span&gt;Commands&lt;/span&gt;
-            &lt;span class=&quot;ds-command-palette-group-rule&quot;&gt;&lt;/span&gt;
-            &lt;span class=&quot;ds-command-palette-group-count&quot;&gt;2&lt;/span&gt;
+            &lt;span&gt;Actions&lt;/span&gt;
           &lt;/div&gt;
           &lt;div class=&quot;ds-command-palette-option&quot; id=&quot;demo-option-newchat&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
+            &lt;svg class=&quot;ds-command-palette-option-mark&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4 20h4l10-10-4-4L4 16v4z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;path d=&quot;M12 8l4 4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;&lt;/svg&gt;
             &lt;span class=&quot;ds-command-palette-option-text&quot;&gt;
               &lt;span class=&quot;ds-command-palette-option-label&quot;&gt;New chat&lt;/span&gt;
             &lt;/span&gt;
             &lt;kbd class=&quot;ds-command-palette-shortcut&quot;&gt;&amp;#8984;N&lt;/kbd&gt;
           &lt;/div&gt;
-          &lt;div class=&quot;ds-command-palette-option&quot; id=&quot;demo-option-settings&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
+          &lt;div class=&quot;ds-command-palette-option&quot; id=&quot;demo-option-settings&quot; role=&quot;option&quot; aria-selected=&quot;true&quot;&gt;
+            &lt;svg class=&quot;ds-command-palette-option-mark&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;circle cx=&quot;12&quot; cy=&quot;12&quot; r=&quot;3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;&lt;path d=&quot;M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
             &lt;span class=&quot;ds-command-palette-option-text&quot;&gt;
               &lt;span class=&quot;ds-command-palette-option-label&quot;&gt;Open settings&lt;/span&gt;
             &lt;/span&gt;
             &lt;kbd class=&quot;ds-command-palette-shortcut&quot;&gt;&amp;#8984;,&lt;/kbd&gt;
           &lt;/div&gt;
         &lt;/div&gt;
-        &lt;div class=&quot;ds-command-palette-group&quot; role=&quot;group&quot; aria-label=&quot;Text in files&quot;&gt;
+        &lt;div class=&quot;ds-command-palette-group&quot; role=&quot;group&quot; aria-label=&quot;Recent conversations&quot;&gt;
           &lt;div class=&quot;ds-command-palette-group-heading&quot; aria-hidden=&quot;true&quot;&gt;
-            &lt;span&gt;Text in files&lt;/span&gt;
-            &lt;span class=&quot;ds-command-palette-group-rule&quot;&gt;&lt;/span&gt;
-            &lt;span class=&quot;ds-command-palette-group-count&quot;&gt;1&lt;/span&gt;
+            &lt;span&gt;Recent conversations&lt;/span&gt;
           &lt;/div&gt;
-          &lt;div
-            class=&quot;ds-command-palette-option ds-command-palette-option--source&quot;
-            id=&quot;demo-option-source&quot;
-            role=&quot;option&quot;
-            aria-selected=&quot;false&quot;
-          &gt;
+          &lt;div class=&quot;ds-command-palette-option&quot; id=&quot;demo-option-tokens&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
+            &lt;span class=&quot;ds-command-palette-option-mark ds-command-palette-option-mark--chip&quot; aria-hidden=&quot;true&quot;&gt;&lt;svg viewBox=&quot;0 0 248 248&quot; fill=&quot;none&quot;&gt;&lt;path d=&quot;M52.4285 162.873L98.7844 136.879L99.5485 134.602L98.7844 133.334H96.4921L88.7237 132.862L62.2346 132.153L39.3113 131.207L17.0249 130.026L11.4214 128.844L6.2 121.873L6.7094 118.447L11.4214 115.257L18.171 115.847L33.0711 116.911L55.485 118.447L71.6586 119.392L95.728 121.873H99.5485L100.058 120.337L98.7844 119.392L97.7656 118.447L74.5877 102.732L49.4995 86.1905L36.3823 76.62L29.3779 71.7757L25.8121 67.2858L24.2839 57.3608L30.6515 50.2716L39.3113 50.8623L41.4763 51.4531L50.2636 58.1879L68.9842 72.7209L93.4357 90.6804L97.0015 93.6343L98.4374 92.6652L98.6571 91.9801L97.0015 89.2625L83.757 65.2772L69.621 40.8192L63.2534 30.6579L61.5978 24.632C60.9565 22.1032 60.579 20.0111 60.579 17.4246L67.8381 7.49965L71.9133 6.19995L81.7193 7.49965L85.7946 11.0443L91.9074 24.9865L101.714 46.8451L116.996 76.62L121.453 85.4816L123.873 93.6343L124.764 96.1155H126.292V94.6976L127.566 77.9197L129.858 57.3608L132.15 30.8942L132.915 23.4505L136.608 14.4708L143.994 9.62643L149.725 12.344L154.437 19.0788L153.8 23.4505L150.998 41.6463L145.522 70.1215L141.957 89.2625H143.994L146.414 86.7813L156.093 74.0206L172.266 53.698L179.398 45.6635L187.803 36.802L193.152 32.5484H203.34L210.726 43.6549L207.415 55.1159L196.972 68.3492L188.312 79.5739L175.896 96.2095L168.191 109.585L168.882 110.689L170.738 110.53L198.755 104.504L213.91 101.787L231.994 98.7149L240.144 102.496L241.036 106.395L237.852 114.311L218.495 119.037L195.826 123.645L162.07 131.592L161.696 131.893L162.137 132.547L177.36 133.925L183.855 134.279H199.774L229.447 136.524L237.215 141.605L241.8 147.867L241.036 152.711L229.065 158.737L213.019 154.956L175.45 145.977L162.587 142.787H160.805V143.85L171.502 154.366L191.242 172.089L215.82 195.011L217.094 200.682L213.91 205.172L210.599 204.699L188.949 188.394L180.544 181.069L161.696 165.118H160.422V166.772L164.752 173.152L187.803 207.771L188.949 218.405L187.294 221.832L181.308 223.959L174.813 222.777L161.187 203.754L147.305 182.486L136.098 163.345L134.745 164.2L128.075 235.42L125.019 239.082L117.887 241.8L111.902 237.31L108.718 229.984L111.902 215.452L115.722 196.547L118.779 181.541L121.58 162.873L123.291 156.636L123.14 156.219L121.773 156.449L107.699 175.752L86.304 204.699L69.3663 222.777L65.291 224.431L58.2867 220.768L58.9235 214.27L62.8713 208.48L86.304 178.705L100.44 160.155L109.551 149.507L109.462 147.967L108.959 147.924L46.6977 188.512L35.6182 189.93L30.7788 185.44L31.4156 178.115L33.7079 175.752L52.4285 162.873Z&quot; fill=&quot;#D97757&quot;/&gt;&lt;/svg&gt; &lt;!-- ds-lint-allow: Claude's brand mark, its own hue by definition (CliIcon.tsx) --&gt;&lt;/span&gt;
             &lt;span class=&quot;ds-command-palette-option-text&quot;&gt;
-              &lt;span class=&quot;ds-command-palette-option-label&quot;&gt;const OVERLAY_WIDTH_PX = {&lt;/span&gt;
-              &lt;span class=&quot;ds-command-palette-option-detail&quot;&gt;src/renderer/src/components/ui/tokens.ts:246&lt;/span&gt;
+              &lt;span class=&quot;ds-command-palette-option-label&quot;&gt;Token ramp audit&lt;/span&gt;
+              &lt;span class=&quot;ds-command-palette-option-detail&quot;&gt;Workspace &amp;#183; running&lt;/span&gt;
+            &lt;/span&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-command-palette-option&quot; id=&quot;demo-option-review&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;
+            &lt;span class=&quot;ds-command-palette-option-mark ds-command-palette-option-mark--chip&quot; aria-hidden=&quot;true&quot;&gt;&lt;svg viewBox=&quot;112 80 288 352&quot; fill=&quot;currentColor&quot;&gt;&lt;path fill-rule=&quot;evenodd&quot; clip-rule=&quot;evenodd&quot; d=&quot;M384 416H128V96H384V416ZM320 160H192V352H320V160Z&quot;/&gt;&lt;path d=&quot;M320 224V352H192V224H320Z&quot;/&gt;&lt;/svg&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-command-palette-option-text&quot;&gt;
+              &lt;span class=&quot;ds-command-palette-option-label&quot;&gt;Review guide&lt;/span&gt;
+              &lt;span class=&quot;ds-command-palette-option-detail&quot;&gt;Workspace &amp;#183; waiting on you&lt;/span&gt;
             &lt;/span&gt;
           &lt;/div&gt;
         &lt;/div&gt;
@@ -16800,14 +16988,34 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     &lt;/div&gt;
   &lt;/div&gt;
 
-  &lt;p class=&quot;demo-label&quot;&gt;Narrowed to a scope, and the working note &amp;#8212; the one part of the search that is not instant.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Narrowed to Files by the strip, and the working note &amp;#8212; the one part of the search that is not instant.&lt;/p&gt;
   &lt;div class=&quot;demo-scrim&quot;&gt;
     &lt;div class=&quot;ds-command-palette&quot; role=&quot;dialog&quot; aria-modal=&quot;true&quot; aria-label=&quot;Command palette&quot; tabindex=&quot;-1&quot;&gt;
+      &lt;div class=&quot;ds-command-palette-band&quot;&gt;
+        &lt;div class=&quot;ds-tabs ds-tabs--borderless ds-command-palette-tabs&quot; role=&quot;tablist&quot; aria-label=&quot;Search in&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-scoped-tab-all&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-scoped&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;All&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-scoped-tab-skills&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-scoped&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Skills&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-scoped-tab-conversations&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-scoped&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Conversations&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-scoped-tab-files&quot; aria-selected=&quot;true&quot; aria-controls=&quot;demo-palette-scoped&quot; tabindex=&quot;0&quot;&gt;
+            &lt;span&gt;Files&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-scoped-tab-actions&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-scoped&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Actions&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/div&gt;
       &lt;div class=&quot;ds-command-palette-query&quot;&gt;
-        &lt;button type=&quot;button&quot; class=&quot;ds-command-palette-scope&quot; aria-label=&quot;Search everything instead of files&quot;&gt;
-          Files
-          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
-        &lt;/button&gt;
+        &lt;span class=&quot;ds-command-palette-hint&quot; aria-hidden=&quot;true&quot;&gt;&lt;svg viewBox=&quot;0 0 11 11&quot; fill=&quot;none&quot;&gt;&lt;circle cx=&quot;4.5&quot; cy=&quot;4.5&quot; r=&quot;3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; fill=&quot;none&quot;/&gt;&lt;path d=&quot;M7 7l2.5 2.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;/span&gt;
         &lt;input
           class=&quot;ds-command-palette-input&quot;
           type=&quot;text&quot;
@@ -16818,42 +17026,89 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
           placeholder=&quot;Search file names and text in files&amp;#8230;&quot;
           value=&quot;tokens&quot;
         /&gt;
-        &lt;span class=&quot;ds-command-palette-status&quot; role=&quot;status&quot;&gt;Searching&amp;#8230;&lt;/span&gt;
+      &lt;/div&gt;
       &lt;/div&gt;
       &lt;div class=&quot;ds-command-palette-results&quot; id=&quot;demo-palette-scoped&quot; role=&quot;listbox&quot; aria-label=&quot;Search results&quot;&gt;
-        &lt;p class=&quot;ds-command-palette-empty&quot;&gt;Searching&amp;#8230;&lt;/p&gt;
+        &lt;p class=&quot;ds-command-palette-status&quot; role=&quot;status&quot;&gt;Searching &lt;span class=&quot;ds-working-dots&quot; role=&quot;img&quot; aria-label=&quot;Searching&quot;&gt;&lt;span class=&quot;ds-working-dot&quot;&gt;&lt;/span&gt;&lt;span class=&quot;ds-working-dot&quot;&gt;&lt;/span&gt;&lt;span class=&quot;ds-working-dot&quot;&gt;&lt;/span&gt;&lt;/span&gt;&lt;/p&gt;
       &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Dark &amp;#8212; and the fourth empty sentence: nothing to search, which is not the same as nothing found.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark &amp;#8212; nothing matched.&lt;/p&gt;
   &lt;div class=&quot;demo-scrim&quot;&gt;
     &lt;div class=&quot;ds-command-palette&quot; role=&quot;dialog&quot; aria-modal=&quot;true&quot; aria-label=&quot;Command palette&quot; tabindex=&quot;-1&quot;&gt;
+      &lt;div class=&quot;ds-command-palette-band&quot;&gt;
+        &lt;div class=&quot;ds-tabs ds-tabs--borderless ds-command-palette-tabs&quot; role=&quot;tablist&quot; aria-label=&quot;Search in&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-empty-tab-all&quot; aria-selected=&quot;true&quot; aria-controls=&quot;demo-palette-empty&quot; tabindex=&quot;0&quot;&gt;
+            &lt;span&gt;All&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-empty-tab-skills&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-empty&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Skills&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-empty-tab-conversations&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-empty&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Conversations&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-empty-tab-files&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-empty&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Files&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-empty-tab-actions&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-empty&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Actions&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/div&gt;
       &lt;div class=&quot;ds-command-palette-query&quot;&gt;
-        &lt;span class=&quot;ds-command-palette-hint&quot; aria-hidden=&quot;true&quot;&gt;&amp;#8984;&lt;/span&gt;
+        &lt;span class=&quot;ds-command-palette-hint&quot; aria-hidden=&quot;true&quot;&gt;&lt;svg viewBox=&quot;0 0 11 11&quot; fill=&quot;none&quot;&gt;&lt;circle cx=&quot;4.5&quot; cy=&quot;4.5&quot; r=&quot;3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; fill=&quot;none&quot;/&gt;&lt;path d=&quot;M7 7l2.5 2.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;/span&gt;
         &lt;input
           class=&quot;ds-command-palette-input&quot;
           type=&quot;text&quot;
           role=&quot;combobox&quot;
           aria-expanded=&quot;false&quot;
           aria-controls=&quot;demo-palette-empty&quot;
-          aria-label=&quot;Search agents, skills, commands, files, and text in files&quot;
-          placeholder=&quot;Search agents, skills, commands, files, text&amp;#8230;&quot;
+          aria-label=&quot;Search chats, skills, plugins, files, text in files, and actions&quot;
+          placeholder=&quot;Search chats, skills, plugins, files, text, actions&amp;#8230;&quot;
           value=&quot;ramp&quot;
         /&gt;
       &lt;/div&gt;
+      &lt;/div&gt;
       &lt;div class=&quot;ds-command-palette-results&quot; id=&quot;demo-palette-empty&quot; role=&quot;listbox&quot; aria-label=&quot;Search results&quot;&gt;
-        &lt;p class=&quot;ds-command-palette-empty&quot;&gt;Open a folder to search files and their contents.&lt;/p&gt;
+        &lt;p class=&quot;ds-command-palette-empty&quot;&gt;No results&lt;/p&gt;
       &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 
   &lt;div class=&quot;demo-scrim&quot;&gt;
     &lt;div class=&quot;ds-command-palette&quot; role=&quot;dialog&quot; aria-modal=&quot;true&quot; aria-label=&quot;Command palette&quot; tabindex=&quot;-1&quot;&gt;
+      &lt;div class=&quot;ds-command-palette-band&quot;&gt;
+        &lt;div class=&quot;ds-tabs ds-tabs--borderless ds-command-palette-tabs&quot; role=&quot;tablist&quot; aria-label=&quot;Search in&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-dark-tab-all&quot; aria-selected=&quot;true&quot; aria-controls=&quot;demo-palette-dark-results&quot; tabindex=&quot;0&quot;&gt;
+            &lt;span&gt;All&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-dark-tab-skills&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-dark-results&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Skills&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-dark-tab-conversations&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-dark-results&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Conversations&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-dark-tab-files&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-dark-results&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Files&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-tab&quot; role=&quot;tab&quot; id=&quot;demo-dark-tab-actions&quot; aria-selected=&quot;false&quot; aria-controls=&quot;demo-palette-dark-results&quot; tabindex=&quot;-1&quot;&gt;
+            &lt;span&gt;Actions&lt;/span&gt;
+            &lt;span class=&quot;ds-tab-underline&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/div&gt;
       &lt;div class=&quot;ds-command-palette-query&quot;&gt;
-        &lt;span class=&quot;ds-command-palette-hint&quot; aria-hidden=&quot;true&quot;&gt;&amp;#8984;&lt;/span&gt;
+        &lt;span class=&quot;ds-command-palette-hint&quot; aria-hidden=&quot;true&quot;&gt;&lt;svg viewBox=&quot;0 0 11 11&quot; fill=&quot;none&quot;&gt;&lt;circle cx=&quot;4.5&quot; cy=&quot;4.5&quot; r=&quot;3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; fill=&quot;none&quot;/&gt;&lt;path d=&quot;M7 7l2.5 2.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;&lt;/span&gt;
         &lt;input
           class=&quot;ds-command-palette-input&quot;
           type=&quot;text&quot;
@@ -16861,17 +17116,16 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
           aria-expanded=&quot;true&quot;
           aria-controls=&quot;demo-palette-dark-results&quot;
           aria-activedescendant=&quot;demo-dark-option-skill&quot;
-          aria-label=&quot;Search agents, skills, commands, files, and text in files&quot;
-          placeholder=&quot;Search agents, skills, commands, files, text&amp;#8230;&quot;
+          aria-label=&quot;Search chats, skills, plugins, files, text in files, and actions&quot;
+          placeholder=&quot;Search chats, skills, plugins, files, text, actions&amp;#8230;&quot;
           value=&quot;skill&quot;
         /&gt;
+      &lt;/div&gt;
       &lt;/div&gt;
       &lt;div class=&quot;ds-command-palette-results&quot; id=&quot;demo-palette-dark-results&quot; role=&quot;listbox&quot; aria-label=&quot;Search results&quot;&gt;
         &lt;div class=&quot;ds-command-palette-group&quot; role=&quot;group&quot; aria-label=&quot;Skills&quot;&gt;
           &lt;div class=&quot;ds-command-palette-group-heading&quot; aria-hidden=&quot;true&quot;&gt;
             &lt;span&gt;Skills&lt;/span&gt;
-            &lt;span class=&quot;ds-command-palette-group-rule&quot;&gt;&lt;/span&gt;
-            &lt;span class=&quot;ds-command-palette-group-count&quot;&gt;2&lt;/span&gt;
           &lt;/div&gt;
           &lt;div class=&quot;ds-command-palette-option&quot; id=&quot;demo-dark-option-skill&quot; role=&quot;option&quot; aria-selected=&quot;true&quot;&gt;
             &lt;span class=&quot;ds-command-palette-option-text&quot;&gt;
@@ -34340,7 +34594,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <p>| Part | Class | Required | |---|---|---| | Region | <code>.ds-toast-region</code> | yes — the fixed corner stack at <code>z.toast</code>; one per document | | Surface | <code>.ds-toast</code> | yes — <code>role</code> and <code>aria-live</code> chosen by tone (below) | | Tone dot | <code>.ds-toast-dot</code> | yes — the 6px status idiom, <code>aria-hidden</code> | | Content | <code>.ds-toast-content</code> | yes — title <code>.ds-toast-title</code>, optional description <code>.ds-toast-description</code> | | Answer row | <code>.ds-toast-answer</code> + <code>.ds-toast-code</code> + <code>.ds-toast-help</code> | no — the answer-in-place variant's one field and its two answers | | Dismiss | <code>.ds-toast-dismiss</code> | no — trailing icon button, <code>aria-label=&quot;Dismiss&quot;</code> |</p>
 <p>The surface is <strong>glass</strong> (owner ruling 2026-09-04): <code>bg.surface-raised</code> at <code>glass.opacity</code> over a <code>backdrop-filter</code> of <code>glass.blur</code> and <code>glass.saturation</code>, a <code>border.default</code> hairline, and <code>shadow.popover</code> drawing the edge over whatever shows through. Where <code>backdrop-filter</code> is unsupported the card is solid <code>bg.surface-raised</code>.</p>
 <p>The blur ban (<code>principles.md</code>, the modal and drawer specs) exists because a full-viewport scrim re-samples every terminal pane under it every frame; a toast's area is a corner, a fraction of that cost.</p>
-<p><strong>Amended 2026-09-07 (owner ruling): two surfaces blur, not one.</strong> The conversation peek — the hover card that shows what a chat was asked, drawn deliberately over a running terminal — is the second, through <code>PointerPopover</code>'s opt-in <code>material=&quot;glass&quot;</code>. It is a larger area than a toast and this is not pretended otherwise: the ruling accepts that cost for a surface whose whole point is to sit *over* the app it is describing, while the area argument still holds against the thing it was written for, a full-viewport scrim. <strong>Amended again 2026-09-08:</strong> the trigger-anchored <code>Popover</code> carries the same opt-in, for the composer's skill type-ahead drawn over the transcript being read — the popover spec's &quot;Material&quot; section had already ruled glass a material of the whole popover family, and the anchored shell is that family's engine. The conformance lint pins the glass utility to those three <strong>kit shells</strong> (<code>Toast.tsx</code>, <code>PointerPopover.tsx</code>, <code>Popover.tsx</code>); a product file that blurs, or borrows the utility directly, is still a violation — a surface that wants glass asks the shell for it.</p>
+<p><strong>Amended 2026-09-07 (owner ruling): two surfaces blur, not one.</strong> The conversation peek — the hover card that shows what a chat was asked, drawn deliberately over a running terminal — is the second, through <code>PointerPopover</code>'s opt-in <code>material=&quot;glass&quot;</code>. It is a larger area than a toast and this is not pretended otherwise: the ruling accepts that cost for a surface whose whole point is to sit *over* the app it is describing, while the area argument still holds against the thing it was written for, a full-viewport scrim. <strong>Amended again 2026-09-08:</strong> the trigger-anchored <code>Popover</code> carries the same opt-in, for the composer's skill type-ahead drawn over the transcript being read — the popover spec's &quot;Material&quot; section had already ruled glass a material of the whole popover family, and the anchored shell is that family's engine. <strong>Amended 2026-09-10:</strong> the [command palette](../command-palette/component.md)'s shell is the fourth, and the first at dialog scale over the middle of the window where the terminals are. It is affordable for a reason the earlier three did not have: the palette holds the terminal repaint pause for its lifetime (the hold <code>Modal</code> takes), so the panes beneath it stop invalidating and the blur is computed once rather than on every PTY chunk — which is what the ~10fps measurement actually was. Its scrim stays a plain tone; the area argument still holds against a full-viewport blur. The conformance lint pins the glass utility to those four <strong>kit shells</strong> (<code>Toast.tsx</code>, <code>PointerPopover.tsx</code>, <code>Popover.tsx</code>, <code>CommandPalette.tsx</code>); a product file that blurs, or borrows the utility directly, is still a violation — a surface that wants glass asks the shell for it.</p>
 <p>The tone is carried by the dot's shape-plus-color and by the words — never by tinting the surface. A toast that survives greyscale is the test.</p>
 <h4>Variants</h4>
 <p>Five tones, each deciding color, politeness, and persistence:</p>

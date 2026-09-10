@@ -2,7 +2,11 @@ import assert from 'node:assert/strict'
 import {
   commandMatchesQuery,
   comparePaletteMatches,
+  composeRestingPage,
+  RESTING_RECENT_CONVERSATIONS,
+  workspaceSwitchRowId,
   groupInScope,
+  PALETTE_SCOPE_ORDER,
   orderPaletteCommands,
   PALETTE_GROUP_ORDER,
   PALETTE_SCORE,
@@ -129,11 +133,72 @@ run('the files scope hides the launcher groups a code snippet would compete with
 // The terminal star's scope. It asks one question — "is there a skill or a
 // plugin for this" — so it admits exactly the two groups that answer it and
 // nothing a workspace name or a line of source could win.
-run('the extensions scope admits exactly the skill and plugin groups', () => {
+run('the skills scope admits exactly the skill and plugin groups', () => {
   assert.deepEqual(
-    ALL_GROUPS.filter((group) => groupInScope(group, 'extensions')),
+    ALL_GROUPS.filter((group) => groupInScope(group, 'skills')),
     ['skills', 'extensions'],
   )
+})
+
+run('the conversations scope admits exactly the chats-and-workspaces group', () => {
+  assert.deepEqual(ALL_GROUPS.filter((group) => groupInScope(group, 'conversations')), ['agents'])
+})
+
+run('the actions scope admits exactly what the product can do', () => {
+  assert.deepEqual(
+    ALL_GROUPS.filter((group) => groupInScope(group, 'actions')),
+    ['commands', 'actions'],
+  )
+})
+
+// The tab strip is a partition of the launcher, not a set of overlapping
+// views: a group in two tabs would be found twice and a group in none would be
+// findable only from All — and the strip exists so the person never has to
+// wonder which tab a thing is under.
+run('the four narrowings partition the launcher: every group under exactly one tab', () => {
+  const narrowings = PALETTE_SCOPE_ORDER.filter((scope) => scope !== 'all')
+  ALL_GROUPS.forEach((group) => {
+    const tabs = narrowings.filter((scope) => groupInScope(group, scope))
+    assert.deepEqual(tabs.length, 1, `${group} must sit under exactly one tab, found ${tabs.join(', ') || 'none'}`)
+  })
+  assert.equal(PALETTE_SCOPE_ORDER[0], 'all', 'the launcher is the first tab')
+  assert.equal(new Set(PALETTE_SCOPE_ORDER).size, PALETTE_SCOPE_ORDER.length)
+})
+
+// The resting page: what ⌘K shows before a keystroke. Actions first, then the
+// chats in the order the sidebar keeps them — most recently spoken in first —
+// and only a screen's worth of them.
+run('the resting page is the actions, then the chats most recently spoken in, capped', () => {
+  const workspace = (id: string, lastUserMessageAt: number) =>
+    ({ id, lastUserMessageAt, createdAt: 0 }) as unknown as Parameters<typeof composeRestingPage>[1][number]
+  const workspaces = Array.from({ length: RESTING_RECENT_CONVERSATIONS + 3 }, (_, index) =>
+    workspace(`ws-${index}`, index),
+  )
+  const rows = [
+    { id: 'toggle-git', group: 'commands' as const },
+    { id: 'new-chat', group: 'actions' as const },
+    ...workspaces.map((entry) => ({ id: workspaceSwitchRowId(entry.id), group: 'agents' as const })),
+    { id: 'spawn-reviewer', group: 'actions' as const },
+    { id: 'skill-debug', group: 'skills' as const },
+  ]
+  const page = composeRestingPage(rows, workspaces)
+  assert.deepEqual(
+    page.actions.map((row) => row.id),
+    ['new-chat', 'spawn-reviewer'],
+    'the actions group, whole, in its own order — commands and skills are a tab away',
+  )
+  assert.equal(page.recent.length, RESTING_RECENT_CONVERSATIONS, 'a screen of chats, not the sidebar again')
+  assert.equal(page.recent[0]?.id, workspaceSwitchRowId('ws-10'), 'the chat most recently spoken in leads')
+  assert.equal(page.recent[RESTING_RECENT_CONVERSATIONS - 1]?.id, workspaceSwitchRowId('ws-3'))
+})
+
+run('a workspace with no switch row is skipped, not blanked', () => {
+  const workspaces = [
+    { id: 'hidden', lastUserMessageAt: 9, createdAt: 0 },
+    { id: 'shown', lastUserMessageAt: 1, createdAt: 0 },
+  ] as unknown as Parameters<typeof composeRestingPage>[1]
+  const page = composeRestingPage([{ id: workspaceSwitchRowId('shown'), group: 'agents' as const }], workspaces)
+  assert.deepEqual(page.recent.map((row) => row.id), [workspaceSwitchRowId('shown')])
 })
 
 run('every group is in the canonical order exactly once', () => {

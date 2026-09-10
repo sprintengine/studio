@@ -17,9 +17,12 @@ import type { CommandScope, ModuleCommandContext } from '../../commands/types'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import {
   commandMatchesQuery,
+  composeRestingPage,
   groupInScope,
   orderPaletteCommands,
+  PALETTE_SCOPE_ORDER,
   workspaceSearchKeywords,
+  workspaceSwitchRowId,
   type PaletteCommandGroup,
   type PaletteScope,
 } from '../commandPaletteSearch'
@@ -28,6 +31,7 @@ import {
   type PaletteCommand,
   type PaletteProviderContext,
   type PaletteResultProvider,
+  type PaletteRowMark,
 } from '../palette/paletteProvider'
 import {
   createExtensionsProvider,
@@ -55,14 +59,22 @@ import {
   type LiveAgentSession,
 } from '../../utils/useSkillInAgent'
 import { requestTerminalFocus, type TerminalFocusTarget } from '../../utils/terminalFocusRequest'
+import { acquireTerminalRepaintPause } from '../../utils/terminalRepaintPause'
+import { useTerminalSessions } from '../../hooks/useTerminalSessions'
+import { NewChatIcon, SpecialistActionIcon, WorkspaceTypeIcon } from '../AppIcons'
+import CliIcon from '../CliIcon'
 import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import { dispatchExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { showToast } from '../../store/toastStore'
 import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
+import { AgentWorkingDots } from './AgentWorkingDots'
 import { ExtensionIcon } from './ExtensionIcon'
-import { FOCUS_RING_CLASS, TruncatedText } from './index'
+import { FileTypeGlyph } from './FileTypeGlyph'
+import { TruncatedText } from './index'
 import { FocusTrap } from './FocusTrap'
-import { OVERLAY_SHELL_CLASS, overlayWidthStyle } from './tokens'
+import { KbdChord } from './KbdChord'
+import { Tabs, type TabItem } from './Tabs'
+import { OVERLAY_SHELL_CHROME_CLASS, overlayWidthStyle } from './tokens'
 
 // The four canonical source groups the global-search palette organizes results
 // into (T6), plus the two disk-backed groups: Files (name matches, plus the
@@ -73,7 +85,7 @@ import { OVERLAY_SHELL_CLASS, overlayWidthStyle } from './tokens'
 type CommandGroup = PaletteCommandGroup
 
 const PALETTE_GROUP_LABELS: Record<CommandGroup, string> = {
-  agents: 'Agents & workspaces',
+  agents: 'Conversations',
   skills: 'Skills',
   // Everything a source offers that is not a bare skill: the plugins its
   // marketplace lists, and the first-party registry's entries.
@@ -84,26 +96,40 @@ const PALETTE_GROUP_LABELS: Record<CommandGroup, string> = {
   content: 'Text in files',
 }
 
+/**
+ * The tab strip across the top of the shell: the launcher, then the four
+ * questions it can be narrowed to (owner ruling 2026-09-10, after the IDE
+ * Search Everywhere). The order is `PALETTE_SCOPE_ORDER`'s; the words are
+ * here because they are display copy.
+ */
+const PALETTE_SCOPE_LABELS: Record<PaletteScope, string> = {
+  all: 'All',
+  skills: 'Skills',
+  conversations: 'Conversations',
+  files: 'Files',
+  actions: 'Actions',
+}
+
+const PALETTE_SCOPE_TABS: TabItem<PaletteScope>[] = PALETTE_SCOPE_ORDER.map((scope) => ({
+  id: scope,
+  label: PALETTE_SCOPE_LABELS[scope],
+}))
+
 /** The one sentence the input asks for, per scope. */
 const PALETTE_PLACEHOLDER: Record<PaletteScope, string> = {
-  all: 'Search agents, skills, plugins, commands, files, text...',
+  all: 'Search chats, skills, plugins, files, text, actions...',
+  skills: 'Search every skill and plugin, installed or not...',
+  conversations: 'Search chats and workspaces by title or folder...',
   files: 'Search file names and text in files...',
-  extensions: 'Search every skill and plugin, installed or not...',
+  actions: 'Search commands and actions...',
 }
 
 const PALETTE_INPUT_LABEL: Record<PaletteScope, string> = {
-  all: 'Search agents, skills, plugins, commands, files, and text in files',
+  all: 'Search chats, skills, plugins, files, text in files, and actions',
+  skills: 'Search every skill and plugin in every source',
+  conversations: 'Search chats and workspaces by title or folder',
   files: 'Search file names and text in files',
-  extensions: 'Search every skill and plugin in every source',
-}
-
-/** What the scope chip says it is narrowed to, and what widening it means. */
-const SCOPE_CHIPS: Record<Exclude<PaletteScope, 'all'>, { label: string; widenLabel: string }> = {
-  files: { label: 'Files', widenLabel: 'Search everything instead of files' },
-  extensions: {
-    label: 'Skills & plugins',
-    widenLabel: 'Search everything instead of skills and plugins',
-  },
+  actions: 'Search commands and actions',
 }
 
 // With no query, each group shows a short preview rather than its full contents,
@@ -176,9 +202,9 @@ interface Props {
   // The published context view module availability predicates evaluate
   // against — same object the dispatcher uses, so both stay in agreement.
   moduleCommandContext: ModuleCommandContext
-  // Which groups the palette opens filtered to. ⌘K and Shift Shift open `all`;
-  // ⌘⇧F opens `files`; the terminal's star opens `extensions`. Absent behaves
-  // as `all`, so existing call sites are unchanged.
+  // Which tab the palette opens on. ⌘K and Shift Shift open `all`; ⌘⇧F opens
+  // `files`; the terminal's star opens `skills`. Absent behaves as `all`, so
+  // existing call sites are unchanged.
   initialScope?: PaletteScope
   /**
    * The agent a chosen skill lands in without asking — the pane the palette was
@@ -313,6 +339,26 @@ export default function CommandPalette({
       if (opener?.isConnected) opener.focus()
     }
   }, [])
+
+  // While the palette covers the app, terminal panes stop writing — the same
+  // hold `Modal` takes, for the same reason: a streaming pane under an overlay
+  // re-invalidates the covered region on every PTY chunk. It matters twice
+  // here. The shell is GLASS (owner ruling 2026-09-10): its ground samples what
+  // is behind it, and a backdrop over a pane that repaints thirty times a
+  // second would re-blur thirty times a second — which is what the 2026-09-01
+  // measurement at ~10fps was. With the panes paused for the palette's lifetime
+  // the blur is computed once and sits still, and the area is the shell's, not
+  // the scrim's. `isAlive` is the self-heal: a hold whose dialog has left the
+  // document is reclaimed by the store's watchdog.
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useEffect(
+    () =>
+      acquireTerminalRepaintPause({
+        label: 'CommandPalette',
+        isAlive: () => dialogRef.current?.isConnected === true,
+      }),
+    [],
+  )
 
   // Escape steps OUT of the "which agent" question before it closes the
   // palette: the question replaced the result list, and the way back to that
@@ -477,15 +523,16 @@ export default function CommandPalette({
       ...workspaces
         .filter((workspace) => !isHiddenFromRail(workspace))
         .map((workspace): Command => ({
-          id: `switch-${workspace.id}`,
-          label: `Switch to: ${workspace.name}`,
-          // The workspace's own name is the obvious query for this row, and
-          // "Switch to: " in front of it would hold it to a word-start score
-          // that any file beginning with the same letters beats.
-          searchLabel: workspace.name,
+          id: workspaceSwitchRowId(workspace.id),
+          // The chat's own title, the way the sidebar lists it: the group
+          // heading already says these are conversations, and a "Switch to:"
+          // in front of every one of them was the verb said eight times.
+          // "switch" still finds them, through the keywords.
+          label: workspace.name,
           description:
             workspace.folderPath ?? (workspace.id === activeWorkspaceId ? 'active workspace' : undefined),
-          keywords: workspaceSearchKeywords(workspace.mode),
+          keywords: `switch to ${workspaceSearchKeywords(workspace.mode)}`,
+          mark: { kind: 'chat', workspaceId: workspace.id, mode: workspace.mode },
           group: 'agents',
           run: () => {
             setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
@@ -498,6 +545,7 @@ export default function CommandPalette({
         id: 'new-chat',
         label: 'New Chat',
         description: activeWorkspace?.folderPath ? 'Create a one-agent chat in the current project' : 'Create a one-agent chat',
+        mark: { kind: 'new-chat' as const },
         group: 'actions' as const,
         run: () => {
           onNewChat()
@@ -512,6 +560,7 @@ export default function CommandPalette({
               searchLabel: action.label,
               description: `${action.shortLabel} specialist with the selected CLI`,
               shortcut: getSpecialistCommandId(action.id) ? shortcutFor(getSpecialistCommandId(action.id)!) : undefined,
+              mark: { kind: 'specialist' as const, icon: action.icon },
               group: 'actions' as const,
               run: () => {
                 onSpawnSpecialist(action.id)
@@ -522,6 +571,7 @@ export default function CommandPalette({
               id: 'content-search',
               label: 'Search: File Contents',
               description: activeWorkspace.folderPath ?? 'Open content search',
+              mark: { kind: 'search' as const },
               group: 'actions' as const,
               run: () => {
                 focusOrAddComponentTab(activeWorkspace.id, 'content-search', 'Content Search')
@@ -547,6 +597,7 @@ export default function CommandPalette({
             id: `file-${file.path}`,
             label: file.name,
             description: file.path,
+            file: file.name,
             group: 'files',
             run: () => {
               setActiveFile(activeWorkspaceId, file.path)
@@ -833,6 +884,7 @@ export default function CommandPalette({
               id: `disk-file-${entry.path}`,
               label: entry.name,
               description: workspaceRelativePath(activeFolderPath, entry.path),
+              file: entry.name,
               group: 'files',
               run: () => openOnDisk(entry.path, entry.name),
             })),
@@ -845,6 +897,7 @@ export default function CommandPalette({
             // the supporting detail, which is the inverse of the Files group.
             label: entry.lineText.trim() || entry.matchText,
             description: `${workspaceRelativePath(activeFolderPath, entry.path)}:${entry.lineNumber}`,
+            file: entry.name,
             group: 'content',
             run: () => openOnDisk(entry.path, entry.name, entry.lineNumber, entry.column),
           })),
@@ -864,6 +917,10 @@ export default function CommandPalette({
         label: skill.name,
         description: skill.description,
         group: 'skills',
+        // No artwork of its own, so the empty props: `ExtensionIcon` draws the
+        // skill's monogram chip, the same letter chip the Skills aside and the
+        // composer picker wear for it.
+        icon: {},
         badge: 'Installed',
         installed: true,
         run: () => void useInstalledSkillRef.current(skill.id, skill.name),
@@ -873,6 +930,7 @@ export default function CommandPalette({
         label: skill.name,
         description: skill.description,
         group: 'skills',
+        icon: {},
         badge: 'Installed',
         installed: true,
         run: () => void useInstalledSkillRef.current(skill.id, skill.name),
@@ -900,9 +958,9 @@ export default function CommandPalette({
   const installedDirNamesRef = useRef(installedDirNames)
   installedDirNamesRef.current = installedDirNames
   // The cap is per group, and it is lifted when the palette is narrowed to
-  // extensions: the scope IS the person saying they want the whole list.
+  // skills: the tab IS the person saying they want the whole list.
   const rowLimitRef = useRef(EXTENSION_ROWS_PER_GROUP)
-  rowLimitRef.current = scope === 'extensions' ? Number.MAX_SAFE_INTEGER : EXTENSION_ROWS_PER_GROUP
+  rowLimitRef.current = scope === 'skills' ? Number.MAX_SAFE_INTEGER : EXTENSION_ROWS_PER_GROUP
   const extensionsProvider = useMemo(
     () =>
       createExtensionsProvider({
@@ -966,8 +1024,22 @@ export default function CommandPalette({
   // top, and the canonical order (PALETTE_GROUP_ORDER) is only the tie-break
   // inside the scorer. While the palette is asking which agent, the whole list
   // is that one question.
+  //
+  // At rest — no query, the All tab — the launcher is not a preview of every
+  // group but a landing page (owner ruling 2026-09-10): the actions,
+  // then the chats most recently spoken in, in the sidebar's own order. What a
+  // person opens ⌘K for without a query is to start something or to get back
+  // to something; the other groups are one keystroke or one tab away.
+  const restingPage = !query.trim() && scope === 'all' && !agentChoice
   const groupedResults = useMemo((): { key: CommandGroup; label: string; items: Command[] }[] => {
     if (agentChoice) return [{ key: 'agents', label: agentChoice.title, items: agentChoice.options }]
+    if (restingPage) {
+      const { actions, recent } = composeRestingPage(commands, workspaces)
+      return [
+        ...(actions.length > 0 ? [{ key: 'actions' as const, label: 'Actions', items: actions }] : []),
+        ...(recent.length > 0 ? [{ key: 'agents' as const, label: 'Recent conversations', items: recent }] : []),
+      ]
+    }
     const order: CommandGroup[] = []
     const items = new Map<CommandGroup, Command[]>()
     filtered.forEach((command) => {
@@ -979,7 +1051,7 @@ export default function CommandPalette({
       }
     })
     return order.map((key) => ({ key, label: PALETTE_GROUP_LABELS[key], items: items.get(key) ?? [] }))
-  }, [filtered, agentChoice])
+  }, [filtered, agentChoice, restingPage, commands, workspaces])
 
   // The rows on screen, in the order they are drawn — which is what the arrow
   // keys traverse. Grouping compacts the ranked list (a group's rows are drawn
@@ -1014,9 +1086,9 @@ export default function CommandPalette({
     }
     if (event.key === 'Backspace' && !query) {
       // Backspace at an empty query steps back one state: out of the "which
-      // agent" question first, then out of the scope token — the way it pops a
-      // chip in a token field, so ⌘⇧F's narrowing and the star's are both
-      // reversible from the keyboard without reopening the overlay.
+      // agent" question first, then back to the All tab — so ⌘⇧F's narrowing
+      // and the star's are both reversible from the keyboard without leaving
+      // the field for the strip or reopening the overlay.
       if (agentChoice) {
         event.preventDefault()
         setAgentChoice(null)
@@ -1032,7 +1104,66 @@ export default function CommandPalette({
     }
   }
 
+  // The agent a chat's mark shows: the CLI of its most recent session, the way
+  // the sidebar's rows wear the provider mark. A chat nothing has run in yet
+  // falls back to its workspace type's icon.
+  const terminalSessions = useTerminalSessions()
+  const cliByWorkspaceId = useMemo(() => {
+    const map = new Map<string, { cli: string; at: number; alive: boolean }>()
+    for (const session of terminalSessions) {
+      if (!session.workspaceId || !session.cli) continue
+      const at = session.lastOutputAt ?? session.startedAt
+      const current = map.get(session.workspaceId)
+      // A living process outranks a parked one; among peers, the latest.
+      if (
+        !current
+        || (session.processAlive && !current.alive)
+        || (session.processAlive === current.alive && at > current.at)
+      ) {
+        map.set(session.workspaceId, { cli: session.cli, at, alive: session.processAlive })
+      }
+    }
+    return map
+  }, [terminalSessions])
+
+  const renderMark = (mark: PaletteRowMark): React.ReactNode => {
+    switch (mark.kind) {
+      case 'new-chat':
+        return <NewChatIcon className="icon-sm shrink-0" />
+      case 'specialist':
+        return <SpecialistActionIcon icon={mark.icon} className="icon-sm shrink-0" />
+      case 'search':
+        return <PaletteSearchGlyph />
+      case 'chat': {
+        const cli = cliByWorkspaceId.get(mark.workspaceId)?.cli
+        return (
+          // The sidebar's provider chip, so a chat is recognised here by the
+          // same mark it wears there.
+          <span
+            aria-hidden="true"
+            className="flex size-icon-sm shrink-0 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]"
+          >
+            {cli ? (
+              <CliIcon cli={cli} className="icon-xs" />
+            ) : (
+              <WorkspaceTypeIcon mode={mark.mode} className="icon-xs text-[color:var(--text-muted)]" />
+            )}
+          </span>
+        )
+      }
+    }
+  }
+
   const activeOptionId = visible[selected] ? `palette-option-${visible[selected].id}` : undefined
+  // One id per scope, so the strip's `aria-controls` and the combobox's both
+  // resolve to the list that is showing — the results ARE the tab's panel.
+  const resultsId = `command-palette-panel-${scope}`
+
+  const selectScope = (next: PaletteScope) => {
+    setScope(next)
+    setSelected(0)
+    inputRef.current?.focus()
+  }
 
   return (
     <div
@@ -1046,6 +1177,7 @@ export default function CommandPalette({
           `aria-modal`), and the trap is what makes the claim true (MC-2109). */}
       <FocusTrap>
         <div
+          ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-label="Command palette"
@@ -1054,68 +1186,65 @@ export default function CommandPalette({
           // The palette keeps its own scrim — it sits at 15vh rather than
           // centred, which no dialog does — but not its own geometry: shell
           // chrome and width both come from the scale, so `Modal` and this read
-          // as the same surface at last (MC-2110). `overflow-hidden` is the one
-          // local addition: the input's bottom rule has to be clipped by the
+          // as the same surface (MC-2110). The ground is the one thing it
+          // paints itself: `surface-glass`, the kit's frosted material (owner
+          // ruling 2026-09-10 — the fourth sanctioned glass shell, and the
+          // repaint hold above is what makes it affordable). The scrim behind
+          // stays a plain tone; it never blurs. `overflow-hidden` is the other
+          // local addition: the bands' hairlines have to be clipped by the
           // shell's corners.
-          className={`${OVERLAY_SHELL_CLASS} overflow-hidden outline-none`}
+          className={`${OVERLAY_SHELL_CHROME_CLASS} surface-glass overflow-hidden outline-none`}
         >
-          <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
-            {scope !== 'all' ? (
-              // The scope reads as a removable token, the way a filter chip does
-              // in the panels: it says what the palette is narrowed to, and
-              // clicking it (or Backspace at an empty query) widens back to the
-              // full launcher without reopening the overlay.
-              <button
-                type="button"
-                onClick={() => {
-                  setScope('all')
-                  setSelected(0)
-                  inputRef.current?.focus()
-                }}
-                aria-label={SCOPE_CHIPS[scope].widenLabel}
-                className={`flex shrink-0 items-center gap-1 rounded-[var(--radius-xs)] bg-[color:var(--bg-surface-raised)] px-2 py-0.5 text-micro text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-              >
-                {SCOPE_CHIPS[scope].label}
-                {/* The kit's close mark, at the chip's scale — the same stroke
-                    CloseIconButton draws, not a literal ✕ character. */}
-                <svg className="icon-xs" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <path
-                    d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            ) : (
-              <span className="text-heading text-[color:var(--text-disabled)]">⌘</span>
-            )}
-            <input
-              ref={inputRef}
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value)
-                setSelected(0)
-              }}
-              onKeyDown={handleKey}
-              placeholder={PALETTE_PLACEHOLDER[scope]}
-              aria-label={PALETTE_INPUT_LABEL[scope]}
-              role="combobox"
-              aria-expanded={visible.length > 0}
-              aria-controls="command-palette-results"
-              aria-activedescendant={activeOptionId}
-              className={`flex-1 bg-transparent text-heading text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
+          {/* One band of chrome, two lines: the scope strip and the field. The
+              strip is borderless so the band draws ONE hairline, under the
+              field — the active tab's own underline is the only mark between
+              the two lines. */}
+          <div className="border-b border-[color:var(--border-default)]">
+            <Tabs
+              ariaLabel="Search in"
+              idPrefix="command-palette"
+              items={PALETTE_SCOPE_TABS}
+              value={scope}
+              onChange={selectScope}
+              borderless
+              className="px-2 pt-1"
             />
-            {/* The parts of the palette that are not instant are the parts that
-                say they are working: ripgrep, and an install-and-use round trip. */}
-            {(provided.loading || actionBusy) && (
-              <span role="status" className="shrink-0 text-micro text-[color:var(--text-disabled)]">
-                {actionBusy ? 'Working…' : 'Searching…'}
-              </span>
-            )}
+            <div className="flex items-center gap-2 px-4 py-3">
+              {/* The leading mark is the search glyph, not a ⌘: the field is a
+                  search, and the chord that opened it is not what it is for. */}
+              <PaletteSearchGlyph className="icon-sm shrink-0 text-[color:var(--text-disabled)]" />
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value)
+                  setSelected(0)
+                }}
+                onKeyDown={handleKey}
+                placeholder={PALETTE_PLACEHOLDER[scope]}
+                aria-label={PALETTE_INPUT_LABEL[scope]}
+                role="combobox"
+                aria-expanded={visible.length > 0}
+                aria-controls={resultsId}
+                aria-activedescendant={activeOptionId}
+                // No ring on the field (owner ruling 2026-09-10). The shell IS
+                // the field: it opens with the caret in it, the caret is the
+                // focus signal, and a 2px ring drawn inside a bordered band the
+                // whole width of the shell read as a second box around the one
+                // thing on screen. The tab strip keeps its ring, so a keyboard
+                // walk still shows where focus went; coming back to the field
+                // shows the caret.
+                className="flex-1 bg-transparent text-heading text-[color:var(--text-strong)] outline-none placeholder-[color:var(--text-disabled)]"
+              />
+            </div>
           </div>
 
-          <div id="command-palette-results" role="listbox" aria-label="Search results" className="max-h-[360px] overflow-y-auto py-1">
+          <div
+            id={resultsId}
+            role="listbox"
+            aria-label="Search results"
+            className="max-h-[360px] overflow-y-auto py-1"
+          >
             {/* An action that failed says so where the person is looking, and
                 the list stays up: a skill whose install was refused must not
                 also make the palette vanish. */}
@@ -1124,29 +1253,46 @@ export default function CommandPalette({
                 {actionError}
               </p>
             )}
+            {/* The one part of the palette that is not a search and not
+                instant — an install-and-use round trip — says so at the top of
+                the list, with the kit's working dots (liveness: alive right
+                now, for an unknown duration). Never beside the query: a note
+                on the field's own line read as part of what was typed. */}
+            {actionBusy && (
+              <p role="status" className="flex items-center gap-2 px-4 py-2 text-meta text-[color:var(--text-muted)]">
+                Working
+                <AgentWorkingDots label="Working" />
+              </p>
+            )}
             {visible.length === 0 ? (
               // "No results" is only true once the search that would have
-              // produced them has finished, and only meaningful when there was a
-              // folder to search in the first place.
-              <p className="px-4 py-3 text-meta text-[color:var(--text-muted)]">
-                {provided.error
-                  ? provided.error
-                  : provided.loading
-                    ? 'Searching…'
-                    : query.trim() && !activeFolderPath
-                      ? 'Open a folder to search files, their contents, and the skills a source holds.'
-                      : 'No results'}
+              // produced them has finished; a failure says what failed instead.
+              // A search in flight is the working dots, not a static ellipsis:
+              // the marker the system already uses for "alive right now".
+              <p
+                role={provided.loading ? 'status' : undefined}
+                className="flex items-center gap-2 px-4 py-3 text-meta text-[color:var(--text-muted)]"
+              >
+                {provided.error ? (
+                  provided.error
+                ) : provided.loading ? (
+                  <>
+                    Searching
+                    <AgentWorkingDots label="Searching" />
+                  </>
+                ) : (
+                  'No results'
+                )}
               </p>
             ) : (
               groupedResults.map((group) => (
                 <div key={group.key} role="group" aria-label={group.label}>
-                  <div
-                    aria-hidden="true"
-                    className="flex items-center gap-3 px-4 pb-1 pt-2 text-micro font-medium text-[color:var(--text-disabled)]"
-                  >
-                    <span>{group.label}</span>
-                    <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-                    <span className="tabular-nums">{group.items.length}</span>
+                  {/* The group's name and nothing else: quieter ink than the
+                      rows, no rule filling the line, no count (owner ruling
+                      2026-09-10 — the rule and the number were chrome
+                      between every group and the next). */}
+                  <div aria-hidden="true" className="px-4 pb-1 pt-2 text-meta text-[color:var(--text-muted)]">
+                    {group.label}
                   </div>
                   {group.items.map((command) => {
                     const index = flatIndexById.get(command.id) ?? -1
@@ -1160,17 +1306,30 @@ export default function CommandPalette({
                         aria-selected={isSelected}
                         onClick={command.run}
                         onMouseEnter={() => setSelected(index)}
+                        // The row's ink is the sidebar's: `text.default` at
+                        // rest, `text.strong` under the cursor. It shipped at
+                        // `text.muted`, which put the one thing a person came
+                        // to read a step below its own heading.
                         className={`flex cursor-pointer items-center gap-2.5 px-4 py-2 transition-colors ${
                           isSelected
                             ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                            : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
                         }`}
                       >
-                        {/* The plugin's own mark, where it has one — the same
-                            ladder the Extensions door draws (glyph → logo →
-                            the publishing account's avatar → monogram), so a
-                            row reads the same in both places. */}
-                        {command.icon ? (
+                        {/* The row's mark. A file wears the kind glyph the File
+                            Explorer draws for the same name, in its kind's hue
+                            — the tile is how a list of forty hits is scanned
+                            before it is read. A skill or plugin wears its own
+                            artwork, down the same ladder the Extensions door
+                            draws (glyph → logo → the publishing account's
+                            avatar → monogram), so a row reads the same in both
+                            places. A command or a chat wears none: the verb is
+                            the whole row. */}
+                        {command.file ? (
+                          <FileTypeGlyph name={command.file} tone="kind" className="icon-sm shrink-0" />
+                        ) : command.mark ? (
+                          renderMark(command.mark)
+                        ) : command.icon ? (
                           <ExtensionIcon
                             name={command.label}
                             size={PALETTE_ROW_ICON_SIZE}
@@ -1206,9 +1365,9 @@ export default function CommandPalette({
                           )}
                         </div>
                         {command.shortcut && (
-                          <kbd className="ml-3 shrink-0 rounded bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-disabled)]">
-                            {command.shortcut}
-                          </kbd>
+                          // The chord arrives already rendered for this
+                          // platform ("⌘K"), so it is one capsule, not a parse.
+                          <KbdChord keys={[command.shortcut]} ariaLabel={command.shortcut} className="ml-3 shrink-0" />
                         )}
                       </div>
                     )
@@ -1217,8 +1376,19 @@ export default function CommandPalette({
               ))
             )}
           </div>
+
         </div>
       </FocusTrap>
     </div>
+  )
+}
+
+/** The kit's search glyph (design-system/glyphs/search.svg). */
+function PaletteSearchGlyph({ className = 'icon-sm shrink-0' }: { className?: string }): JSX.Element {
+  return (
+    <svg viewBox="0 0 11 11" fill="none" aria-hidden="true" className={`${className} p-0.5`}>
+      <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <path d="M7 7l2.5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
   )
 }

@@ -637,9 +637,13 @@ title, none above the buttons. See *Hairlines carry the structure*.
 - Every animation honors `prefers-reduced-motion: reduce`, including the
   `:active` press scale.
 - Never put `backdrop-filter` on a full-viewport scrim; separation comes from
-  `overlay.scrim` plus the shell's shadow. The toast card is the one
-  sanctioned glass surface (ruling 2026-09-04): a corner-sized blur, pinned
-  to the toast by the conformance lint.
+  `overlay.scrim` plus the shell's shadow. Glass is a material of four kit
+  shells and nothing else, pinned there by the conformance lint: the toast
+  card (ruling 2026-09-04, a corner-sized blur), the popover family's opt-in
+  `material="glass"` (2026-09-07/08), and the command palette's shell
+  (2026-09-10) — the last affordable only because the palette pauses terminal
+  repaints while it is up, so the blur beneath it is computed once. The
+  scrims behind all of them stay plain tones.
 
 ## Accessibility
 

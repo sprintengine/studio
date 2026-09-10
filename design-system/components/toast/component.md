@@ -44,10 +44,19 @@ full-viewport scrim. **Amended again 2026-09-08:** the trigger-anchored
 `Popover` carries the same opt-in, for the composer's skill type-ahead drawn
 over the transcript being read — the popover spec's "Material" section had
 already ruled glass a material of the whole popover family, and the anchored
-shell is that family's engine. The conformance lint pins the glass utility to
-those three **kit shells** (`Toast.tsx`, `PointerPopover.tsx`, `Popover.tsx`); a product file that
-blurs, or borrows the utility directly, is still a violation — a surface that
-wants glass asks the shell for it.
+shell is that family's engine. **Amended 2026-09-10:** the
+[command palette](../command-palette/component.md)'s shell is the fourth,
+and the first at dialog scale over the middle of the window where the
+terminals are. It is affordable for a reason the earlier three did not have:
+the palette holds the terminal repaint pause for its lifetime (the hold
+`Modal` takes), so the panes beneath it stop invalidating and the blur is
+computed once rather than on every PTY chunk — which is what the ~10fps
+measurement actually was. Its scrim stays a plain tone; the area argument
+still holds against a full-viewport blur. The conformance lint pins the glass
+utility to those four **kit shells** (`Toast.tsx`, `PointerPopover.tsx`,
+`Popover.tsx`, `CommandPalette.tsx`); a product file that blurs, or borrows
+the utility directly, is still a violation — a surface that wants glass asks
+the shell for it.
 
 The tone is carried by the dot's shape-plus-color and by the words — never by
 tinting the surface. A toast that survives greyscale is the test.

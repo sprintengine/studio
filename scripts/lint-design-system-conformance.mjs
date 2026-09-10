@@ -41,9 +41,14 @@
 //                          corner-sized area), PointerPopover's opt-in
 //                          `material="glass"` (owner ruling 2026-09-07, the
 //                          conversation peek, drawn deliberately over a
-//                          running terminal) and Popover's opt-in of the same
+//                          running terminal), Popover's opt-in of the same
 //                          name (2026-09-08, the composer skill type-ahead,
-//                          drawn over the transcript). Any other blur, and any other
+//                          drawn over the transcript) and the command
+//                          palette's shell (2026-09-10 — a dialog-scale area,
+//                          affordable because the palette holds the terminal
+//                          repaint pause for its lifetime, so the backdrop is
+//                          blurred once and sits still; the SCRIM behind it
+//                          stays a plain tone). Any other blur, and any other
 //                          consumer of the utility — a product file included
 //                          — is flagged: a surface that wants glass asks the
 //                          shell for it.
@@ -666,12 +671,18 @@ const GLASS_UTILITY_PATTERN = /(?<![\w-])surface-glass(?![\w-])/g
 // 2026-09-04 area argument still covers it. Popover.tsx joined on 2026-09-08:
 // the popover spec's "Material" section already ruled glass an opt-in material
 // of the whole popover family, and the anchored shell is that family's engine —
-// the composer skill type-ahead is its first glass consumer. A product file
-// that wants glass asks one of these shells for it.
+// the composer skill type-ahead is its first glass consumer. CommandPalette.tsx
+// joined on 2026-09-10: the first dialog-scale glass, and the first over the
+// middle of the window where the terminals are — which is why it is paired
+// with the terminal repaint pause (`terminalRepaintPause.ts`, the hold `Modal`
+// takes): the ~10fps measurement was a blur re-sampled on every PTY chunk, and
+// a blur over paused panes is computed once. The scrim behind it is still a
+// plain tone. A product file that wants glass asks one of these shells for it.
 const GLASS_CONSUMER_FILES = new Set([
   'src/renderer/src/components/ui/Toast.tsx',
   'src/renderer/src/components/ui/PointerPopover.tsx',
   'src/renderer/src/components/ui/Popover.tsx',
+  'src/renderer/src/components/ui/CommandPalette.tsx',
 ])
 
 const TAILWIND_SHADOW = /(?<![\w-])shadow-(?:sm|md|lg|xl|2xl)(?![\w-])/g
@@ -1551,8 +1562,9 @@ const FIX_HINT = {
   'emoji-as-icon': 'use a glyph from components/AppIcons.tsx, or delete the decoration',
   'selection-accent-bar': 'selection is a neutral --bg-selected fill with no left bar',
   'backdrop-filter':
-    'separation comes from the scrim tone plus the shell shadow; glass is the toast card and ' +
-    'Popover / PointerPopover material="glass" (surface-glass in the kit) and nothing else blurs or borrows it',
+    'separation comes from the scrim tone plus the shell shadow; glass is the toast card, ' +
+    'Popover / PointerPopover material="glass" and the command palette shell (surface-glass in the kit) ' +
+    'and nothing else blurs or borrows it',
   'shadow-in-flow':
     'overlays take --shadow-popover / --shadow-modal; a pressable control takes .control-raised / ' +
     '.control-edge; all other in-flow chrome takes a hairline',

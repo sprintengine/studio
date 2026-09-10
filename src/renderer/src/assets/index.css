@@ -81,15 +81,18 @@
 }
 
 /* Glass: `bg.surface-raised` at `glass.opacity` over a blur-and-saturate of
- * whatever is behind — a corner-sized area, which is why this is allowed where
- * a scrim's full-viewport blur is not (see the `backdrop-filter` rule in
- * scripts/lint-design-system-conformance.mjs). Three kit shells consume it and
+ * whatever is behind — a bounded area, which is why this is allowed where a
+ * scrim's full-viewport blur is not (see the `backdrop-filter` rule in
+ * scripts/lint-design-system-conformance.mjs). Four kit shells consume it and
  * nothing else may: the toast card (owner ruling 2026-09-04, a frosted card
  * over whatever it is dropped on), `PointerPopover`'s opt-in `material="glass"`, which the
  * conversation peek asks for because it is drawn across a running terminal
- * rather than out of a control, and `Popover`'s opt-in of the same name (2026-09-08),
+ * rather than out of a control, `Popover`'s opt-in of the same name (2026-09-08),
  * which the composer skill type-ahead asks for because it is drawn across the
- * transcript the person is reading. Where backdrop-filter is unsupported all
+ * transcript the person is reading, and the command palette's shell
+ * (2026-09-10), which holds the terminal repaint pause while it is up so the
+ * blur beneath it is computed once rather than on every PTY chunk — the scrim
+ * behind it stays a plain tone. Where backdrop-filter is unsupported all
  * fall back to a solid bg.surface-raised. */
 @utility surface-glass {
   background: color-mix(in srgb, var(--bg-surface-raised) calc(var(--sem-glass-opacity) * 100%), transparent);

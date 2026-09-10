@@ -1415,7 +1415,11 @@ async function main(): Promise<void> {
     // rule phrased over "every file" would pass the day one grew a sixth.
     const shells: Record<string, RegExp> = {
       'components/ui/Modal.tsx': /OVERLAY_SHELL_CLASS/,
-      'components/ui/CommandPalette.tsx': /OVERLAY_SHELL_CLASS/,
+      // The palette is glass (2026-09-10), so it takes the shell's chrome
+      // without its ground and paints `surface-glass` itself — the same split
+      // Popover makes with OVERLAY_CHROME_CLASS. Radius, border and elevation
+      // are still the shell's.
+      'components/ui/CommandPalette.tsx': /OVERLAY_SHELL_CHROME_CLASS\b[\s\S]*surface-glass/,
       // Migrated onto Modal outright — no shell of their own left to check.
       'components/workspace/newSprint/NewSprintDialog.tsx': /<Modal\b/,
       // RosterManagerModal left with its door (2026-09-05); nothing replaced it.
@@ -1431,6 +1435,17 @@ async function main(): Promise<void> {
       const source = readFileSync(join(process.cwd(), 'src/renderer/src', file), 'utf8')
       assert.match(source, pattern, `${file} draws the shared shell chrome rather than a copy of it`)
     }
+
+    // The palette's glass was ruled affordable (2026-09-10) on one condition:
+    // it holds the terminal repaint pause while it is up, so the blur beneath
+    // it is computed once rather than on every PTY chunk. A palette that kept
+    // the glass and dropped the hold would be the ~10fps scrim measurement
+    // again, on a smaller area — so the two travel together, or neither.
+    const palette = readFileSync(join(process.cwd(), 'src/renderer/src/components/ui/CommandPalette.tsx'), 'utf8')
+    assert.ok(
+      !/surface-glass/.test(palette) || /acquireTerminalRepaintPause\(/.test(palette),
+      'a glass palette holds the terminal repaint pause for its lifetime',
+    )
 
     // And nobody re-opens the width scale with a private measure. `Modal` takes
     // a `size` step, not a pixel count: a `width` prop is a TypeScript error

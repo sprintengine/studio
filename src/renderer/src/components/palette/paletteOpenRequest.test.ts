@@ -29,10 +29,10 @@ run('the request reaches the shell with its scope and its pane', () => {
   fakeWindow()
   const seen: PaletteOpenRequest[] = []
   const stop = subscribePaletteOpenRequest((request) => seen.push(request))
-  requestPaletteOpen({ scope: 'extensions', target: { sessionId: 'session-1', cli: 'claude-code', workspaceId: 'ws-1' } })
+  requestPaletteOpen({ scope: 'skills', target: { sessionId: 'session-1', cli: 'claude-code', workspaceId: 'ws-1' } })
   stop()
   assert.equal(seen.length, 1)
-  assert.equal(seen[0].scope, 'extensions')
+  assert.equal(seen[0].scope, 'skills')
   assert.deepEqual(seen[0].target, { sessionId: 'session-1', cli: 'claude-code', workspaceId: 'ws-1' })
 })
 
@@ -58,7 +58,7 @@ run('a request nobody is listening for is dropped, not queued', () => {
   fakeWindow()
   // There is no latch on purpose: the shell mounts before any pane that could
   // ask, so a request can only be early if there is no shell to serve it.
-  requestPaletteOpen({ scope: 'extensions', target: { sessionId: 'gone' } })
+  requestPaletteOpen({ scope: 'skills', target: { sessionId: 'gone' } })
   const seen: PaletteOpenRequest[] = []
   const stop = subscribePaletteOpenRequest((request) => seen.push(request))
   stop()
