@@ -1379,6 +1379,53 @@ assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a 
   assert.equal(rowOf(activeId!).settledAt ?? null, null, 'the active row is exempt from the sweep')
 }
 
+// --- snooze: the store's half of "not now" (snooze, 2026-09-10) -------------
+{
+  const HOUR = 60 * 60 * 1000
+  const snoozeId = useWorkspaceStore.getState().addWorkspace(standardTemplate, { name: 'Snoozer' })
+  const row = (): Workspace => useWorkspaceStore.getState().workspaces.find((w) => w.id === snoozeId)!
+  const wakeAt = Date.now() + 2 * HOUR
+
+  assert.equal(row().snoozedUntil ?? null, null, 'a new chat carries no snooze')
+
+  useWorkspaceStore.getState().setWorkspaceSnoozed(snoozeId, wakeAt)
+  assert.equal(row().snoozedUntil, wakeAt, 'Snooze stamps the wake time')
+  assert.equal(typeof row().snoozedAt, 'number', 'and the line a turn end has to beat to wake it early')
+  assert.ok(row().snoozedAt! <= Date.now(), 'which is now, not the future')
+
+  // Visibility only: nothing about rest, and nothing about the agent.
+  assert.equal(row().settledAt ?? null, null, 'sleeping is not resting')
+
+  useWorkspaceStore.getState().setWorkspaceSnoozed(snoozeId, null)
+  assert.equal(row().snoozedUntil ?? null, null, 'Wake clears the stamp')
+  assert.equal(row().snoozedAt ?? null, null, 'and its partner, so neither lingers as a stale line')
+
+  // Waking a row that never slept is a no-op, not a write: the menu only
+  // offers it on a sleeping row, but nothing stops a caller asking twice.
+  const untouched = row()
+  useWorkspaceStore.getState().setWorkspaceSnoozed(snoozeId, null)
+  assert.equal(row(), untouched, 'a second Wake leaves the row alone')
+
+  // Opening the chat spends the snooze — a running one, because you are here
+  // now, and a spent one, because the Woke mark has nothing left to say.
+  useWorkspaceStore.getState().setWorkspaceSnoozed(snoozeId, wakeAt)
+  useWorkspaceStore.getState().setActiveWorkspace(snoozeId)
+  assert.equal(row().snoozedUntil ?? null, null, 'opening a sleeping chat wakes it')
+  assert.equal(row().snoozedAt ?? null, null, 'and leaves no half of the pair behind')
+  assert.equal(useWorkspaceStore.getState().activeWorkspaceId, snoozeId, 'and it is the active chat')
+
+  // Rest supersedes sleep: settling a sleeping row tombstones the snooze, so
+  // it cannot expire into a Woke mark on a row nobody woke.
+  useWorkspaceStore.getState().setWorkspaceSnoozed(snoozeId, wakeAt)
+  useWorkspaceStore.getState().setWorkspaceSettled(snoozeId, true)
+  assert.equal(typeof row().settledAt, 'number', 'Settle stamps rest')
+  assert.equal(row().snoozedUntil ?? null, null, 'and clears the sleep underneath it')
+  assert.equal(row().snoozedAt ?? null, null, 'both halves of it')
+  useWorkspaceStore.getState().setWorkspaceSettled(snoozeId, false)
+
+  useWorkspaceStore.getState().setWorkspaceSnoozed('no-such-workspace', wakeAt)
+}
+
 // --- lastActiveAgentId: the Diff surfaces' default (agent changelists) -------
 {
   const workspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {

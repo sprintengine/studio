@@ -3,6 +3,7 @@ import type { WorkspaceFieldsPatch } from '../../../shared/workspace-sync'
 import { deriveSprintEngineRunGlyph } from './sprintengine'
 import { isSprintEngineWorkspace } from './sprintEngineWorkspace'
 import { isStarred } from './highlight'
+import { isSnoozeUnexpired, wakeSnoozedWorkspacePatch } from './workspaceSnooze'
 import { workspaceLastActiveAt } from './workspaceRecency'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../types/workspace'
 import type { LifecycleState } from '../components/ui/LifecycleGlyph'
@@ -59,6 +60,12 @@ export function isSettledWorkspace(workspace: Pick<Workspace, 'settledAt'>): boo
 export function shouldAutoSettleWorkspace(workspace: Workspace, now: number): boolean {
   if (isSettledWorkspace(workspace)) return false
   if (workspace.settledOverride != null) return false
+  // A running snooze is a hand decision about this row's near future, and the
+  // sweep never overrules one of those. Settling a row mid-snooze would strand
+  // the person's "ask me again in an hour" behind an Un-settle they never asked
+  // for. The plain timer test is enough: a row whose hand is up is `held` on
+  // the caller's terms and is not a settle candidate anyway.
+  if (isSnoozeUnexpired(workspace, now)) return false
   if (isStarred(workspace.highlight)) return false
   if (workspace.remoteOrigin) return false
   if (workspace.mode === AUTOMATIONS_HOST_WORKSPACE_MODE) return false
@@ -131,6 +138,12 @@ export function settleWorkspacePatch(
   override: 'settled' | null
 ): WorkspaceFieldsPatch {
   return {
+    // Rest supersedes sleep (snooze, 2026-09-10). A settled row is out of the
+    // list for good reasons of its own, so a snooze underneath it would do
+    // nothing visible and then expire into a Woke mark on a row nobody woke.
+    // Cleared HERE rather than at each call site so the sweep, the row menu and
+    // the hover tick cannot disagree about it.
+    ...wakeSnoozedWorkspacePatch(),
     settledAt: now,
     settledOverride: override,
     ...(typeof workspace.lastTerminalActivityAt === 'number'
