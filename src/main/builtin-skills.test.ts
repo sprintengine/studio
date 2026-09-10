@@ -4,7 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { LoadedPlugin } from '../shared/plugin-manifest'
-import { BUILTIN_SKILLS, createBuiltinSkillManager } from './builtin-skills'
+import {
+  BUILTIN_SKILLS,
+  createBuiltinSkillManager,
+  ensureSkillInstalled,
+  findModuleSkill,
+  listModuleSkills,
+  registerModuleSkills,
+  resolveSkillById,
+  setDefaultSkillManager,
+  unregisterModuleSkills,
+} from './builtin-skills'
 import { STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID } from './skills/studio-plugin'
 
 async function writeSkillSource(root: string, skillId: string, body: string): Promise<void> {
@@ -17,6 +27,63 @@ async function writeSkillSource(root: string, skillId: string, body: string): Pr
 async function writeAllSkillSources(root: string, body: string): Promise<void> {
   for (const skill of BUILTIN_SKILLS) {
     await writeSkillSource(root, skill.id, body)
+  }
+}
+
+// Two native-harness CLI plugins, enough to prove an all-native fan-out lands
+// in more than the harness-neutral .agents directory.
+function claudePlugin(temp: string): LoadedPlugin {
+  return {
+    source: 'bundled',
+    manifestPath: join(temp, 'plugins', 'claude-code', 'plugin.json'),
+    pluginRoot: join(temp, 'plugins', 'claude-code'),
+    manifest: {
+      id: 'claude-code',
+      displayName: 'Claude Code',
+      version: 1,
+      binary: 'claude',
+      permissionPresets: { default: { label: 'Default', args: [] } },
+      launch: { argv: ['claude'] },
+      promptInjection: { mode: 'positional-arg' },
+      completion: { mode: 'process-exit' },
+      capabilities: { resumeSession: true, sessionIdFromCaller: true, toolUse: true, mcpServers: true },
+      skillIntegration: {
+        support: 'native',
+        harnessId: 'claude',
+        installTargets: [
+          {
+            scope: 'workspace',
+            path: '{{workspaceRoot}}/.claude/skills/{{skillId}}',
+            format: 'claude-code',
+            restartRequired: true,
+          },
+        ],
+      },
+    },
+  }
+}
+
+function piPlugin(temp: string): LoadedPlugin {
+  return {
+    source: 'user',
+    manifestPath: join(temp, 'plugins', 'pi', 'plugin.json'),
+    pluginRoot: join(temp, 'plugins', 'pi'),
+    manifest: {
+      id: 'pi',
+      displayName: 'Pi',
+      version: 1,
+      binary: 'pi',
+      permissionPresets: { default: { label: 'Default', args: [] } },
+      launch: { argv: ['pi'] },
+      promptInjection: { mode: 'stdin-pipe' },
+      completion: { mode: 'process-exit' },
+      capabilities: { resumeSession: false, sessionIdFromCaller: false, toolUse: false, mcpServers: false },
+      skillIntegration: {
+        support: 'native',
+        harnessId: 'pi',
+        installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.pi/skills/{{skillId}}', format: 'generic' }],
+      },
+    },
   }
 }
 
@@ -355,6 +422,126 @@ async function main(): Promise<void> {
     /ENOENT/,
     'frontend-design must not fan out to .agents or any non-Claude harness'
   )
+
+  await testModuleOwnedSkills()
+}
+
+// Module-owned skills (WP-D). A skill a capability module ships must be a
+// skill: same resolution at the launch boundary, same all-native fan-out, same
+// managed manifest. The only difference is where its bytes come from and how
+// long it lives — the module's own tree, and the module's own lifetime.
+async function testModuleOwnedSkills(): Promise<void> {
+  const temp = await mkdtemp(join(tmpdir(), 'multicode-module-skills-'))
+  const bundledRoot = join(temp, 'bundled')
+  const moduleRoot = join(temp, 'modules', 'review')
+  const workspaceRoot = join(temp, 'workspace')
+  await mkdir(workspaceRoot, { recursive: true })
+  await writeAllSkillSources(bundledRoot, 'bundled\n')
+  await writeSkillSource(join(moduleRoot, 'skills'), 'review-guide-module', 'module version one\n')
+
+  const manager = createBuiltinSkillManager({
+    sourceRoot: bundledRoot,
+    listPlugins: () => [claudePlugin(temp), piPlugin(temp)],
+  })
+  setDefaultSkillManager(manager)
+
+  // Unknown before registration — and loudly so, rather than a silent no-op.
+  assert.equal(resolveSkillById('review-guide-module'), null)
+  assert.deepEqual(await ensureSkillInstalled(workspaceRoot, 'review-guide-module'), {
+    ok: false,
+    status: 'unknown-skill',
+    message: 'Unknown skill: review-guide-module',
+  })
+
+  registerModuleSkills('review', [
+    {
+      id: 'review-guide-module',
+      sourceDir: join(moduleRoot, 'skills', 'review-guide-module'),
+      targetPolicy: 'all-native',
+      description: 'Walk a human reviewer through a code change.',
+    },
+  ])
+
+  const resolved = resolveSkillById('review-guide-module')
+  assert.equal(resolved?.id, 'review-guide-module')
+  assert.equal(resolved?.name, 'Review Guide Module', 'the display name is derived from the id')
+  assert.equal(resolved?.targetPolicy, 'all-native')
+  assert.equal(findModuleSkill('review-guide-module')?.moduleId, 'review')
+  assert.deepEqual(
+    (await manager.list()).map((skill) => skill.id).slice(-1),
+    ['review-guide-module'],
+    'a registered module skill joins the listed skills'
+  )
+
+  // The install fan-out is the built-in one: .agents plus every native CLI dir.
+  const installed = await ensureSkillInstalled(workspaceRoot, 'review-guide-module')
+  assert.deepEqual(installed, { ok: true, status: 'installed' })
+  for (const dir of ['.agents', '.claude', '.pi']) {
+    assert.equal(
+      await readFile(join(workspaceRoot, dir, 'skills', 'review-guide-module', 'SKILL.md'), 'utf-8'),
+      'module version one\n',
+      `an all-native module skill installs into ${dir}/skills`
+    )
+  }
+  // The managed manifest is written, so a second ensure is a no-op rather than
+  // a rewrite — the same check-first contract the bundled skills get.
+  assert.deepEqual(await ensureSkillInstalled(workspaceRoot, 'review-guide-module'), {
+    ok: true,
+    status: 'installed',
+  })
+
+  // Source bytes come from the module's tree: changing them there makes the
+  // installed copy stale, and the next ensure updates it.
+  await writeSkillSource(join(moduleRoot, 'skills'), 'review-guide-module', 'module version two\n')
+  assert.deepEqual(await ensureSkillInstalled(workspaceRoot, 'review-guide-module'), {
+    ok: true,
+    status: 'updated',
+  })
+  assert.equal(
+    await readFile(join(workspaceRoot, '.claude', 'skills', 'review-guide-module', 'SKILL.md'), 'utf-8'),
+    'module version two\n'
+  )
+
+  // One id, one owner — a built-in's id and another module's id are both taken.
+  assert.throws(
+    () =>
+      registerModuleSkills('impostor', [
+        { id: 'review-guide-module', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
+      ]),
+    /already registered by module "review"/
+  )
+  assert.throws(
+    () => registerModuleSkills('impostor', [{ id: 'debug', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' }]),
+    /is a built-in skill/
+  )
+  // The whole batch is validated before any of it lands.
+  assert.throws(
+    () =>
+      registerModuleSkills('other', [
+        { id: 'fine', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
+        { id: 'debug', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
+      ]),
+    /is a built-in skill/
+  )
+  assert.equal(resolveSkillById('fine'), null, 'a rejected batch registers none of it')
+  // The registry only ever takes resolved absolute directories; containment
+  // against the module root is the host's job (module-host/module-skills.test.ts).
+  assert.throws(
+    () => registerModuleSkills('other', [{ id: 'relative', sourceDir: 'skills/x', targetPolicy: 'agents', description: 'x' }]),
+    /resolved absolute source directory/
+  )
+
+  // Unloading the module takes its skills with it: the id stops resolving, and
+  // the launch boundary says so instead of silently launching without it.
+  unregisterModuleSkills('review')
+  assert.deepEqual(listModuleSkills(), [])
+  assert.equal(resolveSkillById('review-guide-module'), null)
+  assert.deepEqual(await ensureSkillInstalled(workspaceRoot, 'review-guide-module'), {
+    ok: false,
+    status: 'unknown-skill',
+    message: 'Unknown skill: review-guide-module',
+  })
+  setDefaultSkillManager(null)
 }
 
 main().catch((error) => {
