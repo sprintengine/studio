@@ -460,7 +460,7 @@ export function workspaceRegistryFolderKey(value: string | null | undefined): st
 }
 
 /** The modes that are strictly one-per-project and reuse an existing record. */
-const WORKSPACE_REUSE_MODES = ['automations-host', 'reviews-host'] as const
+const WORKSPACE_REUSE_MODES = ['automations-host'] as const
 
 type WorkspaceReuseMode = (typeof WORKSPACE_REUSE_MODES)[number]
 
@@ -469,7 +469,7 @@ function isWorkspaceReuseMode(mode: string | undefined | null): mode is Workspac
 }
 
 /**
- * The folder's existing automations-host / reviews-host, or null.
+ * The folder's existing automations-host, or null.
  *
  * The renderer ran this check inside `set()` because two calls in one tick each
  * read the store before either wrote (`workspacesSlice.ts`, the host-reuse

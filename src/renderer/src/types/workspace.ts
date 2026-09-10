@@ -100,20 +100,18 @@ export type BundledWorkspaceMode =
   | typeof STANDARD_WORKSPACE_MODE
   | typeof SPRINT_ENGINE_WORKSPACE_MODE
   | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
-  | typeof REVIEWS_HOST_WORKSPACE_MODE
 
 // Lifted to the shared layer so shared contracts can name the mode without
 // importing the renderer; `STANDARD_WORKSPACE_MODE` is its `'standard'` member.
-// The two rail-hidden modes live there too, beside the `isModeHiddenFromRail`
+// The rail-hidden modes live there too, beside the `isModeHiddenFromRail`
 // predicate main also consults. Imported here (so this module's own references
 // resolve) and re-exported so every existing import site keeps resolving here.
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
-  REVIEWS_HOST_WORKSPACE_MODE,
   SPRINT_ENGINE_WORKSPACE_MODE,
   type WorkspaceMode,
 } from '../../../shared/workspace-mode'
-export { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEWS_HOST_WORKSPACE_MODE, SPRINT_ENGINE_WORKSPACE_MODE }
+export { AUTOMATIONS_HOST_WORKSPACE_MODE, SPRINT_ENGINE_WORKSPACE_MODE }
 export type { WorkspaceMode }
 
 export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'

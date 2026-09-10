@@ -48,7 +48,7 @@ import { reconcileWorkspaceModuleState } from './workspaceModuleState'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 74
+export const WORKSPACE_STORE_VERSION = 75
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -1044,6 +1044,21 @@ export function migratePersistedWorkspaceState(
     // present) pane record and the rail tab is stripped. Idempotent over the
     // v73 rung above, so a v72 profile passing both is migrated once.
     mapMigrationWorkspaces(migrationState, healRetiredRailLayout)
+  }
+  if (version < 75) {
+    // The `reviews-host` workspace mode retired: Reviews became an installable
+    // module whose guide spawns into the workspace the door was opened from, so
+    // the per-project background host has no producer left. Drop any persisted
+    // reviews-host row — its guide-terminal agent records go with it, and the
+    // review data on disk (`.multi-code/review/`) is untouched. Mirrors the v66
+    // multiloop-mode drop above, active pointer included.
+    migrationState.workspaces = dropRetiredModeWorkspaces(migrationState.workspaces ?? [])
+    if (
+      migrationState.activeWorkspaceId
+      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+    ) {
+      migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
+    }
   }
 
   return state as never

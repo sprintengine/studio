@@ -29,7 +29,12 @@ import { partializeWorkspacePaneState } from './workspacePaneSlice'
 //                 files it wrote into the project (product/, architecture/,
 //                 mockups/, design-system/) are untouched; only the workspace
 //                 row, which nothing can render any more, is dropped.
-const RETIRED_WORKSPACE_MODES: readonly string[] = ['roadmap', 'multiloop', 'guided-brief']
+//   `reviews-host` — 2026-09-10: Reviews left the app for an installable module,
+//                 which spawns its guide into the workspace the door was opened
+//                 from, so the per-project background host has no producer left.
+//                 The row and the guide-terminal agent records nested in it go;
+//                 the review data on disk (`.multi-code/review/`) is untouched.
+const RETIRED_WORKSPACE_MODES: readonly string[] = ['roadmap', 'multiloop', 'guided-brief', 'reviews-host']
 
 export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
   state: T,
