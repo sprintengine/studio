@@ -1,17 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { orderSpecialistActions } from '../../specialists/specialistActions'
-import { listSpecialistPacks, resolveEnabledSpecialists } from '../../specialists/specialistPacks'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../../types/workspace'
+import type { Workspace, WorkspaceId, WorkspaceWindowId } from '../../types/workspace'
 import type { BuiltinSkill, WorkspaceSkill } from '../../../../shared/electron-api'
-import { focusOrAddComponentTab, togglePanelRailComponent } from '../../utils/modelRegistry'
+import { togglePanelRailComponent } from '../../utils/modelRegistry'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
-import {
-  getEffectiveKeybindingLabel,
-  getSpecialistCommandId,
-  platformKeybindingsFromApiPlatform,
-} from '../../commands/effectiveKeybindings'
+import { getEffectiveKeybindingLabel, platformKeybindingsFromApiPlatform } from '../../commands/effectiveKeybindings'
 import { isCommandEnabled, isCommandIdEnabled, type CommandAvailabilityContext } from '../../commands/availability'
 import type { CommandScope, ModuleCommandContext } from '../../commands/types'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -60,8 +54,8 @@ import {
 } from '../../utils/useSkillInAgent'
 import { requestTerminalFocus, type TerminalFocusTarget } from '../../utils/terminalFocusRequest'
 import { acquireTerminalRepaintPause } from '../../utils/terminalRepaintPause'
-import { useTerminalSessions } from '../../hooks/useTerminalSessions'
-import { NewChatIcon, SpecialistActionIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
+import { GeneralSettingsIcon, NewChatIcon, RemoteMachineGlyph, WorkspaceTypeIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import { dispatchExtensionsSurfaceTarget } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
@@ -107,6 +101,7 @@ const PALETTE_SCOPE_LABELS: Record<PaletteScope, string> = {
   skills: 'Skills',
   conversations: 'Conversations',
   files: 'Files',
+  text: 'Text',
   actions: 'Actions',
 }
 
@@ -120,7 +115,8 @@ const PALETTE_PLACEHOLDER: Record<PaletteScope, string> = {
   all: 'Search chats, skills, plugins, files, text, actions...',
   skills: 'Search every skill and plugin, installed or not...',
   conversations: 'Search chats and workspaces by title or folder...',
-  files: 'Search file names and text in files...',
+  files: 'Search file names...',
+  text: 'Search text in files...',
   actions: 'Search commands and actions...',
 }
 
@@ -128,7 +124,8 @@ const PALETTE_INPUT_LABEL: Record<PaletteScope, string> = {
   all: 'Search chats, skills, plugins, files, text in files, and actions',
   skills: 'Search every skill and plugin in every source',
   conversations: 'Search chats and workspaces by title or folder',
-  files: 'Search file names and text in files',
+  files: 'Search file names',
+  text: 'Search text in files',
   actions: 'Search commands and actions',
 }
 
@@ -147,9 +144,14 @@ const CONTENT_SEARCH_MIN_QUERY = 2
 const PALETTE_FILE_SEARCH_LIMIT = 50
 const PALETTE_CONTENT_SEARCH_LIMIT = 100
 
-// Stable empty fallbacks so store selectors returning a default don't churn refs.
-const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
-const EMPTY_DISABLED_SPECIALIST_PACKS: string[] = []
+// The project a new chat lands in, said the way the sidebar says it: the
+// folder's own name, not its path.
+function folderDisplayName(folderPath: string): string {
+  const trimmed = folderPath.replace(/[\\/]+$/u, '')
+  const slash = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return slash === -1 ? trimmed : trimmed.slice(slash + 1) || trimmed
+}
+
 // The disk provider is memoized on the open-file list, and a fresh `[]` every
 // render would rebuild it every render — which, since the runner re-runs a
 // provider whose identity changed, would restart ripgrep on every render.
@@ -189,8 +191,14 @@ function dispatchPanelCommand(id: string) {
 
 interface Props {
   onClose: () => void
-  onNewChat: () => void
-  onSpawnSpecialist: (specialistId: SpecialistActionId) => void
+  /**
+   * The shell's own command runner, for the actions that are shell commands
+   * (New chat opens the pre-creation panel; Open settings). Returns whether
+   * the shell took it, like `runCommand`.
+   */
+  onRunCommand: (commandId: string) => boolean
+  /** Settings, opened on the Remote tab: the machines this one is paired with. */
+  onOpenRemoteConnections: () => void
   workspaceWindowId: WorkspaceWindowId
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
@@ -218,8 +226,8 @@ interface Props {
 
 export default function CommandPalette({
   onClose,
-  onNewChat,
-  onSpawnSpecialist,
+  onRunCommand,
+  onOpenRemoteConnections,
   workspaceWindowId,
   workspaces,
   activeWorkspaceId,
@@ -234,25 +242,16 @@ export default function CommandPalette({
   const [scope, setScope] = useState<PaletteScope>(initialScope)
   const inputRef = useRef<HTMLInputElement>(null)
   const selectedRowRef = useRef<HTMLDivElement>(null)
+  // Choosing a tab — from the strip, or from a row that IS a tab — narrows
+  // in place and hands the caret back to the field.
+  const selectScope = (next: PaletteScope) => {
+    setScope(next)
+    setSelected(0)
+    inputRef.current?.focus()
+  }
   const { setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface } = useWorkspaceStore()
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleEnablement = useWorkspaceStore((state) => state.appSettings.modules)
-  const specialistOrder = useWorkspaceStore((state) => state.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
-  const disabledSpecialistPacks = useWorkspaceStore(
-    (state) => state.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_SPECIALIST_PACKS,
-  )
-  const sprintEngineRoleRegistry = useWorkspaceStore((state) => state.sprintEngineRoleRegistry)
-  // Specialist spawn commands are sourced from the role registry, not a bundled
-  // catalog: no installed pack → no specialist rows in the palette (the other
-  // command groups are unaffected).
-  const specialistActions = useMemo(
-    () =>
-      orderSpecialistActions(
-        specialistOrder,
-        resolveEnabledSpecialists(disabledSpecialistPacks, listSpecialistPacks(sprintEngineRoleRegistry)),
-      ),
-    [specialistOrder, disabledSpecialistPacks, sprintEngineRoleRegistry],
-  )
   const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const shortcutFor = (commandId: string): string | undefined =>
     getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform) ?? undefined
@@ -540,44 +539,69 @@ export default function CommandPalette({
           },
         })),
       ...registryCommands,
-      // Actions — the create/spawn/connect verbs.
+      // Actions — the five verbs the launcher opens on (owner rulings
+      // 2026-09-11): start a chat, find a file, search the project's text,
+      // open settings, open the remote connections. The specialist spawn rows
+      // went with the same ruling; the spawn menu and its chords still own
+      // them. "New chat" opens the pre-creation panel — the one way to start —
+      // never a workspace on the spot.
       {
-        id: 'new-chat',
-        label: 'New Chat',
-        description: activeWorkspace?.folderPath ? 'Create a one-agent chat in the current project' : 'Create a one-agent chat',
+        id: 'chat.new',
+        label: activeFolderPath ? `New chat in ${folderDisplayName(activeFolderPath)}` : 'New chat',
+        searchLabel: 'New chat',
+        shortcut: shortcutFor('chat.new'),
         mark: { kind: 'new-chat' as const },
         group: 'actions' as const,
         run: () => {
-          onNewChat()
+          onRunCommand('chat.new')
           onClose()
         },
       },
       ...(activeWorkspace
         ? [
-            ...specialistActions.map((action): Command => ({
-              id: `spawn-specialist-${action.id}`,
-              label: `Spawn: ${action.label}`,
-              searchLabel: action.label,
-              description: `${action.shortLabel} specialist with the selected CLI`,
-              shortcut: getSpecialistCommandId(action.id) ? shortcutFor(getSpecialistCommandId(action.id)!) : undefined,
-              mark: { kind: 'specialist' as const, icon: action.icon },
-              group: 'actions' as const,
-              run: () => {
-                onSpawnSpecialist(action.id)
-                onClose()
-              },
-            })),
+            // The two rows that do not close the palette: each IS a tab, so
+            // choosing it narrows in place and leaves the caret where the
+            // query is about to be typed.
             {
-              id: 'content-search',
-              label: 'Search: File Contents',
-              description: activeWorkspace.folderPath ?? 'Open content search',
+              id: 'go-to-file',
+              label: 'Go to file',
+              mark: { kind: 'go-to-file' as const },
+              group: 'actions' as const,
+              run: () => selectScope('files'),
+            },
+            {
+              id: 'search.files.open',
+              label: 'Search project contents',
+              shortcut: shortcutFor('search.files.open'),
               mark: { kind: 'search' as const },
               group: 'actions' as const,
-              run: () => {
-                focusOrAddComponentTab(activeWorkspace.id, 'content-search', 'Content Search')
-                onClose()
-              },
+              run: () => selectScope('text'),
             },
+          ]
+        : []),
+      {
+        id: 'app.settings.open',
+        label: 'Open settings',
+        shortcut: shortcutFor('app.settings.open'),
+        mark: { kind: 'settings' as const },
+        group: 'actions' as const,
+        run: () => {
+          onRunCommand('app.settings.open')
+          onClose()
+        },
+      },
+      {
+        id: 'app.settings.remote',
+        label: 'Open remote connections',
+        mark: { kind: 'remote' as const },
+        group: 'actions' as const,
+        run: () => {
+          onOpenRemoteConnections()
+          onClose()
+        },
+      },
+      ...(activeWorkspace
+        ? [
             {
               id: 'git.worktrees.open',
               label: 'Git: Manage Worktrees',
@@ -607,7 +631,7 @@ export default function CommandPalette({
           }))
         : []),
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, setActiveWorkspaceForWindow, setActiveFile, onClose, onNewChat, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement, specialistActions])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, activeFolderPath, openFiles, setActiveWorkspaceForWindow, setActiveFile, onClose, onRunCommand, onOpenRemoteConnections, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement])
 
   // ── Handing a result to an agent ────────────────────────────────────────
   //
@@ -852,11 +876,18 @@ export default function CommandPalette({
         // the main process. File names stay cheap enough to match from the
         // first character; content search — which reads every file's bytes —
         // waits for a second.
-        const wantsContent = searchQuery.length >= CONTENT_SEARCH_MIN_QUERY
+        // Each leg runs only under a tab that shows it: the Files tab never
+        // reads every file's bytes for rows it hides, and the Text tab never
+        // lists file names.
+        const wantsFiles = groupInScope('files', context.scope)
+        const wantsContent =
+          groupInScope('content', context.scope) && searchQuery.length >= CONTENT_SEARCH_MIN_QUERY
         const [fileResult, contentResult] = await Promise.all([
-          window.api
-            .searchFiles(activeFolderPath, searchQuery, { limit: PALETTE_FILE_SEARCH_LIMIT })
-            .catch((error: unknown) => ({ ok: false as const, message: String(error), engine: null })),
+          wantsFiles
+            ? window.api
+                .searchFiles(activeFolderPath, searchQuery, { limit: PALETTE_FILE_SEARCH_LIMIT })
+                .catch((error: unknown) => ({ ok: false as const, message: String(error), engine: null }))
+            : Promise.resolve(null),
           wantsContent
             ? window.api
                 .searchContent(activeFolderPath, searchQuery, { limit: PALETTE_CONTENT_SEARCH_LIMIT })
@@ -865,7 +896,7 @@ export default function CommandPalette({
         ])
         // Only a failure the user would otherwise read as "no matches" is worth
         // surfacing; a cancelled run resolves ok with an empty list.
-        const failure = !fileResult.ok
+        const failure = fileResult && !fileResult.ok
           ? fileResult.message
           : contentResult && !contentResult.ok
             ? contentResult.message
@@ -878,7 +909,7 @@ export default function CommandPalette({
         return [
           // A file already open is listed by the in-memory Files rows; listing
           // it again from disk would put the same file in the group twice.
-          ...(fileResult.ok ? fileResult.results : [])
+          ...(fileResult?.ok ? fileResult.results : [])
             .filter((entry) => !openFilePaths.has(entry.path))
             .map((entry): Command => ({
               id: `disk-file-${entry.path}`,
@@ -898,6 +929,8 @@ export default function CommandPalette({
             label: entry.lineText.trim() || entry.matchText,
             description: `${workspaceRelativePath(activeFolderPath, entry.path)}:${entry.lineNumber}`,
             file: entry.name,
+            path: workspaceRelativePath(activeFolderPath, entry.path),
+            line: entry.lineNumber,
             group: 'content',
             run: () => openOnDisk(entry.path, entry.name, entry.lineNumber, entry.column),
           })),
@@ -986,7 +1019,7 @@ export default function CommandPalette({
     const active: PaletteResultProvider[] = []
     if (groupInScope('skills', scope)) active.push(skillsProvider)
     if (groupInScope('extensions', scope)) active.push(extensionsProvider)
-    if (groupInScope('files', scope)) active.push(diskProvider)
+    if (groupInScope('files', scope) || groupInScope('content', scope)) active.push(diskProvider)
     return active
   }, [skillsProvider, extensionsProvider, diskProvider, scope])
   const providerContext = useMemo(
@@ -1027,14 +1060,46 @@ export default function CommandPalette({
   //
   // At rest — no query, the All tab — the launcher is not a preview of every
   // group but a landing page (owner ruling 2026-09-10): the actions,
-  // then the chats most recently spoken in, in the sidebar's own order. What a
-  // person opens ⌘K for without a query is to start something or to get back
-  // to something; the other groups are one keystroke or one tab away.
+  // then the live chats most recently spoken in, in the sidebar's own order.
+  // What a person opens ⌘K for without a query is to start something or to
+  // get back to something; the other groups are one keystroke or one tab away.
+  // The agent a chat's mark shows: the CLI of its most recent session, the way
+  // the sidebar's rows wear the provider mark. A chat nothing has run in yet
+  // falls back to its workspace type's icon.
+  const terminalSessions = useTerminalSessions()
+  // The chats with a living process — the ones the resting page lists (owner
+  // ruling 2026-09-11: "the recent threads that are still alive"). A parked
+  // chat is still found by typing, and still sits in the sidebar.
+  const liveWorkspaces = useMemo(() => {
+    const alive = new Set<string>()
+    for (const session of terminalSessions) {
+      if (session.workspaceId && isLiveTerminal(session)) alive.add(session.workspaceId)
+    }
+    return workspaces.filter((workspace) => alive.has(workspace.id))
+  }, [terminalSessions, workspaces])
+  const cliByWorkspaceId = useMemo(() => {
+    const map = new Map<string, { cli: string; at: number; alive: boolean }>()
+    for (const session of terminalSessions) {
+      if (!session.workspaceId || !session.cli) continue
+      const at = session.lastOutputAt ?? session.startedAt
+      const current = map.get(session.workspaceId)
+      // A living process outranks a parked one; among peers, the latest.
+      if (
+        !current
+        || (session.processAlive && !current.alive)
+        || (session.processAlive === current.alive && at > current.at)
+      ) {
+        map.set(session.workspaceId, { cli: session.cli, at, alive: session.processAlive })
+      }
+    }
+    return map
+  }, [terminalSessions])
+
   const restingPage = !query.trim() && scope === 'all' && !agentChoice
   const groupedResults = useMemo((): { key: CommandGroup; label: string; items: Command[] }[] => {
     if (agentChoice) return [{ key: 'agents', label: agentChoice.title, items: agentChoice.options }]
     if (restingPage) {
-      const { actions, recent } = composeRestingPage(commands, workspaces)
+      const { actions, recent } = composeRestingPage(commands, liveWorkspaces)
       return [
         ...(actions.length > 0 ? [{ key: 'actions' as const, label: 'Actions', items: actions }] : []),
         ...(recent.length > 0 ? [{ key: 'agents' as const, label: 'Recent conversations', items: recent }] : []),
@@ -1051,7 +1116,7 @@ export default function CommandPalette({
       }
     })
     return order.map((key) => ({ key, label: PALETTE_GROUP_LABELS[key], items: items.get(key) ?? [] }))
-  }, [filtered, agentChoice, restingPage, commands, workspaces])
+  }, [filtered, agentChoice, restingPage, commands, liveWorkspaces])
 
   // The rows on screen, in the order they are drawn — which is what the arrow
   // keys traverse. Grouping compacts the ranked list (a group's rows are drawn
@@ -1104,36 +1169,18 @@ export default function CommandPalette({
     }
   }
 
-  // The agent a chat's mark shows: the CLI of its most recent session, the way
-  // the sidebar's rows wear the provider mark. A chat nothing has run in yet
-  // falls back to its workspace type's icon.
-  const terminalSessions = useTerminalSessions()
-  const cliByWorkspaceId = useMemo(() => {
-    const map = new Map<string, { cli: string; at: number; alive: boolean }>()
-    for (const session of terminalSessions) {
-      if (!session.workspaceId || !session.cli) continue
-      const at = session.lastOutputAt ?? session.startedAt
-      const current = map.get(session.workspaceId)
-      // A living process outranks a parked one; among peers, the latest.
-      if (
-        !current
-        || (session.processAlive && !current.alive)
-        || (session.processAlive === current.alive && at > current.at)
-      ) {
-        map.set(session.workspaceId, { cli: session.cli, at, alive: session.processAlive })
-      }
-    }
-    return map
-  }, [terminalSessions])
-
   const renderMark = (mark: PaletteRowMark): React.ReactNode => {
     switch (mark.kind) {
       case 'new-chat':
         return <NewChatIcon className="icon-sm shrink-0" />
-      case 'specialist':
-        return <SpecialistActionIcon icon={mark.icon} className="icon-sm shrink-0" />
+      case 'go-to-file':
+        return <FileTypeGlyph kind="generic" className="icon-sm shrink-0" />
       case 'search':
         return <PaletteSearchGlyph />
+      case 'settings':
+        return <GeneralSettingsIcon className="icon-sm shrink-0" />
+      case 'remote':
+        return <RemoteMachineGlyph className="icon-sm shrink-0" />
       case 'chat': {
         const cli = cliByWorkspaceId.get(mark.workspaceId)?.cli
         return (
@@ -1158,12 +1205,6 @@ export default function CommandPalette({
   // One id per scope, so the strip's `aria-controls` and the combobox's both
   // resolve to the list that is showing — the results ARE the tab's panel.
   const resultsId = `command-palette-panel-${scope}`
-
-  const selectScope = (next: PaletteScope) => {
-    setScope(next)
-    setSelected(0)
-    inputRef.current?.focus()
-  }
 
   return (
     <div
@@ -1294,9 +1335,60 @@ export default function CommandPalette({
                   <div aria-hidden="true" className="px-4 pb-1 pt-2 text-meta text-[color:var(--text-muted)]">
                     {group.label}
                   </div>
-                  {group.items.map((command) => {
+                  {group.items.map((command, position) => {
                     const index = flatIndexById.get(command.id) ?? -1
                     const isSelected = index === selected
+                    const textHit = group.key === 'content' && command.path !== undefined
+                    // A text hit sits under its file, the way a search tool
+                    // lists them: one heading per file — its kind glyph, its
+                    // name, its folder, how many lines matched — then the
+                    // lines, each with its number in the gutter. The heading
+                    // is not an option: Enter acts on a line, never a file.
+                    const previous = position > 0 ? group.items[position - 1] : undefined
+                    const heading =
+                      textHit && previous?.path !== command.path ? (
+                        <div
+                          key={`${command.path}-heading`}
+                          role="presentation"
+                          className="flex items-center gap-2 px-4 pb-1 pt-2 text-meta text-[color:var(--text-default)]"
+                        >
+                          <FileTypeGlyph name={command.file ?? ''} tone="kind" className="icon-sm shrink-0" />
+                          <span className="shrink-0 font-medium">{command.file}</span>
+                          <TruncatedText
+                            as="span"
+                            text={parentDirectory(command.path ?? '')}
+                            className="min-w-0 text-[color:var(--text-subtle)]"
+                          />
+                          <span className="ml-auto shrink-0 tabular-nums text-micro text-[color:var(--text-muted)]">
+                            {group.items.filter((item) => item.path === command.path).length}
+                          </span>
+                        </div>
+                      ) : null
+                    if (textHit) {
+                      return (
+                        <React.Fragment key={command.id}>
+                          {heading}
+                          <div
+                            ref={isSelected ? selectedRowRef : undefined}
+                            id={`palette-option-${command.id}`}
+                            role="option"
+                            aria-selected={isSelected}
+                            onClick={command.run}
+                            onMouseEnter={() => setSelected(index)}
+                            className={`flex cursor-pointer items-center gap-3 py-1 pl-4 pr-4 font-mono text-meta transition-colors ${
+                              isSelected
+                                ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                                : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                            }`}
+                          >
+                            <span className="w-10 shrink-0 text-right tabular-nums text-[color:var(--text-disabled)]">
+                              {command.line}
+                            </span>
+                            <TruncatedText as="span" text={command.label} className="min-w-0 flex-1" />
+                          </div>
+                        </React.Fragment>
+                      )
+                    }
                     return (
                       <div
                         key={command.id}
@@ -1381,6 +1473,12 @@ export default function CommandPalette({
       </FocusTrap>
     </div>
   )
+}
+
+/** The folder a workspace-relative path sits in; empty at the root. */
+function parentDirectory(path: string): string {
+  const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return slash === -1 ? '' : path.slice(0, slash)
 }
 
 /** The kit's search glyph (design-system/glyphs/search.svg). */

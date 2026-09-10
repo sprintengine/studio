@@ -23,7 +23,7 @@ see Material.
 | Scrim | `.ds-command-palette-scrim` | yes — full-viewport `overlay.scrim` at `z.modal`, dismissing on a press that both starts and ends on it; a plain tone, never a blur |
 | Shell | `.ds-command-palette` | yes — the modal shell's chrome at the `palette` width step (600px, capped `95vw`) on the glass ground, clipping its own corners |
 | Band | `.ds-command-palette-band` | yes — the one band of chrome: the strip and the field, one `border.default` hairline beneath |
-| Scope strip | `.ds-command-palette-tabs` | yes — a borderless [tabs](../tabs/component.md) strip, `role="tablist"` labelled "Search in": All, then the four narrowings |
+| Scope strip | `.ds-command-palette-tabs` | yes — a borderless [tabs](../tabs/component.md) strip, `role="tablist"` labelled "Search in": All, then the five narrowings |
 | Query row | `.ds-command-palette-query` | yes — `space.lg`/`space.xl` insets, no hairline of its own |
 | Leading hint | `.ds-command-palette-hint` | yes — the kit's search glyph in `text.disabled`; it is decoration and says so |
 | Input | `.ds-command-palette-input` | yes — `role="combobox"`, transparent, `font.size.heading` |
@@ -33,7 +33,9 @@ see Material.
 | Group heading | `.ds-command-palette-group-heading` | with a group — the name alone, `font.size.meta` in `text.muted`; no rule, no count; `aria-hidden` |
 | Option | `.ds-command-palette-option` | yes — `role="option"`, a stable `id`, `aria-selected` |
 | Option mark | `.ds-command-palette-option-mark` | no — a file's kind glyph in its kind's hue, a skill's or plugin's own artwork, an action's glyph, or (`--chip`) a chat's provider chip; `aria-hidden` |
-| Option label | `.ds-command-palette-option-label` | yes — truncating; `font.size.heading`, or mono for a line-of-source hit |
+| Option label | `.ds-command-palette-option-label` | yes — truncating; `font.size.heading` |
+| File heading | `.ds-command-palette-file-heading` | in the Text group — `role="presentation"`: the file's kind glyph, its name, its folder, and how many lines matched; not an option |
+| Line option | `.ds-command-palette-option--line` | in the Text group — a matched line under its file heading: the line number in the gutter (`.ds-command-palette-line-number`), then the line, mono at `font.size.meta` |
 | Option detail | `.ds-command-palette-option-detail` | no — the locator under the label, `font.size.micro` in `text.disabled` |
 | Shortcut | `.ds-command-palette-shortcut` | no — the command's chord, trailing, a [kbd-chord](../kbd-chord/component.md) capsule |
 | Empty | `.ds-command-palette-empty` | no — the one-sentence state when nothing matched |
@@ -74,8 +76,8 @@ the glass utility to the four kit shells that carry it.
 
 ## Variants
 
-The scope strip has five tabs, and they **partition** the launcher: every
-group is under exactly one of the four narrowings, so the person never has to
+The scope strip has six tabs, and they **partition** the launcher: every
+group is under exactly one of the five narrowings, so the person never has to
 wonder which tab a thing is under, and nothing is found twice.
 
 - **All (default)** — every group is searched at once. ⌘K and Shift Shift
@@ -85,9 +87,11 @@ wonder which tab a thing is under, and nothing is found twice.
   row cap: the tab *is* the person saying they want the whole list.
 - **Conversations** — the chats and workspaces the sidebar lists, by title
   and folder.
-- **Files** — file names and text in files: Find-in-Path. ⌘⇧F opens here,
-  so a snippet of code is never ranked against a command row.
-- **Actions** — commands and the create/spawn verbs: what the product can do.
+- **Files** — file names. The Go to file action opens here.
+- **Text** — text in files, grouped under the file each line was found in.
+  ⌘⇧F and the Search project contents action open here, so a snippet of code
+  is never ranked against a file name or a command row.
+- **Actions** — commands and the launcher's verbs: what the product can do.
 
 Choosing a tab narrows the same list without reopening the overlay, and focus
 returns to the field. Backspace at an empty query steps back to All, so ⌘⇧F's
@@ -100,16 +104,18 @@ left — "am I looking for a skill, a chat, or a file, and where did that land"
 - **Groups** are a fixed, ordered set, and the order on screen is the order the
   arrow keys traverse. A group with no matches is not rendered — an empty
   heading groups nothing.
-- **The line-of-source option** is the one row that inverts label and detail:
-  the matched line is the identity (mono, `font.size.meta`) and the
-  `path:line` beneath it is the locator. Everywhere else the name is the label
-  and the path is the detail.
+- **The Text group draws hits the way a search tool does** (owner ruling
+  2026-09-11): one heading per file — kind glyph, name, folder,
+  and how many lines matched — then the lines under it, each with its number
+  in the gutter and the line itself in mono. The heading is not an option:
+  Enter acts on a line, never on a file. Everywhere else a row is a name with
+  its path beneath.
 
 ## States
 
 | State | Treatment |
 |---|---|
-| Resting (no query, All) | The resting page: **Actions** — the create/spawn/search verbs, each with its glyph and chord — then **Recent conversations**, the chats most recently spoken in, in the sidebar's order, a screen's worth. Not a preview of every group (owner ruling 2026-09-10) |
+| Resting (no query, All) | The resting page: **Actions** — New chat in *project*, Go to file, Search project contents, Open settings, Open remote connections, each with its glyph and chord — then **Recent conversations**, the chats with a living process, most recently spoken in first, a screen's worth. Not a preview of every group (owner rulings 2026-09-10/11) |
 | Resting (no query, a narrowing) | The tab's groups show a capped preview rather than their full contents |
 | Typing | The in-memory groups filter on the keystroke; disk-backed groups debounce and appear beneath the rest |
 | Working | The `role="status"` line in the list — "Searching" or "Working" beside the [liveness](../liveness/component.md) working dots. Never beside the query (a note on the field's own line read as part of what was typed), and never a static ellipsis pretending to move |
@@ -132,8 +138,15 @@ is the order the arrow keys traverse, because a selection that jumps between
 sections in an order the eye cannot predict is a list nobody can drive.
 
 **The resting page is a page, not a preview.** With no query on All, the
-palette shows what a person opens it for before they have typed: the actions,
-then the chats they were most recently in. A resting palette that lists a
+palette shows what a person opens it for before they have typed: the five
+actions, then the live chats they were most recently in. Five actions, not
+every verb the product has: the specialist spawn rows that used to sit here
+belong to the spawn menu and its chords, and "Add project" is the New chat
+panel's job (owner, 2026-09-11). "New chat" opens that panel — the one way to
+start — never a workspace on the spot. "Go to file" and "Search project
+contents" are the two rows that do not close the palette: each *is* a tab
+(Files, Text), so choosing it narrows in place and leaves the caret where the
+query is about to be typed. A resting palette that lists a
 sample of every group — six workspaces, six commands, six skills — has
 answered a question nobody asked, under headings nobody read. A query searches
 every group at once; a narrowing at rest previews its own groups, capped.
@@ -155,8 +168,9 @@ file-type glyph the File Explorer and the Git changes list draw for the same
 name, in its kind's hue; a skill or plugin row draws its own artwork down the
 Extensions door's ladder (glyph → logo → the publishing account's avatar →
 monogram); an action draws the glyph its other entry point already wears (the
-sidebar's compose mark on New chat, the specialist's icon from the spawn
-menu, the search glyph); a chat draws the sidebar's provider chip — the agent
+sidebar's compose mark on New chat, the generic file tile, the search glyph,
+the settings gear, the remote-machine glyph); a chat draws the sidebar's
+provider chip — the agent
 CLI's mark on a round raised ground, or the workspace type's icon when no
 agent has run in it. A row that is recognised by its mark before it is read
 is what lets a list be scanned, and on the resting page the glyph is what
@@ -215,11 +229,11 @@ is glass, the terminal repaint hold that makes it affordable.
 
 ## Known drift
 
-- **A line-of-source label sets at `font.size.meta` (12px)**, under the 13px
-  floor the type rules put on primary content — and on a content hit that line
-  *is* the primary content. Either the row's identity moves up to
-  `font.size.body`, or the floor gains a documented exception for a mono code
-  excerpt. Recorded here rather than quietly kept.
+- **A matched line sets at `font.size.meta` (12px)**, under the 13px floor
+  the type rules put on primary content — and on a text hit that line *is*
+  the primary content. Either the line moves up to `font.size.body`, or the
+  floor gains a documented exception for a mono code excerpt. Recorded here
+  rather than quietly kept.
 - The results cap is a literal `360px`. It is a layout measure rather than a
   token, like the side pane's rails, but it is undocumented in the source.
 

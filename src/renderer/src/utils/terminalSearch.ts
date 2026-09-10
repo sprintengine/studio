@@ -8,11 +8,11 @@ import { isLightTerminalBackground } from './terminalTheme'
  * pane never touches the addon's API directly.
  *
  * The search runs over the pane's own scrollback and nothing else. That is what
- * separates it from "Search in Files" (`ContentSearchPanel`, ⌘⇧F), which sweeps
- * the workspace FOLDER with ripgrep and yields paths to open. A pane's buffer
- * has no path and is not on disk, so the two cannot be one panel — but they are
- * one idiom: the same command registry, the same Shortcuts tab, and adjacent
- * keys (⌘F this pane, ⌘⇧F the whole workspace).
+ * separates it from "Search in Files" (the search palette's Text tab, ⌘⇧F),
+ * which sweeps the workspace FOLDER with ripgrep and yields lines to open. A
+ * pane's buffer has no path and is not on disk, so the two cannot be one
+ * surface — but they are one idiom: the same command registry, the same
+ * Shortcuts tab, and adjacent keys (⌘F this pane, ⌘⇧F the whole workspace).
  */
 
 /**

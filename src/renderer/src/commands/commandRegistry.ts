@@ -64,7 +64,7 @@ export const COMMAND_REGISTRY = [
     category: 'command_palette',
     scopes: ['global'],
     defaultKeybindings: ['Primary+Shift+F'],
-    handlerPath: { kind: 'workspace-manager', handler: 'setCommandPaletteOpen(true, "files")' },
+    handlerPath: { kind: 'workspace-manager', handler: 'setCommandPaletteOpen(true, "text")' },
   }),
   // Opens the pre-creation New Chat panel — the one way to start (owner,
   // 2026-09-04; the New workspace command and its hub are gone). Global-scope:

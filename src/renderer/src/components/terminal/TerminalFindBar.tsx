@@ -9,8 +9,8 @@ import type { TerminalFind } from '../../hooks/useTerminalFind'
  *
  * A strip floated over the top-right of a terminal, not a panel in a tab: it
  * has to be on screen at the same time as the buffer it is highlighting, and a
- * tab-hosted search would take that buffer off screen to show itself. "Search
- * in Files" (`ContentSearchPanel`, ⌘⇧F) remains the tab-hosted one, because a
+ * search elsewhere would take that buffer off screen to show itself. "Search
+ * in Files" (the search palette's Text tab, ⌘⇧F) is the overlay one, because a
  * ripgrep sweep of the workspace folder produces rows you navigate AWAY to.
  *
  * Composed entirely from kit primitives — `Input` for the field, `IconButton`

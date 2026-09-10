@@ -179,6 +179,13 @@
   height: var(--sem-icon-size-sm);
 }
 
+/* The search glyph is drawn on an 11-grid, so it sits inset in the 16px slot
+ * rather than scaled up to it. */
+.ds-command-palette-option-mark--inset {
+  box-sizing: border-box;
+  padding: var(--sem-space-3xs);
+}
+
 /* A chat's mark is the sidebar's provider chip — the agent CLI's glyph on a
  * round raised ground with a subtle hairline — so a chat is recognised here by
  * the same mark it wears there. The glyph inside sits at icon.size.xs. */
@@ -252,15 +259,63 @@
   white-space: nowrap;
 }
 
-/* A content hit inverts the pair: the matched line is the row's identity and
- * the file:line beneath it is the locator. Mono, because it is source. */
-.ds-command-palette-option--source .ds-command-palette-option-label {
+/* The Text group draws hits the way a search tool does (ruling 2026-09-11):
+ * one heading per file, then the matched lines under it. The heading is
+ * presentation, not an option — Enter acts on a line, never a file — so it
+ * takes the row's own ink without the row's cursor states. */
+.ds-command-palette-file-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-xl) var(--sem-space-2xs);
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-default);
+}
+
+.ds-command-palette-file-heading-name {
+  flex: none;
+  font-weight: var(--sem-font-weight-medium);
+}
+
+.ds-command-palette-file-heading-folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-command-palette-file-heading-count {
+  margin-left: auto;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-muted);
+}
+
+/* A matched line: its number in a right-aligned gutter, then the line itself,
+ * both mono because both are source. Tighter than a name row — a file with
+ * forty hits is scanned by line number. */
+.ds-command-palette-option--line {
+  gap: var(--sem-space-lg);
+  padding: var(--sem-space-2xs) var(--sem-space-xl);
   font-family: var(--sem-font-family-mono);
   font-size: var(--sem-font-size-meta);
 }
 
-.ds-command-palette-option--source .ds-command-palette-option-detail {
-  font-family: var(--sem-font-family-mono);
+.ds-command-palette-line-number {
+  flex: none;
+  /* ds-lint-allow: a gutter wide enough for a four-digit line number; a width, not a spacing step */
+  width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--sem-color-text-disabled);
+}
+
+.ds-command-palette-option--line .ds-command-palette-option-label {
+  flex: 1;
+  min-width: 0;
+  font-size: inherit;
 }
 
 /* The chord: the kbd-chord capsule (components/kbd-chord), one capsule per

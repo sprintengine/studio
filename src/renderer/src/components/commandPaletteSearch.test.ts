@@ -115,11 +115,15 @@ run('the all scope admits every group, so ⌘K stays the full launcher', () => {
   })
 })
 
-run('the files scope admits exactly the two disk-backed groups', () => {
-  assert.deepEqual(
-    ALL_GROUPS.filter((group) => groupInScope(group, 'files')),
-    ['files', 'content'],
-  )
+run('the files scope admits exactly file names', () => {
+  assert.deepEqual(ALL_GROUPS.filter((group) => groupInScope(group, 'files')), ['files'])
+})
+
+// ⌘⇧F and "Search project contents": a snippet of code is ranked against
+// nothing but other lines of code — not a file whose name it happens to share
+// letters with, and not a command.
+run('the text scope admits exactly text in files', () => {
+  assert.deepEqual(ALL_GROUPS.filter((group) => groupInScope(group, 'text')), ['content'])
 })
 
 run('the files scope hides the launcher groups a code snippet would compete with', () => {
@@ -155,7 +159,7 @@ run('the actions scope admits exactly what the product can do', () => {
 // views: a group in two tabs would be found twice and a group in none would be
 // findable only from All — and the strip exists so the person never has to
 // wonder which tab a thing is under.
-run('the four narrowings partition the launcher: every group under exactly one tab', () => {
+run('the narrowings partition the launcher: every group under exactly one tab', () => {
   const narrowings = PALETTE_SCOPE_ORDER.filter((scope) => scope !== 'all')
   ALL_GROUPS.forEach((group) => {
     const tabs = narrowings.filter((scope) => groupInScope(group, scope))

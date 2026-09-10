@@ -81,39 +81,42 @@ export function paletteGroupRank(group: PaletteCommandGroup): number {
  * Which groups the palette is filtered to — the tab strip across the top of
  * the shell (owner ruling 2026-09-10, after the IDE Search Everywhere).
  *
- * `all` is the global launcher (⌘K and Shift Shift). The other four are the
+ * `all` is the global launcher (⌘K and Shift Shift). The other five are the
  * same list narrowed to one question each: `actions` is what the product can
- * DO (commands and the create/spawn verbs), `skills` is every skill and plugin
- * in every source (the terminal star opens here), `files` is Find-in-Path
- * (⌘⇧F) — file names and text in files, so a snippet of code is never ranked
- * against a command row — and `conversations` is the chats and workspaces the
- * sidebar lists, found by title and folder.
+ * DO (commands and the launcher's verbs), `skills` is every skill and plugin
+ * in every source (the terminal star opens here), `files` is file names
+ * (Go to file), `text` is text in files (⌘⇧F, Search project contents — so a
+ * snippet of code is never ranked against a file name or a command row), and
+ * `conversations` is the chats and workspaces the sidebar lists, found by
+ * title and folder.
  *
  * A scope is a filter over one list, not a second component: widening back
  * from any of them is a state change rather than a reopen.
  */
-export type PaletteScope = 'all' | 'skills' | 'conversations' | 'files' | 'actions'
+export type PaletteScope = 'all' | 'skills' | 'conversations' | 'files' | 'text' | 'actions'
 
-/** The strip's left-to-right order: the launcher first, then the four
+/** The strip's left-to-right order: the launcher first, then the five
  *  narrowings in the order they are reached for. */
 export const PALETTE_SCOPE_ORDER: readonly PaletteScope[] = [
   'all',
   'skills',
   'conversations',
   'files',
+  'text',
   'actions',
 ]
 
 const SCOPE_GROUPS: Record<Exclude<PaletteScope, 'all'>, ReadonlySet<PaletteCommandGroup>> = {
   skills: new Set<PaletteCommandGroup>(['skills', 'extensions']),
   conversations: new Set<PaletteCommandGroup>(['agents']),
-  files: new Set<PaletteCommandGroup>(['files', 'content']),
+  files: new Set<PaletteCommandGroup>(['files']),
+  text: new Set<PaletteCommandGroup>(['content']),
   actions: new Set<PaletteCommandGroup>(['commands', 'actions']),
 }
 
 /** True when a group is visible under the given scope. `all` admits
  *  everything; every other scope admits exactly its own groups, and every
- *  group belongs to exactly one of them, so the four narrowings partition the
+ *  group belongs to exactly one of them, so the five narrowings partition the
  *  launcher rather than overlap it. */
 export function groupInScope(group: PaletteCommandGroup, scope: PaletteScope): boolean {
   return scope === 'all' || SCOPE_GROUPS[scope].has(group)

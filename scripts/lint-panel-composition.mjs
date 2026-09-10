@@ -60,7 +60,6 @@ const ALLOW_LIST = new Map([
   ['GitPanel.tsx', 'Owns its chrome row deliberately (owner, 2026-09-04): the icon-only view Tabs strip AND the sync affordances share ONE band, in place of a PanelHeader identity row above them. Both halves of that title were already on screen — the pane tab this panel lives in is labelled "Git", and "Up to date" is what the absence of the Pull/Push buttons means — so the header cost 36px of a narrow pane to say nothing new. Mirrors SprintEngineBoardPanel: the surface owns richer chrome than PanelHeader allows.'],
   ['GitGraphView.tsx', 'Graph sub-view rendered inside GitPanel; the parent panel owns the operational chrome.'],
   ['GitConflictResolverPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 7).'],
-  ['ContentSearchPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 8).'],
   ['MemoryGraphPanel.tsx', 'Graph canvas surface; rebuild scheduled in the app-wide audit plan.'],
   ['SprintEngineTaskGraphView.tsx', 'Sub-view of SprintEngineBoardPanel; rendered inside the parent panel\'s body, so PanelHeader is owned by the parent. Extracted to its own file for maintainability.'],
   ['SprintEngineInspectorPanel.tsx', 'Inspector aside of SprintEngineBoardPanel; rendered as the right-hand detail pane, so PanelHeader chrome is owned by the parent panel. Extracted to its own file in Stage 2.1 of the app-wide dedup plan.'],

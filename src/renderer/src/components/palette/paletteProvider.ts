@@ -21,22 +21,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { PaletteCommandGroup, PaletteScope } from '../commandPaletteSearch'
-import type { SpecialistIcon } from '../../specialists/specialistActions'
 import type { Workspace } from '../../types/workspace'
 
 /**
  * The mark a row that is not a file or an extension wears — named, not drawn,
  * because this module renders nothing. The palette maps each to the glyph the
  * rest of the product already uses for the same thing: the compose mark the
- * sidebar's "New chat" wears, the specialist's own icon from the spawn menu,
- * the search glyph, and for a chat the agent CLI's mark in the sidebar's
- * round chip (or the workspace type's icon when no agent has run in it).
- * A command wears none: the verb is the whole row.
+ * sidebar's "New chat" wears, the generic file tile, the search glyph, the
+ * settings gear, the remote-machine glyph, and for a chat the agent CLI's
+ * mark in the sidebar's round chip (or the workspace type's icon when no
+ * agent has run in it). A panel or git command wears none: the verb is the
+ * whole row.
  */
 export type PaletteRowMark =
   | { kind: 'new-chat' }
-  | { kind: 'specialist'; icon: SpecialistIcon }
+  | { kind: 'go-to-file' }
   | { kind: 'search' }
+  | { kind: 'settings' }
+  | { kind: 'remote' }
   | { kind: 'chat'; workspaceId: string; mode: Workspace['mode'] }
 
 /** The artwork a row wears, in the props `ExtensionIcon` takes. */
@@ -79,6 +81,15 @@ export interface PaletteCommand {
    * this module renders nothing, so it says WHICH file and the palette draws.
    */
   file?: string
+  /**
+   * Where a line of text was found: the file's workspace-relative path and
+   * the line number. Only a `content` row carries them, and it is what lets
+   * the palette draw the hits the way a search tool does — grouped under
+   * the file, each line with its number in the gutter — rather than as one
+   * flat list restating the path on every row.
+   */
+  path?: string
+  line?: number
   /** The row's glyph, for the rows that are neither a file nor an extension. */
   mark?: PaletteRowMark
   /** A short chip after the name: the source's name, "Installed", "Available". */

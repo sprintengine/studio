@@ -83,7 +83,7 @@ function countOpenTabs(model: Model | null): number {
   return count
 }
 
-// Dev Tools panels. The canonical `editor` and `content-search` panels are
+// Dev Tools panels. The canonical `editor` panel is
 // served through the renderer host (gated on the dev-tools module). These local
 // lazy consts back the panels that take extra props the host contract omits:
 // `file-editor` (a per-file editor with a `filePath`) and `explorer`
@@ -616,7 +616,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // the shell's own chrome (agent, terminal) and panels that take bespoke props
       // (file-editor's filePath, explorer's onStartFuturePlan, git-conflict's
       // paths, the sprintengine fixed-view/summary fallbacks).
-      // Every plain `{ workspaceId }` host panel — editor, content-search, git,
+      // Every plain `{ workspaceId }` host panel — editor, git,
       // sprintengine, memory-graph — falls
       // through to `default`, which renders it gated by its owning module.
       switch (component) {

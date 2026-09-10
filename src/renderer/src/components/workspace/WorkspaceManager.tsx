@@ -179,7 +179,7 @@ import {
 } from './workspaceLayoutRetention'
 import type { ConversationProviderListResult } from '../../../../shared/electron-api'
 import { restoreDetachedWorkspaceWindowsOnStartup } from './workspaceWindowRestore'
-import { EMPTY_CHAT_TEMPLATE, LAYOUT_TEMPLATES } from '../../layouts/templates'
+import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { collectWorkspaceTypeSupervisors } from '../../modules/workspace-type-supervisors'
 import { WorkspaceTypeSupervisorHost } from '../../modules/WorkspaceTypeSupervisorHost'
 import { RendererCommandDispatcher } from '../../commands/commandDispatcher'
@@ -1603,32 +1603,6 @@ export default function WorkspaceManager() {
   // The isolated connector-chat runtime (a worktree per connector, single-
   // server MCP) left with the Skills & MCPs picker: MCP picks are synced into
   // the workspace's CLI config on pick and the agent starts in the workspace.
-
-  // "New chat" entry point: create a fresh workspace that opens empty, so
-  // WorkspaceLayout's empty-workspace rule opens the New chat launch surface in
-  // the tab its agent will run in. `folderPath === undefined` inherits the
-  // active workspace's folder, matching the plain New chat default. No agent is
-  // seeded.
-  const createNewChatWorkspace = useCallback((folderPath?: string | null) => {
-    const targetFolderPath = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
-    addWorkspace(EMPTY_CHAT_TEMPLATE, {
-      name: pickNewChatName(targetFolderPath),
-      folderPath: targetFolderPath,
-      windowId: workspaceWindowId,
-    })
-    // Same first-root adoption as the solo chat: the launch surface in the tab
-    // creates the agent later, but the root exists now.
-    runFirstRunAgentConfigAdoption(targetFolderPath)
-    closeSettingsOverlay()
-    setNotificationsOpen(false)
-  }, [
-    activeWorkspace?.folderPath,
-    addWorkspace,
-    closeSettingsOverlay,
-    pickNewChatName,
-    runFirstRunAgentConfigAdoption,
-    workspaceWindowId,
-  ])
 
   // The one way the New sprint dialog opens (MC-2062) — the sidebar's New
   // sprint, the Sprints door's New sprint, and every plan-sourced entry
@@ -3819,7 +3793,7 @@ export default function WorkspaceManager() {
       || commandId === 'search.everywhere'
       || commandId === 'search.files.open'
     ) {
-      setPaletteScope(commandId === 'search.files.open' ? 'files' : 'all')
+      setPaletteScope(commandId === 'search.files.open' ? 'text' : 'all')
       // A keyboard-raised palette belongs to no pane: whatever the star last
       // aimed it at must not silently steer this one.
       setPaletteTarget(null)
@@ -4971,8 +4945,8 @@ export default function WorkspaceManager() {
               setShowPalette(false)
               setPaletteTarget(null)
             }}
-            onNewChat={() => createNewChatWorkspace()}
-            onSpawnSpecialist={handleSelectSpecialist}
+            onRunCommand={runCommand}
+            onOpenRemoteConnections={() => openSettings(false, 'remote')}
             workspaceWindowId={workspaceWindowId}
             workspaces={visibleWorkspaces}
             activeWorkspaceId={windowActiveWorkspaceId}
