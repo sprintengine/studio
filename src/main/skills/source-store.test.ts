@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -13,7 +13,18 @@ import {
   type ScanResult,
   type SkillSource,
 } from '../../shared/skills'
-import { createSkillSourceStore, isRemovableSkillSource, parseSkillSourceState } from './source-store'
+import {
+  createSkillSourceStore,
+  isRemovableSkillSource,
+  parseSkillSourceState,
+  type SkillSourceLog,
+} from './source-store'
+
+/** Every line the store wrote, for the cases that are about the log itself. */
+function recorder(): { log: SkillSourceLog; lines: { event: string; detail: Record<string, unknown> }[] } {
+  const lines: { event: string; detail: Record<string, unknown> }[] = []
+  return { lines, log: (event, detail) => lines.push({ event, detail }) }
+}
 
 // What the store owes: a source a person added survives the write→read round
 // trip, and the scan cached beside it never outlives it.
@@ -299,6 +310,95 @@ async function main(): Promise<void> {
       }),
     )
     assert.equal('bundled' in state.scans[STUDIO_SKILL_SOURCE_ID], false)
+  })
+
+  await run('every dropped source says which one and why', async () => {
+    // Silence is what made the vanishing unexplainable: a source that failed
+    // this filter left no trace anywhere, so nobody could tell a drop from a
+    // write that never happened.
+    const { log, lines } = recorder()
+    parseSkillSourceState(
+      JSON.stringify({
+        sources: [
+          FOLDER,
+          { ...REPO, id: 'github:acme/other', kind: 'future' },
+          { ...FOLDER, id: 'local:/tmp/x', path: '' },
+        ],
+        scans: { 'github:acme/other': scanOf('nope'), [FOLDER.id]: { skills: 'not an array' } },
+      }),
+      log,
+    )
+    assert.deepEqual(
+      lines.filter((line) => line.event === 'source-dropped').map((line) => line.detail),
+      [
+        { id: 'github:acme/other', reason: 'unknown-kind:future' },
+        { id: 'local:/tmp/x', reason: 'folder-source-without-a-path' },
+      ],
+      'both drops are named, with the reason',
+    )
+    assert.deepEqual(
+      lines.filter((line) => line.event === 'scan-dropped').map((line) => line.detail),
+      [
+        { id: 'github:acme/other', reason: 'no-source-in-list' },
+        { id: FOLDER.id, reason: 'malformed' },
+      ],
+      'and so is every scan that goes with them',
+    )
+  })
+
+  await run('a write says what it wrote and what it removed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+    const { log, lines } = recorder()
+    const store = createSkillSourceStore(dir, { log })
+    await store.putSource(REPO, scanOf('research'))
+    await store.putSource(REPO, scanOf('research'))
+    await store.removeSource(REPO.id)
+    await store.removeSource(REPO.id)
+    assert.deepEqual(
+      lines.filter((line) => line.event.startsWith('source-')).map((line) => line.detail.outcome),
+      ['added', 'updated', 'removed', 'not-in-list'],
+    )
+  })
+
+  await run('a store that cannot be read is never overwritten as though it were empty', async () => {
+    // THE drop path. The old read swallowed every error — a permission error, a
+    // busy volume, EMFILE under load — and handed back an empty state, which
+    // the very next write then persisted over a list of real sources. One
+    // transient failure, every added source gone, and nothing said.
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return
+    const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+    const store = createSkillSourceStore(dir, { log: () => {} })
+    await store.putSource(REPO, scanOf('research'))
+    await store.putSource(FOLDER, scanOf('tdd'))
+
+    const path = join(dir, 'skill-sources.json')
+    chmodSync(path, 0o000)
+    await assert.rejects(
+      store.putSource({ ...REPO, id: 'github:acme/second' }, scanOf('second')),
+      'the write fails loudly instead of quietly rebuilding the file from nothing',
+    )
+    chmodSync(path, 0o600)
+
+    const reopened = createSkillSourceStore(dir, { log: () => {} })
+    const listed = (await reopened.listSources()).map((source) => source.id)
+    assert.ok(listed.includes(REPO.id) && listed.includes(FOLDER.id), 'both sources are still there')
+  })
+
+  await run('bytes that are not JSON are kept aside rather than written over', async () => {
+    // The one case that must not block forever: a store nobody can parse would
+    // otherwise refuse every add for the life of the install. The bytes are
+    // kept, so whatever was in them can still be recovered by hand.
+    const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+    writeFileSync(join(dir, 'skill-sources.json'), '{"sources":[{"id":"github:acme/skills"')
+    const { log, lines } = recorder()
+    const store = createSkillSourceStore(dir, { log })
+    await store.putSource(REPO, scanOf('research'))
+    assert.equal((await createSkillSourceStore(dir, { log: () => {} }).getSource(REPO.id))?.repo, 'acme/skills')
+    assert.ok(
+      readdirSync(dir).some((name) => name.includes('corrupt-')),
+      'the unreadable bytes are kept beside the store',
+    )
+    assert.ok(lines.some((line) => line.event === 'store-quarantined'))
   })
 
   console.log('skill source store: ok')

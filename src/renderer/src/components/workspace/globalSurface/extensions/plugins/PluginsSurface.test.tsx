@@ -116,6 +116,51 @@ run('an unread linked plugin says its components are unknown, not empty', () => 
   assert.ok(markup.includes('Known once the plugin has been read'))
 })
 
+run('an installed plugin lists each of its skills with its own Use in agent', () => {
+  const withSkills = plugin('code-review', {
+    components: {
+      ...emptyPluginComponents(),
+      skills: [
+        { id: 'plugins/code-review/skills/review', name: 'review', description: 'Review a diff', group: '', files: [], allowedTools: [], hasExecutables: false },
+        { id: 'plugins/code-review/skills/triage', name: 'triage', description: '', group: '', files: [], allowedTools: [], hasExecutables: false },
+      ],
+    },
+  })
+  const record = {
+    workspaceRoot: '/ws',
+    sourceId: SOURCE.id,
+    pluginId: 'code-review',
+    pluginName: 'code-review',
+    marketplaceName: 'claude-plugins-official',
+    claudePluginKey: 'code-review@claude-plugins-official',
+    skillDirNames: ['review', 'triage'],
+    mcpServerIds: [],
+    commitSha: '1111111',
+    installedAt: '',
+  }
+
+  const installed = pane({
+    plugin: withSkills,
+    workspaceRoot: '/ws',
+    install: { kind: 'installed', record },
+    availability: { enabled: true, reason: null },
+  })
+  assert.ok(installed.includes('>Use a skill<'), 'the section exists once the plugin is in the workspace')
+  assert.ok(installed.includes('>review<') && installed.includes('>triage<'), 'each skill by name')
+  assert.equal(
+    (installed.match(/<button[^>]*aria-haspopup="menu"[^>]*>Use in agent<\/button>/g) ?? []).length,
+    2,
+    'two skills, two menu buttons — the page does not guess which was meant',
+  )
+  assert.ok(installed.includes('Review a diff'), 'the description the agent matches on rides along')
+
+  // Not installed: nothing to use yet, and no "use" that would quietly install
+  // past the hook acknowledgement above it.
+  const notInstalled = pane({ plugin: withSkills, workspaceRoot: '/ws', availability: { enabled: true, reason: null } })
+  assert.equal(notInstalled.includes('>Use a skill<'), false)
+  assert.equal(notInstalled.includes('>Use in agent<'), false)
+})
+
 run('an installed plugin offers Remove and says which key it enabled', () => {
   const markup = pane({
     plugin: plugin('code-review'),

@@ -39,6 +39,15 @@ export type ExtensionsSurfaceTarget = {
   view: ExtensionsDrawerView
   /** Land on the Installed tab — what "Manage skills" means. */
   installed?: boolean
+  /**
+   * Land on one source's tab, and — for the Plugins view — open one plugin's
+   * detail pane, or — for the Skills view — one skill's page. A search result
+   * outside the door (the command palette's Extensions rows) means "take me to
+   * exactly this one", not "open the door near it" (skills-everywhere, 2026-09-10).
+   */
+  sourceId?: string
+  pluginId?: string
+  skillId?: string
 }
 
 const EXTENSIONS_SURFACE_TARGET_EVENT = 'multicode:extensions-surface-target'

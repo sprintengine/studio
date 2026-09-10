@@ -1,4 +1,5 @@
 import type {
+  AgentSkillTarget,
   BuiltinSkillTargetState,
   WorkspaceSkill,
 } from '../../../shared/electron-api'
@@ -138,16 +139,21 @@ export function hasInstalledNativeSkillTarget(
 // Partial success is success here: the caller is about to invoke the skill, and
 // one harness that refused the write does not make the others unusable. Only a
 // request that reached nothing is a failure worth stopping for.
+//
+// The per-target report rides back on success (`targets`): it is the only place
+// that knows which harness directories now hold the skill and which of their
+// CLIs re-read a skills directory only on restart. `utils/useSkillInAgent.ts`
+// turns it into the invocation's native/plain decision and the restart notice.
 export async function ensureSkillForAgent(input: {
   workspaceRoot: string
   skill: Pick<WorkspaceSkill, 'id'>
-}): Promise<{ ok: true } | { ok: false; message: string }> {
+}): Promise<{ ok: true; targets: AgentSkillTarget[] } | { ok: false; message: string }> {
   const { workspaceRoot, skill } = input
   try {
     const result = await window.api.agentSkillAttach({ workspaceRoot, skillId: skill.id })
     if (!result.ok) return { ok: false, message: result.message }
     const usable = result.targets.filter((target) => target.status !== 'failed')
-    if (usable.length > 0) return { ok: true }
+    if (usable.length > 0) return { ok: true, targets: result.targets }
     return {
       ok: false,
       message: result.targets[0]?.message ?? 'Unable to install the skill.',

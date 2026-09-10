@@ -10,6 +10,9 @@ import { join } from 'node:path'
 import {
   describePluginComponents,
   findScannedPlugin,
+  glyphGraphemeCount,
+  pluginIconGlyph,
+  pluginLogoUrl,
   describeUnreadPlugin,
   linkedPluginShortfall,
   pluginAliases,
@@ -60,6 +63,129 @@ function recordedFiles(name: string): Map<string, string> {
 
 function manifest(name: string): string {
   return readFileSync(join(FIXTURES, `${name}.marketplace.json`), 'utf8')
+}
+
+async function pluginArtworkFields(): Promise<void> {
+  // `icon` and `logo` on a marketplace entry: not in the documented field
+  // table, written by marketplaces anyway, and so read leniently and validated
+  // strictly. The fixture is one entry per shape a publisher can write.
+  const scan = await scanPluginTree({
+    entries: [],
+    skills: [],
+    marketplaceManifest: manifest('plugin-artwork'),
+    readFile: async () => null,
+  })
+  const byId = new Map(scan.plugins.map((plugin) => [plugin.id, plugin]))
+  assert.equal(byId.size, 16, 'every entry lists, whatever its artwork turned out to be')
+
+  assert.equal(byId.get('glyph')?.icon, '🦀')
+  assert.equal(byId.get('joined-glyph')?.icon, '👩‍💻', 'a zero-width joiner is not a control character')
+  assert.equal(byId.get('lettered-glyph')?.icon, 'AI', 'a glyph is short text, not only an emoji')
+  assert.equal(byId.get('logo')?.logo, 'https://cdn.example.com/logo.png')
+  assert.equal(byId.get('both')?.icon, '⚙️')
+  assert.equal(byId.get('both')?.logo, 'https://cdn.example.com/both.png', 'both are kept; the ladder is the renderer’s')
+
+  for (const id of ['wordy-icon', 'path-icon', 'data-uri-icon', 'typed-wrong', 'bidi-icon', 'invisible-icon', 'crowded-icon']) {
+    assert.equal(byId.get(id)?.icon, undefined, `${id} declares no glyph this app may print`)
+  }
+  for (const id of ['http-logo', 'data-logo', 'nonsense-logo', 'typed-wrong']) {
+    assert.equal(byId.get(id)?.logo, undefined, `${id} declares no https picture`)
+  }
+  const plain = byId.get('plain')
+  assert.equal(plain?.icon, undefined)
+  assert.equal(plain?.logo, undefined)
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(plain, 'icon'),
+    false,
+    'the field is absent, not empty: a scan is cached to disk verbatim',
+  )
+
+  // A plugin's own manifest, which no schema documents either, fills what the
+  // entry left blank — and never outranks it.
+  const files = new Map([
+    ['plugins/from-manifest/.claude-plugin/plugin.json', JSON.stringify({ name: 'from-manifest', icon: '📦', logo: 'https://cdn.example.com/m.png' })],
+    ['plugins/entry-wins/.claude-plugin/plugin.json', JSON.stringify({ name: 'entry-wins', icon: '📦' })],
+  ])
+  const withManifests = await scanPluginTree({
+    entries: [...files.keys()].map((path) => ({ path, mode: '100644', type: 'blob', sha: path, size: 1 })),
+    skills: [],
+    marketplaceManifest: JSON.stringify({
+      name: 'm',
+      plugins: [
+        { name: 'from-manifest', source: './plugins/from-manifest' },
+        { name: 'entry-wins', source: './plugins/entry-wins', icon: '🚀' },
+      ],
+    }),
+    readFile: async (path) => files.get(path) ?? null,
+  })
+  const manifests = new Map(withManifests.plugins.map((plugin) => [plugin.id, plugin]))
+  assert.equal(manifests.get('from-manifest')?.icon, '📦')
+  assert.equal(manifests.get('from-manifest')?.logo, 'https://cdn.example.com/m.png')
+  assert.equal(manifests.get('entry-wins')?.icon, '🚀', 'the curated listing outranks the plugin’s own manifest')
+
+  // The validators on their own, at the edges the fixture cannot hold.
+  assert.equal(pluginIconGlyph('  🦀  '), '🦀', 'surrounding space is not part of the glyph')
+  assert.equal(pluginIconGlyph('👨‍👩‍👧‍👦'), '👨‍👩‍👧‍👦', 'a family is seven code points, inside the limit')
+  assert.equal(pluginIconGlyph('123456789'), '', 'nine code points is text, not a glyph')
+  assert.equal(pluginIconGlyph('a\nb'), '', 'a line break is not a glyph')
+  // The bidi controls are format characters like the joiner, and are refused
+  // by name: any one of them in the chip reverses the name printed beside it.
+  assert.equal(pluginIconGlyph('‮abc'), '', 'a right-to-left override')
+  assert.equal(pluginIconGlyph('⁦a⁩'), '', 'an isolate')
+  assert.equal(pluginIconGlyph('‏a'), '', 'a right-to-left mark')
+  assert.equal(pluginIconGlyph('؜a'), '', 'the Arabic letter mark')
+  // Something must draw.
+  assert.equal(pluginIconGlyph('‍'), '', 'a lone joiner is an empty chip')
+  assert.equal(pluginIconGlyph('️'), '', 'and so is a lone variation selector')
+  // Graphemes, not code points, are what the chip has room for.
+  assert.equal(pluginIconGlyph('🏴󠁧󠁢󠁥󠁮󠁧󠁿'), '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'a flag built from tag characters is seven code points and one glyph')
+  assert.equal(pluginIconGlyph('🚀✨'), '🚀✨', 'two emoji are two glyphs, inside the cap')
+  assert.equal(pluginIconGlyph('ABCDEFGH'), '', 'eight letters are inside the code-point cap and three times the chip')
+  assert.equal(pluginIconGlyph('🚀✨🦀'), '', 'three emoji are three glyphs')
+  assert.equal(glyphGraphemeCount('👨‍👩‍👧‍👦'), 1)
+  assert.equal(glyphGraphemeCount('AI'), 2)
+  assert.equal(pluginIconGlyph(null), '')
+  assert.equal(pluginIconGlyph(['🦀']), '')
+  assert.equal(pluginLogoUrl('https://example.com/a.png?v=2'), 'https://example.com/a.png?v=2')
+  assert.equal(pluginLogoUrl('HTTPS://example.com/a.png'), 'HTTPS://example.com/a.png', 'the scheme is not case sensitive')
+  assert.equal(pluginLogoUrl('file:///etc/passwd'), '')
+  assert.equal(pluginLogoUrl(''), '')
+  assert.equal(pluginLogoUrl(7), '')
+}
+
+/**
+ * A scan cached before either field existed carries neither, which is the same
+ * absence as a plugin that declares neither — nothing may crash on it.
+ */
+function cachedScansPredatingPluginArtwork(): void {
+  const cached = {
+    skills: [],
+    groups: [],
+    groupingSignal: 'none',
+    fileCount: 0,
+    commitSha: 'abc1234',
+    plugins: [
+      {
+        id: 'security-guidance',
+        name: 'security-guidance',
+        description: '',
+        version: '2.0.7',
+        category: '',
+        author: 'Anthropic',
+        homepage: '',
+        origin: { kind: 'in-tree', path: 'plugins/security-guidance' },
+        strict: true,
+        tags: [],
+        keywords: [],
+        componentsKnown: true,
+        components: { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], lspServers: [], missingSkills: [] },
+      },
+    ],
+  } as unknown as ScanResult
+  const [plugin] = scanPlugins(cached)
+  assert.equal(plugin.icon, undefined, 'an absent glyph reads as absent, not as an empty one')
+  assert.equal(plugin.logo, undefined)
+  assert.equal(describePluginComponents(plugin).length > 0, true, 'and the surface still describes it')
 }
 
 async function scanOfficial(): Promise<ScanResult> {
@@ -1347,6 +1473,8 @@ function distinctPinnedRepositories(plugins: readonly ScannedPlugin[]): number {
 async function main(): Promise<void> {
   await officialMarketplace()
   cachedScansPredatingTheseFields()
+  cachedScansPredatingPluginArtwork()
+  await pluginArtworkFields()
   await renamesOfNamesStillListed()
   await readBudget()
   await linkedPluginsFollowed()

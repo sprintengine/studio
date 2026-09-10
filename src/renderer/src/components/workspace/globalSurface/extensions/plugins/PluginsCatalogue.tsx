@@ -63,6 +63,7 @@ import { bundledScanLine, sourceDisplayName, summarizeSyncRun } from '../skills/
 import type { SkillSourcesState } from '../skills/useSkillSources'
 import { CatalogueHead, CatalogueSurface, type CatalogueAddMenu, type CatalogueSection } from '../catalogue/CatalogueSurface'
 import { SourceAvatar } from '../catalogue/SourceAvatar'
+import { extensionIconProps, pluginArtwork, sourceArtwork, type ExtensionArtwork } from '../catalogue/pluginArtwork'
 import {
   catalogueMonogram,
   catalogueTabLabel,
@@ -71,6 +72,13 @@ import {
   INSTALLED_TAB_ID,
   type CatalogueCount,
 } from '../catalogue/catalogueTabs'
+import { resolveCatalogueLanding, type CatalogueLanding } from '../catalogue/catalogueLanding'
+import {
+  crossSourceStateLine,
+  isCrossSourceQuery,
+  searchAcrossSources,
+  unreadSourcesLine,
+} from '../catalogue/catalogueSearch'
 import { RecommendedSources } from '../catalogue/RecommendedSources'
 import { SourceTabActions } from '../catalogue/SourceTabActions'
 import { openGitHubSettings, useGitHubTokenConfigured } from '../catalogue/useGitHubToken'
@@ -88,14 +96,32 @@ import {
 
 const MISSING_API_MESSAGE = 'Plugins need an app restart before they are available.'
 
-/** Every shape a row in this view can take; one union, so one pager walks them all. */
+/** The row's icon slot, in one place: the artwork ladder asks for its size. */
+const ROW_ICON_SIZE = 36
+
+/** The source's mark before a section heading, when the sections are sources. */
+const SECTION_AVATAR_SIZE = 22
+
+/**
+ * Every shape a row in this view can take; one union, so one pager walks them
+ * all. A scanned plugin or server names its SOURCE: with a query on, the rows
+ * come from every source at once, and the one that opens or installs has to
+ * be the one the row came from, not the tab that happens to be selected.
+ */
 type PluginItem =
   | { kind: 'builtin'; row: StudioPluginRow }
   | { kind: 'connector'; entry: ConnectorEntry }
-  | { kind: 'plugin'; item: PluginListItem }
-  | { kind: 'server'; server: ScannedMcpServer }
+  | { kind: 'plugin'; sourceId: string; item: PluginListItem }
+  | { kind: 'server'; sourceId: string; server: ScannedMcpServer }
+  /** An MCP server configured on this machine, as the Installed tab lists it. */
+  | { kind: 'installed-server'; server: McpServerConfig }
 
-type OpenRow = { kind: 'connector'; key: string } | { kind: 'plugin'; id: string }
+type OpenRow = { kind: 'connector'; key: string } | { kind: 'plugin'; sourceId: string; id: string }
+
+/** One key per (source, plugin): a plugin id is unique only within its source. */
+function pluginKey(sourceId: string, pluginId: string): string {
+  return `${sourceId}\u0000${pluginId}`
+}
 
 export function PluginsCatalogue({
   sources,
@@ -106,6 +132,8 @@ export function PluginsCatalogue({
   onSelectTab,
   query,
   onQueryChange,
+  landing = null,
+  onLanded,
   add,
   addNotice,
   onDismissAddNotice,
@@ -123,6 +151,13 @@ export function PluginsCatalogue({
   onSelectTab: (tabId: string) => void
   query: string
   onQueryChange: (value: string) => void
+  /**
+   * A deep link's plugin to open once its source's scan is in hand
+   * (catalogueLanding.ts). The door holds it; this view resolves it and calls
+   * `onLanded` when it has, landed or missed.
+   */
+  landing?: CatalogueLanding | null
+  onLanded?: () => void
   add: CatalogueAddMenu
   /** A source that could not be added — stated where the person is looking. */
   addNotice: string | null
@@ -138,6 +173,9 @@ export function PluginsCatalogue({
   const [installing, setInstalling] = useState(false)
   const [hooksAcknowledged, setHooksAcknowledged] = useState(false)
   const [report, setReport] = useState<{ sourceId: string; outcome: string | null; error: string | null } | null>(null)
+  // A deep link that could not be honoured in full, said once where the
+  // person landed instead.
+  const [landingNotice, setLandingNotice] = useState<string | null>(null)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
@@ -246,6 +284,21 @@ export function PluginsCatalogue({
   const activeSource = tabs.find((tab) => tab.id === tabId)?.source ?? null
   const activeScan = activeSource ? sources.scans[activeSource.id] : undefined
   const scan = activeScan && activeScan.status === 'ready' ? activeScan.scan : null
+  // A query reads every source at once (catalogueSearch.ts); an empty box is
+  // the tab, as before.
+  const searching = isCrossSourceQuery(query)
+
+  // Every source and every ready scan by id: a row names its source, and the
+  // open pane, the install and the artwork are all looked up from the row's
+  // source rather than the tab's.
+  const sourceById = useMemo(() => new Map(sources.sources.map((source) => [source.id, source])), [sources.sources])
+  const readyScan = useCallback(
+    (sourceId: string): ScanResult | null => {
+      const load = sources.scans[sourceId]
+      return load && load.status === 'ready' ? load.scan : null
+    },
+    [sources.scans],
+  )
 
   // The tab being looked at is the one whose source is read. A repository that
   // has never been scanned is a network read, so it waits for this rather than
@@ -283,12 +336,14 @@ export function PluginsCatalogue({
   )
 
   const openPluginRow = useCallback(
-    (pluginId: string) => {
-      setOpenRow({ kind: 'plugin', id: pluginId })
+    (sourceId: string, pluginId: string) => {
+      setOpenRow({ kind: 'plugin', sourceId, id: pluginId })
       setHooksAcknowledged(false)
       setReadError(null)
-      if (!activeSource || !scan) return
-      const plugin = findPlugin(scan, pluginId)
+      const source = sourceById.get(sourceId)
+      const sourceScan = readyScan(sourceId)
+      if (!source || !sourceScan) return
+      const plugin = findPlugin(sourceScan, pluginId)
       // Only a LINKED plugin has a repository to go and read. An in-tree one
       // that the scan skipped for being past its plugin limit has nothing to
       // fetch, and asking main to read it returned the same unread plugin —
@@ -297,10 +352,38 @@ export function PluginsCatalogue({
       // A plugin the scan already FOLLOWED is read here too: the follow lists
       // components from the tree and fetches no skill's entry document, so this
       // is where the descriptions come from (linked-plugins review, 2026-09-06).
-      if (plugin && pluginNeedsRead(plugin)) void readLinked(activeSource, plugin)
+      if (plugin && pluginNeedsRead(plugin)) void readLinked(source, plugin)
     },
-    [activeSource, scan, readLinked],
+    [sourceById, readyScan, readLinked],
   )
+
+  // A deep link's plugin: opened the moment its source's scan is in hand,
+  // which may be now, or after the read the tab selection just started. What
+  // cannot be opened is said under the head, and the person stays on the
+  // source's tab (or the view) rather than a blank (catalogueLanding.ts).
+  useEffect(() => {
+    if (!landing) return
+    const outcome = resolveCatalogueLanding({
+      landing,
+      sourcesLoad: sources.sourcesLoad,
+      sources: sources.sources,
+      scans: sources.scans,
+      noun: 'plugin',
+      has: (candidate, id) => findPlugin(candidate, id) !== null,
+    })
+    if (outcome.status === 'waiting') return
+    if (outcome.status === 'landed') {
+      if (outcome.source.id !== tabId) onSelectTab(outcome.source.id)
+      if (outcome.itemId) openPluginRow(outcome.source.id, outcome.itemId)
+      // A link that landed retires the notice an earlier one left: it named
+      // what could not be opened THEN, and standing over the pane that just
+      // opened it would read as a warning about this plugin (review, 2026-09-10).
+      setLandingNotice(null)
+    } else {
+      setLandingNotice(outcome.notice)
+    }
+    onLanded?.()
+  }, [landing, onLanded, onSelectTab, openPluginRow, sources.scans, sources.sources, sources.sourcesLoad, tabId])
 
   const installPlugin = useCallback(
     async (source: SkillSource, plugin: ScannedPlugin): Promise<void> => {
@@ -399,45 +482,112 @@ export function PluginsCatalogue({
 
   // ── Sections ───────────────────────────────────────────────────────────────
 
+  /**
+   * What ONE source's scan holds, filtered by the query — the same rule for
+   * the open tab and for every source under a search, so the two never list
+   * a source differently.
+   *
+   * Our own plugin is the built-in row and nothing else. The marketplace lists
+   * it like any other, but a second row for it would offer an Install that
+   * cannot work: what we PUBLISH is a template, and its `.mcp.json` and
+   * `hooks/hooks.json` carry `__MULTICODE_*` tokens that only the app's own
+   * materialise step can fill in. The same goes for the MCP server it
+   * declares — added from a row here it would be a server whose command is
+   * the literal token (`hiddenMcpFor`).
+   */
+  const sourceRows = useCallback(
+    (source: SkillSource, sourceScan: ScanResult, needle: string): { plugins: PluginItem[]; servers: PluginItem[] } => {
+      const mine = source.id === STUDIO_SKILL_SOURCE_ID
+      const hiddenMcp = hiddenMcpFor(source.id)
+      const lower = needle.trim().toLowerCase()
+      const plugins = derivePluginRows({ source, scan: sourceScan, installed: sources.installedPlugins, query: needle })
+        .filter((item) => !(mine && item.pluginId === STUDIO_PLUGIN_ID))
+        .map((item) => ({ kind: 'plugin' as const, sourceId: source.id, item }))
+      const servers = scanMcpServers(sourceScan)
+        .filter(
+          (server) =>
+            server.declaredBy !== hiddenMcp
+            && (lower === '' || `${server.name} ${server.description} ${server.id}`.toLowerCase().includes(lower)),
+        )
+        .map((server) => ({ kind: 'server' as const, sourceId: source.id, server }))
+      return { plugins, servers }
+    },
+    [sources.installedPlugins],
+  )
+
+  // What our own tab holds beyond its repository: the built-in row, which
+  // leads it — it is the one plugin every install already has, and burying it
+  // under the marketplace's other entries would put the app's own plugin
+  // somewhere a person has to search for it — and the signed registry: the
+  // agent CLIs, automation starters and signed modules a Claude marketplace
+  // cannot carry.
+  const builtinRow = useCallback(
+    (needle: string): PluginItem | null => {
+      const builtin = deriveStudioPluginRow(studioPluginStatus)
+      return builtin && studioPluginRowMatches(builtin, needle) ? { kind: 'builtin', row: builtin } : null
+    },
+    [studioPluginStatus],
+  )
+
+  // With a query on, every source the door holds a scan for, grouped by
+  // source; the Installed tab's own rows (the MCP servers configured on this
+  // machine) lead, minus any a source's row already lists as added.
+  const crossSearch = useMemo(() => {
+    if (!searching) return null
+    return searchAcrossSources<PluginItem>({
+      query,
+      sources: sources.sources,
+      scans: sources.scans,
+      match: (source, sourceScan, needle) => {
+        const { plugins, servers } = sourceRows(source, sourceScan, needle)
+        if (source.id !== STUDIO_SKILL_SOURCE_ID) return [...plugins, ...servers]
+        const builtin = builtinRow(needle)
+        const registry = searchConnectors(appEntries, needle).map((entry) => ({ kind: 'connector' as const, entry }))
+        return [...(builtin ? [builtin] : []), ...plugins, ...servers, ...registry]
+      },
+      installed: (hits) => {
+        const listed = new Set(hits.flatMap((hit) => (hit.kind === 'server' ? [hit.server.id] : [])))
+        const lower = query.trim().toLowerCase()
+        return mcpServers
+          .filter((server) => !listed.has(server.id))
+          .filter((server) =>
+            `${server.name} ${server.id} ${server.description ?? ''} ${server.command ?? ''} ${server.url ?? ''}`
+              .toLowerCase()
+              .includes(lower),
+          )
+          .map((server) => ({ kind: 'installed-server' as const, server }))
+      },
+    })
+  }, [appEntries, builtinRow, mcpServers, query, searching, sourceRows, sources.scans, sources.sources])
+
   const sections = useMemo<CatalogueSection<PluginItem>[]>(() => {
+    if (crossSearch) {
+      return crossSearch.sections.map((section) => ({
+        key: section.key,
+        label: section.label,
+        items: section.items,
+        leading: section.source ? (
+          <SourceAvatar
+            source={section.source}
+            monogram={catalogueMonogram(section.source)}
+            size={SECTION_AVATAR_SIZE}
+          />
+        ) : undefined,
+      }))
+    }
     if (!activeSource) return []
-    // The built-in row leads our own tab: it is the one plugin every install
-    // already has, and burying it under the marketplace's other entries would
-    // put the app's own plugin somewhere a person has to search for it.
-    const builtin = isApp ? deriveStudioPluginRow(studioPluginStatus) : null
-    const builtinSection: CatalogueSection<PluginItem>[] =
-      builtin && studioPluginRowMatches(builtin, query)
-        ? [{ key: 'built-in', label: 'Built in', items: [{ kind: 'builtin' as const, row: builtin }] }]
-        : []
-    const needle = query.trim().toLowerCase()
+    const builtin = isApp ? builtinRow(query) : null
+    const builtinSection: CatalogueSection<PluginItem>[] = builtin
+      ? [{ key: 'built-in', label: 'Built in', items: [builtin] }]
+      : []
     // What the source's REPOSITORY holds. Our own tab reads its marketplace
     // exactly like Anthropic's now, rather than being a registry view with a
     // different backend under Skills (studio-marketplace ruling, 2026-09-06).
-    // Our own plugin is the built-in row above and nothing else. The
-    // marketplace lists it like any other, but a second row for it would offer
-    // an Install that cannot work: what we PUBLISH is a template, and its
-    // `.mcp.json` and `hooks/hooks.json` carry `__MULTICODE_*` tokens that only
-    // the app's own materialise step can fill in. The same goes for the MCP
-    // server it declares — added from a row here it would be a server whose
-    // command is the literal token.
-    const hiddenMcp = hiddenMcpFor(activeSource.id)
-    const plugins = scan
-      ? derivePluginRows({ source: activeSource, scan, installed: sources.installedPlugins, query }).filter(
-          (item) => !(isApp && item.pluginId === STUDIO_PLUGIN_ID),
-        )
-      : []
-    const servers = scan
-      ? scanMcpServers(scan).filter(
-          (server) =>
-            server.declaredBy !== hiddenMcp
-            && (needle === '' || `${server.name} ${server.description} ${server.id}`.toLowerCase().includes(needle)),
-        )
-      : []
-    // …and, on our tab only, the signed registry: the agent CLIs, automation
-    // starters and signed modules a Claude marketplace cannot carry, under ONE
-    // set of headings — the catalogue's own categories — rather than a
-    // "Plugins" block and then the categories. Two sets would ask a person to
-    // know which half a thing is in before they could look for it.
+    const { plugins, servers } = scan ? sourceRows(activeSource, scan, query) : { plugins: [], servers: [] }
+    // …and, on our tab only, the signed registry, under ONE set of headings —
+    // the catalogue's own categories — rather than a "Plugins" block and then
+    // the categories. Two sets would ask a person to know which half a thing
+    // is in before they could look for it.
     const registrySections: CatalogueSection<PluginItem>[] = isApp
       ? sectionConnectors(searchConnectors(appEntries, query)).map((section) => ({
           key: section.title,
@@ -447,23 +597,29 @@ export function PluginsCatalogue({
       : []
     return [
       ...builtinSection,
-      ...(plugins.length > 0
-        ? [{ key: 'plugins', label: 'Plugins', items: plugins.map((item) => ({ kind: 'plugin' as const, item })) }]
-        : []),
-      ...(servers.length > 0
-        ? [
-            {
-              key: 'mcp',
-              label: 'MCP servers',
-              items: servers.map((server) => ({ kind: 'server' as const, server })),
-            },
-          ]
-        : []),
+      ...(plugins.length > 0 ? [{ key: 'plugins', label: 'Plugins', items: plugins }] : []),
+      ...(servers.length > 0 ? [{ key: 'mcp', label: 'MCP servers', items: servers }] : []),
       ...registrySections,
     ]
-  }, [activeSource, appEntries, isApp, query, scan, sources.installedPlugins, studioPluginStatus])
+  }, [activeSource, appEntries, builtinRow, crossSearch, isApp, query, scan, sourceRows])
 
   // ── Rows ───────────────────────────────────────────────────────────────────
+
+  // Every plugin's mark, decided once per scan rather than once per row: the
+  // ladder is pure, and 292 rows re-deciding it on every keystroke of the
+  // search box would be the same answer computed 292 times. Keyed by source
+  // and plugin, because under a search the rows come from every scan at once.
+  const artworkByPlugin = useMemo(() => {
+    const artwork = new Map<string, ExtensionArtwork>()
+    for (const source of sources.sources) {
+      const load = sources.scans[source.id]
+      if (!load || load.status !== 'ready') continue
+      for (const plugin of scanPlugins(load.scan)) {
+        artwork.set(pluginKey(source.id, plugin.id), pluginArtwork(plugin, source, ROW_ICON_SIZE))
+      }
+    }
+    return artwork
+  }, [sources.scans, sources.sources])
 
   const renderRow = useCallback(
     (item: PluginItem): React.ReactNode => {
@@ -472,7 +628,15 @@ export function PluginsCatalogue({
         return (
           <ConnectorRow
             key="sprintengine-studio-builtin"
-            icon={<ExtensionIcon name={row.name} size={36} />}
+            icon={
+              <ExtensionIcon
+                name={row.name}
+                size={ROW_ICON_SIZE}
+                // Our own source's face, not the open tab's: under a search
+                // this row can sit beside another source's tab.
+                {...extensionIconProps(sourceArtwork(sourceById.get(STUDIO_SKILL_SOURCE_ID), row.name, ROW_ICON_SIZE))}
+              />
+            }
             name={row.name}
             summary={row.summary}
             // "Plugin" says nothing under a Plugins heading; "Built in" does.
@@ -503,10 +667,18 @@ export function PluginsCatalogue({
       }
       if (item.kind === 'plugin') {
         const row = item.item
+        const selected =
+          openRow?.kind === 'plugin' && openRow.sourceId === item.sourceId && openRow.id === row.pluginId
         return (
           <ConnectorRow
-            key={row.pluginId}
-            icon={<ExtensionIcon name={row.name} size={36} />}
+            key={pluginKey(item.sourceId, row.pluginId)}
+            icon={
+              <ExtensionIcon
+                name={row.name}
+                size={ROW_ICON_SIZE}
+                {...extensionIconProps(artworkByPlugin.get(pluginKey(item.sourceId, row.pluginId)))}
+              />
+            }
             // The pip on the mark, beside the words on the chip: the chip says
             // what, and this is what a person finds when they are scanning a
             // page of thirty rows for the one the notification meant (owner,
@@ -529,22 +701,53 @@ export function PluginsCatalogue({
               ...(row.install.kind === 'installed' ? ['Installed'] : []),
               ...(row.install.kind === 'update-available' ? ['Update available'] : []),
             ]}
-            selected={openRow?.kind === 'plugin' && openRow.id === row.pluginId}
-            onOpen={() => openPluginRow(row.pluginId)}
+            selected={selected}
+            onOpen={() => openPluginRow(item.sourceId, row.pluginId)}
             actions={
+              // "Details", because that is what the button does. It read
+              // "Install" and opened the pane, while a skill row's "Install"
+              // installs — the same word, two behaviours (skills-everywhere,
+              // 2026-09-10). Making it install directly was the other fix, and
+              // it was ruled out: a plugin install writes MCP settings and
+              // the workspace's Claude settings, copies the plugin's own
+              // files when a server runs from them, and — when the plugin
+              // declares hooks — must not happen until the person has read
+              // the hook commands and said they may run. All of that is
+              // disclosed in the pane and nowhere on the row, and an unread
+              // linked plugin cannot even say yet whether it has hooks. The
+              // pane stays the one way in; the row says so.
               <GhostButton
                 size="sm"
-                onClick={() => openPluginRow(row.pluginId)}
+                onClick={() => openPluginRow(item.sourceId, row.pluginId)}
                 className="border border-[color:var(--border-default)]"
-                aria-label={`Open ${row.name}`}
+                aria-label={`Details for ${row.name}`}
               >
-                {row.install.kind === 'not-installed' ? 'Install' : 'Open'}
+                Details
               </GhostButton>
             }
           />
         )
       }
+      if (item.kind === 'installed-server') {
+        // What the Installed tab holds, under a search: a server configured
+        // on this machine that no source's row already lists. It is drawn as
+        // the fact it is — added — with no control; the Installed tab is
+        // where it is managed.
+        const server = item.server
+        return (
+          <ConnectorRow
+            key={`installed ${server.id}`}
+            icon={<ExtensionIcon name={server.name} size={ROW_ICON_SIZE} />}
+            name={server.name}
+            summary={server.description || server.command || server.url || server.id}
+            chips={['MCP server', 'Installed']}
+            actions={<span className="pr-1 text-meta font-medium text-[color:var(--accent-primary)]">Added</span>}
+          />
+        )
+      }
       const server = item.server
+      const rowSource = sourceById.get(item.sourceId)
+      const rowScan = readyScan(item.sourceId)
       const installed = connectors.installedServerIds.has(server.id)
       // A server whose command runs out of the plugin's own directory cannot be
       // added on its own: nothing would have copied that directory, so the
@@ -554,8 +757,20 @@ export function PluginsCatalogue({
       const needsPlugin = referencesPluginRoot(server)
       return (
         <ConnectorRow
-          key={server.id}
-          icon={<ExtensionIcon name={server.name} size={36} />}
+          key={`${item.sourceId} ${server.id}`}
+          icon={
+            <ExtensionIcon
+              name={server.name}
+              size={ROW_ICON_SIZE}
+              // A server a plugin declares wears that plugin's mark; one
+              // declared at the repository's root has no plugin to borrow
+              // from and wears the account's face.
+              {...extensionIconProps(
+                artworkByPlugin.get(pluginKey(item.sourceId, server.declaredBy))
+                  ?? sourceArtwork(rowSource, server.name, ROW_ICON_SIZE),
+              )}
+            />
+          }
           name={server.name}
           summary={
             needsPlugin
@@ -570,7 +785,7 @@ export function PluginsCatalogue({
               server.declaredBy ? (
                 <GhostButton
                   size="sm"
-                  onClick={() => openPluginRow(server.declaredBy)}
+                  onClick={() => openPluginRow(item.sourceId, server.declaredBy)}
                   className="border border-[color:var(--border-default)]"
                   aria-label={`Open ${server.declaredBy}`}
                 >
@@ -580,7 +795,7 @@ export function PluginsCatalogue({
             ) : (
               <GhostButton
                 size="sm"
-                onClick={() => activeSource && scan && addScannedServer(activeSource, scan, server)}
+                onClick={() => rowSource && rowScan && addScannedServer(rowSource, rowScan, server)}
                 className="border border-[color:var(--border-default)]"
                 aria-label={`Add ${server.name}`}
               >
@@ -591,14 +806,18 @@ export function PluginsCatalogue({
         />
       )
     },
-    [activeSource, addScannedServer, connectors, onLaunchConnector, openPluginRow, openRow, scan],
+    [addScannedServer, artworkByPlugin, connectors, onLaunchConnector, openPluginRow, openRow, readyScan, sourceById],
   )
 
   // ── Head, notices, body, detail ────────────────────────────────────────────
 
-  const thisReport = report?.sourceId === activeSource?.id ? report : null
+  // A report belongs to the source it happened on. Under a search the rows of
+  // every source are on screen, so every source's report is too.
+  const thisReport = report && (searching || report.sourceId === activeSource?.id) ? report : null
   const head =
-    tabId === INSTALLED_TAB_ID ? (
+    crossSearch ? (
+      <CatalogueHead name="All sources" stateLine={crossSourceStateLine(crossSearch)} />
+    ) : tabId === INSTALLED_TAB_ID ? (
       <CatalogueHead
         name="Installed"
         stateLine={
@@ -640,11 +859,23 @@ export function PluginsCatalogue({
       />
     ) : null
 
+  const unreadLine = crossSearch ? unreadSourcesLine(crossSearch.unread) : null
   const notices = (
     <>
+      {landingNotice ? (
+        <InlineNotice
+          tone="warn"
+          action={<GhostButton onClick={() => setLandingNotice(null)}>Dismiss</GhostButton>}
+        >
+          {landingNotice}
+        </InlineNotice>
+      ) : null}
       {thisReport?.error ? <InlineNotice tone="error" title="That did not complete." hint={thisReport.error} /> : null}
       {thisReport?.outcome ? <InlineNotice tone="warn">{thisReport.outcome}</InlineNotice> : null}
-      {scan && !isApp ? (
+      {/* A search that did not cover every source says which it left out and
+          why, rather than reading as a complete answer. */}
+      {unreadLine ? <InlineNotice tone="warn">{unreadLine}</InlineNotice> : null}
+      {scan && !isApp && !searching ? (
         <ScanNotices scan={scan} transport={sources.transport} gitInstalled={sources.gitInstalled} />
       ) : null}
       {addNotice ? (
@@ -664,6 +895,22 @@ export function PluginsCatalogue({
   )
 
   const body = ((): React.ReactNode => {
+    if (sources.sourcesLoad.status === 'error') {
+      return (
+        <InlineNotice
+          tone="error"
+          title="Your sources could not be read."
+          hint="Nothing was changed. Try again, or add a source to start a fresh list."
+          detail={sources.sourcesLoad.message}
+          action={<GhostButton onClick={sources.refreshSources}>Try again</GhostButton>}
+        />
+      )
+    }
+    // Under a search the sections ARE the body, whatever tab is selected; the
+    // only state that is not a list is the source list itself still loading.
+    if (searching) {
+      return sources.sourcesLoad.status === 'loading' ? <LoadingLine label="Loading sources…" /> : null
+    }
     if (tabId === INSTALLED_TAB_ID) {
       return (
         <div className="space-y-6">
@@ -694,17 +941,6 @@ export function PluginsCatalogue({
             }}
           />
         </div>
-      )
-    }
-    if (sources.sourcesLoad.status === 'error') {
-      return (
-        <InlineNotice
-          tone="error"
-          title="Your sources could not be read."
-          hint="Nothing was changed. Try again, or add a source to start a fresh list."
-          detail={sources.sourcesLoad.message}
-          action={<GhostButton onClick={sources.refreshSources}>Try again</GhostButton>}
-        />
       )
     }
     if (!activeSource) return <LoadingLine label="Loading sources…" />
@@ -745,8 +981,12 @@ export function PluginsCatalogue({
 
   const openConnector =
     openRow?.kind === 'connector' ? appEntries.find((entry) => entry.key === openRow.key) ?? null : null
-  const openPlugin = scan && openRow?.kind === 'plugin' ? findPlugin(scan, openRow.id) : null
-  const marketplaceName = scan?.marketplaceName ?? ''
+  // The open plugin's OWN source and scan — the row's, which under a search
+  // need not be the tab's.
+  const openSource = openRow?.kind === 'plugin' ? sourceById.get(openRow.sourceId) ?? null : null
+  const openScan = openRow?.kind === 'plugin' ? readyScan(openRow.sourceId) : null
+  const openPlugin = openScan && openRow?.kind === 'plugin' ? findPlugin(openScan, openRow.id) : null
+  const marketplaceName = openScan?.marketplaceName ?? ''
 
   const detail = openConnector ? (
     openConnector.plugin ? (
@@ -761,29 +1001,30 @@ export function PluginsCatalogue({
         onClose={() => setOpenRow(null)}
       />
     ) : null
-  ) : activeSource && scan && openPlugin ? (
+  ) : openSource && openScan && openPlugin ? (
     <PluginDetailPane
-      source={activeSource}
-      shape={scanShape(scan)}
+      source={openSource}
+      shape={scanShape(openScan)}
       marketplaceName={marketplaceName}
       plugin={openPlugin}
       reading={reading === openPlugin.id}
       readError={readError?.pluginId === openPlugin.id ? readError.message : null}
-      onRetryRead={() => void readLinked(activeSource, openPlugin)}
+      onRetryRead={() => void readLinked(openSource, openPlugin)}
       harnesses={harnesses}
+      workspaceRoot={workspaceRoot}
       install={derivePluginInstallState(
         sources.installedPlugins,
-        activeSource.id,
+        openSource.id,
         openPlugin,
         marketplaceName,
-        pluginCommit(openPlugin, activeSource),
+        pluginCommit(openPlugin, openSource),
       )}
       availability={derivePluginInstallAvailability(workspaceRoot, openPlugin, harnesses, hooksAcknowledged)}
       installing={installing}
       hooksAcknowledged={hooksAcknowledged}
       onHooksAcknowledgedChange={setHooksAcknowledged}
-      onInstall={() => void installPlugin(activeSource, openPlugin)}
-      onUninstall={(record) => void uninstallPlugin(activeSource, record)}
+      onInstall={() => void installPlugin(openSource, openPlugin)}
+      onUninstall={(record) => void uninstallPlugin(openSource, record)}
       onClose={() => setOpenRow(null)}
     />
   ) : null
@@ -797,7 +1038,7 @@ export function PluginsCatalogue({
         setOpenRow(null)
         onSelectTab(next)
       }}
-      search={{ query, onQueryChange, placeholder: 'Search this tab' }}
+      search={{ query, onQueryChange, placeholder: 'Search all sources', scope: 'sources' }}
       add={add}
       head={head}
       notices={notices}

@@ -22,6 +22,7 @@ import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './m
 import { registerThirdPartyRendererEntryIpc } from './modules/third-party-renderer-entries'
 import { defaultUserModuleRoot, discoverUserModules, discoverUserModulesSync } from './modules/user-module-registry'
 import { attachBuildSkewWatch, createBuildSkewWatch } from './build-skew'
+import { adoptLegacySkillSources, isDefaultProfileDir } from './skills/legacy-profile'
 import { registerCoreIpc } from './register-core-ipc'
 import { registerWorkflowIpc } from './register-workflow-ipc'
 import { attachStartupTimeline, markStartup } from './startup-timeline'
@@ -39,6 +40,7 @@ attachStartupTimeline(ipcMain)
 attachBuildSkewWatch(ipcMain, createBuildSkewWatch({ mainStamp: mainBuildStamp }))
 
 configureDevUserData()
+carryLegacySkillSourcesForward()
 
 // Make the drop-in extension roots discoverable on a fresh (packaged) install:
 // create ~/.multicode/{modules,plugins} and seed each with a README describing
@@ -244,6 +246,27 @@ function configureDevUserData(): void {
   if (!userDataDir || app.isPackaged) return
 
   app.setPath('userData', userDataDir)
+}
+
+/**
+ * Rescue the skill sources the profile rename left behind (2026-09-08): the app
+ * was `multicode` and is now `sprintengine-studio`, and Electron moved userData
+ * with the name. Runs here, after the dev override and before
+ * `createAppServices` builds the skills service, so the store is whole the
+ * first time anything reads it. See `skills/legacy-profile.ts` for the rules —
+ * including why the gate is the profile's own name rather than `isPackaged`.
+ */
+function carryLegacySkillSourcesForward(): void {
+  // The rescue is a courtesy, never a boot condition: whatever it cannot do
+  // (a profile it cannot name, a store it cannot read) is a log line, and the
+  // app starts exactly as it would have without it.
+  try {
+    const userDataDir = app.getPath('userData')
+    if (!isDefaultProfileDir(userDataDir, app.getName())) return
+    adoptLegacySkillSources({ userDataDir })
+  } catch (error) {
+    console.warn('[skill-sources] legacy-adoption skipped', error instanceof Error ? error.message : String(error))
+  }
 }
 
 // Everything above ran synchronously during entry evaluation: module

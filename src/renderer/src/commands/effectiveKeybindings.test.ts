@@ -44,3 +44,32 @@ assert.equal(getSpecialistCommandId('qa-test'), null)
 assert.equal(platformKeybindingsFromApiPlatform('darwin'), 'darwin')
 assert.equal(platformKeybindingsFromApiPlatform('win32'), 'windows')
 assert.equal(platformKeybindingsFromApiPlatform('linux'), 'linux')
+
+// Double Shift never reaches the native menu: it is a two-stroke chord, and
+// `commandPalette.open` still advertises ⌘K as its accelerator.
+assert.equal(getElectronAccelerator('commandPalette.open', { overrides: {}, disabled: {} }), 'CmdOrCtrl+K')
+assert.equal(
+  getElectronAccelerator('commandPalette.open', { overrides: { 'commandPalette.open': ['Shift Shift'] }, disabled: {} }),
+  null,
+)
+assert.equal(
+  getEffectiveKeybindingLabel('commandPalette.open', { overrides: { 'commandPalette.open': ['Shift Shift'] }, disabled: {} }, 'darwin'),
+  'Shift Shift',
+)
+// A hand-edited one-stroke `Shift` override does not parse, so it can never
+// reach the menu as the invalid Electron accelerator "shift".
+assert.equal(
+  getElectronAccelerator('commandPalette.open', { overrides: { 'commandPalette.open': ['Shift'] }, disabled: {} }),
+  null,
+)
+assert.deepEqual(
+  getEffectiveKeybindings('commandPalette.open', { overrides: {}, disabled: {} }),
+  ['primary+k', 'primary+shift+p'],
+)
+// `Shift Shift` moved onto `search.everywhere`, so disabling the gesture leaves
+// ⌘K standing (skills-everywhere, 2026-09-10).
+assert.deepEqual(
+  getEffectiveKeybindings('search.everywhere', { overrides: {}, disabled: {} }),
+  ['shift shift'],
+)
+

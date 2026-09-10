@@ -1427,7 +1427,20 @@ export type SkillAddSourceInput = {
 }
 
 export type SkillAddSourceResult =
-  | { ok: true; source: SkillSource; scan: ScanResult }
+  | {
+      ok: true
+      source: SkillSource
+      scan: ScanResult
+      /**
+       * The pasted repository IS one of the always-present sources
+       * (`anthropics/claude-plugins-official`, `sprintengine/studio-releases`),
+       * so it was merged into that tab rather than added beside it. The add
+       * succeeded — the tab's listing is freshly read — but nothing new
+       * appeared in the list, and a surface that said "added" would be lying
+       * about the one thing the person is looking for.
+       */
+      mergedIntoBuiltin?: boolean
+    }
   | { ok: false; message: string }
 
 /**

@@ -90,7 +90,12 @@ import {
   scanPluginTree,
   type LinkedPluginRepoReader,
 } from './scan-plugins'
-import { createSkillSourceStore, isRemovableSkillSource, type SkillSourceStore } from './source-store'
+import {
+  createSkillSourceStore,
+  isRemovableSkillSource,
+  skillSourceLog,
+  type SkillSourceStore,
+} from './source-store'
 import { createSourceUpdateChecker } from './source-updates'
 import { STUDIO_MARKETPLACE_RESOURCE_DIR } from './studio-plugin'
 import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills, refreshSourceMcpServers } from './sync'
@@ -281,14 +286,22 @@ export function createSkillsService(
     async addSource(input) {
       const ref = parseSkillRepoRef(input.repo ?? '')
       if (!ref) {
+        skillSourceLog('source-add', { repo: input.repo ?? '', outcome: 'not-a-repository' })
         return {
           ok: false,
           message: 'Enter a public GitHub repository, like owner/name or its github.com address.',
         }
       }
       const id = `github:${ref.owner}/${ref.repo}`
+      // Pasting one of the always-present repositories is not an add: the store
+      // keeps a single record per id, so the paste lands in the Anthropic or
+      // SprintEngine Studio tab and no row appears in the list. It used to
+      // report a plain success and leave the person hunting for a source that
+      // was never going to be there.
+      const mergedIntoBuiltin = !isRemovableSkillSource(id)
       const existing = await store.getSource(id)
-      if (existing && input.replace !== true) {
+      if (existing && input.replace !== true && !mergedIntoBuiltin) {
+        skillSourceLog('source-add', { id, outcome: 'already-in-list' })
         return { ok: false, message: `${ref.owner}/${ref.repo} is already one of your sources.` }
       }
       try {
@@ -297,9 +310,16 @@ export function createSkillsService(
         // in, so the linked plugins it already read are not read again.
         const { source, scan } = await scanGithubSource(ref, id, context, await store.getScan(id))
         await store.putSource(source, scan)
-        return { ok: true, source, scan }
+        skillSourceLog('source-add', {
+          id,
+          outcome: mergedIntoBuiltin ? 'merged-into-builtin' : 'added',
+          skills: scan.skills.length,
+        })
+        return mergedIntoBuiltin ? { ok: true, source, scan, mergedIntoBuiltin: true } : { ok: true, source, scan }
       } catch (error) {
-        return { ok: false, message: describeFetchError(error) }
+        const message = describeFetchError(error)
+        skillSourceLog('source-add', { id, outcome: 'failed', message })
+        return { ok: false, message }
       }
     },
 
@@ -355,9 +375,22 @@ export function createSkillsService(
     async removeSource(input) {
       const id = input.sourceId ?? ''
       if (!isRemovableSkillSource(id)) {
+        skillSourceLog('source-remove', { id, outcome: 'refused-always-present' })
         return { ok: false, message: 'This source is part of Multicode and cannot be removed.' }
       }
-      const removed = await store.removeSource(id)
+      // The store now refuses to write over a file it could not read (a
+      // permission error, a busy volume) and says so by throwing. Here that is
+      // an answer for the person, not a rejected IPC call: the modal and the
+      // tab's Remove both await this result and read `message` from it.
+      let removed: boolean
+      try {
+        removed = await store.removeSource(id)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        skillSourceLog('source-remove', { id, outcome: 'failed', message })
+        return { ok: false, message }
+      }
+      skillSourceLog('source-remove', { id, outcome: removed ? 'removed' : 'not-in-list' })
       return removed ? { ok: true, sourceId: id } : { ok: false, message: 'That source is not in your list.' }
     },
 

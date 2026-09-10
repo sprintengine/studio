@@ -107,3 +107,36 @@ const unrelated = findKeybindingConflicts(
   COMMAND_REGISTRY
 )
 assert.equal(unrelated.length, 0)
+
+// The double-tap gesture normalizes to `shift shift`, a two-stroke chord, so it
+// collides with nothing an ordinary Shift+key binding claims — the Shortcuts
+// tab must not flag Double Shift against every Shift shortcut in the app.
+const shiftTapVsShiftKey = findKeybindingConflicts(
+  {
+    commandId: 'custom.shift',
+    commandTitle: 'Custom Shift Binding',
+    keybindings: ['Shift+X'],
+    scopes: ['global'],
+  },
+  [
+    ...COMMAND_REGISTRY,
+    { commandId: 'custom.tap', commandTitle: 'Tap', keybindings: ['Shift Shift'], scopes: ['global'] as const },
+  ],
+)
+assert.equal(shiftTapVsShiftKey.length, 0)
+
+// It does collide with itself, so a user rebinding another command to Double
+// Shift is still told.
+const shiftTapVsPalette = findKeybindingConflicts(
+  {
+    commandId: 'custom.myGesture',
+    commandTitle: 'My Gesture',
+    keybindings: ['Shift Shift'],
+    scopes: ['global'],
+  },
+  COMMAND_REGISTRY,
+)
+assert.equal(shiftTapVsPalette.some((conflict) => (
+  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'search.everywhere'
+)), true)
+

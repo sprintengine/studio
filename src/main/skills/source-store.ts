@@ -114,9 +114,33 @@ function withPersistedScanState(always: SkillSource, stored: SkillSource | undef
   }
 }
 
-type PersistedState = {
+export type PersistedState = {
   sources: SkillSource[]
   scans: Record<string, ScanResult>
+}
+
+/**
+ * One line per thing that happened to the store.
+ *
+ * A source a person added went missing and there was no way to tell whether it
+ * had been dropped on a read, overwritten by a write, or never stored at all —
+ * every path here was silent. So the store now says what it did: what it
+ * dropped and why, what it wrote, what it removed. Terse on purpose; this runs
+ * on every launch and on every hourly update check.
+ */
+export type SkillSourceLog = (event: string, detail: Record<string, unknown>) => void
+
+/** Events that are a problem rather than a note. */
+const WARNING_EVENTS = new Set(['source-dropped', 'scan-dropped', 'store-unreadable', 'store-quarantined'])
+
+export const skillSourceLog: SkillSourceLog = (event, detail) => {
+  const write = WARNING_EVENTS.has(event) ? console.warn : console.info
+  write(`[skill-sources] ${event}`, detail)
+}
+
+export type SkillSourceStoreOptions = {
+  /** Injected in tests; production writes to the main-process console. */
+  log?: SkillSourceLog
 }
 
 export type SkillSourceStore = {
@@ -128,15 +152,61 @@ export type SkillSourceStore = {
   getScan(id: string): Promise<ScanResult | null>
 }
 
-export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
+export function createSkillSourceStore(userDataDir: string, options: SkillSourceStoreOptions = {}): SkillSourceStore {
   const path = join(userDataDir, FILE_NAME)
+  const log = options.log ?? skillSourceLog
 
+  /** The bytes on disk, or null when there is no store yet. Anything else throws. */
+  const readBytes = async (): Promise<string | null> => {
+    try {
+      return await readFile(path, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
+    }
+  }
+
+  /**
+   * Reading to ANSWER. A store that cannot be read degrades to "no user
+   * sources" rather than throwing — the always-present sources still list —
+   * but it says so now instead of looking like an empty list.
+   */
   const read = async (): Promise<PersistedState> => {
     try {
-      return parseSkillSourceState(await readFile(path, 'utf8'))
-    } catch {
+      const raw = await readBytes()
+      return raw === null ? emptyState() : parseSkillSourceBytes(raw, log).state
+    } catch (error) {
+      log('store-unreadable', { path, message: errorMessage(error) })
       return emptyState()
     }
+  }
+
+  /**
+   * Reading to WRITE, which is a different question.
+   *
+   * The old read swallowed every error and handed back an empty state, so a
+   * store that could not be read for a moment — a permission error, a busy or
+   * unmounted volume, EMFILE under load — became an empty store the very next
+   * write persisted over the top of. That is a whole list of added sources lost
+   * to one transient failure, silently. An unreadable store now aborts the
+   * write instead: the add reports a failure the person can act on, and the
+   * file is still there.
+   *
+   * Bytes that are present but not JSON are the one case that must not block
+   * forever — a store nobody can parse would otherwise refuse every add for the
+   * life of the install — so they are kept aside under a timestamped name and
+   * the write proceeds over a fresh state.
+   */
+  const readForWrite = async (): Promise<PersistedState> => {
+    const raw = await readBytes()
+    if (raw === null) return emptyState()
+    const { state, unparsable } = parseSkillSourceBytes(raw, log)
+    if (unparsable && raw.trim().length > 0) {
+      const kept = `${path}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`
+      await rename(path, kept).catch(() => undefined)
+      log('store-quarantined', { path, kept, bytes: raw.length })
+    }
+    return state
   }
 
   // Serialized read-modify-write: adding two sources in quick succession must
@@ -144,7 +214,7 @@ export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
   let writeChain: Promise<unknown> = Promise.resolve()
   const update = async (mutate: (state: PersistedState) => boolean): Promise<boolean> => {
     const run = writeChain.then(async () => {
-      const state = await read()
+      const state = await readForWrite()
       if (!mutate(state)) return false
       await mkdir(userDataDir, { recursive: true })
       const temp = `${path}.tmp`
@@ -176,24 +246,37 @@ export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
       return stored ?? null
     },
     async putSource(source, scan) {
-      await update((state) => {
-        const index = state.sources.findIndex((existing) => existing.id === source.id)
-        if (index === -1) state.sources.push(source)
-        else state.sources[index] = source
-        if (scan) state.scans[source.id] = scan
-        else delete state.scans[source.id]
-        return true
-      })
+      let added = false
+      try {
+        await update((state) => {
+          const index = state.sources.findIndex((existing) => existing.id === source.id)
+          added = index === -1
+          if (index === -1) state.sources.push(source)
+          else state.sources[index] = source
+          if (scan) state.scans[source.id] = scan
+          else delete state.scans[source.id]
+          return true
+        })
+      } catch (error) {
+        log('source-write-failed', { id: source.id, message: errorMessage(error) })
+        throw error
+      }
+      log('source-written', { id: source.id, outcome: added ? 'added' : 'updated', skills: scan?.skills.length ?? null })
     },
     async removeSource(id) {
-      if (!isRemovableSkillSource(id)) return false
-      return update((state) => {
+      if (!isRemovableSkillSource(id)) {
+        log('source-removed', { id, outcome: 'refused-always-present' })
+        return false
+      }
+      const removed = await update((state) => {
         const index = state.sources.findIndex((source) => source.id === id)
         if (index === -1) return false
         state.sources.splice(index, 1)
         delete state.scans[id]
         return true
       })
+      log('source-removed', { id, outcome: removed ? 'removed' : 'not-in-list' })
+      return removed
     },
     async getScan(id) {
       const state = await read()
@@ -207,20 +290,55 @@ export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
  * than throwing: the always-present sources still list, and re-adding a
  * repository is one paste.
  */
-export function parseSkillSourceState(raw: string): PersistedState {
+export function parseSkillSourceState(raw: string, log: SkillSourceLog = skillSourceLog): PersistedState {
+  return parseSkillSourceBytes(raw, log).state
+}
+
+/**
+ * The parse, plus whether the bytes were JSON at all — which only a caller
+ * about to WRITE needs, to tell "there was nothing here" from "there was
+ * something here and it is now unreadable". The store's own write path asks
+ * it, and so does the legacy-profile rescue before it writes over the current
+ * store (`legacy-profile.ts`).
+ */
+export function parseSkillSourceBytes(
+  raw: string,
+  log: SkillSourceLog,
+): { state: PersistedState; unparsable: boolean } {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
-  } catch {
-    return emptyState()
+  } catch (error) {
+    log('store-unreadable', { reason: 'invalid-json', bytes: raw.length, message: errorMessage(error) })
+    return { state: emptyState(), unparsable: true }
   }
-  if (!parsed || typeof parsed !== 'object') return emptyState()
+  if (!parsed || typeof parsed !== 'object') {
+    log('store-unreadable', { reason: 'not-an-object', bytes: raw.length })
+    return { state: emptyState(), unparsable: true }
+  }
   const record = parsed as { sources?: unknown; scans?: unknown }
-  const sources = Array.isArray(record.sources)
-    ? record.sources
-        .filter(isPersistableSource)
-        .filter((source) => isRemovableSkillSource(source.id) || isCachedAlwaysPresentSource(source))
-    : []
+  const sources: SkillSource[] = []
+  if (Array.isArray(record.sources)) {
+    for (const candidate of record.sources) {
+      // Every drop is named. A stored source that fails this filter used to
+      // disappear without a word, which is how a folder source and (we
+      // suspect) a repository source went missing with nothing in any log to
+      // say so.
+      const reason = sourceDropReason(candidate)
+      if (reason) {
+        log('source-dropped', { id: describeSourceId(candidate), reason })
+        continue
+      }
+      const source = candidate as SkillSource
+      if (!isRemovableSkillSource(source.id) && !isCachedAlwaysPresentSource(source)) {
+        log('source-dropped', { id: source.id, reason: 'always-present-id-with-another-shape' })
+        continue
+      }
+      sources.push(source)
+    }
+  } else if (record.sources !== undefined) {
+    log('store-unreadable', { reason: 'sources-not-an-array' })
+  }
   // A scan is only ever a cache of a source in the list beside it, so a key
   // naming a source this read dropped is dead weight that the next write would
   // persist again — a scan of a repository nobody can open, growing by one
@@ -229,7 +347,14 @@ export function parseSkillSourceState(raw: string): PersistedState {
   const scans: Record<string, ScanResult> = {}
   if (record.scans && typeof record.scans === 'object' && !Array.isArray(record.scans)) {
     for (const [id, scan] of Object.entries(record.scans as Record<string, unknown>)) {
-      if (!known.has(id) || !isPersistableScan(scan)) continue
+      if (!known.has(id)) {
+        log('scan-dropped', { id, reason: 'no-source-in-list' })
+        continue
+      }
+      if (!isPersistableScan(scan)) {
+        log('scan-dropped', { id, reason: 'malformed' })
+        continue
+      }
       // A seed scan is never written here on purpose (see `putSource`'s caller
       // in index.ts), and if one ever were, wearing the flag on the way back
       // out would make a cache read look like a bundled read forever. The
@@ -238,8 +363,10 @@ export function parseSkillSourceState(raw: string): PersistedState {
       const { bundled: _bundled, ...cached } = scan
       scans[id] = cached
     }
+  } else if (record.scans !== undefined) {
+    log('store-unreadable', { reason: 'scans-not-an-object' })
   }
-  return { sources, scans }
+  return { state: { sources, scans }, unparsable: false }
 }
 
 function emptyState(): PersistedState {
@@ -256,16 +383,30 @@ function emptyState(): PersistedState {
  *
  * The kind check is not decoration: a source that fails it is dropped on the
  * very next read, which is how a folder added successfully vanished before it
- * could be opened.
+ * could be opened. It returns the REASON rather than a boolean so the drop can
+ * be logged with something a person can act on.
  */
-function isPersistableSource(value: unknown): value is SkillSource {
-  if (!value || typeof value !== 'object') return false
+function sourceDropReason(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return 'not-an-object'
   const source = value as Record<string, unknown>
-  if (typeof source.id !== 'string' || source.id.length === 0) return false
-  if (typeof source.name !== 'string') return false
-  if (source.kind === 'github') return typeof source.repo === 'string'
-  if (source.kind === 'local') return typeof source.path === 'string' && source.path.length > 0
-  return false
+  if (typeof source.id !== 'string' || source.id.length === 0) return 'no-id'
+  if (typeof source.name !== 'string') return 'no-name'
+  if (source.kind === 'github') return typeof source.repo === 'string' ? null : 'github-source-without-a-repo'
+  if (source.kind === 'local') {
+    return typeof source.path === 'string' && source.path.length > 0 ? null : 'folder-source-without-a-path'
+  }
+  return `unknown-kind:${typeof source.kind === 'string' ? source.kind : typeof source.kind}`
+}
+
+/** Enough of an unusable record to find it in the file by hand. */
+function describeSourceId(value: unknown): string {
+  if (!value || typeof value !== 'object') return '(not an object)'
+  const id = (value as Record<string, unknown>).id
+  return typeof id === 'string' && id.length > 0 ? id : '(no id)'
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function isPersistableScan(value: unknown): value is ScanResult {

@@ -33,7 +33,12 @@ import { PluginsCatalogue } from './plugins/PluginsCatalogue'
 import { AddSkillSourceModal } from './skills/AddSkillSourceModal'
 import { SkillsCatalogue } from './skills/SkillsCatalogue'
 import { useSkillSources } from './skills/useSkillSources'
-import { INSTALLED_TAB_ID } from './catalogue/catalogueTabs'
+import {
+  landingFromTarget,
+  targetNamesPlace,
+  targetTabId,
+  type CatalogueLanding,
+} from './catalogue/catalogueLanding'
 import {
   consumePendingExtensionsSurfaceTarget,
   peekPendingExtensionsSurfaceTarget,
@@ -130,7 +135,30 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   // that the chosen source survive a switch between Plugins and Skills, and a
   // source id is what "the chosen source" is — so one piece of state answers
   // both "which tab" and "which source".
-  const [tabId, setTabId] = useState<string | null>(null)
+  //
+  // Seeded from the latch for the same reason the view is, plus one of its
+  // own: a catalogue reads the source of the tab it is standing on the moment
+  // it mounts (ensureScan), and a default tab that was corrected an effect
+  // later had already started a network read of the official marketplace on
+  // a deep link that asked for a different source.
+  const [tabId, setTabId] = useState<string | null>(() => {
+    const pending = peekPendingExtensionsSurfaceTarget()
+    return pending ? targetTabId(pending) : null
+  })
+  // The plugin or skill a deep link asked the open view to land on, until the
+  // view reports it has (catalogueLanding.ts). Held here because the target
+  // arrives here; resolved in the catalogue because the scan it needs is read
+  // there.
+  const [landing, setLanding] = useState<CatalogueLanding | null>(() => {
+    const pending = peekPendingExtensionsSurfaceTarget()
+    return pending ? landingFromTarget(pending) : null
+  })
+  // The search box's query, held ACROSS tabs and views (skills-everywhere,
+  // 2026-09-10). A query reads every source at once now, so switching tab or
+  // view under it changes nothing about what it means — and clearing it on
+  // every switch was how a person typed the same word four times to look in
+  // four places. It is cleared from the box itself (its cross, or Escape),
+  // and by a deep link that names a place, below.
   const [query, setQuery] = useState('')
   // The repository the Add-from-GitHub modal opens on ('' for an empty field).
   const [addRepo, setAddRepo] = useState<string | null>(null)
@@ -138,9 +166,18 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
 
   const applyTarget = useCallback((target: ExtensionsSurfaceTarget) => {
     setView(target.view)
-    setQuery('')
-    if (target.installed) setTabId(INSTALLED_TAB_ID)
+    const tab = targetTabId(target)
+    if (tab) setTabId(tab)
+    // A newer target supersedes any landing still in flight, including with
+    // nothing: a drawer click that asks only for a view is the person moving
+    // on from wherever the last link was taking them.
+    setLanding(landingFromTarget(target))
+    // A bare view switch keeps the query; a target that names a tab, a plugin
+    // or a skill clears it, because a results list would otherwise stand
+    // between the person and the place they asked to be taken.
+    if (targetNamesPlace(target)) setQuery('')
   }, [])
+  const landed = useCallback(() => setLanding(null), [])
 
   // Deep-link: drain the latch on mount and subscribe live (the automations
   // surface-target idiom), so entry points land on the right view whether the
@@ -210,10 +247,12 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     [activeWorkspaceRoot, connectors.mcpSettings, removeMcpServer],
   )
 
+  // The query is deliberately KEPT: the tab is selected, which is what reads
+  // the new source, and a search that was on when the person went and added a
+  // source is a search they want the new source's answer to.
   const openAddedSource = useCallback((source: SkillSource) => {
     sources.refreshSources()
     setTabId(source.id)
-    setQuery('')
   }, [sources])
 
   /**
@@ -238,7 +277,6 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
       const id = `${LOCAL_SKILL_SOURCE_ID_PREFIX}${path}`
       if (sources.sources.some((source) => source.id === id)) {
         setTabId(id)
-        setQuery('')
         return
       }
       setAddError(result.message)
@@ -252,9 +290,9 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     [addFromFile],
   )
 
+  // A tab change and nothing else: the query survives it (see its declaration).
   const selectTab = useCallback((next: string) => {
     setTabId(next)
-    setQuery('')
   }, [])
 
   return (
@@ -267,6 +305,8 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
           onSelectTab={selectTab}
           query={query}
           onQueryChange={setQuery}
+          landing={landing}
+          onLanded={landed}
           add={add}
           addNotice={addError}
           onDismissAddNotice={() => setAddError(null)}
@@ -293,6 +333,8 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
           onSelectTab={selectTab}
           query={query}
           onQueryChange={setQuery}
+          landing={landing}
+          onLanded={landed}
           add={add}
           addNotice={addError}
           onDismissAddNotice={() => setAddError(null)}

@@ -116,11 +116,14 @@ async function ensureSkillTests(): Promise<void> {
   }
 
   // One path for every skill, whatever it came from: the renderer asks main to
-  // put it where the agents read, and does not decide where that is.
+  // put it where the agents read, and does not decide where that is. The
+  // per-target report rides back on success — it is the only place that knows
+  // which harness dirs now hold the skill, and which of their CLIs re-read a
+  // skills directory only on restart (utils/useSkillInAgent.ts).
   const builtin = await ensureSkillForAgent({ workspaceRoot: '/ws', skill: { id: 'debug' } })
-  assert.deepEqual(builtin, { ok: true })
+  assert.deepEqual(builtin, { ok: true, targets: [{ path: '.claude/skills/x', status: 'written' }] })
   const custom = await ensureSkillForAgent({ workspaceRoot: '/ws', skill: { id: 'c' } })
-  assert.deepEqual(custom, { ok: true })
+  assert.deepEqual(custom, { ok: true, targets: [{ path: '.claude/skills/x', status: 'written' }] })
   assert.deepEqual(calls, ['attach:debug', 'attach:c'])
 
   // One harness refusing the write does not block an invocation the others can
@@ -133,7 +136,13 @@ async function ensureSkillTests(): Promise<void> {
       { path: '.grok/skills/debug', status: 'failed', message: 'EACCES' },
     ],
   }
-  assert.deepEqual(await ensureSkillForAgent({ workspaceRoot: '/ws', skill: { id: 'debug' } }), { ok: true })
+  assert.deepEqual(await ensureSkillForAgent({ workspaceRoot: '/ws', skill: { id: 'debug' } }), {
+    ok: true,
+    targets: [
+      { path: '.claude/skills/debug', status: 'written' },
+      { path: '.grok/skills/debug', status: 'failed', message: 'EACCES' },
+    ],
+  })
 
   reply = {
     ok: true,

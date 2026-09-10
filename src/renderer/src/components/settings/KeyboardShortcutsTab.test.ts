@@ -31,6 +31,27 @@ assert.equal(paletteDefault.overrides, null)
 assert.equal(paletteDefault.disabled, false)
 assert.equal(paletteDefault.customized, false)
 
+// Double Shift (the IDE Search Everywhere gesture) is a row of its own
+// rather than a third default on the palette (skills-everywhere, 2026-09-10):
+// disable and reset are per row, so while it rode `commandPalette.open` there
+// was no way to turn the gesture off without turning ⌘K off with it. The
+// recorder still cannot capture it — a lone modifier is ignored there — but the
+// row displays it and can disable it.
+const everywhereDefault = rowFor('search.everywhere')
+assert.deepEqual(everywhereDefault.defaults, ['shift shift'])
+assert.deepEqual(everywhereDefault.effective, ['shift shift'])
+assert.equal(everywhereDefault.disabled, false)
+const everywhereDisabled = rowFor('search.everywhere', {
+  overrides: {},
+  disabled: { 'search.everywhere': true },
+})
+assert.deepEqual(everywhereDisabled.effective, [], 'the gesture can be turned off on its own…')
+assert.deepEqual(
+  rowFor('commandPalette.open', { overrides: {}, disabled: { 'search.everywhere': true } }).effective,
+  ['primary+k', 'primary+shift+p'],
+  '…and ⌘K survives it',
+)
+
 // --- Override (add/change a binding) ---------------------------------------
 const paletteOverride = rowFor('commandPalette.open', {
   overrides: { 'commandPalette.open': ['Primary+J', 'Primary+J'] },
@@ -102,6 +123,12 @@ assert.equal(eventToChordString(press({ key: ' ', ctrlKey: true }), 'linux'), 'p
 assert.equal(eventToChordString(press({ key: 'Shift', shiftKey: true }), 'darwin'), null)
 assert.equal(eventToChordString(press({ key: 'Meta', metaKey: true }), 'darwin'), null)
 assert.equal(eventToChordString(press({ key: 'Dead' }), 'linux'), null)
+// Modifier keys the ignore list does not name by event name (Super on Linux,
+// AltGraph, Fn) reach the parser as a lone modifier stroke. A lone modifier is
+// only legal as a double tap, so the parser refuses them and the recorder
+// waits, rather than saving a one-stroke `meta` or `alt` that nothing can fire.
+assert.equal(eventToChordString(press({ key: 'Super', code: 'MetaLeft' }), 'linux'), null)
+assert.equal(eventToChordString(press({ key: 'AltGraph', code: 'AltRight' }), 'linux'), null)
 
 // --- Recorder/dispatcher key identity (shifted punctuation) -----------------
 // The recorder must record by physical key (event.code), not the shifted char,
