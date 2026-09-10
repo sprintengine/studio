@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
+import type { TooltipChildProps } from '../ui/Tooltip'
+
 // One hover surface per row (owner, 2026-09-09). A row that opens the
 // conversation peek stops opening tooltips on its own readings — the card is
 // already saying how much changed and how long it has been idle, and the
@@ -39,11 +41,23 @@ async function main(): Promise<void> {
         React.createElement(
           RowTooltipsSuppressed.Provider,
           { value: suppressed },
-          React.createElement(
-            RowTooltip,
-            { content: '12 files updated — changed by this terminal' },
-            React.createElement('button', { type: 'button' }, '+12'),
-          ),
+          // `children` goes in the props object, not as a third argument:
+          // RowTooltip requires a single ReactElement child, and the variadic
+          // createElement overload cannot satisfy a required `children` prop.
+          // The cast is the createElement equivalent of what every JSX caller
+          // gets for free: createElement infers the child's props from the
+          // literal ({ type: string }) rather than the element's full
+          // attributes, so it never structurally matches TooltipChildProps —
+          // whose members are all optional — even though a button is exactly
+          // the trigger Tooltip wants.
+          React.createElement(RowTooltip, {
+            content: '12 files updated — changed by this terminal',
+            children: React.createElement(
+              'button',
+              { type: 'button' },
+              '+12',
+            ) as React.ReactElement<TooltipChildProps>,
+          }),
         ),
       )
     })

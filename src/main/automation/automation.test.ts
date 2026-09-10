@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
@@ -16,7 +16,6 @@ import { createMcpSocketServer, type McpConnectionContext, type McpToolRegistrat
 import { createWorkspaceRegistryService } from '../workspace-registry-service'
 import { createInMemoryWorkspaceRegistryStore } from '../workspace-registry-store'
 import { createWorkspaceSyncService } from '../workspace-sync-service'
-import { createMainKernel } from '../module-host/main-host'
 import { createFakeIpcMain } from '../module-host/ipc-main-fake.test-helper'
 import { loadMainModules, type CapabilityModule } from '../module-host/load-modules'
 import { createAutomationTools, type AutomationBackends } from './automation-tools'

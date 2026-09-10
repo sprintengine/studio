@@ -830,6 +830,7 @@ async function main(): Promise<void> {
         ok: false,
         state: 'fetch-error',
         registryUrl: 'https://registry.test/marketplace.json',
+        stale: false,
         message: 'The marketplace could not be reached.',
       }),
     })
