@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { browserTabLabel } from '../../../../../shared/browser'
-import { selectModuleEnabled } from '../../../modules'
+import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../../modules'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type {
   FuturePlanWorkspaceSource,
@@ -9,7 +9,7 @@ import type {
   WorkspacePaneTabKind,
 } from '../../../types/workspace'
 import { ContextMenu, IconButton, MenuItem, Tabs, TabsScroller, Tooltip, type TabItem } from '../../ui'
-import { PANE_KINDS, paneKindDefinition, type PaneLaunchKind } from './paneKinds'
+import { composePaneKinds, paneKindDefinition, type PaneLaunchKind } from './paneKinds'
 import { WORKSPACE_PANE_DATA_ATTRIBUTE } from './paneFocus'
 import { closePaneTabAndItsTerminal } from './paneTerminals'
 import { WorkspacePaneAddMenu } from './WorkspacePaneAddMenu'
@@ -86,10 +86,22 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
   // the viewer while it is mounted; null until it has answered.
   const [diffCount, setDiffCount] = useState<number | null>(null)
 
-  // Kinds whose module is on. A disabled module's kind is absent, not greyed.
+  // Third-party modules normally finish loading before the React root renders;
+  // when a slow one lands after it, this bump recomposes the kinds so its row
+  // appears without a reload (the same generation trick WorkspaceManager uses).
+  const [moduleRegistryGeneration, setModuleRegistryGeneration] = useState(0)
+  useEffect(() => onThirdPartyRendererModulesLoaded(() => setModuleRegistryGeneration((n) => n + 1)), [])
+
+  // Kinds whose module is on: the shell's own, then the rows modules
+  // contributed on their modal surfaces. A disabled module's kind is absent,
+  // not greyed — for a contributed row exactly as for a built-in one.
   const kinds = useMemo(
-    () => PANE_KINDS.filter((definition) => !definition.moduleId || selectModuleEnabled(moduleOverrides, definition.moduleId)),
-    [moduleOverrides],
+    () => composePaneKinds(
+      getRendererHost().getModalSurfaceLaunchers(),
+      (moduleId) => selectModuleEnabled(moduleOverrides, moduleId),
+    ),
+    // moduleRegistryGeneration: a late third-party load re-derives the list.
+    [moduleOverrides, moduleRegistryGeneration],
   )
 
   const closeTab = useCallback(
@@ -122,14 +134,20 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
   // opening a tab (Reviews). Everything else is a tab of this pane.
   const openKind = useCallback(
     (kind: PaneLaunchKind) => {
-      const definition = paneKindDefinition(kind)
-      if (definition.modalSurfaceId) {
-        openModalSurface(definition.modalSurfaceId)
+      // The composed row is what was picked, so its modalSurfaceId is read
+      // from the list the person clicked — `paneKindDefinition` only knows the
+      // static tab kinds.
+      const definition = kinds.find((candidate) => candidate.kind === kind)
+      if (definition?.modalSurfaceId) {
+        // The modal floats over the window, not inside this workspace's card,
+        // so it is handed the workspace it was opened FROM — a review runs its
+        // guide in the workspace the reviewer reached for it in (D5).
+        openModalSurface(definition.modalSurfaceId, { workspaceId })
         return
       }
       openPaneTab(workspaceId, { kind: kind as WorkspacePaneTabKind })
     },
-    [openModalSurface, openPaneTab, workspaceId],
+    [kinds, openModalSurface, openPaneTab, workspaceId],
   )
 
   const items: TabItem[] = tabs.map((tab) => {

@@ -50,7 +50,7 @@ const ASSETS_DIR = 'out/renderer/assets'
 //
 // Re-baseline deliberately, with fresh `measure-startup.mjs` output attached —
 // never as a quiet bump to make a red build green.
-const CEILING_KB = 2176
+const CEILING_KB = 2160
 
 // Signatures of heavy deps that must only ever appear in lazy chunks.
 // `allow` lists benign exact substrings that happen to contain the signature
@@ -71,7 +71,15 @@ const FORBIDDEN = [
     // editor stays behind the EditorPanel / GitConflictResolverPanel React.lazy
     // boundaries; statically importing either into boot reintroduces real
     // `monaco.` API references that survive this allowance and fail the ratchet.
-    allow: ['.monaco-editor'],
+    // `@monaco-editor/react` is the bare SPECIFIER the third-party import map
+    // bridges (D6): src/renderer/src/modules/third-party-loader.ts holds it as
+    // a key in a table of `() => import(…)` thunks, so what lands in the boot
+    // chunk is that string plus a lazy-chunk reference — the wrapper and the
+    // editor behind it are a separate chunk fetched on the first third-party
+    // module load. Same shape of allowance as `.monaco-editor` above: a real
+    // eager import still drags in `monaco.` API references that neither
+    // allowance strips.
+    allow: ['.monaco-editor', '@monaco-editor/react'],
   },
   { sig: 'forceSimulation', why: 'd3-force — keep it in the MemoryGraphPanel chunk' },
 ]

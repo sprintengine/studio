@@ -407,6 +407,7 @@ const carrier = {
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   activeGlobalSurface: null as string | null,
   activeModalSurface: null as string | null,
+  activeModalSurfaceWorkspaceId: null as string | null,
   sidebarSection: 'home' as SidebarSection,
   chatListView: 'projects' as ChatListView,
   sidebarCollapsed: false,
@@ -456,10 +457,10 @@ assert.equal(carrier.diffView, 'side-by-side', 'and back')
 
 // Closing settings never clears somebody ELSE's modal — and never touches a
 // door: the two are independent layers.
-carrier.activeModalSurface = 'reviews'
+carrier.activeModalSurface = 'notebooks'
 carrier.activeGlobalSurface = 'backlog'
 slice.closeSettingsOverlay()
-assert.equal(carrier.activeModalSurface, 'reviews', 'another open modal survives a settings close')
+assert.equal(carrier.activeModalSurface, 'notebooks', 'another open modal survives a settings close')
 assert.equal(carrier.activeGlobalSurface, 'backlog', 'an open door survives a settings close')
 carrier.activeModalSurface = null
 carrier.activeGlobalSurface = null
@@ -488,15 +489,41 @@ assert.equal(carrier.sidebarSection, 'extensions', 'and leaving the door lands b
 // A door underneath survives a modal's open/close round-trip: the modal is a
 // float over the card region, not a routing of it.
 carrier.activeGlobalSurface = 'sprints'
-slice.openModalSurface('reviews')
-assert.equal(carrier.activeModalSurface, 'reviews')
+slice.openModalSurface('notebooks')
+assert.equal(carrier.activeModalSurface, 'notebooks')
 assert.equal(carrier.activeGlobalSurface, 'sprints', 'the door under the modal stays put')
 slice.closeModalSurface()
 assert.equal(carrier.activeGlobalSurface, 'sprints', 'closing the modal lands back on the door')
 
+// The opener's workspace rides with the modal (D5/WP-C): the pane strip passes
+// the workspace it was picked in, and the shell hands it to the surface body —
+// a modal floats over the window, so this is the only thing that says which
+// workspace it acts on. It is set, replaced and cleared with the modal itself,
+// never left behind for the next one to inherit.
+slice.openModalSurface('notebooks', { workspaceId: 'ws-7' })
+assert.equal(carrier.activeModalSurfaceWorkspaceId, 'ws-7', 'the opener records its workspace')
+slice.closeModalSurface()
+assert.equal(carrier.activeModalSurfaceWorkspaceId, null, 'and closing the modal takes it')
+slice.openModalSurface('notebooks', { workspaceId: 'ws-7' })
+slice.openModalSurface('notebooks')
+assert.equal(
+  carrier.activeModalSurfaceWorkspaceId,
+  null,
+  'an opener with no workspace clears the last one — a stale id would act on a workspace nobody named',
+)
+slice.openModalSurface('notebooks', { workspaceId: 'ws-7' })
+slice.openSettingsOverlay()
+assert.equal(carrier.activeModalSurfaceWorkspaceId, null, 'Settings is the app\'s, not a workspace\'s')
+slice.closeSettingsOverlay()
+slice.openModalSurface('notebooks', { workspaceId: 'ws-7' })
+slice.openGlobalSurface('backlog')
+assert.equal(carrier.activeModalSurfaceWorkspaceId, null, 'and a door open clears it with the modal it closes')
+slice.closeGlobalSurface()
+carrier.activeGlobalSurface = null
+
 // The reverse is NOT symmetric: opening a door closes the modal, or a history
 // step to a door would mount it invisibly behind the modal's scrim.
-slice.openModalSurface('reviews')
+slice.openModalSurface('notebooks')
 slice.openGlobalSurface('backlog')
 assert.equal(carrier.activeGlobalSurface, 'backlog')
 assert.equal(carrier.activeModalSurface, null, 'a door open closes the modal over it')
@@ -1517,53 +1544,6 @@ assert.equal(
   'guidedBriefConversationSessionsOptInReset' in staleTransportProfile,
   false,
   'its one-time reset stamp is dropped with it',
-)
-
-// The two review keys that used to live here moved onto review's own app-level
-// module state (MC-2090); their behavior is pinned in reviewAppState.test.ts.
-// What stays core's job is the one-time lift of a profile that still carries
-// them — core's own persisted rows, which only core can read once the field is
-// gone from AppSettings. Same shape as the MC-1708 review-workspace retirement.
-const liftedFromLegacy = normalizeAppSettings(
-  {
-    reviewGuideDefaults: { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
-    lastSelectedReview: { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
-  } as never,
-  [],
-).moduleSettings
-assert.deepEqual(
-  liftedFromLegacy['module:review'],
-  {
-    'guide-defaults': { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
-    'last-selected-review': { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
-  },
-  'a profile predating the move keeps both values, in the module namespace',
-)
-// Values pass through untouched: the owning module normalizes what it reads, so
-// core keeps no knowledge of their shape.
-assert.deepEqual(
-  normalizeAppSettings({ reviewGuideDefaults: { depth: 'exhaustive' } } as never, [])
-    .moduleSettings['module:review'],
-  { 'guide-defaults': { depth: 'exhaustive' } },
-  'the lift copies verbatim — validation belongs to the module that reads it',
-)
-// A value the module has already written wins: the lift must never clobber a
-// newer choice with the legacy one it superseded.
-assert.deepEqual(
-  normalizeAppSettings(
-    {
-      reviewGuideDefaults: { depth: 'brief', cli: null, model: null },
-      moduleSettings: { 'module:review': { 'guide-defaults': { depth: 'thorough', cli: null, model: null } } },
-    } as never,
-    [],
-  ).moduleSettings['module:review'],
-  { 'guide-defaults': { depth: 'thorough', cli: null, model: null } },
-  'an already-migrated value is not overwritten by the legacy key',
-)
-assert.equal(
-  normalizeAppSettings({} as never, []).moduleSettings['module:review'],
-  undefined,
-  'a profile with neither key gains no namespace at all',
 )
 
 // Appearance: windowMaterial is a second axis beside theme (MC-1907).

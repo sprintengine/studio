@@ -388,7 +388,7 @@ function deriveFileChanges(toolName, args, output, directory) {
 // (resources/hooks/multicode-agent-state.mjs — keep the two in step), on the
 // one hook OpenCode gives that carries a tool's input AND its result. The
 // regex below is the wire-side twin of `parsePullRequestUrl`
-// (src/shared/review/pr-url.ts): a plugin loaded by OpenCode's own runtime can
+// (src/shared/git/pr-url.ts): a plugin loaded by OpenCode's own runtime can
 // import nothing from src/, and main re-validates every URL through the real
 // parser before believing it.
 //

@@ -588,6 +588,11 @@ export default function WorkspaceManager() {
   // its registered id, or null. A float, not a mount kind — the card region
   // keeps whatever owns it underneath.
   const activeModalSurface = useWorkspaceStore((s) => s.activeModalSurface)
+  // The workspace the open modal was opened from (the pane strip passes its
+  // own). Handed to the surface body below — a modal floats over the window
+  // rather than inside a workspace card, so this is the only thing that tells
+  // it which workspace it is acting on.
+  const activeModalSurfaceWorkspaceId = useWorkspaceStore((s) => s.activeModalSurfaceWorkspaceId)
   const closeModalSurface = useWorkspaceStore((s) => s.closeModalSurface)
   // The door-routed full-page surface for this window (global-surfaces epic 1704):
   // its registered id, or null when a workspace owns the card region.
@@ -3224,7 +3229,23 @@ export default function WorkspaceManager() {
       }
     }
 
-    if (!result.chat) return
+    if (!result.chat) {
+      // A run that opens no surface and no chat — an `install.module` card is
+      // the first — would otherwise end with the button still reading
+      // "Install" and nothing on screen to say it worked. Main composes the one
+      // sentence worth showing for each action ("Reviews installed. Restart
+      // SprintEngine Studio to use it."); say them.
+      if (!result.surface) {
+        const said = result.outcomes
+          .filter((outcome) => outcome.status === 'done' || outcome.status === 'already')
+          .map((outcome) => outcome.message.trim())
+          .filter((message) => message.length > 0)
+        if (said.length > 0) {
+          showToast({ tone: 'good', title: card.title, description: said.join(' ') })
+        }
+      }
+      return
+    }
     const chat = result.chat
     const chatRoot = result.workspaceRoot
     // The skills the card named, as the workspace actually holds them. A name
@@ -4830,7 +4851,9 @@ export default function WorkspaceManager() {
                 onClose={closeModalSurface}
               >
                 <React.Suspense fallback={<SuspenseFallback label="Loading surface" />}>
-                  <activeModalSurfaceEntry.Component />
+                  <activeModalSurfaceEntry.Component
+                    workspaceId={activeModalSurfaceWorkspaceId ?? undefined}
+                  />
                 </React.Suspense>
               </GlobalSurfaceErrorBoundary>
             </SurfaceExitContext.Provider>

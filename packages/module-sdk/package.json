@@ -1,6 +1,6 @@
 {
   "name": "@multicode/module-sdk",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Published contract types and authoring CLI for building Multicode capability modules and BYO-CLI plugins: manifest, permissions, MainHost/RendererHost contributions, workspace creation, Automations providers, notifications, CLI plugin manifests, and signing.",
   "license": "MIT",
   "type": "module",
@@ -14,6 +14,14 @@
     "./signing": {
       "types": "./dist/signing.d.ts",
       "default": "./dist/signing.js"
+    },
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "default": "./dist/ui.js"
+    },
+    "./surface": {
+      "types": "./dist/surface.d.ts",
+      "default": "./dist/surface.js"
     }
   },
   "bin": {

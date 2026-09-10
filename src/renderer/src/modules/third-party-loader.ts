@@ -57,11 +57,28 @@ export function getThirdPartyRendererLoadState(
 // maps, Chromium ≥ 133), and a map only affects modules resolved after it is
 // inserted — i.e. exactly the blob-URL entry bundles imported below.
 
-const SHARED_MODULE_SPECIFIERS: Record<string, object> = {
+// React is eager because the app is already holding it; everything below is
+// resolved on first third-party load. The UI kit, the door shell and Monaco
+// are bridged the same way (D6) so a module renders with the app's own
+// components — but they must not join the boot graph, hence the dynamic
+// imports in installSharedRuntimeImportMap rather than static ones here. The
+// bundle-budget ratchet (scripts/check-bundle-budget.mjs) fails the build if
+// Monaco ever lands in the eager chunk.
+const EAGER_SHARED_MODULE_SPECIFIERS: Record<string, object> = {
   react: React,
   'react-dom': ReactDOM,
   'react-dom/client': ReactDOMClient,
   'react/jsx-runtime': ReactJsxRuntime,
+}
+
+// Resolved lazily, in parallel, the first time a third-party entry is loaded.
+// The keys are exact bare specifiers, which is what an import map matches on,
+// so a module's `import { Banner } from '@multicode/module-sdk/ui'` resolves
+// without the SDK tarball's runtime stub ever being reached.
+const LAZY_SHARED_MODULE_LOADERS: Record<string, () => Promise<object>> = {
+  '@multicode/module-sdk/ui': () => import('./sdk-ui'),
+  '@multicode/module-sdk/surface': () => import('./sdk-surface'),
+  '@monaco-editor/react': () => import('@monaco-editor/react'),
 }
 
 const SHARED_RUNTIME_GLOBAL = '__multicodeSharedModuleRuntime'
@@ -82,22 +99,33 @@ function sharedModuleShimSource(specifier: string, namespace: object): string {
   ].join('\n')
 }
 
-let sharedRuntimeInstalled = false
+let sharedRuntimeInstall: Promise<void> | null = null
 
-function installSharedRuntimeImportMap(): void {
-  if (sharedRuntimeInstalled) return
-  sharedRuntimeInstalled = true
-  ;(globalThis as Record<string, unknown>)[SHARED_RUNTIME_GLOBAL] = SHARED_MODULE_SPECIFIERS
-  const imports: Record<string, string> = {}
-  for (const [specifier, namespace] of Object.entries(SHARED_MODULE_SPECIFIERS)) {
-    imports[specifier] = URL.createObjectURL(
-      new Blob([sharedModuleShimSource(specifier, namespace)], { type: 'text/javascript' })
-    )
-  }
-  const script = document.createElement('script')
-  script.type = 'importmap'
-  script.textContent = JSON.stringify({ imports })
-  document.head.appendChild(script)
+// Async because the bridged kit is loaded on demand. The blob shims are only
+// written once every namespace is in hand: an import map takes effect for
+// modules resolved *after* it is inserted, so a half-populated map would be a
+// map that permanently lies about a specifier.
+async function installSharedRuntimeImportMap(): Promise<void> {
+  sharedRuntimeInstall ??= (async () => {
+    const namespaces: Record<string, object> = { ...EAGER_SHARED_MODULE_SPECIFIERS }
+    const lazy = Object.entries(LAZY_SHARED_MODULE_LOADERS)
+    const loaded = await Promise.all(lazy.map(([, load]) => load()))
+    lazy.forEach(([specifier], index) => {
+      namespaces[specifier] = loaded[index]!
+    })
+    ;(globalThis as Record<string, unknown>)[SHARED_RUNTIME_GLOBAL] = namespaces
+    const imports: Record<string, string> = {}
+    for (const [specifier, namespace] of Object.entries(namespaces)) {
+      imports[specifier] = URL.createObjectURL(
+        new Blob([sharedModuleShimSource(specifier, namespace)], { type: 'text/javascript' })
+      )
+    }
+    const script = document.createElement('script')
+    script.type = 'importmap'
+    script.textContent = JSON.stringify({ imports })
+    document.head.appendChild(script)
+  })()
+  return sharedRuntimeInstall
 }
 
 // ── Bundle evaluation ────────────────────────────────────────────────────────
@@ -107,7 +135,7 @@ export type ThirdPartyEntryImporter = (code: string) => Promise<unknown>
 // Bundle content arrives over IPC and is evaluated via dynamic import of a
 // blob URL — no file:// or custom-protocol exposure of the module root.
 const importEntryBundle: ThirdPartyEntryImporter = async (code) => {
-  installSharedRuntimeImportMap()
+  await installSharedRuntimeImportMap()
   const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))
   try {
     return await import(/* @vite-ignore */ url)

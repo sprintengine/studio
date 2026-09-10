@@ -101,6 +101,31 @@ export function useAppTheme(): void {
   }, [theme])
 }
 
+// The two hook-free halves of `useResolvedColorScheme`, for readers that are
+// not inside the React tree — the module host's `watchColorScheme`, which
+// publishes this same answer to module code as a subscription. Kept here, next
+// to the hook, so there is one resolution rule rather than a second copy that
+// drifts.
+export function resolvedColorScheme(theme: AppTheme): ColorScheme {
+  return colorSchemeForResolvedTheme(resolveTheme(theme))
+}
+
+/** Fires on every OS light/dark switch; returns the unsubscriber. */
+export function subscribeSystemColorScheme(onChange: () => void): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return () => {}
+  }
+  const media = window.matchMedia(LIGHT_MEDIA_QUERY)
+  const listener = (): void => onChange()
+  if (typeof media.addEventListener === 'function') {
+    media.addEventListener('change', listener)
+    return () => media.removeEventListener('change', listener)
+  }
+  // Safari < 14 fallback.
+  media.addListener(listener)
+  return () => media.removeListener(listener)
+}
+
 // Resolved light/dark surface of the active theme, reactive to both an explicit
 // theme change and — under `system` — an OS light/dark switch (the store value
 // stays `'system'`, so the media query is the only signal). Editor surfaces that

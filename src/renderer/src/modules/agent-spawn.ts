@@ -5,11 +5,33 @@
 // unit-testable; modules/index wires the real store/api/layout helpers at
 // boot.
 
+/** One model a runtime offers, as a picker row. */
+export type ModuleAgentRuntimeModelOption = {
+  /** Model id to pass as `spawnAgent`'s `cliModel`. */
+  id: string
+  /** Display label; falls back to the id when the catalog names none. */
+  label: string
+}
+
 export type ModuleAgentRuntimeOption = {
   /** Runtime id to pass as `spawnAgent`'s `cli` (e.g. 'claude', 'codex'). */
   id: string
   /** Display label for pickers. */
   label: string
+  /**
+   * Whether this machine has the runtime's binary. False rows are still
+   * listed — a module that builds its own picker shows them disabled rather
+   * than pretending the CLI does not exist — but spawning one fails.
+   */
+  available: boolean
+  /**
+   * The model ids this runtime offers, merged from the plugin manifest, what
+   * the CLI reported about itself, and the ids the user added. Empty means the
+   * runtime exposes no model choice, so launch with its own default.
+   */
+  models: ModuleAgentRuntimeModelOption[]
+  /** True for the runtime the user last chose — what a picker preselects. */
+  isDefault: boolean
 }
 
 export type ModuleSpawnAgentInput = {

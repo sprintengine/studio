@@ -1,0 +1,33 @@
+{
+  "id": "review",
+  "displayName": "Reviews",
+  "version": 1,
+  "defaultEnabled": true,
+  "source": "third-party",
+  "permissions": [
+    "ipc:invoke",
+    "ipc:agents",
+    "ipc:workspace-read",
+    "agents:session",
+    "filesystem:read-workspace",
+    "filesystem:write-workspace",
+    "process:spawn",
+    "network",
+    "storage"
+  ],
+  "publisher": "Multicode Labs",
+  "category": "orchestration",
+  "summary": "Guided, human-led review of a pull request, branch, or patch.",
+  "dependsOn": [
+    "agent-runtime"
+  ],
+  "entry": {
+    "main": "dist/main.cjs",
+    "renderer": "dist/renderer.mjs"
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "publicKey": "MCowBQYDK2VwAyEAptxscrkw0So+0D3Pm2FupKpxqOyaNmpUR909RrGSuX0=",
+    "signature": "WIV9TqqZJdgPAeAT4jHJSXfON1tgiEJ4cvHKMHUSJZSlgSYpMGGFvmRcTS70EQFrjj20YQ+Un87IeTq4EcCCAg=="
+  }
+}

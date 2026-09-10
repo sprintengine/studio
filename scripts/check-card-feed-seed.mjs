@@ -204,6 +204,19 @@ function pluginHooks(dir) {
   return hooks
 }
 
+// The app's own signed marketplace registry: the entries a card's
+// `install.module` may name. Read from the file this repository ships, which is
+// the same index the app falls back to when the network is unavailable.
+const registryModules = new Map()
+try {
+  const registry = JSON.parse(readFileSync(join(root, 'resources', 'marketplace', 'marketplace.json'), 'utf8'))
+  for (const entry of registry.plugins ?? []) {
+    if (typeof entry?.id === 'string') registryModules.set(entry.id, { ...entry, provides: entry.provides ?? [] })
+  }
+} catch (error) {
+  errors.push(`resources/marketplace/marketplace.json could not be read: ${error.message}`)
+}
+
 // A skill id is its directory path within its source, so it resolves against
 // the mirror by that same path. Rejects a traversal outright rather than
 // following it.
@@ -242,6 +255,31 @@ for (const card of cards) {
           `${at}: install.mcp resolved against the bundled MCP catalogue, which is gone; MCP servers arrive inside plugins now, so name the plugin with install.plugin`,
         )
         break
+      case 'install.module': {
+        // A module comes from the app's OWN signed registry — the file this
+        // repository ships and the only marketplace a card may name — so the id
+        // resolves against it here rather than against a source's scan. An
+        // entry that does not `provides: ["module"]` is refused too: the
+        // executor would refuse it on the person's machine, and a seed card
+        // that can only ever fail is the thing this gate exists to stop.
+        const entry = registryModules.get(action.id)
+        if (!entry) {
+          errors.push(`${at}: "${action.id}" is not an entry in resources/marketplace/marketplace.json`)
+          break
+        }
+        if (!entry.provides.includes('module')) {
+          errors.push(`${at}: "${action.id}" is in the registry but does not provide a module, so install.module cannot install it`)
+          break
+        }
+        // The executor honours this verb only for a VERIFIED entry (a publisher
+        // in trusted-publishers.json signed it); anything else ends in a trust
+        // prompt no card may answer. A seed card naming one is a Go that
+        // reports an error to somebody who pressed a button on a poster.
+        if (!entry.signature || entry.publisher?.verified !== true) {
+          errors.push(`${at}: "${action.id}" is not a verified first-party entry, so Go could only ever refuse it — such a card is installed from Extensions → Plugins instead`)
+        }
+        break
+      }
       case 'install.skill': {
         if (action.source !== STUDIO_SOURCE_ID) {
           errors.push(`${at}: source "${action.source}" is not one this repository mirrors, so its ids cannot be checked; a seed card may only name ${STUDIO_SOURCE_ID}`)

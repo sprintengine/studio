@@ -47,7 +47,10 @@ contracts, so a published version always matches the app version it ships with.
   gateway, owned by your module's id with duplicate-name rejection. Tool
   availability follows your module's enablement live: a disabled module's
   tools stay listed and answer an actionable enable error instead of running.
-  Declare `ipc:agents`.
+  Declare `ipc:agents`. Skills your module ships ride the same
+  ownership discipline through `registerSkills(skills)`, and
+  `ensureSkillInstalled(workspaceRoot, skillId)` puts one in a workspace on
+  demand — see "Skills a module ships".
 - **Renderer host**: `registerPanel`, `registerWorkspaceType` (workspace
   types may now ship `supervisors` — render-nothing background components
   the shell mounts while your module is enabled, inside a crash boundary and
@@ -87,7 +90,15 @@ contracts, so a published version always matches the app version it ships with.
   `React.lazy()`; while your module is uninstalled or disabled the shell
   shows an explicit "not installed" door in its place and keeps the user's
   spot, and an id already claimed by another module is reported as a module
-  load error), `registerTopBarItem` (a control in the app's top-bar
+  load error), `registerModalSurface` (a body the shell mounts in its modal
+  shell, floated over whatever the window is showing — for a pick-and-close
+  task over work that stays put. The shell draws no trigger for it unless you
+  declare `launcher: { label, letter, Glyph }`, which puts your row in the
+  workspace pane's kind list beside Browser, Terminal and Diff; `letter` must
+  be exactly one character and the shell's own kinds win a collision, in which
+  case your row keeps its label and glyph and has no shortcut. Your body is
+  handed `{ workspaceId }` — the workspace its opener acted from, which for a
+  pane row is the workspace it was picked in), `registerTopBarItem` (a control in the app's top-bar
   title-strip cluster — a `TopBarItemDefinition` of `{ id, order, Component }`;
   the zero-prop `Component` owns its full behavior and may be eager or
   `React.lazy()`, the bar shows it only while your module is enabled and
@@ -101,15 +112,24 @@ contracts, so a published version always matches the app version it ships with.
   `getWorkspace(workspaceId)` — the workspace's read-only
   `ModuleWorkspaceView` (`{ id, name, folderPath, mode }`; unknown ids
   resolve `null`, never a throw; declare `ipc:workspace-read`; the
-  `entry.main` twin is `WorkspaceContextToken`), and the live runtime
+  `entry.main` twin is `WorkspaceContextToken`) with
+  `listWorkspaces()` / `watchWorkspaces(cb)` beside it for a surface that is
+  not mounted inside one workspace (same view shape, same permission; the
+  watch fires once with the current list, then on change), and
+  `watchColorScheme(cb)` — the app's resolved `'light' | 'dark'`, immediately
+  and on every change, for a themed runtime you host (Monaco, a chart
+  library); ordinary UI reads `THEME_TOKENS` instead — and the live runtime
   surfaces — `getWorkingRoot` (the *effective working root*: the worktree a
   worktree-backed workspace does live work under, else the primary checkout;
   the methods below resolve workspace-relative paths against it; declare
   `ipc:workspace-read`), `watchAgentSessions` (read-only session views,
-  snapshot + deduped changes), `spawnAgent` (through the app's shared
-  session runtime, structured failures), `focusTab` (agent or
-  workspace-relative file tab), `listAgentRuntimes` (ids + labels from the
-  availability-filtered catalog), and `watchWorkspaceFile` (debounced
+  snapshot + deduped changes; a workspace id watches that workspace,
+  `undefined` watches every workspace narrowed to the agent-id namespaces
+  you claimed — claim none and it reports nothing), `spawnAgent` (through the
+  app's shared session runtime, structured failures), `focusTab` (agent or
+  workspace-relative file tab), `listAgentRuntimes` (`{ id, label, available,
+  models, isDefault }` from the availability-filtered catalog the shell's own
+  pickers read), and `watchWorkspaceFile` (debounced
   content watch; declare `ipc:agents` / `filesystem:read-workspace`
   respectively — each fails with a named cause when the Agent Runtime
   module is disabled), and per-module workspace state —
@@ -257,6 +277,57 @@ onDrop={(event) => {
 The contract is drift-guarded: the repo gate fails if the app's MIME, payload
 shape, or parse semantics ever diverge from this package.
 
+## Skills a module ships
+
+A skill is a directory with a `SKILL.md` (plus any harness sidecars, e.g.
+`agents/openai.yaml`). Ship yours inside your module and hand them to the host:
+
+```ts
+export function registerMain(host: MainHost): void {
+  host.registerSkills([
+    {
+      id: 'review-guide',
+      sourceDir: 'skills/review-guide',
+      targetPolicy: 'all-native',
+      description: 'Walk a human reviewer through a code change.',
+    },
+  ])
+}
+```
+
+`sourceDir` is relative to your module root and must stay inside it — the host
+resolves it and rejects a path that escapes. Registration is owned exactly as
+IPC channels and MCP tools are: an `id` a built-in skill or another module
+already holds throws, the whole batch is validated before one skill of it
+lands, and unloading your module takes its skills with it.
+
+`targetPolicy` decides where the skill is copied in a workspace:
+
+| policy | lands in |
+| --- | --- |
+| `'agents'` | `.agents/skills/<id>` — the harness-neutral directory |
+| `'all-native'` | that, plus every installed CLI's own skill directory (`.claude/skills`, `.codex/skills`, …) |
+
+Pick `'all-native'` whenever a prompt invokes the skill by name: a CLI resolves
+an invocation only against its own directory.
+
+A registered skill is a skill. The host installs it check-first — an
+already-installed workspace is not rewritten, a stale copy is refreshed, and a
+copy the user edited by hand is left alone — and stamps it with the same
+managed manifest the app's own skills carry.
+
+To put a skill in a workspace before an agent needs it:
+
+```ts
+const result = await host.ensureSkillInstalled(projectRoot, 'studio-review')
+if (!result.ok) console.warn(`skill not installed: ${result.status}`)
+```
+
+It never throws. `ok: false` with `status: 'unknown-skill'` means nothing
+answers to that id — usually a rename, or a module that failed to load;
+`'local'` and `'modified'` mean a hand-made copy is in the way and was left
+alone (both still report `ok: true`, because the skill IS present).
+
 ## Theme tokens
 
 `THEME_TOKENS` (with the `ThemeToken` string-literal union) lists the theme
@@ -273,6 +344,106 @@ or cache resolved values in JS, and never hard-code a hex.
 | Text | `--text-strong`, `--text-default`, `--text-muted`, `--text-subtle`, `--text-disabled`, `--text-on-accent` | Headings → body → secondary → hints → disabled; text on accent fills |
 | Accent | `--accent-primary`, `--accent-primary-soft`, `--focus-ring` | Primary actions/selection, soft accent fills; `--focus-ring` is a full box-shadow value |
 | Tone | `--tone-neutral`, `--tone-accent`, `--tone-warn`, `--tone-good`, `--tone-error`, `--tone-merged` | Semantic status: idle/neutral, active/info, caution, success, failure, merged/PR-purple |
+| Motion | `--motion-normal`, `--motion-ease` | The app's standard transition duration and easing — use them as a pair (`transition: opacity var(--motion-normal) var(--motion-ease)`) so module UI moves at the app's pace |
+
+## UI kit, surface shell and Monaco
+
+Three of the app's own runtime pieces are bridged to modules, so a module-owned
+door looks and behaves like a bundled one instead of re-implementing chrome a
+shade off:
+
+| Specifier | What it is |
+|---|---|
+| `@multicode/module-sdk/ui` | A curated slice of the app's component kit |
+| `@multicode/module-sdk/surface` | The door shell and its rail/canvas substrate |
+| `@monaco-editor/react` | The Monaco React wrapper the app already ships |
+
+**They are host-provided.** This package ships only their TYPES; the `.js`
+behind `./ui` and `./surface` is a stub that throws
+`"@multicode/module-sdk/ui is provided by the host at runtime; mark it external
+in your bundler"` the moment it is evaluated. The app installs an import map
+before it evaluates your `entry.renderer` bundle and answers all three
+specifiers (plus `react`, `react-dom`, `react-dom/client`,
+`react/jsx-runtime`) with its own live instances — which is also why there is
+exactly one React, one Monaco and one copy of the kit in the process.
+
+So every one of them must be marked external:
+
+```
+esbuild src/renderer.tsx --bundle --format=esm --outfile=dist/renderer.mjs \
+  --external:react --external:react-dom --external:react-dom/client \
+  --external:react/jsx-runtime \
+  --external:@monaco-editor/react \
+  --external:@multicode/module-sdk/ui \
+  --external:@multicode/module-sdk/surface
+```
+
+Keep `moduleResolution: "bundler"` (or `node16`) in your tsconfig so the
+subpath `exports` are honoured. Bundling one of these in by mistake fails
+loudly at load with the message above, never silently with a second React.
+
+### `@multicode/module-sdk/ui`
+
+`GhostButton`, `OutlineButton`, `PrimaryButton`, `Banner`, `Drawer`,
+`EmptyState`, `Field`, `Input`, `Textarea`, `InlineNotice`, `KbdChord`,
+`LifecycleGlyph`, `LinkButton`, `RowButton`, `Section`, `SegmentedControl`,
+`Select`, `Spinner`, `StatusDot`, `TruncatedText`, `CliModelPickerButton`, and
+the `FOCUS_RING_CLASS` string for any focusable you draw yourself. Props are
+published for each, alongside the shared vocabulary they are written in:
+`Tone`, `StatusTone`, `LifecycleState`, `SelectItem`, `SegmentedControlItem`,
+`FilterMenuGroup`, `CliRuntimeOption`.
+
+The list is deliberately short and deliberately frozen: it is a versioned
+contract, pinned against the app's own components by a drift guard in both
+directions. A component you want that is not here is cheaper copied into your
+module than frozen here forever.
+
+### `@multicode/module-sdk/surface`
+
+`GlobalSurfaceShell` — the door frame: title bar, actions slot, back
+affordance, rail gutter, attention strip. `useSurfaceBackNav()` wires its back
+control to the host's surface history. `SurfaceRail` is the list column every
+bundled door uses (rows, groups, search, filter, scope, a new-affordance), and
+`SurfaceCanvasState` is the one loading / empty / error canvas. Types:
+`GlobalSurfaceBar`, `GlobalSurfaceShellProps`, `SurfaceCanvasStateProps`,
+`SurfaceRailRow`, `SurfaceRailGroup`, `SurfaceRailSearch`,
+`SurfaceRailFilter`, `SurfaceRailScope`, `SurfaceRailNewAffordance`,
+`SurfaceRailProps`.
+
+### `@monaco-editor/react`
+
+Import `Editor` / `DiffEditor` as usual and declare `@monaco-editor/react` a
+dependency for types; the host answers the specifier at runtime, so your bundle
+carries no editor. Drive its theme from `host.watchColorScheme(scheme => …)`
+rather than reading the app's CSS — the tokens are contract, the theme name
+Monaco wants is not.
+
+### Tailwind classes produce no CSS unless you ship it
+
+The bridged components arrive fully styled — they were compiled by the app's
+own Tailwind build, and the design tokens they reference
+(`var(--bg-surface)`, …) come from the host stylesheet.
+
+**Utility classes YOU write do not.** The app's Tailwind build scans app
+source only, so a `flex gap-2 text-meta` first used inside your module compiles
+to nothing at all and renders as unstyled markup. Either write plain CSS /
+inline styles against the theme tokens above, or ship your own utilities-only
+stylesheet and inject it. The second is a few lines:
+
+```css
+/* tailwind.css */
+@import "tailwindcss/utilities" layer(utilities);
+@source "./src";
+/* plus a copy of the @theme block for any custom scale you use */
+```
+
+```
+npx @tailwindcss/cli -i tailwind.css -o src/styles/utilities.css --minify
+```
+
+Then inject the built CSS text through a single `<style>` element when your
+renderer entry registers. Utilities-only keeps it small and keeps it from
+fighting the host's preflight, which has already run.
 
 ## Programmatic workspace creation
 
@@ -310,6 +481,58 @@ const view = await workspaces.get(workspaceId)
 
 Renderer panels get the same view from `host.getWorkspace(workspaceId)` (a
 snapshot read, not a subscription — live state is a separate surface).
+
+`list()` on the same service enumerates every open workspace — the main-side
+twin of `RendererHost.listWorkspaces`, and how an MCP tool your module
+contributes answers "which project roots are open" with no window in sight.
+
+## Agent sessions (main)
+
+A module can own an agent TERMINAL: an ordinary agent tab, in the workspace your
+surface was opened from, under the CLI and permission preset the user chose,
+with a skill attached at spawn. Declare `agents:session` (checked on every call)
+and `dependsOn: ['agent-runtime']`.
+
+```ts
+import { getAgentSessionService, type RegisterMain } from '@multicode/module-sdk'
+
+export const registerMain: RegisterMain = (host) => {
+  const agents = getAgentSessionService(host)
+
+  host.registerIpc('my-module:start-guide', async ({ workspaceId, projectRoot, docId }) => {
+    const started = await agents.spawn({
+      workspaceId,               // required: where the agent lives
+      cwd: projectRoot,          // absolute
+      prompt: 'Walk me through this change.',
+      skill: { id: 'my-guide' }, // installed before the CLI starts
+      agentIdPrefix: 'my-guide-', // a namespace you registered
+      agentIdKey: docId,
+      label: 'My guide',
+      role: 'my-guide',
+    })
+    if (!started.ok) return started // unknown_workspace | missing_cwd | unknown_skill | …
+    // Lead the prompt with the CLI's own invocation when it has one:
+    // started.skillInvocation === '/my-guide' on Claude, undefined elsewhere.
+    return started
+  })
+}
+```
+
+- **One agent per key.** `spawn` matches on `${agentIdPrefix}${agentIdKey}`: a
+  live session under that id takes the prompt and comes back `reused: true`
+  (pass `reuseLive: false` to insist on a fresh one), and a dead or suspended
+  one is disposed before the replacement starts. The terminal session id is
+  minted per spawn and is never the agent id.
+- **Follow-ups and endings.** `send(sessionId, text)` delivers one submitted
+  turn through the app's serialized control plane. `kill(sessionId)` ends it.
+  `setReapExempt(sessionId, true)` holds a working agent out of the idle
+  reaper — the host clears the exemption when that session exits, so an
+  unbalanced call cannot strand a process. `onExit(cb)` reports the exits of
+  agents you own; `list()` returns them.
+- **Scope.** Everything here is filtered by the agent-id namespaces your module
+  registered. You cannot see, prompt, or stop another module's agents, or the
+  user's own. (Today main holds no mirror of the renderer's namespace registry;
+  see the CHANGELOG for what that limits.)
 
 ## Creating automations from a module
 

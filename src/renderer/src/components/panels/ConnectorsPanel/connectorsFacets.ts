@@ -128,24 +128,35 @@ export function connectorFacet(category: string): NamedFacet {
 }
 
 /**
- * The connector grid's entries: the registry's mcp/skills plugins.
+ * The Plugins catalogue's entries: the registry's mcp, skills and module
+ * plugins.
  *
  * This took a second `catalog` population until the third-party retirement
  * (MC-2519, 2026-09-08) and is kept as its own function rather than collapsed
- * into `registryEntriesForKinds`, because it names the grid's rule — connectors
- * are the mcp/skills kinds — where the door's other canvases name theirs.
+ * into `registryEntriesForKinds`, because it names the catalogue's rule where
+ * the door's other canvases name theirs.
+ *
+ * `module` joined the list on 2026-09-10 (D10). Until then a module-only entry
+ * was in the registry, had a detail panel, had an install flow — and appeared
+ * on no canvas a person could reach, because the Modules canvas the original
+ * split assumed never shipped. So the one extension kind that adds a whole door
+ * to the app was the one kind nobody could install from the Extensions door.
+ * The install path is unchanged and needs no workspace for a module-only bundle
+ * (`needsWorkspace`, BrowseStorefront.tsx): only mcp and skills components
+ * write into a project.
+ *
+ * `cli` stays out: agent CLIs have their own canvas (`AgentClisCatalogue`) with
+ * its own install/launch affordances, and listing them twice would be one thing
+ * counted twice on two tabs.
  */
 export function buildConnectorEntries(plugins: MarketplacePluginEntry[]): ConnectorEntry[] {
-  // Only mcp/skills plugins are connectors; module- and cli-only plugins are
-  // different extension kinds — they browse on the door's own kind canvases
-  // (MC-1847 C2, registryEntriesForKinds) rather than in the connector grid.
-  return registryEntriesForKinds(plugins, ['mcp', 'skills'])
+  return registryEntriesForKinds(plugins, ['mcp', 'skills', 'module'])
 }
 
 // Registry plugins presented as normalized entries for a set of component
-// kinds. The connector grid uses mcp/skills; the door's Modules and Agent CLIs
-// canvases use module/cli — same row shape, same detail/install flow, no
-// parallel presentation model.
+// kinds. The Plugins catalogue uses mcp/skills/module; the door's Agent CLIs
+// canvas uses cli — same row shape, same detail/install flow, no parallel
+// presentation model.
 export function registryEntriesForKinds(
   plugins: MarketplacePluginEntry[],
   kinds: readonly MarketplaceComponentKind[],

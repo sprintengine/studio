@@ -13,7 +13,7 @@ import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { AutomationsAppFrontDoorToken } from './module-host/service-tokens'
 import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from './modules/agent-runtime-module'
-import type { CapabilityManifest } from '../shared/modules/manifest'
+import { LIVE_ENABLED_MODULE_IDS, type CapabilityManifest } from '../shared/modules/manifest'
 import { createBundledMainModules } from './modules'
 import { isFirstPartyAutomationProviderModule, type AutomationProviderPermissionChecker } from './automations/provider-registry'
 import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
@@ -49,8 +49,7 @@ const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const services = createAppServices(MULTICODE_DIAGNOSTICS)
 let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
-// Dev-only capability surfaces (Voice, Mobile Relay, and the
-// not-yet-production-ready Review) ship only in
+// Dev-only capability surfaces (Voice, Mobile Relay) ship only in
 // from-source dev builds. A packaged/installed build is the production channel,
 // so they are excluded from registration entirely. See
 // src/shared/modules/dev-only.ts.
@@ -106,6 +105,9 @@ const moduleLoad = loadMainModules({
   ipcMain,
   modules: [agentRuntimeModule, ...activeMainModules, ...thirdPartyMainLoad.modules],
   overrides: moduleOverrides,
+  // Skill directories a third-party module registers are resolved against —
+  // and must stay inside — its install folder.
+  moduleRoots: thirdPartyMainLoad.moduleRoots,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,
   // Module events fan out to every open window on the one host-owned channel;
@@ -134,7 +136,7 @@ const recomputeMainEnablement = (overrides: Record<string, boolean>): void => {
 }
 recomputeMainEnablement(moduleOverrides)
 applyModuleEnablementLive = async (overrides) => {
-  const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: ['automations'] })
+  const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: LIVE_ENABLED_MODULE_IDS })
   const automationsError = report.errors.find((error) => error.id === 'automations')
   if (automationsError) return { ok: false, message: automationsError.message }
   // A module with no live-loadable main half takes its toggle through the

@@ -6,7 +6,7 @@ import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/el
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import { isAbsoluteObservedPath, MAX_OBSERVED_CWD_LENGTH } from '../shared/observed-checkout'
 import { isRecord } from '../shared/records'
-import { parsePullRequestUrl } from '../shared/review/pr-url'
+import { parsePullRequestUrl } from '../shared/git/pr-url'
 import type { ChangelistEdit } from '../shared/git/changelists'
 import { resolveClaudeConfigDir } from './conversation-peek/locate'
 

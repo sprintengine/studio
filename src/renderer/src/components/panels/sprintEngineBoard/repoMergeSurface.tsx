@@ -15,7 +15,7 @@
 
 import React, { useCallback, useState } from 'react'
 
-import { parsePullRequestUrl } from '../../../../../shared/review/pr-url'
+import { parsePullRequestUrl } from '../../../../../shared/git/pr-url'
 import type { SprintEnginePullRequestState, SprintEngineVcsRepo } from '../../../../../shared/sprintengine/run-types'
 import type { RepoMergeBlockers } from '../../../../../shared/sprintengine/repo-merge-blockers'
 import { sprintEngineRepoDisplayName } from '../../../../../shared/backlog/sprintengine-links'

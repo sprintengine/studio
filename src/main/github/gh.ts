@@ -19,7 +19,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import type { PullRequestProvider } from '../../shared/review/changeset'
+import type { PullRequestProvider } from '../../shared/git/pr-url'
 
 const execFileAsync = promisify(execFile)
 

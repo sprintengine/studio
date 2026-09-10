@@ -1624,7 +1624,6 @@ async function main(): Promise<void> {
       'components/workspace/agentComposer',
       'components/workspace/newSprint',
       'components/workspace/topbar',
-      'review/canvas',
     ]
     // `<header>` is the tag every one of the eleven dialects reached for, and it
     // is the honest marker of intent: an element declaring itself the header of
@@ -1917,7 +1916,6 @@ async function main(): Promise<void> {
     'components/workspace/newSprint/NewSprintDialog.tsx',
     'components/workspace/newWorkspace/SprintEngineRosterPanel.tsx',
     'modules/voice-dictation/VoiceDictationSettingsSection.tsx',
-    'review/door/ReviewChangeForm.tsx',
   ]
 
   /**

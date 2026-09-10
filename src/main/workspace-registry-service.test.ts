@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { createWorkspaceRegistryStore, WORKSPACE_REGISTRY_FILE_NAME } from './workspace-registry-store'
 import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createWorkspaceSyncService } from './workspace-sync-service'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEWS_HOST_WORKSPACE_MODE } from '../shared/workspace-mode'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../shared/workspace-mode'
 import { parseWorkspaceRegistryFile } from '../shared/workspace-registry'
 import type { WorkspaceRegistryDiagnostic } from './workspace-registry-service'
 
@@ -85,7 +85,7 @@ test('an explicitly named workspace locks its title at creation', () => {
   }
 })
 
-test('each host mode mints its own single-surface layout headlessly', () => {
+test('the host mode mints its own single-surface layout headlessly', () => {
   const h = harness()
   try {
     const auto = create(h, { folderPath: '/repo', mode: AUTOMATIONS_HOST_WORKSPACE_MODE })
@@ -95,8 +95,6 @@ test('each host mode mints its own single-surface layout headlessly', () => {
       true,
       'a host minted with no window still gets its control centre, never a bare standard layout',
     )
-    const reviews = create(h, { folderPath: '/repo', mode: REVIEWS_HOST_WORKSPACE_MODE })
-    assert.equal(reviews.workspace.templateId, 'reviews-host-mode')
     // The mode wins over a caller-named template: a host built on 'solo' would
     // have no control surface in it.
     const forced = create(h, { folderPath: '/other', mode: AUTOMATIONS_HOST_WORKSPACE_MODE, templateId: 'solo' })

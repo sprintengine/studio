@@ -213,7 +213,13 @@ async function installOrUpdateMarketplacePlugin(
       skillHarnesses: input.skillHarnesses,
       ...(input.automationDefaultCli ? { automationDefaultCli: input.automationDefaultCli } : {}),
     }
-    const installed = await installMarketplacePlugin(installInput, services)
+    // G1: a `verified` bundle installs with no trust prompt, so a module inside
+    // it must be signed by a trusted publisher in its OWN manifest — the
+    // preflight refuses the bundle otherwise, before anything is written, and
+    // the failure rolls back through the same path as any other.
+    const installed = await installMarketplacePlugin(installInput, services, {
+      requireTrustedModuleComponents: installClassification === 'verified',
+    })
     if (!installed.ok) {
       const rollback = await rollbackInstalledComponents(
         entry.entry.id,
@@ -854,15 +860,44 @@ async function uninstallMarketplacePlugin(
   const storeResult = await loadInstallStore(services.receiptStorePath)
   if (!storeResult.ok) return { ok: false, message: storeResult.message }
   const store = storeResult.store
-  const receipt = store.plugins[pluginId]
-  if (!receipt) return { ok: false, message: `Marketplace plugin ${pluginId} is not installed.` }
+  const found = findUninstallableReceipt(store, pluginId)
+  if (!found) return { ok: false, message: `Marketplace plugin ${pluginId} is not installed.` }
 
-  const result = await uninstallReceipt(receipt, input, services)
+  const result = await uninstallReceipt(found.receipt, input, services)
   if (!result.ok) return result
 
-  delete store.plugins[pluginId]
+  delete store.plugins[found.key]
   await writeInstallStore(services.receiptStorePath, store)
   return result
+}
+
+/**
+ * The receipt an uninstall names, by the plugin's own id or by the id of a
+ * MODULE it installed.
+ *
+ * A receipt is keyed by the plugin bundle's id, and that is what the storefront
+ * knows. Settings → Modules does not: a module row carries the id of the module
+ * itself, which is a component INSIDE the bundle and need not share its name.
+ * Removing the module alone would leave the receipt behind claiming a module
+ * that is gone — and a later re-install would then be read as an update of
+ * something that is not there. So a module id resolves to the receipt that owns
+ * it and the whole bundle comes out together, which is what the receipt means.
+ *
+ * The bundle id wins when both could match, so a plugin can never be shadowed
+ * by another plugin's component.
+ */
+function findUninstallableReceipt(
+  store: MarketplacePluginInstallStore,
+  id: string
+): { key: string; receipt: MarketplacePluginInstallReceipt } | null {
+  const direct = store.plugins[id]
+  if (direct) return { key: id, receipt: direct }
+  for (const [key, receipt] of Object.entries(store.plugins)) {
+    if (receipt.components.some((component) => component.kind === 'module' && component.id === id)) {
+      return { key, receipt }
+    }
+  }
+  return null
 }
 
 async function uninstallReceipt(
