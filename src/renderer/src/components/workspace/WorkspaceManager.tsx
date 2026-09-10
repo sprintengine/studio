@@ -193,6 +193,10 @@ import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
 // React.lazy and importing a type through it would be a needless edge into the
 // deferred chunk.
 import type { PaletteScope } from '../commandPaletteSearch'
+import {
+  subscribePaletteOpenRequest,
+  type PaletteAgentTarget,
+} from '../palette/paletteOpenRequest'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRoleRegistry, computeSprintEngineFocusAgentAvailability } from '../../utils/sprintengine'
 import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
 
@@ -761,11 +765,16 @@ export default function WorkspaceManager() {
   // the persisted `hasAdoptedAgentConfig` flag has been written.
   const adoptionInFlightRef = useRef(false)
   const [showPalette, setShowPalette] = useState(false)
-  // Which groups the palette opens filtered to. ⌘K raises the full launcher;
-  // ⌘⇧F raises the same overlay narrowed to files and their contents. Held here
-  // rather than inside the palette because the shortcut that opens it is what
-  // decides it, and the palette is unmounted when that shortcut fires.
+  // Which groups the palette opens filtered to. ⌘K and Shift Shift raise the
+  // full launcher; ⌘⇧F raises the same overlay narrowed to files and their
+  // contents; the terminal pane's star raises it narrowed to skills and
+  // plugins. Held here rather than inside the palette because the thing that
+  // opens it is what decides it, and the palette is unmounted at that moment.
   const [paletteScope, setPaletteScope] = useState<PaletteScope>('all')
+  // The agent a chosen skill should land in without asking. Only a surface that
+  // knows which pane the person is looking at can answer that, so only the star
+  // sets it; every other way of opening the palette clears it.
+  const [paletteTarget, setPaletteTarget] = useState<PaletteAgentTarget | null>(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   // Installed conversation providers, loaded lazily when a spawn surface opens.
   // Kept separate from `agentCliCatalog`: this is the provider/model catalog for
@@ -3410,6 +3419,24 @@ export default function WorkspaceManager() {
     return () => setExtensionsSurfaceHost(null)
   }, [])
 
+  // The terminal pane's star: "find a skill or plugin, for THIS agent". The
+  // palette's open state has to live here — the shortcuts that raise it fire
+  // while it is unmounted — and the pane is eight components down, so the
+  // request arrives as an event rather than as a prop threaded through every
+  // pane between them (components/palette/paletteOpenRequest.ts).
+  useEffect(
+    () =>
+      subscribePaletteOpenRequest((request) => {
+        setPaletteScope(request.scope ?? 'all')
+        setPaletteTarget(request.target ?? null)
+        setShowPalette(true)
+        setSessionsOpen(false)
+        setViewMenuOpen(false)
+        setNotificationsOpen(false)
+      }),
+    [],
+  )
+
   // "Hand to agent" on a Backlog item (backlogHandoffHost). The item's detail
   // pane is mounted by BOTH the workspace panel and the Backlog door, and
   // neither of them creates agents — the shell does, so the route is registered
@@ -3750,12 +3777,20 @@ export default function WorkspaceManager() {
       openSettings(true, 'general')
       return true
     }
-    // ⌘K and ⌘⇧F raise the same overlay and dismiss the same competing surfaces;
-    // they differ only in the scope it opens filtered to. Sharing the branch is
-    // what keeps the two from drifting into two slightly different "open the
-    // palette" behaviours.
-    if (commandId === 'commandPalette.open' || commandId === 'search.files.open') {
+    // ⌘K, Shift Shift and ⌘⇧F raise the same overlay and dismiss the same
+    // competing surfaces; they differ only in the scope it opens filtered to
+    // (and, for the first two, not even that — they are separate commands so
+    // they are separately rebindable). Sharing the branch is what keeps them
+    // from drifting into three slightly different "open the palette" behaviours.
+    if (
+      commandId === 'commandPalette.open'
+      || commandId === 'search.everywhere'
+      || commandId === 'search.files.open'
+    ) {
       setPaletteScope(commandId === 'search.files.open' ? 'files' : 'all')
+      // A keyboard-raised palette belongs to no pane: whatever the star last
+      // aimed it at must not silently steer this one.
+      setPaletteTarget(null)
       setShowPalette(true)
       setSessionsOpen(false)
       setViewMenuOpen(false)
@@ -4898,7 +4933,10 @@ export default function WorkspaceManager() {
       {showPalette && (
         <React.Suspense fallback={null}>
           <CommandPalette
-            onClose={() => setShowPalette(false)}
+            onClose={() => {
+              setShowPalette(false)
+              setPaletteTarget(null)
+            }}
             onNewChat={() => createNewChatWorkspace()}
             onSpawnSpecialist={handleSelectSpecialist}
             workspaceWindowId={workspaceWindowId}
@@ -4908,6 +4946,7 @@ export default function WorkspaceManager() {
             commandAvailability={commandAvailability}
             moduleCommandContext={moduleCommandContext}
             initialScope={paletteScope}
+            preferredTarget={paletteTarget}
           />
         </React.Suspense>
       )}

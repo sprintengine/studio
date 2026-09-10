@@ -19,12 +19,10 @@ import {
   selectAgentCliCatalog,
   type CliAvailabilityFilterStatus,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { IconButton, PrimaryButton, RowButton, SkillPickerPopover, StarGlyph, Tooltip } from '../ui'
+import { IconButton, PrimaryButton, RowButton, StarGlyph, Tooltip } from '../ui'
 import { revealBacklogItemInPane } from '../workspace/pane/backlogPaneReveal'
 import { clearAgentLaunchFailed } from '../../utils/terminalColdLoad'
-import { skillRestartToast, useSkillInAgent } from '../../utils/useSkillInAgent'
-import { showToast } from '../../store/toastStore'
-import type { WorkspaceSkill } from '../../../../shared/electron-api'
+import { requestPaletteOpen } from '../palette/paletteOpenRequest'
 
 const TerminalView = React.lazy(() => import('./TerminalView'))
 const AgentChatView = React.lazy(() => import('./AgentChatView'))
@@ -184,42 +182,28 @@ export default function AgentPanel({
   const workspaceFolderPath = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null
   )
-  const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
-  const [skillPickerOpen, setSkillPickerOpen] = useState(false)
   const isWorktreeAgent = agent?.execution.mode === 'worktree'
   const canUseSkill =
     canSuspendTerminal && !isConversationRuntime && !isWorktreeAgent && Boolean(workspaceFolderPath)
-  const useSkillInTerminal = async (skill: WorkspaceSkill) => {
-    const targetSessionId = effectiveSessionId
-    if (!targetSessionId || !workspaceFolderPath) return
-    // The one shared round trip (utils/useSkillInAgent.ts): install where this
-    // CLI reads skills, render the invocation its manifest declares — native
-    // template when the harness copy exists, plain prompt mention otherwise —
-    // and paste it unsubmitted. This pane already knows which session and which
-    // CLI, so it hands both over rather than asking.
-    const used = await useSkillInAgent({
-      workspaceRoot: workspaceFolderPath,
-      skill,
-      session: { sessionId: targetSessionId, cli },
-      clis: pluginCatalogEntries,
-      integration: pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration,
+  // The star opens the search-everywhere palette narrowed to skills and
+  // plugins, aimed at THIS pane.
+  //
+  // It used to open `SkillPickerPopover`: a list of the skills the workspace
+  // already had, with a substring filter. That answered "which of the ones I
+  // have", which is not the question a person asks at a terminal — they ask
+  // "is there a skill for this", and the answer usually lives in a source they
+  // have not installed from yet. The palette searches every source's cached
+  // scan as well as the inventory, and because the request carries this
+  // session, choosing a row installs it and pastes its invocation HERE without
+  // asking which agent. (The picker itself stays: the composer and the
+  // workspace aside still list installed skills, which is their right
+  // question.)
+  const openSkillSearch = () => {
+    if (!effectiveSessionId) return
+    requestPaletteOpen({
+      scope: 'extensions',
+      target: { sessionId: effectiveSessionId, cli: cli ?? undefined, workspaceId },
     })
-    if (!used.ok) {
-      publishDiagnosticSync({
-        level: 'error',
-        source: 'workspace',
-        title: 'Skill install failed',
-        message: used.message,
-        workspaceId,
-        workspaceName,
-      })
-      return
-    }
-    // grok and opencode declare that they re-read their skills directory only
-    // on restart, and nothing used to say so: the skill was written, the
-    // invocation was pasted, and the agent answered that it had no such skill.
-    const toast = skillRestartToast(used, skill.name)
-    if (toast) showToast(toast)
   }
   const suspendTerminal = () => {
     if (!effectiveSessionId) return
@@ -316,31 +300,18 @@ export default function AgentPanel({
           // not a button.
           <div className="absolute right-2 top-2 z-[var(--z-float)] flex items-center gap-1.5">
             {canUseSkill ? (
-              <SkillPickerPopover
-                open={skillPickerOpen}
-                onOpenChange={setSkillPickerOpen}
-                workspaceRoot={workspaceFolderPath}
-                pluginId={cli}
-                onPick={(skill) => void useSkillInTerminal(skill)}
-                onManageSkills={() => openExtensionsSurface({ view: 'skills', installed: true })}
-                placement="bottom-end"
-                renderTrigger={({ ref, triggerProps, togglePopover, open }) => (
-                  <Tooltip content="Use a skill — inserts the invocation at the prompt" placement="bottom">
-                    {/* Kit icon button on the raised ground so it stays legible
-                        over terminal output; hover-revealed, and focus-revealed
-                        for the keyboard. */}
-                    <IconButton
-                      ref={ref}
-                      onClick={togglePopover}
-                      aria-label="Use a skill"
-                      className={`bg-[color:var(--bg-surface-raised)] transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${open ? 'opacity-100' : 'opacity-0'}`}
-                      {...triggerProps}
-                    >
-                      <StarGlyph filled={false} stroked className="size-icon-sm" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-              />
+              <Tooltip content="Find a skill or plugin — Shift Shift" placement="bottom">
+                {/* Kit icon button on the raised ground so it stays legible
+                    over terminal output; hover-revealed, and focus-revealed
+                    for the keyboard. */}
+                <IconButton
+                  onClick={openSkillSearch}
+                  aria-label="Find a skill or plugin for this agent"
+                  className="bg-[color:var(--bg-surface-raised)] opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                >
+                  <StarGlyph filled={false} stroked className="size-icon-sm" />
+                </IconButton>
+              </Tooltip>
             ) : null}
             {canSuspendTerminal && !isTerminalLocked ? (
               // Hover-revealed so it doesn't clutter the live terminal; the same
