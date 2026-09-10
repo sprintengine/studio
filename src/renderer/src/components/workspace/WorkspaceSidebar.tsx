@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { FolderTypeIcon, GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
@@ -93,7 +93,7 @@ import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengine
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
-import { isSettledWorkspace, workspaceLastActiveAt } from '../../utils/workspaceSettle'
+import { isSettledWorkspace } from '../../utils/workspaceSettle'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
@@ -137,9 +137,9 @@ type WorkspaceSidebarProps = {
   activityByWorkspaceId: Record<WorkspaceId, Activity>
   // Workspaces whose agents are resident (live PTY) right now — instant to
   // switch into, versus suspended/exited rows that re-launch on open. Said in
-  // words on the row for a screen reader; it is no longer what bolds a row
-  // (see `workspaceRowEmphasis`), because a live pty on a chat nobody has
-  // touched since this morning is not the same claim as a chat in motion.
+  // words on the row for a screen reader, and what bolds a row
+  // (see `workspaceRowEmphasis`): a chat with an agent still in it is one you
+  // can walk back into and speak to, which is what the foreground is for.
   residentWorkspaceIds: Set<WorkspaceId>
   terminalRecencyByWorkspaceId: Record<WorkspaceId, TerminalRecency>
   // The unseen-completion marks, as they change — the app rail's Home badge
@@ -897,6 +897,42 @@ export function AttentionPulse({
  * tick relaxes to 30s once the turn is past a minute and the seconds stop
  * mattering.
  */
+// Two hover surfaces over one row is one too many (owner, 2026-09-09).
+//
+// A chat row already opens the conversation peek from a hover anywhere on it,
+// and the card says what the row's own tooltips were saying: how much changed,
+// how long it has been idle, what the agent is doing. Dwelling on the row while
+// scrolling past it fired BOTH, and the tooltip — wider than the row and
+// positioned over its neighbours — landed on top of the card that was arriving
+// to answer the same question.
+//
+// So the row's readings carry `RowTooltip`, which is the kit's Tooltip
+// everywhere except inside a row that opens a card, where it is the trigger's
+// own wrapper and nothing else. This is the 2026-09-07 title ruling continued:
+// where there IS a card, the card is the surface; where there is not, every one
+// of these tooltips still opens exactly as it did.
+//
+// Not everything on the row is in here. A glyph whose ONLY meaning is its label
+// — the machine mark, the provider mark, "Directory removed" — keeps the kit's
+// Tooltip outright, because suppressing it would leave a drawing that says
+// nothing and a card that never mentions it.
+// Exported for `WorkspaceSidebar.rowTooltips.test.tsx`, as the row's other
+// pieces are: the rule is one line of behaviour and it is tested directly.
+export const RowTooltipsSuppressed = createContext(false)
+
+export function RowTooltip({ children, ...props }: React.ComponentProps<typeof Tooltip>) {
+  const suppressed = useContext(RowTooltipsSuppressed)
+  if (!suppressed) return <Tooltip {...props}>{children}</Tooltip>
+  // The same wrapper the kit renders, so suppressing a tooltip never moves the
+  // thing it was wrapping: Tooltip's own span is `relative` plus the caller's
+  // wrapperClassName, defaulting to `inline-flex`.
+  return (
+    <span role={props.wrapperRole} className={`relative ${props.wrapperClassName ?? 'inline-flex'}`}>
+      {children}
+    </span>
+  )
+}
+
 /**
  * The mark a band row leads with (owner ruling 2026-09-05): the machine
  * glyph, and the machine's name only on hover. The band has no machine lines,
@@ -957,7 +993,7 @@ function BranchChip({
   dim?: boolean
 }) {
   return (
-    <Tooltip
+    <RowTooltip
       content={cwd ? (worktree ? `Worktree · ${cwd}` : cwd) : worktree ? 'A worktree of its own' : `On ${branch}`}
       wrapperClassName="flex min-w-[4ch] shrink-[3] items-center"
     >
@@ -976,7 +1012,7 @@ function BranchChip({
         <TruncatedText as="span" text={branch} className="min-w-0" />
         {worktree ? <span className="sr-only"> (worktree)</span> : null}
       </span>
-    </Tooltip>
+    </RowTooltip>
   )
 }
 
@@ -1136,7 +1172,7 @@ export function TerminalLineView({
         // carries once that branch has landed. The words on hover and the
         // spoken label are what say which of those you are reading, and the
         // kit's Tooltip, not a native title, carries them.
-        <Tooltip content={diffCopy.tooltip} wrapperClassName="inline-flex shrink-0">
+        <RowTooltip content={diffCopy.tooltip} wrapperClassName="inline-flex shrink-0">
           {/* Only a folder reading dims (see diffScopeCopy): a `branch` or
               `worktree` reading IS attributable work — to the branch rather
               than to this terminal alone — and a `landed` reading is what this
@@ -1173,7 +1209,7 @@ export function TerminalLineView({
               <span className="sr-only">{diffCopy.srText}</span>
             </span>
           )}
-        </Tooltip>
+        </RowTooltip>
       ) : null}
       {/* The line's own seat: working dots + how long, the failure dot, a
           waiting mark when the row needs to say which line, else how long it
@@ -1212,12 +1248,12 @@ export function TerminalLineView({
               <span className="sr-only">Needs your input</span>
             )
           ) : idleText ? (
-            <Tooltip content={`${line.idleLabel} ${formatRelativeMsAgo(line.idleSince!, now)} (${new Date(line.idleSince!).toLocaleString()})`}>
+            <RowTooltip content={`${line.idleLabel} ${formatRelativeMsAgo(line.idleSince!, now)} (${new Date(line.idleSince!).toLocaleString()})`}>
               <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
                 <span aria-hidden="true">{idleText}</span>
                 <span className="sr-only">{line.idleLabel} {formatRelativeMsAgo(line.idleSince!, now)}</span>
               </span>
-            </Tooltip>
+            </RowTooltip>
           ) : null}
         </span>
         {seatOverlay}
@@ -2345,23 +2381,18 @@ export default function WorkspaceSidebar({
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     // "Hot": at least one resident (live-PTY) agent — instant to switch into.
-    // Said in words for a screen reader; it no longer claims a visual channel.
-    // Weight now belongs to the row that is MOVING (see `emphasis` below), and
-    // residency is not movement: a chat whose CLI process happens to still be
-    // up, untouched since this morning, is background whatever its pty is
-    // doing (owner, 2026-09-07).
+    // Said in words for a screen reader, and since 2026-09-09 it is also what
+    // lights the row: an agent alive in a chat is what makes it a place you can
+    // work, whatever its clock says (owner).
     const resident = residentWorkspaceIds.has(workspace.id)
-    // How loudly this row is drawn — weight for the row you are in and the
-    // rows that are working, muted ink for everything that has gone quiet.
-    // Reads the same clock the row's own idle label shows, falling back to the
-    // record when there is no terminal recency to read (a parked chat).
+    // How loudly this row is drawn — weight for the rows with an agent in them,
+    // the row you are in, and the rows asking for you; muted ink for the rest.
+    // No clock: the row's idle label reports time, and weight reports use.
     const emphasis = workspaceRowEmphasis({
+      resident,
       selected: active,
       working: activity === 'working',
       wantsYou: needsAttention || unseenDone,
-      settled: options?.settled === true,
-      lastActiveAt: recency?.idleSince ?? workspaceLastActiveAt(workspace),
-      now,
     })
     const highlighted = hasHighlightOverride(workspace.highlight)
     const dropMark =
@@ -2549,9 +2580,9 @@ export default function WorkspaceSidebar({
       <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end pl-2">
         <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
           {runGlyph && runGlyphLabel ? (
-            <Tooltip content={runGlyphLabel}>
+            <RowTooltip content={runGlyphLabel}>
               <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
-            </Tooltip>
+            </RowTooltip>
           ) : null}
           {/* Active work earns the three-dot working marker; the other
               attention states keep the tone dot. */}
@@ -2577,7 +2608,7 @@ export default function WorkspaceSidebar({
             )
           ) : null}
           {showRecencyText ? (
-            <Tooltip content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}>
+            <RowTooltip content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}>
               <span
                 className={`text-meta tabular-nums ${
                   emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
@@ -2586,7 +2617,7 @@ export default function WorkspaceSidebar({
                 <span aria-hidden="true">{idleRecencyText}</span>
                 <span className="sr-only">Idle {formatRelativeMsAgo(recency!.idleSince!, now)}</span>
               </span>
-            </Tooltip>
+            </RowTooltip>
           ) : null}
         </span>
         {rowActionsOverlay}
@@ -2695,9 +2726,8 @@ export default function WorkspaceSidebar({
       <span className={titleClusterClass}>{titleClusterContent}</span>
     )
 
-    return (
+    const rowElement = (
       <div
-        key={rowKey}
         data-row-key={rowKey}
         // Roving tabindex: exactly one treeitem is in the tab order at a time,
         // and Arrow/Home/End move focus between rows (handleTreeRowKeyDown).
@@ -2870,9 +2900,9 @@ export default function WorkspaceSidebar({
             and asking the wrong one drew the glyph twice on any row whose
             module hands it one. */}
         {rowLines.lines.length > 0 && runGlyph && runGlyphLabel ? (
-          <Tooltip content={runGlyphLabel}>
+          <RowTooltip content={runGlyphLabel}>
             <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
-          </Tooltip>
+          </RowTooltip>
         ) : null}
         {/* A lineless row has no line to carry the seat, so it keeps it
             here — the one-liner it always was. Never in the flat stream,
@@ -2943,6 +2973,13 @@ export default function WorkspaceSidebar({
           </div>
         ) : null}
       </div>
+    )
+    // The card is this row's hover surface where it has one, so the row's own
+    // readings stop opening tooltips underneath it (`RowTooltip`).
+    return (
+      <RowTooltipsSuppressed.Provider key={rowKey} value={hasPeek}>
+        {rowElement}
+      </RowTooltipsSuppressed.Provider>
     )
   }
 

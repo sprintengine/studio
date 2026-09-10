@@ -373,6 +373,12 @@ function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace)
     // row stayed where it was until something unrelated moved.
     && left.settledAt === right.settledAt
     && left.settledOverride === right.settledOverride
+    // The pane column: open/closed, its tabs, the tab showing. Without it the
+    // projection handed back the cached workspace when the pane opened, so a
+    // value derived from `paneState` off this projection (the pane-open flag
+    // the card's right edge used to gate on) kept what it had at first render
+    // until an unrelated field moved.
+    && left.paneState === right.paneState
 }
 
 function selectWorkspaceManagerWorkspaces(workspaces: Workspace[]): Workspace[] {
@@ -409,7 +415,7 @@ function showCliUpdateToast(advisory: CliVersionAdvisory): void {
     level: 'info',
     source: 'cli',
     title: notice.title,
-    message: advisory.currentVersion ? `Installed ${advisory.currentVersion}` : notice.description,
+    message: advisory.currentVersion ? `Installed ${advisory.currentVersion}` : 'Installed version unknown',
     navigationTarget: { kind: 'settings', ref: 'agents' },
   })
   const dismiss = (): void => useToastStore.getState().dismissToast(id)
@@ -418,7 +424,6 @@ function showCliUpdateToast(advisory: CliVersionAdvisory): void {
     tone: 'neutral',
     cli: advisory.cli,
     title: notice.title,
-    description: notice.description,
     autoDismissMs: false,
     actions: [
       {
@@ -707,10 +712,11 @@ export default function WorkspaceManager() {
     (s) => s.workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState?.open ?? false,
   )
   // (Was `activePaneOpen`, derived from `activeWorkspace`. Removed: the card's
-  // right-edge radius is its only consumer and it now reads `paneOwnsRightEdge`
-  // above, which selects `paneState.open` off the live store. The projection
-  // `activeWorkspace` comes from does not compare `paneState`, so the old flag
-  // never changed after first render.)
+  // right-edge gap is its only consumer and it now reads `paneOwnsRightEdge`
+  // above, which selects `paneState.open` straight off the live store — one
+  // boolean, no projection in between. The projection `activeWorkspace` comes
+  // from compares `paneState` too now, but a selector on the one field is
+  // still the cheaper subscription for a flag.)
   // Load the Sprint Engine role registry for the active workspace so the spawn
   // dropdown and Modules settings tab can surface registry-discovered
   // specialist packs (workspace / user / plugin layers) alongside the bundled
@@ -4671,13 +4677,12 @@ export default function WorkspaceManager() {
           8px beside 4px everywhere else; with the pane closed this card owns
           the window's right edge and takes the gap itself.
 
-          It reads `paneOwnsRightEdge`, NOT `activePaneOpen`: both mean "the
-          pane column stands beside this card", but the latter comes off the
-          WorkspaceManager workspace projection, whose equality check
-          (workspaceManagerWorkspaceFieldsEqual) does not compare `paneState` —
-          so opening the pane returns the cached workspace and the flag never
-          flips. `paneOwnsRightEdge` selects the same field straight off the
-          live store, which is why the caption-reserve logic already uses it. */}
+          It reads `paneOwnsRightEdge`, the one-field selector off the live
+          store, which is what the caption-reserve logic already uses. (The
+          workspace projection used to skip `paneState` in its equality check,
+          so a flag derived from it never flipped after first render; the
+          check compares it now, but a subscription to one boolean is still
+          the right size for one boolean.) */}
       <div
         className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--shell-card-radius)] mb-[var(--shell-card-gap)] ${
           paneOwnsRightEdge ? '' : 'mr-[var(--shell-card-gap)]'
