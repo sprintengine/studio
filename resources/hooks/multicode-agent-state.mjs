@@ -789,7 +789,7 @@ function deriveFileChanges(event, toolName, payload) {
 // output.
 // ---------------------------------------------------------------------------
 
-// The wire-side twin of `parsePullRequestUrl` (src/shared/review/pr-url.ts).
+// The wire-side twin of `parsePullRequestUrl` (src/shared/git/pr-url.ts).
 // This file is copied into a workspace and run by the CLI, so it can import
 // nothing from src/ — this ONE regex is the documented duplicate, and main
 // re-validates every URL through the real parser before believing it.
