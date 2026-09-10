@@ -457,10 +457,10 @@ assert.equal(carrier.diffView, 'side-by-side', 'and back')
 
 // Closing settings never clears somebody ELSE's modal — and never touches a
 // door: the two are independent layers.
-carrier.activeModalSurface = 'reviews'
+carrier.activeModalSurface = 'notebooks'
 carrier.activeGlobalSurface = 'backlog'
 slice.closeSettingsOverlay()
-assert.equal(carrier.activeModalSurface, 'reviews', 'another open modal survives a settings close')
+assert.equal(carrier.activeModalSurface, 'notebooks', 'another open modal survives a settings close')
 assert.equal(carrier.activeGlobalSurface, 'backlog', 'an open door survives a settings close')
 carrier.activeModalSurface = null
 carrier.activeGlobalSurface = null
@@ -489,8 +489,8 @@ assert.equal(carrier.sidebarSection, 'extensions', 'and leaving the door lands b
 // A door underneath survives a modal's open/close round-trip: the modal is a
 // float over the card region, not a routing of it.
 carrier.activeGlobalSurface = 'sprints'
-slice.openModalSurface('reviews')
-assert.equal(carrier.activeModalSurface, 'reviews')
+slice.openModalSurface('notebooks')
+assert.equal(carrier.activeModalSurface, 'notebooks')
 assert.equal(carrier.activeGlobalSurface, 'sprints', 'the door under the modal stays put')
 slice.closeModalSurface()
 assert.equal(carrier.activeGlobalSurface, 'sprints', 'closing the modal lands back on the door')
@@ -500,22 +500,22 @@ assert.equal(carrier.activeGlobalSurface, 'sprints', 'closing the modal lands ba
 // a modal floats over the window, so this is the only thing that says which
 // workspace it acts on. It is set, replaced and cleared with the modal itself,
 // never left behind for the next one to inherit.
-slice.openModalSurface('reviews', { workspaceId: 'ws-7' })
+slice.openModalSurface('notebooks', { workspaceId: 'ws-7' })
 assert.equal(carrier.activeModalSurfaceWorkspaceId, 'ws-7', 'the opener records its workspace')
 slice.closeModalSurface()
 assert.equal(carrier.activeModalSurfaceWorkspaceId, null, 'and closing the modal takes it')
-slice.openModalSurface('reviews', { workspaceId: 'ws-7' })
-slice.openModalSurface('reviews')
+slice.openModalSurface('notebooks', { workspaceId: 'ws-7' })
+slice.openModalSurface('notebooks')
 assert.equal(
   carrier.activeModalSurfaceWorkspaceId,
   null,
   'an opener with no workspace clears the last one — a stale id would act on a workspace nobody named',
 )
-slice.openModalSurface('reviews', { workspaceId: 'ws-7' })
+slice.openModalSurface('notebooks', { workspaceId: 'ws-7' })
 slice.openSettingsOverlay()
 assert.equal(carrier.activeModalSurfaceWorkspaceId, null, 'Settings is the app\'s, not a workspace\'s')
 slice.closeSettingsOverlay()
-slice.openModalSurface('reviews', { workspaceId: 'ws-7' })
+slice.openModalSurface('notebooks', { workspaceId: 'ws-7' })
 slice.openGlobalSurface('backlog')
 assert.equal(carrier.activeModalSurfaceWorkspaceId, null, 'and a door open clears it with the modal it closes')
 slice.closeGlobalSurface()
@@ -523,7 +523,7 @@ carrier.activeGlobalSurface = null
 
 // The reverse is NOT symmetric: opening a door closes the modal, or a history
 // step to a door would mount it invisibly behind the modal's scrim.
-slice.openModalSurface('reviews')
+slice.openModalSurface('notebooks')
 slice.openGlobalSurface('backlog')
 assert.equal(carrier.activeGlobalSurface, 'backlog')
 assert.equal(carrier.activeModalSurface, null, 'a door open closes the modal over it')

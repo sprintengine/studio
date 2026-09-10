@@ -438,7 +438,7 @@ const surfaceComponent = () => {
   throw new Error('surface component should not be evaluated during registration')
 }
 // A first-party surface and a third-party module's surface register through the
-// same contract — the seam that lets Sprints/Automations/Reviews (and SDK
+// same contract — the seam that lets Sprints/Automations (and SDK
 // modules) contribute a full page without editing WorkspaceManager. ('roadmap'
 // below is an arbitrary module id; the door of that name is long gone.)
 surfaceHost.hostFor('roadmap').registerGlobalSurface({ id: 'roadmap', Component: surfaceComponent })
@@ -1055,20 +1055,20 @@ testBacklogReaderSeam().catch((err) => {
 
 function testAgentIdNamespaces(): void {
   const kernel = createRendererHost()
-  kernel.hostFor('review').registerAgentIdNamespace({ prefix: 'review-guide-', label: 'Reviews' })
+  kernel.hostFor('notebooks').registerAgentIdNamespace({ prefix: 'notebook-run-', label: 'Notebooks' })
   kernel.hostFor('weather-deck').registerAgentIdNamespace({
     prefix: 'weather-deck-forecaster-',
     label: 'Weather Deck',
   })
 
   assert.equal(
-    kernel.getAgentIdNamespace('review-guide-rv_1')?.label,
-    'Reviews',
+    kernel.getAgentIdNamespace('notebook-run-nb_1')?.label,
+    'Notebooks',
     'an owned agent id resolves to its module\u2019s label',
   )
   assert.equal(
-    kernel.getAgentIdNamespace('review-guide-rv_1')?.moduleId,
-    'review',
+    kernel.getAgentIdNamespace('notebook-run-nb_1')?.moduleId,
+    'notebooks',
     'and to the module that claimed it',
   )
   assert.equal(
@@ -1081,9 +1081,9 @@ function testAgentIdNamespaces(): void {
   // Enablement is live: a disabled module owns nothing, so a session in its
   // namespace stops being adoptable and loses its label rather than pointing at
   // a module the shell will not mount.
-  const enabled = (moduleId: string): boolean => moduleId !== 'review'
+  const enabled = (moduleId: string): boolean => moduleId !== 'notebooks'
   assert.equal(
-    kernel.getAgentIdNamespace('review-guide-rv_1', enabled),
+    kernel.getAgentIdNamespace('notebook-run-nb_1', enabled),
     undefined,
     'a disabled module\u2019s namespace does not resolve',
   )
@@ -1097,13 +1097,13 @@ function testAgentIdNamespaces(): void {
   // contains \u2014 or is contained by \u2014 an existing one makes ownership of a
   // concrete id ambiguous.
   assert.throws(
-    () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'review-guide-x', label: 'Other' }),
-    /overlaps "review-guide-"/,
+    () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'notebook-run-x', label: 'Other' }),
+    /overlaps "notebook-run-"/,
     'a prefix inside an existing namespace is refused',
   )
   assert.throws(
-    () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'review-', label: 'Other' }),
-    /overlaps "review-guide-"/,
+    () => kernel.hostFor('other').registerAgentIdNamespace({ prefix: 'notebook-', label: 'Other' }),
+    /overlaps "notebook-run-"/,
     'and so is one that would swallow it',
   )
   assert.throws(
@@ -1120,9 +1120,9 @@ function testModuleAppState(): void {
   // Unwired (early boot, tests): reads are undefined, writes report false, and a
   // watch is a working no-op \u2014 never a throw, so module code needs no guard.
   const bare = createRendererHost()
-  assert.equal(bare.hostFor('review').getModuleAppState('guide-defaults'), undefined)
-  assert.equal(bare.hostFor('review').setModuleAppState('guide-defaults', { depth: 'brief' }), false)
-  assert.doesNotThrow(() => bare.hostFor('review').watchModuleAppState(() => {})())
+  assert.equal(bare.hostFor('notebooks').getModuleAppState('run-defaults'), undefined)
+  assert.equal(bare.hostFor('notebooks').setModuleAppState('run-defaults', { depth: 'brief' }), false)
+  assert.doesNotThrow(() => bare.hostFor('notebooks').watchModuleAppState(() => {})())
 
   const kernel = createRendererHost()
   const store = new Map<string, Record<string, unknown>>()
@@ -1132,7 +1132,7 @@ function testModuleAppState(): void {
   // import, the store lands a microtask later, and a watch made in that window
   // must attach when it does rather than silently dying.
   const early: unknown[] = []
-  kernel.hostFor('review').watchModuleAppState((values) => early.push(values['guide-defaults']))
+  kernel.hostFor('notebooks').watchModuleAppState((values) => early.push(values['run-defaults']))
   kernel.setModuleAppStateStore({
     get: (moduleId) => store.get(moduleId) ?? empty,
     set: (moduleId, key, value) => {
@@ -1150,28 +1150,28 @@ function testModuleAppState(): void {
     },
   })
 
-  const review = kernel.hostFor('review')
+  const notebooks = kernel.hostFor('notebooks')
   const weather = kernel.hostFor('weather-deck')
-  review.setModuleAppState('guide-defaults', { depth: 'brief' })
+  notebooks.setModuleAppState('run-defaults', { depth: 'brief' })
   assert.deepEqual(early, [{ depth: 'brief' }], 'a watch made before the store was wired still fires')
-  assert.equal(review.setModuleAppState('guide-defaults', { depth: 'thorough' }), true)
-  assert.deepEqual(review.getModuleAppState('guide-defaults'), { depth: 'thorough' })
+  assert.equal(notebooks.setModuleAppState('run-defaults', { depth: 'thorough' }), true)
+  assert.deepEqual(notebooks.getModuleAppState('run-defaults'), { depth: 'thorough' })
   assert.equal(
-    weather.getModuleAppState('guide-defaults'),
+    weather.getModuleAppState('run-defaults'),
     undefined,
     'the scope is per module \u2014 one module can never read another\u2019s key',
   )
 
   const seen: unknown[] = []
-  const off = review.watchModuleAppState((values) => seen.push(values['guide-defaults']))
+  const off = notebooks.watchModuleAppState((values) => seen.push(values['run-defaults']))
   weather.setModuleAppState('last-outlook', 'clear')
   assert.deepEqual(seen, [], 'a sibling module\u2019s write never wakes this module\u2019s watch')
-  review.setModuleAppState('guide-defaults', { depth: 'brief' })
+  notebooks.setModuleAppState('run-defaults', { depth: 'brief' })
   assert.deepEqual(seen, [{ depth: 'brief' }], 'the module\u2019s own write does')
   off()
-  review.setModuleAppState('guide-defaults', { depth: 'standard' })
+  notebooks.setModuleAppState('run-defaults', { depth: 'standard' })
   assert.equal(seen.length, 1, 'and the unsubscriber stops delivery')
-  assert.deepEqual(review.getModuleAppState('guide-defaults'), { depth: 'standard' })
+  assert.deepEqual(notebooks.getModuleAppState('run-defaults'), { depth: 'standard' })
 }
 
 function testModuleEventSubscription(): void {
@@ -1193,13 +1193,13 @@ function testModuleEventSubscription(): void {
   // later. A subscribe made in that window must still receive — the kernel owns
   // the subscriber set, so an early subscription is not silently dead.
   const received: unknown[] = []
-  const off = kernel.hostFor('review').subscribe('brief-run', (payload) => received.push(payload))
+  const off = kernel.hostFor('notebooks').subscribe('run-status', (payload) => received.push(payload))
   wireSource()
   assert.equal(sourceAttachments, 1, 'wiring the source attaches exactly one listener')
-  emit('review', 'brief-run', { phase: 'done' })
+  emit('notebooks', 'run-status', { phase: 'done' })
   assert.deepEqual(received, [{ phase: 'done' }], 'a module receives its own topic')
-  emit('review', 'other-topic', { phase: 'done' })
-  emit('weather-deck', 'brief-run', { phase: 'done' })
+  emit('notebooks', 'other-topic', { phase: 'done' })
+  emit('weather-deck', 'run-status', { phase: 'done' })
   assert.equal(
     received.length,
     1,
@@ -1207,22 +1207,22 @@ function testModuleEventSubscription(): void {
   )
 
   // Enablement is live on every delivery, not just at subscribe.
-  let reviewEnabled = false
-  kernel.setModuleEnablementResolver((moduleId) => moduleId !== 'review' || reviewEnabled)
-  emit('review', 'brief-run', { phase: 'failed' })
+  let notebooksEnabled = false
+  kernel.setModuleEnablementResolver((moduleId) => moduleId !== 'notebooks' || notebooksEnabled)
+  emit('notebooks', 'run-status', { phase: 'failed' })
   assert.equal(received.length, 1, 'a disabled module stops receiving')
-  reviewEnabled = true
-  emit('review', 'brief-run', { phase: 'failed' })
+  notebooksEnabled = true
+  emit('notebooks', 'run-status', { phase: 'failed' })
   assert.deepEqual(received[1], { phase: 'failed' }, 'and resumes when it is re-enabled')
 
   // A throwing subscriber is contained: the shared preload listener must keep
   // dispatching to every other module.
   const healthy: unknown[] = []
-  kernel.hostFor('review').subscribe('brief-run', () => {
+  kernel.hostFor('notebooks').subscribe('run-status', () => {
     throw new Error('module bug')
   })
-  kernel.hostFor('review').subscribe('brief-run', (payload) => healthy.push(payload))
-  emit('review', 'brief-run', { phase: 'reading' })
+  kernel.hostFor('notebooks').subscribe('run-status', (payload) => healthy.push(payload))
+  emit('notebooks', 'run-status', { phase: 'reading' })
   assert.deepEqual(healthy, [{ phase: 'reading' }], 'a sibling subscriber still receives the emit')
 
   // One source listener backs every subscription, however many there are: the
@@ -1233,7 +1233,7 @@ function testModuleEventSubscription(): void {
 
   const beforeOff = received.length
   off()
-  emit('review', 'brief-run', { phase: 'done' })
+  emit('notebooks', 'run-status', { phase: 'done' })
   assert.equal(received.length, beforeOff, 'the returned closure stops delivery to that subscriber')
   assert.deepEqual(healthy.length, 2, 'while the siblings that did not unsubscribe keep receiving')
 }

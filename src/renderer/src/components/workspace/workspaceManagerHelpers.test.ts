@@ -75,19 +75,19 @@ function assertDetachedBucketsTrailRealWorkspaces(): void {
     label: name,
     workspace: { id, name } as unknown as Workspace,
   })
-  const reviews: SessionItem['group'] = { kind: 'detached', id: 'detached:Reviews', label: 'Reviews' }
+  const notebooks: SessionItem['group'] = { kind: 'detached', id: 'detached:Notebooks', label: 'Notebooks' }
   const other: SessionItem['group'] = { kind: 'detached', id: 'detached:Other sessions', label: 'Other sessions' }
   const rows = [
     { ...item({ status: 'idle', lastActivityAt: 1 }), group: other },
     { ...item({ status: 'working' }), group: workspaceGroup('ws-b', 'Bravo') },
-    { ...item({ status: 'needs-input' }), group: reviews },
+    { ...item({ status: 'needs-input' }), group: notebooks },
     { ...item({ status: 'idle', lastActivityAt: 2 }), group: workspaceGroup('ws-a', 'Alpha') },
     { ...item({ status: 'needs-input' }), group: workspaceGroup('ws-a', 'Alpha') },
   ]
   const grouped = groupSessionItems(rows, new Map([['ws-a', 0], ['ws-b', 1]]))
   assert.deepEqual(
     grouped.map((entry) => entry.group.label),
-    ['Alpha', 'Bravo', 'Other sessions', 'Reviews'],
+    ['Alpha', 'Bravo', 'Notebooks', 'Other sessions'],
     'sidebar order for workspaces, detached buckets last and alphabetical',
   )
   assert.deepEqual(
@@ -98,15 +98,15 @@ function assertDetachedBucketsTrailRealWorkspaces(): void {
 }
 
 // The regression this file was missing (MC-1786): a session keyed to an id no
-// workspace row claims — the review guide runs under its review id — used to be
-// dropped on BOTH branches, so a live agent was invisible in the one surface
-// users audit. Both branches must now yield a row in a labeled detached bucket,
+// workspace row claims — a module's own agent runs under an id of its own —
+// used to be dropped on BOTH branches, so a live agent was invisible in the one
+// surface users audit. Both branches must now yield a row in a labeled detached bucket,
 // with truthful status and its sessionId intact so stop still works.
 function assertWorkspacelessSessionsStillSurface(): void {
   const guideSummary: ConversationSessionSummary = {
     sessionId: 'conv-guide',
-    workspaceId: 'review-2026-07-22',
-    agentId: 'review-guide',
+    workspaceId: 'notebook-2026-07-22',
+    agentId: 'notebook-runner',
     providerId: 'claude-agent',
     modelId: 'sonnet',
     status: 'active',
@@ -148,24 +148,24 @@ function assertWorkspacelessSessionsStillSurface(): void {
   assert.equal(terminalItem?.transport, 'terminal')
 
   // Callers name the bucket; unrecognised ids keep the default. Sessions sharing
-  // a label share ONE bucket, so N orphaned reviews are not N "Reviews" groups.
+  // a label share ONE bucket, so N orphans of one namespace are not N groups.
   const labeled = getSessionItems([], [orphanPty], [guideSummary], {
-    resolveDetachedLabel: (workspaceId) => (workspaceId.startsWith('review-') ? 'Reviews' : null),
+    resolveDetachedLabel: (workspaceId) => (workspaceId.startsWith('notebook-') ? 'Notebooks' : null),
   })
   const labeledGroups = new Map(labeled.map((item) => [item.group.id, item.group.label]))
   assert.deepEqual(
     [...labeledGroups.values()].sort(),
-    ['Other sessions', 'Reviews'],
-    'the resolver names the review bucket and leaves the rest generic',
+    ['Notebooks', 'Other sessions'],
+    'the resolver names the module bucket and leaves the rest generic',
   )
 
-  const twoReviews = getSessionItems(
+  const twoNotebooks = getSessionItems(
     [],
     [],
-    [guideSummary, { ...guideSummary, sessionId: 'conv-guide-2', workspaceId: 'review-other' }],
-    { resolveDetachedLabel: () => 'Reviews' },
+    [guideSummary, { ...guideSummary, sessionId: 'conv-guide-2', workspaceId: 'notebook-other' }],
+    { resolveDetachedLabel: () => 'Notebooks' },
   )
-  assert.equal(new Set(twoReviews.map((item) => item.group.id)).size, 1, 'one bucket per label')
+  assert.equal(new Set(twoNotebooks.map((item) => item.group.id)).size, 1, 'one bucket per label')
 
   // A live session with no workspaceId at all is still a live session.
   const idlessPty = {

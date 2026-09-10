@@ -95,7 +95,7 @@ assert.equal(
 )
 
 assert.equal(
-  deriveWorkspaceRunGlyph({ ...sprintWorkspace(), mode: 'review' }),
+  deriveWorkspaceRunGlyph({ ...sprintWorkspace(), mode: 'acme.compass' }),
   null,
   'a workspace type without a run-glyph provider falls back to the dot/recency idiom',
 )

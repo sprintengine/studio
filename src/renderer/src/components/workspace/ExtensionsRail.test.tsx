@@ -181,7 +181,6 @@ assert.deepEqual(
   'the ruling’s order survives whatever `order` the modules declared',
 )
 assert.ok(!rowLabels().includes('Automations'), 'Automations stands on the app rail, not in the drawer')
-assert.ok(!rowLabels().includes('Reviews'), 'a registered surface the ruling did not list is not a drawer row')
 
 // ── A view row opens its surface latched to that view ────────────────────────
 consumePendingExtensionsSurfaceTarget()
