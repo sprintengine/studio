@@ -255,9 +255,16 @@ function configureDevUserData(): void {
  * including why the gate is the profile's own name rather than `isPackaged`.
  */
 function carryLegacySkillSourcesForward(): void {
-  const userDataDir = app.getPath('userData')
-  if (!isDefaultProfileDir(userDataDir, app.getName())) return
-  adoptLegacySkillSources({ userDataDir })
+  // The rescue is a courtesy, never a boot condition: whatever it cannot do
+  // (a profile it cannot name, a store it cannot read) is a log line, and the
+  // app starts exactly as it would have without it.
+  try {
+    const userDataDir = app.getPath('userData')
+    if (!isDefaultProfileDir(userDataDir, app.getName())) return
+    adoptLegacySkillSources({ userDataDir })
+  } catch (error) {
+    console.warn('[skill-sources] legacy-adoption skipped', error instanceof Error ? error.message : String(error))
+  }
 }
 
 // Everything above ran synchronously during entry evaluation: module
