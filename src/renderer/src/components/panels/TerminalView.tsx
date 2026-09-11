@@ -24,7 +24,7 @@ import { createTerminalFileLinkProvider } from '../../utils/terminalFileLinks'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { registerTerminalInstance, unregisterTerminalInstance } from '../../utils/diagnostics/terminalInstanceRegistry'
 import { TerminalReplaySkeleton } from '../ui/TerminalReplaySkeleton'
-import { bindTerminalClipboardHandlers } from '../../utils/terminalClipboard'
+import { bindTerminalClipboardHandlers, claudeImagePasteKey } from '../../utils/terminalClipboard'
 import {
   hasCommitDropData,
   hasFileDropData,
@@ -883,6 +883,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       sessionId,
       focusTerminal,
       recordKeydown: terminalDiagnostics.recordContainerKeydown,
+      imagePasteKey: () => {
+        const { cli: paneCli, cliRuntimes: runtimes } = launchContextRef.current
+        return claudeImagePasteKey(paneCli, paneCli ? runtimes?.[paneCli]?.useWsl : undefined)
+      },
     })
 
     const ensureSpecialistStartupPrompt = async (promptAlreadySentForActiveSession: boolean) => {

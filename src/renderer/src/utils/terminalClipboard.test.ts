@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { bindTerminalClipboardHandlers } from './terminalClipboard'
+import { bindTerminalClipboardHandlers, claudeImagePasteKey } from './terminalClipboard'
 
 function mouseEvent(type: string, options: { button?: number; ctrlKey?: boolean } = {}): MouseEvent {
   const event = new Event(type, { bubbles: true, cancelable: true }) as MouseEvent
@@ -262,8 +262,76 @@ async function testPasteFallsBackToLastTerminalCopyWhenClipboardReadFails(): Pro
   dispose()
 }
 
+function pasteEvent(data: { text?: string; imageType?: string }): ClipboardEvent {
+  const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent
+  const items = data.imageType ? [{ kind: 'file', type: data.imageType }] : []
+  Object.defineProperty(event, 'clipboardData', {
+    value: { getData: () => data.text ?? '', items },
+  })
+  return event
+}
+
+// An image-only clipboard has no text to send, so Ctrl+V used to do nothing in
+// a Claude Code pane on Windows. It now sends the CLI's own image-paste key.
+async function testImageOnlyPasteSendsTheCliImagePasteKey(): Promise<void> {
+  const container = new EventTarget() as HTMLElement
+  const writes: string[] = []
+
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      api: {
+        clipboardWriteText: async () => {},
+        clipboardReadText: async () => '',
+        terminalWrite: async (_sessionId: string, text: string) => {
+          writes.push(text)
+        },
+      },
+    },
+  })
+
+  let key: string | null = 'v'
+  const dispose = bindTerminalClipboardHandlers({
+    container,
+    sessionId: 'terminal-test',
+    focusTerminal: () => {},
+    term: { getSelection: () => '', clearSelection: () => {} } as any,
+    imagePasteKey: () => key,
+  })
+
+  const imagePaste = pasteEvent({ imageType: 'image/png' })
+  container.dispatchEvent(imagePaste)
+  assert.equal(imagePaste.defaultPrevented, true)
+  assert.deepEqual(writes, ['v'])
+
+  // Text on the clipboard still pastes as text, image or not.
+  container.dispatchEvent(pasteEvent({ text: 'words', imageType: 'image/png' }))
+  await flushPromises()
+  assert.deepEqual(writes, ['v', 'words'])
+
+  // A CLI with no image-paste key leaves the event alone.
+  key = null
+  const ignored = pasteEvent({ imageType: 'image/png' })
+  container.dispatchEvent(ignored)
+  assert.equal(ignored.defaultPrevented, false)
+  assert.deepEqual(writes, ['v', 'words'])
+
+  dispose()
+}
+
+function testClaudeImagePasteKeyIsNativeWindowsClaudeOnly(): void {
+  assert.equal(claudeImagePasteKey('claude-code', false, 'win32'), 'v')
+  assert.equal(claudeImagePasteKey('zai', undefined, 'win32'), 'v')
+  assert.equal(claudeImagePasteKey('claude-code', true, 'win32'), null)
+  assert.equal(claudeImagePasteKey('claude-code', false, 'darwin'), null)
+  assert.equal(claudeImagePasteKey('codex', false, 'win32'), null)
+  assert.equal(claudeImagePasteKey(undefined, false, 'win32'), null)
+}
+
 void testRightClickCopyClearsSelectionThenPaste()
   .then(testRightClickUsesSelectionCapturedBeforeXtermClearsIt)
   .then(testContextMenuWithoutMouseDownStillPastes)
   .then(testRightClickAfterCopyPastesEvenWhenXtermReportsStaleSelection)
   .then(testPasteFallsBackToLastTerminalCopyWhenClipboardReadFails)
+  .then(testImageOnlyPasteSendsTheCliImagePasteKey)
+  .then(testClaudeImagePasteKeyIsNativeWindowsClaudeOnly)

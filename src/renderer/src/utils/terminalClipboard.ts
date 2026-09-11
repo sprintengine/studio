@@ -17,6 +17,40 @@ type TerminalClipboardHandlersOptions = {
    * Copy needs no override — the selection is in this xterm either way.
    */
   write?: (text: string) => void
+  /**
+   * The bytes that ask the CLI in this pane to attach the clipboard image, or
+   * null when it has no such key. Read at paste time, since a pane's CLI is
+   * resolved after the handlers bind.
+   *
+   * A terminal cannot carry an image — the CLI reads the clipboard itself when
+   * it sees its image-paste key. Claude Code on Windows binds that to Alt+V, not
+   * Ctrl+V, so a Ctrl+V with only an image on the clipboard used to do nothing:
+   * there was no text to send and the CLI never heard a paste happened.
+   */
+  imagePasteKey?: () => string | null
+}
+
+// CLIs whose launch binary is Claude Code itself (claude-code, and the plugins
+// that point Claude Code at another model: zai, kimi-claude).
+const CLAUDE_CODE_BINARY_CLIS = new Set(['claude-code', 'zai', 'kimi-claude'])
+
+/**
+ * Claude Code's image-paste key for this pane, when Ctrl+V does not already
+ * reach it: native Windows only. Under WSL, and on macOS/Linux, Claude Code
+ * binds Ctrl+V itself.
+ */
+export function claudeImagePasteKey(
+  cli: string | undefined,
+  useWsl: boolean | undefined,
+  platform: string = window.api.platform,
+): string | null {
+  if (platform !== 'win32' || useWsl || !cli || !CLAUDE_CODE_BINARY_CLIS.has(cli)) return null
+  return 'v'
+}
+
+function clipboardHasImage(data: DataTransfer | null): boolean {
+  if (!data) return false
+  return Array.from(data.items ?? []).some((item) => item.kind === 'file' && item.type.startsWith('image/'))
 }
 
 type RuntimeClipboardApi = {
@@ -56,6 +90,7 @@ export function bindTerminalClipboardHandlers({
   focusTerminal,
   recordKeydown,
   write,
+  imagePasteKey,
 }: TerminalClipboardHandlersOptions): () => void {
   let lastKnownSelection = term.getSelection()
   let secondaryClickSelection = ''
@@ -109,7 +144,15 @@ export function bindTerminalClipboardHandlers({
   const handlePaste = (event: ClipboardEvent) => {
     if (isTerminalChromeTarget(event.target)) return
     const text = event.clipboardData?.getData('text/plain') ?? ''
-    if (!text) return
+    if (!text) {
+      const key = clipboardHasImage(event.clipboardData ?? null) ? imagePasteKey?.() : null
+      if (!key) return
+      event.preventDefault()
+      if (write) write(key)
+      else void window.api.terminalWrite(sessionId, key)
+      focusTerminal()
+      return
+    }
     event.preventDefault()
     void pasteText(text)
   }
