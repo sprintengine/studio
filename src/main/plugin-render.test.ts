@@ -39,6 +39,7 @@ async function main(): Promise<void> {
   testResumeReusesLaunchWhenNoArgvOverride()
   testResumeDisabledReturnsNull()
   testPluginDirArgsSpread()
+  testLaunchSettingsMergeIntoOneFlag()
   testClaudeManifestProducesExpectedArgv()
   testCodexManifestProducesExpectedArgv()
   testFilesSpreadEmpty()
@@ -468,6 +469,53 @@ function testPluginDirArgsSpread(): void {
     '/app/a',
     '',
   ])
+}
+
+// `launchSettingsArgs`: one `--settings` document carrying the theme AND the
+// settings a plugin cannot declare (the status line the app reads context usage
+// from). Two `--settings` flags is a shape no CLI documents, so the theme is
+// folded in here and its own flag suppressed.
+function testLaunchSettingsMergeIntoOneFlag(): void {
+  const manifest = baseManifest({
+    themeSelection: { args: ['--settings', '{"theme":"{{colorScheme}}"}'] },
+    launchSettings: { args: ['--settings', '{{launchSettingsJson}}'] },
+    launch: {
+      argv: ['{{binary}}', { spreadIf: 'themeArgs' }, { spreadIf: 'launchSettingsArgs' }, '{{prompt}}'],
+    },
+  })
+  const statusLine = { type: 'command', command: 'node "/app/status-line.mjs" --socket "/tmp/s.sock"' }
+
+  // Both, in ONE flag, and the theme's own flag is gone.
+  const both = renderPluginLaunch(manifest, {
+    prompt: 'hi',
+    colorScheme: 'dark',
+    launchSettings: { statusLine },
+  })
+  assert.deepEqual(both.argv, ['test', '--settings', JSON.stringify({ theme: 'dark', statusLine }), 'hi'])
+  assert.equal(both.argv.filter((token) => token === '--settings').length, 1, 'never two --settings flags')
+
+  // Theme alone renders exactly what the theme flag used to render, so a launch
+  // with nothing else to say is unchanged.
+  const themeOnly = renderPluginLaunch(manifest, { prompt: 'hi', colorScheme: 'light' })
+  assert.deepEqual(themeOnly.argv, ['test', '--settings', '{"theme":"light"}', 'hi'])
+
+  // A status line with no theme reported still travels.
+  const statusOnly = renderPluginLaunch(manifest, { prompt: 'hi', launchSettings: { statusLine } })
+  assert.deepEqual(statusOnly.argv, ['test', '--settings', JSON.stringify({ statusLine }), 'hi'])
+
+  // Nothing to say renders no flag at all.
+  assert.deepEqual(renderPluginLaunch(manifest, { prompt: 'hi' }).argv, ['test', 'hi'])
+
+  // A manifest that declares no `launchSettings` keeps its own theme flag and
+  // ignores whatever the caller resolved — it has no way to carry it.
+  const themeOnlyManifest = baseManifest({
+    themeSelection: { args: ['--settings', '{"theme":"{{colorScheme}}"}'] },
+    launch: { argv: ['{{binary}}', { spreadIf: 'themeArgs' }, { spreadIf: 'launchSettingsArgs' }, '{{prompt}}'] },
+  })
+  assert.deepEqual(
+    renderPluginLaunch(themeOnlyManifest, { prompt: 'hi', colorScheme: 'dark', launchSettings: { statusLine } }).argv,
+    ['test', '--settings', '{"theme":"dark"}', 'hi']
+  )
 }
 
 main().catch((err) => {

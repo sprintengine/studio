@@ -1,4 +1,4 @@
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { copyFile, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
@@ -1216,9 +1216,27 @@ export async function resolveWrappedStatusLine(
   if (projectPath !== settingsPath) candidates.push({ path: projectPath, origin: 'project' })
   if (userPath !== settingsPath && userPath !== projectPath) candidates.push({ path: userPath, origin: 'user' })
 
+  const read = await Promise.all(candidates.map((candidate) => readSettingsLeniently(candidate.path)))
+  return resolveWrappedStatusLineFrom(
+    candidates.map((candidate, index) => ({ ...candidate, settings: read[index] ?? null }))
+  )
+}
+
+/**
+ * The precedence scan itself, over settings that have already been read.
+ *
+ * Pure, and shared by the two callers that must never disagree: the install,
+ * which reads the files with `fs/promises`, and the LAUNCH
+ * (`buildLaunchStatusLineSetting`), which is called from the synchronous
+ * launch-config path and reads them with `readFileSync`. One copy of this
+ * reasoning, because "wrap theirs, leave what we cannot run, and never shadow a
+ * status line silently" is the whole contract and two copies of it would drift.
+ */
+function resolveWrappedStatusLineFrom(
+  candidates: Array<{ path: string; origin: WrappedStatusLineOrigin; settings: Record<string, unknown> | null }>
+): StatusLineResolution {
   let oursIsInstalled = false
-  for (const { path, origin } of candidates) {
-    const settings = await readSettingsLeniently(path)
+  for (const { origin, settings } of candidates) {
     const raw = settings?.statusLine
     if (!isRecord(raw)) continue
     if (isOurStatusLine(raw)) {
@@ -1243,6 +1261,83 @@ export async function resolveWrappedStatusLine(
     return oursIsInstalled ? { kind: 'remove' } : { kind: 'leave' }
   }
   return { kind: 'write', wrapped: null }
+}
+
+/**
+ * The `statusLine` a launch passes in its `--settings` document, or null when
+ * it must pass none.
+ *
+ * This is the launch-time twin of the install: a CLI handed its plugins on the
+ * command line has nothing written into its workspace, so the status line —
+ * which no plugin can declare, and which is the ONLY way this app learns how
+ * much of a session's context window is gone — has to travel the same way.
+ *
+ * Synchronous because the launch config is built synchronously, and reading
+ * three small JSON files is cheaper than threading an async resolution through
+ * every spawn path. The scan itself is the shared pure core, so the launch and
+ * the install always answer the same question the same way.
+ *
+ * Returns null — meaning "send no status line at all" — when:
+ *   - the forwarder did not ship, so the command would name a script that is
+ *     not there;
+ *   - the person has a status line this app cannot run on their behalf
+ *     ('leave'), or has one sitting under an entry of ours that cannot be
+ *     re-wrapped ('remove'). `--settings` outranks every settings FILE, so
+ *     sending ours in either case would silently shadow theirs — the one thing
+ *     the install has always refused to do;
+ *   - the rendered command exceeds what a command line can carry.
+ */
+export function buildLaunchStatusLineSetting(input: {
+  workspaceRoot: string
+  /** The forwarder inside the app's own plugin copy. */
+  scriptPath: string
+  socketPath: string
+  homeDir: string
+  env: NodeJS.ProcessEnv
+}): Record<string, unknown> | null {
+  if (!input.scriptPath.trim() || !existsSync(input.scriptPath)) return null
+  const localPath = resolve(input.workspaceRoot, '.claude', 'settings.local.json')
+  const projectPath = resolve(input.workspaceRoot, '.claude', 'settings.json')
+  const userPath = resolve(resolveClaudeConfigDir(input.homeDir, input.env), 'settings.json')
+  const candidates: Array<{ path: string; origin: WrappedStatusLineOrigin }> = [
+    { path: localPath, origin: 'local' },
+  ]
+  if (projectPath !== localPath) candidates.push({ path: projectPath, origin: 'project' })
+  if (userPath !== localPath && userPath !== projectPath) candidates.push({ path: userPath, origin: 'user' })
+
+  const resolved = resolveWrappedStatusLineFrom(
+    candidates.map((candidate) => ({ ...candidate, settings: readSettingsLenientlySync(candidate.path) }))
+  )
+  if (resolved.kind !== 'write') return null
+
+  const command = buildStatusLineForwarderCommand(input.scriptPath, input.socketPath, resolved.wrapped)
+  if (command.length > MAX_STATUS_LINE_RENDERED_COMMAND_LENGTH) return null
+
+  // No `_multicode` bookkeeping here, unlike the install: nothing is written to
+  // disk, so there is no entry for a later run to recognise or restore from.
+  const setting: Record<string, unknown> = { type: 'command', command }
+  // Carried over for the same reason the install carries them: they configure
+  // how Claude RUNS the command, and the person's own script is still the one
+  // printing.
+  const padding = resolved.wrapped?.statusLine.padding
+  if (typeof padding === 'number' && Number.isFinite(padding)) setting.padding = padding
+  const refreshInterval = resolved.wrapped?.statusLine.refreshInterval
+  if (typeof refreshInterval === 'number' && Number.isFinite(refreshInterval)) {
+    setting.refreshInterval = refreshInterval
+  }
+  return setting
+}
+
+/** The sync twin of `readSettingsLeniently`; see `resolveWrappedStatusLineFrom`. */
+function readSettingsLenientlySync(path: string): Record<string, unknown> | null {
+  try {
+    const text = readFileSync(path, 'utf8')
+    if (!text.trim()) return {}
+    const parsed: unknown = JSON.parse(text)
+    return isRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
 }
 
 /**

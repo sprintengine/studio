@@ -12,6 +12,7 @@ import {
   applyBackgroundWork,
   canonicalEventName,
   buildAgentStateReporterCommand,
+  buildLaunchStatusLineSetting,
   deriveActivityFromPhase,
   evaluateAgentStall,
   holdTurnEndForBackgroundWork,
@@ -1755,6 +1756,61 @@ async function run(): Promise<void> {
     const world = await seedStatusLineWorld({ local: { statusLine: { type: 'command', command: 'theirs.sh' } } })
     assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
     assert.deepEqual((await readStatusLine(world)).statusLine, { type: 'command', command: 'theirs.sh' })
+  }
+
+  // 13. The launch-time status line. A CLI handed its plugins on the command
+  //     line has nothing written into its workspace, so the status line — the
+  //     only way this app learns how much of a session's context window is gone
+  //     — travels in `--settings` instead. It must answer the same question the
+  //     install asks about the person's own status line, because `--settings`
+  //     outranks every settings FILE.
+  {
+    const launchRoot = await mkdtemp(join(tmpdir(), 'multicode-launch-status-'))
+    const launchHome = join(launchRoot, 'home')
+    await mkdir(join(launchHome, '.claude'), { recursive: true })
+    await mkdir(join(launchRoot, '.claude'), { recursive: true })
+    const forwarder = join(launchRoot, 'status-line.mjs')
+    await writeFile(forwarder, '// forwarder\n', 'utf8')
+    const launchSocket = join(launchRoot, 'agent-state.sock')
+    const buildLaunchSetting = (scriptPath = forwarder): Record<string, unknown> | null =>
+      buildLaunchStatusLineSetting({
+        workspaceRoot: launchRoot,
+        scriptPath,
+        socketPath: launchSocket,
+        homeDir: launchHome,
+        env: {} as NodeJS.ProcessEnv,
+      })
+
+    // Nobody has one: ours is sent, naming the copied forwarder and the socket.
+    const plainSetting = buildLaunchSetting()
+    assert.equal(plainSetting?.type, 'command')
+    assert.match(String(plainSetting?.command), /status-line\.mjs" --socket "/)
+    assert.equal(String(plainSetting?.command).includes('--wrap'), false, 'there was nothing to wrap')
+
+    // They have their own: it rides in `--wrap` so it still prints, and the key
+    // that decides HOW Claude runs it comes with it.
+    await writeFile(
+      join(launchRoot, '.claude', 'settings.json'),
+      `${JSON.stringify({ statusLine: { type: 'command', command: 'theirs.sh', padding: 2 } })}\n`,
+      'utf8'
+    )
+    const wrappedSetting = buildLaunchSetting()
+    assert.match(String(wrappedSetting?.command), /--wrap "/)
+    assert.equal(wrappedSetting?.padding, 2, 'their padding is carried, since their script is still the one printing')
+
+    // They have one this app cannot run for them: send NOTHING rather than
+    // shadow it, exactly as the install refuses to.
+    await writeFile(
+      join(launchRoot, '.claude', 'settings.json'),
+      `${JSON.stringify({ statusLine: { type: 'dynamic' } })}\n`,
+      'utf8'
+    )
+    assert.equal(buildLaunchSetting(), null, 'a status line we cannot wrap is never shadowed')
+
+    // And a build that shipped no forwarder sends nothing: the command would
+    // name a script that is not there — the MODULE_NOT_FOUND this whole
+    // arrangement exists to stop.
+    assert.equal(buildLaunchSetting(join(launchRoot, 'missing.mjs')), null)
   }
 
   console.log('agent-state.test.ts: all assertions passed')

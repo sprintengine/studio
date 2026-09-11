@@ -285,6 +285,39 @@ function buildVariableScope(
     scope.set('themeArgs', [])
   }
 
+  // `launchSettingsArgs`: ONE `--settings` document carrying every setting this
+  // launch wants. The theme used to ride its own `--settings` (themeArgs); the
+  // status line has to travel the same way because no plugin can declare one,
+  // and Claude Code documents `--settings` as a single value with nothing said
+  // about repeating it. So when this renders, the theme is folded in here and
+  // `themeArgs` is emptied — one flag, never two.
+  //
+  // A manifest that declares no `launchSettings` is untouched: its theme keeps
+  // rendering exactly as before.
+  const launchSettingsTemplates = manifest.launchSettings?.args
+  if (launchSettingsTemplates && launchSettingsTemplates.length > 0) {
+    const payload: Record<string, unknown> = {}
+    // `themeName` is the resolved value the theme args would have carried: the
+    // scheme itself for a manifest with no `schemes` map, the mapped name for
+    // one that has it.
+    if (colorScheme && themeName) payload.theme = themeName
+    for (const [key, value] of Object.entries(context.launchSettings ?? {})) {
+      if (value !== undefined) payload[key] = value
+    }
+    if (Object.keys(payload).length > 0) {
+      scope.set('launchSettingsJson', JSON.stringify(payload))
+      scope.set(
+        'launchSettingsArgs',
+        launchSettingsTemplates.map((template) => substituteString(template, scope))
+      )
+      scope.set('themeArgs', [])
+    } else {
+      scope.set('launchSettingsArgs', [])
+    }
+  } else {
+    scope.set('launchSettingsArgs', [])
+  }
+
   // `pluginDirArgs` mirrors `modelArgs`: spread into argv via
   // { spreadIf: "pluginDirArgs" }, in LAUNCH and RESUME argv alike — a resumed
   // session needs the app's skills and its agent-state hook exactly as much as

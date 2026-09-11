@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { createHash, randomUUID } from 'crypto'
 import { chmodSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { unlink } from 'fs/promises'
+import { homedir } from 'os'
 import { join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 import type { PluginContextInjectionMode } from '../shared/plugin-manifest'
@@ -9,6 +10,7 @@ import { applyDebugDirective } from '../shared/debug-directive'
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../shared/design-system/bundle-scaffold'
 import { buildHostContextDocument, wrapHostContextForPrompt } from '../shared/host-context/document'
 import { buildAgentShellCommand, cliTakesLaunchPlugins, pluginIdForCli, renderAgentLaunchArgv, renderCliLaunchEnv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
+import { buildLaunchStatusLineSetting } from './agent-state'
 import { resolveAgentStateSocketPath } from './agent-state-service'
 import { renderReasoningArgs, resolvePermissionArgs } from './plugin-render'
 import {
@@ -163,6 +165,49 @@ function pluginDirsForLaunch(cli: AgentCli, target: 'posix' | 'windows' | 'wsl')
  * Exported so the workspace installer asks the same question: one answer, or
  * both halves write the hook and every event is reported twice.
  */
+// The status-line forwarder inside the app's own plugin copy. Published by
+// app-services alongside the plugin directories; empty until that copy lands.
+let launchStatusLineScriptResolver: (() => string) | null = null
+
+export function setLaunchStatusLineScriptResolver(resolver: (() => string) | null): void {
+  launchStatusLineScriptResolver = resolver
+}
+
+/**
+ * The settings document this launch passes, or undefined for none.
+ *
+ * Gated on the plugin directories deliberately: the status line is only sent
+ * where the workspace install is being SKIPPED. A launch that still writes the
+ * workspace's own settings registers the status line there, exactly as before,
+ * and sending it here as well would put two of them in front of one session.
+ */
+function launchSettingsForLaunch(
+  cli: AgentCli,
+  cwd: string,
+  target: 'posix' | 'windows' | 'wsl'
+): Record<string, unknown> | undefined {
+  if (pluginDirsForLaunch(cli, target).length === 0) return undefined
+  let scriptPath: string
+  try {
+    scriptPath = launchStatusLineScriptResolver?.() ?? ''
+  } catch {
+    return undefined
+  }
+  if (!scriptPath) return undefined
+  const socketPath = agentStateSocketPathForLaunch()
+  if (!socketPath) return undefined
+  // Read against the NATIVE cwd: the settings files being consulted are this
+  // machine's, whatever path style the launched shell speaks.
+  const statusLine = buildLaunchStatusLineSetting({
+    workspaceRoot: cwd,
+    scriptPath,
+    socketPath,
+    homeDir: homedir(),
+    env: process.env,
+  })
+  return statusLine ? { statusLine } : undefined
+}
+
 export function launchPluginsSupportedOnThisPlatform(): boolean {
   return process.platform !== 'win32'
 }
@@ -1384,7 +1429,7 @@ function buildWslShellScript(
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, managedMcpEnv, providerLaunchEnv),
-    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning, undefined, hostContext, pluginDirsForLaunch(cli, 'wsl')),
+    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning, undefined, hostContext, pluginDirsForLaunch(cli, 'wsl'), launchSettingsForLaunch(cli, cwd, 'wsl')),
     'exec bash -li',
   ].join('; ')
 }
@@ -1477,7 +1522,8 @@ export function getShellLaunchConfig(
         debugMode,
         cliReasoning,
         windowsHostContext,
-        pluginDirsForLaunch(cli, 'windows')
+        pluginDirsForLaunch(cli, 'windows'),
+        launchSettingsForLaunch(cli, cwd, 'windows')
       )
     )
 
@@ -1547,7 +1593,8 @@ export function getShellLaunchConfig(
       cliReasoning,
       resolvedBinaryPath,
       hostContextRenderInputs(hostContext, null, []),
-      pluginDirsForLaunch(cli, 'posix')
+      pluginDirsForLaunch(cli, 'posix'),
+      launchSettingsForLaunch(cli, cwd, 'posix')
     ),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
@@ -1652,7 +1699,8 @@ function buildNativeAgentLaunchPowerShellScript(
   debugMode = false,
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {},
-  pluginDirs: string[] = []
+  pluginDirs: string[] = [],
+  launchSettings?: Record<string, unknown>
 ): string {
   // Codex keeps its legacy Windows path because of two plugin-specific
   // behaviours that do not generalise: a `-C cwd` flag the Windows codex CLI
@@ -1686,6 +1734,7 @@ function buildNativeAgentLaunchPowerShellScript(
     debugMode,
     colorScheme: getColorScheme(),
     pluginDirs,
+    ...(launchSettings ? { launchSettings } : {}),
     ...hostContext,
   })
   // argv[0] is the binary; the remainder are the arguments PowerShell needs
@@ -1782,7 +1831,8 @@ function buildAgentLaunchCommand(
   cliReasoning?: string,
   resolvedBinaryPath?: string,
   hostContext: HostContextRenderInputs = {},
-  pluginDirs: string[] = []
+  pluginDirs: string[] = [],
+  launchSettings?: Record<string, unknown>
 ): string {
   return buildAgentShellCommand({
     cli,
@@ -1797,6 +1847,7 @@ function buildAgentLaunchCommand(
     colorScheme: getColorScheme(),
     resolvedBinaryPath,
     pluginDirs,
+    ...(launchSettings ? { launchSettings } : {}),
     ...hostContext,
   })
 }

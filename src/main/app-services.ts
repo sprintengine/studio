@@ -8,9 +8,13 @@ import { promisify } from 'util'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
 import { cliTakesLaunchPlugins } from './agent-launch-render'
-import { ensureAgentIntegrationHome, pruneAgentIntegrationHomes } from './agent-integration-home'
+import { ensureAgentIntegrationHome, LAUNCH_STATUS_LINE_REL, pruneAgentIntegrationHomes } from './agent-integration-home'
 import { createAgentStateService } from './agent-state-service'
-import { launchPluginsSupportedOnThisPlatform, setLaunchPluginDirsResolver } from './terminal-launch'
+import {
+  launchPluginsSupportedOnThisPlatform,
+  setLaunchPluginDirsResolver,
+  setLaunchStatusLineScriptResolver,
+} from './terminal-launch'
 import { createAutomationService } from './automation/automation-service'
 import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
 import { FLEET_EVENT_CHANNEL } from '../shared/tailnet-fleet'
@@ -213,6 +217,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // `resolveLaunchInjectsPlugins` closes over it: the launch flag and the
   // workspace installer must read one value, never two that can disagree.
   let agentIntegrationPluginDirs: string[] = []
+  // The status-line forwarder inside that copy. Separate from the directories
+  // because a status line is not a plugin component — no plugin can declare
+  // one — so it travels in the launch's `--settings` document instead.
+  let agentIntegrationStatusLinePath = ''
 
   // Created before terminalRuntime so the runtime can install the reporter at
   // launch; `onFrame` resolves to terminalRuntime (declared just below) at
@@ -250,6 +258,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     const home = await ensureAgentIntegrationHome({
       templateRoot: getBundledStudioPluginRoot(),
       reporterSourcePath: getBundledAgentStateReporterPath(),
+      // The forwarder the launch names in its `--settings` status line: it is
+      // how the app reads context usage, cost and lines changed for a session.
+      statusLineSourcePath: getBundledStatusLineForwarderPath(),
       userDataDir: app.getPath('userData'),
       tokens: {
         nodeCommand: process.execPath,
@@ -269,12 +280,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       return
     }
     agentIntegrationPluginDirs = home.home.pluginDirs
+    agentIntegrationStatusLinePath = join(home.home.root, LAUNCH_STATUS_LINE_REL)
     // Old versions are only safe to delete here: a CLI reads a plugin directory
     // as it starts, and every agent this app launches dies with the app, so no
     // live session is reading a sibling version at startup.
     await pruneAgentIntegrationHomes(app.getPath('userData'), home.home.version)
   })()
   setLaunchPluginDirsResolver(() => agentIntegrationPluginDirs)
+  setLaunchStatusLineScriptResolver(() => agentIntegrationStatusLinePath)
 
   // The app's own plugin, installed into every workspace it opens. Declared
   // here because it needs the same bridge path the managed MCP sync uses, and

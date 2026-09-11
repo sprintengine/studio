@@ -8,6 +8,7 @@ import {
   ensureAgentIntegrationHome,
   launchPluginDirs,
   LAUNCH_REPORTER_REL,
+  LAUNCH_STATUS_LINE_REL,
   pruneAgentIntegrationHomes,
 } from './agent-integration-home'
 import { hasUnsubstitutedTokens } from './skills/studio-plugin'
@@ -17,6 +18,7 @@ import { hasUnsubstitutedTokens } from './skills/studio-plugin'
 // thing that actually ships drifted out from under it.
 const TEMPLATE_ROOT = join(process.cwd(), 'resources', 'studio-plugin')
 const REPORTER_SOURCE = join(process.cwd(), 'resources', 'hooks', 'multicode-agent-state.mjs')
+const STATUS_LINE_SOURCE = join(process.cwd(), 'resources', 'hooks', 'multicode-status-line.mjs')
 
 const TOKENS = {
   nodeCommand: '/Applications/SprintEngine Studio.app/Contents/MacOS/Studio',
@@ -36,6 +38,7 @@ async function aBuildMaterialisesItsOwnCopy(): Promise<void> {
   const result = await ensureAgentIntegrationHome({
     templateRoot: TEMPLATE_ROOT,
     reporterSourcePath: REPORTER_SOURCE,
+    statusLineSourcePath: STATUS_LINE_SOURCE,
     userDataDir: dir,
     tokens: TOKENS,
   })
@@ -53,6 +56,12 @@ async function aBuildMaterialisesItsOwnCopy(): Promise<void> {
   // script is missing is the MODULE_NOT_FOUND every session reports forever.
   const reporter = await readFile(join(result.home.root, LAUNCH_REPORTER_REL), 'utf8')
   assert.ok(reporter.includes('agent_state'), 'the copied reporter must be the real one')
+
+  // And the status-line forwarder beside it: the launch names this script in
+  // its `--settings`, and it is the only way the app learns how much of a
+  // session's context window is gone.
+  const forwarder = await readFile(join(result.home.root, LAUNCH_STATUS_LINE_REL), 'utf8')
+  assert.ok(forwarder.includes('usedPercentage') || forwarder.includes('StatusLine'), 'the copied forwarder must be the real one')
 
   // Unlike the workspace copy, this one's hook declaration is the ONLY
   // registration there is, so it must survive materialising intact.

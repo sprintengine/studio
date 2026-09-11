@@ -38,6 +38,7 @@
       { "spreadIf": "themeArgs" },
       { "spreadIf": "contextArgs" },
       { "spreadIf": "pluginDirArgs" },
+      { "spreadIf": "launchSettingsArgs" },
       "--session-id",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }
@@ -58,10 +59,15 @@
       { "spreadIf": "themeArgs" },
       { "spreadIf": "contextArgs" },
       { "spreadIf": "pluginDirArgs" },
+      { "spreadIf": "launchSettingsArgs" },
       "--resume",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }
     ]
+  },
+  "launchSettings": {
+    "$comment": "Runs the same `claude` binary as the claude-code runtime, so it takes the same --settings document; see that manifest for the verification.",
+    "args": ["--settings", "{{launchSettingsJson}}"]
   },
   "launchPlugins": {
     "$comment": "Runs the same `claude` binary as the claude-code runtime, so it takes the same repeatable --plugin-dir flag; see that manifest for the 2026-09-11 verification against CLI 2.1.268.",

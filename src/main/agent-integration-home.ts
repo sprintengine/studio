@@ -47,6 +47,16 @@ export const AGENT_INTEGRATION_DIR = 'agent-integration'
  */
 export const LAUNCH_REPORTER_REL = join(STUDIO_PLUGIN_ID, 'hooks', 'agent-state.mjs')
 
+/**
+ * The status-line forwarder, beside the reporter.
+ *
+ * It is not a hook and no plugin can declare it — Claude Code takes a status
+ * line only from a settings file or from `--settings` at launch. It lives here
+ * anyway because the launch names it in that setting, and a path under the
+ * person's workspace is exactly what this whole arrangement stops writing.
+ */
+export const LAUNCH_STATUS_LINE_REL = join(STUDIO_PLUGIN_ID, 'hooks', 'status-line.mjs')
+
 /** Written last, so a half-finished copy is never mistaken for a usable one. */
 const MARKER_FILE = '.installed.json'
 
@@ -88,6 +98,15 @@ export type EnsureAgentIntegrationHomeOptions = {
   templateRoot: string | null
   /** The bundled stdin-filter reporter, or null when it did not ship. */
   reporterSourcePath: string | null
+  /**
+   * The bundled status-line forwarder, or null when it did not ship.
+   *
+   * Optional in the strong sense: a build without it still gets hooks, skills
+   * and its MCP server. It is how the app reads a session's context-window
+   * usage, not how agent state works, and a missing forwarder must never cost a
+   * launch the rest of the plugin.
+   */
+  statusLineSourcePath?: string | null
   userDataDir: string
   /** The three build-and-moment values the template cannot carry. */
   tokens: Omit<StudioPluginTokens, 'agentStateReporterPath'>
@@ -138,6 +157,15 @@ export async function ensureAgentIntegrationHome(
     await copyFile(reporterSourcePath, reporterPath)
   } catch (error) {
     return { ok: false, message: `The agent-state reporter could not be copied: ${describe(error)}` }
+  }
+
+  // Best-effort, and deliberately after the reporter: the launch names this
+  // script in its `--settings` status line, which is how the app reads context
+  // usage, cost and lines changed. A build that shipped none simply sends no
+  // status line — the hooks, the skills and the MCP server are unaffected.
+  const statusLineSourcePath = options.statusLineSourcePath
+  if (statusLineSourcePath && existsSync(statusLineSourcePath)) {
+    await copyFile(statusLineSourcePath, join(root, LAUNCH_STATUS_LINE_REL)).catch(() => undefined)
   }
 
   await writeMarker(root, template.version)

@@ -244,6 +244,17 @@ type PluginLaunchPluginsSpec = {
   args: string[]
 }
 
+// Declares that a CLI accepts a settings document on its command line, for the
+// settings a plugin cannot carry. `args` is rendered ONCE with
+// `{{launchSettingsJson}}` bound to every setting this launch wants, merged
+// into one value — Claude Code documents `--settings` as a single file-or-JSON
+// argument and says nothing about repeating it, so two flags is a shape nobody
+// has tested. When these args render, `themeArgs` is suppressed: the theme is
+// folded into the same document rather than passed as a second `--settings`.
+type PluginLaunchSettingsSpec = {
+  args: string[]
+}
+
 // =============================================================================
 // Agent-state capability (authoritative lifecycle-hook reporting)
 //
@@ -388,6 +399,9 @@ export type PluginManifest = {
   themeSelection?: PluginThemeSelectionSpec
   // Plugin directories this CLI accepts at launch (see the spec above).
   launchPlugins?: PluginLaunchPluginsSpec
+  // Settings this CLI accepts at launch, for what a plugin cannot declare —
+  // today the status line the app reads context usage from.
+  launchSettings?: PluginLaunchSettingsSpec
   skillIntegration?: PluginSkillIntegration
   // Authoritative agent-state integration (see the section above). Absent ⇒
   // the CLI cannot report authoritative agent state.
@@ -545,6 +559,11 @@ export type PluginRenderContext = {
   // that declare `launchPlugins`. Empty or absent renders no flag, so a launch
   // before the app has materialised its copy is the launch it always was.
   pluginDirs?: string[]
+  // Settings to hand this launch as one document, consumed by manifests that
+  // declare `launchSettings`. The theme is folded in by the renderer; the
+  // caller supplies the rest (the status line). Absent or empty renders no
+  // flag beyond the theme the launch already passed.
+  launchSettings?: Record<string, unknown>
   variables?: Record<string, string | number | boolean | string[] | undefined>
   files?: string[]
 }

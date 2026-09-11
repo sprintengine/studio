@@ -48,6 +48,10 @@
   "themeSelection": {
     "args": ["--settings", "{\"theme\":\"{{colorScheme}}\"}"]
   },
+  "launchSettings": {
+    "$comment": "claude --settings '<json>', verified against the installed CLI 2.1.268 on 2026-09-11 and documented as applying above the user, project and local settings files and below managed settings, writing nothing to disk. It carries what a plugin cannot: Claude Code's plugin settings.json accepts only `agent` and `subagentStatusLine`, so the status line the app reads context usage, cost and lines-changed from must arrive here. The theme rides the same document rather than a second --settings, whose repeatability is undocumented.",
+    "args": ["--settings", "{{launchSettingsJson}}"]
+  },
   "launchPlugins": {
     "$comment": "claude --plugin-dir <dir>, verified against the installed CLI 2.1.268 on 2026-09-11: a directory passed this way loads its skills, its hooks/hooks.json and its .mcp.json for THAT SESSION ONLY — `claude mcp list` shows the server as plugin:<name>:<server> with the flag and not without it, and nothing is written to ~/.claude or to the project. The flag is repeatable and must name each plugin directory: pointing it at the marketplace root (the directory holding .claude-plugin/marketplace.json) loaded neither child plugin. Hook commands in a plugin may use ${CLAUDE_PLUGIN_ROOT}, and the launch env reaches the hook process, which is how the reporter finds its socket.",
     "args": ["--plugin-dir", "{{pluginDir}}"]
@@ -61,6 +65,7 @@
       { "spreadIf": "themeArgs" },
       { "spreadIf": "contextArgs" },
       { "spreadIf": "pluginDirArgs" },
+      { "spreadIf": "launchSettingsArgs" },
       "--session-id",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }
@@ -74,6 +79,7 @@
       { "spreadIf": "themeArgs" },
       { "spreadIf": "contextArgs" },
       { "spreadIf": "pluginDirArgs" },
+      { "spreadIf": "launchSettingsArgs" },
       "--resume",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }

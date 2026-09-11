@@ -328,6 +328,8 @@ export type CliPluginManifest = {
   themeSelection?: CliThemeSelectionSpec
   /** Plugin directories the CLI accepts at launch, one flag per directory. */
   launchPlugins?: CliLaunchPluginsSpec
+  /** A settings document the CLI accepts at launch, as one merged value. */
+  launchSettings?: CliLaunchSettingsSpec
   skillIntegration?: CliSkillIntegration
   agentStateSpec?: CliAgentStateSpec
   auth?: CliAuthSpec
@@ -338,6 +340,14 @@ export type CliPluginManifest = {
 // to it. It is how a host ships its own skills, hooks and MCP server to a
 // session without installing anything into the user's repository.
 export type CliLaunchPluginsSpec = {
+  args: string[]
+}
+
+// A settings document handed to the CLI on its command line, for settings a
+// plugin cannot carry. `args` is rendered once with `{{launchSettingsJson}}`
+// bound to every setting the launch wants, merged into ONE value — a host that
+// passed two such flags would be relying on repeat behaviour no CLI documents.
+export type CliLaunchSettingsSpec = {
   args: string[]
 }
 
@@ -418,6 +428,7 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   if (value.reasoningSelection !== undefined) validateReasoningSelection(value.reasoningSelection, issues)
   if (value.themeSelection !== undefined) validateThemeSelection(value.themeSelection, issues)
   if (value.launchPlugins !== undefined) validateLaunchPlugins(value.launchPlugins, issues)
+  if (value.launchSettings !== undefined) validateLaunchSettings(value.launchSettings, issues)
   if (value.skillIntegration !== undefined) validateSkillIntegration(value.skillIntegration, issues)
   if (value.agentStateSpec !== undefined) validateAgentStateSpec(value.agentStateSpec, issues)
   if (value.auth !== undefined) validateAuth(value.auth, issues)
@@ -818,6 +829,24 @@ function validateLaunchPlugins(value: unknown, issues: CliManifestIssue[]): void
   }
   if (!value.args.some((arg) => typeof arg === 'string' && arg.includes('{{pluginDir}}'))) {
     issues.push({ path: 'launchPlugins.args', message: 'launchPlugins.args must reference {{pluginDir}} — it is rendered once per directory.' })
+  }
+}
+
+// Rendered once with the whole document bound to `{{launchSettingsJson}}`, so a
+// manifest that never spends that variable would pass a flag with no settings
+// in it — and, because declaring this suppresses the separate theme flag, would
+// silently drop the theme as well.
+function validateLaunchSettings(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'launchSettings', message: 'launchSettings must be an object when present.' })
+    return
+  }
+  if (!Array.isArray(value.args) || value.args.length === 0 || value.args.some((arg) => typeof arg !== 'string')) {
+    issues.push({ path: 'launchSettings.args', message: 'launchSettings.args must be a non-empty array of string templates.' })
+    return
+  }
+  if (!value.args.some((arg) => typeof arg === 'string' && arg.includes('{{launchSettingsJson}}'))) {
+    issues.push({ path: 'launchSettings.args', message: 'launchSettings.args must reference {{launchSettingsJson}} — it carries the merged settings document.' })
   }
 }
 
