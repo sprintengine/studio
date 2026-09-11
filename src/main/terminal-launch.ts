@@ -491,6 +491,52 @@ function powerShellBase64Literal(value: string): string {
   return `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(${quotePowerShell(Buffer.from(value, 'utf8').toString('base64'))}))`
 }
 
+// One argument as the MSVC runtime (CommandLineToArgvW) parses it back: quoted
+// when it holds whitespace or a quote, `"` escaped, and the backslashes that
+// run up to a quote doubled.
+function quoteWindowsCommandLineArg(value: string): string {
+  if (value !== '' && !/[\s"]/.test(value)) return value
+  let quoted = '"'
+  let backslashes = 0
+  for (const char of value) {
+    if (char === '\\') {
+      backslashes += 1
+      continue
+    }
+    quoted += char === '"' ? `${'\\'.repeat(backslashes * 2 + 1)}"` : `${'\\'.repeat(backslashes)}${char}`
+    backslashes = 0
+  }
+  return `${quoted}${'\\'.repeat(backslashes * 2)}"`
+}
+
+// Exported for terminal-launch.test.ts. The tail of the native Windows launch
+// script: run `$command` with `$arguments` (set by the caller).
+//
+// Windows PowerShell 5.1 — which powershell.exe always is — does not escape
+// embedded double quotes when it builds a native exe's command line, so
+// `& claude.exe @arguments` handed Claude Code `--settings {theme:dark}` for
+// the argument `{"theme":"dark"}`, and Claude Code rejected it as invalid
+// settings on every launch. Any prompt with a quote in it was mangled the same
+// way. So for an .exe the command line is built here, escaped exactly, and
+// passed through the stop-parsing token, which hands the rest of the line to
+// the exe verbatim (expanding only %VAR%). A .ps1/.cmd shim keeps the old
+// splat: --% means something else to a script, and cmd.exe re-parses quotes
+// by its own rules.
+export function buildNativeWindowsInvocation(args: string[]): string[] {
+  if (args.length === 0) return ['& $command']
+  return [
+    `$env:SPRINTENGINE_LAUNCH_ARGS = ${powerShellBase64Literal(args.map(quoteWindowsCommandLineArg).join(' '))}`,
+    `$resolvedCommand = Get-Command $command -ErrorAction SilentlyContinue | Select-Object -First 1`,
+    `if ($resolvedCommand -and $resolvedCommand.CommandType -eq 'Application' -and $resolvedCommand.Source -match '\\.(exe|com)$') {`,
+    // Nothing may follow --% on this line: it would be passed to the exe too.
+    `  & $resolvedCommand.Source --% %SPRINTENGINE_LAUNCH_ARGS%`,
+    `} else {`,
+    `  & $command @arguments`,
+    `}`,
+    `Remove-Item Env:SPRINTENGINE_LAUNCH_ARGS -ErrorAction SilentlyContinue`,
+  ]
+}
+
 function nativeWindowsCodexPromptArg(value: string | undefined): string | undefined {
   return value
     ?.replace(/\r\n|\r|\n/g, '\\n')
@@ -1590,7 +1636,7 @@ function buildNativeAgentLaunchPowerShellScript(
     `Set-Location -LiteralPath ${quotePowerShell(cwd)}`,
     `$command = ${quotePowerShell(binary)}`,
     `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
-    `& $command @arguments`,
+    ...buildNativeWindowsInvocation(args),
   ].join('\r\n')
 }
 

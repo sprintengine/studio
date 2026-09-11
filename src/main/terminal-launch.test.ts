@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { closeSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,6 +10,7 @@ import {
   applyAgentIdentityEnv,
   OSC133_BASH_PROMPT_COMMAND,
   SHELL_INTEGRATION_BASH_PROMPT_COMMAND,
+  buildNativeWindowsInvocation,
   buildShellIntegrationSetup,
   buildShellIntegrationZshShim,
   replaceFileAtomically,
@@ -33,6 +35,7 @@ async function main(): Promise<void> {
   testPromptModeWritesNoFileAndWrapsTheRequest()
   testPromptModeLeavesAnEmptyComposerAlone()
   testWslAndWindowsNormalizeTheContextPaths()
+  testWindowsPowerShellHandsTheExeEveryArgumentIntact()
   testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning()
   testTheZshShimHandsEveryStageBackToTheUsersOwnFiles()
   testOnlyTheShellsWeCanReachThroughEnvAreArmed()
@@ -43,6 +46,43 @@ async function main(): Promise<void> {
   testBashKeepsTheUsersOwnPromptCommand()
   testTheShimFilesAreReplacedRatherThanTruncated()
   console.log('terminal-launch tests passed')
+}
+
+// Windows PowerShell 5.1 stripped the quotes out of `--settings {"theme":"dark"}`
+// on the way to claude.exe, which then refused its settings on every launch.
+// Round-trips real arguments through powershell.exe into node.exe and back.
+function testWindowsPowerShellHandsTheExeEveryArgumentIntact(): void {
+  if (process.platform !== 'win32') {
+    console.log('ok - skipped: native Windows argument passing (not win32)')
+    return
+  }
+  const args = [
+    '-e',
+    'process.stdout.write(JSON.stringify(process.argv.slice(1)))',
+    '--',
+    '--settings',
+    '{"theme":"dark"}',
+    'say "hi there" now',
+    'two\nlines',
+    '100% %PATH% done',
+    'C:\\my dir\\',
+    '',
+  ]
+  const script = [
+    `$command = 'node'`,
+    `$arguments = @()`,
+    ...buildNativeWindowsInvocation(args),
+  ].join('\r\n')
+  const dir = mkdtempSync(join(tmpdir(), 'se-winargs-'))
+  try {
+    const scriptPath = join(dir, 'launch.ps1')
+    writeFileSync(scriptPath, script, 'utf8')
+    const output = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], { encoding: 'utf8' })
+    assert.deepEqual(JSON.parse(output.trim()), args.slice(3))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+  console.log('ok - native Windows launch hands the exe every argument intact')
 }
 
 // A manifest with no launch.env must not touch the base env at all.
