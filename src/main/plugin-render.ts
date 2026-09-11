@@ -285,6 +285,31 @@ function buildVariableScope(
     scope.set('themeArgs', [])
   }
 
+  // `pluginDirArgs` mirrors `modelArgs`: spread into argv via
+  // { spreadIf: "pluginDirArgs" }, in LAUNCH and RESUME argv alike — a resumed
+  // session needs the app's skills and its agent-state hook exactly as much as
+  // a fresh one. Rendered only when the caller resolved directories AND the
+  // manifest declares `launchPlugins`, so a CLI that cannot take them (or a
+  // launch before the app materialised its copy) passes no flag.
+  //
+  // The templates are rendered ONCE PER DIRECTORY against a copy of the scope
+  // carrying that directory as `{{pluginDir}}`: one flag per directory is what
+  // these CLIs accept, and a copy rather than a mutation so the binding cannot
+  // leak into any template rendered after this one.
+  const pluginDirs = (context.pluginDirs ?? []).map((dir) => dir.trim()).filter((dir) => dir !== '')
+  const pluginDirArgTemplates = manifest.launchPlugins?.args
+  const pluginDirArgs: string[] = []
+  if (pluginDirArgTemplates && pluginDirArgTemplates.length > 0) {
+    for (const dir of pluginDirs) {
+      const perDirectory = new Map(scope)
+      perDirectory.set('pluginDir', dir)
+      for (const template of pluginDirArgTemplates) {
+        pluginDirArgs.push(substituteString(template, perDirectory))
+      }
+    }
+  }
+  scope.set('pluginDirArgs', pluginDirArgs)
+
   return scope
 }
 

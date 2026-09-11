@@ -78,6 +78,7 @@ async function main(): Promise<void> {
     testOpenCodeTakesTheContextThroughItsConfigEnv()
     testPromptFallbackCliRendersNoContextFlag()
     testLaunchPreviewNeverShowsHostContext()
+    testLaunchPluginDirsReachLaunchAndResume()
   })
 
   console.log('agent-launch-render tests passed')
@@ -101,6 +102,48 @@ async function usingBundledRegistry(fn: () => Promise<void> | void): Promise<voi
   } finally {
     __resetPluginRegistryForTest()
   }
+}
+
+/** The directories named by a launch's `--plugin-dir` flags, in order. */
+function pluginDirFlags(argv: string[]): string[] {
+  return argv.flatMap((token, index) => (token === '--plugin-dir' ? [argv[index + 1] ?? ''] : []))
+}
+
+// The app's own skills, hook and MCP server reach an agent through the launch,
+// for that session only — nothing is written into the person's repository, and
+// a CLI started outside this app gets none of it.
+function testLaunchPluginDirsReachLaunchAndResume(): void {
+  const dirs = ['/data/agent-integration/1.2.3/sprintengine-studio', '/data/agent-integration/1.2.3/studio-skills']
+
+  const launch = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', pluginDirs: dirs })
+  assert.deepEqual(pluginDirFlags(launch.argv), dirs, 'one flag per directory, in order')
+
+  const resumed = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', resume: true, pluginDirs: dirs })
+  assert.deepEqual(pluginDirFlags(resumed.argv), dirs, 'a resumed session is re-told the same plugins')
+
+  // The other CLIs that run the same `claude` binary take the same flag.
+  for (const cli of ['kimi-claude', 'zai'] as const) {
+    assert.deepEqual(pluginDirFlags(renderAgentLaunchArgv({ cli, sessionId: 's1', pluginDirs: dirs }).argv), dirs, cli)
+  }
+  // Cursor deliberately declares none, though its CLI has the same flag: the
+  // directory this app passes carries Claude's nested PascalCase hooks.json,
+  // and Cursor reads a flat camelCase one. Opting it in would load the skills
+  // and silently lose its agent state, because the workspace install that
+  // writes .cursor/hooks.json would be skipped for a hook it cannot read.
+  assert.deepEqual(pluginDirFlags(renderAgentLaunchArgv({ cli: 'cursor', sessionId: 's1', pluginDirs: dirs }).argv), [])
+
+  // Codex declares no `launchPlugins`, so it never sees the flag however many
+  // directories the app resolved — its agent state keeps coming from the
+  // workspace installer until its own launch-scoped path is verified.
+  assert.deepEqual(pluginDirFlags(renderAgentLaunchArgv({ cli: 'codex', sessionId: 's1', pluginDirs: dirs }).argv), [])
+
+  // And an app that has not materialised its copy yet renders the launch it
+  // always did — no empty flag, nothing half-passed.
+  assert.deepEqual(pluginDirFlags(renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1' }).argv), [])
+  assert.deepEqual(
+    renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1' }).argv,
+    renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', pluginDirs: [] }).argv
+  )
 }
 
 function testPluginCliMapping(): void {

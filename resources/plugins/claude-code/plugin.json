@@ -48,6 +48,10 @@
   "themeSelection": {
     "args": ["--settings", "{\"theme\":\"{{colorScheme}}\"}"]
   },
+  "launchPlugins": {
+    "$comment": "claude --plugin-dir <dir>, verified against the installed CLI 2.1.268 on 2026-09-11: a directory passed this way loads its skills, its hooks/hooks.json and its .mcp.json for THAT SESSION ONLY — `claude mcp list` shows the server as plugin:<name>:<server> with the flag and not without it, and nothing is written to ~/.claude or to the project. The flag is repeatable and must name each plugin directory: pointing it at the marketplace root (the directory holding .claude-plugin/marketplace.json) loaded neither child plugin. Hook commands in a plugin may use ${CLAUDE_PLUGIN_ROOT}, and the launch env reaches the hook process, which is how the reporter finds its socket.",
+    "args": ["--plugin-dir", "{{pluginDir}}"]
+  },
   "launch": {
     "argv": [
       "{{binary}}",
@@ -56,6 +60,7 @@
       { "spreadIf": "reasoningArgs" },
       { "spreadIf": "themeArgs" },
       { "spreadIf": "contextArgs" },
+      { "spreadIf": "pluginDirArgs" },
       "--session-id",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }
@@ -68,6 +73,7 @@
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "themeArgs" },
       { "spreadIf": "contextArgs" },
+      { "spreadIf": "pluginDirArgs" },
       "--resume",
       "{{sessionId}}",
       { "valueIf": "prompt", "value": "{{prompt}}" }

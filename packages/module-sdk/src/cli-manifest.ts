@@ -326,9 +326,19 @@ export type CliPluginManifest = {
   modelSelection?: CliModelSelectionSpec
   reasoningSelection?: CliReasoningSelectionSpec
   themeSelection?: CliThemeSelectionSpec
+  /** Plugin directories the CLI accepts at launch, one flag per directory. */
+  launchPlugins?: CliLaunchPluginsSpec
   skillIntegration?: CliSkillIntegration
   agentStateSpec?: CliAgentStateSpec
   auth?: CliAuthSpec
+}
+
+// Plugin directories handed to the CLI on its command line, one flag per
+// directory: `args` is rendered once per directory with `{{pluginDir}}` bound
+// to it. It is how a host ships its own skills, hooks and MCP server to a
+// session without installing anything into the user's repository.
+export type CliLaunchPluginsSpec = {
+  args: string[]
 }
 
 // ── Validator ────────────────────────────────────────────────────────────────
@@ -407,6 +417,7 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   if (value.modelSelection !== undefined) validateModelSelection(value.modelSelection, issues)
   if (value.reasoningSelection !== undefined) validateReasoningSelection(value.reasoningSelection, issues)
   if (value.themeSelection !== undefined) validateThemeSelection(value.themeSelection, issues)
+  if (value.launchPlugins !== undefined) validateLaunchPlugins(value.launchPlugins, issues)
   if (value.skillIntegration !== undefined) validateSkillIntegration(value.skillIntegration, issues)
   if (value.agentStateSpec !== undefined) validateAgentStateSpec(value.agentStateSpec, issues)
   if (value.auth !== undefined) validateAuth(value.auth, issues)
@@ -790,6 +801,23 @@ function validateCapabilities(value: unknown, issues: CliManifestIssue[]): void 
   }
   if (value.chatHistoryFile !== undefined && typeof value.chatHistoryFile !== 'string') {
     issues.push({ path: 'capabilities.chatHistoryFile', message: 'chatHistoryFile must be a string when present.' })
+  }
+}
+
+// The host renders these args once per plugin directory, with `{{pluginDir}}`
+// bound to it, so a manifest that never spends that variable would pass the
+// same flag twice and hand the CLI one directory it was not given.
+function validateLaunchPlugins(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'launchPlugins', message: 'launchPlugins must be an object when present.' })
+    return
+  }
+  if (!Array.isArray(value.args) || value.args.length === 0 || value.args.some((arg) => typeof arg !== 'string')) {
+    issues.push({ path: 'launchPlugins.args', message: 'launchPlugins.args must be a non-empty array of string templates.' })
+    return
+  }
+  if (!value.args.some((arg) => typeof arg === 'string' && arg.includes('{{pluginDir}}'))) {
+    issues.push({ path: 'launchPlugins.args', message: 'launchPlugins.args must reference {{pluginDir}} — it is rendered once per directory.' })
   }
 }
 

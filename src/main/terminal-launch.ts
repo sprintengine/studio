@@ -8,7 +8,7 @@ import type { PluginContextInjectionMode } from '../shared/plugin-manifest'
 import { applyDebugDirective } from '../shared/debug-directive'
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../shared/design-system/bundle-scaffold'
 import { buildHostContextDocument, wrapHostContextForPrompt } from '../shared/host-context/document'
-import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, renderCliLaunchEnv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
+import { buildAgentShellCommand, cliTakesLaunchPlugins, pluginIdForCli, renderAgentLaunchArgv, renderCliLaunchEnv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
 import { resolveAgentStateSocketPath } from './agent-state-service'
 import { renderReasoningArgs, resolvePermissionArgs } from './plugin-render'
 import {
@@ -109,6 +109,62 @@ function agentStateSocketPathForLaunch(): string | null {
   } catch {
     return null
   }
+}
+
+// The app-owned plugin directories a launch hands a CLI that declares
+// `launchPlugins` — this app's skills, its agent-state hook and its MCP server,
+// for that session only, instead of installed into the person's repository.
+//
+// Published by app-services once the copy has been materialised rather than
+// resolved here, because materialising is async and a launch must not wait for
+// it. Until then (and for a build whose plugin did not ship) this resolves to
+// nothing: the launch renders exactly the argv it always did, and the workspace
+// installer stays responsible for agent state — see `resolveLaunchInjectsPlugins`.
+let launchPluginDirsResolver: (() => string[]) | null = null
+
+export function setLaunchPluginDirsResolver(resolver: (() => string[]) | null): void {
+  launchPluginDirsResolver = resolver
+}
+
+/**
+ * This launch's plugin directories, in the path style the launched shell reads.
+ *
+ * The directories are native paths belonging to the app; a WSL launch runs a
+ * Linux shell that cannot open `C:\...`, so they are converted exactly as every
+ * other host path crossing that boundary is.
+ */
+function pluginDirsForLaunch(cli: AgentCli, target: 'posix' | 'windows' | 'wsl'): string[] {
+  // Windows is deliberately left on the workspace install for now, BOTH native
+  // and through WSL, and the skip predicate in app-services agrees with this so
+  // the two can never each think the other is registering the hook.
+  //
+  // WSL is the reason: the copy is materialised once with absolute paths
+  // substituted into it — the hook command, the node binary that runs the MCP
+  // bridge, the bridge itself — and those are Windows paths. Converting the
+  // DIRECTORY for the flag does not convert the paths inside the files, so a
+  // Linux `claude` would run `node "C:/Users/…/agent-state.mjs"` and report
+  // MODULE_NOT_FOUND for every event. Native Windows would work, but one
+  // platform answering two ways is how the double registration gets back in.
+  if (!launchPluginsSupportedOnThisPlatform()) return []
+  if (!cliTakesLaunchPlugins(cli)) return []
+  let dirs: string[]
+  try {
+    dirs = launchPluginDirsResolver?.() ?? []
+  } catch {
+    return []
+  }
+  if (target === 'posix') return dirs
+  return dirs.map((dir) => (target === 'wsl' ? toWslPath(dir) : toWindowsPath(dir)))
+}
+
+/**
+ * Whether this platform takes the app's plugin directories at launch.
+ *
+ * Exported so the workspace installer asks the same question: one answer, or
+ * both halves write the hook and every event is reported twice.
+ */
+export function launchPluginsSupportedOnThisPlatform(): boolean {
+  return process.platform !== 'win32'
 }
 
 // The identity vars `agentIdentityEnv` owns. Cleared from a base env before the
@@ -1328,7 +1384,7 @@ function buildWslShellScript(
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, managedMcpEnv, providerLaunchEnv),
-    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning, undefined, hostContext),
+    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning, undefined, hostContext, pluginDirsForLaunch(cli, 'wsl')),
     'exec bash -li',
   ].join('; ')
 }
@@ -1420,7 +1476,8 @@ export function getShellLaunchConfig(
         cliModel,
         debugMode,
         cliReasoning,
-        windowsHostContext
+        windowsHostContext,
+        pluginDirsForLaunch(cli, 'windows')
       )
     )
 
@@ -1489,7 +1546,8 @@ export function getShellLaunchConfig(
       debugMode,
       cliReasoning,
       resolvedBinaryPath,
-      hostContextRenderInputs(hostContext, null, [])
+      hostContextRenderInputs(hostContext, null, []),
+      pluginDirsForLaunch(cli, 'posix')
     ),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
@@ -1593,7 +1651,8 @@ function buildNativeAgentLaunchPowerShellScript(
   cliModel?: string,
   debugMode = false,
   cliReasoning?: string,
-  hostContext: HostContextRenderInputs = {}
+  hostContext: HostContextRenderInputs = {},
+  pluginDirs: string[] = []
 ): string {
   // Codex keeps its legacy Windows path because of two plugin-specific
   // behaviours that do not generalise: a `-C cwd` flag the Windows codex CLI
@@ -1626,6 +1685,7 @@ function buildNativeAgentLaunchPowerShellScript(
     cliReasoning,
     debugMode,
     colorScheme: getColorScheme(),
+    pluginDirs,
     ...hostContext,
   })
   // argv[0] is the binary; the remainder are the arguments PowerShell needs
@@ -1721,7 +1781,8 @@ function buildAgentLaunchCommand(
   debugMode = false,
   cliReasoning?: string,
   resolvedBinaryPath?: string,
-  hostContext: HostContextRenderInputs = {}
+  hostContext: HostContextRenderInputs = {},
+  pluginDirs: string[] = []
 ): string {
   return buildAgentShellCommand({
     cli,
@@ -1735,6 +1796,7 @@ function buildAgentLaunchCommand(
     debugMode,
     colorScheme: getColorScheme(),
     resolvedBinaryPath,
+    pluginDirs,
     ...hostContext,
   })
 }

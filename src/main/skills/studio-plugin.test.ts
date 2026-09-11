@@ -166,6 +166,7 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: reporter,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   assert.ok(result.ok, result.ok ? '' : result.message)
   assert.deepEqual(result.warnings, [], 'a clean install warns about nothing')
@@ -295,6 +296,7 @@ async function installIsIdempotentAndPreservesWhatItFinds(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: reporter,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   assert.ok(first.ok, first.ok ? '' : first.message)
   const second = await installStudioPlugin({
@@ -304,6 +306,7 @@ async function installIsIdempotentAndPreservesWhatItFinds(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: reporter,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   assert.ok(second.ok, second.ok ? '' : second.message)
 
@@ -342,6 +345,7 @@ async function anUnacknowledgedInstallStillShipsTheSkills(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: reporter,
     hooksAcknowledged: false,
+    registerWithClaude: true,
   })
   assert.ok(result.ok, result.ok ? '' : result.message)
   assert.equal(result.hookSettingsPath, '', 'no hook is registered without the acknowledgement')
@@ -364,6 +368,7 @@ async function unreadableSettingsAreLeftAloneNotOverwritten(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: reporter,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   // The skills still land; only the settings write is refused, and it says so.
   assert.ok(result.ok, result.ok ? '' : result.message)
@@ -382,6 +387,7 @@ async function aMissingReporterStopsTheInstallBeforeItRegistersAnything(): Promi
     tokens: tokens(workspace),
     agentStateReporterSourcePath: join(workspace, 'nope.mjs'),
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   assert.equal(result.ok, false)
   assert.match(result.ok ? '' : result.message, /reporter is missing/)
@@ -399,6 +405,7 @@ async function aWorkspaceThatVanishedIsRefusedByName(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: __filename,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   assert.equal(result.ok, false)
   assert.match(result.ok ? '' : result.message, /no longer exists/)
@@ -409,6 +416,7 @@ async function aWorkspaceThatVanishedIsRefusedByName(): Promise<void> {
     tokens: tokens('/tmp'),
     agentStateReporterSourcePath: __filename,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   assert.equal(blank.ok, false)
 }
@@ -422,6 +430,7 @@ async function handEditedSkillsAreRestoredOnTheNextOpen(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: reporter,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   assert.ok(first.ok, first.ok ? '' : first.message)
   const victim = join(workspace, '.agents', 'skills', first.skillDirNames[0])
@@ -433,9 +442,61 @@ async function handEditedSkillsAreRestoredOnTheNextOpen(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: reporter,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   assert.ok(second.ok, second.ok ? '' : second.message)
   assert.equal(existsSync(join(victim, 'SKILL.md')), true, 'a built-in plugin cannot be removed by deleting it')
+  await rm(workspace, { recursive: true, force: true })
+}
+
+// Once the launch hands Claude Code the plugin directories itself, this
+// workspace must come out of the install with none of this app's Claude wiring
+// in it: no hook in the person's settings, no `enabledPlugins` entry in the
+// file their colleagues commit, and no absolute machine path anywhere. The
+// skills for the OTHER harnesses still install — those CLIs still read them
+// from the repository.
+async function aLaunchInjectedWorkspaceKeepsItsClaudeFilesClean(): Promise<void> {
+  const { workspace, reporter } = await workspaceAndReporter()
+  const result = await installStudioPlugin({
+    workspaceRoot: workspace,
+    templateRoot: TEMPLATE_ROOT,
+    // What the service passes once launch injection is live: the claude harness
+    // filtered out, because those copies arrive with the session instead.
+    harnesses: ['agents'],
+    tokens: tokens(workspace),
+    agentStateReporterSourcePath: reporter,
+    hooksAcknowledged: true,
+    registerWithClaude: false,
+  })
+  assert.ok(result.ok, result.ok ? '' : result.message)
+  if (!result.ok) return
+
+  // The skills the remaining harnesses read are still installed.
+  assert.ok(result.skillDirNames.length > 0, 'the other CLIs still get their skills')
+  for (const dirName of result.skillDirNames) {
+    const dir = join(workspace, SKILL_HARNESS_DIR.agents, 'skills', dirName)
+    assert.equal(existsSync(join(dir, 'SKILL.md')), true, `${dirName} is installed for .agents`)
+  }
+
+  // And nothing Claude-shaped was written.
+  assert.equal(result.hookSettingsPath, '', 'no hook is registered when the launch carries it')
+  assert.equal(result.claudePluginKey, '', 'and no plugin key is claimed')
+  assert.equal(
+    existsSync(resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)),
+    false,
+    'the gitignored Claude settings file is never created'
+  )
+  assert.equal(
+    existsSync(resolve(workspace, CLAUDE_SETTINGS_RELATIVE_PATH)),
+    false,
+    'and neither is the one a project commits'
+  )
+  assert.equal(
+    existsSync(join(workspace, SKILL_HARNESS_DIR.claude, 'skills')),
+    false,
+    'no .claude/skills copy: Claude reads them from the directory the launch passes'
+  )
+
   await rm(workspace, { recursive: true, force: true })
 }
 
@@ -456,7 +517,7 @@ async function nativeEnablementIsOffAndSaysSo(): Promise<void> {
   const source = await readFile(resolve(process.cwd(), 'src', 'main', 'skills', 'studio-plugin.ts'), 'utf8')
   assert.match(
     source,
-    /if \(!STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT && options\.hooksAcknowledged\) \{/,
+    /if \(options\.registerWithClaude && !STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT && options\.hooksAcknowledged\) \{/,
     'the hook merge must be gated on the flag, so flipping it stops the double registration'
   )
   // The other half of the same coupling, measured against 2.1.266 on
@@ -466,10 +527,13 @@ async function nativeEnablementIsOffAndSaysSo(): Promise<void> {
   // materialised declaration must be blanked, or both registrations fire —
   // which is the bug that found this. Gated on the same flag from the other
   // side, so flipping it restores the real declaration in one move.
+  // The copier is shared with the app-owned copy behind `--plugin-dir`, which
+  // keeps its hooks precisely because there it IS the only registration. So the
+  // coupling is now asserted on the flag the workspace caller passes.
   assert.match(
     source,
-    /if \(!STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT\) await neuterMaterialisedHooks\(staging\)/,
-    'the materialised hooks file must be blanked while the by-hand merge is the registration'
+    /neuterHooks: !STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT/,
+    'the workspace copy must be blanked while the by-hand merge is the registration'
   )
   assert.match(
     source,
@@ -493,6 +557,7 @@ async function proseThatNamesATokenSurvivesVerbatim(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: reporter,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   assert.ok(result.ok, result.ok ? '' : result.message)
   assert.equal(existsSync(join(result.root, 'README.md')), false)
@@ -516,6 +581,7 @@ async function anUnchangedSettingsFileIsNotRewritten(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: reporter,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   }
   const first = await installStudioPlugin({ ...options })
   assert.ok(first.ok, first.ok ? '' : first.message)
@@ -539,6 +605,7 @@ async function everyMaterialisedFileIsFreeOfTokens(): Promise<void> {
     tokens: tokens(workspace),
     agentStateReporterSourcePath: reporter,
     hooksAcknowledged: true,
+    registerWithClaude: true,
   })
   assert.ok(result.ok, result.ok ? '' : result.message)
   const offenders: string[] = []
@@ -629,6 +696,7 @@ async function main(): Promise<void> {
   await aMissingReporterStopsTheInstallBeforeItRegistersAnything()
   await aWorkspaceThatVanishedIsRefusedByName()
   await handEditedSkillsAreRestoredOnTheNextOpen()
+  await aLaunchInjectedWorkspaceKeepsItsClaudeFilesClean()
   await nativeEnablementIsOffAndSaysSo()
   await proseThatNamesATokenSurvivesVerbatim()
   await anUnchangedSettingsFileIsNotRewritten()

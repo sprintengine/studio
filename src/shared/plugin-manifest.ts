@@ -233,6 +233,17 @@ type PluginThemeSelectionSpec = {
   schemes?: { light: string; dark: string }
 }
 
+// Declares that a CLI can be handed plugin directories on its command line, so
+// the app's own skills, hooks and MCP server reach an agent for ONE SESSION
+// instead of being installed into the user's repository. `args` is rendered
+// once per directory with `{{pluginDir}}` bound to it (e.g. ["--plugin-dir",
+// "{{pluginDir}}"]) — every CLI that supports this takes one directory per
+// flag, and Claude Code 2.1.268 loads nothing when handed a marketplace root.
+// Absent ⇒ the CLI reads whatever the workspace installers wrote, as before.
+type PluginLaunchPluginsSpec = {
+  args: string[]
+}
+
 // =============================================================================
 // Agent-state capability (authoritative lifecycle-hook reporting)
 //
@@ -375,6 +386,8 @@ export type PluginManifest = {
   modelSelection?: PluginModelSelectionSpec
   reasoningSelection?: PluginReasoningSelectionSpec
   themeSelection?: PluginThemeSelectionSpec
+  // Plugin directories this CLI accepts at launch (see the spec above).
+  launchPlugins?: PluginLaunchPluginsSpec
   skillIntegration?: PluginSkillIntegration
   // Authoritative agent-state integration (see the section above). Absent ⇒
   // the CLI cannot report authoritative agent state.
@@ -528,6 +541,10 @@ export type PluginRenderContext = {
   // Host light/dark color scheme; consumed by manifests that declare
   // `themeSelection` to spread theme args (e.g. Claude Code's --settings theme).
   colorScheme?: string
+  // The app-owned plugin directories to hand this launch, consumed by manifests
+  // that declare `launchPlugins`. Empty or absent renders no flag, so a launch
+  // before the app has materialised its copy is the launch it always was.
+  pluginDirs?: string[]
   variables?: Record<string, string | number | boolean | string[] | undefined>
   files?: string[]
 }

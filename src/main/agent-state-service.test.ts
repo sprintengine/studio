@@ -180,6 +180,39 @@ async function run(): Promise<void> {
   await installSvc.installForWorkspace(workspaceRoot, 'opencode')
   assert.equal(templateResolveCalls, 1)
 
+  // --- a launch-injected CLI installs nothing ------------------------------
+  // Claude Code is handed this app's plugin directories on its command line, so
+  // the workspace must receive no reporter copy and no hook entry: a second
+  // registration fires the reporter twice for every event, and the files would
+  // be left behind in someone's repository for a colleague to inherit.
+  const injectedRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-injected-'))
+  let injectedResolveCalls = 0
+  const injectedSvc = createAgentStateService({
+    resolveUserDataDir: () => userDataDir,
+    resolveAgentStateSpec: resolveSpec,
+    resolveReporterScriptPath: () => {
+      injectedResolveCalls += 1
+      return reporterSrc
+    },
+    resolveReporterTemplatePath: () => opencodeReporterSrc,
+    resolveLaunchInjectsPlugins: (cli) => cli === 'claude-code',
+    onFrame: () => {},
+  })
+  await injectedSvc.installForWorkspace(injectedRoot, 'claude-code')
+  assert.equal(injectedResolveCalls, 0, 'a launch-injected CLI must not resolve a reporter')
+  assert.equal(
+    await readFile(join(injectedRoot, '.claude', 'settings.local.json'), 'utf8').catch(() => null),
+    null,
+    'and must write nothing into the workspace'
+  )
+
+  // A CLI the launch does not inject still installs, so the predicate can never
+  // quietly turn agent state off for everything.
+  await injectedSvc.installForWorkspace(injectedRoot, 'codex')
+  assert.equal(injectedResolveCalls, 1)
+  const injectedCodexConfig = await readFile(join(injectedRoot, '.codex', 'config.toml'), 'utf8').catch(() => null)
+  assert.ok(injectedCodexConfig?.includes('[[hooks.SessionStart]]'), 'codex still gets its workspace install')
+
   // --- user-scoped registration: per-CLI install-once, injected home -------
   // Kimi's config is user-global, so the install key is `${cli}::user`: the
   // first workspace's launch writes it, a second workspace's launch is a

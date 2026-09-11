@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -207,8 +207,151 @@ async function noSocketMeansNoHookButStillTheSkills(): Promise<void> {
   await rm(built.workspace, { recursive: true, force: true })
 }
 
+// Once the launch hands Claude Code this app's plugin directories, a workspace
+// stops receiving the Claude half of the install — AND the wiring an older
+// release left in it is taken back out. Both matter: a stale hook beside the
+// one the launch registers fires the reporter twice for every event.
+async function launchInjectionTidiesTheWorkspaceAndSkipsClaude(): Promise<void> {
+  const built = await harness({
+    listHarnesses: async (): Promise<SkillHarness[]> => ['agents', 'claude'],
+    resolveLaunchPluginsActive: () => true,
+  })
+  const { mkdir } = await import('node:fs/promises')
+
+  // What an older release wrote into this workspace, plus settings of their own
+  // in both files, which must survive untouched.
+  await mkdir(join(built.workspace, '.claude', 'skills', 'studio-backlog'), { recursive: true })
+  await writeFile(
+    join(built.workspace, '.claude', 'skills', 'studio-backlog', '.multicode-skill.json'),
+    `${JSON.stringify({ sourceId: 'sprintengine-studio', skillId: 'studio-backlog', commitSha: '0.0.1', installedAt: '2026-01-01T00:00:00.000Z' })}\n`,
+    'utf8'
+  )
+  await mkdir(join(built.workspace, '.claude', 'skills', 'their-own-skill'), { recursive: true })
+  await writeFile(join(built.workspace, '.claude', 'skills', 'their-own-skill', 'SKILL.md'), '# theirs\n', 'utf8')
+  await mkdir(join(built.workspace, '.multicode', 'hooks'), { recursive: true })
+  await writeFile(join(built.workspace, '.multicode', 'hooks', 'agent-state.mjs'), '// old reporter\n', 'utf8')
+  await writeFile(
+    join(built.workspace, '.claude', 'settings.local.json'),
+    `${JSON.stringify(
+      {
+        hooks: {
+          Stop: [
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'node "/ws/.multicode/hooks/agent-state.mjs" --socket "/tmp/old.sock"',
+                  _multicode: 'multicode-agent-state',
+                },
+              ],
+            },
+          ],
+        },
+        extraKnownMarketplaces: { 'sprintengine-studio': { source: { source: 'directory', path: '/old/path' } } },
+        theirLocalSetting: true,
+      },
+      null,
+      2
+    )}\n`,
+    'utf8'
+  )
+  await writeFile(
+    join(built.workspace, '.claude', 'settings.json'),
+    `${JSON.stringify({ enabledPlugins: { 'sprintengine-studio@sprintengine-studio': true }, theirSetting: 'kept' }, null, 2)}\n`,
+    'utf8'
+  )
+
+  const service = createStudioPluginService(built.options)
+  await service.ensureInstalledForRoots([built.workspace])
+
+  // The stale registration is gone, and so is the script it named.
+  const local = JSON.parse(await readFile(join(built.workspace, '.claude', 'settings.local.json'), 'utf8')) as {
+    hooks?: Record<string, unknown>
+    extraKnownMarketplaces?: Record<string, unknown>
+    theirLocalSetting?: boolean
+  }
+  assert.equal(
+    JSON.stringify(local.hooks ?? {}).includes('agent-state.mjs'),
+    false,
+    'the hook this app wrote must be taken back out'
+  )
+  assert.equal(local.extraKnownMarketplaces, undefined, 'and the machine path with it')
+  assert.equal(local.theirLocalSetting, true, 'their own settings are untouched')
+  assert.equal(
+    existsSync(join(built.workspace, '.multicode', 'hooks', 'agent-state.mjs')),
+    false,
+    'the reporter script the old hook named is removed, and never written back'
+  )
+
+  const project = JSON.parse(await readFile(join(built.workspace, '.claude', 'settings.json'), 'utf8')) as {
+    enabledPlugins?: Record<string, boolean>
+    theirSetting?: string
+  }
+  assert.equal(project.enabledPlugins, undefined, 'the plugin key is removed from the file a project commits')
+  assert.equal(project.theirSetting, 'kept')
+
+  // Our old skill copy is removed; a skill they wrote themselves is not.
+  assert.equal(existsSync(join(built.workspace, '.claude', 'skills', 'studio-backlog')), false)
+  assert.equal(existsSync(join(built.workspace, '.claude', 'skills', 'their-own-skill', 'SKILL.md')), true)
+
+  // And nothing Claude-shaped was written back: the skills for the other
+  // harnesses still install, because those CLIs still read them from here.
+  const record = service.installed(built.workspace)
+  assert.ok(record, 'the install still ran')
+  assert.equal(record?.hookSettingsPath, '', 'no hook is registered when the launch carries it')
+  assert.ok((record?.skillDirNames.length ?? 0) > 0, 'the other harnesses still get their skills')
+  assert.equal(existsSync(join(built.workspace, '.agents', 'skills')), true)
+  const claudeSkills = await readdir(join(built.workspace, '.claude', 'skills'))
+  assert.deepEqual(claudeSkills, ['their-own-skill'], 'no studio skill is copied back into .claude')
+
+  await rm(built.workspace, { recursive: true, force: true })
+}
+
+// The app-owned copy is materialised asynchronously at startup, so a workspace
+// can be opened BEFORE it exists — that open installs the old way. When the
+// copy lands, the next open must install again: otherwise the hook written into
+// the workspace and the one the launch now registers both fire for every event,
+// which is the doubling this whole arrangement exists to avoid.
+async function aWorkspaceOpenedBeforeTheCopyLandedIsReinstalled(): Promise<void> {
+  let active = false
+  const built = await harness({
+    listHarnesses: async (): Promise<SkillHarness[]> => ['agents', 'claude'],
+    resolveLaunchPluginsActive: () => active,
+  })
+  const service = createStudioPluginService(built.options)
+
+  await service.ensureInstalledForRoots([built.workspace])
+  const before = service.installed(built.workspace)
+  assert.ok(before?.hookSettingsPath, 'the early open registers the hook in the workspace')
+  assert.equal(existsSync(join(built.workspace, '.multicode', 'hooks', 'agent-state.mjs')), true)
+
+  active = true
+  await service.ensureInstalledForRoots([built.workspace])
+  const after = service.installed(built.workspace)
+  assert.equal(after?.hookSettingsPath, '', 'the later open installs without the Claude half')
+  assert.equal(
+    (await readFile(join(built.workspace, '.claude', 'settings.local.json'), 'utf8')).includes('agent-state.mjs'),
+    false,
+    'and takes the hook the earlier open wrote back out'
+  )
+  assert.equal(
+    existsSync(join(built.workspace, '.multicode', 'hooks', 'agent-state.mjs')),
+    false,
+    'along with the script it named'
+  )
+
+  // And it settles: a third open with nothing changed does no further work.
+  const settled = service.installed(built.workspace)
+  await service.ensureInstalledForRoots([built.workspace])
+  assert.equal(service.installed(built.workspace)?.installedAt, settled?.installedAt, 'a settled workspace is left alone')
+
+  await rm(built.workspace, { recursive: true, force: true })
+}
+
 async function main(): Promise<void> {
   await openingAWorkspaceInstallsThePlugin()
+  await launchInjectionTidiesTheWorkspaceAndSkipsClaude()
+  await aWorkspaceOpenedBeforeTheCopyLandedIsReinstalled()
   await aSecondOpenDoesNotReinstall()
   await concurrentOpensOfOneWorkspaceAreSerialised()
   await aBuildWithNoPluginSaysSoAndInstallsNothing()

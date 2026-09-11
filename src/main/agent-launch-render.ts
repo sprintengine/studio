@@ -10,6 +10,25 @@ export function pluginIdForCli(cli: AgentCli): string {
   return cli
 }
 
+/**
+ * Whether this CLI is handed the app's own plugin directories at launch.
+ *
+ * The one question both halves of the arrangement ask: the launch path, to
+ * decide whether to pass `--plugin-dir`, and the workspace installers, to
+ * decide whether to write the same skills and the same hook into the person's
+ * repository. They must never disagree — a CLI answering true here and getting
+ * a workspace install too would register the reporter twice and fire it twice
+ * per event, which is the doubling the studio-plugin notes describe.
+ *
+ * Answers false for a CLI whose manifest is missing, so an unresolvable plugin
+ * degrades to the behaviour that was there before this flag existed.
+ */
+export function cliTakesLaunchPlugins(cli: string): boolean {
+  const plugin = getPluginById(cli)
+  const args = plugin?.manifest.launchPlugins?.args
+  return Array.isArray(args) && args.length > 0
+}
+
 const DEBUG_SKILL_ID = 'debug'
 
 // Resolves the CLI-native explicit invocation for the debug skill from the
@@ -81,6 +100,12 @@ export type AgentLaunchRenderInput = {
   // is byte-identical to what it was.
   contextFile?: string
   contextText?: string
+  // The app-owned plugin directories this launch hands the CLI (its skills, its
+  // agent-state hook and its MCP server), for manifests declaring
+  // `launchPlugins`. Absent or empty renders no flag — which is what a build
+  // whose plugin has not been materialised yet, or a CLI that takes no plugin
+  // directory, gets.
+  pluginDirs?: string[]
 }
 
 export type RenderedAgentLaunch = {
@@ -135,6 +160,10 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
     variables: input.secretToken ? { secret: input.secretToken } : undefined,
     ...(input.contextFile ? { contextFile: input.contextFile } : {}),
     ...(input.contextText ? { contextText: input.contextText } : {}),
+    // Only when there are directories to pass, so a launch before the app has
+    // materialised its copy renders the argv it always did rather than an
+    // empty flag.
+    ...(input.pluginDirs && input.pluginDirs.length > 0 ? { pluginDirs: input.pluginDirs } : {}),
   }
 
   const rendered = input.resume

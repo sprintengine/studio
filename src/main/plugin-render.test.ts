@@ -38,6 +38,7 @@ async function main(): Promise<void> {
   testVariableDefaults()
   testResumeReusesLaunchWhenNoArgvOverride()
   testResumeDisabledReturnsNull()
+  testPluginDirArgsSpread()
   testClaudeManifestProducesExpectedArgv()
   testCodexManifestProducesExpectedArgv()
   testFilesSpreadEmpty()
@@ -420,6 +421,53 @@ function testThemeSchemesMapping(): void {
   // A scheme the map doesn't cover renders nothing rather than a broken arg.
   const unmapped = renderPluginLaunch(manifest, { prompt: 'hi', colorScheme: 'sepia' })
   assert.deepEqual(unmapped.argv, ['test', 'hi'])
+}
+
+// `pluginDirArgs`: the app's own plugin directories, handed to a CLI for one
+// session instead of installed into someone's repository.
+function testPluginDirArgsSpread(): void {
+  const manifest = baseManifest({
+    launchPlugins: { args: ['--plugin-dir', '{{pluginDir}}'] },
+    launch: { argv: ['{{binary}}', { spreadIf: 'pluginDirArgs' }, '{{prompt}}'] },
+    resume: { supported: true, argv: ['{{binary}}', { spreadIf: 'pluginDirArgs' }, '--resume'] },
+  })
+
+  // One flag PAIR per directory: a CLI takes a single directory per flag, and
+  // Claude Code 2.1.268 loads nothing at all when handed a marketplace root.
+  const two = renderPluginLaunch(manifest, { prompt: 'hi', pluginDirs: ['/app/a', '/app/b'] })
+  assert.deepEqual(two.argv, ['test', '--plugin-dir', '/app/a', '--plugin-dir', '/app/b', 'hi'])
+
+  // A resumed session needs the same skills and the same hook as a fresh one.
+  const resumed = renderPluginResume(manifest, { pluginDirs: ['/app/a'] })
+  assert.deepEqual(resumed?.argv, ['test', '--plugin-dir', '/app/a', '--resume'])
+
+  // Nothing resolved — the copy is not materialised yet — renders the argv the
+  // launch always had, so a launch during startup is never broken by this.
+  assert.deepEqual(renderPluginLaunch(manifest, { prompt: 'hi' }).argv, ['test', 'hi'])
+  assert.deepEqual(renderPluginLaunch(manifest, { prompt: 'hi', pluginDirs: [] }).argv, ['test', 'hi'])
+  assert.deepEqual(renderPluginLaunch(manifest, { prompt: 'hi', pluginDirs: ['   '] }).argv, ['test', 'hi'])
+
+  // A manifest declaring no `launchPlugins` passes none, whatever was resolved.
+  const undeclared = baseManifest({
+    launch: { argv: ['{{binary}}', { spreadIf: 'pluginDirArgs' }, '{{prompt}}'] },
+  })
+  assert.deepEqual(renderPluginLaunch(undeclared, { prompt: 'hi', pluginDirs: ['/app/a'] }).argv, ['test', 'hi'])
+
+  // `{{pluginDir}}` is bound per directory, and that binding must not leak into
+  // a template rendered afterwards — it would silently pass a directory the
+  // caller never gave this launch. Outside the per-directory rendering the
+  // variable is simply unbound, which substitutes empty exactly as any other
+  // unbound variable does; what matters is that it is never '/app/a'.
+  const leak = baseManifest({
+    launchPlugins: { args: ['--plugin-dir', '{{pluginDir}}'] },
+    launch: { argv: ['{{binary}}', { spreadIf: 'pluginDirArgs' }, '{{pluginDir}}'] },
+  })
+  assert.deepEqual(renderPluginLaunch(leak, { pluginDirs: ['/app/a'] }).argv, [
+    'test',
+    '--plugin-dir',
+    '/app/a',
+    '',
+  ])
 }
 
 main().catch((err) => {

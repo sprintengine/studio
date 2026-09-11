@@ -7,7 +7,10 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { join } from 'path'
 import { createAgentConfigImportService } from './agent-config-import'
+import { cliTakesLaunchPlugins } from './agent-launch-render'
+import { ensureAgentIntegrationHome, pruneAgentIntegrationHomes } from './agent-integration-home'
 import { createAgentStateService } from './agent-state-service'
+import { launchPluginsSupportedOnThisPlatform, setLaunchPluginDirsResolver } from './terminal-launch'
 import { createAutomationService } from './automation/automation-service'
 import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
 import { FLEET_EVENT_CHANNEL } from '../shared/tailnet-fleet'
@@ -206,6 +209,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   setDefaultSkillManager(builtinSkillManager)
 
   // Authoritative agent state: owns the reporter socket + per-workspace install.
+  // Declared before the agent-state service because that service's
+  // `resolveLaunchInjectsPlugins` closes over it: the launch flag and the
+  // workspace installer must read one value, never two that can disagree.
+  let agentIntegrationPluginDirs: string[] = []
+
   // Created before terminalRuntime so the runtime can install the reporter at
   // launch; `onFrame` resolves to terminalRuntime (declared just below) at
   // frame time, well after construction.
@@ -217,12 +225,56 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .find((plugin) => plugin.manifest.id === cli)?.manifest.agentStateSpec ?? null,
     resolveReporterScriptPath: getBundledAgentStateReporterPath,
     resolveStatusLineScriptPath: getBundledStatusLineForwarderPath,
+    // A CLI that takes the app's plugin directories at launch gets this same
+    // reporter for the session, so nothing is written into the workspace. Both
+    // halves must hold: a manifest that declares the flag, and a materialised
+    // copy to point it at — until the copy exists (or if this build shipped
+    // none) the workspace install remains the way agent state works at all.
+    resolveLaunchInjectsPlugins: (cli) =>
+      launchPluginsSupportedOnThisPlatform()
+      && agentIntegrationPluginDirs.length > 0
+      && cliTakesLaunchPlugins(cli),
     resolveReporterTemplatePath: getBundledAgentStateReporterTemplatePath,
     onFrame: (frame) => terminalRuntime.ingestAgentStateFrame(frame),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
   })
+
+  // The app's own plugin, materialised ONCE for this build under the profile's
+  // userData directory and handed to every launch that can take it
+  // (`--plugin-dir`) rather than written into the person's repository. Empty
+  // until the copy lands, which is what makes a launch during startup fall back
+  // to the workspace installer instead of losing agent state.
+  const agentIntegrationReady = (async () => {
+    const home = await ensureAgentIntegrationHome({
+      templateRoot: getBundledStudioPluginRoot(),
+      reporterSourcePath: getBundledAgentStateReporterPath(),
+      userDataDir: app.getPath('userData'),
+      tokens: {
+        nodeCommand: process.execPath,
+        bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
+        userDataDir: app.getPath('userData'),
+        agentStateSocketPath: agentStateService.getSocketPath(),
+      },
+    })
+    if (!home.ok) {
+      void writeDiagnosticLog({
+        level: 'warning',
+        title: 'Agent plugin directory unavailable',
+        message: 'Agents fall back to the per-workspace install for skills and agent state.',
+        details: home.message,
+        source: 'workspace',
+      })
+      return
+    }
+    agentIntegrationPluginDirs = home.home.pluginDirs
+    // Old versions are only safe to delete here: a CLI reads a plugin directory
+    // as it starts, and every agent this app launches dies with the app, so no
+    // live session is reading a sibling version at startup.
+    await pruneAgentIntegrationHomes(app.getPath('userData'), home.home.version)
+  })()
+  setLaunchPluginDirsResolver(() => agentIntegrationPluginDirs)
 
   // The app's own plugin, installed into every workspace it opens. Declared
   // here because it needs the same bridge path the managed MCP sync uses, and
@@ -236,6 +288,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveUserDataDir: () => app.getPath('userData'),
     resolveAgentStateSocketPath: () => agentStateService.getSocketPath(),
     listHarnesses: () => resolveInstalledSkillHarnesses(),
+    // Read at install time, not at wiring time: a workspace opened before the
+    // app materialised its copy still gets the workspace install, which is what
+    // keeps agent state working rather than losing it to a race.
+    resolveLaunchPluginsActive: () => agentIntegrationPluginDirs.length > 0,
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
@@ -1207,6 +1263,19 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   })
   void studioPluginService.ensureInstalledForRoots(
     uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()))
+  )
+  // And again once the app's own plugin copy exists. That copy is materialised
+  // asynchronously, so the pass above ran while launches still had nothing to
+  // be handed: it installed the OLD arrangement into every open workspace —
+  // hook merged into their Claude settings, reporter copied in. The moment the
+  // copy lands, launches start registering that hook themselves, so the pass
+  // has to run again to take the workspace copy back out. Without this second
+  // pass the two registrations both fire for every event, for the rest of the
+  // run, and the next run loses the same race again.
+  void agentIntegrationReady.then(() =>
+    studioPluginService.ensureInstalledForRoots(
+      uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()))
+    )
   )
   // Staying paired across sleep (phase 4): waking re-checks every paired
   // machine and re-dials waiting panes at once. `powerMonitor` needs the app

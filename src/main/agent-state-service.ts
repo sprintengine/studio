@@ -53,6 +53,13 @@ export type AgentStateServiceOptions = {
   // Home directory a user-scoped registration resolves against. Injected so
   // tests never write the real home; production omits it (os.homedir()).
   resolveHomeDir?: () => string
+  // Whether this CLI is handed the app's own plugin directories at launch
+  // (`--plugin-dir`), which carry this very reporter and its event set. True ⇒
+  // install nothing into the workspace: the launch flag already registers it
+  // for that session, a second registration would fire the reporter twice for
+  // every event, and the person's repository keeps none of it. Absent ⇒ nothing
+  // is launch-injected, which is the behaviour from before the flag existed.
+  resolveLaunchInjectsPlugins?: (cli: string) => boolean
   onFrame: (frame: AgentStateFrame) => void
   logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
   now?: () => number
@@ -189,6 +196,12 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     if (!root) return
     const spec = options.resolveAgentStateSpec(cli)
     if (!spec) return
+    // The launch hands this CLI the same reporter for the session, so the
+    // workspace needs no copy of it — see `resolveLaunchInjectsPlugins`. Asked
+    // per launch rather than once at wiring time, because it also answers false
+    // when this build could not materialise its plugin, and that must fall back
+    // to the workspace install rather than to no agent state at all.
+    if (options.resolveLaunchInjectsPlugins?.(cli)) return
     // A user-scoped registration writes one profile-global file whose content
     // is workspace-independent (home-scoped reporter copy + profile socket),
     // so its install-once key is per CLI, not per workspace — the first launch

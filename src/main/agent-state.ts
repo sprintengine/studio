@@ -948,7 +948,10 @@ export async function mergeAgentStateHooks(
   await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
 }
 
-async function unmergeAgentStateHooks(settingsPath: string): Promise<void> {
+// Exported for the studio plugin's migration: a workspace that was written to
+// before the launch carried these hooks must have them taken back out, or the
+// stale entry and the launch's own registration both fire for every event.
+export async function unmergeAgentStateHooks(settingsPath: string): Promise<void> {
   const existing = await readJsonIfExists<ClaudeSettings>(settingsPath)
   if (!existing?.hooks || typeof existing.hooks !== 'object') return
 
@@ -1361,7 +1364,10 @@ async function prepareStatusLineForwarder(
 }
 
 /** Put the person's status line back, on disk. */
-async function unmergeStatusLineForwarder(settingsPath: string): Promise<void> {
+// Exported alongside `unmergeAgentStateHooks`, for the same migration: the
+// status line we installed points at a script under the workspace that the
+// migration deletes, so leaving the setting would run a command that is gone.
+export async function unmergeStatusLineForwarder(settingsPath: string): Promise<void> {
   const existing = await readJsonIfExists<ClaudeSettings>(settingsPath)
   if (!existing) return
   // A status line that is not ours is left exactly as it is — a person who

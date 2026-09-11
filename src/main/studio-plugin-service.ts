@@ -36,6 +36,7 @@ import { AGENT_STATE_HOOK_SCRIPT_REL } from './agent-state'
 import {
   installStudioPlugin,
   readStudioPluginTemplate,
+  removeStudioPluginClaudeRegistration,
   STUDIO_PLUGIN_ID,
   studioClaudePluginKey,
   type StudioPluginInstallResult,
@@ -57,6 +58,17 @@ export type StudioPluginServiceOptions = {
   resolveAgentStateSocketPath: () => string
   /** Which CLIs on this machine read workspace skills. */
   listHarnesses: () => Promise<SkillHarness[]>
+  /**
+   * Whether the launch hands the Claude-family CLIs this app's plugin
+   * directories itself. True ⇒ this workspace gets no `.claude/skills` copies,
+   * no hook merged into its Claude settings and no `enabledPlugins` entry: the
+   * session carries all three, and writing them here as well would both double
+   * every agent-state frame and leave the files in the person's repository.
+   *
+   * Absent ⇒ false, which is the arrangement from before the launch flag: every
+   * harness is written to, exactly as it was.
+   */
+  resolveLaunchPluginsActive?: () => boolean
   logDiagnostic?: (input: {
     level: 'warning' | 'info'
     title: string
@@ -72,6 +84,20 @@ type StudioPluginInstallRecord = {
   claudePluginKey: string
   hookSettingsPath: string
   installedAt: string
+  /**
+   * Whether the launch was carrying this app's plugin directories when this
+   * install ran. Part of the record rather than the key so that `installed()`
+   * still answers for a workspace by version alone — but compared before the
+   * memo is trusted, because the two arrangements write different things.
+   *
+   * The case that makes it load-bearing: the app-owned copy is materialised
+   * asynchronously at startup, so a workspace opened in that window is
+   * installed the OLD way (hook merged into its Claude settings). Moments later
+   * the copy lands and every launch starts registering the same hook itself. A
+   * memo keyed on version alone would never reinstall, and both registrations
+   * would fire the reporter for every event, forever.
+   */
+  launchPluginsActive: boolean
 }
 
 export type StudioPluginService = {
@@ -175,14 +201,40 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
       )
       return
     }
+    // The Claude-family CLIs read this app's skills from the directories the
+    // launch passes them, so the workspace copy for that harness is dropped —
+    // the other CLIs still read theirs from the repository until each gets a
+    // launch-scoped path of its own.
+    //
+    // Read BEFORE the memo: an install done under the other arrangement wrote
+    // different files, so it has to be redone rather than remembered.
+    const launchPluginsActive = options.resolveLaunchPluginsActive?.() ?? false
     const key = `${version}::${workspaceRoot}`
-    if (done.has(key)) return
+    if (done.get(key)?.launchPluginsActive === launchPluginsActive) return
+
+    // The migration runs BEFORE every early return below. A workspace written
+    // to by an older release holds a hook that now fires beside the one the
+    // launch registers — twice per event — and that has to come out even when
+    // this build ships no template, or no harness on this machine wants skills.
+    if (launchPluginsActive) {
+      const removed = await removeStudioPluginClaudeRegistration(workspaceRoot)
+      if (removed.length > 0) {
+        options.logDiagnostic?.({
+          level: 'info',
+          title: 'Workspace tidied',
+          message: 'SprintEngine Studio now passes its skills and agent-state hook to Claude at launch, so the copies in this workspace were removed.',
+          details: removed.join(', '),
+        })
+      }
+    }
 
     const templateRoot = options.resolveTemplateRoot()
     const reporter = options.resolveAgentStateReporterPath()
     if (!templateRoot || !reporter) return
     const socketPath = options.resolveAgentStateSocketPath()
-    const harnesses = await options.listHarnesses()
+    const harnesses = (await options.listHarnesses()).filter(
+      (harness) => !(launchPluginsActive && harness === 'claude')
+    )
     if (harnesses.length === 0) return
 
     // The hook is only registered when a socket exists to report to. Without
@@ -197,6 +249,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
       harnesses,
       agentStateReporterSourcePath: reporter,
       hooksAcknowledged: acknowledged,
+      registerWithClaude: !launchPluginsActive,
       tokens: {
         nodeCommand: options.resolveNodeCommand(),
         bridgeScriptPath: options.resolveBridgeScriptPath(),
@@ -217,6 +270,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
       claudePluginKey: result.claudePluginKey || studioClaudePluginKey(),
       hookSettingsPath: result.hookSettingsPath,
       installedAt: new Date().toISOString(),
+      launchPluginsActive,
     })
   }
 
@@ -226,7 +280,14 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
     // Synchronous fast path. Every accepted registry event runs a pass over
     // every known root, so the settled case has to cost nothing — not a chain
     // link, not a stat.
-    if (cachedVersion !== null && cachedVersion !== '' && done.has(`${cachedVersion}::${root}`)) return
+    if (
+      cachedVersion !== null
+      && cachedVersion !== ''
+      && done.get(`${cachedVersion}::${root}`)?.launchPluginsActive
+        === (options.resolveLaunchPluginsActive?.() ?? false)
+    ) {
+      return
+    }
     if (!existsSync(root)) return
     // Serialised on the workspace, not on the version: two versions never race
     // inside one app run, but two openings of the same workspace do, and both
