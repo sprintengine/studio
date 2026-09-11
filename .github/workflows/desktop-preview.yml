@@ -1,0 +1,127 @@
+name: Desktop macOS Preview
+
+# Label a pull request `preview:mac` to get an unsigned Apple Silicon DMG of it,
+# linked from a comment on the pull request. Every push to a labelled pull
+# request rebuilds it. The DMG is a workflow artifact, kept seven days, so it
+# never touches the public releases repository or the updater.
+on:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+permissions:
+  contents: read
+
+# A push supersedes the build in flight. Adding some other label must not
+# cancel it, so only a preview:mac label event (or a push) counts.
+concurrency:
+  group: desktop-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event.action != 'labeled' || github.event.label.name == 'preview:mac' }}
+
+jobs:
+  # Runs pull request code, so it keeps a read-only token; the comment is posted
+  # by the job below, which never checks the code out. Pull requests from forks
+  # are refused: their token cannot comment, and their code must never reach
+  # the self-hosted Mac.
+  build:
+    name: Build macOS Apple Silicon preview
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'preview:mac') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'preview:mac')
+    # The self-hosted Mac while the repository is private (hosted macOS bills at
+    # 10x); a GitHub-hosted Mac once it is public.
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","macOS","ARM64"]') || 'macos-15' }}
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact_url: ${{ steps.upload.outputs.artifact-url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Stamp the preview version
+        id: version
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version.replace(/-.*/, '')")-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}"
+          npm pkg set "version=${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Vendor the bundled Python and npm runtimes
+        run: npm run runtimes:fetch -- --platform darwin --arch arm64
+
+      - name: Build renderer and main process
+        run: npm run build
+
+      # Unsigned on purpose: no signing secrets reach pull request code, and
+      # identity auto-discovery is off so the self-hosted Mac's login keychain is
+      # never used either.
+      - name: Package unsigned DMG
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --mac --arm64 --publish never -c.mac.target=dmg -c.mac.notarize=false
+
+      - name: Upload DMG
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: SprintEngine-Studio-${{ steps.version.outputs.version }}-mac-arm64
+          path: dist/*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Clean build output (self-hosted only)
+        if: always() && !startsWith(runner.name, 'GitHub Actions')
+        run: rm -rf dist out resources/runtime
+
+  comment:
+    name: Link the preview
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post or update the preview comment
+        uses: actions/github-script@v7
+        env:
+          ARTIFACT_URL: ${{ needs.build.outputs.artifact_url }}
+          VERSION: ${{ needs.build.outputs.version }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const marker = '<!-- desktop-macos-preview -->'
+            const body = [
+              marker,
+              '### macOS preview',
+              '',
+              `[Download the Apple Silicon DMG](${process.env.ARTIFACT_URL}) (zipped; kept 7 days)`,
+              '',
+              `Version: ${process.env.VERSION}`,
+              `Commit: ${process.env.HEAD_SHA.slice(0, 7)}`,
+              '',
+              'Unsigned build. Clear quarantine before opening:',
+              '```sh',
+              `xattr -dr com.apple.quarantine "/Applications/SprintEngine Studio.app"`,
+              '```',
+            ].join('\n')
+            const { owner, repo } = context.repo
+            const issue_number = context.payload.pull_request.number
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 })
+            const existing = comments.find((comment) => comment.body?.includes(marker))
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body })
+            }
