@@ -11,8 +11,8 @@
 //
 // Its ground is --bg-chrome-bar, the token the whole 36px band shares (rail
 // reserve, sidebar chrome, this header, the pane's tab strip). On a solid
-// window that token is --bg-surface — exactly what this strip painted before —
-// so the split-chrome ruling above is untouched there. Under glass it goes
+// window that token is --bg-canvas, the ground the rail and the sidebar chrome
+// row inherit, so the band reads as one colour across. Under glass it goes
 // transparent, and this strip stops being the one opaque tile in a band that is
 // otherwise OS frost. Nothing scrolls under this row (it is a flex sibling
 // above the card, not an overlay), which is the precondition for a strip to

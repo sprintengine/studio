@@ -192,11 +192,13 @@
      reserve, the sidebar chrome row, the workspace header and the pane's tab
      strip. One token for all four so the band is one continuous piece of
      chrome and never goes stripy: a strip that forgets it is a visible seam.
-     The base value is --bg-surface, exactly what the workspace header painted
-     before this token existed, so solid windows and every non-mac window are
-     pixel-identical. The glass block below re-points it, and that one line is
-     the whole switch between the top band's looks. */
-  --bg-chrome-bar: var(--bg-surface);
+     The base value is the canvas, so on a solid window the workspace header —
+     the one strip that paints this token there — is the same ground as the
+     rail and the sidebar chrome row beside it. It used to be --bg-surface,
+     which left a lighter tile above the workspace card. The glass block below
+     re-points it, and that one line is the whole switch between the top band's
+     looks. */
+  --bg-chrome-bar: var(--bg-canvas);
   /* The one gap between the shell's three cards — sidebar | workspace | pane.
      ONE token because the two gaps have to measure the same: the eye reads an
      uneven frame as a mistake long before it reads it as a gap. It lives on the
