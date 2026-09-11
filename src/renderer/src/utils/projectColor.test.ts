@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict'
 
 import {
-  PROJECT_COLORS,
+  PROJECT_COLOR_PRESETS,
   isProjectColor,
   isProjectColorSetting,
-  pickProjectColor,
-  projectColorGlyphClass,
   projectColorKey,
-  projectColorKeys,
+  projectColorStyle,
+  projectHue,
   resolveProjectColor,
   type ProjectColorSetting,
 } from './projectColor'
@@ -70,128 +69,92 @@ run('the two kinds of key are prefixed, so a path can never collide with a repo 
   assert.notEqual(repo, folder)
 })
 
-// ---------------------------------------------------------- allocation
+// ---------------------------------------------------------------- hash
 
-run('a fresh install hands out the hues in order, one project at a time', () => {
-  const assigned: ProjectColorSetting[] = []
-  for (const expected of PROJECT_COLORS) {
-    const picked = pickProjectColor(assigned)
-    assert.equal(picked, expected)
-    assigned.push(picked)
+run('the hash is pinned: changing it would recolour every project for everyone', () => {
+  // Golden values. If one of these moves, every person's every project changes
+  // colour on their next launch — that has to be a decision, not a refactor.
+  assert.equal(projectHue('repo:github.com/acme/multicode'), 301)
+  assert.equal(projectHue('repo:github.com/acme/api'), 36)
+  assert.equal(projectHue('folder:/users/me/notes'), 53)
+})
+
+run('one repository is one hue on every machine, however it was cloned', () => {
+  const mac = projectColorKey({ folderPath: '/Users/me/code/multicode', repository: { canonicalKey: 'github.com/acme/multicode' } })
+  const windows = projectColorKey({ folderPath: 'D:\\work\\mc', repository: { canonicalKey: 'GitHub.com/Acme/Multicode' } })
+  assert.equal(projectHue(mac!), projectHue(windows!))
+})
+
+run('two organisations with a repository of the same name are different projects', () => {
+  assert.notEqual(projectHue('repo:github.com/acme/api'), projectHue('repo:github.com/other/api'))
+})
+
+run('a folder with no remote hashes its NAME, so it agrees across machines whose paths differ', () => {
+  const mine = projectColorKey({ folderPath: '/Users/me/notes' })
+  const theirs = projectColorKey({ folderPath: '/home/b/notes/' })
+  assert.notEqual(mine, theirs, 'the keys still differ — an override stays this folder’s')
+  assert.equal(projectHue(mine!), projectHue(theirs!), 'but the hue is the same')
+})
+
+run('every hue is a whole degree on the wheel, and the wheel is used evenly', () => {
+  const buckets = new Array<number>(12).fill(0)
+  for (let index = 0; index < 3600; index += 1) {
+    const hue = projectHue(`repo:github.com/org/repo-${index}`)
+    assert.ok(isProjectColor(hue), `hue ${hue} is a whole degree in [0, 360)`)
+    buckets[Math.floor(hue / 30)] += 1
   }
-  // Six projects, six different hues — the acceptance, stated as the property
-  // rather than as the sequence the loop above already asserted step by step.
-  assert.equal(new Set(assigned).size, PROJECT_COLORS.length)
-  // And the seventh has to start over: six hues is the whole ramp, not a
-  // counter that keeps going.
-  assert.ok(assigned.includes(pickProjectColor(assigned)))
-})
-
-run('two open projects never receive the same hue', () => {
-  assert.equal(pickProjectColor([]), 'blue')
-  assert.equal(pickProjectColor(['blue']), 'teal')
-  assert.equal(pickProjectColor(['blue', 'teal']), 'cyan')
-})
-
-run('a gap in the middle is filled before the untouched tail', () => {
-  // blue and cyan are taken; teal is the first free hue in list order.
-  assert.equal(pickProjectColor(['blue', 'cyan']), 'teal')
-  assert.equal(pickProjectColor(['blue', 'teal', 'cyan', 'orange']), 'violet')
-})
-
-run('with all six used, the least-used hue is reused', () => {
-  const used: ProjectColorSetting[] = [...PROJECT_COLORS, 'blue', 'teal', 'cyan', 'violet', 'orange']
-  // Every hue is used twice except red, which is used once.
-  assert.equal(pickProjectColor(used), 'red')
-})
-
-run('a tie among the least-used goes to the earliest hue in the list', () => {
-  // All six used exactly once: every count ties at 1, so the first wins.
-  assert.equal(pickProjectColor([...PROJECT_COLORS]), 'blue')
-  // Blue and teal are used twice, the rest once: cyan is the earliest of the ones.
-  assert.equal(pickProjectColor([...PROJECT_COLORS, 'blue', 'teal']), 'cyan')
-})
-
-run("'none' is a choice, not a use: it never counts toward allocation", () => {
-  assert.equal(pickProjectColor(['none', 'none', 'none']), 'blue')
-  assert.equal(pickProjectColor(['blue', 'none', 'teal']), 'cyan')
-})
-
-run('null, undefined and unknown values are ignored rather than counted', () => {
-  const noisy: Array<ProjectColorSetting | null | undefined> = [
-    'blue',
-    null,
-    undefined,
-    'chartreuse' as unknown as ProjectColorSetting,
-    'teal',
-  ]
-  assert.equal(pickProjectColor(noisy), 'cyan')
-})
-
-run('allocation reads any iterable, including a settings map values view', () => {
-  const stored: Record<string, ProjectColorSetting> = {
-    'repo:github.com/acme/a': 'blue',
-    'repo:github.com/acme/b': 'teal',
-    'folder:/tmp/c': 'none',
-  }
-  assert.equal(pickProjectColor(Object.values(stored)), 'cyan')
-})
-
-// ----------------------------------------------------- the key set
-
-run('the asked-about keys are trimmed, deduped and sorted into a set', () => {
-  assert.deepEqual(projectColorKeys(['repo:b', 'repo:a', ' repo:b ', 'repo:a']), ['repo:a', 'repo:b'])
-  assert.deepEqual(projectColorKeys([]), [])
-  assert.deepEqual(projectColorKeys([null, undefined, '', '   ']), [])
-})
-
-run('the key set is order-independent: the same projects give the same list', () => {
-  const forwards = projectColorKeys(['repo:c', 'repo:a', 'repo:b'])
-  const backwards = projectColorKeys(['repo:b', 'repo:c', 'repo:a'])
-  assert.deepEqual(forwards, backwards)
-})
-
-run('a folder path containing a newline survives as ONE key', () => {
-  // Legal on macOS and Linux, and the reason the hook passes an array rather
-  // than a joined signature: split back apart, this folder would become two
-  // projects and eat two hues.
-  const awkward = projectColorKey({ folderPath: '/Users/me/two\nlines' })
-  assert.equal(awkward, 'folder:/users/me/two\nlines')
-  assert.deepEqual(projectColorKeys([awkward, 'repo:a']), ['folder:/users/me/two\nlines', 'repo:a'])
+  // 300 expected per 30°; a hash that clumped (a bare modulo of FNV's low bits
+  // on near-identical names does) would leave whole sectors of the wheel dark.
+  for (const count of buckets) assert.ok(count > 240 && count < 360, `each 30° sector is used: ${buckets.join(' ')}`)
 })
 
 // -------------------------------------------------------------- lookup
 
-run('resolveProjectColor returns null for a missing key, a missing entry and none', () => {
-  const stored: Record<string, ProjectColorSetting> = { 'repo:a': 'violet', 'repo:b': 'none' }
-  assert.equal(resolveProjectColor(stored, 'repo:a'), 'violet')
+run('with no override a project wears its hashed hue; an override wins; none is no colour', () => {
+  const stored: Record<string, ProjectColorSetting> = { 'repo:a': 145, 'repo:b': 'none' }
+  assert.equal(resolveProjectColor(stored, 'repo:a'), 145, 'the person’s choice')
   assert.equal(resolveProjectColor(stored, 'repo:b'), null, "'none' is no colour")
-  assert.equal(resolveProjectColor(stored, 'repo:unseen'), null)
-  assert.equal(resolveProjectColor(stored, null), null)
-  assert.equal(resolveProjectColor(undefined, 'repo:a'), null)
+  assert.equal(resolveProjectColor(stored, 'repo:unseen'), projectHue('repo:unseen'), 'absent is the hash, not nothing')
+  assert.equal(resolveProjectColor(undefined, 'repo:unseen'), projectHue('repo:unseen'))
+  assert.equal(resolveProjectColor(stored, 0 as never), null)
+  assert.equal(resolveProjectColor(stored, null), null, 'no key is no project')
+  assert.equal(resolveProjectColor(stored, ''), null)
 })
 
-run('every hue has a glyph class, and no colour has none', () => {
-  for (const color of PROJECT_COLORS) {
-    assert.equal(projectColorGlyphClass(color), `project-mark-${color}`)
-  }
-  assert.equal(projectColorGlyphClass(null), '')
-  assert.equal(projectColorGlyphClass(undefined), '')
+run('an override of hue 0 is a hue, not a missing one', () => {
+  assert.equal(resolveProjectColor({ 'repo:red': 0 }, 'repo:red'), 0)
 })
 
-run('the guards accept exactly the palette, and none only as a setting', () => {
-  for (const color of PROJECT_COLORS) {
-    assert.equal(isProjectColor(color), true)
-    assert.equal(isProjectColorSetting(color), true)
+run('the style carries the angle and nothing else, and no colour carries no style', () => {
+  assert.deepEqual(projectColorStyle(200), { '--project-hue': 200 })
+  assert.deepEqual(projectColorStyle(0), { '--project-hue': 0 })
+  assert.equal(projectColorStyle(null), undefined)
+  assert.equal(projectColorStyle(undefined), undefined)
+})
+
+run('the guards accept whole degrees and none, and nothing else', () => {
+  for (const hue of [0, 1, 180, 359]) {
+    assert.equal(isProjectColor(hue), true)
+    assert.equal(isProjectColorSetting(hue), true)
   }
   assert.equal(isProjectColor('none'), false)
   assert.equal(isProjectColorSetting('none'), true)
-  // Gold and green are deliberately absent: they are the waiting and finished
-  // row tints, and may not double as a project's colour on the same row.
-  for (const rejected of ['yellow', 'gold', 'green', 'purple', '', null, undefined, 7, {}]) {
-    assert.equal(isProjectColor(rejected), false)
-    assert.equal(isProjectColorSetting(rejected), false)
+  // The 2026-09-09 build stored hue NAMES. They are not settings any more, so a
+  // settings file from that build drops them and the projects return to their
+  // hashed hues — the same on every machine.
+  for (const rejected of ['blue', 'teal', 'red', 360, -1, 12.5, Number.NaN, '120', '', null, undefined, {}]) {
+    assert.equal(isProjectColor(rejected), false, `${String(rejected)} is not a hue`)
+    assert.equal(isProjectColorSetting(rejected), false, `${String(rejected)} is not a setting`)
   }
+})
+
+run('the presets are distinct named hues around the whole wheel, yellow and green included', () => {
+  const hues = PROJECT_COLOR_PRESETS.map((preset) => preset.hue)
+  assert.equal(new Set(hues).size, hues.length, 'no two presets share a hue')
+  assert.equal(new Set(PROJECT_COLOR_PRESETS.map((preset) => preset.label)).size, hues.length, 'or a name')
+  for (const hue of hues) assert.ok(isProjectColor(hue))
+  const labels = PROJECT_COLOR_PRESETS.map((preset) => preset.label)
+  for (const wanted of ['Yellow', 'Green', 'Blue', 'Pink', 'Cyan']) assert.ok(labels.includes(wanted), `${wanted} is offered`)
 })
 
 function main(): void {

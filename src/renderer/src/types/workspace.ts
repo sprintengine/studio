@@ -122,24 +122,22 @@ export type WorkspaceHighlight = {
 }
 
 /**
- * The six identity hues a project's folder glyph can wear (owner, 2026-09-09).
- * Gold and green are deliberately absent: gold is what a row wears when an
- * agent is waiting on the person and green is the finished tint, so neither may
- * double as a project's colour on the same row.
+ * The hue a project's folder glyph wears: a whole degree on the OKLCH wheel,
+ * 0 to 359 (owner, 2026-09-09; hashed from the project's name since
+ * 2026-09-11). Lightness and chroma are design tokens, so the angle is the only
+ * thing that varies between projects.
  *
  * Declared here, beside HighlightColor and for the same reason: AppSettings is
  * shared with main (tsconfig.node lists this file and nothing else out of the
- * renderer), so the type has to live somewhere main can reach. The ordered
- * palette, the allocator and the swatch metadata are utils/projectColor.ts,
- * which re-exports these two names and asserts at compile time that its list
- * and this union still name the same six hues.
+ * renderer), so the type has to live somewhere main can reach. The hash, the
+ * guards and the picker's presets are utils/projectColor.ts, which re-exports
+ * these two names.
  */
-export type ProjectColor = 'blue' | 'teal' | 'cyan' | 'violet' | 'orange' | 'red'
+export type ProjectColor = number
 
 /**
- * What is stored per project: a hue, or `'none'` — the person choosing no
- * colour, which is a different thing from a project that has not been seen yet
- * (absent from the map) and is what stops the allocator handing it a hue again.
+ * What is stored per project, and only when the person chose it: a hue, or
+ * `'none'` for "no colour". A project with no entry wears its hashed hue.
  */
 export type ProjectColorSetting = ProjectColor | 'none'
 
@@ -463,16 +461,13 @@ export type AppSettings = {
   sprintEngineRunSettings: Record<string, SprintEngineRunSettings>
   projectKnowledgeRoots: Record<string, string | null>
   /**
-   * The identity hue each project wears on its folder glyph, keyed by
+   * The colours a person chose for projects' folder glyphs, keyed by
    * `projectColorKey` (utils/projectColor) — the canonical repository key when
-   * the folder has a remote, else the normalised folder path. One key per
-   * project, so a paired machine's clone of a repository wears the same hue as
-   * this disk's.
+   * the folder has a remote, else the normalised folder path.
    *
-   * Written once, the first time a project is seen (`assignProjectColors`), and
-   * thereafter only by the person changing it. `'none'` is a chosen no-colour,
-   * which is a different thing from a key that is absent: absent means "not yet
-   * seen" and is what the allocator fills.
+   * Overrides only. A project with no entry wears the hue hashed from its key,
+   * which is the same on every machine; an entry is a hue the person picked or
+   * `'none'` for "no colour", and is this machine's alone.
    */
   projectColors: Record<string, ProjectColorSetting>
   recentWorkspaceFolders: string[]

@@ -89,6 +89,8 @@
   --sem-color-mark-teal: var(--ref-color-teal-700);
   --sem-color-mark-cyan: var(--ref-color-cyan-700);
   --sem-color-mark-violet: var(--ref-color-violet-500);
+  --sem-color-mark-project-lightness: 0.54;
+  --sem-color-mark-project-chroma: 0.09;
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
@@ -197,6 +199,8 @@
   --sem-color-mark-red: var(--ref-color-coral-400);
   --sem-color-mark-teal: var(--ref-color-teal-400);
   --sem-color-mark-cyan: var(--ref-color-cyan-400);
+  --sem-color-mark-project-lightness: 0.74;
+  --sem-color-mark-project-chroma: 0.125;
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);

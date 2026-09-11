@@ -28,7 +28,7 @@ export function FolderIdentityIcon({
 }: {
   folderPath: string | null | undefined
   className?: string
-  /** The project's stored hue, or null for a project with no colour. */
+  /** The project's hue, or null for a project with no colour. */
   color?: ProjectColor | null
   /** No folder is not a project: the dashed grey outline, never a hue. */
   unfiled?: boolean

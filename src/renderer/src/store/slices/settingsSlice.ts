@@ -8,11 +8,7 @@ import type { TextGenerationSettings } from '../../../../shared/text-generation/
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
-import {
-  isProjectColorSetting,
-  pickProjectColor,
-  type ProjectColorSetting,
-} from '../../utils/projectColor'
+import { isProjectColorSetting, type ProjectColorSetting } from '../../utils/projectColor'
 import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import {
   dispatchExtensionsSurfaceTarget,
@@ -345,11 +341,16 @@ export function normalizeDesignSystemSeen(value: unknown): Record<string, string
 }
 
 /**
- * One colour per project (utils/projectColor). Persisted state is other
- * people's data by the time it is read back — an older build's spelling, a
- * hand-edited settings file — so a key that is not a non-empty string, and a
- * value that is not one of the six hues or `'none'`, is dropped rather than
- * carried into the map the glyph reads.
+ * One colour per project (utils/projectColor): the overrides a person chose.
+ * Persisted state is other people's data by the time it is read back — an
+ * older build's spelling, a hand-edited settings file — so a key that is not a
+ * non-empty string, and a value that is not a whole-degree hue or `'none'`, is
+ * dropped rather than carried into the map the glyph reads.
+ *
+ * That includes the hue NAMES the 2026-09-09 build stored (`'blue'` …). Those
+ * were first-come picks, indistinguishable from a person's choice, and keeping
+ * them would pin every existing project to a colour no other machine shares;
+ * dropped, each project returns to its hashed hue (owner, 2026-09-11).
  */
 export function normalizeProjectColors(value: unknown): Record<string, ProjectColorSetting> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
@@ -1310,29 +1311,13 @@ export interface SettingsSliceActions {
   /** The Design door's viewing scope. Null returns it to following the active workspace. */
   setDesignProjectScopePath: (path: string | null) => void
   /**
-   * Set (or clear) one project's colour, keyed by `projectColorKey`.
+   * Set (or clear) one project's colour override, keyed by `projectColorKey`.
    *
-   * `'none'` is the person choosing no colour and is remembered as such —
-   * without it, the next `assignProjectColors` would treat the project as
-   * unseen and hand it a hue again. `null` deletes the entry entirely, which
-   * returns the project to "not yet seen".
+   * A hue or `'none'` (the person choosing no colour) is stored as chosen.
+   * `null` deletes the entry, which returns the project to the hue hashed from
+   * its key — "Automatic" in the picker.
    */
   setProjectColor: (key: string, color: ProjectColorSetting | null) => void
-  /**
-   * Give every one of these projects a colour it does not already have.
-   *
-   * `keys` is the set on screen, and it is also the only thing allocation is
-   * measured against: a hue is "taken" when one of THESE projects wears it, not
-   * when some project closed a year ago does. Six hues cannot keep every
-   * project ever opened distinct, and counting the whole stored map would let a
-   * newly opened project collide with a visible one while four hues sat unused
-   * among the handful in front of the person.
-   *
-   * Safe to call from an effect on every render: keys that already have an
-   * entry (a hue OR `'none'`) are left alone, and when nothing is missing the
-   * action writes nothing at all, so it cannot loop a subscriber.
-   */
-  assignProjectColors: (keys: readonly string[]) => void
   /**
    * Stamp a design system as seen, now.
    *
@@ -1768,47 +1753,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         if (!isProjectColorSetting(color)) return
         if (current[projectKey] === color) return
         state.appSettings.projectColors = { ...current, [projectKey]: color }
-      }),
-
-    assignProjectColors: (keys) =>
-      set((state) => {
-        const current = state.appSettings.projectColors ?? {}
-        // Deduped, and order-independent: the hook hands these over sorted, so
-        // the same set of projects gets the same allocation however the sidebar
-        // happened to lay them out, and calling twice with one set is a no-op
-        // rather than a reshuffle.
-        const onScreen: string[] = []
-        const seen = new Set<string>()
-        for (const raw of keys) {
-          const key = raw.trim()
-          if (!key || seen.has(key)) continue
-          seen.add(key)
-          onScreen.push(key)
-        }
-        const missing = onScreen.filter((key) => !Object.hasOwn(current, key))
-        // The idempotent path, and the reason this is safe in a render effect:
-        // no missing key means no write, so no subscriber is notified.
-        if (missing.length === 0) return
-        const next = { ...current }
-        // Allocation is constrained by the PROJECTS ON SCREEN, not by the whole
-        // stored map. The acceptance is "two open projects never receive the
-        // same hue"; counting a year of closed projects instead would let a new
-        // project collide with an open one while four hues sat unused among the
-        // handful actually visible — six hues cannot keep every project ever
-        // opened distinct, and pretending otherwise spends them on rows nobody
-        // is looking at. History is a record, not a constraint.
-        const inUse = onScreen.flatMap((key) => {
-          const setting = next[key]
-          return setting ? [setting] : []
-        })
-        for (const key of missing) {
-          const picked = pickProjectColor(inUse)
-          next[key] = picked
-          // Counted immediately, so one call that sees six new projects hands
-          // out six different hues rather than six copies of the first.
-          inUse.push(picked)
-        }
-        state.appSettings.projectColors = next
       }),
 
     markDesignSystemSeen: (bundleId, at) =>

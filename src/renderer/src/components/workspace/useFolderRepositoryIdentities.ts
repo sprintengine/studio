@@ -17,13 +17,13 @@ import type { RepositoryIdentity, RepositoryIdentityRead } from '../../../../sha
 // and the read could not be made — is absent.
 //
 // That distinction exists for one caller. Grouping treats absent and null the
-// same ("no identity", group by path), but the project-colour allocator
-// (2026-09-09) waits for the answer before giving a project a hue: a folder
-// coloured under its path key and then re-keyed to its repository would spend
-// two of the six hues on one project and visibly change colour a moment after
-// the window opened. A read that could not be made is therefore NOT recorded as
-// "no remote" — a spun-down volume would otherwise be given a `folder:` hue
-// now and a `repo:` one the next time it was awake.
+// same ("no identity", group by path), but the project colour (2026-09-09,
+// hashed from the key since 2026-09-11) waits for the answer before painting a
+// hue: a folder coloured under its path key and then re-keyed to its repository
+// would visibly change colour a moment after the window opened. A read that
+// could not be made is therefore NOT recorded as "no remote" — a spun-down
+// volume would otherwise wear its `folder:` hue now and its `repo:` one the
+// next time it was awake.
 //
 // Two consequences follow, and both are here rather than at the call site:
 //
