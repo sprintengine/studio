@@ -4,6 +4,8 @@ dist/
 dist-electron/
 out/
 release/
+# Build output goes in release/ dirs; the release workflow's own scripts do not.
+!scripts/release/
 .env
 .env.local
 .env.development.local

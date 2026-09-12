@@ -10,8 +10,10 @@ import {
 } from './menuClasses'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import {
-  PROJECT_COLORS,
-  getProjectColorSwatch,
+  PROJECT_COLOR_PRESETS,
+  PROJECT_SWATCH_CLASS,
+  projectColorStyle,
+  type ProjectColor,
   type ProjectColorSetting,
 } from '../../utils/projectColor'
 import type { HighlightColor } from '../../types/workspace'
@@ -446,71 +448,83 @@ type ProjectColorSwatchRowProps = {
   /** Section label above the row. Defaults to "Project color", the spelling
    *  the sibling "Highlight color" row already uses in the same menu. */
   label?: string
-  /** The colour in force: a hue, `'none'` for a deliberate no-colour, or null
-   *  when this project has not been given one yet. */
+  /** The override in force: a hue, `'none'` for a deliberate no-colour, or
+   *  null when the project wears its hashed hue. */
   value: ProjectColorSetting | null
-  /** Picking a hue, or `'none'` from the trailing dashed swatch. */
-  onPick: (color: ProjectColorSetting) => void
+  /** The hashed hue this project wears with no override, drawn on the
+   *  "Automatic" swatch so a person can see what they would return to. */
+  automaticColor: ProjectColor
+  /** Picking a hue, `'none'` from the trailing dashed swatch, or null from
+   *  "Automatic" — which deletes the override. */
+  onPick: (color: ProjectColorSetting | null) => void
   /** Same roving-focus escape hatch as MenuSwatchRow above. */
   onItemKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void
 }
 
-// The "Project colour" row: the six identity hues a project can wear on its
-// folder glyph, then a dashed "No colour" swatch (owner, 2026-09-09).
+const PROJECT_SWATCH_SELECTED_CLASS =
+  'ring-2 ring-offset-1 ring-[color:var(--text-strong)] ring-offset-[color:var(--bg-surface)]'
+
+// The "Project colour" row: "Automatic" (the project's hashed hue), the named
+// presets, then a dashed "No colour" swatch (owner, 2026-09-09; hashed hues
+// 2026-09-11).
 //
 // Deliberately its own component rather than a mode on MenuSwatchRow. The two
 // rows answer different questions — a highlight is a tint a person puts ON a
 // row, a project colour is what the project IS — and they differ in every part
-// that matters: seven hues against six, hex swatches against theme tokens, and
-// a leading "clear" against a trailing "No colour" that is itself a stored
-// choice rather than the absence of one. Folding them together would have made
+// that matters: hex swatches against theme-tokened hues, and a leading "clear"
+// against a leading "Automatic" that still shows a colour and a trailing "No
+// colour" that is itself a stored choice. Folding them together would have made
 // the highlight row carry a flag for each of those.
 export function ProjectColorSwatchRow({
   label = 'Project color',
   value,
+  automaticColor,
   onPick,
   onItemKeyDown,
 }: ProjectColorSwatchRowProps) {
+  const swatches: Array<{ key: string; label: string; hue: ProjectColor; pick: ProjectColorSetting | null }> = [
+    { key: 'automatic', label: 'Automatic', hue: automaticColor, pick: null },
+    ...PROJECT_COLOR_PRESETS.map((preset) => ({ key: preset.label, label: preset.label, hue: preset.hue, pick: preset.hue })),
+  ]
   return (
     <>
       {label ? (
         <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{label}</div>
       ) : null}
-      <div className="flex items-center gap-1 px-2 pb-1.5">
-        {PROJECT_COLORS.map((color) => {
-          const swatch = getProjectColorSwatch(color)
-          const selected = value === color
+      <div className="flex flex-wrap items-center gap-1 px-2 pb-1.5">
+        {swatches.map((swatch) => {
+          const selected = value === swatch.pick
           return (
-            <Tooltip key={color} content={swatch.label}>
+            <Tooltip key={swatch.key} content={swatch.label}>
               <button
                 type="button"
                 // A HORIZONTAL radio group of 20px circles, same as the
                 // highlight row above: `menuitemradio` is what ARIA requires of
                 // a menu's children, and the shared full-bleed row would draw
-                // seven stacked lines where this control is one line of dots.
+                // ten stacked lines where this control is one line of dots.
                 // design-tokens-allow: 2026-09-09 (MC-2138) — a swatch, not a menu row: the
                 // colour IS the control, so it cannot wear MENU_ITEM_CLASS's row geometry.
                 role="menuitemradio"
                 aria-checked={selected}
                 data-menu-item="true"
                 tabIndex={-1}
-                onClick={() => onPick(color)}
+                onClick={() => onPick(swatch.pick)}
                 onKeyDown={onItemKeyDown}
                 aria-label={`Project color ${swatch.label}`}
                 className={`${SWATCH_TARGET_CLASS} ${FOCUS_RING_CLASS}`}
               >
-                {/* The hue is a class, not an inline hex, so a swatch reads on
-                    all eleven themes — and so it is the same value the glyph
-                    wears. The selected mark is a NEUTRAL ring: the swatches are
-                    already six colours, and a seventh colour to say "this one"
-                    would be the only thing on the row that is not a hue. */}
+                {/* The hue rides the same class and custom property the glyph
+                    wears, so a swatch reads on all eleven themes and is the
+                    colour the glyph then takes. The selected mark is a NEUTRAL
+                    ring: the swatches are already every colour, and one more to
+                    say "this one" would be the only thing on the row that is
+                    not a hue. */}
                 <span
                   aria-hidden="true"
-                  className={`block ${SWATCH_DOT_SIZE_CLASS} rounded-full ${swatch.swatchClass} ${
-                    selected
-                      ? 'ring-2 ring-offset-1 ring-[color:var(--text-strong)] ring-offset-[color:var(--bg-surface)]'
-                      : ''
+                  className={`block ${SWATCH_DOT_SIZE_CLASS} rounded-full ${PROJECT_SWATCH_CLASS} ${
+                    selected ? PROJECT_SWATCH_SELECTED_CLASS : ''
                   }`}
+                  style={projectColorStyle(swatch.hue)}
                 />
               </button>
             </Tooltip>

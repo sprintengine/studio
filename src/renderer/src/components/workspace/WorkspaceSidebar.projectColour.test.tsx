@@ -2,16 +2,17 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-// One colour per project, on the folder glyph (owner ruling 2026-09-09;
-// backlog/unfiled/2026-09-09-one-colour-per-project-on-the-folder-glyph.md).
+// One colour per project, on the folder glyph (owner ruling 2026-09-09, hashed
+// hues 2026-09-11; backlog/unfiled/2026-09-09-one-colour-per-project-on-the-folder-glyph.md).
 //
 // Everything here is about the SIDEBAR's half of that item, and it mounts the
 // real component because every claim the ruling makes is about what the rail
-// renders: that two open projects are never handed one hue, that the hue is on
-// the glyph and keyed by REPOSITORY, that "No folder" is not a project and gets
-// the dashed outline instead, that the header menu changes it everywhere at
-// once, and that a restart keeps it. The allocator and the palette have their
-// own unit suite (utils/projectColor.test.ts); this is the surface's.
+// renders: that the hue is on the glyph, hashed from the project's key and keyed
+// by REPOSITORY, that nothing is painted until that key is final, that "No
+// folder" is not a project and gets the dashed outline instead, that the header
+// menu changes it everywhere at once, and that a restart keeps an override. The
+// hash itself has its own unit suite (utils/projectColor.test.ts); this is the
+// surface's.
 //
 // The rail has exactly TWO carriers, reviewed and cut down to them on
 // 2026-09-09: the flat stream's project line and the folder header. The Starred
@@ -97,7 +98,7 @@ domWindow.api = {
   // /projA is a clone of acme/multicode. /projB is a folder with no remote at
   // all — a real project, keyed by path, and the case a "was it answered?"
   // gate must not swallow. Anything in `unsettledFolders` answers "could not
-  // ask", which is not an answer and must never be written down as one.
+  // ask", which is not an answer and must never be treated as one.
   getGitRepositoryIdentity: async (folderPath: string): Promise<IdentityRead> => {
     asks.push(folderPath)
     await identityGate
@@ -106,16 +107,16 @@ domWindow.api = {
   },
 }
 
-/** The `project-mark-*` class an svg wears, or null when it wears none. */
-function markClassOf(node: Element | null | undefined): string | null {
-  const className = node?.getAttribute('class') ?? ''
-  return /project-mark-[a-z]+/.exec(className)?.[0] ?? null
+/** The hue an svg wears, or null when it wears none. */
+function hueOf(node: Element | null | undefined): number | null {
+  const hue = node?.getAttribute('data-project-hue')
+  return hue === null || hue === undefined ? null : Number(hue)
 }
 
 // The menu's own spelling, said once: the swatch row is the kit's
 // (ui/ContextMenu), and this suite should not restate its label per assertion.
 const PICK_HUE_LABEL = 'Project color Violet'
-const PICKED_HUE_CLASS = 'project-mark-violet'
+const AUTOMATIC_LABEL = 'Project color Automatic'
 
 async function main(): Promise<void> {
   const React = await import('react')
@@ -125,8 +126,13 @@ async function main(): Promise<void> {
   const { useWorkspaceStore } = await import('../../store/workspaceStore')
   const { normalizeAppSettings } = await import('../../store/slices/settingsSlice')
   const { resetProjectLogos } = await import('../../utils/projectLogos')
+  const { PROJECT_COLOR_PRESETS, projectHue } = await import('../../utils/projectColor')
 
   resetProjectLogos()
+
+  const HUE_A = projectHue('repo:github.com/acme/multicode')
+  const HUE_B = projectHue('folder:/projb')
+  const PICKED_HUE = PROJECT_COLOR_PRESETS.find((preset) => preset.label === 'Violet')!.hue
 
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   const workspace = (id: string, name: string, folderPath: string | null, extra?: Record<string, unknown>) =>
@@ -241,24 +247,30 @@ async function main(): Promise<void> {
       dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
   }
-  const hueSwatch = () => dom.window.document.querySelector(`button[aria-label="${PICK_HUE_LABEL}"]`)
+  const swatchLabelled = (label: string) => dom.window.document.querySelector(`button[aria-label="${label}"]`)
+  const hueSwatch = () => swatchLabelled(PICK_HUE_LABEL)
+  const clickSwatch = async (label: string) => {
+    const swatch = swatchLabelled(label)
+    assert.ok(swatch, `the folder menu offers "${label}"`)
+    act(() => {
+      swatch!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    await settle()
+  }
   const projectColorsNow = () => useWorkspaceStore.getState().appSettings.projectColors
 
-  // ── 1 · A hue is allocated only once the repository question is ANSWERED ──
+  // ── 1 · A hue is painted only once the repository question is ANSWERED ───
   //
   // The bug this guards: a folder keyed by its PATH while its identity read is
-  // still in flight would be given a hue one frame before the key becomes the
-  // repository's. The phantom `folder:` entry then keeps that hue for good —
-  // three repositories would exhaust a six-hue palette — and the glyph would
-  // visibly change colour a moment after the window opened, which decision 4
-  // ("it never changes behind the person's back") forbids.
+  // still in flight hashes to one hue, and a beat later the key becomes the
+  // repository's and hashes to another — the glyph visibly changes colour a
+  // moment after the window opened.
   holdIdentities()
   const pending = await mount(propsFor(localWorkspaces))
-  assert.deepEqual(projectColorsNow(), {}, 'nothing is allocated while the repository reads are in flight')
   assert.equal(
-    markClassOf(headerFor(pending.container, 'projA').querySelector('svg')),
+    hueOf(headerFor(pending.container, 'projA').querySelector('svg')),
     null,
-    'and the header glyph is the plain outline for that beat, not a hue it would have to give back'
+    'the header glyph is the plain outline while the repository read is in flight, not a hue it would have to give back'
   )
 
   // The picker is gated on the same answer, and for a sharper reason: a hue
@@ -270,19 +282,17 @@ async function main(): Promise<void> {
 
   releaseIdentities()
   await settle()
-  assert.deepEqual(
-    Object.keys(projectColorsNow()).sort(),
-    ['folder:/projb', 'repo:github.com/acme/multicode'],
-    'the answer allocates exactly one key per project: the repository for the folder that has one, '
-      + 'and — the case a settled-only gate must not swallow — the PATH for the folder whose read said "no remote"'
+  assert.equal(
+    hueOf(headerFor(pending.container, 'projA').querySelector('svg')),
+    HUE_A,
+    'once answered, the folder that is a repository wears the hue hashed from the REPOSITORY key'
   )
-  assert.ok(!('folder:/proja' in projectColorsNow()), 'no phantom path key survives for a folder that is a repository')
-
-  const markA = markClassOf(headerFor(pending.container, 'projA').querySelector('svg'))
-  const markB = markClassOf(headerFor(pending.container, 'projB').querySelector('svg'))
-  assert.ok(markA, 'an open project is given a hue the first time it is seen')
-  assert.ok(markB, 'and so is the second one')
-  assert.notEqual(markA, markB, 'two open projects never receive the same hue')
+  assert.equal(
+    hueOf(headerFor(pending.container, 'projB').querySelector('svg')),
+    HUE_B,
+    'and the folder whose read said "no remote" — the case a settled-only gate must not swallow — wears its folder hue'
+  )
+  assert.deepEqual(projectColorsNow(), {}, 'a hue is derived, never written: the map holds only what a person chose')
 
   openFolderMenu(pending.container, 'projA')
   assert.ok(hueSwatch(), 'and the picker appears once the key is final')
@@ -295,17 +305,16 @@ async function main(): Promise<void> {
   // ── 2 · A read that could not be MADE is not an answer either ────────────
   //
   // Main answers `settled: false` for a 3s timeout or a git error — a folder on
-  // a spun-down volume. Recording that as "no remote" would hand the folder a
-  // `folder:` hue now and a `repo:` one the next time the volume was awake, so
-  // it stays absent, colourless, and is asked again.
+  // a spun-down volume. Treating that as "no remote" would paint the folder's
+  // hue now and the repository's the next time the volume was awake, so it
+  // stays colourless and is asked again.
   unsettledFolders.add('/projC')
   const asleep = [...localWorkspaces, workspace('w6', 'Golf', '/projC')] as SidebarProps['workspaces']
   const spunDown = await mount(propsFor(asleep))
-  assert.ok(!('folder:/projc' in projectColorsNow()), 'a folder whose read could not be made is given no hue')
   assert.equal(
-    markClassOf(headerFor(spunDown.container, 'projC').querySelector('svg')),
+    hueOf(headerFor(spunDown.container, 'projC').querySelector('svg')),
     null,
-    'and its header glyph stays plain rather than claiming a project colour'
+    'a folder whose read could not be made stays plain rather than claiming a project colour'
   )
   openFolderMenu(spunDown.container, 'projC')
   assert.equal(hueSwatch(), null, 'nor can a colour be picked for a project whose identity is unknown')
@@ -324,9 +333,9 @@ async function main(): Promise<void> {
   await settle()
   assert.ok(asks.includes('/projC'), 'and the re-ask really asks main again')
   assert.equal(
-    projectColorsNow()['folder:/projc'] !== undefined,
-    true,
-    'once it answers, the project is allocated a hue like any other'
+    hueOf(headerFor(spunDown.container, 'projC').querySelector('svg')),
+    projectHue('folder:/projc'),
+    'once it answers, the project wears its hue like any other'
   )
 
   act(() => {
@@ -344,25 +353,21 @@ async function main(): Promise<void> {
   const glyphOf = (container: Element, name: string) =>
     rowFor(container, name).firstElementChild!.querySelector('svg')
 
-  assert.equal(markClassOf(glyphOf(stream.container, 'Alpha')), markA, "the stream line wears its project's hue")
-  assert.equal(
-    markClassOf(glyphOf(stream.container, 'Bravo')),
-    markA,
-    'every chat of one project shows that project one hue'
-  )
-  assert.equal(markClassOf(glyphOf(stream.container, 'Charlie')), markB, 'and the other project shows the other')
+  assert.equal(hueOf(glyphOf(stream.container, 'Alpha')), HUE_A, "the stream line wears its project's hue")
+  assert.equal(hueOf(glyphOf(stream.container, 'Bravo')), HUE_A, 'every chat of one project shows that project one hue')
+  assert.equal(hueOf(glyphOf(stream.container, 'Charlie')), HUE_B, 'and the other project shows the other')
 
   // The name beside the glyph is not tinted, and neither is the row: the hue
   // identifies, it never grades (design system, "Identity colour").
   assert.equal(
-    markClassOf(rowFor(stream.container, 'Alpha').firstElementChild!.querySelector('span')),
+    hueOf(rowFor(stream.container, 'Alpha').firstElementChild!.querySelector('span')),
     null,
     'the project name stays in the row ink — the colour is on the glyph and nowhere else'
   )
 
   // No folder is not a project.
   const echoGlyph = glyphOf(stream.container, 'Echo')
-  assert.equal(markClassOf(echoGlyph), null, 'an unfiled chat is given no hue at all')
+  assert.equal(hueOf(echoGlyph), null, 'an unfiled chat is given no hue at all')
   assert.equal(
     echoGlyph!.querySelector('path')?.getAttribute('stroke-dasharray'),
     '2 1.6',
@@ -374,50 +379,56 @@ async function main(): Promise<void> {
   // channel on a row that can also be wearing the needs-input wash.
   const foxtrot = rowFor(stream.container, 'Foxtrot')
   assert.ok(foxtrot.querySelector('[data-remote-row-glyph]'), 'a band row leads with the machine glyph')
-  assert.equal(markClassOf(foxtrot.querySelector('svg')), null, 'and wears no project hue of its own')
-  assert.equal(
-    markClassOf(foxtrot.querySelectorAll('svg')[1]),
-    null,
-    'no second glyph on the row carries one either'
-  )
+  assert.equal(hueOf(foxtrot.querySelector('svg')), null, 'and wears no project hue of its own')
+  assert.equal(hueOf(foxtrot.querySelectorAll('svg')[1]), null, 'no second glyph on the row carries one either')
 
   act(() => {
     stream.root.unmount()
   })
 
-  // ── 4 · Changed by the person, everywhere at once ────────────────────────
+  // ── 4 · Changed by the person, everywhere at once, and changed back ──────
   act(() => {
     useWorkspaceStore.getState().setChatListView('projects')
   })
   const tree = await mount(propsFor(workspaces))
   openFolderMenu(tree.container, 'projA')
-  const swatch = hueSwatch()
-  assert.ok(swatch, '"Project color" is on the folder header menu, with the six hues')
-  act(() => {
-    swatch!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
-  })
-  await settle()
+  assert.equal(
+    swatchLabelled(AUTOMATIC_LABEL)?.getAttribute('aria-checked'),
+    'true',
+    'with no override, "Automatic" is the checked swatch'
+  )
+  await clickSwatch(PICK_HUE_LABEL)
 
   assert.equal(
-    markClassOf(headerFor(tree.container, 'projA').querySelector('svg')),
-    PICKED_HUE_CLASS,
+    hueOf(headerFor(tree.container, 'projA').querySelector('svg')),
+    PICKED_HUE,
     "the header's own glyph takes the colour the person picked"
   )
-  assert.equal(
-    markClassOf(headerFor(tree.container, 'projB').querySelector('svg')),
-    markB,
-    'the other project is untouched'
+  assert.equal(hueOf(headerFor(tree.container, 'projB').querySelector('svg')), HUE_B, 'the other project is untouched')
+  assert.deepEqual(
+    projectColorsNow(),
+    { 'repo:github.com/acme/multicode': PICKED_HUE },
+    'and the choice is stored under the repository key, as the only entry'
   )
+
+  // "Automatic" deletes the override rather than storing the hashed hue: stored,
+  // it would stop following the name if the hash were ever retuned.
+  openFolderMenu(tree.container, 'projA')
+  await clickSwatch(AUTOMATIC_LABEL)
+  assert.equal(hueOf(headerFor(tree.container, 'projA').querySelector('svg')), HUE_A, '"Automatic" returns the hashed hue')
+  assert.deepEqual(projectColorsNow(), {}, 'by deleting the override')
+
+  openFolderMenu(tree.container, 'projA')
+  await clickSwatch(PICK_HUE_LABEL)
   act(() => {
     tree.root.unmount()
   })
 
-  // ── 5 · Restarting the app keeps every project's colour ──────────────────
+  // ── 5 · Restarting the app keeps an override, and hashes the rest ────────
   //
   // A real restart, not a re-mount over the same live store: the persisted map
   // is the ONLY thing carried across, through the same `normalizeAppSettings`
-  // the store hydrates with. If the hues lived anywhere but that map, they die
-  // here.
+  // the store hydrates with.
   const persisted = { ...projectColorsNow() }
   act(() => {
     useWorkspaceStore.setState({ appSettings: normalizeAppSettings({ projectColors: persisted }, []) })
@@ -427,16 +438,16 @@ async function main(): Promise<void> {
 
   const restarted = await mount(propsFor(workspaces))
   assert.equal(
-    markClassOf(glyphOf(restarted.container, 'Alpha')),
-    PICKED_HUE_CLASS,
+    hueOf(glyphOf(restarted.container, 'Alpha')),
+    PICKED_HUE,
     'a fresh store hydrated from the persisted map keeps the colour the person chose'
   )
   assert.equal(
-    markClassOf(glyphOf(restarted.container, 'Charlie')),
-    markB,
-    'and the hue the allocator chose, rather than allocating a fresh one'
+    hueOf(glyphOf(restarted.container, 'Charlie')),
+    HUE_B,
+    'and a project with no override wears the same hashed hue it wore before'
   )
-  assert.equal(markClassOf(glyphOf(restarted.container, 'Echo')), null, 'the unfiled row is still no project')
+  assert.equal(hueOf(glyphOf(restarted.container, 'Echo')), null, 'the unfiled row is still no project')
 
   act(() => {
     restarted.root.unmount()

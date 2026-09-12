@@ -63,11 +63,12 @@ import {
 import { getHighlightSwatch, hasHighlightOverride, isStarred } from '../../utils/highlight'
 import {
   projectColorKey,
+  projectHue,
   resolveProjectColor,
   type ProjectColor,
   type ProjectColorSetting,
 } from '../../utils/projectColor'
-import { useAssignProjectColors, useProjectColors } from '../../hooks/useProjectColors'
+import { useProjectColors } from '../../hooks/useProjectColors'
 import {
   addTabAsNewColumn,
   appendTabAsNewColumnInJson,
@@ -1862,9 +1863,10 @@ export default function WorkspaceSidebar({
   // is coloured, and the hue identifies, it never grades. This rail already
   // spends colour on state — gold for a turn waiting on the person, green for
   // one that finished, the selection edge — and a second coloured thing on the
-  // same row would make the person read which of the two a colour meant. It is
-  // also why the palette is SIX hues and not eight: gold and green are spoken
-  // for (utils/projectColor.ts).
+  // same row would make the person read which of the two a colour meant. The
+  // hue is hashed from the project's name, so it is the same on every machine;
+  // yellow and green are on the wheel too, by the owner's ruling of 2026-09-11,
+  // because the hue lives only on the folder glyph (utils/projectColor.ts).
   //
   // TWO CARRIERS in this rail, and only two: the flat stream's project line and
   // the folder header in the tree. Not the Starred or Remote band rows —
@@ -1888,11 +1890,11 @@ export default function WorkspaceSidebar({
   // whose root lives on another machine and has no local identity to read.
   //
   // `settled` is whether the repository question has been ANSWERED for this
-  // folder. A hue is handed out only then: a project coloured under its path
-  // key and re-keyed to its repository a moment later would spend two of the
-  // six hues on one project and change colour just after the window opened,
-  // which is the one thing decision 4 forbids. Until the answer lands the glyph
-  // is simply the plain folder outline — one beat, once per project.
+  // folder. A hue is painted only then: the hue is hashed from the key, so a
+  // project coloured under its path key and re-keyed to its repository a moment
+  // later would change colour just after the window opened. Until the answer
+  // lands the glyph is simply the plain folder outline — one beat, once per
+  // project.
   const projectKeyOfGroup = useCallback(
     (group: FolderGroup): { key: string | null; settled: boolean } => {
       if (group.remote || !group.fullPath) return { key: null, settled: true }
@@ -1920,6 +1922,15 @@ export default function WorkspaceSidebar({
     (groupKey: string): boolean => projectKeyByGroupKey.get(groupKey)?.settled === true,
     [projectKeyByGroupKey]
   )
+  // The hue a group's glyph wears: the person's override, else the hue hashed
+  // from its key — and null until that key is final, per `settled` above.
+  const projectColorOf = useCallback(
+    (groupKey: string): ProjectColor | null => {
+      const project = projectKeyByGroupKey.get(groupKey)
+      return project?.settled ? resolveProjectColor(projectColors, project.key) : null
+    },
+    [projectKeyByGroupKey, projectColors]
+  )
 
   // A stream row's project line. The same header the tree would have filed the
   // row under, so switching views never renames anything: one resolver, two
@@ -1936,9 +1947,9 @@ export default function WorkspaceSidebar({
         // The project's open pull requests, for the mark this line carries in
         // the flat stream — where there is no folder header to put it on.
         openPullRequests: openPullRequestsByGroup.get(groupKey) ?? 0,
-        color: resolveProjectColor(projectColors, projectKeyOf(groupKey)),
+        color: projectColorOf(groupKey),
         // No folder is not a project (decision 6): the dashed grey outline, so
-        // "unfiled" reads as its own thing rather than as a seventh project.
+        // "unfiled" reads as its own thing rather than as a project of its own.
         // Narrower than "has no colour" on purpose — a project whose read has
         // not landed, whose person chose "No colour", or that lives on another
         // machine has a folder and is NOT unfiled; it keeps the solid glyph in
@@ -1946,7 +1957,7 @@ export default function WorkspaceSidebar({
         unfiled: !group?.remote && !folderPath,
       }
     },
-    [groupByKey, keyOf, openPullRequestsByGroup, projectKeyOf, projectColors]
+    [groupByKey, keyOf, openPullRequestsByGroup, projectColorOf]
   )
 
   // The row you are in always has a row: a settled chat you selected (or
@@ -2040,30 +2051,6 @@ export default function WorkspaceSidebar({
     () => remoteBandItems(remoteGroups, remoteListening, railWorkspaces),
     [remoteGroups, remoteListening, railWorkspaces]
   )
-
-  // Every project this rail is about to DRAW, given a hue the first time it is
-  // seen and never again (decision 4). Called ONCE here rather than per row:
-  // the allocator hands out the first hue nobody is using, so it has to see the
-  // whole list at once or two projects that arrived in the same paint would
-  // both be given blue. The action writes nothing when no key is missing, which
-  // is what makes this safe on every render.
-  //
-  // Folder groups and nothing else. The Remote band's rows carry no folder
-  // glyph — the machine glyph is their mark — so a repository open only on a
-  // paired machine has nothing here to wear a hue, and allocating one would
-  // spend a sixth of the palette on a colour that is never drawn. A remote row
-  // for a repository that IS an open folder here inherits that folder's key
-  // through the group, which is the decision-3 behaviour and needs no key of
-  // its own.
-  const projectColorKeys = useMemo(() => {
-    const keys: Array<string | null> = []
-    for (const group of groups) {
-      const project = projectKeyByGroupKey.get(group.key)
-      if (project?.settled) keys.push(project.key)
-    }
-    return keys
-  }, [groups, projectKeyByGroupKey])
-  useAssignProjectColors(projectColorKeys)
 
   // Starred workspaces order the same way the folders do: by the person's last
   // message, newest first, and nothing else. This supersedes manual drag
@@ -3571,7 +3558,7 @@ export default function WorkspaceSidebar({
               <FolderIdentityIcon
                 folderPath={group.remote ? null : group.fullPath}
                 className="icon-sm shrink-0 transition-opacity group-hover/folder:opacity-0"
-                color={resolveProjectColor(projectColors, projectKeyOf(group.key))}
+                color={projectColorOf(group.key)}
                 unfiled={!group.remote && !group.fullPath}
               />
               <svg
@@ -4076,6 +4063,7 @@ export default function WorkspaceSidebar({
           projectColorKey={projectKeyOf(folderMenu.folderKey)}
           projectColorSettled={projectKeySettled(folderMenu.folderKey)}
           projectColor={projectColors[projectKeyOf(folderMenu.folderKey) ?? ''] ?? null}
+          automaticProjectColor={projectHue(projectKeyOf(folderMenu.folderKey) ?? '')}
           onPickProjectColor={(color) => {
             const key = projectKeyOf(folderMenu.folderKey)
             if (key) setProjectColor(key, color)
@@ -4426,6 +4414,7 @@ function FolderContextMenu({
   projectColorKey: colorKey,
   projectColorSettled,
   projectColor,
+  automaticProjectColor,
   onClose,
   onSelect,
   onPickProjectColor,
@@ -4437,11 +4426,14 @@ function FolderContextMenu({
   projectColorKey: string | null
   /** Whether that key is the project's FINAL one — see `canPickColor` below. */
   projectColorSettled: boolean
-  /** What is stored for that project: a hue, `'none'`, or null for unseen. */
+  /** The person's override for that project: a hue, `'none'`, or null for none. */
   projectColor: ProjectColorSetting | null
+  /** The hue hashed from that project's key — what "Automatic" returns to. */
+  automaticProjectColor: ProjectColor
   onClose: () => void
   onSelect: (action: FolderMenuAction) => void
-  onPickProjectColor: (color: ProjectColorSetting) => void
+  /** A hue, `'none'`, or null for "Automatic" (deletes the override). */
+  onPickProjectColor: (color: ProjectColorSetting | null) => void
 }) {
   if (!group) return null
   const canReveal = Boolean(group.fullPath) && !group.missing
@@ -4456,8 +4448,8 @@ function FolderContextMenu({
   // is the folder's PATH; a person who right-clicks a header in that first
   // second and picks a hue would have it written to `folder:/path`, and a beat
   // later the project is keyed `repo:…` and their choice has silently vanished
-  // — leaving the phantom path key holding one of six hues for ever. Better to
-  // not offer the control for that beat than to take a choice and lose it.
+  // — leaving a stray override on a key nothing reads. Better to not offer the
+  // control for that beat than to take a choice and lose it.
   const canPickColor = Boolean(colorKey) && projectColorSettled
 
   return (
@@ -4475,12 +4467,14 @@ function FolderContextMenu({
       {/* The same swatch control the row menu spends on "Highlight color", one
           menu up: a highlight is a tint a person puts ON a chat, a project
           colour is what the project IS, and the header is the one line that
-          names the project. Six hues plus "No colour" — the last for a project
-          whose own logo already identifies it. */}
+          names the project. "Automatic" (the hashed hue), eight named hues,
+          and "No colour" — the last for a project whose own logo already
+          identifies it. */}
       {canPickColor ? (
         <ProjectColorSwatchRow
           label="Project color"
           value={projectColor}
+          automaticColor={automaticProjectColor}
           onPick={onPickProjectColor}
         />
       ) : null}

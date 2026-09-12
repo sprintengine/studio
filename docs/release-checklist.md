@@ -4,11 +4,14 @@ Use this checklist for every preview or stable desktop release.
 
 ## Before Tagging
 
-- Confirm `npm run typecheck:all` passes. That is what `release.yml`'s validate
-  job runs; plain `typecheck` skips the test projects, which is how 99 test
-  typecheck errors sat on `main` unnoticed before 0.4.0. Delete any stale
-  `tsconfig.*.tsbuildinfo` first, or an incremental build can report clean.
-- Confirm `node scripts/testing/run-tests.mjs src/main/mobile/sprintengine/command.test.ts` passes.
+- Confirm `npm run verify:app` passes. `release.yml`'s quality gate runs the
+  whole of `ci.yml` (verify:app, the marketplace registry, pytest) against the
+  release commit and the release will not publish without it, but it runs
+  beside the packaging legs -- finding out locally is faster. `npm run
+  typecheck:all` is worth running too; plain `typecheck` skips the test
+  projects, which is how 99 test typecheck errors sat on `main` unnoticed before
+  0.4.0. Delete any stale `tsconfig.*.tsbuildinfo` first, or an incremental
+  build can report clean.
 - Confirm `npm run build` passes, including the bundle-budget ratchet it
   chains. The ceiling only speaks during a build, so a breach can sit on
   `main` for weeks and first surface in the release's package job.
@@ -29,7 +32,10 @@ Use this checklist for every preview or stable desktop release.
   The download page only renders What's New when its `version` equals the
   version it is serving, so notes left on the previous version do not go stale
   on screen -- they vanish from the page entirely.
-- Confirm signing credentials are configured for any stable release.
+- Confirm signing credentials are configured for any stable release: the
+  `CSC_*` pair and `APPLE_*` trio for macOS, and for Windows either all seven
+  `AZURE_*` Trusted Signing secrets or none (none ships unsigned; a partial set
+  fails the Windows leg).
 
 ## Retirements To State In Release Notes
 
@@ -114,17 +120,62 @@ of the first release that ships it, then delete the line.
 
 ## Tag And Build
 
-- Create a tag matching `package.json`, for example `v0.4.0` or `v0.4.0-preview.1`.
-- Push the tag to GitHub.
-- Wait for `.github/workflows/release.yml`.
-- Confirm release assets were published to the PUBLIC
-  `sprintengine/studio-releases` GitHub Releases -- NOT to `sprintengine/studio`,
-  which is private and which neither the updater nor the website can read. The
-  `verify-published` job checks this now; v0.3.0 shipped to the private repo
-  and reported success because nothing did.
-- Confirm release assets include installers plus updater metadata such as `latest.yml`, `latest-mac.yml`, or Linux metadata when produced by `electron-builder`.
-- Write the release body by hand in `studio-releases`. Never use GitHub's
-  "generate release notes" there: it would list private commit messages.
+`.github/workflows/release.yml` has three ways in. All of them package the four
+legs with `--publish never`, run the full CI gate beside them, and publish from
+one job: the two macOS updater manifests are merged, everything is uploaded to a
+draft, and the release becomes visible only once every file is there.
+
+- **Stable from a tag.** Create a tag matching `package.json`, for example
+  `v0.4.0`, and push it. A prerelease tag must be shaped `vX.Y.Z-preview.N`:
+  installed preview builds only follow tags whose prerelease starts with
+  `preview`, so the workflow refuses any other (a `-beta.1` would reach nobody).
+- **Preview.** Actions -> Release -> Run workflow, channel `preview`. It builds
+  `main` as `X.Y.Z-preview.YYYYMMDD.RUN`, where `X.Y.Z` is `package.json`'s
+  version while that is unreleased, else the next patch after the latest
+  stable. The schedule does the same every six hours when `main` has moved, but
+  only once the repository variable `PREVIEW_SCHEDULE` is `enabled`.
+- **Stable by promotion.** Run workflow, channel `stable`. It rebuilds the exact
+  commit the latest preview shipped, as that preview's `X.Y.Z`, and tags that
+  commit `vX.Y.Z` in this repo. Stable then only ever ships a build preview
+  users already ran. The commit is read from the `<!-- source-sha: -->` marker
+  the workflow writes into every release body, so do not delete that line when
+  editing a body.
+- Set `publish` to false on a dispatch to build without releasing; the packages
+  stay on the run as workflow artifacts for 14 days.
+- Wait for the workflow. Its last step, `Verify the published release`, checks
+  the release is on the PUBLIC `sprintengine/studio-releases` (v0.3.0 shipped
+  to the private repo and reported success because nothing checked), that it
+  carries both macOS DMGs, the `.exe` and the `.AppImage`, and that each updater
+  manifest (`latest*.yml` or `preview*.yml`) names this version, lists only
+  files that are on the release, and -- for macOS -- lists a `.zip` for BOTH
+  arches. Without the zip MacUpdater fails with `ERR_UPDATER_ZIP_FILE_NOT_FOUND`;
+  with only one arch the other arch never updates.
+- The release body is written by the workflow. While this repository is
+  private it says only the version: commit subjects would leak private
+  messages to the public releases repo. Once public it links the commit and
+  lists the changes since the previous release on the same channel. Edit the
+  user-facing notes in by hand afterwards if the release needs them.
+
+## Making The Repository Public
+
+Everything below is safe to leave until the day of the switch, and must be
+done that day.
+
+- Remove the self-hosted runner `studio-mac` (Settings -> Actions -> Runners).
+  On a public repository a fork's pull request can edit a workflow to run on
+  any self-hosted runner, and that Mac holds a login keychain. The release and
+  preview workflows already switch to GitHub-hosted Macs by themselves once
+  the repository is public (free there), so nothing else needs changing.
+- Settings -> Actions -> General: set fork pull request workflows to require
+  approval for all outside collaborators.
+- `ci.yml` starts running on every pull request and push to `main` by itself --
+  its jobs skip only while the repository is private. Make `Build`, `JS tests`
+  and `Python tests` required checks on `main` in the branch protection rules.
+- Set the repository variable `PREVIEW_SCHEDULE` to `enabled` to turn on the
+  six-hourly preview builds.
+- The `preview:mac` label (`desktop-preview.yml`) builds a DMG for pull
+  requests from branches in this repository only; fork pull requests are
+  refused by design.
 
 ## Smoke Test
 

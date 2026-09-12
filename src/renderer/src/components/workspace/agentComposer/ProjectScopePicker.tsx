@@ -151,10 +151,14 @@ export function ProjectScopePicker({
       const folderPath = path?.trim()
       if (!folderPath) return null
       const key = folderIdentityKey(folderPath)
-      // `??` rather than a merged map: an answered "not a repository" is null
-      // in both maps and an unasked folder is absent from both, so either way
-      // the key falls back to the folder path — which is the right key for a
-      // folder with no remote and simply misses for one whose read is late.
+      // No hue until the folder's repository question is ANSWERED: an unasked
+      // folder keys by its path and re-keys to `repo:` a beat later, and since
+      // the hue is hashed from the key, painting early shows one colour and
+      // then another. An answered "not a repository" is a stored null and an
+      // unasked folder is absent, so `has` is the test. A host with no map at
+      // all (the Design door) never learns the repository, so for it the path
+      // key is already final.
+      if (identities && !identities.has(key) && !recentIdentities.has(key)) return null
       const repository = identities?.get(key) ?? recentIdentities.get(key) ?? null
       return resolveProjectColor(projectColors, projectColorKey({ folderPath, repository }))
     },

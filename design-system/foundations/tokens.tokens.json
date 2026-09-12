@@ -950,6 +950,46 @@
               }
             }
           }
+        },
+        "project": {
+          "lightness": {
+            "$type": "number",
+            "$value": 0.54,
+            "$description": "OKLCH lightness every project identity hue is drawn at (owner, 2026-09-11). The hue angle is hashed from the project's name at runtime, so it is the same on every machine; this and project.chroma are the parts that follow the theme. Measured over all 360 hues against every theme surface: 4.12:1 worst on the light tier, 5.83:1 on the dark.",
+            "$extensions": {
+              "com.multicode": {
+                "role": "identity",
+                "use": "The L channel of the oklch() a project's folder glyph and its picker swatch are drawn in; nothing else.",
+                "doNotUse": "Any colour that is not a project's identity hue. Never text, status, the accent, selection, borders, or a background.",
+                "components": [
+                  "glyphs"
+                ],
+                "modes": {
+                  "light": 0.54,
+                  "dark": 0.74
+                }
+              }
+            }
+          },
+          "chroma": {
+            "$type": "number",
+            "$value": 0.09,
+            "$description": "OKLCH chroma every project identity hue is drawn at (owner, 2026-09-11): the highest at which every hue on the wheel stays inside sRGB at project.lightness, so no project is more saturated than another. Never zero, so a project is never black, white or grey.",
+            "$extensions": {
+              "com.multicode": {
+                "role": "identity",
+                "use": "The C channel of the oklch() a project's folder glyph and its picker swatch are drawn in; nothing else.",
+                "doNotUse": "Any colour that is not a project's identity hue. Never text, status, the accent, selection, borders, or a background.",
+                "components": [
+                  "glyphs"
+                ],
+                "modes": {
+                  "light": 0.09,
+                  "dark": 0.125
+                }
+              }
+            }
+          }
         }
       }
     },

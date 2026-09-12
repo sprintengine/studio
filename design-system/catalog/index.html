@@ -101,6 +101,8 @@
   --sem-color-mark-teal: var(--ref-color-teal-700);
   --sem-color-mark-cyan: var(--ref-color-cyan-700);
   --sem-color-mark-violet: var(--ref-color-violet-500);
+  --sem-color-mark-project-lightness: 0.54;
+  --sem-color-mark-project-chroma: 0.09;
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
@@ -209,6 +211,8 @@
   --sem-color-mark-red: var(--ref-color-coral-400);
   --sem-color-mark-teal: var(--ref-color-teal-400);
   --sem-color-mark-cyan: var(--ref-color-cyan-400);
+  --sem-color-mark-project-lightness: 0.74;
+  --sem-color-mark-project-chroma: 0.125;
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
@@ -263,6 +267,8 @@
   --sem-color-mark-red: var(--ref-color-coral-400);
   --sem-color-mark-teal: var(--ref-color-teal-400);
   --sem-color-mark-cyan: var(--ref-color-cyan-400);
+  --sem-color-mark-project-lightness: 0.74;
+  --sem-color-mark-project-chroma: 0.125;
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
   --sem-shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72);
@@ -314,6 +320,8 @@
   --sem-color-mark-red: var(--ref-color-red-600);
   --sem-color-mark-teal: var(--ref-color-teal-700);
   --sem-color-mark-cyan: var(--ref-color-cyan-700);
+  --sem-color-mark-project-lightness: 0.54;
+  --sem-color-mark-project-chroma: 0.09;
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
   --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
@@ -11144,6 +11152,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </div>
 <div id="foundations-other-tokens" class="catalog-view">
 <h3>Other tokens</h3>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.project.lightness</code><code class="catalog-token-value">0.54</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">OKLCH lightness every project identity hue is drawn at (owner, 2026-09-11). The hue angle is hashed from the project's name at runtime, so it is the same on every machine; this and project.chroma are the parts that follow the theme. Measured over all 360 hues against every theme surface: 4.12:1 worst on the light tier, 5.83:1 on the dark. The L channel of the oklch() a project's folder glyph and its picker swatch are drawn in; nothing else. <strong>Do not:</strong> Any colour that is not a project's identity hue. Never text, status, the accent, selection, borders, or a background.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.mark.project.chroma</code><code class="catalog-token-value">0.09</code><span class="catalog-badge">identity</span></p><p class="catalog-token-meta">OKLCH chroma every project identity hue is drawn at (owner, 2026-09-11): the highest at which every hue on the wheel stays inside sRGB at project.lightness, so no project is more saturated than another. Never zero, so a project is never black, white or grey. The C channel of the oklch() a project's folder glyph and its picker swatch are drawn in; nothing else. <strong>Do not:</strong> Any colour that is not a project's identity hue. Never text, status, the accent, selection, borders, or a background.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.drawer</code><code class="catalog-token-value">0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The one canonical elevation shadow, shared by drawers and overlay panels. Drawer and overlay-panel elevation — the only drop shadow in the system. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.popover</code><code class="catalog-token-value">0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for trigger-anchored surfaces: popovers, menus, tooltips. Popover, ContextMenu, Select listbox, and Tooltip shells. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.modal</code><code class="catalog-token-value">0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for centred modal shells sitting over a scrim. Modal and ConfirmDialog shells only. In dark mode the value leads with an inset top highlight — the lit edge — because a black drop shadow over a scrimmed near-black ground separates nothing; light mode needs no such line. <strong>Do not:</strong> Anchored surfaces — those use shadow.popover.</p></div></div>

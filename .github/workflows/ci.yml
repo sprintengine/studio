@@ -1,27 +1,51 @@
 name: CI
 
-# MANUAL ONLY, on purpose. This used to fire on every push to main, where
-# agent-authored commits land in bulk -- 225 in the 34h before this changed --
-# at ~18 billed minutes a run once Windows' 2x multiplier is counted. Sep 2-5
-# that was 73 runs and ~1337 billed minutes with 88% of the jobs red: half a
-# month's Pro allowance spent re-proving the same failures. The pull_request
-# trigger is deliberately absent too.
+# Every pull request and every push to main -- once the repository is public.
 #
-# Nothing checks main automatically any more. Run this by hand before a
-# release, or accept that the release workflow's `validate` job (typecheck,
-# marketplace verification, one test) is the only gate left -- and it fires
-# after you have already decided to ship. Restore a trigger here the moment
-# the minutes allow it; a public repo gets unlimited standard-runner minutes.
+# While it is private, every job below skips itself (a skipped job bills
+# nothing). This used to fire on every push to main, where agent-authored
+# commits land in bulk -- 225 in the 34h before it was made manual -- and Sep 2-5
+# that was 73 runs and ~1337 billed minutes. A public repository gets unlimited
+# standard-runner minutes, so the gate switches itself on the moment the
+# repository is made public, with nobody having to remember to restore it.
+#
+# Until then it runs when dispatched by hand, and as the release workflow's
+# quality gate (workflow_call with release_gate), which is not skipped.
 on:
+  pull_request:
+  push:
+    branches:
+      - main
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit to check"
+        required: true
+        type: string
+      release_gate:
+        description: "Called by release.yml: run regardless of repository visibility"
+        required: true
+        type: boolean
 
 permissions:
   contents: read
 
+# A newer push supersedes an older one, on a pull request and on main alike:
+# agents push to main in bursts, and checking every commit of a burst re-proves
+# the same tree. A release gate gets a group of its own so no push can cancel it.
+concurrency:
+  group: ${{ inputs.release_gate && format('ci-release-{0}', github.run_id) || format('ci-{0}', github.event.pull_request.number || github.ref) }}
+  cancel-in-progress: ${{ !inputs.release_gate }}
+
 jobs:
+  # Skipped under the release gate: the release packages every platform itself,
+  # which is a stricter build than this one.
   build:
     name: Build (${{ matrix.os }})
+    if: ${{ !inputs.release_gate && (github.event_name == 'workflow_dispatch' || github.event.repository.private == false) }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -46,8 +70,8 @@ jobs:
         run: npm run typecheck:all
 
       # The only test script this job still runs, and only on Windows: it is the
-      # sole check ever measured on that platform. The Linux JS suite moved to
-      # the js-tests job below, so a broken test no longer hides a broken build.
+      # sole check ever measured on that platform. The Linux JS suite is the
+      # js-tests job below, so a broken test no longer hides a broken build.
       - name: Test mobile sprintengine command
         if: runner.os == 'Windows'
         run: node scripts/testing/run-tests.mjs src/main/mobile/sprintengine/command.test.ts
@@ -55,44 +79,29 @@ jobs:
       - name: Build
         run: npm run build
 
-  # What the JS gate covers, and why: `verify:app` — the repo's OWN full-app
-  # verification chain, seven &&-joined steps: typecheck, the six design lints
-  # plus the guard probes that prove those lints still bite, the whole unit
-  # suite, and the four SDK/feed guards (~4 min). Until MC-2070
-  # CI ran exactly one hand-picked script out of the 422 the chain then named,
-  # gating one file by accident rather than by decision. The chain is
-  # deliberately named whole rather than curated: a hand-maintained subset is
-  # how the gate got to one script in the first place. Those 422 one-off test
-  # scripts have since collapsed into `npm run test`, which DISCOVERS its ~590
-  # test files instead of listing them (scripts/testing/test-profiles.json), so
-  # a new test file is in the gate the moment it is written and the subset
-  # cannot silently shrink again.
-  #
-  # HONEST STATE, measured 2026-09-08 (MC-2146) on a clean `git archive` copy —
-  # `main` itself was mid-restructure that day, so the copy is where the whole
-  # chain could be run end to end: it exits 0 there. The six failures this job
-  # arrived red with in August are gone. Four of the six were retired with the
-  # surfaces they tested when the composer roster and the old doors went; the
-  # two real defects the chain still carried are fixed at their root —
-  #   * the module-SDK drift project could not see `src/shared/build-defines.d.ts`,
-  #     so the build-time `define` constants read as undeclared names;
-  #   * the bundled model feed listed a Fable 5 that the claude-code plugin
-  #     manifest had dropped while it was retired upstream;
-  # plus the tailnet upload ceiling, which answered 413 and only THEN drained
-  # the refused body — on a `Connection: close` request Node destroys the socket
-  # as that answer finishes, so the phone got a reset instead of the sentence.
-  # Do not narrow this step to make the badge green.
+  # What the JS gate covers, and why: `verify:app` -- the repo's OWN full-app
+  # verification chain: typecheck, the six design lints plus the guard probes
+  # that prove those lints still bite, the whole unit suite, the SDK/feed guards
+  # and the release-script tests. It is named whole rather than curated: a
+  # hand-maintained subset is how the gate once shrank to one script. `npm run
+  # test` DISCOVERS its test files (scripts/testing/test-profiles.json), so a new
+  # test file is in the gate the moment it is written. Do not narrow this step to
+  # make the badge green.
   #
   # Linux only: `verify:app` has never been measured on Windows, and an
   # unmeasured chain of this size would fail that leg for reasons unrelated to
   # the change being merged.
   js-tests:
     name: JS tests (ubuntu-latest)
+    if: ${{ inputs.release_gate || github.event_name == 'workflow_dispatch' || github.event.repository.private == false }}
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -106,7 +115,7 @@ jobs:
       # Not incidental: `test:main:sprintengine-artifacts` refuses to mock the
       # Sprint Engine store and spawns real Python against `sprintengine_core`,
       # which exits with "PyYAML is required" without it. It prefers the
-      # repo-local `.venv` and falls back to system `python3` — and a runner's
+      # repo-local `.venv` and falls back to system `python3` -- and a runner's
       # system python3 has no PyYAML, so the chain needs this venv to pass.
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -124,18 +133,27 @@ jobs:
       - name: Verify app (lint + JS test suite)
         run: npm run verify:app
 
-  # The Python suite runs in its own job rather than inside the matrix above: it
-  # needs no Node toolchain, so it starts without waiting on `npm ci`, and it
-  # runs on Linux only — the suite has only ever been measured on POSIX. Its own
-  # checkout also keeps pytest's bytecode caches away from the marketplace
-  # payloads the JS job digest-verifies.
+      # The signed registry the app installs plugins from. It was only checked
+      # by the release workflow and a manual one; a broken signature found at
+      # release time is a release that cannot ship.
+      - name: Validate marketplace registry and plugin signatures
+        run: npm run verify:marketplace-registry
+
+  # The Python suite runs in its own job: it needs no Node toolchain, so it
+  # starts without waiting on `npm ci`, and it runs on Linux only -- the suite has
+  # only ever been measured on POSIX. Its own checkout also keeps pytest's
+  # bytecode caches away from the marketplace payloads the JS job digest-verifies.
   python-tests:
     name: Python tests (ubuntu-latest)
+    if: ${{ inputs.release_gate || github.event_name == 'workflow_dispatch' || github.event.repository.private == false }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -155,7 +173,7 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
 
-      # Scoped to tests/ deliberately — see pytest.ini for why a bare `pytest`
+      # Scoped to tests/ deliberately -- see pytest.ini for why a bare `pytest`
       # at the repo root cannot be used here.
       - name: Pytest
         run: .venv/bin/python -m pytest tests/

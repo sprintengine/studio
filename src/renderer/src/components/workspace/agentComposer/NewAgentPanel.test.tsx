@@ -158,6 +158,7 @@ async function main(): Promise<void> {
   const NewAgentPanel = (await import('./NewAgentPanel')).default
   const { resetRememberedMachineForTests, sortMachines } = await import('./NewAgentPanel')
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
+  const { projectHue } = await import('../../../utils/projectColor')
   const { useToastStore } = await import('../../../store/toastStore')
   const { __resetModelPermissionPresetsForTest, storedModelPermissionPreset } = await import(
     '../../ui/modelPermissionPresets'
@@ -1568,11 +1569,11 @@ async function main(): Promise<void> {
   // project and no project stop LOOKING alike — a solid folder in the project's
   // own hue against a dashed, colourless one reading "Choose a project".
 
-  // The glyph is the first svg inside the control; the chevron follows it.
-  const glyphMark = (el: Element | null | undefined): string | null => {
-    const glyph = el?.querySelector('svg')
-    const classes = (glyph?.getAttribute('class') ?? '').split(/\s+/)
-    return classes.find((name) => name.startsWith('project-mark-')) ?? null
+  // The glyph is the first svg inside the control; the chevron follows it. Its
+  // hue is the angle it carries, or null when it wears none.
+  const glyphMark = (el: Element | null | undefined): number | null => {
+    const hue = el?.querySelector('svg')?.getAttribute('data-project-hue')
+    return hue === null || hue === undefined ? null : Number(hue)
   }
   const glyphIsUnfiled = (el: Element | null | undefined): boolean => {
     const glyph = el?.querySelector('svg')
@@ -1604,19 +1605,11 @@ async function main(): Promise<void> {
     const mark = glyphMark(trigger)
     assert.ok(mark, `the chosen project’s chip carries a hue; got class ${trigger?.querySelector('svg')?.getAttribute('class')}`)
     assert.equal(glyphIsUnfiled(trigger), false, 'and a solid folder, because this IS a project')
-    // The colour is stored against the REPOSITORY, not the folder: two clones
-    // of one repo are one project and one hue (decision 3).
-    const stored = useWorkspaceStore.getState().appSettings.projectColors ?? {}
-    assert.equal(
-      stored['repo:github.com/acme/multicode'],
-      mark?.replace('project-mark-', ''),
-      'the hue was allocated under the repository key, and the glyph wears exactly it',
-    )
-    assert.equal(
-      Object.keys(stored).some((key) => key.startsWith('folder:')),
-      false,
-      'and no phantom folder key was allocated while the identity was still being read',
-    )
+    // The hue is hashed from the REPOSITORY key, not the folder: two clones of
+    // one repo are one project and one hue (decision 3). Derived, so nothing
+    // is written — the map holds only what a person chose.
+    assert.equal(mark, projectHue('repo:github.com/acme/multicode'), 'the chip wears the hue hashed from the repository key')
+    assert.deepEqual(useWorkspaceStore.getState().appSettings.projectColors ?? {}, {}, 'and nothing is stored')
     // The list is where a person chooses BETWEEN projects, so the rows carry
     // their own colours rather than only the chip that opened them.
     await click(trigger)
@@ -1646,7 +1639,7 @@ async function main(): Promise<void> {
     assert.deepEqual(
       useWorkspaceStore.getState().appSettings.projectColors,
       {},
-      'nothing was allocated: an unfiled chat must never eat one of the six hues',
+      'and nothing was written: an unfiled chat is not a project',
     )
     empty.unmount()
     localIdentityAnswer = () => null
@@ -1703,7 +1696,11 @@ async function main(): Promise<void> {
     const twinRow = rows.find((row) => (row.textContent ?? '').includes('multicode-air'))
     const strangerRow = rows.find((row) => (row.textContent ?? '').includes('other'))
     assert.equal(glyphMark(twinRow), localMark, 'the row for the repository open here wears the hue it wears here')
-    assert.equal(glyphMark(strangerRow), null, 'a repository this app has never seen has no hue to show yet')
+    assert.equal(
+      glyphMark(strangerRow),
+      projectHue('repo:github.com/acme/other'),
+      'a repository this app has never opened still has its hue: it is hashed from the name, not handed out on sight',
+    )
     view.unmount()
     localIdentityAnswer = () => null
     fleetConnections = []
@@ -1747,11 +1744,10 @@ async function main(): Promise<void> {
     await settle()
     await settle()
     const noRemoteMark = glyphMark(noRemote.container.querySelector('[data-project-trigger="true"]'))
-    assert.ok(noRemoteMark, 'a folder with no remote gets a hue once its identity read has ANSWERED')
     assert.equal(
-      (useWorkspaceStore.getState().appSettings.projectColors ?? {})['folder:/plain'],
-      noRemoteMark.replace('project-mark-', ''),
-      'and it is stored under the folder key, since there is no repository to key by',
+      noRemoteMark,
+      projectHue('folder:/plain'),
+      'a folder with no remote wears the hue of its folder key once its identity read has ANSWERED',
     )
     noRemote.unmount()
 
@@ -1787,11 +1783,7 @@ async function main(): Promise<void> {
       mark,
       'and it wears the same hue as the open clone: one repository is one project',
     )
-    assert.deepEqual(
-      Object.keys(useWorkspaceStore.getState().appSettings.projectColors ?? {}),
-      ['repo:github.com/acme/multicode'],
-      'and both clones read ONE key, so the second spends no second hue',
-    )
+    assert.equal(mark, projectHue('repo:github.com/acme/multicode'), 'because both clones read ONE key: the repository’s')
     view.unmount()
     useWorkspaceStore.setState((state) => ({
       appSettings: { ...state.appSettings, recentWorkspaceFolders: [] },

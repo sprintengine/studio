@@ -1,69 +1,78 @@
 name: Release
 
+# Three ways in, one pipeline (docs/release-checklist.md walks through each):
+#
+#   push a tag vX.Y.Z           stable build of the tagged commit
+#   schedule / dispatch preview a preview build of main, vX.Y.Z-preview.DATE.RUN
+#   dispatch stable             promote: rebuild the commit the latest preview
+#                               shipped, as stable -- so stable only ever ships a
+#                               build preview users have already run
+#
+# Build jobs publish NOTHING. They hand their files to one publish job, which
+# merges the two macOS updater manifests, uploads everything to a draft and
+# only then makes the release visible. When the packages were published by each
+# build job on its own, the two macOS legs overwrote each other's
+# latest-mac.yml, and a failed leg left a public half-release behind it.
 on:
   push:
     tags:
       - "v*"
+  schedule:
+    # Every six hours; the resolve step skips when main has not moved since the
+    # last preview. Off until the repository variable PREVIEW_SCHEDULE is
+    # `enabled` -- each scheduled build is four packaging legs.
+    - cron: "17 */6 * * *"
   workflow_dispatch:
     inputs:
-      publish:
-        description: "Publish artifacts to a GitHub Release"
+      channel:
+        description: "preview builds main; stable promotes the commit the latest preview shipped"
         required: true
-        default: "false"
+        default: preview
         type: choice
         options:
-          - "false"
-          - "true"
+          - preview
+          - stable
+      publish:
+        description: "Publish to studio-releases (false: build and keep the packages as workflow artifacts)"
+        required: true
+        default: true
+        type: boolean
+
+# One release per channel at a time, and a running release is never cancelled:
+# half a publish is worse than a late one.
+concurrency:
+  group: release-${{ github.event_name == 'push' && 'tag' || inputs.channel || 'preview' }}
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
-    name: Validate release
+    name: Resolve release
+    if: github.event_name != 'schedule' || vars.PREVIEW_SCHEDULE == 'enabled'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      publish: ${{ steps.publish.outputs.publish }}
+      should_build: ${{ steps.resolve.outputs.should_build }}
+      publish: ${{ steps.resolve.outputs.publish }}
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      channel: ${{ steps.resolve.outputs.channel }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+      ref: ${{ steps.resolve.outputs.ref }}
+      previous_sha: ${{ steps.resolve.outputs.previous_sha }}
+      source_private: ${{ steps.resolve.outputs.source_private }}
+      mac_arm64_runner: ${{ steps.resolve.outputs.mac_arm64_runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read package version
-        id: version
-        shell: bash
-        run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Validate tag matches package version
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          VERSION="${{ steps.version.outputs.version }}"
-          if [ "$TAG" != "$VERSION" ]; then
-            echo "Tag v${TAG} does not match package.json version ${VERSION}" >&2
-            exit 1
-          fi
-
-      - name: Decide publish mode
-        id: publish
-        shell: bash
-        run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ] || [ "${{ github.event.inputs.publish }}" = "true" ]; then
-            echo "publish=always" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=never" >> "$GITHUB_OUTPUT"
-          fi
-
-      # A tag release publishes to another repo, so the only credential that can
-      # do it is RELEASES_TOKEN. When that secret is absent `${{ secrets.X }}`
-      # expands to an empty string, electron-builder throws `GitHub Personal
-      # Access Token is not set` -- but only in the LAST step of a 12-minute
-      # matrix job, four times over. Check it here, before anything is built.
+      # Releases publish to another repo, so the only credential that can do it
+      # is RELEASES_TOKEN; resolving the version reads that repo too. When the
+      # secret is absent `${{ secrets.X }}` expands to an empty string and the
+      # failure surfaced only in the last step of a long matrix. Check it first.
       - name: Confirm the releases token is present
-        if: steps.publish.outputs.publish == 'always'
         shell: bash
         env:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
@@ -80,34 +89,51 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      # Channel, version and commit for every later job. See the header for the
+      # three cases; scripts/release/release.mjs for the rules.
+      - name: Resolve channel, version and commit
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+          DISPATCH_CHANNEL: ${{ inputs.channel }}
+          DISPATCH_PUBLISH: ${{ inputs.publish }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_TOKEN: ${{ github.token }}
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: node scripts/release/release.mjs resolve
 
-      - name: Typecheck
-        run: npm run typecheck:all
-
-      - name: Test mobile sprintengine command
-        run: node scripts/testing/run-tests.mjs src/main/mobile/sprintengine/command.test.ts
-
-      - name: Validate registry and plugin signatures
-        run: npm run verify:marketplace-registry
-
-      - name: Exercise valid and tampered marketplace submissions
-        run: node scripts/testing/run-tests.mjs resources/marketplace/verify-marketplace.test.ts
+  # The whole CI gate -- verify:app, the marketplace registry, pytest -- against
+  # the exact commit being released. It runs beside the packaging legs; only the
+  # publish job waits for it, so it costs no wall-clock time.
+  quality:
+    name: Quality gate
+    needs: validate
+    if: needs.validate.outputs.should_build == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.validate.outputs.ref }}
+      release_gate: true
 
   package:
     name: Package (${{ matrix.name }})
     needs: validate
-    runs-on: ${{ matrix.os }}
+    if: needs.validate.outputs.should_build == 'true'
+    # The Apple Silicon leg runs on the self-hosted Mac while the source repo is
+    # private (macOS minutes bill at 10x) and on a GitHub-hosted Mac once it is
+    # public (free there, and a public repo must not use self-hosted runners).
+    # validate decides; see SELF_HOSTED_MAC in scripts/release/release.mjs.
+    runs-on: ${{ matrix.name == 'macos-arm64' && fromJSON(needs.validate.outputs.mac_arm64_runner) || matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: windows
             os: windows-2022
-            builderArgs: --win
             runtimeArgs: --platform win32 --arch x64
             artifactName: multicode-windows
           - name: macos-x64
@@ -115,29 +141,32 @@ jobs:
             builderArgs: --mac --x64
             runtimeArgs: --platform darwin --arch x64
             artifactName: multicode-macos-x64
-          # The self-hosted Mac. macOS minutes bill at 10x on GitHub-hosted
-          # runners, so the two mac legs were ~126 of the ~147 billed minutes a
-          # release cost; on our own hardware they are free. Signing still uses
-          # the CSC_* secrets rather than the login keychain -- electron-builder
-          # imports the .p12 into a temporary keychain it creates and destroys
-          # per build, which is what lets this work from a LaunchAgent.
-          # The runner lives in ~/actions-runner on the INTERNAL disk: macOS TCC
-          # refuses to exec a LaunchAgent from an external volume ("Operation
-          # not permitted"), so do not relocate it to /Volumes.
+          # The self-hosted runner lives in ~/actions-runner on the INTERNAL
+          # disk: macOS TCC refuses to exec a LaunchAgent from an external
+          # volume ("Operation not permitted"), so do not relocate it to
+          # /Volumes. Signing uses the CSC_* secrets, not the login keychain --
+          # electron-builder imports the .p12 into a temporary keychain it
+          # creates and destroys per build, which is what lets this work from a
+          # LaunchAgent.
           - name: macos-arm64
-            os: [self-hosted, macOS, ARM64]
+            os: ""
             builderArgs: --mac --arm64
             runtimeArgs: --platform darwin --arch arm64
             artifactName: multicode-macos-arm64
           - name: linux
             os: ubuntu-latest
-            builderArgs: --linux
             runtimeArgs: --platform linux --arch x64
             artifactName: multicode-linux
+
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+      CHANNEL: ${{ needs.validate.outputs.channel }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -156,11 +185,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Before the build, not only at packaging: a preview or promoted version is
+      # not what package.json says at this commit, and the version must be the
+      # same in the bundle, the app's own About box and the updater manifests.
+      - name: Stamp the release version
+        shell: bash
+        run: npm pkg set "version=${VERSION}"
+
       # `npm run dist:*` chains runtimes:fetch before the build; CI calls
-      # electron-builder directly and so skipped it entirely. resources/runtime
+      # electron-builder directly and so once skipped it entirely. resources/runtime
       # is gitignored, so every CI installer up to v0.3.0 shipped WITHOUT the
-      # bundled CPython and npm that extraResources copies into the app -- the
-      # runtimes the product ships precisely so users need neither installed.
+      # bundled CPython and npm that extraResources copies into the app.
       # electron-builder does not fail on a missing extraResources source; it
       # packages a green, silently incomplete app. Keep this ahead of the build.
       - name: Vendor the bundled Python and npm runtimes
@@ -169,45 +204,100 @@ jobs:
       - name: Build renderer and main process
         run: npm run build
 
-      # Packaging is split by runner ONLY so the macOS signing variables never
-      # reach the Windows one. `getCscLink` in app-builder-lib resolves the
+      # Packaging is split by platform ONLY so each platform's signing variables
+      # reach no other runner. `getCscLink` in app-builder-lib resolves the
       # Windows certificate as `WIN_CSC_LINK ?? CSC_LINK`, so a CSC_LINK set on
       # every matrix job hands the Developer ID .p12 to the Windows job, which
-      # then fails trying to Authenticode-sign with it. Same command, same
-      # publish mode, different env.
+      # then fails trying to Authenticode-sign with it.
+      #
+      # Every leg runs with --publish never: electron-builder still writes the
+      # updater manifests (`<channel>*.yml`) beside the installers, and the
+      # publish job uploads them all at once. publish.channel names those
+      # manifests -- electron-builder does not derive it from the version.
       - name: Package app (macOS, signed and notarized)
         if: runner.os == 'macOS'
-        run: npx electron-builder ${{ matrix.builderArgs }} --publish ${{ needs.validate.outputs.publish }}
+        shell: bash
+        run: |
+          npx electron-builder ${{ matrix.builderArgs }} --publish never "-c.publish.channel=${CHANNEL}"
+          # Both macOS legs write <channel>-mac.yml, each listing only its own
+          # arch. Rename the Intel one so the publish job can merge the two.
+          if [ "${{ matrix.name }}" = "macos-x64" ]; then
+            mv "dist/${CHANNEL}-mac.yml" "dist/${CHANNEL}-mac-x64.yml"
+          fi
         env:
-          # Releases are published to the PUBLIC sprintengine/studio-releases
-          # repo (build.publish in package.json), which electron-updater and the
-          # website read without auth. The workflow's own GITHUB_TOKEN cannot
-          # write to another repo, so this is a fine-grained PAT with Contents
-          # read/write on studio-releases only. Source never goes there.
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           # CSC_LINK is a "Developer ID Application" certificate exported as a
-          # base64 .p12; APPLE_TEAM_ID is the team it was issued to. Both live
-          # in repo secrets — check the certificate's expiry in Apple's
-          # developer portal before a release, an expired one fails the signing
-          # step. build.mac.notarize is true, so the CSC_* pair and the
-          # APPLE_* trio are all load-bearing: a certificate without
-          # notarisation credentials signs the app and then fails the notarise
-          # step, turning a green release red. Never add WIN_CSC_* here.
+          # base64 .p12; APPLE_TEAM_ID is the team it was issued to. Check the
+          # certificate's expiry in Apple's developer portal before a release.
+          # build.mac.notarize is true, so the CSC_* pair and the APPLE_* trio
+          # are all load-bearing: a certificate without notarisation credentials
+          # signs the app and then fails the notarise step. Never add WIN_CSC_*
+          # or AZURE_* here.
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Package app (Windows and Linux)
-        if: runner.os != 'macOS'
-        run: npx electron-builder ${{ matrix.builderArgs }} --publish ${{ needs.validate.outputs.publish }}
+      # Azure Trusted Signing, which electron-builder drives itself (it installs
+      # the TrustedSigning PowerShell module on first use) -- no certificate file,
+      # no hardware token. All seven secrets sign; none leaves the installer
+      # unsigned, as every release so far has been; a partial set is a
+      # misconfiguration and fails rather than quietly shipping unsigned.
+      - name: Package app (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          # Unsigned by design, for now. Windows signing needs an OV/EV
-          # certificate on a hardware token or a cloud signing service; when it
-          # arrives, WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD (or the AZURE_* set)
-          # go HERE, never in the macOS step and never at job level.
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
+        run: |
+          args=(--win --publish never "-c.publish.channel=${CHANNEL}")
+          names=(AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TRUSTED_SIGNING_ENDPOINT
+                 AZURE_TRUSTED_SIGNING_ACCOUNT_NAME AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME
+                 AZURE_TRUSTED_SIGNING_PUBLISHER_NAME)
+          present=0
+          for name in "${names[@]}"; do [ -n "${!name}" ] && present=$((present + 1)); done
+          if [ "$present" -eq "${#names[@]}" ]; then
+            echo "Windows signing enabled (Azure Trusted Signing)."
+            args+=(
+              "-c.win.azureSignOptions.publisherName=${AZURE_TRUSTED_SIGNING_PUBLISHER_NAME}"
+              "-c.win.azureSignOptions.endpoint=${AZURE_TRUSTED_SIGNING_ENDPOINT}"
+              "-c.win.azureSignOptions.codeSigningAccountName=${AZURE_TRUSTED_SIGNING_ACCOUNT_NAME}"
+              "-c.win.azureSignOptions.certificateProfileName=${AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME}"
+            )
+          elif [ "$present" -eq 0 ]; then
+            echo "Windows signing disabled: no Azure Trusted Signing secrets are set."
+          else
+            echo "Only ${present} of the ${#names[@]} Azure Trusted Signing secrets are set." >&2
+            echo "Set all of them to sign, or none to ship unsigned." >&2
+            exit 1
+          fi
+          npx electron-builder "${args[@]}"
+
+      - name: Package app (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: npx electron-builder --linux --publish never "-c.publish.channel=${CHANNEL}"
+
+      # Named files only: dist/ also holds builder-debug.yml and the unpacked
+      # app, neither of which belongs on a release.
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifactName }}-${{ needs.validate.outputs.version }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.blockmap
+            dist/${{ needs.validate.outputs.channel }}*.yml
 
       # GitHub-hosted runners are discarded after a job; the self-hosted Mac is
       # not, and each Electron build leaves ~1GB in dist/. Without this the
@@ -216,71 +306,99 @@ jobs:
         if: always() && !startsWith(runner.name, 'GitHub Actions')
         run: rm -rf dist out resources/runtime
 
-      - name: Upload packaged artifacts
-        uses: actions/upload-artifact@v4
-        # Retention-only convenience (mainly for workflow_dispatch publish=false
-        # runs). For tag releases electron-builder already publishes the installers
-        # to the GitHub Release, so a transient/quota upload failure here must not
-        # fail the release.
-        continue-on-error: true
-        with:
-          name: ${{ matrix.artifactName }}-${{ needs.validate.outputs.version }}
-          if-no-files-found: error
-          retention-days: 14
-          path: |
-            dist/**
-            !dist/**/win-unpacked/**
-            !dist/**/mac/**
-            !dist/**/mac-*/**
-            !dist/**/linux-unpacked/**
-
-  # v0.3.0 is why this job exists. That run went green on all five jobs and
-  # published nothing to studio-releases: at that commit build.publish still
-  # named the PRIVATE studio repo, so electron-builder happily uploaded four
-  # installers where neither the updater nor the website can read them, and
-  # said so only in a line of packaging log nobody reads. A release that
-  # publishes to the wrong place, or to no place, must not report success.
-  verify-published:
-    name: Verify published release
-    needs: [validate, package]
-    if: needs.validate.outputs.publish == 'always'
+  publish:
+    name: Publish release
+    needs: [validate, quality, package]
+    if: needs.validate.outputs.should_build == 'true' && needs.validate.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      # Only to tag the source repo when a preview is promoted to stable. The
+      # release itself is written with RELEASES_TOKEN.
+      contents: write
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+      TAG: ${{ needs.validate.outputs.tag }}
+      CHANNEL: ${{ needs.validate.outputs.channel }}
+      REF: ${{ needs.validate.outputs.ref }}
+      GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
     steps:
-      - name: Confirm the release exists on studio-releases with its installers
-        shell: bash
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # For js-yaml only, so no install scripts (and no Electron download).
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: multicode-*-${{ needs.validate.outputs.version }}
+          merge-multiple: true
+          path: release-assets
+
+      - name: Merge the macOS updater manifests
+        run: node scripts/release/release.mjs merge-mac release-assets "${CHANNEL}"
+
+      - name: Write release notes
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-          VERSION: ${{ needs.validate.outputs.version }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_TOKEN: ${{ github.token }}
+          SOURCE_PRIVATE: ${{ needs.validate.outputs.source_private }}
+          PREVIOUS_SHA: ${{ needs.validate.outputs.previous_sha }}
+        run: node scripts/release/release.mjs notes release-notes.md
+
+      # Draft first, every file uploaded, and only then visible. The updater and
+      # the website read the release the moment it is published; a release
+      # published before its last file finished uploading is one somebody can
+      # half-install.
+      - name: Publish to the releases repository
+        shell: bash
         run: |
           set -euo pipefail
-          TAG="v${VERSION}"
-          REPO="sprintengine/studio-releases"
+          REPO="$(node -p "const p=require('./package.json').build.publish; p.owner + '/' + p.repo")"
 
-          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            echo "No release ${TAG} on ${REPO}." >&2
-            echo "The packaging jobs went green, so electron-builder either" >&2
-            echo "published somewhere else (check build.publish in package.json)" >&2
-            echo "or did not publish at all." >&2
-            exit 1
+          # A draft left by an earlier failed attempt of this same version.
+          if gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft 2>/dev/null | grep -qx true; then
+            echo "Removing the draft left by an earlier attempt."
+            gh release delete "$TAG" --repo "$REPO" --yes
           fi
 
-          ASSETS="$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')"
-          echo "Assets on ${TAG}:"
-          echo "${ASSETS}" | sed 's/^/  /'
-
-          # The updater reads latest*.yml; the website matches installers by
-          # extension. Missing either is a release nobody can actually install.
-          MISSING=""
-          for want in "latest.yml" "latest-mac.yml"; do
-            echo "${ASSETS}" | grep -qx "${want}" || MISSING="${MISSING} ${want}"
-          done
-          echo "${ASSETS}" | grep -qE '\.dmg$'      || MISSING="${MISSING} a .dmg"
-          echo "${ASSETS}" | grep -qE '\.exe$'      || MISSING="${MISSING} a .exe"
-          echo "${ASSETS}" | grep -qE '\.AppImage$' || MISSING="${MISSING} an .AppImage"
-
-          if [ -n "${MISSING}" ]; then
-            echo "Release ${TAG} is missing:${MISSING}" >&2
-            exit 1
+          if [ "$CHANNEL" = "preview" ]; then
+            flags=(--prerelease)
+            latest="--latest=false"
+          else
+            flags=()
+            latest="--latest"
           fi
 
-          echo "Release ${TAG} is complete on ${REPO}."
+          gh release create "$TAG" --repo "$REPO" --draft "${flags[@]}" \
+            --title "SprintEngine Studio ${VERSION}" \
+            --notes-file release-notes.md \
+            release-assets/*
+          gh release edit "$TAG" --repo "$REPO" --draft=false "$latest"
+
+      - name: Verify the published release
+        run: node scripts/release/release.mjs verify
+
+      # A promoted stable has no tag in the source repo yet; a pushed one does.
+      # Created with the workflow's own token, which does not trigger another run.
+      - name: Tag the source commit
+        if: needs.validate.outputs.channel == 'latest' && github.event_name != 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            echo "${TAG} already exists on ${{ github.repository }}."
+          else
+            gh api "repos/${{ github.repository }}/git/refs" -f "ref=refs/tags/${TAG}" -f "sha=${REF}"
+          fi

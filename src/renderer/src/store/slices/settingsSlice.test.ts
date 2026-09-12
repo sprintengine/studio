@@ -35,7 +35,7 @@ import {
   orderSpecialistActions,
 } from '../../specialists/specialistActions'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
-import { PROJECT_COLORS, projectColorKeys, type ProjectColorSetting } from '../../utils/projectColor'
+import type { ProjectColorSetting } from '../../utils/projectColor'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../../components/settings/extensionsRoute'
 import { consumePendingExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 
@@ -1856,48 +1856,61 @@ assert.equal(normalizeSelectedCli(null), 'claude-code')
 
 // ── One colour per project ─────────────────────────────────────────────────
 //
-// `projectColors` answers "which project is this row?" before the name is read,
-// so the two ways it can go wrong are a map that comes back wrong from disk and
-// an allocator that hands two projects on screen the same hue.
+// `projectColors` holds only the overrides a person chose; the hue itself is
+// hashed from the project's key (utils/projectColor). So the ways it can go
+// wrong are a map that comes back wrong from disk, and a writer that stores
+// something the glyph cannot draw.
 {
   // --- the reader -----------------------------------------------------------
 
-  // A profile that predates the setting has no colours, not a crash and not a
+  // A profile that predates the setting has no overrides, not a crash and not a
   // shape the glyph would index into.
   assert.deepEqual(defaultAppSettings().projectColors, {})
   assert.deepEqual(normalizeAppSettings(undefined, []).projectColors, {})
   assert.deepEqual(normalizeAppSettings({}, []).projectColors, {})
   assert.deepEqual(normalizeProjectColors(undefined), {})
   assert.deepEqual(normalizeProjectColors(null), {})
-  assert.deepEqual(normalizeProjectColors('blue'), {})
-  assert.deepEqual(normalizeProjectColors([['repo:a', 'blue']]), {})
+  assert.deepEqual(normalizeProjectColors(120), {})
+  assert.deepEqual(normalizeProjectColors([['repo:a', 120]]), {})
 
-  // Every value that is not one of the six hues or `'none'` is DROPPED rather
-  // than carried: 'green' and gold are the finished and waiting row tints and
-  // were never in this palette, and a number or a null would reach the glyph as
-  // a class name that resolves to nothing.
+  // Every value that is not a whole-degree hue or `'none'` is DROPPED rather
+  // than carried into the style the glyph draws with.
   const corrupt = {
-    'repo:green': 'green',
-    'repo:gold': 'yellow',
-    'repo:number': 7,
+    'repo:fraction': 12.5,
+    'repo:negative': -1,
+    'repo:full-turn': 360,
+    'repo:nan': Number.NaN,
+    'repo:string-number': '120',
     'repo:null': null,
-    'repo:array': ['blue'],
-    'repo:object': { color: 'blue' },
-    '': 'blue',
-    '   ': 'teal',
-    'repo:kept': 'blue',
+    'repo:array': [120],
+    'repo:object': { hue: 120 },
+    '': 120,
+    '   ': 'none',
+    'repo:kept': 120,
+    'repo:zero': 0,
     'repo:declined': 'none',
   }
-  assert.deepEqual(normalizeProjectColors(corrupt), { 'repo:kept': 'blue', 'repo:declined': 'none' })
-  assert.deepEqual(normalizeAppSettings({ projectColors: corrupt as never }, []).projectColors, {
-    'repo:kept': 'blue',
-    'repo:declined': 'none',
-  })
+  const kept = { 'repo:kept': 120, 'repo:zero': 0, 'repo:declined': 'none' }
+  assert.deepEqual(normalizeProjectColors(corrupt), kept)
+  assert.deepEqual(normalizeAppSettings({ projectColors: corrupt as never }, []).projectColors, kept)
+
+  // A settings file from the 2026-09-09 build stored hue NAMES — first-come
+  // picks, indistinguishable from a person's choice. They are dropped, so every
+  // one of those projects returns to its hashed hue: the same colour on every
+  // machine, which a kept pick never could be (owner, 2026-09-11). A "No
+  // colour" from that build is still a choice, and survives.
+  assert.deepEqual(
+    normalizeAppSettings(
+      { projectColors: { 'repo:github.com/acme/multicode': 'blue', 'folder:/notes': 'teal', 'repo:logo': 'none' } as never },
+      [],
+    ).projectColors,
+    { 'repo:logo': 'none' },
+  )
 
   // Unlike the knowledge roots beside it, the map is NOT pruned against the open
-  // workspaces: a project's colour has to survive closing every chat in it.
-  assert.deepEqual(normalizeAppSettings({ projectColors: { 'repo:closed': 'violet' } }, []).projectColors, {
-    'repo:closed': 'violet',
+  // workspaces: a person's choice has to survive closing every chat in it.
+  assert.deepEqual(normalizeAppSettings({ projectColors: { 'repo:closed': 300 } }, []).projectColors, {
+    'repo:closed': 300,
   })
 
   // --- the writer -----------------------------------------------------------
@@ -1905,67 +1918,31 @@ assert.equal(normalizeSelectedCli(null), 'claude-code')
   const colors = (): Record<string, ProjectColorSetting> =>
     useWorkspaceStore.getState().appSettings.projectColors
 
-  // Six projects opened at once get six DIFFERENT hues. This is the acceptance:
-  // two open projects never receive the same colour automatically.
-  const six = PROJECT_COLORS.map((_, index) => `repo:first-${index}`)
-  useWorkspaceStore.getState().assignProjectColors(six)
-  const handedOut = six.map((key) => colors()[key])
-  assert.equal(new Set(handedOut).size, 6, 'six projects, six hues')
-  assert.deepEqual([...handedOut].sort(), [...PROJECT_COLORS].sort(), 'and all six of the palette')
+  // The person picking a colour writes it through; picking the same one again
+  // writes nothing — not an equal object, the same one.
+  useWorkspaceStore.getState().setProjectColor('repo:picked', 300)
+  assert.equal(colors()['repo:picked'], 300)
+  const afterPick = colors()
+  useWorkspaceStore.getState().setProjectColor('repo:picked', 300)
+  assert.equal(colors(), afterPick, 'the same choice twice is one write')
 
-  // Calling again with the same set writes NOTHING — not an equal object, the
-  // same one. This is what makes it safe in an effect that runs on every render
-  // of the sidebar: a write would notify every subscriber and re-run the effect.
-  const before = colors()
-  useWorkspaceStore.getState().assignProjectColors(six)
-  assert.equal(colors(), before, 'nothing missing means no write at all')
-  useWorkspaceStore.getState().assignProjectColors([])
-  assert.equal(colors(), before, 'and an empty ask is not a write either')
-
-  // A project the person set to "No colour" is SEEN, so it is left alone — and
-  // it is not using a hue, so it does not constrain the project beside it.
-  useWorkspaceStore.getState().setProjectColor('repo:logo', 'none')
-  useWorkspaceStore.getState().assignProjectColors(['repo:logo', 'repo:beside-logo'])
-  assert.equal(colors()['repo:logo'], 'none', "'none' survives the next allocation pass")
-  assert.equal(colors()['repo:beside-logo'], 'blue', "'none' is not a hue in use")
-
-  // Allocation is scoped to the projects ON SCREEN, not to everything ever
-  // opened. Twelve historical projects wear all six hues twice over; the two
-  // open ones wear blue and teal; the third to open must take a hue neither of
-  // THEM has, not the least-used across a year of history.
-  PROJECT_COLORS.forEach((color, index) => {
-    useWorkspaceStore.getState().setProjectColor(`repo:history-${index}-a`, color)
-    useWorkspaceStore.getState().setProjectColor(`repo:history-${index}-b`, color)
-  })
-  useWorkspaceStore.getState().setProjectColor('repo:open-1', 'blue')
-  useWorkspaceStore.getState().setProjectColor('repo:open-2', 'teal')
-  useWorkspaceStore.getState().assignProjectColors(['repo:open-1', 'repo:open-2', 'repo:open-3'])
-  assert.equal(colors()['repo:open-3'], 'cyan', 'the first hue free among the projects on screen')
-
-  // The allocation a project gets does not depend on where the sidebar happened
-  // to draw it. The action takes the order it is handed — it is `projectColorKeys`,
-  // which every caller goes through, that sorts the set, and this asserts the
-  // two together rather than trusting one of them.
-  useWorkspaceStore.getState().assignProjectColors(projectColorKeys(['repo:ordered-b', 'repo:ordered-a']))
-  const orderedFirst = { a: colors()['repo:ordered-a'], b: colors()['repo:ordered-b'] }
-  useWorkspaceStore.getState().setProjectColor('repo:ordered-a', null)
-  useWorkspaceStore.getState().setProjectColor('repo:ordered-b', null)
-  useWorkspaceStore.getState().assignProjectColors(projectColorKeys(['repo:ordered-a', 'repo:ordered-b']))
-  assert.deepEqual({ a: colors()['repo:ordered-a'], b: colors()['repo:ordered-b'] }, orderedFirst)
-
-  // The person changing a colour writes it through; null deletes the entry
-  // entirely, which returns the project to never-seen rather than to "none".
-  useWorkspaceStore.getState().setProjectColor('repo:picked', 'red')
-  assert.equal(colors()['repo:picked'], 'red')
+  // "No colour" is stored as such; null ("Automatic") deletes the entry, which
+  // returns the project to its hashed hue rather than to "none".
+  useWorkspaceStore.getState().setProjectColor('repo:picked', 'none')
+  assert.equal(colors()['repo:picked'], 'none')
   useWorkspaceStore.getState().setProjectColor('repo:picked', null)
   assert.equal(Object.hasOwn(colors(), 'repo:picked'), false, 'null deletes rather than storing none')
-  useWorkspaceStore.getState().assignProjectColors(['repo:picked'])
-  assert.ok(PROJECT_COLORS.includes(colors()['repo:picked'] as never), 'a deleted key is allocated again')
+
+  // Nothing the glyph cannot draw gets in through the writer either.
+  const beforeJunk = colors()
+  useWorkspaceStore.getState().setProjectColor('repo:bad', 360 as never)
+  useWorkspaceStore.getState().setProjectColor('repo:bad', 'blue' as never)
+  assert.equal(colors(), beforeJunk, 'an out-of-range hue or a legacy name is not written')
 
   // An empty key is not a project, and deleting one that was never there is not
   // a write.
   const settled = colors()
-  useWorkspaceStore.getState().setProjectColor('   ', 'blue')
+  useWorkspaceStore.getState().setProjectColor('   ', 120)
   useWorkspaceStore.getState().setProjectColor('repo:never-seen', null)
   assert.equal(colors(), settled)
 }

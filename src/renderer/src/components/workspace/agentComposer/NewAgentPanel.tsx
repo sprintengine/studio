@@ -16,7 +16,7 @@ import { sameRepository, type RepositoryIdentity } from '../../../../../shared/r
 import { folderIdentityKey, useFolderRepositoryIdentities } from '../useFolderRepositoryIdentities'
 import { FolderTypeIcon, RemoteMachineGlyph } from '../../AppIcons'
 import { FolderIdentityIcon } from '../FolderIdentityIcon'
-import { useAssignProjectColors, useProjectColor, useProjectColors } from '../../../hooks/useProjectColors'
+import { useProjectColor, useProjectColors } from '../../../hooks/useProjectColors'
 import { projectColorKey, resolveProjectColor, type ProjectColor } from '../../../utils/projectColor'
 import { resolveSkillMentionPrefix, renderSkillMention } from '../../../../../shared/skill-invocation'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -519,36 +519,30 @@ export default function NewAgentPanel({
   //
   // A remote project with NO identity has no key at all, and deliberately does
   // not fall back to its path the way a local folder does. That path is a path
-  // on ANOTHER machine's disk: this disk's clone of the same repository could
-  // never resolve to it, so the one project would wear two colours — the exact
-  // failure decision 3 exists to prevent — and the hue spent on it would be held
-  // for ever by a key nothing else ever produces. An older peer that does not
-  // report identities and a folder that is not a repository both arrive here
-  // with `repository: null`, and both get the plain glyph instead.
+  // on ANOTHER machine's disk and says nothing about which repository it holds,
+  // so a colour derived from it could disagree with this disk's clone of the
+  // same repository — one project in two colours, the exact failure decision 3
+  // exists to prevent. An older peer that does not report identities and a
+  // folder that is not a repository both arrive here with `repository: null`,
+  // and both get the plain glyph instead.
   const remotePicked = remoteTarget?.picked ?? null
   const scopeProjectKey = remoteTarget
     ? remotePicked?.repository
       ? projectColorKey({ folderPath: null, repository: remotePicked.repository })
       : null
     : projectColorKey({ folderPath: workspaceRoot, repository: localIdentity })
-  // A project first met HERE gets its hue here, rather than staying colourless
-  // until the sidebar happens to render a row for it. The allocator writes
-  // nothing when the key already has one, so this is safe on every render.
-  //
-  // But it waits for the folder's identity to be READ. A folder with a remote
-  // keys as `repo:…` and one without as `folder:…`, so allocating while the
-  // read is still in flight would spend a hue on a key the project never uses
-  // again — a phantom entry, permanently holding one of six. The identities
-  // hook says "not asked yet" by absence and "asked, and no remote" by a stored
-  // null, so absence is precisely the thing to wait on. Until then the key
-  // resolves to no stored colour and the glyph is plain, which is what an
-  // unknown project should look like anyway.
+  // The hue waits for the folder's identity to be READ. A folder with a remote
+  // keys as `repo:…` and one without as `folder:…`, and the hue is hashed from
+  // the key, so painting while the read is in flight would show the folder's
+  // hue and then the repository's. The identities hook says "not asked yet" by
+  // absence and "asked, and no remote" by a stored null, so absence is
+  // precisely the thing to wait on. Until then the glyph is plain, which is
+  // what an unknown project should look like anyway.
   //
   // A remote target needs no such wait: its key is a repository key or nothing,
   // and both are settled the moment the machine answered.
   const localIdentityRead = !workspaceRoot?.trim() || localIdentities.has(folderIdentityKey(workspaceRoot))
-  useAssignProjectColors(remoteTarget || localIdentityRead ? [scopeProjectKey] : [])
-  const scopeProjectColor = useProjectColor(scopeProjectKey)
+  const scopeProjectColor = useProjectColor(remoteTarget || localIdentityRead ? scopeProjectKey : null)
   const pickRemoteMachine = (connection: FleetConnection | null, keep: RepositoryIdentity | null = activeIdentity): void => {
     lastPickedMachineId = connection?.id ?? null
     if (!connection) {

@@ -1,4 +1,5 @@
-// One colour per project, worn on the folder glyph (owner review 2026-09-09).
+// One colour per project, worn on the folder glyph (owner review 2026-09-09,
+// revised 2026-09-11).
 //
 // The problem is confusion between projects, not decoration: with a dozen
 // chats open, "which repo is this row?" is answered by reading the folder name
@@ -6,29 +7,38 @@
 //
 // The rules this module encodes, from the decisions of record:
 //
-//  * SIX hues, from the design system's identity-mark family — blue, teal,
-//    cyan, violet, orange, red. Gold is excluded because it is what a row
-//    wears when an agent is waiting on the person, and there is no green
-//    because that is the finished tint; neither may double as a project's
-//    colour on the same row. Each is a theme-portable token (the
-//    `.project-mark-*` classes in assets/index.css), never a hex, so it reads
-//    on the four light themes as well as the seven dark ones.
+//  * DERIVED FROM THE NAME, NOT ALLOCATED (owner, 2026-09-11). A project's hue
+//    is a hash of its key, so the same project is the same colour on every
+//    machine and for every person, with nothing to sync. The 2026-09-09 design
+//    handed out six hues first-come and stored the pick per machine, which made
+//    `multicode` blue on one Mac and teal on the next.
+//  * THE WHOLE HUE WHEEL, AT ONE LIGHTNESS AND CHROMA. Yellow, green, pink —
+//    every hue — at the same `--sem-color-mark-project-lightness` and
+//    `-chroma`, which differ per mode so every hue reads on all eleven themes
+//    (assets/index.css). Chroma is never zero, so a project is never black,
+//    white or grey: those are the row's own inks and would read as "no
+//    project". The owner ruled yellow and green in on 2026-09-11, overriding
+//    the 2026-09-09 exclusion of the waiting and finished tints.
 //  * A PROJECT IS A REPOSITORY. Two clones of one repository — this disk's and
 //    a paired machine's — are one project and wear one hue, so the key is the
 //    canonical repository key when the folder has a remote and the folder
-//    identity key otherwise. This keeps the one-project-across-machines ruling
-//    (src/shared/repository-identity.ts) intact: the machine is a glyph on the
-//    row, never a second colour.
-//  * NO FOLDER IS NOT A PROJECT. A chat with no folder has no key at all, so
-//    it can never be allocated a hue; its glyph is the dashed grey outline.
-//  * ASSIGNED ON FIRST SIGHT, THEN STORED. The pick is deterministic — the
-//    first unused hue, else the least-used one — and it is written to
-//    `appSettings.projectColors` once, so it never changes behind the person's
-//    back. `'none'` is the person saying "no colour", which is a different
-//    thing from "not yet seen" (absent) and is skipped when allocating.
+//    identity key otherwise (src/shared/repository-identity.ts). A folder with
+//    no remote has no identity another machine shares, so its hue hashes the
+//    folder's NAME rather than its path: `/Users/a/notes` and `/home/b/notes`
+//    agree.
+//  * NO FOLDER IS NOT A PROJECT. A chat with no folder has no key at all, so it
+//    has no hue; its glyph is the dashed grey outline.
+//  * STORED ONLY WHEN THE PERSON CHOOSES. `appSettings.projectColors` holds
+//    overrides and nothing else: a hue the person picked, or `'none'` for "no
+//    colour". Absent means "the hashed hue". An override is this machine's, so
+//    it is the one way a project can look different on someone else's screen.
 //
-// Pure — no state, no side effects, no randomness — so the store's allocator,
-// the hooks and the tests all derive the same answers from the same code.
+// Two projects CAN hash to hues close enough to confuse; nothing coordinates
+// them, because coordinating needs to know what else is open, which is local.
+// The override is the remedy.
+//
+// Pure — no state, no side effects, no randomness — so every surface and the
+// tests derive the same answers from the same code.
 //
 // It is not React-free, and deliberately not yet: `projectColorKey` needs
 // `folderIdentityKey`, which today lives in the `useFolderRepositoryIdentities`
@@ -39,35 +49,49 @@
 // re-exporting it); that file is under another change right now, so the move is
 // left for whoever touches it next.
 
+import type { CSSProperties } from 'react'
+
 import { folderIdentityKey } from '../components/workspace/useFolderRepositoryIdentities'
 import type { ProjectColor, ProjectColorSetting } from '../types/workspace'
 
 // The two names live in types/workspace.ts, beside HighlightColor, because
 // AppSettings.projectColors is part of the settings shape main compiles against
 // and tsconfig.node lists that one renderer file. Re-exported here so every
-// consumer imports the palette and its type from one module.
+// consumer imports the colour and its type from one module.
 export type { ProjectColor, ProjectColorSetting }
 
-/** The six identity hues, in allocation order. */
-export const PROJECT_COLORS = ['blue', 'teal', 'cyan', 'violet', 'orange', 'red'] as const
-
-// Compile-time drift guard between the ordered list above and the union in
-// types/workspace.ts: adding a hue to one and not the other stops the build
-// here rather than silently making the palette and the stored type disagree.
-type PaletteMember = (typeof PROJECT_COLORS)[number]
-type AssertSame<Left, Right> = [Left] extends [Right] ? ([Right] extends [Left] ? true : never) : never
-const paletteMatchesStoredUnion: AssertSame<PaletteMember, ProjectColor> = true
-void paletteMatchesStoredUnion
-
-const PROJECT_COLOR_SET: ReadonlySet<string> = new Set<string>(PROJECT_COLORS)
-
+/** A hue is a whole degree on the OKLCH wheel, 0 to 359. */
 export function isProjectColor(value: unknown): value is ProjectColor {
-  return typeof value === 'string' && PROJECT_COLOR_SET.has(value)
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 360
 }
 
+/**
+ * A stored override: a hue, or `'none'`. The six hue NAMES the 2026-09-09
+ * build stored (`'blue'`, `'teal'` …) are not settings any more, so a settings
+ * file from that build drops them on read and every project returns to its
+ * hashed hue — the same colour on every machine, which a kept first-come pick
+ * never could be.
+ */
 export function isProjectColorSetting(value: unknown): value is ProjectColorSetting {
   return value === 'none' || isProjectColor(value)
 }
+
+/**
+ * The picker's named hues. Offered as a starting point for an override, not a
+ * palette the hash is limited to: a hashed project can wear any of the 360.
+ * Angles are OKLCH hues, picked so each reads as its own name at the
+ * project-mark lightness in both modes.
+ */
+export const PROJECT_COLOR_PRESETS: ReadonlyArray<{ hue: ProjectColor; label: string }> = [
+  { hue: 25, label: 'Red' },
+  { hue: 60, label: 'Orange' },
+  { hue: 100, label: 'Yellow' },
+  { hue: 145, label: 'Green' },
+  { hue: 200, label: 'Cyan' },
+  { hue: 255, label: 'Blue' },
+  { hue: 300, label: 'Violet' },
+  { hue: 345, label: 'Pink' },
+]
 
 /**
  * The two kinds of key are prefixed so a folder path can never collide with a
@@ -79,8 +103,8 @@ export const PROJECT_KEY_REPOSITORY_PREFIX = 'repo:'
 export const PROJECT_KEY_FOLDER_PREFIX = 'folder:'
 
 /**
- * The key a project's colour is stored under, or null when there is no project
- * to colour.
+ * The key a project's colour is derived from and its override is stored under,
+ * or null when there is no project to colour.
  *
  * The repository wins when one is known, so every clone of it — including a
  * paired machine's row, whose identity arrives on `workspace.remoteOrigin
@@ -90,8 +114,8 @@ export const PROJECT_KEY_FOLDER_PREFIX = 'folder:'
  * project.
  *
  * No folder is null, never a sentinel: a chat with no folder is not a project,
- * and hashing a `'__no_folder__'` string would make every unfiled chat share a
- * seventh "project" that then eats one of the six hues.
+ * and hashing a `'__no_folder__'` string would give every unfiled chat a shared
+ * "project" colour.
  */
 export function projectColorKey(input: {
   folderPath: string | null | undefined
@@ -107,105 +131,84 @@ export function projectColorKey(input: {
 }
 
 /**
- * The hue to give a project being seen for the first time, given the settings
- * already in force.
+ * The part of a key that names the project the same way on every machine.
  *
- * The first hue nobody is using, so two open projects never receive the same
- * one; when all six are spoken for, the least-used, ties broken by position in
- * `PROJECT_COLORS` so the answer is stable rather than first-come. `'none'`
- * and empty entries are not uses of a hue and never count.
- *
- * Deterministic on purpose. The owner asked for "randomly assign a colour";
- * random is what it looks like from outside, but a random pick would give two
- * projects the same hue often enough to defeat the whole point, and would
- * differ between two runs over the same list.
+ * A repository key already does (`github.com/acme/multicode`), and all of it is
+ * hashed so two organisations' `api` repositories differ. A folder key is a
+ * path on THIS disk, so only its last segment is hashed — which does make two
+ * unrelated `notes` folders one colour, but a folder with no remote has no
+ * other identity a second machine could agree on.
  */
-export function pickProjectColor(used: Iterable<ProjectColorSetting | null | undefined>): ProjectColor {
-  const counts = new Map<ProjectColor, number>(PROJECT_COLORS.map((color) => [color, 0]))
-  for (const entry of used) {
-    if (!isProjectColor(entry)) continue
-    counts.set(entry, (counts.get(entry) ?? 0) + 1)
+function projectHueSeed(key: string): string {
+  if (key.startsWith(PROJECT_KEY_REPOSITORY_PREFIX)) return key.slice(PROJECT_KEY_REPOSITORY_PREFIX.length)
+  if (key.startsWith(PROJECT_KEY_FOLDER_PREFIX)) {
+    const segments = key.slice(PROJECT_KEY_FOLDER_PREFIX.length).split('/').filter(Boolean)
+    return segments[segments.length - 1] ?? key
   }
-  let leastUsed: ProjectColor = PROJECT_COLORS[0]
-  let leastCount = Number.POSITIVE_INFINITY
-  for (const color of PROJECT_COLORS) {
-    const count = counts.get(color) ?? 0
-    if (count === 0) return color
-    if (count < leastCount) {
-      leastUsed = color
-      leastCount = count
-    }
-  }
-  return leastUsed
+  return key
 }
 
 /**
- * The set of project keys a surface is asking about, normalised: trimmed,
- * emptied of nulls, deduplicated and SORTED.
+ * The hue a project wears when nobody has chosen one: FNV-1a over the seed's
+ * UTF-16 code units, then murmur3's 32-bit finaliser so names differing in one
+ * trailing character land far apart on the wheel rather than a degree or two
+ * along it. Code units rather than bytes so there is no encoder to differ
+ * between runtimes; the key is already normalised (lower-cased, forward
+ * slashes) before it gets here.
  *
- * Sorted because allocation is a question about a set, not a sequence — the
- * same projects on screen should get the same hues however the sidebar
- * happened to order them that render — and because it is what lets a hook
- * compare "is this the same set?" without depending on render order.
- *
- * Returned as an array rather than a joined string on purpose. A folder path
- * may legally contain a newline (or a space, or a comma) on macOS and Linux, so
- * any separator a caller joined on could be split back apart in the middle of a
- * real project and allocate two hues to two halves of its path.
+ * Changing this function recolours every project for everyone, so it is
+ * pinned by golden values in projectColor.test.ts.
  */
-export function projectColorKeys(keys: ReadonlyArray<string | null | undefined>): string[] {
-  const wanted = new Set<string>()
-  for (const key of keys) {
-    const trimmed = key?.trim()
-    if (trimmed) wanted.add(trimmed)
+export function projectHue(key: string): ProjectColor {
+  const seed = projectHueSeed(key)
+  let hash = 0x811c9dc5
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
   }
-  return [...wanted].sort()
-}
-
-export type ProjectColorSwatch = {
-  color: ProjectColor
-  /** Menu label and accessible name. */
-  label: string
-  /** Ink class for the folder glyph — `color`, so the SVG's currentColor follows. */
-  glyphClass: string
-  /** Fill class for a swatch dot in the same hue (the menu's picker row). */
-  swatchClass: string
-}
-
-// Both classes live in assets/index.css and resolve to the `--sem-color-mark-*`
-// tokens, which follow `data-mode`. Nothing here is a hex: a hex tuned on the
-// dark default is the exact bug the highlight palette had to be given light
-// overrides for.
-const swatches: Record<ProjectColor, ProjectColorSwatch> = {
-  blue: { color: 'blue', label: 'Blue', glyphClass: 'project-mark-blue', swatchClass: 'project-swatch-blue' },
-  teal: { color: 'teal', label: 'Teal', glyphClass: 'project-mark-teal', swatchClass: 'project-swatch-teal' },
-  cyan: { color: 'cyan', label: 'Cyan', glyphClass: 'project-mark-cyan', swatchClass: 'project-swatch-cyan' },
-  violet: { color: 'violet', label: 'Violet', glyphClass: 'project-mark-violet', swatchClass: 'project-swatch-violet' },
-  orange: { color: 'orange', label: 'Orange', glyphClass: 'project-mark-orange', swatchClass: 'project-swatch-orange' },
-  red: { color: 'red', label: 'Red', glyphClass: 'project-mark-red', swatchClass: 'project-swatch-red' },
-}
-
-export function getProjectColorSwatch(color: ProjectColor): ProjectColorSwatch {
-  return swatches[color]
+  hash ^= hash >>> 16
+  hash = Math.imul(hash, 0x85ebca6b)
+  hash ^= hash >>> 13
+  hash = Math.imul(hash, 0xc2b2ae35)
+  hash ^= hash >>> 16
+  return (hash >>> 0) % 360
 }
 
 /**
- * The glyph's ink class for a colour, or `''` for no colour — an unset project
- * and a `'none'` project both keep the row's currentColor.
- */
-export function projectColorGlyphClass(color: ProjectColor | null | undefined): string {
-  return color ? swatches[color].glyphClass : ''
-}
-
-/**
- * The hue in force for a key, or null when there is no key, no entry yet, or
- * the person chose "No colour". Callers render the plain glyph for null.
+ * The hue in force for a key, or null when there is no key or the person chose
+ * "No colour". Callers render the plain glyph for null.
+ *
+ * Callers must not ask before the key is FINAL. A folder whose repository read
+ * has not landed keys as `folder:` and becomes `repo:` a beat later, so asking
+ * early paints one hue and then another; the surfaces pass null until the
+ * identity question is answered.
  */
 export function resolveProjectColor(
   projectColors: Readonly<Record<string, ProjectColorSetting>> | undefined,
   key: string | null | undefined,
 ): ProjectColor | null {
-  if (!key || !projectColors) return null
-  const setting = projectColors[key]
-  return isProjectColor(setting) ? setting : null
+  if (!key) return null
+  const setting = projectColors?.[key]
+  if (setting === 'none') return null
+  if (isProjectColor(setting)) return setting
+  return projectHue(key)
+}
+
+/**
+ * The class a glyph or swatch wears for a hue; the hue itself rides
+ * `projectColorStyle`. Both live in assets/index.css as one rule, so the dot a
+ * person clicks is the colour the glyph then wears, in every theme.
+ */
+export const PROJECT_MARK_CLASS = 'project-mark'
+export const PROJECT_SWATCH_CLASS = 'project-swatch'
+
+/**
+ * The inline custom property that carries a hue into `.project-mark` /
+ * `.project-swatch`. A style rather than a class because there are 360 of
+ * them; lightness and chroma stay tokens, so the only thing inline is the
+ * angle.
+ */
+export function projectColorStyle(color: ProjectColor | null | undefined): CSSProperties | undefined {
+  if (color === null || color === undefined) return undefined
+  return { '--project-hue': color } as CSSProperties
 }

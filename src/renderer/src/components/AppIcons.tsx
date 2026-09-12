@@ -10,7 +10,7 @@ import type {
   Workspace,
 } from '../types/workspace'
 import { getSprintEngineRoleGlyphKind } from '../utils/sprintengine'
-import { projectColorGlyphClass, type ProjectColor } from '../utils/projectColor'
+import { PROJECT_MARK_CLASS, projectColorStyle, type ProjectColor } from '../utils/projectColor'
 
 type IconProps = {
   className?: string
@@ -219,27 +219,32 @@ const FOLDER_GLYPH_PATH =
 //    on the row is tinted; the hue names the project, it never grades it.
 //  * `unfiled` — a chat with no folder. No folder is not a project, so it gets
 //    the dashed outline in --text-disabled and no colour, rather than reading
-//    as a seventh project. It outranks `color` because a row with no folder
+//    as a project of its own. It outranks `color` because a row with no folder
 //    has no project whose colour could apply.
 //  * neither — currentColor, exactly the glyph every existing caller had.
 //
-// The hue is a class, not a style: `project-mark-*` resolves the identity token
-// per theme (assets/index.css), so one glyph reads on all eleven. It is an
-// UNLAYERED rule and Tailwind's utilities are layered, which is what lets the
-// project's hue survive a row that also sets its ink — the row's tint is a
-// state, the project's colour is what the row IS.
+// The hue is an angle on an inline custom property and everything else is the
+// `project-mark` class, which resolves lightness and chroma per theme
+// (assets/index.css), so one glyph reads on all eleven. It is an UNLAYERED rule
+// and Tailwind's utilities are layered, which is what lets the project's hue
+// survive a row that also sets its ink — the row's tint is a state, the
+// project's colour is what the row IS. `data-project-hue` says which hue, for
+// the suites and for anyone inspecting a row.
 export function ProjectFolderGlyph({
   className,
   color,
   unfiled,
 }: IconProps & { color?: ProjectColor | null; unfiled?: boolean }) {
-  const tone = unfiled ? 'text-[color:var(--text-disabled)]' : projectColorGlyphClass(color)
+  const hue = unfiled ? null : (color ?? null)
+  const tone = unfiled ? 'text-[color:var(--text-disabled)]' : hue === null ? '' : PROJECT_MARK_CLASS
   return (
     <svg
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden="true"
       className={`${className ?? ''} ${tone}`.trim()}
+      style={projectColorStyle(hue)}
+      data-project-hue={hue ?? undefined}
     >
       <path
         d={FOLDER_GLYPH_PATH}

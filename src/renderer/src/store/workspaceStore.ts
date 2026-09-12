@@ -293,18 +293,10 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setDesignProjectScopePath: (path: string | null) => void
   /**
    * Set one project's colour, keyed by `projectColorKey` (utils/projectColor).
-   * `'none'` is a stored "no colour"; `null` deletes the entry, returning the
-   * project to not-yet-seen.
+   * `'none'` is a stored "no colour"; `null` deletes the override, returning the
+   * project to its hashed hue.
    */
   setProjectColor: (key: string, color: ProjectColorSetting | null) => void
-  /**
-   * Give every one of these projects a colour it has not got yet, allocated
-   * against the hues THESE projects already wear — the on-screen set, never the
-   * whole stored history. Keys that already carry an entry (a hue OR `'none'`)
-   * are untouched, and a call with nothing missing writes nothing at all — so a
-   * surface may call it from an effect on every render.
-   */
-  assignProjectColors: (keys: readonly string[]) => void
   /**
    * Stamp a design system as seen, now — the Design door's "New" marker reads
    * against it. Called AFTER the render that computed the markers, so the visit
