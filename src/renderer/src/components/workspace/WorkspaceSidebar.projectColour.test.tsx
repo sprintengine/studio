@@ -148,9 +148,9 @@ async function main(): Promise<void> {
     ...localWorkspaces,
     // No folder is not a project (decision 6).
     workspace('w4', 'Echo', null),
-    // Born on a paired machine, in ITS clone of acme/multicode. It lives in the
-    // Remote band, where the machine glyph is the row's mark and no folder
-    // glyph is drawn at all.
+    // Born on a paired machine, in ITS clone of acme/multicode. It is a row of
+    // projA like Alpha and Bravo (one-project-across-machines), wearing that
+    // project's hue plus the green machine glyph.
     workspace('w5', 'Foxtrot', null, {
       remoteOrigin: {
         connectionId: 'c1',
@@ -374,12 +374,22 @@ async function main(): Promise<void> {
     'it wears the dashed outline instead, so unfiled reads as its own thing'
   )
 
-  // The Remote band, as a negative. Reviewed 2026-09-09: its rows lead with the
-  // machine glyph and carry no folder glyph, so there is no third colour
-  // channel on a row that can also be wearing the needs-input wash.
+  // A chat running on a paired machine (owner, 2026-09-11). It is a row of its
+  // project, so it wears the project's hue on the same folder glyph every other
+  // row of that project wears — a project is a repository, and one repository
+  // is one colour wherever it runs. The machine glyph sits immediately right of
+  // that folder icon and is the only thing marking the row as remote.
   const foxtrot = rowFor(stream.container, 'Foxtrot')
-  assert.ok(foxtrot.querySelector('[data-remote-row-glyph]'), 'a band row leads with the machine glyph')
-  assert.equal(hueOf(foxtrot.querySelector('svg')), null, 'and wears no project hue of its own')
+  assert.equal(hueOf(glyphOf(stream.container, 'Foxtrot')), HUE_A, 'the Air’s clone of acme/multicode is acme/multicode')
+  const marks = [...foxtrot.firstElementChild!.children]
+  assert.equal(marks[0]?.tagName.toLowerCase(), 'svg', 'the folder glyph leads the project line')
+  assert.equal(
+    marks[1]?.querySelector('[data-remote-row-glyph]')?.getAttribute('data-remote-row-glyph')
+      ?? marks[1]?.getAttribute('data-remote-row-glyph'),
+    'MacBook Air',
+    'and the machine glyph is immediately right of it, naming the device',
+  )
+  assert.ok(!(foxtrot.textContent ?? '').includes('MacBook Air'), 'never as row text')
   assert.equal(hueOf(foxtrot.querySelectorAll('svg')[1]), null, 'no second glyph on the row carries one either')
 
   act(() => {

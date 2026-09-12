@@ -20,12 +20,18 @@ import { fleetInputState, fleetLinkBadge } from './fleet/fleetModel'
 //
 // The same xterm the local panes use, on the same replay gate — the difference
 // is only where the bytes come from. That is the point of the item: working on
-// the Mini from the laptop should be the same panes, the same terminals, one
-// extra badge.
+// the Mini from the laptop should be the same panes, the same terminals.
 //
-// The badge is not decoration. A pane that drives another computer while
-// looking exactly like a local one is the failure this feature must not have,
-// so the machine's name is in the pane chrome and in the tab, not in a tooltip.
+// The pane carries NO standing chrome of its own (owner, 2026-09-11). It used
+// to open on a permanent bar — a status dot, the machine's full tailnet name,
+// and the word "Live" — above every remote terminal. The tab above it already
+// names the machine, so the bar restated that on every line of output and spent
+// a row of the pane saying "this is working" while it was working.
+//
+// What it says now is only what is WRONG: a link that is not live, a pairing
+// that may not type, a failure. A healthy pane is terminal, edge to edge, the
+// same as a local one. Provenance did not go to a tooltip — it is on the tab
+// chip, where it does not repeat.
 //
 // Reconnection is handled in main and narrated here. A dropped socket re-dials;
 // the listener answers a fresh attach with the retained scrollback, which the
@@ -41,13 +47,17 @@ interface Props {
    * (a browser tab, the clipboard).
    */
   workspaceId: string
-  /** The machine's name, for the badge. Passed in so the pane paints before any call returns. */
+  /**
+   * The machine's name. The pane no longer draws it — the tab chip does — but
+   * it stays on the props because the layout config that mounts this pane
+   * stores it, and a pane that dropped it could not put it back on a tab.
+   */
   machineName: string
   /** The remote session to attach to. */
   sessionId: string
 }
 
-export default function FleetTerminalPanel({ attachId, connectionId, machineName, sessionId, workspaceId }: Props) {
+export default function FleetTerminalPanel({ attachId, connectionId, sessionId, workspaceId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   // The live terminal, for anything outside the mount effect that needs it —
   // today `useTerminalFind`, which loads the search addon on the first find.
@@ -266,22 +276,21 @@ export default function FleetTerminalPanel({ attachId, connectionId, machineName
   const badge = useMemo(() => fleetLinkBadge(link, linkDetail), [link, linkDetail])
   const input = useMemo(() => fleetInputState(access, link), [access, link])
 
+  // The one line the pane may draw, and only when there is something wrong to
+  // say: the failure, then the link's own sentence, then the reason typing is
+  // refused. A live pane a person can type into says nothing at all.
+  const notice = failure ?? badge.detail ?? input.label
   return (
     <div className="flex h-full flex-col bg-[color:var(--bg-app)]">
-      <div className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-2.5 py-1.5">
-        <StatusDot tone={badge.tone} />
-        <span className="truncate text-meta font-medium text-[color:var(--text-strong)]">{machineName}</span>
-        <span className="text-meta text-[color:var(--text-muted)]">{badge.label}</span>
-        {input.label ? (
-          <span className="ml-auto truncate text-meta text-[color:var(--text-muted)]">{input.label}</span>
-        ) : null}
-      </div>
-      {failure ?? badge.detail ? (
+      {notice ? (
         <p
           aria-live="polite"
-          className="border-b border-[color:var(--border-subtle)] px-2.5 py-1 text-meta text-[color:var(--text-muted)]"
+          className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-2.5 py-1 text-meta text-[color:var(--text-muted)]"
         >
-          {failure ?? badge.detail}
+          {/* The dot rides the sentence rather than a bar of its own — it is
+              the tone of what is being said, not a standing readout. */}
+          <StatusDot tone={badge.tone} />
+          <span className="min-w-0 flex-1 truncate">{notice}</span>
         </p>
       ) : null}
       <div className="relative min-h-0 flex-1">

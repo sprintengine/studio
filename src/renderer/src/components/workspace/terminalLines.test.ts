@@ -192,11 +192,13 @@ const worktreeObserved = {
   assert.equal(lines[0].key, `s${MAX_TERMINAL_LINES + 1}`, 'the most recent stays')
 }
 
-// A remote band row's line: no name (the row's title is the conversation),
-// its stamped facts, and paused reads as paused.
+// One remote AGENT's line: the agent's own name (the ROW is titled with the
+// conversation now, so a chat running three of them says which is which), its
+// stamped facts, and paused reads as paused.
 {
   const row = {
     sessionId: 'r1',
+    title: 'Gael Corry',
     cli: 'codex',
     branch: 'feat/x',
     additions: 3,
@@ -206,7 +208,7 @@ const worktreeObserved = {
     since: 42,
   } as RemoteSessionRow
   const line = lineOfRemoteRow(row)
-  assert.equal(line.name, null)
+  assert.equal(line.name, 'Gael Corry', 'the line names its agent, for the mark’s tooltip')
   assert.equal(line.diffScope, 'worktree', 'a remote sends a git reading, never a ledger')
   assert.equal(line.changedFiles, 0)
   assert.equal(line.files, null, 'no file breakdown on the wire: the row draws NOTHING, not the lines it was sent')

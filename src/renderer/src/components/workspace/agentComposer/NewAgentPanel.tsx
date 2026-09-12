@@ -68,6 +68,7 @@ import {
 } from './agentSpawnShared'
 import { SpawnPermissionFooter } from './spawnFooter'
 import { ProjectScopePicker } from './ProjectScopePicker'
+import { remoteProjectOfWorkspace, remoteProjectsOf, type RemoteProject } from './remoteProjects'
 import { type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSourceMenu'
 import { mergeDraftConnectors, readNewChatDraft, writeNewChatDraft, type NewChatDraftImage } from './newChatDraft'
 import { showToast } from '../../../store/toastStore'
@@ -239,20 +240,19 @@ export function machineAvailabilityOf(
   return { state: 'lacks', reason: `No copy of ${identity.name} on ${machine.machineName}.` }
 }
 
-/** The checkout choice the scope line holds for a remote target. */
-type RemoteCheckoutChoice = { mode: 'current' } | { mode: 'worktree'; baseRef: string | null }
-
 type RemoteTargetState = {
   connection: FleetConnection
+  /** What `workspace.list` served: the machine's open CHATS, not its projects. */
   workspaces: FleetWorkspace[] | null
+  /** Those chats folded into the folders they stand in — the list the chip offers. */
+  projects: RemoteProject[] | null
   error: string | null
-  picked: FleetWorkspace | null
+  picked: RemoteProject | null
   /** The scopes the machine reports NOW (the browse refreshes them), for the worktree gate. */
   scopes: TailnetScope[]
-  /** The picked workspace's checkout facts; null until read, or unreadable (see `checkoutError`). */
+  /** The picked project's checkout facts; null until read, or unreadable (see `checkoutError`). */
   checkout: FleetWorkspaceCheckout | null
   checkoutError: string | null
-  choice: RemoteCheckoutChoice
 }
 
 /**
@@ -276,19 +276,24 @@ export function remoteWorktreeDisabledReason(target: {
   // which is exactly the build whose agent.launch would ignore the base ref.
   if (!target.checkout) return `Reading the checkout on ${target.connection.machineName}…`
   if (!target.checkout.git) return `That project is not a git repository on ${target.connection.machineName}.`
-  if (!effectiveBaseRefOf(target.checkout, null)) return `No branch to fork from on ${target.connection.machineName}.`
+  if (!effectiveBaseRefOf(target.checkout)) return `No branch to fork from on ${target.connection.machineName}.`
   return null
 }
 
 /**
- * The one base ref a worktree launch shows AND sends: the person's pick,
- * else the checkout's own branch, else the trunk. Null when the remote has
- * nothing to fork from (a detached checkout with no trunk), which is a
- * disabled worktree row rather than a fork of an arbitrary commit.
+ * The base ref a remote worktree launch forks from: the checkout's own branch,
+ * else the trunk. Null when the remote has nothing to fork from (a detached
+ * checkout with no trunk), which is a disabled worktree row rather than a fork
+ * of an arbitrary commit.
+ *
+ * It took a `picked` override until 2026-09-11, when the scope line's base-ref
+ * picker went with the rest of the duplicated worktree controls. A remote fork
+ * now starts where the project stands over there — the same promise the local
+ * worktree row makes about this disk — so there is nothing to override with.
  */
-export function effectiveBaseRefOf(checkout: FleetWorkspaceCheckout | null, picked: string | null): string | null {
+function effectiveBaseRefOf(checkout: FleetWorkspaceCheckout | null): string | null {
   if (!checkout?.git) return null
-  return picked ?? checkout.branch ?? checkout.defaultBranch ?? null
+  return checkout.branch ?? checkout.defaultBranch ?? null
 }
 
 // The greeting rotates per tab open. No exclamation marks and no "we" (the copy
@@ -562,12 +567,12 @@ export default function NewAgentPanel({
     setRemoteTarget({
       connection,
       workspaces: null,
+      projects: null,
       error: null,
       picked: null,
       scopes: connection.scopes,
       checkout: null,
       checkoutError: null,
-      choice: { mode: 'current' },
     })
     void browseMachine(connection)
       .then((browse) => {
@@ -577,11 +582,17 @@ export default function NewAgentPanel({
             return {
               ...current,
               workspaces: [],
+              projects: [],
               error: browse.unreachableReason ?? 'That machine is not answering.',
             }
           }
           if (browse.unauthorized) {
-            return { ...current, workspaces: [], error: 'That machine refused this pairing — re-pair from Settings → Remote.' }
+            return {
+              ...current,
+              workspaces: [],
+              projects: [],
+              error: 'That machine refused this pairing — re-pair from Settings → Remote.',
+            }
           }
           // A gap is a DIFFERENT statement from an empty list: a pairing
           // without workspace:read genuinely cannot list workspaces, and
@@ -589,21 +600,28 @@ export default function NewAgentPanel({
           // contract). Say the real reason instead.
           const workspaceGap = browse.gaps.find((gap) => gap.part === 'workspaces')
           if (browse.workspaces.length === 0 && workspaceGap) {
-            return { ...current, workspaces: [], error: workspaceGap.message }
+            return { ...current, workspaces: [], projects: [], error: workspaceGap.message }
           }
+          // The machine's chats folded into the folders they stand in
+          // (`remoteProjects`). What `workspace.list` serves is one entry per
+          // open CONVERSATION over there, and this chip is choosing a project
+          // — so three chats in one checkout are one row, not three.
+          const projects = remoteProjectsOf(browse.workspaces)
           // An explicit choice, not the first row: a project picked by list
           // order is a launch into the wrong repo waiting to happen. Two
           // exceptions: a machine with exactly one project, where there is
           // nothing to choose, and the machine's copy of the project already
           // in hand (one-project-across-machines) — switching the machine
           // keeps the project.
-          const kept = machineCopyOf(browse, keep ?? activeIdentityRef.current)
+          const copy = machineCopyOf(browse, keep ?? activeIdentityRef.current)
+          const kept = copy ? remoteProjectOfWorkspace(projects, browse.workspaces, copy.id) : null
           return {
             ...current,
             scopes: browse.scopes,
             workspaces: browse.workspaces,
+            projects,
             // A choice already made meanwhile is never overwritten by a late answer.
-            picked: current.picked ?? kept ?? (browse.workspaces.length === 1 ? browse.workspaces[0]! : null),
+            picked: current.picked ?? kept ?? (projects.length === 1 ? projects[0]! : null),
           }
         })
       })
@@ -625,7 +643,9 @@ export default function NewAgentPanel({
   // does not. A refusal (a read-only pairing, a machine gone quiet) is kept
   // as the reason the worktree option dims with, never as an empty branch list.
   const remoteConnectionId = remoteTarget?.connection.id ?? null
-  const remotePickedId = remoteTarget?.picked?.id ?? null
+  // `workspace.checkout` is keyed by workspace id, and a project's seat is one
+  // of the chats standing in it — every chat in a folder answers for the folder.
+  const remotePickedId = remoteTarget?.picked?.workspaceId ?? null
   React.useEffect(() => {
     if (!remoteConnectionId || !remotePickedId) return
     let cancelled = false
@@ -634,24 +654,16 @@ export default function NewAgentPanel({
       .then((result) => {
         if (cancelled) return
         setRemoteTarget((current) => {
-          if (current?.connection.id !== remoteConnectionId || current.picked?.id !== remotePickedId) return current
-          if (!result.ok) return { ...current, checkout: null, checkoutError: result.message, choice: { mode: 'current' } }
-          // A choice the facts no longer allow falls back here, so the line
-          // never says "New worktree" over a launch that would not make one.
-          const allowed = remoteWorktreeDisabledReason({ ...current, checkout: result.checkout, checkoutError: null }) === null
-          return {
-            ...current,
-            checkout: result.checkout,
-            checkoutError: null,
-            choice: allowed ? current.choice : { mode: 'current' },
-          }
+          if (current?.connection.id !== remoteConnectionId || current.picked?.workspaceId !== remotePickedId) return current
+          if (!result.ok) return { ...current, checkout: null, checkoutError: result.message }
+          return { ...current, checkout: result.checkout, checkoutError: null }
         })
       })
       .catch((error: unknown) => {
         if (cancelled) return
         setRemoteTarget((current) =>
-          current?.connection.id === remoteConnectionId && current.picked?.id === remotePickedId
-            ? { ...current, checkout: null, checkoutError: error instanceof Error ? error.message : String(error), choice: { mode: 'current' } }
+          current?.connection.id === remoteConnectionId && current.picked?.workspaceId === remotePickedId
+            ? { ...current, checkout: null, checkoutError: error instanceof Error ? error.message : String(error) }
             : current
         )
       })
@@ -659,13 +671,11 @@ export default function NewAgentPanel({
       cancelled = true
     }
   }, [remoteConnectionId, remotePickedId])
-  // The ⋯ worktree row is the LOCAL checkout's; a remote target carries its
-  // own checkout choice in the scope line, so the local one is cleared on
-  // the pick rather than left as a chip the launch would then have to refuse.
-  React.useEffect(() => {
-    if (remoteMachineName) composer.setWorktreeName(null)
-    // composer is a stable hook result; keyed on the machine alone.
-  }, [remoteMachineName])
+  // The ⋯ worktree row is the ONLY worktree control now, local or remote
+  // (owner, 2026-09-11), so picking a machine no longer clears it. A worktree
+  // asked for on a remote target travels as `FleetCheckoutRequest.name` — the
+  // same branch name the local spawn mints its worktree on — and the gate
+  // below is what stops one being asked for where the pairing cannot make it.
   const activeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? resolveWorkspaceWorktree(ws)?.branch ?? null : null
@@ -911,17 +921,20 @@ export default function NewAgentPanel({
       if (confirm.kind !== 'general' && confirm.kind !== 'specialist') return
       // What cannot travel must not be silently dropped while its chip is on
       // screen: skills install locally, MCP servers were synced into the LOCAL
-      // workspace config, worktrees branch the LOCAL checkout, debug drives the
-      // local state machine, and a specialist's soul brief is composed locally.
+      // workspace config, debug drives the local state machine, and a
+      // specialist's soul brief is composed locally.
       // Images too: a local path means nothing on another machine, and there
       // is no upload path to the remote today (uploading them into the remote
       // environment is the future path; until it exists the refusal names them
       // rather than dropping them while their chips stay on screen).
+      //
+      // The worktree left this list on 2026-09-11: it DOES travel now. The
+      // remote mints it, on the branch name the ⋯ row carries, through the same
+      // `agent.launch` mutation that already owned remote worktree creation.
       const stranded = [
         confirm.kind === 'specialist' ? 'the specialist role' : null,
         confirm.skills?.length ? 'the skills' : null,
         confirm.mcpServers?.length ? 'the MCP servers' : null,
-        confirm.worktree ? 'the worktree' : null,
         debugMode ? 'debug mode' : null,
         images.length > 0 ? 'the attached images' : null,
       ].filter((entry): entry is string => entry !== null)
@@ -939,18 +952,24 @@ export default function NewAgentPanel({
       // A worktree the gate has since closed on (a scope read that came back
       // narrower, a project that turned out not to be a repo) never travels:
       // the pick falls back to the checkout it can have.
+      //
+      // The base is the remote checkout's OWN branch, never a branch this
+      // machine chose: the local worktree row forks from where the project
+      // stands, and a remote fork is the same promise about someone else's
+      // disk. `confirm.worktree.name` empty means "name it after the agent",
+      // which is the remote's own default when the field is absent.
       const worktreeBlocked = remoteWorktreeDisabledReason(remoteTarget) !== null
-      const baseRef =
-        remoteTarget.choice.mode === 'worktree' ? effectiveBaseRefOf(remoteTarget.checkout, remoteTarget.choice.baseRef) : null
+      const worktreeName = confirm.worktree?.name.trim()
+      const baseRef = confirm.worktree ? effectiveBaseRefOf(remoteTarget.checkout) : null
       const checkout: FleetCheckoutRequest =
-        remoteTarget.choice.mode === 'worktree' && !worktreeBlocked && baseRef
-          ? { mode: 'worktree', baseRef }
+        confirm.worktree && !worktreeBlocked && baseRef
+          ? { mode: 'worktree', baseRef, ...(worktreeName ? { name: worktreeName } : {}) }
           : { mode: 'current' }
       setRemoteLaunching(true)
       onLaunchRemote({
         connectionId: remoteTarget.connection.id,
         machineName: remoteTarget.connection.machineName,
-        remoteWorkspaceId: remoteTarget.picked.id,
+        remoteWorkspaceId: remoteTarget.picked.workspaceId,
         remoteWorkspaceName: remoteTarget.picked.name,
         remoteWorkspaceRoot: remoteTarget.picked.folderPath,
         prompt: text.trim(),
@@ -1110,9 +1129,9 @@ export default function NewAgentPanel({
               />
             ) : null}
             {remoteTarget ? (
-              <RemoteProjectPicker target={remoteTarget} color={scopeProjectColor} onPick={(workspace) => {
+              <RemoteProjectPicker target={remoteTarget} color={scopeProjectColor} onPick={(project) => {
                 setRemoteTarget((current) =>
-                  current ? { ...current, picked: workspace, checkout: null, checkoutError: null, choice: { mode: 'current' } } : current
+                  current ? { ...current, picked: project, checkout: null, checkoutError: null } : current
                 )
               }} />
             ) : canChooseProject ? (
@@ -1151,27 +1170,12 @@ export default function NewAgentPanel({
                 </span>
               </p>
             ) : null}
-            {/* machine · project · checkout · branch (checkout-and-branch-on-
-                remote-create): the two segments the mockup's run-on strip
-                carried, on the scope line the landed shape already uses. They
-                exist only once a remote project is picked — the local line
-                stays exactly as it was, worktree behind ⋯ and all. */}
-            {remoteTarget?.picked ? (
-              <>
-                <RemoteCheckoutPicker
-                  target={remoteTarget}
-                  onChoose={(choice) => setRemoteTarget((current) => (current ? { ...current, choice } : current))}
-                />
-                <RemoteBranchSegment
-                  target={remoteTarget}
-                  onChooseBase={(baseRef) =>
-                    setRemoteTarget((current) =>
-                      current && current.choice.mode === 'worktree' ? { ...current, choice: { mode: 'worktree', baseRef } } : current
-                    )
-                  }
-                />
-              </>
-            ) : null}
+            {/* The scope line is machine · project, and nothing else (owner,
+                2026-09-11). A "Current checkout" chip and a branch segment used
+                to grow here the moment a remote project was picked, which put
+                the worktree question in TWO places on one surface: up on this
+                line for a remote target, and down behind ⋯ for a local one.
+                One control now — the ⋯ Worktree row — and it serves both. */}
           </div>
         </div>
 
@@ -1470,8 +1474,13 @@ export default function NewAgentPanel({
                     composer.setWorktreeName(composer.worktreeName === null ? '' : null)
                   }
                   onChangeWorktree={composer.setWorktreeName}
-                  // A remote target chooses its checkout on the scope line.
-                  worktreeAvailable={workspaceIsGitRepo && !remoteTarget}
+                  // One row for both targets now. A remote one is offered it
+                  // once a project is picked — until then there is no checkout
+                  // to fork and nothing to say about it — and the reason it
+                  // cannot have one dims the row instead of hiding it, which is
+                  // the menu spec's rule for a choice that stays true tomorrow.
+                  worktreeAvailable={remoteTarget ? remoteTarget.picked !== null : workspaceIsGitRepo}
+                  worktreeReason={remoteTarget ? remoteWorktreeDisabledReason(remoteTarget) : null}
                   debugMode={debugMode}
                   onToggleDebug={() => onChangeDebugMode(!debugMode)}
                 />
@@ -1730,33 +1739,32 @@ function RemoteProjectPicker({
    * keyed by a path on someone else's disk.
    */
   color: ProjectColor | null
-  onPick: (workspace: FleetWorkspace) => void
+  onPick: (project: RemoteProject) => void
 }) {
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState('')
   // Each row's own hue, out of the same store the local list reads. A remote
-  // workspace carries the repository its machine read, so the row for this
+  // project carries the repository its machine read, so the row for this
   // disk's project is the colour it is here — which is how a person picks the
   // right one out of a machine holding a dozen.
   const projectColors = useProjectColors()
-  const colorOfWorkspace = (workspace: FleetWorkspace): ProjectColor | null =>
-    workspace.repository
-      ? resolveProjectColor(projectColors, projectColorKey({ folderPath: null, repository: workspace.repository }))
+  const colorOfProject = (project: RemoteProject): ProjectColor | null =>
+    project.repository
+      ? resolveProjectColor(projectColors, projectColorKey({ folderPath: null, repository: project.repository }))
       : null
   const needle = query.trim().toLowerCase()
-  const visibleWorkspaces =
-    target.workspaces === null
+  const visibleProjects =
+    target.projects === null
       ? null
       : needle
-        ? target.workspaces.filter(
-            (workspace) =>
-              workspace.name.toLowerCase().includes(needle)
-              || (workspace.folderPath ?? '').toLowerCase().includes(needle)
+        ? target.projects.filter(
+            (project) =>
+              project.name.toLowerCase().includes(needle) || project.folderPath.toLowerCase().includes(needle)
           )
-        : target.workspaces
+        : target.projects
   const label = target.error
     ? 'Unavailable'
-    : target.workspaces === null
+    : target.projects === null
       ? 'Loading…'
       : target.picked?.name ?? 'Choose a project'
   // Dashed says one thing and only one: there is no folder here, so there is no
@@ -1765,7 +1773,7 @@ function RemoteProjectPicker({
   // "Unavailable", which are open questions rather than an answer of "none". A
   // dash on those would report an unfiled chat where there is a machine that
   // has not spoken yet, so they keep the plain solid glyph.
-  const unfiled = !target.picked && target.workspaces !== null && !target.error
+  const unfiled = !target.picked && target.projects !== null && !target.error
   return (
     <Popover
       open={open}
@@ -1788,8 +1796,10 @@ function RemoteProjectPicker({
       )}
     >
       <>
-        {target.workspaces !== null && target.workspaces.length > 0 && !target.error ? (
-          // The same search-first shape the local selector opens on.
+        {target.projects !== null && target.projects.length > 0 && !target.error ? (
+          // The same search-first shape the local selector opens on, with the
+          // same words: the list is projects either way, so the placeholder
+          // says so rather than naming the machine the chip beside it names.
           <div className="px-1.5 pb-1">
             <Input
               type="text"
@@ -1797,242 +1807,39 @@ function RemoteProjectPicker({
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${target.connection.machineName}…`}
+              placeholder="Search projects…"
               aria-label={`Search projects on ${target.connection.machineName}`}
             />
           </div>
         ) : null}
         {target.error ? (
           <div className="px-2.5 py-1.5 text-meta text-[color:var(--tone-error)]">{target.error}</div>
-        ) : visibleWorkspaces === null ? (
+        ) : visibleProjects === null ? (
           <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">Loading projects…</div>
-        ) : visibleWorkspaces.length === 0 ? (
+        ) : visibleProjects.length === 0 ? (
           <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">
-            {needle ? 'No matching projects.' : 'No workspaces on that machine.'}
+            {needle ? 'No matching projects.' : 'No projects open on that machine.'}
           </div>
         ) : (
-          visibleWorkspaces.map((workspace) => (
+          visibleProjects.map((project) => (
             <MenuOption
-              key={workspace.id}
+              key={project.key}
               role="menuitemradio"
-              selected={target.picked?.id === workspace.id}
+              selected={target.picked?.key === project.key}
               stacked
               onClick={() => {
-                onPick(workspace)
+                onPick(project)
                 setOpen(false)
               }}
-              icon={<FolderTypeIcon className="mt-0.5 icon-xs shrink-0" color={colorOfWorkspace(workspace)} />}
+              icon={<FolderTypeIcon className="mt-0.5 icon-xs shrink-0" color={colorOfProject(project)} />}
             >
-              <span className="block truncate text-body font-medium">{workspace.name}</span>
-              {workspace.folderPath ? (
-                <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">
-                  {workspace.folderPath}
-                </span>
-              ) : null}
-            </MenuOption>
-          ))
-        )}
-      </>
-    </Popover>
-  )
-}
-
-/** The remote target's checkout choice: the workspace's own checkout, or a fresh worktree. */
-function RemoteCheckoutPicker({
-  target,
-  onChoose,
-}: {
-  target: RemoteTargetState
-  onChoose: (choice: RemoteCheckoutChoice) => void
-}) {
-  const [open, setOpen] = React.useState(false)
-  const worktreeReason = remoteWorktreeDisabledReason(target)
-  const isWorktree = target.choice.mode === 'worktree'
-  const label = isWorktree ? 'New worktree' : 'Current checkout'
-  const rowKey = (event: React.KeyboardEvent<HTMLButtonElement>, activate: () => void) =>
-    menuRadioRowKeyDown(event, '[data-checkout-option="true"]', activate)
-  const focusChecked = React.useCallback((surface: HTMLElement) => {
-    const target =
-      surface.querySelector<HTMLButtonElement>('[data-checkout-option="true"][aria-checked="true"]:not([disabled])')
-      ?? surface.querySelector<HTMLButtonElement>('[data-checkout-option="true"]:not([disabled])')
-    target?.focus()
-  }, [])
-  return (
-    <Popover
-      open={open}
-      onOpenChange={setOpen}
-      ariaLabel={`Checkout on ${target.connection.machineName}`}
-      popupRole="menu"
-      placement="bottom-start"
-      surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
-      onOpenAutoFocus={focusChecked}
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <ChipButton ref={ref} onClick={togglePopover} data-checkout-trigger="true" {...triggerProps}>
-          {label}
-          <ChevronGlyph />
-        </ChipButton>
-      )}
-    >
-      <MenuOption
-        role="menuitemradio"
-        selected={!isWorktree}
-        stacked
-        data-checkout-option="true"
-        tabIndex={!isWorktree ? 0 : -1}
-        onKeyDown={(event) => rowKey(event, () => { onChoose({ mode: 'current' }); setOpen(false) })}
-        onClick={() => {
-          onChoose({ mode: 'current' })
-          setOpen(false)
-        }}
-      >
-        <span className="block text-body font-medium">Current checkout</span>
-        <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">
-          {target.checkout?.branch
-            ? `The project as it is on ${target.connection.machineName}, on ${target.checkout.branch}`
-            : `The project as it is on ${target.connection.machineName}`}
-        </span>
-      </MenuOption>
-      {/* `disabled`, per the menu spec: the row stays listed and dimmed with
-          its reason, and the arrow walk skips it (the preset menu's idiom). */}
-      <MenuOption
-        role="menuitemradio"
-        selected={isWorktree}
-        stacked
-        disabled={worktreeReason !== null}
-        data-checkout-option="true"
-        tabIndex={isWorktree ? 0 : -1}
-        onKeyDown={(event) =>
-          rowKey(event, () => {
-            onChoose({ mode: 'worktree', baseRef: null })
-            setOpen(false)
-          })
-        }
-        onClick={() => {
-          onChoose({ mode: 'worktree', baseRef: null })
-          setOpen(false)
-        }}
-      >
-        <span className="block text-body font-medium">New worktree</span>
-        <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">
-          {worktreeReason ?? 'A fresh checkout there, branched from the branch you pick'}
-        </span>
-      </MenuOption>
-    </Popover>
-  )
-}
-
-/**
- * The branch segment. On the current checkout it is a FACT — the branch the
- * remote's checkout is on, which this machine never moves — and reads as
- * plain text. On a new worktree it is the base ref, picked from the remote's
- * own branch list, and reads "From main".
- */
-function RemoteBranchSegment({
-  target,
-  onChooseBase,
-}: {
-  target: RemoteTargetState
-  onChooseBase: (baseRef: string) => void
-}) {
-  const [open, setOpen] = React.useState(false)
-  const [query, setQuery] = React.useState('')
-  const checkout = target.checkout
-  if (target.choice.mode === 'current') {
-    if (!checkout) {
-      return (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-meta text-[color:var(--text-muted)]" data-branch-fact="true">
-          {target.checkoutError ? 'Branch unknown' : 'Reading branch…'}
-        </span>
-      )
-    }
-    return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 font-mono text-micro text-[color:var(--text-subtle)]" data-branch-fact="true">
-        <BranchGlyph />
-        {checkout.git ? checkout.branch ?? 'detached' : 'not a repository'}
-      </span>
-    )
-  }
-  const baseRef = effectiveBaseRefOf(checkout, target.choice.baseRef)
-  const needle = query.trim().toLowerCase()
-  const branches = (checkout?.branches ?? []).filter((entry) => !needle || entry.name.toLowerCase().includes(needle))
-  const rowKey = (event: React.KeyboardEvent<HTMLButtonElement>, activate: () => void) =>
-    menuRadioRowKeyDown(event, '[data-branch-option="true"]', activate)
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) setQuery('')
-      }}
-      ariaLabel={`Branch to fork on ${target.connection.machineName}`}
-      popupRole="menu"
-      placement="bottom-start"
-      surfaceClassName={`w-[280px] ${MENU_LIST_CLASS}`}
-      renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <ChipButton ref={ref} onClick={togglePopover} data-branch-trigger="true" className="font-mono" {...triggerProps}>
-          <BranchGlyph />
-          {baseRef ? `From ${baseRef}` : 'Select branch'}
-          <ChevronGlyph />
-        </ChipButton>
-      )}
-    >
-      <>
-        {(checkout?.branches.length ?? 0) > 0 ? (
-          <div className="px-1.5 pb-1">
-            <Input
-              type="text"
-              size="sm"
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search branches…"
-              aria-label={`Search branches on ${target.connection.machineName}`}
-              // The list is walked from the box: ArrowDown steps onto the
-              // first branch, and the rows rove from there.
-              onKeyDown={(event) => {
-                if (event.key !== 'ArrowDown') return
-                const first = (event.currentTarget.closest('[role="menu"]') ?? event.currentTarget.parentElement?.parentElement)
-                  ?.querySelector<HTMLButtonElement>('[data-branch-option="true"]')
-                if (first) {
-                  event.preventDefault()
-                  first.focus()
-                }
-              }}
-            />
-          </div>
-        ) : null}
-        {branches.length === 0 ? (
-          <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-muted)]">
-            {needle ? 'No matching branches.' : 'No branches to fork from.'}
-          </div>
-        ) : (
-          branches.map((entry) => (
-            <MenuOption
-              key={entry.name}
-              role="menuitemradio"
-              selected={entry.name === baseRef}
-              data-branch-option="true"
-              tabIndex={entry.name === baseRef ? 0 : -1}
-              onKeyDown={(event) =>
-                rowKey(event, () => {
-                  onChooseBase(entry.name)
-                  setOpen(false)
-                })
-              }
-              onClick={() => {
-                onChooseBase(entry.name)
-                setOpen(false)
-              }}
-              className="font-mono"
-              trailing={
-                entry.current ? (
-                  <span className="shrink-0 font-sans text-micro text-[color:var(--text-disabled)]">checked out</span>
-                ) : entry.name === checkout?.defaultBranch ? (
-                  <span className="shrink-0 font-sans text-micro text-[color:var(--text-disabled)]">trunk</span>
-                ) : null
-              }
-            >
-              {entry.name}
+              {/* The FOLDER's name and the folder's path — the same two lines
+                  the local list gives a project. What stands in it is the
+                  machine's business, not a second name for the row. */}
+              <span className="block truncate text-body font-medium">{project.name}</span>
+              <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">
+                {project.folderPath}
+              </span>
             </MenuOption>
           ))
         )}
@@ -2056,6 +1863,7 @@ function MoreMenu({
   onToggleWorktree,
   onChangeWorktree,
   worktreeAvailable,
+  worktreeReason,
   debugMode,
   onToggleDebug,
 }: {
@@ -2067,6 +1875,14 @@ function MoreMenu({
   onToggleWorktree: () => void
   onChangeWorktree: (next: string | null) => void
   worktreeAvailable: boolean
+  /**
+   * Why this target cannot have a worktree, when it cannot — a pairing without
+   * `workspace:operate`, a project that is not a repository, a checkout still
+   * being read. The row stays listed and dims with the sentence rather than
+   * disappearing: it is a choice that will be true again, not one that does not
+   * exist here. Null when the worktree can be asked for.
+   */
+  worktreeReason?: string | null
   debugMode: boolean
   onToggleDebug: () => void
 }) {
@@ -2121,9 +1937,12 @@ function MoreMenu({
         <>
           <MenuValueRow
             label="Worktree"
-            value={worktreeName === null ? 'Off' : worktreeName || 'Named on start'}
-            expanded={worktreeName !== null}
+            value={worktreeReason ? 'Unavailable' : worktreeName === null ? 'Off' : worktreeName || 'Named on start'}
+            expanded={!worktreeReason && worktreeName !== null}
+            disabled={Boolean(worktreeReason)}
+            hint={worktreeReason ?? null}
             onClick={() => {
+              if (worktreeReason) return
               onToggleWorktree()
               // Opening it puts the caret where the name goes — the click that
               // turns it on is the same click that starts typing.
@@ -2136,7 +1955,7 @@ function MoreMenu({
               nothing when off rather than reserving the row. */}
           <div
             className={`grid transition-[grid-template-rows,opacity] duration-[var(--motion-normal)] ease-[var(--motion-ease)] ${
-              worktreeName === null ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
+              worktreeReason || worktreeName === null ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
             }`}
           >
             <div className="overflow-hidden">
@@ -2153,8 +1972,8 @@ function MoreMenu({
                 onChange={(event) => onChangeWorktree(event.currentTarget.value)}
                 placeholder="Branch name — blank uses the agent’s"
                 aria-label="Worktree branch name"
-                aria-hidden={worktreeName === null}
-                tabIndex={worktreeName === null ? -1 : 0}
+                aria-hidden={Boolean(worktreeReason) || worktreeName === null}
+                tabIndex={worktreeReason || worktreeName === null ? -1 : 0}
                 className="mx-2 mb-1 w-[calc(100%-1rem)] text-meta"
               />
             </div>
@@ -2181,11 +2000,17 @@ function MenuValueRow({
   label,
   value,
   expanded = false,
+  disabled = false,
+  hint = null,
   onClick,
 }: {
   label: string
   value: string
   expanded?: boolean
+  /** Listed and dimmed with its `hint`, per the menu spec — never hidden. */
+  disabled?: boolean
+  /** The one line under the label: why a dimmed row is dimmed. */
+  hint?: string | null
   onClick: () => void
 }) {
   return (
@@ -2195,6 +2020,7 @@ function MenuValueRow({
     // rounded fill is the card-in-a-card the spec retires.
     <MenuItem
       onClick={onClick}
+      disabled={disabled || undefined}
       expanded={expanded || undefined}
       trailing={
         <>
@@ -2203,7 +2029,14 @@ function MenuValueRow({
         </>
       }
     >
-      {label}
+      {hint ? (
+        <>
+          <span className="block text-body">{label}</span>
+          <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
+        </>
+      ) : (
+        label
+      )}
     </MenuItem>
   )
 }

@@ -51,13 +51,19 @@ function remoteRowActivity(terminal: Pick<FleetTerminal, 'suspended' | 'phase'>)
   return 'idle'
 }
 
-/** A session on a paired machine, as the band draws it. */
+/** A session on a paired machine — one AGENT, a line on its conversation's row. */
 export type RemoteSessionRow = {
   key: string
   connectionId: string
   machineName: string
   sessionId: string
   kind: 'agent' | 'terminal'
+  /**
+   * The agent's own name ("Gael Corry"), or the kind when the remote has not
+   * named it. This is a LINE's name, not a row's: it used to be the row title,
+   * which is why the sidebar's remote rows read as a list of strangers instead
+   * of a list of conversations (owner, 2026-09-11).
+   */
   title: string
   cli: string | null
   /** The remote workspace: its id, name, and folder there, and which repository that is. */
@@ -99,22 +105,38 @@ export type RemoteMachineGroup = {
 }
 
 /**
- * One row of the band as the sidebar draws it: a conversation on a paired
- * machine, or a workspace here that was born on one. The machine rides the
- * item, not a heading — the band is one flat list, and the glyph on each row
- * says where it lives (owner ruling 2026-09-05).
+ * A CONVERSATION on a paired machine: the remote workspace, and every agent
+ * standing in it.
+ *
+ * This is the unit the sidebar draws (owner, 2026-09-11). Before it, a row was
+ * one remote SESSION titled with that session's agent name — so a machine
+ * running nine agents produced nine rows called "Gael Corry", "Liam Slane",
+ * "Agent", with no way to tell which chat or which project any of them was.
+ * A conversation is titled with its own name, files under its project like
+ * every other chat, and grows a line per agent exactly as a local row does.
  */
-export type RemoteBandItem =
-  | { kind: 'session'; key: string; row: RemoteSessionRow; machineName: string; stale: boolean }
-  | {
-      kind: 'workspace'
-      key: string
-      workspace: Workspace
-      machineName: string
-      stale: boolean
-      /** The remote session this workspace is attached to, when the machine listed it. */
-      row: RemoteSessionRow | null
-    }
+export type RemoteConversation = {
+  key: string
+  connectionId: string
+  machineName: string
+  /** The chat's name over there. Falls back to the lone agent's name on a remote that sent none. */
+  title: string
+  /** The remote workspace's id; null for a session the remote filed under no workspace. */
+  workspaceId: string | null
+  /** The folder it stands in, on that machine's disk. */
+  workspaceRoot: string | null
+  repository: RepositoryIdentity | null
+  /** Every agent in it, in activity order. Never empty. */
+  agents: RemoteSessionRow[]
+  /** The loudest thing any of its agents is doing — what the row's marks report. */
+  activity: RemoteRowActivity
+  /** When that began, for the row's clock; null when the remote did not say. */
+  since: number | null
+  /** The workspace here whose pane is attached to one of its agents, when one is. */
+  attachedWorkspaceId: string | null
+  /** Read from an earlier browse on a machine that is not answering now. */
+  stale: boolean
+}
 
 /** What opening a row asks the app to do: focus the attached workspace, or attach a new one. */
 export type RemoteSessionOpenSpec = {
@@ -329,39 +351,91 @@ export function buildRemoteBand(input: {
   return groups
 }
 
+/** The loudest thing happening in a conversation is what its row reports. */
+function loudest(agents: readonly RemoteSessionRow[]): RemoteSessionRow {
+  return [...agents].sort(compareRows)[0]!
+}
+
 /**
- * The band as one flat list (owner ruling 2026-09-05): no machine headings,
- * every row leading with the machine glyph. In activity order across
- * machines, the way the local rows sort; workspaces here whose session the
- * machine did not list come last, since nothing is happening in them.
+ * A machine's sessions folded into the conversations they stand in
+ * (owner, 2026-09-11): one entry per remote workspace, carrying every agent in
+ * it. A session the remote filed under no workspace is its own conversation —
+ * there is nothing to fold it into, and dropping it would lose a chat.
+ */
+export function conversationsOf(group: RemoteMachineGroup): RemoteConversation[] {
+  const byWorkspace = new Map<string, RemoteSessionRow[]>()
+  for (const row of group.rows) {
+    // No workspace id: keyed by the session, so it stands alone rather than
+    // pooling every folderless session on the machine into one fake chat.
+    const key = row.workspaceId ?? `session:${row.sessionId}`
+    const list = byWorkspace.get(key) ?? []
+    list.push(row)
+    byWorkspace.set(key, list)
+  }
+  const conversations: RemoteConversation[] = []
+  for (const [key, rows] of byWorkspace) {
+    const agents = [...rows].sort(compareRows)
+    const lead = loudest(agents)
+    conversations.push({
+      key: `${group.machineName}:${key}`,
+      connectionId: lead.connectionId,
+      machineName: group.machineName,
+      // The chat's name, and only if the remote has one to give. The lone
+      // agent's name is the fallback rather than the first choice — it is the
+      // best a remote that predates `workspaceName` can do, not the title.
+      title: lead.workspaceName?.trim() || lead.title,
+      workspaceId: lead.workspaceId,
+      workspaceRoot: lead.workspaceRoot,
+      repository: lead.repository,
+      agents,
+      activity: lead.activity,
+      since: lead.since,
+      attachedWorkspaceId: agents.find((row) => row.attachedWorkspaceId)?.attachedWorkspaceId ?? null,
+      stale: group.stale,
+    })
+  }
+  return conversations
+}
+
+/** Conversations sort the way rows do: by what their loudest agent is doing. */
+function compareConversations(a: RemoteConversation, b: RemoteConversation): number {
+  const rank = ACTIVITY_RANK[a.activity] - ACTIVITY_RANK[b.activity]
+  if (rank !== 0) return rank
+  return a.title.localeCompare(b.title)
+}
+
+/**
+ * The remote conversations that need a row of their own: every one across
+ * every machine that no window HERE is already showing, in activity order.
+ *
+ * A conversation whose session a local workspace is attached to is not in this
+ * list, and must not be: that workspace is already a row of its project
+ * (`remoteOrigin`), and listing it here too would be the same chat twice.
  *
  * `listening` is whether this device is on the tailnet at all. Off it, nothing
  * over there can be reached, so nothing read from over there is drawn — only
  * the rows that are windows open HERE stay, since closing those is the
  * person's call. Nothing is forgotten: the browse rows return with the link.
  */
-export function remoteBandItems(
+export function unattachedConversations(
   groups: readonly RemoteMachineGroup[],
   listening: boolean,
   workspaces: readonly Workspace[]
-): RemoteBandItem[] {
-  const live: Array<RemoteBandItem & { row: RemoteSessionRow }> = []
-  const parked: RemoteBandItem[] = []
+): RemoteConversation[] {
+  if (!listening) return []
+  const rows: RemoteConversation[] = []
   for (const group of groups) {
-    for (const row of group.rows) {
-      const workspace = row.attachedWorkspaceId
-        ? workspaces.find((candidate) => candidate.id === row.attachedWorkspaceId) ?? null
-        : null
-      if (workspace) {
-        live.push({ kind: 'workspace', key: `ws:${workspace.id}`, workspace, machineName: group.machineName, stale: group.stale, row })
-      } else if (listening) {
-        live.push({ kind: 'session', key: row.key, row, machineName: group.machineName, stale: group.stale })
-      }
-    }
-    for (const workspace of group.parked) {
-      parked.push({ kind: 'workspace', key: `ws:${workspace.id}`, workspace, machineName: group.machineName, stale: group.stale, row: null })
+    for (const conversation of conversationsOf(group)) {
+      const attached =
+        conversation.attachedWorkspaceId !== null
+        && workspaces.some((candidate) => candidate.id === conversation.attachedWorkspaceId)
+      if (!attached) rows.push(conversation)
     }
   }
-  live.sort((a, b) => compareRows(a.row, b.row))
-  return [...live, ...parked]
+  return rows.sort(compareConversations)
+}
+
+/** What opening a conversation attaches to: its loudest agent — the one you came for. */
+export function openSpecOfConversation(conversation: RemoteConversation): RemoteSessionOpenSpec {
+  return openSpecOf(conversation.agents[0]!)
 }

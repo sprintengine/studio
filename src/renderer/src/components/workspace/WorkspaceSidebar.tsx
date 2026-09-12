@@ -20,6 +20,7 @@ import { changelistOwnerId } from '../../../../shared/git/changelists'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import type { AgentCli } from '../../../../shared/electron-api'
 import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMap } from './useFolderRepositoryIdentities'
+import type { RepositoryIdentity } from '../../../../shared/repository-identity'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
@@ -87,10 +88,10 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { useRemoteSessions } from './remoteBand/useRemoteSessions'
 import {
   buildRemoteBand,
-  openSpecOf,
-  remoteBandItems,
+  openSpecOfConversation,
+  unattachedConversations,
+  type RemoteConversation,
   type RemoteSessionOpenSpec,
-  type RemoteSessionRow,
 } from './remoteBand/remoteSessionsModel'
 import { shortMachineName } from '../remote/machineRowModel'
 import { useChangePulse } from '../../hooks/useChangePulse'
@@ -207,9 +208,29 @@ type FolderGroup = {
   // A header for chats born on a paired machine (remote-sessions-ux /
   // new-chat-on-a-remote-machine): the machine plus the remote workspace's
   // root. Epic decision 6 puts project identity on the folder header, and a
-  // remote row's project is on another machine — so the header names both,
-  // rather than filing the row under "No folder". Null for every local group.
-  remote: { machineName: string; workspaceRoot: string | null } | null
+  // remote row's project is on another machine — so the header names the
+  // folder there, rather than filing the row under "No folder". Null for every
+  // local group, AND for a remote project that has a local clone open here:
+  // that one is the local header, which remote rows simply join.
+  remote: {
+    machineName: string
+    workspaceRoot: string | null
+    /**
+     * Which repository the machine said the folder is. It is what this group's
+     * hue is keyed on — a project is a repository (decision 3), so the same
+     * repository wears one colour wherever it runs. Null when the machine could
+     * not say, and then the group has no key and no hue: a path on another
+     * disk must never key a colour, or one project ends up in two.
+     */
+    repository: RepositoryIdentity | null
+  } | null
+  /**
+   * Conversations on paired machines that no window here is attached to
+   * (owner, 2026-09-11). They are rows of this project like any other — the
+   * difference is that opening one attaches a pane rather than focusing a
+   * workspace, so they cannot be `Workspace`s until they are opened.
+   */
+  remoteRows: RemoteConversation[]
 }
 
 const NULL_FOLDER_KEY = '__no_folder__'
@@ -334,7 +355,16 @@ function folderDisplayName(value: string | null): string {
  */
 export function groupKeyOf(workspace: Workspace): string {
   const origin = workspace.remoteOrigin
-  if (origin) return `remote:${origin.connectionId}:${origin.workspaceId}`
+  // A remote row files under its PROJECT, not under itself (owner,
+  // 2026-09-11). Keyed by the repository where the machine could name one — so
+  // two chats in one checkout over there share a header, and the same
+  // repository on two machines is one project — and otherwise by the folder
+  // they stand in on that machine. Keying by the remote workspace id, as this
+  // did, gave every remote chat a header of its own.
+  if (origin) {
+    if (origin.repository?.canonicalKey) return `remote-repo:${origin.repository.canonicalKey}`
+    return `remote:${origin.connectionId}:${folderKey(origin.workspaceRoot)}`
+  }
   if (!workspace.folderPath) {
     const [machine] = fleetMachineNamesOf(workspace)
     if (machine) return `remote:${machine.toLowerCase()}`
@@ -370,21 +400,47 @@ function newChatProjectTarget(workspace: Workspace): string | null {
 
 function remoteGroupOf(workspace: Workspace): FolderGroup['remote'] {
   const origin = workspace.remoteOrigin
-  if (origin) return { machineName: origin.machineName, workspaceRoot: origin.workspaceRoot }
+  if (origin) {
+    return {
+      machineName: origin.machineName,
+      workspaceRoot: origin.workspaceRoot,
+      repository: origin.repository ?? null,
+    }
+  }
   if (!workspace.folderPath) {
     const [machine] = fleetMachineNamesOf(workspace)
-    if (machine) return { machineName: machine, workspaceRoot: null }
+    if (machine) return { machineName: machine, workspaceRoot: null, repository: null }
   }
   return null
 }
 
+/**
+ * A remote-only project's header: the FOLDER's name on that machine, and
+ * nothing else (owner, 2026-09-11).
+ *
+ * It used to read "mac-mini.tail1234.ts.net · multicode" — the machine
+ * first, the project second, so the same repository on two machines read as two
+ * different projects and neither header lined up with the local one. The
+ * machine is a glyph on each row now, with the device's name on hover, which is
+ * where provenance belongs when the project is the thing being grouped.
+ *
+ * `workspaceRoot` is the folder over there; `workspaceName` is a CHAT's name
+ * and is never a header, which is the same reason the New-chat project chip
+ * stopped offering chats as projects.
+ */
+function remoteProjectName(workspaceRoot: string | null, machineName: string): string {
+  // The machine, not "No folder", when the remote could not name a folder: a
+  // chat over there IS somewhere, and a header spelled "No folder" would both
+  // lie and collide with the local folderless group's name.
+  if (!workspaceRoot?.trim()) return shortMachineName(machineName)
+  return folderDisplayName(workspaceRoot)
+}
+
 function remoteGroupDisplayName(workspace: Workspace): string {
   const origin = workspace.remoteOrigin
-  if (origin) {
-    const project = origin.workspaceName || folderDisplayName(origin.workspaceRoot)
-    return `${origin.machineName} · ${project}`
-  }
-  return fleetMachineNamesOf(workspace)[0] ?? 'No folder'
+  if (origin) return remoteProjectName(origin.workspaceRoot, origin.machineName)
+  const [machine] = fleetMachineNamesOf(workspace)
+  return machine ? shortMachineName(machine) : 'No folder'
 }
 
 function buildFolderGroups(
@@ -417,6 +473,7 @@ function buildFolderGroups(
         missing: remote ? false : merged ? merged.missing : workspace.folderMissing === true,
         workspaces: [],
         remote,
+        remoteRows: [],
       })
     }
     const group = groups.get(key)!
@@ -968,19 +1025,83 @@ export function RowTooltip({ children, ...props }: React.ComponentProps<typeof T
 }
 
 /**
- * The mark a band row leads with (owner ruling 2026-09-05): the machine
- * glyph, and the machine's name only on hover. The band has no machine lines,
- * so this is the one place a row says where it lives — and it says it in the
- * tooltip and the accessible name, not in the row's own width.
+ * The one mark that says a row is running somewhere else: the machine glyph,
+ * in the connected green, with the device's name on hover.
+ *
+ * Green, not the row's own ink (owner, 2026-09-11). A remote row is now an
+ * ordinary row of an ordinary project — it has no band, no header and no
+ * "Remote" label around it any more — so this glyph is the whole of what
+ * distinguishes it, and a muted mark beside a muted project name was not a
+ * distinction anyone could see. It reads the same as every other live-link
+ * green in the app (the top bar's Remote glyph, a machine that answers).
+ *
+ * The NAME stays in the tooltip and the accessible name, never in the row's
+ * own width: `mac-mini.tail1234.ts.net` would take the row.
  */
 function RemoteRowGlyph({ machineName }: { machineName: string }) {
   const short = shortMachineName(machineName)
   return (
     <Tooltip content={`On ${short}`} placement="bottom" wrapperClassName="flex shrink-0 items-center">
       <span role="img" aria-label={`On ${short}`} className="flex shrink-0 items-center" data-remote-row-glyph={machineName}>
-        <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
+        <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--tone-good)]" />
       </span>
     </Tooltip>
+  )
+}
+
+/**
+ * The project a row belongs to, as the flat stream says it: the folder glyph
+ * in the project's hue, the project's name, its open pull requests, and — when
+ * the row is running on a paired machine — the green machine glyph immediately
+ * right of the folder icon (owner, 2026-09-11).
+ *
+ * One component for local and remote rows both, so a remote chat in the All
+ * chats list is the same row as every other one, differing by that single mark.
+ */
+export type FlatProjectLine = {
+  name: string
+  folderPath: string | null
+  color: ProjectColor | null
+  unfiled: boolean
+  openPullRequests: number
+}
+
+function ProjectLine({
+  project,
+  machineName = null,
+  dim = false,
+  children,
+}: {
+  project: FlatProjectLine
+  /** The device this row runs on; null for a local row. */
+  machineName?: string | null
+  dim?: boolean
+  /** The row's status seat, which rides this line's trailing edge. */
+  children?: React.ReactNode
+}) {
+  return (
+    <div
+      className={`flex h-5 min-w-0 items-center gap-1.5 text-meta ${
+        dim ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
+      }`}
+    >
+      {/* THE glyph the project's colour lives on in the flat stream
+          (one-colour-per-project, 2026-09-09). The name beside it stays
+          in the row's own ink: the hue identifies the project, and a
+          coloured word would be a second, louder saying of it. */}
+      <FolderTypeIcon className="icon-xs shrink-0" color={project.color} unfiled={project.unfiled} />
+      {machineName ? <RemoteRowGlyph machineName={machineName} /> : null}
+      <span className="min-w-0 truncate">{project.name}</span>
+      {/* The project's open pull requests, beside the project's name
+          (owner, 2026-09-10). In the flat stream this line is the only
+          place the project is named, so it is the only place the summary
+          can hang — the tree puts the same mark on its folder header.
+          It repeats down a project's rows exactly as the project's name
+          and colour already do: the line is the row's filing, and this
+          is part of what that filing says. */}
+      <ProjectPullRequestMark openCount={project.openPullRequests} projectName={project.name} dim={dim} />
+      {children}
+    </div>
   )
 }
 
@@ -1552,7 +1673,6 @@ export default function WorkspaceSidebar({
   // default: the shelf is where rows go to stop asking for attention.
   const [expandedSettledFolders, setExpandedSettledFolders] = useState<Record<string, boolean>>({})
   const [starredCollapsed, setStarredCollapsed] = useState(false)
-  const [remoteCollapsed, setRemoteCollapsed] = useState(false)
   const [renamingId, setRenamingId] = useState<WorkspaceId | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
@@ -1759,20 +1879,22 @@ export default function WorkspaceSidebar({
     [workspaces]
   )
 
-  // Rows born on a paired machine (`workspace.remoteOrigin`) are the Remote
-  // band's and only the band's (remote-sessions-in-the-sidebar, decision 1):
-  // they never file under a folder header, so the folder groups are built
-  // from the local rows alone. Starred stays additive — a starred remote row
-  // appears there too, as a starred local row appears beside its folder.
-  const localRailWorkspaces = useMemo(
-    () => railWorkspaces.filter((workspace) => !workspace.remoteOrigin),
-    [railWorkspaces]
-  )
+  // Rows born on a paired machine (`workspace.remoteOrigin`) file under a
+  // project header like every other chat (owner, 2026-09-11). They used to be
+  // held out of the groups entirely and listed in a "Remote" band above them —
+  // which made the machine the thing a chat belonged to, rather than the
+  // project it is in. What is remote about a row is now said where it belongs:
+  // a green glyph on the row itself, naming the device on hover.
+  //
+  // `resolveGroups` already knows how to file one: a remote row whose
+  // repository has a local clone open here joins that clone's header, and one
+  // with no twin founds a header of its own named after its folder over there.
+  const localRailWorkspaces = railWorkspaces
 
   // Repository identity per open local folder (one-project-across-machines),
-  // read once per folder. It no longer moves rows between headers — the band
-  // holds every remote row — but the reads stay: New chat's "Run on" is what
-  // still keys on which repository a local folder is.
+  // read once per folder. This is what lets a chat running on the Mini sit
+  // under the same header as this disk's clone of the same repository, and what
+  // New chat's "Run on" keys on.
   //
   // Asked for the row's own folder AND the project it files under: a worktree row's
   // header is its parent checkout, which may have no row of its own, and the
@@ -1792,10 +1914,92 @@ export default function WorkspaceSidebar({
     (workspace: Workspace) => resolvedGroups.keys.get(workspace.id) ?? groupKeyOf(workspace),
     [resolvedGroups]
   )
-  const groups = useMemo(
+  const localGroups = useMemo(
     () => buildFolderGroups(localRailWorkspaces, keyOf, resolvedGroups.headers),
     [localRailWorkspaces, keyOf, resolvedGroups]
   )
+  // Which header a given repository already has here, so a remote conversation
+  // of that repository joins it instead of founding a second one beside it.
+  // Read off the groups that exist rather than recomputed, so the two can
+  // never disagree about where a project lives.
+  const groupKeyByRepository = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const group of localGroups) {
+      if (group.remote || !group.fullPath) continue
+      const canonicalKey = folderIdentities.get(folderIdentityKey(group.fullPath))?.canonicalKey
+      if (canonicalKey && !map.has(canonicalKey)) map.set(canonicalKey, group.key)
+    }
+    return map
+  }, [localGroups, folderIdentities])
+
+  // Each paired machine's sessions, read while this rail is the one showing; a
+  // machine that is asleep is drawn from its last read. No longer gated on a
+  // band being open — there is no band, and the rows these feed are spread
+  // through the projects.
+  const remoteSessions = useRemoteSessions({ enabled: !contextRailActive })
+  const { presence: remotePresence, browses: remoteBrowses, listening: remoteListening } = remoteSessions
+  const remoteGroups = useMemo(
+    () =>
+      buildRemoteBand({
+        connections: remotePresence.fleet,
+        browses: remoteBrowses,
+        attachments: remotePresence.fleetAttachments,
+        reachability: remotePresence.fleetReachability,
+        workspaces: railWorkspaces,
+      }),
+    [remotePresence.fleet, remoteBrowses, remotePresence.fleetAttachments, remotePresence.fleetReachability, railWorkspaces]
+  )
+  // The conversations on paired machines that no window here holds. The ones
+  // that DO have a window are already `Workspace`s in `railWorkspaces` and
+  // group themselves; listing them here too would be the same chat twice.
+  const unattachedRemote = useMemo(
+    () => unattachedConversations(remoteGroups, remoteListening, railWorkspaces),
+    [remoteGroups, remoteListening, railWorkspaces]
+  )
+  // Which project header a remote conversation files under. The same rule the
+  // remote-born WORKSPACES follow (`groupKeyOf` + `resolveGroups`): this disk's
+  // clone of the repository when there is one open here, else one header per
+  // repository, else one per folder on that machine.
+  const remoteGroupKeyOf = useCallback(
+    (conversation: RemoteConversation): string => {
+      const canonicalKey = conversation.repository?.canonicalKey
+      if (canonicalKey) return groupKeyByRepository.get(canonicalKey) ?? `remote-repo:${canonicalKey}`
+      return `remote:${conversation.connectionId}:${folderKey(conversation.workspaceRoot)}`
+    },
+    [groupKeyByRepository]
+  )
+  // The projects, with the remote conversations filed into them. A project
+  // nothing here has open — every chat in it running on another machine — is a
+  // real project and gets a header of its own, named after its folder there.
+  const groups = useMemo(() => {
+    const order = localGroups.map((group) => group.key)
+    const byKey = new Map(localGroups.map((group) => [group.key, { ...group, remoteRows: [] as RemoteConversation[] }]))
+    for (const conversation of unattachedRemote) {
+      const key = remoteGroupKeyOf(conversation)
+      let group = byKey.get(key)
+      if (!group) {
+        group = {
+          key,
+          displayName: remoteProjectName(conversation.workspaceRoot, conversation.machineName),
+          // No LOCAL path: nothing here may reveal, forget, or create into a
+          // folder that lives on another machine.
+          fullPath: null,
+          missing: false,
+          workspaces: [],
+          remote: {
+            machineName: conversation.machineName,
+            workspaceRoot: conversation.workspaceRoot,
+            repository: conversation.repository,
+          },
+          remoteRows: [],
+        }
+        byKey.set(key, group)
+        order.push(key)
+      }
+      group.remoteRows.push(conversation)
+    }
+    return order.map((key) => byKey.get(key)!)
+  }, [localGroups, unattachedRemote, remoteGroupKeyOf])
 
   // Which shape this rail lists chats in — the project tree, or one stream of
   // all of them (all-chats-view, 2026-09-07). Read from the store rather than
@@ -1897,7 +2101,21 @@ export default function WorkspaceSidebar({
   // project.
   const projectKeyOfGroup = useCallback(
     (group: FolderGroup): { key: string | null; settled: boolean } => {
-      if (group.remote || !group.fullPath) return { key: null, settled: true }
+      // A project that lives only on paired machines keys on its REPOSITORY,
+      // so this disk's clone and that machine's wear one hue (decision 3) —
+      // and on nothing at all when the machine could not say which repository
+      // it is, since a path over there would key a colour that could disagree
+      // with the local clone's. Settled either way: the machine has answered,
+      // and there is no second read coming that would change the key.
+      if (group.remote) {
+        return {
+          key: group.remote.repository
+            ? projectColorKey({ folderPath: null, repository: group.remote.repository })
+            : null,
+          settled: true,
+        }
+      }
+      if (!group.fullPath) return { key: null, settled: true }
       const identityKey = folderIdentityKey(group.fullPath)
       return {
         key: projectColorKey({
@@ -1958,6 +2176,30 @@ export default function WorkspaceSidebar({
       }
     },
     [groupByKey, keyOf, openPullRequestsByGroup, projectColorOf]
+  )
+
+  // The same line for a conversation on a paired machine. It resolves through
+  // the SAME group the tree files it under, so a remote chat of a project open
+  // here reads with that project's name and that project's hue — which is the
+  // whole point of `one-project-across-machines`: the Mini's copy of multicode
+  // is multicode, not "the Mini".
+  //
+  // Never unfiled: a remote conversation has a folder, it is simply on another
+  // disk. The dashed outline means "no folder at all", which is a different
+  // thing (decision 6).
+  const flatProjectOfRemote = useCallback(
+    (conversation: RemoteConversation): FlatProjectLine => {
+      const groupKey = remoteGroupKeyOf(conversation)
+      const group = groupByKey.get(groupKey)
+      return {
+        name: group?.displayName ?? remoteProjectName(conversation.workspaceRoot, conversation.machineName),
+        folderPath: group?.fullPath ?? conversation.workspaceRoot,
+        openPullRequests: openPullRequestsByGroup.get(groupKey) ?? 0,
+        color: projectColorOf(groupKey),
+        unfiled: false,
+      }
+    },
+    [groupByKey, remoteGroupKeyOf, openPullRequestsByGroup, projectColorOf]
   )
 
   // The row you are in always has a row: a settled chat you selected (or
@@ -2023,34 +2265,18 @@ export default function WorkspaceSidebar({
   // stream keeps one Snoozed shelf across every project (`renderChatStream`),
   // so a sleeper in a folder that has stepped out is still there to be found
   // and woken early.
+  //
+  // A conversation running on a paired machine keeps its project here, the
+  // same as a local one: it is something going on, and rest and sleep are
+  // states a chat enters on THIS disk — nothing over there has one.
   const activeGroups = useMemo(
-    () => groups.filter((group) => !group.workspaces.every((w) => isShelved(w) || isAsleep(w))),
+    () =>
+      groups.filter(
+        (group) => group.remoteRows.length > 0 || !group.workspaces.every((w) => isShelved(w) || isAsleep(w))
+      ),
     [groups, isShelved, isAsleep]
   )
 
-  // The Remote band's reads and rows (remote-sessions-in-the-sidebar): each
-  // paired machine's sessions, read only while the band is open and this rail
-  // is the one showing; a machine that is asleep is drawn from its last read.
-  const remoteSessions = useRemoteSessions({ enabled: !remoteCollapsed && !contextRailActive })
-  const { presence: remotePresence, browses: remoteBrowses, listening: remoteListening } = remoteSessions
-  const remoteGroups = useMemo(
-    () =>
-      buildRemoteBand({
-        connections: remotePresence.fleet,
-        browses: remoteBrowses,
-        attachments: remotePresence.fleetAttachments,
-        reachability: remotePresence.fleetReachability,
-        workspaces: railWorkspaces,
-      }),
-    [remotePresence.fleet, remoteBrowses, remotePresence.fleetAttachments, remotePresence.fleetReachability, railWorkspaces]
-  )
-  // One flat list, no machine headings (owner ruling 2026-09-05): the glyph
-  // on each row says where it lives. Empty — and so the band absent — until
-  // there is a conversation to open, or a window here that was born over there.
-  const remoteItems = useMemo(
-    () => remoteBandItems(remoteGroups, remoteListening, railWorkspaces),
-    [remoteGroups, remoteListening, railWorkspaces]
-  )
 
   // Starred workspaces order the same way the folders do: by the person's last
   // message, newest first, and nothing else. This supersedes manual drag
@@ -2471,13 +2697,7 @@ export default function WorkspaceSidebar({
        * and that line takes the row's clock and its hover actions. Null in the
        * tree, where the header says the project once for all its chats.
        */
-      flatProject?: {
-        name: string
-        folderPath: string | null
-        color: ProjectColor | null
-        unfiled: boolean
-        openPullRequests: number
-      }
+      flatProject?: FlatProjectLine
     }
   ) => {
     // When a door-routed full-page surface owns the card region (epic 1704), no
@@ -2485,6 +2705,10 @@ export default function WorkspaceSidebar({
     // highlighted project row here would be a second, conflicting selected state.
     const active = !globalSurfaceActive && workspace.id === activeWorkspaceId
     const flatProject = options?.flatProject ?? null
+    // The machine a chat born over there runs on, read off its own provenance
+    // rather than passed down: the row no longer comes from a band that knew,
+    // and the stamp rides the workspace whether or not a pane is open.
+    const rowMachineName = options?.remoteMachine ?? workspace.remoteOrigin?.machineName ?? null
     const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
     const tone = activityTone(activity)
     const recency = terminalRecencyByWorkspaceId[workspace.id]
@@ -2576,7 +2800,7 @@ export default function WorkspaceSidebar({
       : { lines: [], overflow: 0 }
     // A band row names its machine on the title glyph, so its lines do not
     // say it again; a local row that holds a remote pane still marks it there.
-    if (options?.remoteMachine) for (const line of rowLines.lines) line.machineName = null
+    if (rowMachineName) for (const line of rowLines.lines) line.machineName = null
     // The one thing a parked row still gets to say (orchestrator ruling
     // 2026-09-07). The gate above is about the checkout's live state, which a
     // chat with nothing running has no claim on; a worktree workspace's branch
@@ -2888,7 +3112,10 @@ export default function WorkspaceSidebar({
     }`
     const titleClusterContent = (
       <>
-        {options?.remoteMachine ? <RemoteRowGlyph machineName={options.remoteMachine} /> : null}
+        {/* Where the row runs, when it is not here. In the flat stream the
+            project line above already carries this mark beside the folder
+            icon, so the title does not say it twice. */}
+        {rowMachineName && !flatProject ? <RemoteRowGlyph machineName={rowMachineName} /> : null}
         {starred ? (
           <StarGlyph
             filled
@@ -3024,35 +3251,16 @@ export default function WorkspaceSidebar({
             exactly this — a project's mark once per chat is repetition), and
             this line is a row's filing, not a heading. */}
         {flatProject ? (
-          <div
-            className={`flex h-5 min-w-0 items-center gap-1.5 text-meta ${
-              emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
-            }`}
+          <ProjectLine
+            project={flatProject}
+            // A chat born on a paired machine wears the green glyph here too:
+            // in this view it IS an ordinary row of its project, so the mark
+            // beside the folder icon is the only thing saying where it runs.
+            machineName={rowMachineName}
+            dim={emphasis === 'quiet'}
           >
-            {/* THE glyph the project's colour lives on in the flat stream
-                (one-colour-per-project, 2026-09-09). The name beside it stays
-                in the row's own ink: the hue identifies the project, and a
-                coloured word would be a second, louder saying of it. */}
-            <FolderTypeIcon
-              className="icon-xs shrink-0"
-              color={flatProject.color}
-              unfiled={flatProject.unfiled}
-            />
-            <span className="min-w-0 truncate">{flatProject.name}</span>
-            {/* The project's open pull requests, beside the project's name
-                (owner, 2026-09-10). In the flat stream this line is the only
-                place the project is named, so it is the only place the summary
-                can hang — the tree puts the same mark on its folder header.
-                It repeats down a project's rows exactly as the project's name
-                and colour already do: the line is the row's filing, and this
-                is part of what that filing says. */}
-            <ProjectPullRequestMark
-              openCount={flatProject.openPullRequests}
-              projectName={flatProject.name}
-              dim={emphasis === 'quiet'}
-            />
             {statusSeat}
-          </div>
+          </ProjectLine>
         ) : null}
         <AttentionPulse active={needsAttention} resetKey={workspace.id} />
         <AttentionPulse active={unseenDone} resetKey={workspace.id} tone="good" />
@@ -3216,50 +3424,82 @@ export default function WorkspaceSidebar({
     )
   }
 
-  // A conversation on a paired machine that no workspace here is attached to
-  // (remote-sessions-in-the-sidebar): the same two-line shape as a workspace
-  // row — the machine glyph and the title, then heads · branch · diff with the
-  // status in the seat — and opening it attaches here. No drag, rename, or
-  // close: those are a workspace's, and this row has none until it is opened.
+  // A conversation on a paired machine that no workspace here is attached to.
+  //
+  // The same row a local chat gets (owner, 2026-09-11): its own title, a line
+  // per agent in it, and — in the flat stream — the project line above it, with
+  // the same glyph in the same hue the project wears everywhere else. What is
+  // different is said in one mark: the green machine glyph beside the project's
+  // folder icon, naming the device on hover. Opening it attaches a pane here.
+  //
+  // No drag, rename, or close: those are a workspace's, and this row has none
+  // until it is opened.
   //
   // The seat and the surface are the local rows' own (owner ruling
   // 2026-09-05): the working dots with how long the turn has run, the gold
   // surface for a turn waiting on a person, a quiet time since an idle row
   // last worked. No status dot — that vocabulary was already spoken for.
-  const renderRemoteSessionRow = (row: RemoteSessionRow, machineName: string) => {
-    const rowKey = `remote-session-${row.key}`
-    const open = () => onOpenRemoteSession?.(openSpecOf(row))
-    const needsAttention = row.activity === 'needs-input'
+  const renderRemoteConversationRow = (
+    conversation: RemoteConversation,
+    options?: { flatProject?: FlatProjectLine }
+  ) => {
+    const rowKey = `remote-session-${conversation.key}`
+    const open = () => onOpenRemoteSession?.(openSpecOfConversation(conversation))
+    const needsAttention = conversation.activity === 'needs-input'
+    const flatProject = options?.flatProject ?? null
     const surface = needsAttention
       ? attentionRowClass(false)
-      : row.activity === 'paused'
+      : conversation.activity === 'paused'
         ? 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'
         : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
+    const lines = conversation.agents.map(lineOfRemoteRow)
     return (
       <div
         key={rowKey}
         data-row-key={rowKey}
-        data-remote-session={row.sessionId}
-        data-remote-activity={row.activity}
+        data-remote-session={conversation.agents[0]!.sessionId}
+        data-remote-conversation={conversation.key}
+        data-remote-activity={conversation.activity}
         tabIndex={rovingKey === rowKey ? 0 : -1}
         onFocus={() => setRovingKey(rowKey)}
         onKeyDown={(event) => handleTreeRowKeyDown(event, null, open)}
         onClick={open}
-        // design-tokens-allow: alignment — the same 26px inset as the workspace rows, so a remote title sits on the content column
-        className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pl-[26px] pr-1.5 text-heading ${surface} ${FOCUS_RING_CLASS}`}
+        // design-tokens-allow: alignment — the same 26px inset as the workspace rows, so a remote title sits on the content column; the flat stream's rows start at the project line instead
+        className={`interactive group relative mx-1.5 my-0.5 flex min-h-control-sm cursor-pointer select-none flex-col justify-center gap-0.5 rounded-md border-l-[4px] border-l-transparent py-1 pr-1.5 text-heading ${
+          flatProject ? 'pl-1.5' : 'pl-[26px]'
+        } ${surface} ${FOCUS_RING_CLASS}`}
         role="treeitem"
       >
+        {flatProject ? <ProjectLine project={flatProject} machineName={conversation.machineName} /> : null}
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            <RemoteRowGlyph machineName={machineName} />
+            {/* In the tree the project header is above and carries no machine,
+                so the row wears the glyph; in the flat stream the project line
+                already wears it, right of the folder icon. */}
+            {flatProject ? null : <RemoteRowGlyph machineName={conversation.machineName} />}
             {/* Weight marks a running turn, the way residency bolds a local row. */}
-            <TruncatedText as="span" text={row.title} className={`min-w-0 flex-1 ${row.activity === 'working' ? 'font-semibold' : ''}`} />
-            <span className="sr-only"> (on {machineName}, not open here)</span>
+            <TruncatedText
+              as="span"
+              text={conversation.title}
+              className={`min-w-0 flex-1 ${conversation.activity === 'working' ? 'font-semibold' : ''}`}
+            />
+            <span className="sr-only"> (on {conversation.machineName}, not open here)</span>
             {needsAttention ? <span className="sr-only"> (needs your input)</span> : null}
-            {row.activity === 'paused' ? <span className="sr-only"> (paused)</span> : null}
+            {conversation.activity === 'paused' ? <span className="sr-only"> (paused)</span> : null}
           </span>
         </div>
-        <TerminalLineView line={lineOfRemoteRow(row)} now={now} />
+        {/* One line per agent, the way a local chat draws its terminals.
+            `disambiguate` is what makes a row of three say WHICH of them is
+            the one waiting on a person. */}
+        {lines.map((line) => (
+          <TerminalLineView
+            key={line.key}
+            line={line}
+            now={now}
+            disambiguate={lines.length > 1}
+            rowOwnsStatus={flatProject !== null}
+          />
+        ))}
       </div>
     )
   }
@@ -3294,10 +3534,18 @@ export default function WorkspaceSidebar({
     const snoozedRows = sortByWake(visibleWorkspaces.filter((w) => !isShelved(w) && isAsleep(w)))
     const activeRows = visibleWorkspaces.filter((workspace) => !isShelved(workspace) && !isAsleep(workspace))
 
+    // The project's conversations on paired machines, after its local ones.
+    // After, not interleaved: the two have no shared clock — a remote row's
+    // time is its agent's phase, a local row's is when you last messaged it —
+    // and interleaving them by numbers that mean different things would put
+    // rows in an order nobody could read.
+    const remoteRows = group.remoteRows.map((conversation) => renderRemoteConversationRow(conversation))
+
     if (settledRows.length === 0 && snoozedRows.length === 0) {
       return (
         <div id={folderBodyId}>
           {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+          {remoteRows}
         </div>
       )
     }
@@ -3312,6 +3560,7 @@ export default function WorkspaceSidebar({
     return (
       <div id={folderBodyId}>
         {activeRows.map((workspace) => renderWorkspaceRow(workspace, group.key))}
+        {remoteRows}
         {/* Sleep above rest: these rows are coming back, and on a known clock. */}
         {snoozedRows.length > 0 ? (
           <>
@@ -3373,8 +3622,11 @@ export default function WorkspaceSidebar({
   // Rest works exactly as it does in the tree, with one shelf instead of one
   // per project: the same rows, the same fold, the same count.
   //
-  // Rows born on a paired machine stay the Remote band's alone, as they are in
-  // the tree — the band is above this list either way.
+  // A chat running on a paired machine is a row of this list like any other
+  // (owner, 2026-09-11) — same project line, same title, same shape — with the
+  // green machine glyph beside the folder icon saying where it runs. They come
+  // after the local rows for the reason the tree puts them after: the two have
+  // no shared clock to interleave on.
   const renderChatStream = () => {
     const settledRows = sortWorkspacesByUserMessage(localRailWorkspaces.filter(isShelved))
     const snoozedRows = sortByWake(localRailWorkspaces.filter((w) => !isShelved(w) && isAsleep(w)))
@@ -3389,6 +3641,11 @@ export default function WorkspaceSidebar({
           renderWorkspaceRow(workspace, keyOf(workspace), {
             keyPrefix: 'all-',
             flatProject: flatProjectOf(workspace),
+          })
+        )}
+        {unattachedRemote.map((conversation) =>
+          renderRemoteConversationRow(conversation, {
+            flatProject: flatProjectOfRemote(conversation),
           })
         )}
         {snoozedRows.length > 0 ? (
@@ -3875,68 +4132,13 @@ export default function WorkspaceSidebar({
             </div>
           </section>
         ) : null}
-        {/* The Remote band (remote-sessions-in-the-sidebar): the sessions that
-            live on paired machines, one machine line each, placed like Starred
-            — above the folders, one icon slot, collapsible. Machine management
-            is not here (epic decision 3): Settings → Remote and the top bar's
-            Remote glyph add, forget, and revoke. */}
-        {remoteItems.length > 0 ? (
-          <section className="relative pt-1" aria-label="Remote sessions">
-            {/* Starred's row, same shape. */}
-            <RowButton
-              density="nav"
-              onClick={() => setRemoteCollapsed((prev) => !prev)}
-              aria-expanded={!remoteCollapsed}
-              aria-controls="ws-remote-body"
-              className="group/folder relative select-none pl-4 pr-2"
-            >
-              {/* Starred's one-slot idiom: the machine glyph at rest, the
-                  collapse chevron swapped in on hover. */}
-              <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
-                <RemoteMachineGlyph className="icon-sm shrink-0 text-[color:var(--text-muted)] transition-opacity group-hover/folder:opacity-0" />
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  aria-hidden="true"
-                  className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
-                    remoteCollapsed ? '-rotate-90' : ''
-                  }`}
-                >
-                  <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
-              <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
-                Remote
-              </span>
-            </RowButton>
-            <div id="ws-remote-body" hidden={remoteCollapsed}>
-              {/* One flat list in activity order, no machine lines and no
-                  "No sessions open" (owner ruling 2026-09-05): the glyph on
-                  each row says where it lives, and a band with nothing to
-                  open is not drawn at all. Rows from an earlier read on a
-                  machine that is not answering now are kept, drawn quieter,
-                  still openable — the attach itself says whether it answers. */}
-              {!remoteCollapsed
-                ? remoteItems.map((item) => {
-                    const node =
-                      item.kind === 'workspace'
-                        ? renderWorkspaceRow(item.workspace, `remote:${item.machineName}`, {
-                            keyPrefix: 'remote-',
-                            remoteMachine: item.machineName,
-                          })
-                        : renderRemoteSessionRow(item.row, item.machineName)
-                    return item.stale ? (
-                      <div key={item.key} className="opacity-60">
-                        {node}
-                      </div>
-                    ) : (
-                      <React.Fragment key={item.key}>{node}</React.Fragment>
-                    )
-                  })
-                : null}
-            </div>
-          </section>
-        ) : null}
+        {/* No "Remote" band (owner, 2026-09-11). The sessions on paired
+            machines used to be listed here, above the projects, under a
+            heading named after the transport — which filed a chat by the
+            computer it happened to run on rather than by the project it is in,
+            and titled each row with its agent's name because a band row was a
+            SESSION. They are rows of their projects now, below, wearing one
+            green machine glyph each. */}
         {chatListView === 'all' ? renderChatStream() : activeGroups.map((group) => renderFolderSection(group))}
       </nav>
       </div>

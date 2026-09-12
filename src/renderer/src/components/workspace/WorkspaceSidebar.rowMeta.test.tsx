@@ -398,7 +398,19 @@ run('provenance comes from remoteOrigin first; the layout walk covers legacy row
     layoutModel: { layout: { type: 'row', children: [] } },
   } as unknown as Workspace
   assert.deepEqual(provenanceMachinesOf(born), ['Air'], 'a closed pane never loses the mark')
-  assert.equal(groupKeyOf(born), 'remote:c1:rw1', 'grouped by machine + remote workspace, not "No folder"')
+  // Grouped by the PROJECT over there, not by the chat: two chats in one
+  // checkout on the Air share a header (owner, 2026-09-11). The repository
+  // takes precedence where the machine could name one, so the same repository
+  // on two machines is one project; this origin names none.
+  assert.equal(groupKeyOf(born), 'remote:c1:/users/me/app', 'grouped by the folder over there, not by the remote workspace id')
+  const bornWithRepo = {
+    ...born,
+    remoteOrigin: {
+      ...(born as unknown as { remoteOrigin: Record<string, unknown> }).remoteOrigin,
+      repository: { canonicalKey: 'github.com/acme/app', remoteUrl: '', name: 'app' },
+    },
+  } as unknown as Workspace
+  assert.equal(groupKeyOf(bornWithRepo), 'remote-repo:github.com/acme/app', 'a named repository is the project, whatever machine holds it')
 
   const legacy = {
     folderPath: null,

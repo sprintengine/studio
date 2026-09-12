@@ -1247,7 +1247,23 @@ async function main(): Promise<void> {
     local.unmount()
   })
 
-  await check('a picked remote project reads its checkout: the branch is a fact on the current checkout, a base to fork from on a new worktree, and the launch carries the choice', async () => {
+  // The worktree question lives in ONE place now (owner, 2026-09-11): the ⋯
+  // row, for a local target and a remote one alike. The scope line used to
+  // grow a "Current checkout" chip and a branch segment the moment a remote
+  // project was picked, which asked the same question twice on one surface.
+  const openMore = async (view: { container: Element }) => {
+    const more = [...view.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'More launch options',
+    )
+    await click(more)
+    return dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')!
+  }
+  const worktreeRowOf = (menu: Element) =>
+    [...menu.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+      (button.textContent ?? '').startsWith('Worktree'),
+    )
+
+  await check('the scope line carries no checkout control, and the ⋯ worktree row is what sends a remote launch to a fresh worktree', async () => {
     seedStore()
     resetRememberedMachineForTests()
     fleetConnections = [machine('m1', 'Air')]
@@ -1277,55 +1293,59 @@ async function main(): Promise<void> {
     await settle()
     await pickMachine(view, 'Air')
     await settle()
+    // The checkout is still READ on the pick — the ⋯ row's gate is built from
+    // it — but nothing on the scope line reports it.
     assert.deepEqual(checkoutReads, ['w1'], 'the lone project is picked, and its checkout read once')
-    const checkoutTrigger = () => view.container.querySelector<HTMLButtonElement>('[data-checkout-trigger="true"]')
-    assert.equal(checkoutTrigger()?.textContent?.trim(), 'Current checkout', 'the scope line opens on the current checkout')
-    const fact = view.container.querySelector('[data-branch-fact="true"]')
-    assert.ok(fact?.textContent?.includes('main'), `the branch is a fact beside it; got: ${fact?.textContent}`)
-    assert.equal(view.container.querySelector('[data-branch-trigger="true"]'), null, 'and not a picker — this machine never moves that checkout')
+    assert.equal(view.container.querySelector('[data-checkout-trigger="true"]'), null, 'no checkout chip on the scope line')
+    assert.equal(view.container.querySelector('[data-branch-trigger="true"]'), null, 'and no branch picker')
+    assert.equal(view.container.querySelector('[data-branch-fact="true"]'), null, 'and no branch fact')
 
     const textarea = view.container.querySelector('textarea')!
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-      setter.call(textarea, 'fix the build')
-      textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-    })
+    const type = (value: string) =>
+      act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+        setter.call(textarea, value)
+        textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
     const enter = () =>
       act(async () => {
         textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       })
+    await type('fix the build')
     await enter()
     await settle()
-    assert.deepEqual(remoteLaunches[0]?.checkout, { mode: 'current' }, 'the current checkout travels as such')
+    assert.deepEqual(remoteLaunches[0]?.checkout, { mode: 'current' }, 'with no worktree asked for, the current checkout travels')
     assert.equal(remoteLaunches[0]?.branch, 'main', 'with the branch the panel read, for the row')
 
-    // New worktree: the branch segment becomes the base to fork from.
-    await click(checkoutTrigger())
-    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Checkout on Air"]')
-    assert.ok(menu, 'the checkout menu opens on the popover surface')
-    const rows = [...menu!.querySelectorAll<HTMLButtonElement>('[data-checkout-option="true"]')]
-    assert.deepEqual(rows.map((row) => row.getAttribute('aria-disabled')), [null, null], 'both choices are open to a workspace:operate pairing')
-    await click(buttonWithText(menu!, 'New worktree'))
+    // Turn the ⋯ row on and the same launch forks a worktree over there,
+    // based on the remote checkout's own branch.
+    const menu = await openMore(view)
+    const row = worktreeRowOf(menu)
+    assert.ok(row, 'the worktree row is offered once a remote project is picked')
+    assert.equal(row!.disabled, false, 'and a workspace:operate pairing may take it')
+    await click(row)
     await settle()
-    assert.equal(checkoutTrigger()?.textContent?.trim(), 'New worktree')
-    const branchTrigger = () => view.container.querySelector<HTMLButtonElement>('[data-branch-trigger="true"]')
-    assert.equal(branchTrigger()?.textContent?.trim(), 'From main', 'the base defaults to the current branch')
-    await click(branchTrigger())
-    const branches = dom.window.document.querySelector('[role="menu"][aria-label="Branch to fork on Air"]')
-    assert.ok(branches, 'the branch list opens')
-    const names = [...branches!.querySelectorAll('[role="menuitemradio"]')].map((row) => row.querySelector('span')?.textContent?.trim())
-    assert.deepEqual(names, ['feat/x', 'main'], 'listing the remote’s own branches')
-    await click(buttonWithText(branches!, 'feat/x'))
+    const branchInput = dom.window.document.querySelector<HTMLInputElement>('[aria-label="Worktree branch name"]')
+    assert.ok(branchInput, 'and reveals the branch field')
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!
+      setter.call(branchInput!, 'fix/build')
+      branchInput!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
     await settle()
-    assert.equal(branchTrigger()?.textContent?.trim(), 'From feat/x')
+    await type('fix the build again')
     await enter()
     await settle()
-    assert.deepEqual(remoteLaunches[1]?.checkout, { mode: 'worktree', baseRef: 'feat/x' }, 'the worktree request names its base')
+    assert.deepEqual(
+      remoteLaunches[1]?.checkout,
+      { mode: 'worktree', baseRef: 'main', name: 'fix/build' },
+      'the worktree request carries the typed branch name and forks the remote’s own branch',
+    )
     assert.equal(remoteLaunches[1]?.branch, null, 'the worktree’s branch is minted there, so none is claimed here')
     view.unmount()
   })
 
-  await check('New worktree stays closed while the checkout is being read, and a detached remote forks its trunk', async () => {
+  await check('the ⋯ worktree row stays closed while the checkout is being read, and a detached remote forks its trunk', async () => {
     seedStore()
     resetRememberedMachineForTests()
     fleetConnections = [machine('m1', 'Air')]
@@ -1341,13 +1361,10 @@ async function main(): Promise<void> {
     await settle()
     await pickMachine(view, 'Air')
     await settle()
-    const checkoutTrigger = () => view.container.querySelector<HTMLButtonElement>('[data-checkout-trigger="true"]')
-    await click(checkoutTrigger())
-    let menu = dom.window.document.querySelector('[role="menu"][aria-label="Checkout on Air"]')!
-    let rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-checkout-option="true"]')]
-    assert.equal(rows[1]!.disabled, true, 'while the checkout is unread the worktree row is closed')
-    assert.ok(rows[1]!.textContent?.includes('Reading the checkout'), 'and says it is reading')
-    assert.equal(dom.window.document.activeElement, rows[0], 'focus lands on the checked row on open')
+    let menu = await openMore(view)
+    let row = worktreeRowOf(menu)!
+    assert.equal(row.disabled, true, 'while the checkout is unread the worktree row is closed')
+    assert.ok(row.textContent?.includes('Reading the checkout'), 'and says it is reading')
     await act(async () => {
       dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
@@ -1362,14 +1379,11 @@ async function main(): Promise<void> {
       })
     })
     await settle()
-    assert.ok(view.container.querySelector('[data-branch-fact="true"]')?.textContent?.includes('detached'), 'the fact says detached')
-    await click(checkoutTrigger())
-    menu = dom.window.document.querySelector('[role="menu"][aria-label="Checkout on Air"]')!
-    rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-checkout-option="true"]')]
-    assert.equal(rows[1]!.disabled, false, 'once read, a repo with a trunk can fork')
-    await click(rows[1])
+    menu = await openMore(view)
+    row = worktreeRowOf(menu)!
+    assert.equal(row.disabled, false, 'once read, a repo with a trunk can fork')
+    await click(row)
     await settle()
-    assert.equal(view.container.querySelector('[data-branch-trigger="true"]')?.textContent?.trim(), 'From main', 'the trunk is the base when there is no branch')
     const textarea = view.container.querySelector('textarea')!
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
@@ -1380,7 +1394,7 @@ async function main(): Promise<void> {
       textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
     })
     await settle()
-    assert.deepEqual(remoteLaunches[0]?.checkout, { mode: 'worktree', baseRef: 'main' }, 'what is shown is what is sent')
+    assert.deepEqual(remoteLaunches[0]?.checkout, { mode: 'worktree', baseRef: 'main' }, 'the trunk is the base when there is no branch, and an unnamed worktree sends no name')
     view.unmount()
     fleetCheckoutAnswer = (_c, workspaceId) => ({
       ok: true,
@@ -1388,7 +1402,7 @@ async function main(): Promise<void> {
     })
   })
 
-  await check('a pairing without workspace:operate, an unreadable checkout, and a non-repo each dim New worktree with the real reason', async () => {
+  await check('a pairing without workspace:operate, an unreadable checkout, and a non-repo each dim the ⋯ worktree row with the real reason', async () => {
     seedStore()
     resetRememberedMachineForTests()
     fleetConnections = [machine('m1', 'Air')]
@@ -1402,30 +1416,26 @@ async function main(): Promise<void> {
       await settle()
       await pickMachine(view, 'Air')
       await settle()
-      const trigger = view.container.querySelector<HTMLButtonElement>('[data-checkout-trigger="true"]')
-      await click(trigger)
-      const menu = dom.window.document.querySelector('[role="menu"][aria-label="Checkout on Air"]')!
-      const row = [...menu.querySelectorAll<HTMLButtonElement>('[data-checkout-option="true"]')][1]!
+      const menu = await openMore(view)
+      const row = worktreeRowOf(menu)!
       const hint = row.textContent ?? ''
       const disabled = row.disabled ? 'true' : null
       await click(row)
       await settle()
-      const after = view.container.querySelector<HTMLButtonElement>('[data-checkout-trigger="true"]')?.textContent?.trim()
-      const fact = view.container.querySelector('[data-branch-fact="true"]')?.textContent?.trim() ?? ''
+      const opened = dom.window.document.querySelector('[aria-label="Worktree branch name"]')?.getAttribute('aria-hidden')
       view.unmount()
-      return { hint, disabled, after, fact }
+      return { hint, disabled, opened }
     }
     const scopeless = await reasonFor()
     assert.equal(scopeless.disabled, 'true', 'no workspace:operate ⇒ the row is dimmed, not removed')
     assert.ok(scopeless.hint.includes('workspace:operate'), `the reason names the scope; got: ${scopeless.hint}`)
-    assert.equal(scopeless.after, 'Current checkout', 'and clicking it changes nothing')
+    assert.equal(scopeless.opened, 'true', 'and clicking it opens nothing')
 
     scopes = ['workspace:operate', 'terminal:control']
     fleetCheckoutAnswer = () => ({ ok: false, code: 'tailnet_scope_required', message: 'This device is not granted "workspace:read".' })
     const unreadable = await reasonFor()
     assert.equal(unreadable.disabled, 'true')
     assert.ok(unreadable.hint.includes('not granted "workspace:read"'), 'an unreadable checkout carries the gateway’s words')
-    assert.equal(unreadable.fact, 'Branch unknown', 'and the branch says it is unknown rather than inventing one')
 
     fleetCheckoutAnswer = (_c, workspaceId) => ({
       ok: true,
@@ -1434,7 +1444,6 @@ async function main(): Promise<void> {
     const plain = await reasonFor()
     assert.equal(plain.disabled, 'true')
     assert.ok(plain.hint.includes('not a git repository'), 'a non-repo says so')
-    assert.ok(plain.fact.includes('not a repository'), `the branch fact says the same; got: ${plain.fact}`)
     fleetCheckoutAnswer = (_c, workspaceId) => ({
       ok: true,
       checkout: { workspaceId, git: true, branch: 'main', defaultBranch: 'main', branches: [{ name: 'main', current: true }], worktrees: [] },
@@ -1503,7 +1512,14 @@ async function main(): Promise<void> {
     await click(air)
     await settle()
     await settle()
-    assert.ok(buttonWithText(view.container, 'multicode-air'), 'picking the machine keeps the project: its copy is chosen, not the first row')
+    // The chip names the FOLDER, not the chat standing in it: `w2` is a
+    // conversation called "multicode-air" open in /srv/multicode, and the
+    // project the launch is scoped to is /srv/multicode.
+    assert.equal(
+      view.container.querySelector('[data-project-trigger="true"]')?.textContent?.trim(),
+      'multicode',
+      'picking the machine keeps the project: its copy is chosen, not the first row',
+    )
     assert.equal(browsed.filter((id) => id === 'm1').length, 2, 'the pick re-reads the machine for freshness')
 
     // Back to This device: the local clone of the same repository is the project.
@@ -1526,7 +1542,13 @@ async function main(): Promise<void> {
     // Two projects on the Air and none in hand (/other has no identity): an explicit pick.
     await click(buttonWithText(elsewhere.container, 'Choose a project'))
     const projects = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')!
-    await click(buttonWithText(projects, 'multicode-air'))
+    // The row is the folder /srv/multicode, whatever the chat standing in it
+    // happens to be called over there.
+    await click(
+      [...projects.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((row) =>
+        (row.textContent ?? '').includes('/srv/multicode'),
+      ),
+    )
     await settle()
     await pickMachine(elsewhere, 'This device')
     await settle()
@@ -1678,7 +1700,7 @@ async function main(): Promise<void> {
     // Two projects on the Air, but one of them is the repository in hand, so
     // the machine pick keeps the project.
     const remoteTrigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
-    assert.ok(remoteTrigger?.textContent?.includes('multicode-air'), `the remote copy is the picked project; got ${remoteTrigger?.textContent}`)
+    assert.equal(remoteTrigger?.textContent?.trim(), 'multicode', `the remote copy is the picked project; got ${remoteTrigger?.textContent}`)
     assert.equal(
       glyphMark(remoteTrigger),
       localMark,
@@ -1693,8 +1715,10 @@ async function main(): Promise<void> {
     await settle()
     const remoteMenu = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')!
     const rows = [...remoteMenu.querySelectorAll('[role="menuitemradio"]')]
-    const twinRow = rows.find((row) => (row.textContent ?? '').includes('multicode-air'))
-    const strangerRow = rows.find((row) => (row.textContent ?? '').includes('other'))
+    // The rows are FOLDERS: /srv/multicode and /srv/other, not the chats
+    // standing in them.
+    const twinRow = rows.find((row) => (row.textContent ?? '').includes('/srv/multicode'))
+    const strangerRow = rows.find((row) => (row.textContent ?? '').includes('/srv/other'))
     assert.equal(glyphMark(twinRow), localMark, 'the row for the repository open here wears the hue it wears here')
     assert.equal(
       glyphMark(strangerRow),

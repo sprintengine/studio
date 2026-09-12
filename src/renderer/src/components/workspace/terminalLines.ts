@@ -448,13 +448,21 @@ function lineOfFleetPane(
   }
 }
 
-/** A remote band row's one line: the row's title names the conversation, so the line does not. */
+/**
+ * One AGENT on a paired machine, as a line of its conversation's row.
+ *
+ * The name is the agent's — "Gael Corry" — and it rides the line's mark
+ * tooltip, exactly as a local agent's does. It used to be null because the
+ * agent's name WAS the row title; now the row is titled with the conversation
+ * and a chat running three agents over there draws three lines, each one
+ * saying which agent it is (owner, 2026-09-11).
+ */
 export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
   return {
     key: row.sessionId,
     kind: 'remote',
     cli: row.cli,
-    name: null,
+    name: row.title,
     machineName: null,
     branch: row.branch,
     worktree: row.diffScope === 'worktree',
