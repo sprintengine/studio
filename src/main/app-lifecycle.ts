@@ -58,6 +58,13 @@ type RegisterAppLifecycleOptions = {
   sprintRuntime?: {
     shutdown(): void
   }
+  // Product telemetry. Given a shutdown leg of its own because everything above
+  // it can emit a final event — a sprint parked by the scheduler's teardown,
+  // for one — and the buffer is in memory, so a quit that does not drain it
+  // loses the whole session's tail.
+  analytics?: {
+    shutdown(): Promise<void>
+  }
   // Capability-module kernel: runs module startup hooks on ready and shutdown
   // hooks on quit. Module-owned lifecycle runs here — the early begin phase
   // (runShutdownBegin, registration order) stops self-scheduled loops before
@@ -91,6 +98,7 @@ export function registerAppLifecycle({
   workspaceSyncService,
   pullRequestRecord,
   sprintRuntime,
+  analytics,
   moduleKernel,
   updateService,
   handleAuthCallback,
@@ -329,6 +337,10 @@ export function registerAppLifecycle({
       pullRequestRecord?.dispose()
       await conversationRuntime?.shutdown()
       await workspaceSyncService?.flush()
+      // Last of the app-owned legs: every service above has had its chance to
+      // record, and a network round trip must not sit in front of anything
+      // that still has state to persist.
+      await analytics?.shutdown()
       // Module-owned shutdown runs here via each module's onShutdown hook —
       // draining in-flight work and stopping kernel-owned sidecars (e.g. the
       // Sprint Engine MCP hub) in reverse registration order.

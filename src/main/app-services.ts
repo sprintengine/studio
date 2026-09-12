@@ -68,6 +68,9 @@ import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { createSprintEngineAutomationService } from './sprintengine-automation-service'
 import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
 import { createBackgroundModeStore } from './background-mode-store'
+import { createAnalyticsService } from './telemetry/analytics-service'
+import { createTelemetryConsentStore } from './telemetry/consent-store'
+import { readInstallId } from './telemetry/install-id'
 import type { BackgroundStatus } from '../shared/background-mode'
 import { createSprintPowerManager } from './sprint-power-manager'
 import { createSprintRuntime, type SprintRuntime } from './sprint-runtime'
@@ -318,6 +321,45 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
   })
+
+  // Renderer-pushed "Share anonymous usage data" setting, and the one service
+  // that acts on it. Built here, beside the other userData mirrors and before
+  // anything that records, because `app.boot` is emitted below and the sprint
+  // and launch paths further down take `analytics` as a dependency.
+  //
+  // Silent unless a PostHog project key is configured — see
+  // `src/shared/telemetry.ts`, which is also where the collection boundary is
+  // written down. From-source builds ship no key, so this is inert in dev.
+  const telemetryConsentStore = createTelemetryConsentStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+  const analytics = createAnalyticsService({
+    resolveUserDataDir: () => app.getPath('userData'),
+    isConsented: () => telemetryConsentStore.isEnabled(),
+    appVersion: app.getVersion(),
+    // A dev build reports itself as such rather than being filtered out here,
+    // so "is anyone using the shipped app" stays answerable without guessing
+    // which version strings were builds from someone's laptop.
+    packaged: app.isPackaged,
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
+    },
+  })
+  // The install/active-machine counter. `firstRun` is true only on the boot
+  // that minted the install id, which is what separates new installs from
+  // returning ones without a second event.
+  //
+  // Guarded on `isActive` rather than left to `record`'s own no-op: reading the
+  // id is what MINTS it, and an unkeyed or opted-out build has no business
+  // writing an identity file it will never use.
+  if (analytics.isActive()) {
+    analytics.record('app.boot', {
+      firstRun: readInstallId({ resolveUserDataDir: () => app.getPath('userData') }).created,
+    })
+  }
 
   // Renderer-pushed agent-launch settings (cliRuntimes/mcp/knowledge/model
   // catalog) for main-side sprint agent spawns; persisted under userData.
@@ -579,6 +621,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   }
   watchSprintRunProjections(notifySprintRunsChanged)
   const sprintRuntime = createSprintRuntime({
+    recordRunFinished: ({ outcome }) => analytics.record('sprint.run.finished', { outcome }),
     terminal: {
       list: () => terminalRuntime.ipcHandlers.listTerminals(),
       write: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
@@ -714,7 +757,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // runtime's own spawn handler. Its defaults come from the main-owned launch
   // settings store, so a launch with zero windows open still uses the user's
   // real CLI, permission preset, and MCP servers.
-  const agentLaunchService = createAgentLaunchService({
+  const composedAgentLaunchService = createAgentLaunchService({
     listWorkspaces: () => workspaceSyncService.getSnapshot().state.workspaces,
     getLaunchSettings: () => sprintEngineLaunchSettings.get(),
     // Hooks-only selectability (decision of record 2026-08-31): a KNOWN plugin
@@ -739,12 +782,39 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
 
+  // Telemetry rides on the OUTSIDE of the composed service rather than inside
+  // it. `createAgentLaunchService` is a pure composer with its own tests; a
+  // measurement is not part of what it composes, and every caller — agent.launch,
+  // backlog.work, terminal.create, automation spawns — comes through this one
+  // door anyway, so wrapping here covers them all without touching that module.
+  //
+  // Only the resolved CLI and a handful of shape flags go out. The request's
+  // prompt, name, specialist id, worktree path and cwd do not: they are the
+  // user's words and the user's disk (see the boundary in shared/telemetry.ts).
+  const agentLaunchService: typeof composedAgentLaunchService = {
+    ...composedAgentLaunchService,
+    async launch(request) {
+      const result = await composedAgentLaunchService.launch(request)
+      if (result.ok) {
+        analytics.record('agent.launched', {
+          cli: result.cli,
+          specialist: request.specialistId !== undefined,
+          worktree: request.worktreePath !== undefined,
+          connector: request.connectorId !== undefined,
+          withPrompt: Boolean(request.prompt),
+          ...(request.permissionPreset ? { permissionPreset: request.permissionPreset } : {}),
+        })
+      }
+      return result
+    },
+  }
+
   // Creating a sprint run is main's job (MC-2160). Built after workspace sync and
   // the scheduler because it uses both: the composed run's workspace is adopted
   // into the registry, and the run is then handed to `sprintRuntime`, whose
   // run-start bootstrap spawns the coordinator seat. That is what replaces the
   // old board-mount handshake, and it is why creation works with zero windows.
-  const sprintCreateService = createSprintCreateService({
+  const composedSprintCreateService = createSprintCreateService({
     getLaunchSettings: () => sprintEngineLaunchSettings.get(),
     // Only hook-capable CLIs (manifest agentStateSpec) may staff a sprint —
     // hooks are the only supported status mechanism, and a sprint on a CLI
@@ -791,6 +861,34 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       void writeDiagnosticLog({ ...input, source: 'sprintengine' })
     },
   })
+
+  // Same outside-the-composer wrapping as the agent-launch door above, and the
+  // same reason: both app-level creation (the wizard) and automation-driven
+  // creation reach `createSprint`, so one wrapper counts every run once.
+  //
+  // The SHAPE of the run goes out, never its subject: goal text, run name,
+  // folder path and the backlog refs it was sourced from all stay here. `roles`
+  // is the staffed count, not which ones — role ids are registry-driven and a
+  // project can define its own.
+  const sprintCreateService: typeof composedSprintCreateService = {
+    ...composedSprintCreateService,
+    async createSprint(request) {
+      const result = await composedSprintCreateService.createSprint(request)
+      if (result.ok) {
+        const sourceRefs =
+          request.sourceRelativePaths ?? (request.sourceRelativePath ? [request.sourceRelativePath] : [])
+        analytics.record('sprint.run.created', {
+          startRunner: request.startRunner === true,
+          worktrees: request.useWorktrees === true,
+          taskIsolation: request.taskIsolation === true,
+          sources: sourceRefs.length,
+          roles: Object.values(request.roster ?? {}).filter((count) => count > 0).length,
+          ...(request.intake ? { intake: request.intake } : {}),
+        })
+      }
+      return result
+    },
+  }
 
   // Built after workspace sync because adopting the retired skill packs needs to
   // know which projects are open — that is where a previously installed pack's
@@ -1240,6 +1338,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     sprintCreateService,
     automationService,
     backgroundModeStore,
+    telemetryConsentStore,
+    analytics,
     readBackgroundStatus,
     setAutomationsAppFrontDoorResolver(resolver: () => AutomationsAppFrontDoor | null): void {
       resolveAutomationsAppFrontDoor = resolver

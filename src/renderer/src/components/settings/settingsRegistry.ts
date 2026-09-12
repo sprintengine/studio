@@ -105,6 +105,20 @@ const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     storeSetter: 'setKeepRunningInBackground',
   },
 
+  // Product telemetry. Grouped with background mode rather than given a tab of
+  // its own: both are app-wide switches about what the process does when you
+  // are not looking at it.
+  {
+    id: 'telemetry-enabled',
+    label: 'Share anonymous usage data',
+    help: 'Counts and timings only — never your prompts, code, file paths, or project names.',
+    scope: 'app',
+    group: 'background',
+    field: { type: 'switch' },
+    storePath: 'appSettings.telemetryEnabled',
+    storeSetter: 'setTelemetryEnabled',
+  },
+
   // Agent runtime defaults.
   {
     id: 'terminal-idle-suspend-minutes',

@@ -4261,6 +4261,11 @@ export type ElectronApi = {
   // Renderer → main mirror of `appSettings.keepRunningInBackground` (MC-2156).
   // Main reads it inside `window-all-closed`, when no renderer is left to ask.
   setBackgroundMode: (enabled: boolean) => Promise<void>
+  // Renderer → main mirror of `appSettings.telemetryEnabled`. Main reads it on
+  // every event it records, including ones emitted with no window open. This is
+  // the whole renderer-facing telemetry surface — there is no channel for the
+  // renderer to send an event, only this one to stop main sending them.
+  setTelemetryEnabled: (enabled: boolean) => Promise<void>
   readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>
   ensureBacklogItemIds: (input: BacklogEnsureIdsInput) => Promise<BacklogEnsureIdsResult>

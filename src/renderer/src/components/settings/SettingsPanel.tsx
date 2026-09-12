@@ -887,7 +887,9 @@ export default function SettingsPanel({
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const forgetCliModels = useWorkspaceStore((s) => s.forgetCliModels)
   const keepRunningInBackground = useWorkspaceStore((s) => s.appSettings.keepRunningInBackground)
+  const telemetryEnabled = useWorkspaceStore((s) => s.appSettings.telemetryEnabled)
   const setKeepRunningInBackground = useWorkspaceStore((s) => s.setKeepRunningInBackground)
+  const setTelemetryEnabled = useWorkspaceStore((s) => s.setTelemetryEnabled)
   const activeKnowledgeConfig = resolveProjectKnowledgeConfig(
     activeWorkspace?.folderPath,
     projectKnowledgeRoots,
@@ -1265,6 +1267,7 @@ export default function SettingsPanel({
   const idleSuspendDescriptor = getSettingDescriptor('terminal-idle-suspend-minutes')
   const keepRecentAliveDescriptor = getSettingDescriptor('terminal-keep-recent-alive')
   const backgroundModeDescriptor = getSettingDescriptor('keep-running-in-background')
+  const telemetryDescriptor = getSettingDescriptor('telemetry-enabled')
 
   const installCliFromFolder = useCallback(async () => {
     if (typeof window.api.installPluginFolder !== 'function') {
@@ -1539,6 +1542,13 @@ export default function SettingsPanel({
                 descriptor={backgroundModeDescriptor}
                 checked={keepRunningInBackground}
                 onChange={(enabled) => setKeepRunningInBackground(enabled)}
+              />
+            ) : null}
+            {telemetryDescriptor ? (
+              <RegistrySwitchRow
+                descriptor={telemetryDescriptor}
+                checked={telemetryEnabled}
+                onChange={(enabled) => setTelemetryEnabled(enabled)}
               />
             ) : null}
           </div>

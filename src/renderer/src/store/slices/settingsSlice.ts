@@ -1028,6 +1028,10 @@ export const defaultAppSettings = (): AppSettings => ({
   // Off is the pre-MC-2156 rule exactly; keeping a process alive is a choice
   // the user has to make, never one an upgrade makes for them.
   keepRunningInBackground: false,
+  // On, and the main-side mirror reads an absent file the same way, so the two
+  // agree on a profile that has never touched the switch. Opting out is the
+  // choice; it is recorded, and it outlives the process that made it.
+  telemetryEnabled: true,
 })
 
 // `onboardingStep` is a RETIRED key: the wizard wrote it, nothing writes it now,
@@ -1121,6 +1125,10 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     // Only an explicit stored `true` keeps the app alive past its last window;
     // anything else (fresh profile, corrupt value) reads as off.
     keepRunningInBackground: settings?.keepRunningInBackground === true,
+    // The inverse, and deliberately so: only an explicit stored `false` opts
+    // out. A fresh or unreadable profile takes the product default, exactly as
+    // main's mirror does.
+    telemetryEnabled: settings?.telemetryEnabled !== false,
   }
 }
 
@@ -1413,6 +1421,7 @@ export interface SettingsSliceActions {
   setTerminalKeepRecentAlive: (count: number) => void
   /** Keep the app (and its sprint runs) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
+  setTelemetryEnabled: (enabled: boolean) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setAppearanceTheme: (theme: AppTheme) => void
   setAppearanceWindowMaterial: (material: WindowMaterial) => void
@@ -2138,6 +2147,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setKeepRunningInBackground: (enabled) =>
       set((state) => {
         state.appSettings.keepRunningInBackground = enabled === true
+      }),
+
+    setTelemetryEnabled: (enabled) =>
+      set((state) => {
+        state.appSettings.telemetryEnabled = enabled !== false
       }),
 
     setVoiceDictationSettings: (update) =>
