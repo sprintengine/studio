@@ -3,6 +3,7 @@ import type { IpcMain } from 'electron'
 import { registerAgentConfigImportIpc } from './ipc/agent-config-import-ipc'
 import { registerAppearanceIpc } from './ipc/appearance-ipc'
 import { registerBackgroundModeIpc } from './ipc/background-mode-ipc'
+import { registerTelemetryIpc } from './ipc/telemetry-ipc'
 import { registerAuthIpc } from './ipc/auth-ipc'
 import { registerAutomationIpc } from './ipc/automation-ipc'
 import { registerAppMenuIpc } from './app-menu'
@@ -152,6 +153,7 @@ export function registerCoreIpc(
   registerModuleRegistryIpc(ipcMain, services.moduleRegistryMirror)
   registerAppearanceIpc(ipcMain)
   registerBackgroundModeIpc(ipcMain, services.backgroundModeStore)
+  registerTelemetryIpc(ipcMain, services.telemetryConsentStore)
   registerMarketplaceRegistryIpc(ipcMain)
   registerHostedModelFeedIpc(ipcMain)
   registerHostedCardFeedIpc(ipcMain)

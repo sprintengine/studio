@@ -325,6 +325,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setTerminalKeepRecentAlive: (count: number) => void
   /** Keep the app (and its sprint runs) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
+  setTelemetryEnabled: (enabled: boolean) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
   saveSprintEngineRoster: (input: {

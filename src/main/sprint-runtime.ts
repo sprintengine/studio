@@ -179,6 +179,16 @@ export type SprintRuntimeDeps = {
    * index via broadcastOp; this is the non-resident escape hatch.
    */
   notifyRunsChanged?(statePath: string): void
+  /**
+   * Product telemetry for a run reaching its end. Optional so bare test
+   * harnesses stay unchanged; production wiring always provides it.
+   *
+   * It hangs off this function rather than off a wrapper the way the launch and
+   * create doors do, because `enterTerminalDormancy` is the ONLY place a run
+   * becomes terminal — the auto-run gate and the direct cancel both land here —
+   * and there is no outside surface that sees both.
+   */
+  recordRunFinished?(input: { outcome: 'complete' | 'canceled' }): void
   logDiagnostic(input: DiagnosticLogInput): Promise<DiagnosticLogEntry | void> | void
   now?(): number
   timers?: {
@@ -787,6 +797,10 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         target,
         canceled ? { type: 'runner_canceled' } : { type: 'runner_complete' },
       )
+      // Inside the transition guard, so a run that is parked twice — a cancel
+      // of an already-canceled run, a re-adopted terminal run — is counted
+      // once, exactly like the view event beside it.
+      deps.recordRunFinished?.({ outcome: targetRuntimeState })
       if (!canceled) {
         deps.broadcastOp({
           kind: 'stop_reason',

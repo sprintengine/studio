@@ -564,6 +564,17 @@ export type AppSettings = {
    * reads it at last-window-close when no renderer is left to ask.
    */
   keepRunningInBackground: boolean
+  /**
+   * Share anonymous usage data. On by default; the switch a user flips to opt
+   * out of product telemetry.
+   *
+   * Mirrored to main (`setTelemetryEnabled`), which is the only process that
+   * sends anything — the renderer neither holds the project key nor records
+   * events, so turning this off here is a push, not a local suppression. What
+   * may be collected, and the environment kill switch that outranks this
+   * setting, are both in `src/shared/telemetry.ts`.
+   */
+  telemetryEnabled: boolean
 }
 
 /**

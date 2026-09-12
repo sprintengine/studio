@@ -75,6 +75,7 @@ import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineS
 import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAutomationModeSync'
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
+import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
 import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, removeAgentTab, removeNewAgentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
@@ -542,6 +543,9 @@ export default function WorkspaceManager() {
   // Background mode is read by main at last-window-close, so it is mirrored the
   // same way the launch settings are (MC-2156).
   useEffect(() => initBackgroundModeSync(), [])
+  // The usage-data choice is read by main on every event it records, including
+  // ones with no window open, so it is mirrored the same way.
+  useEffect(() => initTelemetryConsentSync(), [])
   // Safe-mode kill switch: not registering runs is what stops the main
   // scheduler from spawning (it only schedules registered runs) — the same
   // recovery lever the retired renderer supervisor honoured.

@@ -288,6 +288,7 @@ registerAppLifecycle({
   workspaceSyncService: services.workspaceSyncService,
   pullRequestRecord: services.pullRequestRecord,
   sprintRuntime: services.sprintRuntime,
+  analytics: services.analytics,
   moduleKernel: moduleLoad.kernel,
   updateService: services.updateService,
   checkPluginSourceUpdates: () => services.skillsService.checkSourceUpdates(),
