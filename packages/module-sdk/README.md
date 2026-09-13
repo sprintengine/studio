@@ -384,7 +384,7 @@ loudly at load with the message above, never silently with a second React.
 
 ### `@multicode/module-sdk/ui`
 
-`GhostButton`, `OutlineButton`, `PrimaryButton`, `Banner`, `Drawer`,
+`GhostButton`, `OutlineButton`, `PrimaryButton`, `Banner`, `PanelHeader`, `Drawer`,
 `EmptyState`, `Field`, `Input`, `Textarea`, `InlineNotice`, `KbdChord`,
 `LifecycleGlyph`, `LinkButton`, `RowButton`, `Section`, `SegmentedControl`,
 `Select`, `Spinner`, `StatusDot`, `TruncatedText`, `CliModelPickerButton`, and
@@ -688,3 +688,71 @@ SDK and to distribute or sell those modules, including closed-source. The MIT
 license covers this SDK package only; it does not grant rights to the Multicode
 application itself, and it does not by itself govern distribution through any
 Multicode marketplace (that is covered by separate marketplace terms).
+
+### Packaged web runtimes and WebAssembly
+
+`host.getAssetUrl('runtime/index.html')` returns a stable `studio-module:` URL
+for a file in the installed module. Use it as an iframe's `src`. Inside that
+frame, fetch `.wasm`/data files normally. HTML's relative script, worker and data
+URLs resolve inside the package. Each module has a private, stable origin derived
+from an installation secret, allowing IndexedDB save data to survive app restarts. The protocol is registered as a standard,
+secure scheme with fetch support; it does not bypass content security policy.
+
+The host checks current trust and enablement on every request, rejects paths
+and symlinks outside the module root, and serves WebAssembly with
+`application/wasm`. Files are limited to 128 MiB by the runtime (distribution
+importers may apply smaller limits). The URL helper accepts plain relative paths;
+add a fragment or query to its returned URL if needed. This API is available
+only in Studio versions that ship module asset support; feature-detect
+`typeof host.getAssetUrl === 'function'` for a useful upgrade notice on older hosts.
+
+For a game, mount an iframe with `sandbox="allow-scripts allow-same-origin
+allow-pointer-lock"`, grant fullscreen explicitly if needed, and pause/stop its
+runtime when the panel unmounts. The iframe's module origin differs from Studio's
+renderer origin. Audio and pointer lock still require the user's browser gesture.
+
+Module package directories contain web assets: never store secrets inside an
+installed module directory or publish/log the private URLs returned by the host.
+Studio gates module requests using the requesting browser frame; unrelated
+web frames are blocked. Unguessable origin capabilities also cover worker requests,
+which bypass Electron’s frame interception. Load HTML under its module origin to
+fetch its packaged resources. This is not a sandbox for hostile module code.
+
+## Opening a zero-config workspace
+
+Games, dashboards and other folderless workspaces can set
+`openOnFirstLoad: true` on their `registerWorkspaceType` definition. Once the
+module is trusted and enabled, the primary Studio window creates a workspace
+from `createTemplate()`, names it with the type's `label`, and opens it. If a
+workspace of that type already exists, Studio opens that workspace instead.
+Studio waits for the saved workspace registry before checking for an existing
+row. A persisted per-type marker prevents reopening or stealing focus on later
+launches, including after the user closes the workspace.
+
+Contribute an explicit command so people can reopen it:
+
+```ts
+host.registerCommand({
+  id: 'open',
+  title: 'Open my workspace',
+  category: 'My module',
+  scopes: ['global'],
+  async run() {
+    await host.openWorkspace('my-workspace-type')
+  },
+})
+```
+
+`openWorkspace(typeId): Promise<string>` returns the opened workspace id. It
+only accepts a type owned by the calling module, rechecks enablement after
+startup, and brings an existing workspace into the calling window. These two
+entry points support types without `creationStep` or `createWorkspace`; they
+never bypass a type's setup or custom creation hook. They create no directory.
+
+New renderer-only modules load immediately after installation and trust, so
+their first-load workspace opens in the same session. Studio never evaluates
+the same module id twice in one renderer: updating loaded code, retrying a
+failed evaluation, or loading a module with `entry.main`/`entry.preload` requires
+a restart. Trust still precedes execution. Closing a workspace keeps its
+first-load marker; use the explicit command to reopen it. On older Studio
+versions, feature-detect `typeof host.openWorkspace === 'function'`.

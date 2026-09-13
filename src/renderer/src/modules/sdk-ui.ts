@@ -27,6 +27,7 @@ import type * as React from 'react'
 
 export { GhostButton, OutlineButton, PrimaryButton } from '../components/ui/Buttons'
 export { Banner } from '../components/ui/Banner'
+export { PanelHeader } from '../components/ui/PanelHeader'
 export { Drawer } from '../components/ui/Drawer'
 export { EmptyState } from '../components/ui/EmptyState'
 export { Field } from '../components/ui/Field'
@@ -57,6 +58,7 @@ export type { SelectItem } from '../components/ui/Select'
 
 import type { GhostButton, OutlineButton, PrimaryButton } from '../components/ui/Buttons'
 import type { Banner } from '../components/ui/Banner'
+import type { PanelHeader } from '../components/ui/PanelHeader'
 import type { EmptyState } from '../components/ui/EmptyState'
 import type { Field } from '../components/ui/Field'
 import type { Input, Textarea } from '../components/ui/Input'
@@ -79,6 +81,7 @@ export type GhostButtonProps = React.ComponentProps<typeof GhostButton>
 export type OutlineButtonProps = React.ComponentProps<typeof OutlineButton>
 export type PrimaryButtonProps = React.ComponentProps<typeof PrimaryButton>
 export type BannerProps = React.ComponentProps<typeof Banner>
+export type PanelHeaderProps = React.ComponentProps<typeof PanelHeader>
 export type EmptyStateProps = React.ComponentProps<typeof EmptyState>
 export type FieldProps = React.ComponentProps<typeof Field>
 export type InputProps = React.ComponentProps<typeof Input>

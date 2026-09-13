@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { installAndActivateRendererModules } from '../../modules'
 
 import { isClaudeCodePluginEntry, type MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../shared/modules/permissions'
@@ -81,7 +82,7 @@ export function PluginDetailPanel({
     async (trustGranted: boolean, claudePluginRef?: string) => {
       setFlow({ status: 'installing' })
       try {
-        const result = await window.api.installMarketplacePluginFromRegistry({
+        const result = await installAndActivateRendererModules(() => window.api.installMarketplacePluginFromRegistry({
           entry: plugin,
           trustGranted,
           workspaceRoot: workspaceRoot ?? undefined,
@@ -89,7 +90,7 @@ export function PluginDetailPanel({
           // Claude plugins: install exactly the commit the trust prompt
           // disclosed, never whatever the source ref moved to since.
           ...(claudePluginRef ? { claudePluginRef } : {}),
-        })
+        }))
         if (result.ok) {
           // Reflect installed MCP servers in the store so the Installed tab's
           // MCP rows update without a reload; re-list the other primitives.

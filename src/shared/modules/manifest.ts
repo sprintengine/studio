@@ -166,6 +166,8 @@ type ThirdPartyRendererEntry = {
   id: string
   manifest: CapabilityManifest
   code: string
+  /** Private, stable origin capability supplied only with trusted renderer code. */
+  assetOrigin?: string
   /**
    * The manifest carries a valid signature from a first-party marketplace
    * publisher key. Stamped main-side (the renderer cannot verify

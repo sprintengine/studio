@@ -55,8 +55,13 @@ async function main(): Promise<void> {
     ],
   }
   const registryResponse: ModuleRegistrySnapshotWriteResult = { ok: true }
+  const listeners = new Map<string, () => void>()
 
   const api = createModulesApi({
+    on(channel: string, listener: () => void) { listeners.set(channel, listener) },
+    removeListener(channel: string, listener: () => void) {
+      if (listeners.get(channel) === listener) listeners.delete(channel)
+    },
     async invoke(channel: string, ...args: unknown[]) {
       calls.push({ channel, args })
       if (channel === 'modules:third-party:list') return listResponse
@@ -73,6 +78,12 @@ async function main(): Promise<void> {
   assert.deepEqual(await api.setThirdPartyModuleTrust('trusted-main', true), trustResponse)
   assert.deepEqual(await api.setModuleEnablement({ 'trusted-main': true }), enablementResponse)
   assert.deepEqual(await api.setModuleRegistrySnapshot(registrySnapshot), registryResponse)
+  let changed = 0
+  const stop = api.onThirdPartyModulesChanged(() => { changed++ })
+  listeners.get('modules:third-party:changed')!()
+  assert.equal(changed, 1, 'module change events reach renderer subscribers')
+  stop()
+  assert.equal(listeners.has('modules:third-party:changed'), false, 'unsubscribe removes the same listener')
   assert.deepEqual(calls, [
     { channel: 'modules:third-party:list', args: [] },
     { channel: 'modules:third-party:install-folder', args: ['/tmp/module'] },

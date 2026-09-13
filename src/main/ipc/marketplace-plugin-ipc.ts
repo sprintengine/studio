@@ -21,6 +21,7 @@ import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
 import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
 import type { MarketplaceAutomationInstaller } from '../modules/plugin-bundle-installer'
+import { notifyRendererModulesChanged } from '../modules/notify-renderer-modules-changed'
 import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
 
 export type MarketplacePluginPipelineServices = Pick<AppServices, 'mcpConfigService' | 'getAutomationsAppFrontDoor'>
@@ -116,7 +117,9 @@ export function registerMarketplacePluginIpc(
     'marketplace:plugins:install-entry',
     async (_event, input: MarketplacePluginRegistryInstallInput): Promise<MarketplacePluginRegistryInstallResult> => {
       try {
-        return await lifecycle.installFromRegistry(input)
+        const result = await lifecycle.installFromRegistry(input)
+        if (result.ok) notifyRendererModulesChanged()
+        return result
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }

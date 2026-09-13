@@ -20,6 +20,7 @@ import {
   installModuleFolder,
 } from '../modules/user-module-registry'
 import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
+import { notifyRendererModulesChanged } from '../modules/notify-renderer-modules-changed'
 
 // Kernel-level IPC for the third-party module registry (Tier 2 trust
 // foundation). Pure filesystem + crypto verification — it installs, validates,
@@ -49,6 +50,7 @@ export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
       }
       const result = await installModuleFolder(srcDir, defaultUserModuleRoot(), trustContext())
       if (!result.ok) return { ok: false, message: result.message, issues: result.rejected.issues }
+      notifyRendererModulesChanged()
       return { ok: true, id: result.id, trust: result.trust.status }
     }
   )
@@ -81,6 +83,7 @@ export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
         return { ok: false, message: `Module "${id}" has an invalid signature and cannot be trusted.` }
       }
       const { result } = await setModuleTrust(userData, id, manifestFingerprint(target.manifest))
+      if (result.ok) notifyRendererModulesChanged()
       return { ok: result.ok, message: result.message }
     }
   )

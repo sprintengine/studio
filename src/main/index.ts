@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, protocol, session } from 'electron'
 import { buildStamp as mainBuildStamp } from 'virtual:multicode-build-stamp'
 import { MODULE_EVENTS_CHANNEL } from '../shared/modules/events'
 import { parseAuthCallbackFromArgv } from './auth-service'
@@ -19,6 +19,11 @@ import { isFirstPartyAutomationProviderModule, type AutomationProviderPermission
 import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
 import { readTrustedModulesSync } from './modules/trust-store'
 import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
+import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
+import { MODULE_ASSET_SCHEME } from '../shared/modules/assets'
+import { createModuleAssetOriginResolver } from './modules/module-asset-origins'
+import { createModuleAssetHandler, isAllowedModuleAssetRequest } from './modules/module-assets'
 import { registerThirdPartyRendererEntryIpc } from './modules/third-party-renderer-entries'
 import { defaultUserModuleRoot, discoverUserModules, discoverUserModulesSync } from './modules/user-module-registry'
 import { attachBuildSkewWatch, createBuildSkewWatch } from './build-skew'
@@ -30,6 +35,10 @@ import { attachStartupTimeline, markStartup } from './startup-timeline'
 // Boot measurement (MC-2075), off unless MULTICODE_STARTUP_TIMELINE=1 or the
 // diagnostics flag is set. Attached before anything else registers so the
 // renderer's marks have somewhere to land the moment it starts sending them.
+protocol.registerSchemesAsPrivileged([{
+  scheme: MODULE_ASSET_SCHEME,
+  privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
+}])
 attachStartupTimeline(ipcMain)
 
 // Build-identity check (MC-2182). Registered next to the startup marks and for
@@ -174,12 +183,32 @@ recordThirdPartyMainLaunchReport(
   thirdPartyMainLoad.modules.map((module) => module.manifest.id),
   moduleLoad.report
 )
+const moduleAssetOrigin = createModuleAssetOriginResolver(app.getPath('userData'))
 // Trusted third-party entry.renderer bundles are served on demand (the trust
 // store is re-read per request, so revoking trust takes effect immediately).
 registerThirdPartyRendererEntryIpc(moduleLoad.kernel.hostFor('@host'), {
   discoverModules: () =>
     discoverUserModules(defaultUserModuleRoot(), readModuleTrustContext()),
   trustContext: readModuleTrustContext,
+  assetOrigin: moduleAssetOrigin,
+})
+void app.whenReady().then(() => {
+  const shellUrl = process.env['ELECTRON_RENDERER_URL'] ?? pathToFileURL(join(__dirname, '../renderer/index.html')).href
+  session.defaultSession.webRequest.onBeforeRequest({ urls: [`${MODULE_ASSET_SCHEME}://*/*`] }, (details, callback) => {
+    callback({ cancel: !isAllowedModuleAssetRequest(details, shellUrl) })
+  })
+  protocol.handle(MODULE_ASSET_SCHEME, createModuleAssetHandler({
+    assetOrigin: moduleAssetOrigin,
+    discoverModules: () => discoverUserModules(defaultUserModuleRoot(), readModuleTrustContext()),
+    isEnabled: (installed, modules) => {
+      const trusted = modules.filter((module) => isLoadEligible(module.trust.status))
+      const manifests = [
+        ...mainModuleManifests.filter((manifest) => !modules.some((module) => module.manifest.id === manifest.id)),
+        ...trusted.map((module) => module.manifest),
+      ]
+      return resolveModuleEnablement(manifests, readModuleEnablementOverrides()).order.includes(installed.manifest.id)
+    },
+  }))
 })
 if (MULTICODE_DIAGNOSTICS) {
   console.info('[modules] extension roots:', extensionFolders.moduleRoot, extensionFolders.pluginRoot)

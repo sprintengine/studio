@@ -1554,6 +1554,7 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
       localWorkspaceCount: useWorkspaceStore.getState().workspaces.length,
       snapshotSequence: snapshot.sequence,
     })
+    resolveWorkspaceRegistryReady()
     return
   }
   // Layouts main still holds in their rail form (Files/Git docked): healed on
@@ -1605,7 +1606,16 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
   for (const healed of healedLayouts) {
     void workspaceSyncClient.dispatchUpdateWorkspaceLayout(healed.id, healed.layoutModel)
   }
+  resolveWorkspaceRegistryReady()
 }
+
+// Module workspace launchers must see main's saved rows before deduplicating.
+// A failed initial read deliberately leaves automatic creation pending.
+let resolveWorkspaceRegistryReady: () => void = () => undefined
+export const workspaceRegistryReady = new Promise<void>((resolve) => {
+  resolveWorkspaceRegistryReady = resolve
+  if (typeof window === 'undefined' || typeof window.api?.workspaceSyncGetSnapshot !== 'function') resolve()
+})
 
 // Wire the main-mediated workspace sync bus. The client asks main for every
 // registry mutation and applies the accepted/broadcast events to this window's

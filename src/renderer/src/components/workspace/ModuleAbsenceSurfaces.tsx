@@ -187,7 +187,8 @@ function DoorModuleInstallControls({
     try {
       // No workspace: a module installs into the user module root, and this
       // door may be open with no project at all.
-      const result = await window.api.installMarketplacePluginFromRegistry({ entry })
+      const { installAndActivateRendererModules } = await import('../../modules')
+      const result = await installAndActivateRendererModules(() => window.api.installMarketplacePluginFromRegistry({ entry }))
       setFlow(summarizeInstallResult(result))
     } catch (error) {
       setFlow({

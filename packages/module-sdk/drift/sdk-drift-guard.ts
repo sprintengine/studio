@@ -568,6 +568,8 @@ expectType<Extends<React.ComponentProps<typeof sdkUi.SegmentedControl>, React.Co
 expectType<IsExact<React.ComponentProps<typeof sdkUi.SegmentedControl>, React.ComponentProps<typeof appSdkUi.SegmentedControl>>>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.Banner>, React.ComponentProps<typeof appSdkUi.Banner>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.Banner>, React.ComponentProps<typeof appSdkUi.Banner>>>()
+// PanelHeader deliberately omits the host-internal tool identity vocabulary.
+expectType<Extends<React.ComponentProps<typeof sdkUi.PanelHeader>, React.ComponentProps<typeof appSdkUi.PanelHeader>>>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.InlineNotice>, React.ComponentProps<typeof appSdkUi.InlineNotice>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.InlineNotice>, React.ComponentProps<typeof appSdkUi.InlineNotice>>>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.EmptyState>, React.ComponentProps<typeof appSdkUi.EmptyState>>>()
@@ -618,7 +620,7 @@ expectType<IsExact<sdkSurface.SurfaceRailNewAffordance, appSdkSurface.SurfaceRai
 // costs a module nothing at runtime, a missing component costs it everything.
 const SDK_UI_EXPORT_NAMES = [
   'GhostButton', 'OutlineButton', 'PrimaryButton',
-  'Banner', 'Drawer', 'EmptyState', 'Field', 'Input', 'Textarea', 'InlineNotice',
+  'Banner', 'PanelHeader', 'Drawer', 'EmptyState', 'Field', 'Input', 'Textarea', 'InlineNotice',
   'KbdChord', 'LifecycleGlyph', 'LinkButton', 'RowButton', 'Section',
   'SegmentedControl', 'Select', 'Spinner', 'StatusDot', 'TruncatedText',
   'FOCUS_RING_CLASS', 'CliModelPickerButton',

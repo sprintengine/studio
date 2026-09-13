@@ -241,6 +241,20 @@ export const SegmentedControl: <V extends string = string>(
 
 // ── Feedback ─────────────────────────────────────────────────────────────────
 
+/** The host's standard panel heading. Tool identity is host-internal. */
+export type PanelHeaderProps = {
+  title: string
+  titleId?: string
+  leading?: React.ReactNode
+  count?: number | string
+  primaryAction?: React.ReactNode
+  overflow?: React.ReactNode
+  divider?: boolean
+  progress?: { value: number; total: number; warnValue?: number; ariaLabel?: string }
+} & ({ subtitle?: string; scope?: never } | { subtitle?: never; scope?: React.ReactNode })
+
+export const PanelHeader: (props: PanelHeaderProps) => React.ReactElement = hostProvided()
+
 export type BannerProps = {
   tone: 'error' | 'warn'
   message: string

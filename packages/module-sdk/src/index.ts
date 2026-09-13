@@ -1400,6 +1400,16 @@ export type WorkspaceTypeDefinition = {
   searchTerms?: string[]
   createTemplate(context?: WorkspaceTypeCreateContext): WorkspaceLayoutTemplate
   /**
+   * Open once after this type's first enabled, trusted renderer load. Creates
+   * a folderless workspace from createTemplate, or focuses an existing one.
+   * Only zero-config types (no creationStep/createWorkspace hook) support this.
+   * Closing it does not reopen it on the next launch; use host.openWorkspace
+   * in an explicit command to let users reopen it. Newly installed/trusted
+   * renderer-only modules load immediately; main/preload modules and updates
+   * to already evaluated code require a restart.
+   */
+  openOnFirstLoad?: boolean
+  /**
    * Own this type's create action. When present the hub calls this instead of
    * creating the workspace itself: resolve to mean "created, close the hub";
    * reject to leave the hub open with the create still available. Call
@@ -1978,8 +1988,23 @@ export type ModuleFocusTabInput = {
 // ── Renderer host registration contract ──────────────────────────────────────
 
 export type RendererHost = {
+  /**
+   * Stable URL for a file packaged inside this trusted module (e.g. runtime/index.html).
+   * Inside packaged HTML, relative resources, WebAssembly, workers and IndexedDB share a stable,
+   * separate module origin. No leading slash, traversal, query or fragment in the path.
+   * Available in Studio builds supporting module assets; trust/enablement is checked
+   * on every request. Assets must be files under the installed module root (128 MiB max).
+   */
+  getAssetUrl(relativePath: string): string
   registerPanel(componentId: string, component: WorkspacePanelComponent): void
   registerWorkspaceType(definition: WorkspaceTypeDefinition): void
+  /**
+   * Create or focus a workspace of a type registered by this module. The type
+   * must be enabled and zero-config (no creationStep/createWorkspace hook).
+   * Creates from createTemplate with no folder and the type's label as name;
+   * reuses an existing workspace of this type. Returns its id after opening.
+   */
+  openWorkspace(typeId: string): Promise<string>
   registerBacklogItemAction(action: BacklogItemAction): void
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
   registerCommand(definition: ModuleCommandDefinition): void

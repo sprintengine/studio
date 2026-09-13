@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- **Packaged web runtimes have stable module origins.** `RendererHost.getAssetUrl`
+  resolves an installed asset to a `studio-module:` URL. Packaged HTML supports
+  relative scripts, WebAssembly, workers and IndexedDB. Private per-installation
+  origins prevent unrelated pages from guessing asset URLs, with current trust and
+  enablement checks and containment inside the module directory.
+- **Panel headers are available through the shared UI kit.** `PanelHeader` and
+  `PanelHeaderProps` are exported from `@multicode/module-sdk/ui` so contributed
+  panels can use Studio's existing header component.
+
+- **Folderless workspaces can open themselves after installation.** Set
+  `WorkspaceTypeDefinition.openOnFirstLoad: true` to create/focus that type on
+  its first enabled, trusted renderer load. A persisted marker prevents focus
+  stealing or recreation after closing it, and only the primary window runs
+  automatic creation. `RendererHost.openWorkspace(typeId)` lets a module's
+  command explicitly reopen its own type. Both use the registered template,
+  reuse existing workspaces and reject types requiring a creation step or
+  custom creation hook.
+- **New renderer-only modules activate after install/trust.** Studio refreshes
+  trusted renderer entries and adds their contributions without restarting.
+  Each module id is evaluated at most once per renderer session; modules with
+  main/preload entries, updates to running code and failed evaluations still
+  require a restart. Existing registry consumers update reactively, and an
+  `openOnFirstLoad` workspace opens as soon as the new module is ready.
+
 ## 0.5.0 — 2026-09-10
 
 - **An MCP tool can say that it writes.** `McpToolRegistration.mutates?: boolean`.

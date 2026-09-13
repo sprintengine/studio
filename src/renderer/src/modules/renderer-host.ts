@@ -1,3 +1,4 @@
+import { moduleAssetUrl } from '../../../shared/modules/assets'
 import type { ComponentType, LazyExoticComponent } from 'react'
 import type { RowBadge } from '../components/workspace/SidebarNavButton'
 
@@ -147,6 +148,8 @@ export type WorkspaceTypeDefinition = {
   accentToken?: string
   searchTerms?: string[]
   createTemplate(context?: WorkspaceTypeCreateContext): LayoutTemplate
+  /** Open this zero-config type once after its first enabled, trusted load. */
+  openOnFirstLoad?: boolean
   /**
    * Own this type's create action (MC-2090). When present the hub calls this
    * instead of creating the workspace itself: resolve to mean "created, close
@@ -706,8 +709,12 @@ export type ModuleAppStateStore = {
 export type ModuleEventSource = (cb: (envelope: ModuleEventEnvelope) => void) => () => void
 
 export type RendererHost = {
+  /** Stable URL for a file packaged inside this trusted module. Relative HTML assets and workers retain this module origin. */
+  getAssetUrl(relativePath: string): string
   registerPanel(componentId: string, component: WorkspacePanelComponent): void
   registerWorkspaceType(definition: WorkspaceTypeDefinition): void
+  /** Create or focus a workspace of this module's zero-config type. */
+  openWorkspace(typeId: string): Promise<string>
   registerBacklogItemAction(action: BacklogItemAction): void
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
   registerNotificationActionProvider(provider: NotificationActionProvider): void
@@ -1053,6 +1060,8 @@ export type RendererKernel = {
    * every lookup resolves to null.
    */
   setWorkspaceResolver(resolver: (workspaceId: string) => ModuleWorkspaceView | null): void
+  setModuleAssetOrigin(moduleId: string, origin: string): void
+  setWorkspaceOpener(opener: (typeId: string) => Promise<string>): void
   /**
    * Backing store for the per-module workspace-state accessors (MC-1573).
    * Wired once at boot by modules/index.ts over the workspace store's bag;
@@ -1165,8 +1174,10 @@ export function createRendererHost(): RendererKernel {
   const agentIdNamespaces = new Map<string, RegisteredAgentIdNamespace>()
   let workspaceAside: RegisteredWorkspaceAside | null = null
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
+  const moduleAssetOrigins = new Map<string, string>()
   let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
   let workspaceResolver: ((workspaceId: string) => ModuleWorkspaceView | null) | null = null
+  let workspaceOpener: ((typeId: string) => Promise<string>) | null = null
   let workspaceModuleStateStore: WorkspaceModuleStateStore | null = null
   let moduleAppStateStore: ModuleAppStateStore | null = null
   // Both backings are wired a microtask after boot, but modules register
@@ -1550,8 +1561,24 @@ export function createRendererHost(): RendererKernel {
             }
           })
         },
+        getAssetUrl(relativePath) {
+          if (moduleEnabledResolver && !moduleEnabledResolver(moduleId)) throw new Error('Module is disabled.')
+          const origin = moduleAssetOrigins.get(moduleId)
+          if (!origin) throw new Error('Module assets are unavailable until its trusted entry loads.')
+          return moduleAssetUrl(moduleId, relativePath, origin)
+        },
         async getWorkspace(workspaceId) {
           return workspaceResolver ? workspaceResolver(workspaceId) : null
+        },
+        async openWorkspace(typeId) {
+          if (workspaceTypes.get(typeId)?.moduleId !== moduleId) {
+            throw new Error(`Workspace type "${typeId}" is not registered by module "${moduleId}".`)
+          }
+          if (moduleEnabledResolver && !moduleEnabledResolver(moduleId)) {
+            throw new Error(`Module "${moduleId}" is disabled.`)
+          }
+          if (!workspaceOpener) throw new Error('Workspace opening is not available yet.')
+          return workspaceOpener(typeId)
         },
         async listWorkspaces() {
           return workspaceListSource ? workspaceListSource.list() : []
@@ -1811,6 +1838,13 @@ export function createRendererHost(): RendererKernel {
     },
     setWorkspaceResolver(resolver) {
       workspaceResolver = resolver
+    },
+    setModuleAssetOrigin(moduleId, origin) {
+      if (!/^studio-module:\/\/[a-f0-9]{64}$/.test(origin)) throw new Error('Invalid module asset origin.')
+      moduleAssetOrigins.set(moduleId, origin)
+    },
+    setWorkspaceOpener(opener) {
+      workspaceOpener = opener
     },
     setWorkingRootResolver(resolver) {
       workingRootResolver = resolver

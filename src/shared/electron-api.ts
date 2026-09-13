@@ -588,8 +588,9 @@ export type MarketplacePluginInstallResult =
        * The install landed a module whose code only loads at app launch, so
        * nothing it contributes is there yet (D13). Derived in main from
        * `LIVE_ENABLED_MODULE_IDS` — the renderer is told the answer rather than
-       * keeping its own copy of which modules are live-enabled. Absent or false
-       * means the install is fully in effect.
+       * keeping its own copy of which modules are live-enabled. A renderer may
+       * clear this conservative hint after successfully activating every new
+       * renderer-only module from the install. Updates remain restart-only.
        */
       restartRequired?: boolean
     }
@@ -4147,6 +4148,8 @@ export type ElectronApi = {
   setThirdPartyModuleTrust: (id: string, trusted: boolean) => Promise<ThirdPartyModuleTrustResult>
   /** Serve trusted third-party modules' entry.renderer bundles for the renderer loader. */
   listThirdPartyRendererEntries: () => Promise<ThirdPartyRendererEntriesResult>
+  /** Install/trust changed; renderer-only modules may now be available. */
+  onThirdPartyModulesChanged: (cb: () => void) => () => void
   /** Renderer→module-main bridge: invoke a channel a third-party module registered via registerIpc. Refusals are structured, not rejections. */
   moduleBridgeInvoke: (channel: string, payload?: unknown) => Promise<ModuleBridgeInvokeResult>
   /** Every capability module's main→renderer events on one host-owned channel; the renderer kernel fans them out by `sourceModuleId`. Returns the unsubscriber. */

@@ -42,11 +42,11 @@ type ModulesIpcRenderer = {
     request: ModuleBridgeInvokeRequest
   ): Promise<ModuleBridgeInvokeResult>
   on(
-    channel: typeof MODULE_EVENTS_CHANNEL,
+    channel: typeof MODULE_EVENTS_CHANNEL | 'modules:third-party:changed',
     listener: (event: IpcRendererEvent, envelope: ModuleEventEnvelope) => void
   ): unknown
   removeListener(
-    channel: typeof MODULE_EVENTS_CHANNEL,
+    channel: typeof MODULE_EVENTS_CHANNEL | 'modules:third-party:changed',
     listener: (event: IpcRendererEvent, envelope: ModuleEventEnvelope) => void
   ): unknown
 }
@@ -68,6 +68,11 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
       renderer.invoke('modules:third-party:set-trust', { id, trusted }),
     listThirdPartyRendererEntries: (): Promise<ThirdPartyRendererEntriesResult> =>
       renderer.invoke(THIRD_PARTY_RENDERER_ENTRIES_CHANNEL),
+    onThirdPartyModulesChanged: (cb: () => void) => {
+      const handler = () => cb()
+      renderer.on('modules:third-party:changed', handler)
+      return () => renderer.removeListener('modules:third-party:changed', handler)
+    },
     moduleBridgeInvoke: (channel: string, payload?: unknown): Promise<ModuleBridgeInvokeResult> =>
       renderer.invoke(MODULE_BRIDGE_INVOKE_CHANNEL, { channel, payload }),
     // Every module's events ride this one channel; the renderer kernel fans
@@ -87,6 +92,7 @@ export function createModulesApi(renderer: ModulesIpcRenderer) {
     | 'installThirdPartyModuleFolder'
     | 'setThirdPartyModuleTrust'
     | 'listThirdPartyRendererEntries'
+    | 'onThirdPartyModulesChanged'
     | 'moduleBridgeInvoke'
     | 'onModuleEvent'
   >

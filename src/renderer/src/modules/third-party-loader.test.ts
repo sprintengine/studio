@@ -5,6 +5,7 @@ import { createRendererHost, type RendererHost } from './renderer-host'
 import {
   getThirdPartyRendererLoadState,
   loadThirdPartyRendererEntries,
+  rendererEntriesForRefresh,
   type ThirdPartyEntryImporter,
 } from './third-party-loader'
 
@@ -20,7 +21,7 @@ function manifest(id: string): CapabilityManifest {
 }
 
 function served(
-  entries: Array<{ id: string; manifest?: CapabilityManifest; code?: string }>,
+  entries: Array<{ id: string; manifest?: CapabilityManifest; code?: string; assetOrigin?: string }>,
   failures: Record<string, string> = {}
 ): ThirdPartyRendererEntriesResult {
   return {
@@ -28,6 +29,7 @@ function served(
       id: entry.id,
       manifest: entry.manifest ?? manifest(entry.id),
       code: entry.code ?? `// ${entry.id}`,
+      ...(entry.assetOrigin ? { assetOrigin: entry.assetOrigin } : {}),
     })),
     failures,
   }
@@ -47,10 +49,11 @@ async function testLoadsAndRegistersUnderOwnModuleId(): Promise<void> {
   const kernel = createRendererHost()
   const loaded = await loadThirdPartyRendererEntries(
     kernel,
-    served([{ id: 'loader-demo' }]),
+    served([{ id: 'loader-demo', assetOrigin: 'studio-module://' + 'a'.repeat(64) }]),
     importerFor({
       'loader-demo': {
         registerRenderer: (host: RendererHost) => {
+          assert.equal(host.getAssetUrl('runtime/index.html'), 'studio-module://' + 'a'.repeat(64) + '/runtime/index.html')
           host.registerPanel('loader-demo.panel', () => null)
         },
       },
@@ -273,6 +276,29 @@ async function main(): Promise<void> {
   await testAbsolutePathInErrorIsSanitized()
   await testServingFailuresAreRecorded()
   await testDuplicateIdKeepsFirstDefinition()
+  const refreshKernel = createRendererHost()
+  const newlyInstalled = served([
+    { id: 'refresh-game', manifest: { ...manifest('refresh-game'), entry: { renderer: 'game.js' } } },
+    { id: 'refresh-main', manifest: { ...manifest('refresh-main'), entry: { main: 'main.cjs', renderer: 'ui.js' } } },
+    { id: 'refresh-preload', manifest: { ...manifest('refresh-preload'), entry: { preload: 'preload.js', renderer: 'ui.js' } } },
+    { id: 'refresh-broken' },
+  ])
+  const eligible = rendererEntriesForRefresh(newlyInstalled)
+  assert.deepEqual(eligible.entries.map((entry) => entry.id), ['refresh-game', 'refresh-broken'],
+    'hot activation excludes main/preload modules until restart')
+  let evaluations = 0
+  const importFresh: ThirdPartyEntryImporter = async (code) => {
+    evaluations++
+    if (code.includes('refresh-broken')) throw new Error('broken renderer')
+    return { registerRenderer: (host: RendererHost) => host.registerPanel('refresh-game.panel', () => null) }
+  }
+  const fresh = await loadThirdPartyRendererEntries(refreshKernel, eligible, importFresh)
+  assert.deepEqual(fresh.map((entry) => entry.id), ['refresh-game'], 'failure isolation also holds during refresh')
+  assert.equal(refreshKernel.getPanelModule('refresh-game.panel'), 'refresh-game')
+  await loadThirdPartyRendererEntries(refreshKernel, rendererEntriesForRefresh(newlyInstalled), importFresh)
+  assert.equal(evaluations, 2, 'neither loaded nor failed entries are ever reevaluated on refresh')
+  assert.deepEqual(rendererEntriesForRefresh({ entries: [], failures: { 'refresh-game': 'updated file missing' } }).failures, {},
+    'an update failure cannot overwrite the state of already running code')
   console.log('third-party-loader tests passed')
 }
 

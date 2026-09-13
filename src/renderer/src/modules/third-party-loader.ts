@@ -32,10 +32,9 @@ export type ThirdPartyRendererLoadState =
 
 const LOAD_FAILURE_FALLBACK = 'entry.renderer bundle failed to load.'
 
-// Static after boot: loading runs to completion before the React root renders
-// (see main.tsx), so readers never observe a half-populated map and need no
-// subscription. A module trusted later in the session simply has no state here
-// — Settings → Modules reads that as "loads on the next app launch".
+// Each id is evaluated at most once per renderer session. New renderer-only
+// modules can be added after install/trust; updates and failed evaluations
+// require a restart. The module registry signals after a complete load batch.
 const loadStates = new Map<string, ThirdPartyRendererLoadState>()
 
 export function getThirdPartyRendererLoadState(
@@ -153,6 +152,15 @@ function recordError(id: string, message: string): void {
 
 const RESERVED_IDS: ReadonlySet<string> = new Set(BUNDLED_MODULE_IDS)
 
+/** Never hot-load one half of a module whose main/preload needs a restart. */
+export function rendererEntriesForRefresh(served: ThirdPartyRendererEntriesResult): ThirdPartyRendererEntriesResult {
+  return {
+    entries: served.entries.filter((entry) =>
+      !entry.manifest.entry?.main && !entry.manifest.entry?.preload && !loadStates.has(entry.id)),
+    failures: Object.fromEntries(Object.entries(served.failures).filter(([id]) => !loadStates.has(id))),
+  }
+}
+
 // Evaluates every served entry and registers its contributions. Returns the
 // manifests of the modules that loaded *cleanly* — only those join the
 // enablement-resolution universe, so a module that failed mid-registration is
@@ -195,6 +203,7 @@ export async function loadThirdPartyRendererEntries(
         recordError(entry.id, 'entry.renderer must export a registerRenderer(host) function.')
         continue
       }
+      if (entry.assetOrigin) kernel.setModuleAssetOrigin(entry.id, entry.assetOrigin)
       registerRenderer(kernel.hostFor(entry.id))
       loadStates.set(entry.id, { status: 'loaded' })
       loadedManifests.push(entry.manifest)

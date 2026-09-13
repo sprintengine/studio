@@ -17,7 +17,7 @@ import {
   getThirdPartyRendererLoadState,
   type ThirdPartyRendererLoadState,
 } from '../../modules/third-party-loader'
-import { getRendererHost } from '../../modules'
+import { getRendererHost, onThirdPartyRendererModulesLoaded, refreshThirdPartyRendererModules } from '../../modules'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import type { Tone } from '../ui/tokens'
@@ -311,6 +311,7 @@ export function ThirdPartyModuleList({
   useEffect(() => {
     void load()
   }, [load])
+  useEffect(() => onThirdPartyRendererModulesLoaded(() => { void load() }), [load])
 
   const installFromFolder = useCallback(async () => {
     if (typeof window.api.installThirdPartyModuleFolder !== 'function') return
@@ -404,6 +405,7 @@ export function ThirdPartyModuleList({
       try {
         const result = await window.api.setThirdPartyModuleTrust(id, trusted)
         if (!result.ok) setMessage({ tone: 'error', text: result.message ?? 'Could not update trust.' })
+        if (result.ok && trusted) await refreshThirdPartyRendererModules()
         await load()
       } finally {
         setPendingId(null)

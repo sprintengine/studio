@@ -1,4 +1,5 @@
 import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
+import type { MarketplacePluginRegistryInstallResult } from '../../../shared/electron-api'
 import { activeForChannel } from '../../../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { toModuleWorkspaceView, type ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
@@ -133,11 +134,48 @@ if (typeof window !== 'undefined') {
     import('./workspace-list-watch'),
     import('./color-scheme-watch'),
     import('../hooks/useAppTheme'),
+    import('./workspace-opener'),
   ])
-    .then(([{ useWorkspaceStore }, { moduleSettingsNamespace }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree, { createWorkspaceFileWatcher }, { createAgentSessionWatcher }, { createModuleAgentSpawner }, { buildModuleRegistrySnapshot, collectModuleSurfaces, startModuleRegistrySnapshotMirror }, { createWorkspaceListSource }, { createColorSchemeWatcher }, appTheme]) => {
+    .then(([{ useWorkspaceStore, workspaceRegistryReady, __workspaceStoreBackupRecoveryPromise }, { moduleSettingsNamespace }, terminalSessions, modelRegistry, cliRuntimeOptions, agentNames, workspaceWorktree, { createWorkspaceFileWatcher }, { createAgentSessionWatcher }, { createModuleAgentSpawner }, { buildModuleRegistrySnapshot, collectModuleSurfaces, startModuleRegistrySnapshotMirror }, { createWorkspaceListSource }, { createColorSchemeWatcher }, appTheme, { createWorkspaceOpener }]) => {
       rendererHost.setModuleEnablementResolver((moduleId) =>
         selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
       )
+      const currentWindowId = new URL(window.location.href).searchParams.get('windowId')?.trim() || 'primary'
+      const workspaceOpener = createWorkspaceOpener({
+        ready: Promise.all([workspaceRegistryReady, __workspaceStoreBackupRecoveryPromise]).then(() => undefined),
+        types: () => rendererHost.getWorkspaceTypes(),
+        enabled: (moduleId) => selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId),
+        isPrimaryWindow: () => currentWindowId === (useWorkspaceStore.getState().primaryWorkspaceWindowId || 'primary'),
+        findWorkspace: (typeId) => useWorkspaceStore.getState().workspaces.find((workspace) => workspace.mode === typeId)?.id,
+        createWorkspace: (type) => useWorkspaceStore.getState().addWorkspace(type.createTemplate(), {
+          name: type.label,
+          mode: type.id,
+          folderPath: null,
+          windowId: currentWindowId,
+        }),
+        focusWorkspace: (workspaceId) => {
+          const state = useWorkspaceStore.getState()
+          const owner = state.workspaceWindows.find((entry) => entry.workspaceIds.includes(workspaceId))?.id
+          if (owner !== currentWindowId) state.moveWorkspaceToWindow(workspaceId, currentWindowId, owner)
+          useWorkspaceStore.getState().setActiveWorkspaceForWindow(currentWindowId, workspaceId)
+        },
+        wasOpened: (moduleId, key) =>
+          useWorkspaceStore.getState().appSettings.moduleSettings?.[moduleSettingsNamespace(moduleId)]?.[key] === true,
+        markOpened: (moduleId, key) => useWorkspaceStore.getState().setModuleSettingValue(moduleId, key, true),
+        onError: (typeId, error) => console.error(`[modules] could not open workspace type "${typeId}":`, error),
+      })
+      rendererHost.setWorkspaceOpener(workspaceOpener.open)
+      onThirdPartyRendererModulesLoaded(() => { void workspaceOpener.openFirstLoads() })
+      if (typeof window.api?.onThirdPartyModulesChanged === 'function') {
+        window.api.onThirdPartyModulesChanged(() => {
+          void refreshThirdPartyRendererModules().catch((error) => {
+            console.error('[modules] could not refresh installed renderer modules:', error)
+          })
+        })
+      }
+      useWorkspaceStore.subscribe((state, previous) => {
+        if (state.appSettings.modules !== previous.appSettings.modules) void workspaceOpener.openFirstLoads()
+      })
       // Mirror the module registry to main (MC-2078), the same way enablement
       // is already mirrored: this process is the only one that knows the whole
       // universe (channel-narrowed bundled modules + loaded third-party ones)
@@ -424,9 +462,10 @@ export function getRendererHost(): ReturnType<typeof createRendererHost> {
 }
 
 // Trusted third-party renderer modules join the same host and the same
-// enablement universe as bundled modules. Loading runs at boot, before the
-// React root renders (main.tsx awaits it), so consumers never see a
-// half-registered module; from then on enablement toggles gate contributions
+// enablement universe as bundled modules. Initial loading runs before the
+// React root renders; later install/trust changes can add renderer-only
+// modules. Consumers are signalled after complete batches, never during a
+// half-registered module; enablement toggles gate contributions
 // reactively exactly like bundled ones — no reload. Only cleanly loaded
 // modules' manifests enter the resolution universe (a module that failed
 // mid-registration stays gated off everywhere).
@@ -440,33 +479,67 @@ let thirdPartyRendererModulesLoaded = false
 const thirdPartyLoadedListeners = new Set<() => void>()
 
 export function onThirdPartyRendererModulesLoaded(listener: () => void): () => void {
+  thirdPartyLoadedListeners.add(listener)
   if (thirdPartyRendererModulesLoaded) {
     listener()
-    return () => undefined
   }
-  thirdPartyLoadedListeners.add(listener)
   return () => {
     thirdPartyLoadedListeners.delete(listener)
   }
 }
 
-export async function loadThirdPartyRendererModules(): Promise<void> {
+let rendererLoadQueue: Promise<void> = Promise.resolve()
+
+export function loadThirdPartyRendererModules(): Promise<void> {
+  rendererLoadQueue = rendererLoadQueue.catch(() => undefined).then(() => loadRendererModuleBatch(false))
+  return rendererLoadQueue
+}
+
+/** Add newly installed renderer-only modules; never replace evaluated code. */
+export function refreshThirdPartyRendererModules(): Promise<void> {
+  rendererLoadQueue = rendererLoadQueue.catch(() => undefined).then(() => loadRendererModuleBatch(true))
+  return rendererLoadQueue
+}
+
+/** Clear the conservative restart hint only for code this install activated. */
+export async function installAndActivateRendererModules(
+  install: () => Promise<MarketplacePluginRegistryInstallResult>
+): Promise<MarketplacePluginRegistryInstallResult> {
+  const previouslyLoaded = new Set(thirdPartyRendererManifests.map((manifest) => manifest.id))
+  const result = await install()
+  if (!result.ok) return result
+  try {
+    await refreshThirdPartyRendererModules()
+  } catch (error) {
+    console.error('[modules] renderer activation after install failed:', error)
+    return result
+  }
+  const modules = result.installed.filter((component) => component.kind === 'module')
+  const activated = modules.length > 0 && modules.every((component) =>
+    !previouslyLoaded.has(component.id) && thirdPartyRendererManifests.some((manifest) =>
+      manifest.id === component.id && !manifest.entry?.main && !manifest.entry?.preload))
+  return activated && !result.updated ? { ...result, restartRequired: false } : result
+}
+
+async function loadRendererModuleBatch(refresh: boolean): Promise<void> {
   try {
     // Older preload bundles may not carry the bridge yet; treat that as "no
     // third-party renderer entries" rather than failing the boot.
     if (typeof window.api?.listThirdPartyRendererEntries !== 'function') return
     const served = await window.api.listThirdPartyRendererEntries()
-    const { loadThirdPartyRendererEntries } = await import('./third-party-loader')
-    thirdPartyRendererManifests = await loadThirdPartyRendererEntries(rendererHost, served)
-    if (thirdPartyRendererManifests.length > 0) {
+    const { loadThirdPartyRendererEntries, rendererEntriesForRefresh } = await import('./third-party-loader')
+    const loaded = await loadThirdPartyRendererEntries(rendererHost, refresh ? rendererEntriesForRefresh(served) : served)
+    thirdPartyRendererManifests = [...thirdPartyRendererManifests, ...loaded]
+    if (loaded.length > 0) {
       // The memoized enabled-set is keyed per overrides object; the universe just
       // changed, so any set resolved before the manifests landed is stale.
       enabledSetCache = new WeakMap()
     }
   } finally {
     thirdPartyRendererModulesLoaded = true
-    for (const listener of [...thirdPartyLoadedListeners]) listener()
-    thirdPartyLoadedListeners.clear()
+    for (const listener of [...thirdPartyLoadedListeners]) {
+      try { listener() } catch (error) { console.error('[modules] registry listener failed:', error) }
+    }
   }
 }
 

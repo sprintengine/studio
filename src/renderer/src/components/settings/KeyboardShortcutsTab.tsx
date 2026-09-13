@@ -23,7 +23,7 @@ import {
   type KeybindingConflictCandidate,
   type KeybindingPlatform,
 } from '../../commands'
-import { getRendererHost, selectModuleEnabled } from '../../modules'
+import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import type { KeybindingSettings } from '../../types/workspace'
 import { SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
 import {
@@ -258,9 +258,11 @@ export function KeyboardShortcutsTab() {
   // module drops its rows here reactively; its persisted overrides stay in
   // settings, so re-enabling restores the rows with the customization intact.
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
+  const [moduleRegistryGeneration, setModuleRegistryGeneration] = useState(0)
+  useEffect(() => onThirdPartyRendererModulesLoaded(() => setModuleRegistryGeneration((value) => value + 1)), [])
   const commands = useMemo(
     () => getRendererHost().getCommandContributions((moduleId) => selectModuleEnabled(moduleEnablement, moduleId)),
-    [moduleEnablement],
+    [moduleEnablement, moduleRegistryGeneration],
   )
   const rows = useMemo(() => buildShortcutRows(commands, keybindings), [commands, keybindings])
   // Retired commands never come back, so their stored deltas are dead weight no

@@ -70,7 +70,8 @@ export function rendererEntryView(installed: InstalledModule): ThirdPartyRendere
 
 export async function collectThirdPartyRendererEntries(
   modules: readonly InstalledModule[],
-  trustContext?: ModuleTrustContext
+  trustContext?: ModuleTrustContext,
+  assetOrigin?: (moduleId: string) => string
 ): Promise<ThirdPartyRendererEntriesResult> {
   const result: ThirdPartyRendererEntriesResult = { entries: [], failures: {} }
   for (const installed of modules) {
@@ -89,6 +90,7 @@ export async function collectThirdPartyRendererEntries(
         id: installed.manifest.id,
         manifest: installed.manifest,
         code,
+        ...(assetOrigin ? { assetOrigin: assetOrigin(installed.manifest.id) } : {}),
         ...(trustContext && isSignedByTrustedPublisher(installed.manifest, trustContext)
           ? { firstPartySigned: true }
           : {}),
@@ -110,10 +112,11 @@ export function registerThirdPartyRendererEntryIpc(
   options: {
     discoverModules: () => Promise<UserModuleListResult>
     trustContext?: () => ModuleTrustContext
+    assetOrigin?: (moduleId: string) => string
   }
 ): void {
   host.registerIpc(THIRD_PARTY_RENDERER_ENTRIES_CHANNEL, async (): Promise<ThirdPartyRendererEntriesResult> => {
     const { modules } = await options.discoverModules()
-    return collectThirdPartyRendererEntries(modules, options.trustContext?.())
+    return collectThirdPartyRendererEntries(modules, options.trustContext?.(), options.assetOrigin)
   })
 }
