@@ -24,7 +24,7 @@ import type {
   MobileControlBacklogEpicSnapshot,
   MobileControlBacklogItemSnapshot,
   MobileControlBacklogWorkspaceSnapshot,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 import { MobileSprintEngineCommandError } from './command-error'
 import {
   backlogAbsolutePath,

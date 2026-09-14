@@ -1,0 +1,19 @@
+{
+  // Deliberately the phone's build settings, not this repository's: `Node16`
+  // module + resolution, strict, emitting to disk. A bundler-resolution
+  // typecheck would pass against an `exports` map that Node itself cannot
+  // follow, which is the failure this fixture exists to catch.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "strict": true,
+    "noImplicitAny": true,
+    "noEmitOnError": true,
+    "outDir": "out",
+    "rootDir": "src",
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

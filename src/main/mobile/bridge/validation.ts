@@ -5,7 +5,7 @@ import type {
   MobilePushProvider,
   MobilePushRegistration,
 } from './index'
-import { isSupportedMobileControlProtocolVersion } from '../../../shared/mobile-control/protocol'
+import { isSupportedMobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
 
 const MOBILE_CONTROL_CAPABILITIES = [
   'snapshots.read',

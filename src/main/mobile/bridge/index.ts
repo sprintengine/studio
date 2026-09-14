@@ -45,7 +45,7 @@ import {
   revokePushRegistrationsForDevice,
 } from './push'
 
-// The wire's version window is owned by src/shared/mobile-control/protocol.ts.
+// The wire's version window is owned by packages/mobile-control-protocol/src/index.ts.
 // This module kept its own `const mobileControlProtocolVersion = 2` until
 // 2026-09-14, as did relay-transport.ts and command-validation.ts — three
 // private copies of one wire fact, which is three places for a bump to miss
@@ -53,7 +53,7 @@ import {
 import {
   mobileControlProtocolVersion,
   type MobileControlProtocolVersion,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 
 export type MobileControlCommandType =
   | 'snapshot.request'

@@ -3,7 +3,7 @@ import type { ObservedCheckout } from './observed-checkout'
 import type { BranchPullRequest } from './git/pull-request'
 import type { ConversationPeek } from './conversation-peek'
 import type { ChatTitleRequest, TextGenerationResult } from './text-generation/contract'
-import type { MobileControlProtocolVersion } from './mobile-control/protocol'
+import type { MobileControlProtocolVersion } from '../../packages/mobile-control-protocol/src/index'
 export type {
   ConversationPeek,
   ConversationPeekAttachment,

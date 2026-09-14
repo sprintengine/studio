@@ -26,7 +26,7 @@ import {
   type MobileControlAutomationSnapshot,
   type MobileControlRoleDescriptor,
   type MobileControlSnapshot,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 
 const generatedAt = '2026-04-28T19:30:00.000Z'
 const requiredMutationCommands = [
@@ -76,27 +76,32 @@ async function main(): Promise<void> {
   assertMobileProtocolCopyHasNotDrifted()
 }
 
-// Drift guard (T10). src/shared/mobile-control/protocol.ts is a byte-identical
-// mirror of the mobile app's copy (multicode-mobile:
-// src/shared/mobile-control/protocol.ts). The relay only works while the two
-// copies agree, so both repos pin this same sha256 — the mobile side pins it in
-// mobileControlProtocol.regression.test.js. If you change the wire schema in
-// either copy, mirror the edit into the other repo and set both pins to the new
-// shared hash.
+// Drift guard (T10). The wire schema now lives in
+// packages/mobile-control-protocol, which this repo compiles from source and
+// publishes as @sprintengine/mobile-control-protocol — so this desktop no
+// longer keeps a copy of it. The phone still does: its build reaches a store
+// review this repository does not control, so until a released phone build
+// depends on the package there is exactly one hand-maintained copy left, over
+// there, and this pin is still the only thing that catches it drifting.
 //
-// Moved 2026-09-14 for the protocol version window (docs/compatibility.md): the
-// desktop now accepts one version of slack from a phone instead of demanding
-// exact equality. The mobile copy has to take the same edit before a build of
-// it ships against this desktop.
+// The extraction deliberately moved the file without editing a byte, so the
+// hash below is the same value it has always been and still compares against
+// the phone's untouched `src/shared/mobile-control/protocol.ts`. The subject
+// changed; the claim did not.
+//
+// Retire this once the phone ships against the package: at that point there is
+// no second copy to compare and the phone's own pin becomes an assertion about
+// which package version it resolved. docs/mobile-protocol-package.md has the
+// order of operations.
 const mobileProtocolSourceSha256 = 'cb448e716bf7a9cdd681c78d33c3c95494a80e316f7905f6c21c24cd2432fb2a'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
-  const source = readFileSync(join(process.cwd(), 'src/shared/mobile-control/protocol.ts'))
+  const source = readFileSync(join(process.cwd(), 'packages/mobile-control-protocol/src/index.ts'))
   const digest = createHash('sha256').update(source).digest('hex')
   assert.equal(
     digest,
     mobileProtocolSourceSha256,
-    'protocol.ts changed — mirror the edit into the multicode-mobile copy and update both pinned hashes to the new shared value',
+    'the protocol package source changed — mirror the edit into the multicode-mobile copy and update both pinned hashes to the new shared value',
   )
 }
 

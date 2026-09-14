@@ -64,17 +64,17 @@ import type {
 
 export { MobileSprintEngineCommandError } from './command-error'
 
-// Wire schema is owned by src/shared/mobile-control/protocol.ts. Import the
+// Wire schema is owned by packages/mobile-control-protocol/src/index.ts. Import the
 // command types from there and re-export them so this module stays the public
 // surface for consumers, without re-declaring (and risking drift from) the
 // protocol. Adding a new command type is an edit to protocol.ts alone.
-export { mobileControlProtocolVersion } from '../../../shared/mobile-control/protocol'
+export { mobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
 
 import type {
   MobileControlCommand,
   MobileControlCommandType,
   MobileControlError,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 
 export type { MobileControlCommand, MobileControlCommandType, MobileControlError }
 

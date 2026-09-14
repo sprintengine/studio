@@ -9,8 +9,8 @@ import { selectTaskStatusSources } from './task-normalizer'
 import {
   mobileControlProtocolVersion,
   mobileControlWorkspaceSnapshotVersion,
-} from '../../../shared/mobile-control/protocol'
-// Wire schema is owned by src/shared/mobile-control/protocol.ts. Import the
+} from '../../../../packages/mobile-control-protocol/src/index'
+// Wire schema is owned by packages/mobile-control-protocol/src/index.ts. Import the
 // snapshot type tree from there (aliased to this module's established local
 // names) and re-export it, rather than re-declaring it and risking drift from
 // the validator (validateMobileControlSnapshot) that consumes the same schema.
@@ -38,7 +38,7 @@ import type {
   MobileControlNeedsInputKind,
   MobileControlTaskCommentType as MobileTaskCommentType,
   MobileSnapshotCollection,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 import { readMobileAutomationSnapshots } from './automations'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { readWorkspaceRoleCatalog, type RoleCatalogReader } from './role-catalog'
@@ -104,7 +104,7 @@ export type MobileSprintEngineSnapshotRequest = {
 // longer has a producer — the desktop modules that projected into it (the
 // retired task board and its review runs) were removed 2026-09.
 //
-// RETAINED FOR PROTOCOL COMPATIBILITY. `src/shared/mobile-control/protocol.ts`
+// RETAINED FOR PROTOCOL COMPATIBILITY. `packages/mobile-control-protocol/src/index.ts`
 // still declares `desktopWorkspaces`, the two retired `MobileControlWorkspaceKind`
 // members, and their `MobileControlSwitchboard*` / `MobileControlWatchtower*`
 // detail shapes, and its validator still accepts them on receipt. That file is

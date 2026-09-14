@@ -7,7 +7,7 @@ import { MobileSprintEngineCommandService, type MobileControlCommand } from '../
 import { relaySummaryByteLength, relayResultSummaryMaxBytes, summarizeCommandResult } from './command-results'
 import { dispatchSnapshotRequest } from './snapshot-request'
 import { MobileSprintEngineSnapshotService } from '../sprintengine/snapshot'
-import { validateMobileControlSnapshot } from '../../../shared/mobile-control/protocol'
+import { validateMobileControlSnapshot } from '../../../../packages/mobile-control-protocol/src/index'
 import { DEFAULT_MOBILE_RELAY_URL } from '../../service-endpoints'
 
 const now = new Date('2026-04-28T22:00:00.000Z')

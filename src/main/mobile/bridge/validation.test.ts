@@ -8,7 +8,7 @@ import {
   mobileControlMinSupportedProtocolVersion,
   mobileControlProtocolVersion,
   mobileControlSupportedProtocolVersions,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 import { readMobileBridgeStore } from './store'
 import { manualPairingValueFromRelayChallenge } from './pairing'
 import { relayDeviceCapabilities } from './relay-device'

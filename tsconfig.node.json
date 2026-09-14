@@ -7,7 +7,8 @@
     "src/shared/**/*",
     "src/renderer/src/types/appTheme.ts",
     "src/renderer/src/types/workspace.ts",
-    "packages/module-sdk/src/**/*"
+    "packages/module-sdk/src/**/*",
+    "packages/mobile-control-protocol/src/**/*"
   ],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "packages/**/*.test.ts"],
   "compilerOptions": {

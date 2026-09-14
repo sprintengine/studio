@@ -3,7 +3,7 @@ import {
   sprintEngineRoleSummaryMaxChars,
   type MobileControlRoleDescriptor,
   type MobileControlRoleSource,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 import { readSprintEngineRegistryRoles } from '../../sprintengine-artifacts'
 import { isRecord } from '../../../shared/records'
 

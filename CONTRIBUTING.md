@@ -198,8 +198,8 @@ was made and anything a reviewer would otherwise have to reconstruct.
 
 The app is licensed under the Functional Source License, FSL-1.1-Apache-2.0,
 which converts to Apache 2.0 two years after each version is released. See
-[LICENSE](LICENSE). Everything under `packages/` — the module SDK — is MIT
-instead, under its own LICENSE file.
+[LICENSE](LICENSE). Everything under `packages/` — the module SDK and the mobile
+control protocol — is MIT instead, each under its own LICENSE file.
 
 When you contribute, you licence your contribution under the licence that
 already covers the file you are changing: FSL-1.1-Apache-2.0 for the app, MIT

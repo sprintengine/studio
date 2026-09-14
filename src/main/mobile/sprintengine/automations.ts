@@ -5,11 +5,11 @@ import {
   automationRecentRunsMax,
   automationRunTextMaxChars,
   automationsPerProjectMax,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 import type {
   MobileControlAutomationRunSummary,
   MobileControlAutomationSnapshot,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 import { validateScheduleTriggerConfig } from '../../automations/schedule'
 import { AutomationsStore } from '../../automations/store'
 import { deriveWorkspaceId } from './workspace-id'

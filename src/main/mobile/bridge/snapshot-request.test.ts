@@ -7,7 +7,7 @@ import { AutomationsStore } from '../../automations/store'
 import type { AutomationDefinition } from '../../../shared/automations/contracts'
 import { dispatchSnapshotRequest } from './snapshot-request'
 import { relaySummaryByteLength, summarizeCommandResult } from './command-results'
-import { validateMobileControlSnapshot } from '../../../shared/mobile-control/protocol'
+import { validateMobileControlSnapshot } from '../../../../packages/mobile-control-protocol/src/index'
 import type { MobileControlCommand, MobileSprintEngineCommandResult } from '../sprintengine/command'
 
 // Two read-time wall-clock stamps that differ. `snapshot.ts` folds neither into the
