@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
+  mobileControlMinSupportedProtocolVersion,
   mobileControlProtocolVersion,
+  mobileControlSupportedProtocolVersions,
   mobileControlWorkspaceSnapshotVersion,
   validateMobileControlCapabilities,
   validateMobileControlCommand,
@@ -288,7 +290,58 @@ assert.equal(validateMobileControlCommand(validCommand).ok, true);
 assert.equal(validateMobileControlCommand(validTaskStartCommand).ok, true);
 assert.equal(validateMobileControlSnapshot(validSnapshot).ok, true);
 
+// ── The protocol version window ──────────────────────────────────────────────
+//
+// The desktop and the phone are separate installs, and the phone's update goes
+// through a store review this tree does not control. Exact equality — which is
+// what this check was — made the gap between a desktop bump and the phone's
+// build clearing review an outage for every paired phone. The window is one
+// version of slack; outside it the refusal is unchanged.
+
+for (const version of mobileControlSupportedProtocolVersions) {
+  assert.equal(
+    validateMobileControlCommand({ ...validCommand, protocolVersion: version }).ok,
+    true,
+    `protocol version ${version} is inside the window`,
+  );
+}
+
+assert.equal(
+  mobileControlSupportedProtocolVersions.at(-1),
+  mobileControlProtocolVersion,
+  "the window must end at the version this build stamps on everything it sends",
+);
+
 assertInvalid("unknown protocol version", validateMobileControlCommand({ ...validCommand, protocolVersion: 999 }));
+assertInvalid(
+  "a version below the window",
+  validateMobileControlCommand({
+    ...validCommand,
+    protocolVersion: (mobileControlMinSupportedProtocolVersion - 1) as never,
+  }),
+);
+assertInvalid(
+  "no version at all",
+  validateMobileControlCommand({ ...validCommand, protocolVersion: undefined as never }),
+);
+
+{
+  // A refusal has to name both numbers, or its reader cannot tell which of the
+  // two installs is the one to update.
+  const refused = validateMobileControlCommand({ ...validCommand, protocolVersion: 999 });
+  assert.equal(refused.ok, false);
+  const message = refused.ok === false ? refused.error.message : "";
+  assert.equal(refused.ok === false && refused.error.code, "unsupported_protocol_version");
+  assert.match(message, /\b999\b/u);
+  assert.match(
+    message,
+    new RegExp(`${mobileControlMinSupportedProtocolVersion}.${mobileControlProtocolVersion}`, "u"),
+  );
+  // And the error itself is stamped with what THIS build speaks, not with the
+  // version that was refused.
+  assert.equal(refused.ok === false && refused.error.protocolVersion, mobileControlProtocolVersion);
+}
+
 assertInvalid("unknown command type", validateMobileControlCommand({ ...validCommand, type: "terminal.write" }));
 assertInvalid(
   "missing command payload field",

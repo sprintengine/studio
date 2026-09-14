@@ -1,5 +1,10 @@
+import {
+  isSupportedMobileControlProtocolVersion,
+  type MobileControlProtocolVersion,
+} from '../../../shared/mobile-control/protocol'
+
 type PairingPayload = {
-  mobileControlProtocolVersion: 2
+  mobileControlProtocolVersion: MobileControlProtocolVersion
   pairingChallengeId: string
   relayUrl: string
   pairingSecret: string
@@ -21,7 +26,7 @@ export function manualPairingValueFromRelayChallenge(challenge: PairingChallenge
   if (challenge.manualPairingCode) return challenge.manualPairingCode
 
   if (!challenge.pairingPayload) {
-    if (isCurrentMobilePairingUri(challenge.pairingUri)) return challenge.pairingUri
+    if (isSupportedMobilePairingUri(challenge.pairingUri)) return challenge.pairingUri
     throw new Error('Relay pairing challenge did not include a mobile-compatible pairing link.')
   }
 
@@ -44,10 +49,17 @@ export function manualPairingValueFromRelayChallenge(challenge: PairingChallenge
   return url.toString()
 }
 
-function isCurrentMobilePairingUri(pairingUri: string): boolean {
+/**
+ * Is this link one a phone this desktop still talks to could have produced?
+ *
+ * The version window rather than the current version alone: the link is handed
+ * straight to a phone, and refusing one stamped a release behind would make
+ * pairing the single thing an otherwise-working older phone could not do.
+ */
+function isSupportedMobilePairingUri(pairingUri: string): boolean {
   try {
     const params = new URL(pairingUri).searchParams
-    return params.get('mobileControlProtocolVersion') === '2'
+    return isSupportedMobileControlProtocolVersion(Number(params.get('mobileControlProtocolVersion')))
       && Boolean(params.get('pairingChallengeId')?.trim())
       && Boolean(params.get('relayUrl')?.trim() || params.get('relay')?.trim())
       && Boolean(params.get('pairingSecret')?.trim())

@@ -1,3 +1,10 @@
+// Straight from the protocol module rather than through `./command`, which
+// re-exports it: this is a value import, and `./command` imports this file back.
+import {
+  isSupportedMobileControlProtocolVersion,
+  mobileControlProtocolVersion,
+  unsupportedMobileControlProtocolVersion,
+} from '../../../shared/mobile-control/protocol'
 import type {
   MobileControlCommand,
   MobileControlCommandType,
@@ -7,8 +14,6 @@ import type {
 type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: MobileControlError }
-
-const mobileControlProtocolVersion = 2 as const
 
 const commandTypes = new Set<MobileControlCommandType>([
   'snapshot.request',
@@ -35,10 +40,17 @@ export function validateMobileControlCommand(input: unknown): ValidationResult<M
   }
 
   const command = input as Record<string, unknown>
-  if (command.protocolVersion !== mobileControlProtocolVersion) {
+  // The window, not equality: a phone one release behind still drives this
+  // desktop. The refusal outside it is unchanged, and still names the code a
+  // client branches on.
+  if (!isSupportedMobileControlProtocolVersion(command.protocolVersion)) {
     return {
       ok: false,
-      error: buildError('unsupported_protocol_version', `mobile-control protocol version must be ${mobileControlProtocolVersion}`, false),
+      error: buildError(
+        'unsupported_protocol_version',
+        unsupportedMobileControlProtocolVersion(command.protocolVersion),
+        false
+      ),
     }
   }
 

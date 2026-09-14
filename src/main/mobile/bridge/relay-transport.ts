@@ -10,8 +10,12 @@ import type {
   RelayConnectResult,
   RelayPairingChallengeResult,
 } from './index'
-
-const mobileControlProtocolVersion = 2 as const
+import {
+  isSupportedMobileControlProtocolVersion,
+  mobileControlProtocolVersion,
+  unsupportedMobileControlProtocolVersion,
+  type MobileControlProtocolVersion,
+} from '../../../shared/mobile-control/protocol'
 
 // Canonical relay command whitelist: parseRelayCommandEnvelope accepts these
 // inbound and MobileRelayBridge advertises the same list on connect (imported
@@ -281,14 +285,20 @@ function optionalPairingPayload(
     throw new Error(`Relay response field ${field}.desktop must be an object.`)
   }
   const desktopPayload = desktop as Record<string, unknown>
-  if (pairingPayload.mobileControlProtocolVersion !== mobileControlProtocolVersion) {
+  // The same window the command validator applies, so the relay and the
+  // commands that arrive over it can never disagree about which phones exist.
+  if (!isSupportedMobileControlProtocolVersion(pairingPayload.mobileControlProtocolVersion)) {
     throw new Error(
-      `Relay response field ${field}.mobileControlProtocolVersion must be ${mobileControlProtocolVersion}.`,
+      `Relay response field ${field}.mobileControlProtocolVersion: ${unsupportedMobileControlProtocolVersion(pairingPayload.mobileControlProtocolVersion)}.`,
     )
   }
+  // Carried through rather than replaced with our own: this is the version the
+  // pairing was agreed at, and echoing 2 at a phone that said 1 would be this
+  // desktop inventing the one fact the field exists to report.
+  const negotiated = pairingPayload.mobileControlProtocolVersion as MobileControlProtocolVersion
 
   return {
-    mobileControlProtocolVersion,
+    mobileControlProtocolVersion: negotiated,
     pairingChallengeId: requireRelayString(pairingPayload, 'pairingChallengeId'),
     relayUrl: requireRelayString(pairingPayload, 'relayUrl'),
     pairingSecret: requireRelayString(pairingPayload, 'pairingSecret'),
