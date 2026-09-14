@@ -45,7 +45,15 @@ import {
   revokePushRegistrationsForDevice,
 } from './push'
 
-const mobileControlProtocolVersion = 2 as const
+// The wire's version window is owned by src/shared/mobile-control/protocol.ts.
+// This module kept its own `const mobileControlProtocolVersion = 2` until
+// 2026-09-14, as did relay-transport.ts and command-validation.ts — three
+// private copies of one wire fact, which is three places for a bump to miss
+// and the drift a support window cannot afford.
+import {
+  mobileControlProtocolVersion,
+  type MobileControlProtocolVersion,
+} from '../../../shared/mobile-control/protocol'
 
 export type MobileControlCommandType =
   | 'snapshot.request'
@@ -103,7 +111,13 @@ export type MobileControlErrorCode =
   | 'internal_error'
 
 export type MobileControlDevice = {
-  protocolVersion: typeof mobileControlProtocolVersion
+  /**
+   * The version this device was last stamped at — inside the window, not
+   * necessarily current. A record written by an older build is still a record,
+   * and the store validator must keep reading it: dropping one would unpair
+   * someone's phone on the first restart after a bump, silently.
+   */
+  protocolVersion: MobileControlProtocolVersion
   deviceId: string
   displayName: string
   platform: 'ios' | 'android' | 'web'
@@ -117,7 +131,8 @@ export type MobileControlDevice = {
 export type MobilePushProvider = 'apns' | 'fcm' | 'expo'
 
 export type MobilePushRegistration = MobilePushRegistrationTarget & {
-  protocolVersion: typeof mobileControlProtocolVersion
+  /** Stamped at registration time, and read back across bumps — see `MobileControlDevice`. */
+  protocolVersion: MobileControlProtocolVersion
   provider: MobilePushProvider
   tokenHash: string
   registeredAt: string
@@ -217,7 +232,8 @@ export type RelayPairingChallengeResult = {
   manualPairingCode?: string
   pairingUri: string
   pairingPayload?: {
-    mobileControlProtocolVersion: 2
+    /** The version the relay named, carried through rather than assumed current. */
+    mobileControlProtocolVersion: MobileControlProtocolVersion
     pairingChallengeId: string
     relayUrl: string
     pairingSecret: string

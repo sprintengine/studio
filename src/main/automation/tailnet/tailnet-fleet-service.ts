@@ -30,6 +30,7 @@ import {
   type FleetWorkspaceCheckoutResult,
 } from '../../../shared/tailnet-fleet'
 import { createTailnetFleetStore, type StoredFleetConnection, type TailnetFleetStore } from './tailnet-fleet-store'
+import { tailnetPeerSupports } from './tailnet-routes'
 import {
   callRemoteTool,
   formatTailnetEndpoint,
@@ -730,6 +731,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       if (identity.ok) {
         store.updateScopes(connection.id, identity.value.scopes)
         store.markConnected(connection.id)
+        rememberCapabilities(connection.id, identity.value.capabilities)
         recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
         return
       }
@@ -766,6 +768,38 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     released: boolean
   }
   const watches = new Map<string, Watch>()
+  /**
+   * The capability list each machine published, the last time one answered a
+   * handshake. Null for a machine that published none, absent for one that has
+   * not answered yet.
+   *
+   * Not persisted: a capability list is a fact about the build running over
+   * there right now, and one read off disk would outlive the install that said
+   * it.
+   */
+  const peerCapabilities = new Map<string, string[] | null>()
+
+  /**
+   * Record what a machine just said it can do, and bring its change-feed watch
+   * into line with it.
+   *
+   * Both directions, because a capability list changes when the build over
+   * there does: a machine that has just said it has no feed should stop being
+   * re-dialled now rather than at the next backoff tick, and one that has just
+   * gained the feed should be watched without waiting for a restart here.
+   * A machine that published no list is left exactly as it was — see the gate
+   * in `dialWatch` for why silence is not a denial.
+   */
+  function rememberCapabilities(connectionId: string, capabilities: string[] | null): void {
+    peerCapabilities.set(connectionId, capabilities)
+    if (capabilities === null) return
+    const watched = watches.has(connectionId)
+    const supported = tailnetPeerSupports(capabilities, 'events')
+    if (watched && !supported) stopWatch(connectionId)
+    // Only while the supervisor is running: outside it, nothing is watched at
+    // all, and a probe must not be what starts a socket `start` never asked for.
+    else if (!watched && supported && reachabilityTimer) startWatch(connectionId)
+  }
 
   function startWatch(connectionId: string): void {
     if (watches.has(connectionId)) return
@@ -789,6 +823,22 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     if (watch.released) return
     const connection = store.find(watch.connectionId)
     if (!connection) {
+      stopWatch(watch.connectionId)
+      return
+    }
+    // The change feed is a capability, not a version: a machine that published a
+    // list without `events` has no route to upgrade and would answer every dial
+    // with a 404, forever, on a backoff that tops out at a minute. Asked of the
+    // capability list rather than of `transportVersion >= 2` so that a peer
+    // which back-ports the feed, or a later build that drops it, is read as it
+    // describes itself.
+    //
+    // Only a PUBLISHED list closes this gate. A machine that named none (null)
+    // or has not answered a handshake yet (absent) is dialled anyway: the feed
+    // shipped a day before the capability list did, so silence there means
+    // "unknown", and treating it as a denial would switch off a feed that works.
+    const published = peerCapabilities.get(watch.connectionId)
+    if (published && !tailnetPeerSupports(published, 'events')) {
       stopWatch(watch.connectionId)
       return
     }
@@ -912,6 +962,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     }
     store.updateScopes(connection.id, identity.value.scopes)
     store.markConnected(connection.id)
+    rememberCapabilities(connection.id, identity.value.capabilities)
     recordReachability(connection, { reachable: true, unauthorized: false, detail: null })
     const scopes = identity.value.scopes
 
@@ -1486,6 +1537,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   function forgetConnection(connectionId: string): { id: string; machineName: string } | null {
     const forgotten = store.find(connectionId)
     reachability.delete(connectionId)
+    peerCapabilities.delete(connectionId)
     for (const attachment of [...attachments.values()]) {
       if (attachment.connectionId === connectionId) finish(attachment, 'This machine was removed from your fleet.')
     }

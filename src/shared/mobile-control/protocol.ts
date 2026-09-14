@@ -1,8 +1,64 @@
 export const mobileControlProtocolVersion = 2 as const;
 export const mobileControlWorkspaceSnapshotVersion = 2 as const;
 
-export type MobileControlProtocolVersion = typeof mobileControlProtocolVersion;
+/**
+ * Every protocol version this desktop still accepts from a phone, oldest first.
+ *
+ * The desktop and the phone are two separately installed apps, and the phone's
+ * update goes through a store review this repository does not control. Exact
+ * equality — which is what every check here did until now — meant the hour
+ * between shipping a desktop bump and the phone's build clearing review was an
+ * hour in which every paired phone was refused outright, with
+ * `unsupported_protocol_version` and no way for its owner to act on it.
+ *
+ * One version of slack is the smallest window that survives that, and the
+ * largest that does not ask this code to remember two wire shapes indefinitely.
+ * Widening it is a decision about how long an old phone keeps working; see
+ * `docs/compatibility.md` for what a bump obliges a contributor to do.
+ *
+ * Outbound traffic is unaffected: this desktop always STAMPS
+ * `mobileControlProtocolVersion`. The window governs only what it will read.
+ */
+export const mobileControlSupportedProtocolVersions = [1, 2] as const;
+
+export type MobileControlProtocolVersion = (typeof mobileControlSupportedProtocolVersions)[number];
 export type MobileControlWorkspaceSnapshotVersion = typeof mobileControlWorkspaceSnapshotVersion;
+
+/**
+ * The window has to END at the version this build speaks, or the desktop would
+ * be advertising a version it does not itself accept back. A compile error here
+ * means a bump changed `mobileControlProtocolVersion` and left the window behind.
+ */
+type _AssertWindowEndsAtCurrent =
+  (typeof mobileControlSupportedProtocolVersions) extends readonly [...unknown[], typeof mobileControlProtocolVersion]
+    ? true
+    : ["mobileControlSupportedProtocolVersions must end at mobileControlProtocolVersion"];
+const _windowEndsAtCurrent: _AssertWindowEndsAtCurrent = true;
+void _windowEndsAtCurrent;
+
+/** The oldest phone this desktop will still talk to. */
+export const mobileControlMinSupportedProtocolVersion = mobileControlSupportedProtocolVersions[0];
+
+export function isSupportedMobileControlProtocolVersion(value: unknown): value is MobileControlProtocolVersion {
+  return (mobileControlSupportedProtocolVersions as readonly unknown[]).includes(value);
+}
+
+/**
+ * Why a payload was refused, naming both the version seen and the window.
+ *
+ * Both, because either alone is undiagnosable: the phone's owner cannot act on
+ * "unsupported version" without knowing which side is behind, and a support
+ * thread that carries only one number cannot tell a phone that is too old from
+ * one that is too new.
+ */
+export function unsupportedMobileControlProtocolVersion(seen: unknown): string {
+  // Collapses to a single number on its own once the window narrows to one.
+  const window = [
+    ...new Set<number>([mobileControlMinSupportedProtocolVersion, mobileControlProtocolVersion]),
+  ].join("-");
+  const saw = typeof seen === "number" ? String(seen) : "no readable version";
+  return `mobile-control protocol version ${saw} is not supported; this build speaks ${window}`;
+}
 
 export type MobileControlCommandType =
   | "snapshot.request"
@@ -1590,12 +1646,12 @@ export function validateMobileControlError(input: unknown): ValidationResult<Mob
 }
 
 function validateProtocolVersion(record: Record<string, unknown>): ValidationResult<never> | null {
-  if (record.protocolVersion !== mobileControlProtocolVersion) {
+  if (!isSupportedMobileControlProtocolVersion(record.protocolVersion)) {
     return {
       ok: false,
       error: buildError(
         "unsupported_protocol_version",
-        `mobile-control protocol version must be ${mobileControlProtocolVersion}`,
+        unsupportedMobileControlProtocolVersion(record.protocolVersion),
         false,
       ),
     };

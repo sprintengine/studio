@@ -54,6 +54,24 @@ export const TAILNET_UPLOAD_PATH = `${TAILNET_ROUTE_PREFIX}/upload`
 export const TAILNET_TRANSPORT_VERSION = 2
 
 /**
+ * The oldest wire this build will still drive.
+ *
+ * A window rather than an equality because the two ends of a tailnet are two
+ * separate installs that update on their own schedule, and refusing the machine
+ * that updated last week is worse than talking to it. One version of slack is
+ * what an ordinary "I'll update it this weekend" costs.
+ *
+ * It can be 1 and not 2 because nothing version 2 changed makes a version 1 peer
+ * unreadable: its two new routes are named capabilities a version 1 peer does
+ * not advertise, and its one behaviour change (git facts only for running
+ * sessions) leaves a version 1 peer answering a superset of what a version 2
+ * client expects. Neither is a shape this build would misread. When a bump DOES
+ * change the shape of something already shipped, this constant moves up with
+ * it. See `docs/compatibility.md`.
+ */
+export const TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION = 1
+
+/**
  * Additive features a client may rely on; a purely additive feature ships here
  * without a version bump.
  *
@@ -63,3 +81,71 @@ export const TAILNET_TRANSPORT_VERSION = 2
  * one failure a 25MB upload must not have.
  */
 export const TAILNET_CAPABILITIES = ['events', 'sliced-frames', 'upload'] as const
+
+export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]
+
+/**
+ * Does this peer offer a feature, according to what it said in the handshake?
+ *
+ * The question to ask before using anything the transport did not always have.
+ * A version comparison would answer it too, but only by encoding "events landed
+ * in 2" in every caller, which is the fact that goes stale: a capability may be
+ * withdrawn by a build that keeps the version, and back-porting one to an older
+ * version is exactly the move the capability list exists to allow.
+ *
+ * A peer that advertises no list at all (anything before the field shipped)
+ * therefore has no capabilities, not all of them — this answers "may I RELY on
+ * X", and silence is not a promise. It is not the same question as "should I
+ * stop trying X", where silence means only that we do not know; the change-feed
+ * gate in `tailnet-fleet-service.ts` keeps the two apart.
+ */
+export function tailnetPeerSupports(
+  capabilities: readonly string[] | null | undefined,
+  capability: TailnetCapability
+): boolean {
+  return capabilities?.includes(capability) ?? false
+}
+
+/** A handshake refused for speaking a wire this build does not. */
+export type TailnetTransportRefusal = {
+  code: 'unsupported_transport_version'
+  message: string
+}
+
+/** `1–2`, collapsing to `2` on its own once the window narrows to one version. */
+function supportedTransportVersions(): string {
+  return [...new Set<number>([TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION, TAILNET_TRANSPORT_VERSION])].join('–')
+}
+
+/**
+ * Check a peer's advertised transport version, returning null when it is one we
+ * speak and a refusal when it is not.
+ *
+ * The whole point is that this fires at the handshake. Until it did, a peer on
+ * an incompatible wire was accepted and then failed somewhere downstream on a
+ * payload shape — a tool answering in a form this build could not read, a frame
+ * with a field that moved — which is the expensive kind of failure: it surfaces
+ * far from its cause and reads as a bug in whatever tool happened to be called.
+ *
+ * The refusal names both versions because that is the whole diagnosis. "Cannot
+ * connect" sends someone to the network; "that machine speaks 4, this one
+ * speaks 1–2" tells them which of the two installs to update.
+ */
+export function checkTailnetTransportVersion(seen: unknown): TailnetTransportRefusal | null {
+  if (
+    Number.isInteger(seen)
+    && (seen as number) >= TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION
+    && (seen as number) <= TAILNET_TRANSPORT_VERSION
+  ) {
+    return null
+  }
+  // A peer that states nothing readable gets its own sentence: "speaks version
+  // undefined" would read as a bug here rather than as a fact about that machine.
+  const seenClause = Number.isInteger(seen)
+    ? `That machine speaks transport version ${seen as number}`
+    : 'That machine did not state a transport version this build could read'
+  return {
+    code: 'unsupported_transport_version',
+    message: `${seenClause}; this build speaks ${supportedTransportVersions()}. Update whichever of the two is older.`,
+  }
+}

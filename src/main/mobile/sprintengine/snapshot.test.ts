@@ -83,7 +83,12 @@ async function main(): Promise<void> {
 // mobileControlProtocol.regression.test.js. If you change the wire schema in
 // either copy, mirror the edit into the other repo and set both pins to the new
 // shared hash.
-const mobileProtocolSourceSha256 = 'b4691a7021a1a993e40756ef8b9c0c9ced065b528c8043f6116a9692c3f6ef55'
+//
+// Moved 2026-09-14 for the protocol version window (docs/compatibility.md): the
+// desktop now accepts one version of slack from a phone instead of demanding
+// exact equality. The mobile copy has to take the same edit before a build of
+// it ships against this desktop.
+const mobileProtocolSourceSha256 = 'e23dee51cde54d3a52659a0263586e17ae9efa8f896f120d26b9068ffdd4d272'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'src/shared/mobile-control/protocol.ts'))

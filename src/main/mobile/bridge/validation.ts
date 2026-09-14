@@ -5,6 +5,7 @@ import type {
   MobilePushProvider,
   MobilePushRegistration,
 } from './index'
+import { isSupportedMobileControlProtocolVersion } from '../../../shared/mobile-control/protocol'
 
 const MOBILE_CONTROL_CAPABILITIES = [
   'snapshots.read',
@@ -35,10 +36,17 @@ type _AssertCapabilityListComplete = [
 const _capabilityListComplete: _AssertCapabilityListComplete = true
 void _capabilityListComplete
 
+// These two read records off this machine's own disk, not off the wire, so the
+// window matters here for the reason the capability list above does: a stored
+// device that fails this check is DROPPED by readMobileBridgeStore, and a check
+// pinned to the current version alone would unpair every phone paired before
+// the last bump, on the first restart after it, with nothing in the log to say
+// why. The window is the same one the wire uses; a version outside it is a
+// record this build genuinely cannot read.
 export function isMobileControlDevice(input: unknown): input is MobileControlDevice {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return false
   const device = input as Partial<MobileControlDevice>
-  return device.protocolVersion === 2
+  return isSupportedMobileControlProtocolVersion(device.protocolVersion)
     && typeof device.deviceId === 'string'
     && typeof device.displayName === 'string'
     && (device.platform === 'ios' || device.platform === 'android' || device.platform === 'web')
@@ -58,7 +66,7 @@ export function isMobileControlCapability(input: unknown): input is MobileContro
 export function isMobilePushRegistration(input: unknown): input is MobilePushRegistration {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return false
   const registration = input as Partial<MobilePushRegistration>
-  return registration.protocolVersion === 2
+  return isSupportedMobileControlProtocolVersion(registration.protocolVersion)
     && typeof registration.registrationId === 'string'
     && typeof registration.deviceId === 'string'
     && isMobilePushProvider(registration.provider)

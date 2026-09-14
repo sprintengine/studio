@@ -3,6 +3,7 @@ import type { ObservedCheckout } from './observed-checkout'
 import type { BranchPullRequest } from './git/pull-request'
 import type { ConversationPeek } from './conversation-peek'
 import type { ChatTitleRequest, TextGenerationResult } from './text-generation/contract'
+import type { MobileControlProtocolVersion } from './mobile-control/protocol'
 export type {
   ConversationPeek,
   ConversationPeekAttachment,
@@ -3083,7 +3084,8 @@ export type MobileControlCapability =
   | 'automations.control'
 
 export type MobileControlDevice = {
-  protocolVersion: 2
+  /** Inside the supported window, not necessarily current: a device paired before a bump keeps its stamp. */
+  protocolVersion: MobileControlProtocolVersion
   deviceId: string
   displayName: string
   platform: 'ios' | 'android' | 'web'

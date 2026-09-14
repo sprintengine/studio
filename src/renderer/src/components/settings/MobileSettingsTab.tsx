@@ -9,6 +9,7 @@ import {
   SettingToggle,
   formatNullableDate,
 } from './SettingsAtoms'
+import type { MobileControlProtocolVersion } from '../../../../shared/mobile-control/protocol'
 
 type MobileControlCommandType =
   | 'snapshot.request'
@@ -42,7 +43,8 @@ type MobileControlCapability =
   | 'automations.control'
 
 type MobileControlDevice = {
-  protocolVersion: 2
+  /** A device paired before a protocol bump keeps its stamp, so this is the window, not the current version. */
+  protocolVersion: MobileControlProtocolVersion
   deviceId: string
   displayName: string
   platform: 'ios' | 'android' | 'web'

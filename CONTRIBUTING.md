@@ -108,6 +108,17 @@ itself, `node design-system/scripts/lint.mjs` must also exit 0, and the
 generated files (`foundations/tokens.css`, `catalog/index.html`) are rebuilt
 by their build scripts rather than edited by hand.
 
+## Changing a wire format
+
+Two of the app's protocols are spoken to software this repository does not ship:
+another Studio on a tailnet, and the phone app. Both ends update separately, so
+a change to either wire is a compatibility decision, not a local edit — which
+version integer moves, whether a capability flag would do instead, and which of
+the enforcement sites have to agree.
+
+[`docs/compatibility.md`](docs/compatibility.md) is the policy, and it is short.
+Read it before you change anything that crosses either wire.
+
 ## Names that do not go in the tree
 
 This repository was private for most of its life, and two habits from then have

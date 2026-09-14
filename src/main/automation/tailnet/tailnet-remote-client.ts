@@ -9,6 +9,7 @@ import {
   type TailnetScope,
 } from '../../../shared/tailnet'
 import {
+  checkTailnetTransportVersion,
   TAILNET_IDENTITY_PATH,
   TAILNET_MCP_PATH,
   TAILNET_PAIR_PATH,
@@ -330,8 +331,36 @@ export async function collectPairingFromMachine(input: {
   return { ok: true, value: { status: status === 'denied' ? 'denied' : 'expired' } }
 }
 
+/** What one authenticated handshake with a machine established. */
+export type RemoteIdentity = {
+  deviceId: string
+  deviceName: string
+  scopes: TailnetScope[]
+  /** The wire that machine speaks; always inside this build's window, or the call refused. */
+  transportVersion: number
+  /**
+   * What that machine says it can do, in its own words. Ask this before using
+   * anything the transport did not always have, rather than inferring it from
+   * `transportVersion` — see `tailnetPeerSupports`.
+   *
+   * Null when the peer published no list at all, which is not the same fact as
+   * an empty one and must not be flattened into it: an empty list is a machine
+   * saying it can do nothing, null is a machine that was never asked the
+   * question. Builds from the day between the change feed shipping and the
+   * capability list being advertised are exactly that, and a caller that reads
+   * their silence as a denial would switch off a feature they serve.
+   */
+  capabilities: string[] | null
+}
+
 /**
  * What the remote says our device is and may do, right now.
+ *
+ * This is the handshake, and so it is where the transport version is enforced
+ * (MC-2167 shipped without that check, and a mismatched peer then failed later
+ * on a payload shape instead). A machine outside the window is refused here
+ * with a named code, so the Fleet records it as unreachable-with-a-reason
+ * rather than as a machine that answered and then behaved oddly.
  *
  * `timeoutMs` is for the reachability check (phase 4), which asks this of
  * every paired machine on a timer: a sleeping laptop should cost a few
@@ -341,7 +370,7 @@ export async function readRemoteIdentity(input: {
   endpoint: TailnetEndpoint
   token: string
   timeoutMs?: number
-}): Promise<RemoteCallOutcome<{ deviceId: string; deviceName: string; scopes: TailnetScope[] }>> {
+}): Promise<RemoteCallOutcome<RemoteIdentity>> {
   let answer: JsonAnswer
   try {
     answer = await requestTailnetJson({
@@ -359,14 +388,30 @@ export async function readRemoteIdentity(input: {
   if (answer.status !== 200 || !record) {
     return { ok: false, code: `http_${answer.status}`, message: `That machine answered HTTP ${answer.status}.` }
   }
+  const refusal = checkTailnetTransportVersion(record.transportVersion)
+  if (refusal) return { ok: false, code: refusal.code, message: refusal.message }
   return {
     ok: true,
     value: {
       deviceId: typeof record.deviceId === 'string' ? record.deviceId : '',
       deviceName: typeof record.deviceName === 'string' ? record.deviceName : '',
       scopes: readScopes(record.scopes),
+      transportVersion: record.transportVersion as number,
+      capabilities: readCapabilities(record.capabilities),
     },
   }
+}
+
+/**
+ * The capability list out of a handshake, or null when the peer named none.
+ *
+ * Anything that is not a string is dropped, but the list is not filtered
+ * against our own: a peer may publish names this build has never heard of, and
+ * the list is only ever asked "is X in here".
+ */
+function readCapabilities(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  return value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.slice(0, 64))
 }
 
 /**

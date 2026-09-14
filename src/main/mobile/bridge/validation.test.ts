@@ -4,7 +4,13 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import type { MobileControlCapability, MobileRelayAuthenticatedDevice, MobileRelayScope, RelayCommandEnvelope } from './index'
 import { isMobileControlCapability, isMobileControlDevice } from './validation'
+import {
+  mobileControlMinSupportedProtocolVersion,
+  mobileControlProtocolVersion,
+  mobileControlSupportedProtocolVersions,
+} from '../../../shared/mobile-control/protocol'
 import { readMobileBridgeStore } from './store'
+import { manualPairingValueFromRelayChallenge } from './pairing'
 import { relayDeviceCapabilities } from './relay-device'
 import { authorizeRelayCommand } from './relay-auth'
 
@@ -34,6 +40,9 @@ async function main(): Promise<void> {
   assertDeviceGrantedAutomationsControlIsValid()
   await assertStoreKeepsDeviceGrantedAutomationsControl()
   assertAutomationsControlNeedsItsOwnScope()
+  assertStoredDeviceSurvivesTheProtocolWindow()
+  await assertStoreKeepsDeviceStampedOneVersionBack()
+  assertPairingLinkFollowsTheSameWindow()
   console.log('mobile bridge validation: ok')
 }
 
@@ -140,9 +149,89 @@ async function assertStoreKeepsDeviceGrantedAutomationsControl(): Promise<void> 
   assert.deepEqual(state.pairedDevices[0].capabilities, GRANTED_AT_PAIRING)
 }
 
+// THE SAME REGRESSION, one axis over. These validators read records off THIS
+// machine's disk, and every one of them was pinned to the current version — so
+// the first restart after a protocol bump would have dropped every device
+// paired before it, exactly as an unlisted capability did. The window is what
+// makes a stored record from the previous release still a record.
+function assertStoredDeviceSurvivesTheProtocolWindow(): void {
+  for (const version of mobileControlSupportedProtocolVersions) {
+    assert.equal(
+      isMobileControlDevice({ ...pairedDevice(GRANTED_AT_PAIRING), protocolVersion: version }),
+      true,
+      `a device stamped at protocol version ${version} must still be readable`
+    )
+  }
+  // Outside the window it genuinely is a record this build cannot read, and
+  // refusing it is the right answer rather than a silent misreading.
+  assert.equal(
+    isMobileControlDevice({
+      ...pairedDevice(GRANTED_AT_PAIRING),
+      protocolVersion: mobileControlMinSupportedProtocolVersion - 1,
+    }),
+    false
+  )
+  assert.equal(
+    isMobileControlDevice({ ...pairedDevice(GRANTED_AT_PAIRING), protocolVersion: mobileControlProtocolVersion + 1 }),
+    false
+  )
+  assert.equal(isMobileControlDevice({ ...pairedDevice(GRANTED_AT_PAIRING), protocolVersion: undefined }), false)
+}
+
+// And the whole way through the store, since dropping happens there.
+async function assertStoreKeepsDeviceStampedOneVersionBack(): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-window-'))
+  const storePath = join(dir, 'mobile-bridge.json')
+  await writeFile(
+    storePath,
+    JSON.stringify({
+      enabled: true,
+      relayUrl: null,
+      desktopInstanceId: 'mdi_test',
+      pairedDevices: [
+        { ...pairedDevice(GRANTED_AT_PAIRING), protocolVersion: mobileControlMinSupportedProtocolVersion },
+      ],
+      pushRegistrations: [],
+    }),
+    'utf8'
+  )
+
+  const state = await readMobileBridgeStore(storePath)
+  assert.equal(
+    state.pairedDevices.length,
+    1,
+    'a device paired one protocol version back was dropped from the store'
+  )
+}
+
+// The pairing link is the one thing an out-of-date phone has to be able to use,
+// since it is how it gets back in. Held to the same window as everything else,
+// so a link is never accepted by the command gate and refused by the scanner.
+function assertPairingLinkFollowsTheSameWindow(): void {
+  const link = (version: number): string =>
+    `multicode://mobile/pair?mobileControlProtocolVersion=${version}`
+    + '&pairingChallengeId=pc_1&relayUrl=https://relay.example.com&pairingSecret=s3cret'
+    + '&expiresAt=2026-09-14T10:00:30.000Z&desktopName=mac-mini&desktopInstanceId=mdi_test'
+
+  for (const version of mobileControlSupportedProtocolVersions) {
+    assert.equal(
+      manualPairingValueFromRelayChallenge({ pairingUri: link(version) }),
+      link(version),
+      `a pairing link at protocol version ${version} must be usable`
+    )
+  }
+  for (const outside of [mobileControlMinSupportedProtocolVersion - 1, mobileControlProtocolVersion + 1]) {
+    assert.throws(
+      () => manualPairingValueFromRelayChallenge({ pairingUri: link(outside) }),
+      /mobile-compatible pairing link/u,
+      `a pairing link at protocol version ${outside} must be refused`
+    )
+  }
+}
+
 function pairedDevice(capabilities: string[]): Record<string, unknown> {
   return {
-    protocolVersion: 2,
+    protocolVersion: mobileControlProtocolVersion,
     deviceId: 'mobile-1',
     displayName: "Owner's iPhone",
     platform: 'ios',
