@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { RepositoryIdentity, RepositoryIdentityRead } from '../../../../shared/repository-identity'
+import { normalizeFolderKey } from '../../../../shared/project-hue'
 
 // Which repository each local folder is a clone of (one-project-across-
 // machines): the sidebar files a paired machine's copy of a repository under
@@ -45,9 +46,12 @@ const RETRY_UNSETTLED_AFTER_MS = 10_000
 // asking about it for the life of the window.
 const MAX_UNSETTLED_ASKS = 3
 
-export function folderIdentityKey(folderPath: string): string {
-  return folderPath.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-}
+// One normalisation, under the name the sidebar's grouping has always imported.
+// The body moved to shared/project-hue.ts when main needed it to derive a
+// project's hue for the mobile wire; aliased rather than copied so the two can
+// never drift into two spellings of "the same folder". Imported as well as
+// re-exported because this module's own readers below call it.
+export const folderIdentityKey = normalizeFolderKey
 
 /**
  * What the reader answered, from either shape it can answer in.

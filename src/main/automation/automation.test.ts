@@ -12,6 +12,7 @@ import {
   resolveSocketPath,
   STUDIO_MCP_SERVER_INFO_FILENAME,
 } from './automation-service'
+import { projectHue } from '../../shared/project-hue'
 import { createMcpSocketServer, type McpConnectionContext, type McpToolRegistration } from './mcp-socket-server'
 import { createWorkspaceRegistryService } from '../workspace-registry-service'
 import { createInMemoryWorkspaceRegistryStore } from '../workspace-registry-store'
@@ -516,6 +517,114 @@ async function testTerminalListReportsAttachableSessions(): Promise<void> {
   const refused = await tool(tools, 'terminal.list').handler({ kind: 'sideways' })
   assert.equal(refused.isError, true)
   assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'invalid_kind')
+}
+
+// The facts a remote row needs to say what the sidebar says. Every one is
+// additive and null/zero when unknown, so a client built before them reads the
+// row unchanged — which is why they are asserted as VALUES here rather than by
+// shape: `lastTurnEndedAt` in particular was read by the phone for a whole epic
+// while this projection never sent it, and a shape assertion would not have
+// caught that.
+async function testTerminalListCarriesTheRowsProjectAndConversationFacts(): Promise<void> {
+  const sessions = [
+    {
+      sessionId: 'session-live',
+      processAlive: true,
+      suspended: false,
+      kind: 'agent',
+      workspaceId: 'ws-1',
+      cwd: '/repo/one',
+      visible: true,
+      startedAt: 10,
+      lastOutputAt: 20,
+      lastInputAt: null,
+      lastVisibleAt: null,
+      lastTurnEndedAt: 44,
+      activeSubagents: 3,
+      contextUsage: { usedPercentage: 62, at: 43 },
+      pullRequests: [
+        {
+          url: 'https://github.com/acme/multicode/pull/7',
+          repoKey: 'github.com/acme/multicode',
+          repoName: 'multicode',
+          number: 7,
+          title: 'Carry the row',
+          state: 'open',
+          isDraft: true,
+          openedAt: 1,
+          readAt: 2,
+        },
+      ],
+      activity: { kind: 'working', since: 20 },
+    },
+    {
+      sessionId: 'session-bare',
+      processAlive: true,
+      suspended: false,
+      kind: 'terminal',
+      workspaceId: 'ws-2',
+      cwd: '/repo/two',
+      visible: true,
+      startedAt: 30,
+      lastOutputAt: 30,
+      lastInputAt: null,
+      lastVisibleAt: null,
+      activity: { kind: 'idle', since: 30 },
+    },
+  ] as unknown as TerminalSessionSnapshot[]
+
+  const tools = createAutomationTools(
+    backendsOf({
+      sessions,
+      workspaces: [
+        testWorkspace('ws-1', { folderPath: '/code/multicode', snoozedUntil: 9_000 }),
+        testWorkspace('ws-2', { folderPath: null }),
+      ],
+      readRepositoryIdentity: async (folderPath) =>
+        folderPath === '/code/multicode'
+          ? { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
+          : null,
+    })
+  )
+
+  const listed = (
+    (await tool(tools, 'terminal.list').handler({})).structuredContent as {
+      terminals: Array<Record<string, unknown>>
+    }
+  ).terminals
+
+  // The field the phone has been reading and never receiving.
+  assert.equal(listed[0].lastTurnEndedAt, 44, 'a finished turn reports when it finished')
+  assert.equal(listed[1].lastTurnEndedAt, null, 'a shell that never took a turn says null, not zero')
+
+  assert.deepEqual(listed[0].contextUsage, { usedPercentage: 62, at: 43 })
+  assert.equal(listed[1].contextUsage, null, 'a CLI-less shell reports no context usage rather than 0%')
+
+  assert.equal(listed[0].activeSubagents, 3)
+  assert.equal(listed[1].activeSubagents, 0, 'no subagents is zero, so a caller can count without a guard')
+
+  // The hue is the shared hash of the REPOSITORY key, so this row is the same
+  // degree on the phone, on this desktop, and on a paired machine's clone.
+  assert.equal(listed[0].projectHue, projectHue('repo:github.com/acme/multicode'))
+  assert.equal(listed[1].projectHue, null, 'a chat with no folder is not a project and wears no colour')
+
+  assert.equal(listed[0].snoozedUntil, 9_000, 'a sleeping chat says when it wakes')
+  assert.equal(listed[1].snoozedUntil, null, 'an awake chat says null, never 0')
+
+  // The PR list is projected field by field: the row needs the state and the
+  // draft flag to draw its mark, and nothing needs the read timestamps.
+  assert.deepEqual(listed[0].pullRequests, [
+    {
+      url: 'https://github.com/acme/multicode/pull/7',
+      repoKey: 'github.com/acme/multicode',
+      repoName: 'multicode',
+      number: 7,
+      title: 'Carry the row',
+      state: 'open',
+      isDraft: true,
+    },
+  ])
+  assert.deepEqual(listed[1].pullRequests, [], 'no pull requests is an empty list, never absent')
 }
 
 async function testReadToolsAnswerFromSnapshot(): Promise<void> {
@@ -3942,6 +4051,7 @@ const tests = [
   testStudioGatewayEndpointContractAcrossPlatforms,
   testToolListNamesTheToolSurface,
   testTerminalListReportsAttachableSessions,
+  testTerminalListCarriesTheRowsProjectAndConversationFacts,
   testReadToolsAnswerFromSnapshot,
   testReadToolsResolveWorkspaceRootThroughSnapshot,
   testReadToolsPassServiceFailuresThrough,

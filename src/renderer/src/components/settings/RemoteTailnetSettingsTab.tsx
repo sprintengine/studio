@@ -410,8 +410,12 @@ export function RemoteTailnetSettingsTab() {
 
       {presence.fleetRequests.length > 0 ? (
         <section>
+          {/* Named for what the card under it is FOR. "Asking" described the
+              state and hid the payload: each row carries the six digits the
+              other machine is waiting to be told, and someone who has walked
+              to that machine needs to find them by the heading alone. */}
           <SettingsSectionTitle className="mb-1.5" count={presence.fleetRequests.length}>
-            Asking
+            Waiting for another machine — with the code to type on it
           </SettingsSectionTitle>
           <div className="divide-y divide-[color:var(--bg-selected)]">
             {presence.fleetRequests.map((request) => (
@@ -448,6 +452,14 @@ function peerAddressOf(machine: TailnetMachine, scan: TailnetPeerScan): string {
  * cannot cover: a headless box, a remote session, a screen reader. The pills
  * are the point of the card: what this code will grant, in the same identifiers
  * the machine row's popover will show once it is redeemed.
+ *
+ * The footnote is not decoration. There are TWO pairing directions and they
+ * produce different secrets: this card's offer is a LINK that the other machine
+ * consumes, while a request that machine made produces six DIGITS shown on the
+ * machine that asked (OutboundPairRequestCard). Someone being prompted for six
+ * digits naturally comes here, finds a link, and concludes the app is broken —
+ * which is exactly the report that prompted this line. Saying where the digits
+ * actually are costs one sentence and ends the hunt.
  */
 function PairingCodeCard({
   offer,
@@ -495,6 +507,10 @@ function PairingCodeCard({
         {expiresAt ? (
           <div className="text-meta text-[color:var(--text-muted)]">{pairingExpiry(expiresAt, now)}</div>
         ) : null}
+        <p className="text-micro leading-4 text-[color:var(--text-subtle)]">
+          Being asked for a six-digit code instead? That code is shown on the machine that asked, not here — read it
+          off that screen and type it there.
+        </p>
         {scopes.length > 0 ? (
           <ScopePillSet ariaLabel="Scopes in this code">
             {scopes.map((scope) => (

@@ -40,18 +40,23 @@
 // Pure — no state, no side effects, no randomness — so every surface and the
 // tests derive the same answers from the same code.
 //
-// It is not React-free, and deliberately not yet: `projectColorKey` needs
-// `folderIdentityKey`, which today lives in the `useFolderRepositoryIdentities`
-// hook module and drags React in behind it. That is one normalisation shared by
-// the sidebar's grouping and this key, so duplicating it would be worse than
-// the import — two spellings of "the same folder" is exactly the bug the
-// function exists to prevent. It wants moving to its own module (and the hook
-// re-exporting it); that file is under another change right now, so the move is
-// left for whoever touches it next.
+// The hash itself now lives in shared/project-hue.ts and this module
+// re-exports it. Main needs the same degrees — `terminal.list` carries a row's
+// hue to a paired phone — and a renderer module is not importable from there.
+// What stays here is the part that is a screen's business: the stored override,
+// the picker's presets, and the CSS custom property. `folderIdentityKey` is now
+// the shared `normalizeFolderKey` under its old name, so the sidebar's grouping
+// and this key remain one normalisation rather than two.
 
 import type { CSSProperties } from 'react'
 
-import { folderIdentityKey } from '../components/workspace/useFolderRepositoryIdentities'
+import {
+  PROJECT_KEY_FOLDER_PREFIX,
+  PROJECT_KEY_REPOSITORY_PREFIX,
+  isProjectColor,
+  projectColorKey,
+  projectHue,
+} from '../../../shared/project-hue'
 import type { ProjectColor, ProjectColorSetting } from '../types/workspace'
 
 // The two names live in types/workspace.ts, beside HighlightColor, because
@@ -60,10 +65,9 @@ import type { ProjectColor, ProjectColorSetting } from '../types/workspace'
 // consumer imports the colour and its type from one module.
 export type { ProjectColor, ProjectColorSetting }
 
-/** A hue is a whole degree on the OKLCH wheel, 0 to 359. */
-export function isProjectColor(value: unknown): value is ProjectColor {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 360
-}
+// The hash, the key and the guard come from shared/project-hue.ts; every
+// existing importer of this module keeps its import path.
+export { PROJECT_KEY_FOLDER_PREFIX, PROJECT_KEY_REPOSITORY_PREFIX, isProjectColor, projectColorKey, projectHue }
 
 /**
  * A stored override: a hue, or `'none'`. The six hue NAMES the 2026-09-09
@@ -92,87 +96,6 @@ export const PROJECT_COLOR_PRESETS: ReadonlyArray<{ hue: ProjectColor; label: st
   { hue: 300, label: 'Violet' },
   { hue: 345, label: 'Pink' },
 ]
-
-/**
- * The two kinds of key are prefixed so a folder path can never collide with a
- * repository key. `github.com/acme/x` and a folder literally named
- * `github.com/acme/x` are different projects, and an unprefixed map could not
- * tell them apart after the fact.
- */
-export const PROJECT_KEY_REPOSITORY_PREFIX = 'repo:'
-export const PROJECT_KEY_FOLDER_PREFIX = 'folder:'
-
-/**
- * The key a project's colour is derived from and its override is stored under,
- * or null when there is no project to colour.
- *
- * The repository wins when one is known, so every clone of it — including a
- * paired machine's row, whose identity arrives on `workspace.remoteOrigin
- * .repository` — resolves to one key and therefore one hue. A folder with no
- * remote falls back to its normalised path (`folderIdentityKey`, the same
- * normalisation the sidebar groups by), so two spellings of one folder are one
- * project.
- *
- * No folder is null, never a sentinel: a chat with no folder is not a project,
- * and hashing a `'__no_folder__'` string would give every unfiled chat a shared
- * "project" colour.
- */
-export function projectColorKey(input: {
-  folderPath: string | null | undefined
-  repository?: { canonicalKey: string } | null
-}): string | null {
-  const canonicalKey = input.repository?.canonicalKey?.trim().toLowerCase()
-  if (canonicalKey) return `${PROJECT_KEY_REPOSITORY_PREFIX}${canonicalKey}`
-  const folderPath = input.folderPath?.trim()
-  if (!folderPath) return null
-  const identity = folderIdentityKey(folderPath)
-  if (!identity) return null
-  return `${PROJECT_KEY_FOLDER_PREFIX}${identity}`
-}
-
-/**
- * The part of a key that names the project the same way on every machine.
- *
- * A repository key already does (`github.com/acme/multicode`), and all of it is
- * hashed so two organisations' `api` repositories differ. A folder key is a
- * path on THIS disk, so only its last segment is hashed — which does make two
- * unrelated `notes` folders one colour, but a folder with no remote has no
- * other identity a second machine could agree on.
- */
-function projectHueSeed(key: string): string {
-  if (key.startsWith(PROJECT_KEY_REPOSITORY_PREFIX)) return key.slice(PROJECT_KEY_REPOSITORY_PREFIX.length)
-  if (key.startsWith(PROJECT_KEY_FOLDER_PREFIX)) {
-    const segments = key.slice(PROJECT_KEY_FOLDER_PREFIX.length).split('/').filter(Boolean)
-    return segments[segments.length - 1] ?? key
-  }
-  return key
-}
-
-/**
- * The hue a project wears when nobody has chosen one: FNV-1a over the seed's
- * UTF-16 code units, then murmur3's 32-bit finaliser so names differing in one
- * trailing character land far apart on the wheel rather than a degree or two
- * along it. Code units rather than bytes so there is no encoder to differ
- * between runtimes; the key is already normalised (lower-cased, forward
- * slashes) before it gets here.
- *
- * Changing this function recolours every project for everyone, so it is
- * pinned by golden values in projectColor.test.ts.
- */
-export function projectHue(key: string): ProjectColor {
-  const seed = projectHueSeed(key)
-  let hash = 0x811c9dc5
-  for (let index = 0; index < seed.length; index += 1) {
-    hash ^= seed.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  hash ^= hash >>> 16
-  hash = Math.imul(hash, 0x85ebca6b)
-  hash ^= hash >>> 13
-  hash = Math.imul(hash, 0xc2b2ae35)
-  hash ^= hash >>> 16
-  return (hash >>> 0) % 360
-}
 
 /**
  * The hue in force for a key, or null when there is no key or the person chose

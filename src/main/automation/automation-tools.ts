@@ -17,6 +17,7 @@ import type {
   TerminalSessionSnapshot,
 } from '../../shared/electron-api'
 import type { SprintEngineAutomationMode } from '../../shared/sprintengine/automation-types'
+import { projectColorKey, projectHue } from '../../shared/project-hue'
 import { normalizeCliPermissionPreset } from '../../shared/sprintengine/automation-lifecycle'
 import type { SprintEngineTaskStatus, SprintEngineVcs } from '../../shared/sprintengine/run-types'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
@@ -1053,9 +1054,25 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // used to go through `findWorkspace` per session, and each of those took
       // a fresh snapshot — a whole-registry clone per row, every 30 seconds
       // per paired machine, which was the main-thread stall of 2026-09-05.
-      const workspaceNames = new Map(
-        backends.getWorkspaceSyncSnapshot().state.workspaces.map((workspace) => [workspace.id, workspace.name])
+      const workspaceRows = new Map(
+        backends.getWorkspaceSyncSnapshot().state.workspaces.map((workspace) => [workspace.id, workspace])
       )
+      // The project hue, resolved once per DISTINCT workspace rather than per
+      // row: `readRepositoryIdentity` holds its answers behind a timed cache
+      // and de-duplicates in flight, but a dozen rows in one project would
+      // still be a dozen awaits on the 30-second poll each paired device runs.
+      const projectHues = new Map<string, number | null>()
+      const projectHueFor = async (workspace: { id: string; folderPath?: string | null } | undefined): Promise<number | null> => {
+        if (!workspace) return null
+        const cached = projectHues.get(workspace.id)
+        if (cached !== undefined) return cached
+        const folderPath = workspace.folderPath ?? null
+        const repository = folderPath ? await backends.readRepositoryIdentity(folderPath) : null
+        const key = projectColorKey({ folderPath, repository })
+        const hue = key ? projectHue(key) : null
+        projectHues.set(workspace.id, hue)
+        return hue
+      }
       const sessions = await Promise.all(
         backends
           .listTerminalSessions()
@@ -1069,8 +1086,21 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             // share (one read per checkout per hold window, at most four reads
             // in flight). Both are additive and null when unknown, so an older
             // phone reads the row as before and a newer one never guesses.
-            workspaceName: (session.workspaceId ? workspaceNames.get(session.workspaceId) : null) ?? null,
+            workspaceName: (session.workspaceId ? workspaceRows.get(session.workspaceId)?.name : null) ?? null,
             git: await terminalGitSummary(session),
+            // The project's hue as a whole degree on the OKLCH wheel, hashed
+            // from the repository key (or the folder's name when there is no
+            // remote) by shared/project-hue.ts. Sent rather than left to the
+            // client to derive so a phone and this desktop cannot disagree
+            // about a degree; null when the chat has no folder, which is not a
+            // project and wears no colour.
+            projectHue: await projectHueFor(session.workspaceId ? workspaceRows.get(session.workspaceId) : undefined),
+            // When the chat is asleep until, or null. The phone's list needs it
+            // for the same reason the sidebar does: a snoozed chat that still
+            // claims to be running is the bug the desktop fixed on 2026-09-10,
+            // and the wire kept it.
+            snoozedUntil:
+              (session.workspaceId ? workspaceRows.get(session.workspaceId)?.snoozedUntil : null) || null,
           }))
       )
       return success({ terminals: sessions })
@@ -3017,6 +3047,42 @@ function terminalSessionProjection(session: TerminalSessionSnapshot): Record<str
     agentState: session.agentState
       ? { phase: session.agentState.phase, source: session.agentState.source, since: session.agentState.since }
       : null,
+    // ── What a remote row needs to say the same thing the sidebar says ──────
+    //
+    // Every field below is additive and null/zero when unknown, so a client
+    // built before them reads the row exactly as it did. They exist because
+    // the phone's thread list was already written against the first of them
+    // and never received it: `readTerminalRow` in the mobile repo has read
+    // `lastTurnEndedAt` since its thread-row epic, and this projection has
+    // never sent it — so "finished while you were away" could not fire. The
+    // rest are the facts the desktop's own row draws and the wire dropped.
+
+    // When the agent's last turn ended. Distinct from `activity`, which the
+    // reaper's suspend and the quit path overwrite with the moment the PROCESS
+    // died — so a parked chat can still say when it actually finished.
+    lastTurnEndedAt: session.lastTurnEndedAt ?? null,
+    // Context-window usage from the session's own status line, or null: a plain
+    // terminal, a CLI with no status line, or a session that has not made an
+    // API call yet. Never a guess, and a /compact does not clear it.
+    contextUsage: session.contextUsage
+      ? { usedPercentage: session.contextUsage.usedPercentage, at: session.contextUsage.at }
+      : null,
+    // Subagents started and not yet seen to stop, so a row can say "3 running"
+    // rather than a bare spinner. Zero for plain terminals and hookless CLIs.
+    activeSubagents: session.activeSubagents ?? 0,
+    // The pull requests this conversation has, newest first — the ones on its
+    // observed branch and the ones it opened itself in any repository. Absent
+    // on the snapshot means "not asked yet", which is not "none": an empty
+    // array is sent only when main actually holds an empty list.
+    pullRequests: (session.pullRequests ?? []).map((pr) => ({
+      url: pr.url,
+      repoKey: pr.repoKey,
+      repoName: pr.repoName,
+      number: pr.number,
+      title: pr.title,
+      state: pr.state,
+      isDraft: pr.isDraft,
+    })),
   }
 }
 
