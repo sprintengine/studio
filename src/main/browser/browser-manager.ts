@@ -301,6 +301,22 @@ function guestPreloadUrl(): string | null {
 export function createBrowserManager(deps: BrowserManagerDeps) {
   const tabs = new Map<string, BrowserTab>()
   const activeTabByWorkspace = new Map<string, string>()
+  /**
+   * Which tab each AGENT is driving, keyed `<workspaceId>\0<agentId>`.
+   *
+   * Separate from `activeTabByWorkspace`, which is what the PERSON is looking
+   * at. Before this, an agent with no `tabId` resolved the person's active tab,
+   * so two agents in one workspace drove the same page and stole it from each
+   * other mid-interaction — and from the person.
+   *
+   * An assignment stays with one browser tab because a multi-step interaction (open, type, click, wait) is
+   * stateful in the page's cookies and DOM, and moving it between tabs halfway
+   * through produces a failure nobody can read. It is dropped only when the tab
+   * it names goes away.
+   */
+  const agentAssignments = new Map<string, string>()
+
+  const assignmentKey = (workspaceId: string, agentId: string): string => `${workspaceId}\u0000${agentId}`
   const unregisterListeners = new Set<(tabId: string) => void>()
   const humanInputListeners = new Set<(tabId: string) => void>()
 
@@ -600,6 +616,11 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       tab.dispose()
       tabs.delete(tabId)
       if (activeTabByWorkspace.get(tab.workspaceId) === tabId) activeTabByWorkspace.delete(tab.workspaceId)
+      // A closed tab releases every agent holding it, so the next call resolves
+      // afresh rather than failing against a tab that is gone.
+      for (const [key, assigned] of agentAssignments) {
+        if (assigned === tabId) agentAssignments.delete(key)
+      }
       for (const listener of unregisterListeners) listener(tabId)
     },
 
@@ -627,6 +648,33 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       const tab = preferred ? requireTab(preferred) : null
       if (tab && tab.workspaceId === workspaceId) return tab
       return [...tabs.values()].find((candidate) => candidate.workspaceId === workspaceId && !candidate.wc.isDestroyed()) ?? null
+    },
+
+    /** The tab this agent is driving, or null when it holds none that still exists. */
+    assignedTab(workspaceId: string, agentId: string): BrowserTab | null {
+      const tabId = agentAssignments.get(assignmentKey(workspaceId, agentId))
+      if (!tabId) return null
+      const tab = requireTab(tabId)
+      if (tab && tab.workspaceId === workspaceId) return tab
+      agentAssignments.delete(assignmentKey(workspaceId, agentId))
+      return null
+    },
+
+    /** Bind an agent to a tab; every later tool call with no `tabId` lands here. */
+    assignTab(workspaceId: string, agentId: string, tabId: string): void {
+      const tab = requireTab(tabId)
+      if (!tab || tab.workspaceId !== workspaceId) return
+      agentAssignments.set(assignmentKey(workspaceId, agentId), tabId)
+    },
+
+    /** Which agents hold a tab, for `browser.status` and the tests. */
+    agentsHolding(workspaceId: string): Array<{ agentId: string; tabId: string }> {
+      const held: Array<{ agentId: string; tabId: string }> = []
+      for (const [key, tabId] of agentAssignments) {
+        const [keyWorkspace, agentId] = key.split('\u0000')
+        if (keyWorkspace === workspaceId && agentId) held.push({ agentId, tabId })
+      }
+      return held
     },
 
     /**
@@ -951,6 +999,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       }
       tabs.clear()
       activeTabByWorkspace.clear()
+      agentAssignments.clear()
       for (const tabId of ids) for (const listener of unregisterListeners) listener(tabId)
     },
   }

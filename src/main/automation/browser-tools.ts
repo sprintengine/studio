@@ -39,6 +39,9 @@ export type BrowserToolsManager = {
   listTabs(workspaceId: string): BrowserTabState[]
   state(tabId: string): BrowserTabState | null
   activeTab(workspaceId: string): { tabId: string } | null
+  /** The tab this agent drives, sticky until the tab closes. */
+  assignedTab(workspaceId: string, agentId: string): { tabId: string } | null
+  assignTab(workspaceId: string, agentId: string, tabId: string): void
   requestOpen(workspaceId: string, url: string | null, tabId?: string | null): void
   requestViewport(tabId: string, viewport: BrowserViewport): void
   navigate(tabId: string, url: string): boolean
@@ -158,20 +161,37 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
     return workspaceId
   }
 
-  /** The tab a tool acts on: named, or the person's active one. */
+  /**
+   * The tab a tool acts on: named, or this agent's own.
+   *
+   * The order matters. An agent's own assignment wins over the person's active
+   * tab, so two agents in one workspace do not drive the same page — and
+   * neither steals the tab the person is reading. Only an agent holding
+   * nothing falls back to the active tab, and doing so CLAIMS it, so the rest
+   * of that interaction stays on the page it started on.
+   *
+   * A connection with no `agentId` (an external local client) keeps the old
+   * behaviour exactly: the person's active tab, claimed by nobody.
+   */
   function resolveTab(args: Record<string, unknown>, context?: McpConnectionContext): { tabId: string; workspaceId: string } | McpToolResult {
     const workspaceId = resolveWorkspace(args, context)
     if (typeof workspaceId !== 'string') return workspaceId
+    const agentId = context?.metadata.agentId
     const named = str(args, 'tabId')
     if (named) {
       const owned = manager.listTabs(workspaceId).some((tab) => tab.tabId === named)
       if (!owned) return failure('no_tab', `Browser tab "${named}" is not open in this workspace. browser.status lists the open tabs.`)
+      // Naming a tab is a deliberate move to it, and the agent stays there.
+      if (agentId) manager.assignTab(workspaceId, agentId, named)
       return { tabId: named, workspaceId }
     }
+    const held = agentId ? manager.assignedTab(workspaceId, agentId) : null
+    if (held) return { tabId: held.tabId, workspaceId }
     const active = manager.activeTab(workspaceId)
     if (!active) {
       return failure('no_tab', 'No browser tab is open in this workspace. browser.open starts one (the workspace must be showing in a window).')
     }
+    if (agentId) manager.assignTab(workspaceId, agentId, active.tabId)
     return { tabId: active.tabId, workspaceId }
   }
 
@@ -238,14 +258,20 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         if (typeof workspaceId !== 'string') return workspaceId
         const url = normalizeBrowserUrlInput(str(args, 'url') ?? '')
         if (!url) return failure('invalid_url', 'Only http(s) URLs can be opened in the pane.')
-        const active = manager.activeTab(workspaceId)
-        if (active && !bool(args, 'newTab')) {
-          if (!manager.navigate(active.tabId, url)) return failure('no_tab', 'The active browser tab could not navigate.')
-          manager.noteAgentActivity(active.tabId)
+        const agentId = context?.metadata.agentId
+        // Reuse this agent's OWN tab before the person's active one. Without
+        // this, a second agent's `browser.open` navigated whatever the person
+        // was reading, and two agents shared one page.
+        const held = agentId ? manager.assignedTab(workspaceId, agentId) : null
+        const reusable = held ?? manager.activeTab(workspaceId)
+        if (reusable && !bool(args, 'newTab')) {
+          if (!manager.navigate(reusable.tabId, url)) return failure('no_tab', 'The active browser tab could not navigate.')
+          manager.noteAgentActivity(reusable.tabId)
+          if (agentId) manager.assignTab(workspaceId, agentId, reusable.tabId)
           // The person should see what the agent opened: a collapsed pane is
           // revealed and the tab selected, in whichever window shows the workspace.
-          manager.requestOpen(workspaceId, null, active.tabId)
-          return settle(active.tabId, workspaceId)
+          manager.requestOpen(workspaceId, null, reusable.tabId)
+          return settle(reusable.tabId, workspaceId)
         }
         const before = new Set(manager.listTabs(workspaceId).map((tab) => tab.tabId))
         manager.requestOpen(workspaceId, url)
@@ -257,6 +283,8 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         }
         const tab = manager.listTabs(workspaceId).find((candidate) => !before.has(candidate.tabId))!
         manager.noteAgentActivity(tab.tabId)
+        // The tab this agent just caused to exist is the tab it now drives.
+        if (agentId) manager.assignTab(workspaceId, agentId, tab.tabId)
         return settle(tab.tabId, workspaceId)
       },
     },

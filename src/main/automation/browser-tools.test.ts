@@ -39,6 +39,8 @@ type Harness = {
   tools: Map<string, McpToolRegistration>
   tabs: Map<string, { workspaceId: string; state: BrowserTabState }>
   active: Map<string, string>
+  /** `<workspaceId>\0<agentId>` -> tabId, mirroring the real manager. */
+  assignments: Map<string, string>
   calls: string[]
   viewports: Array<{ tabId: string; viewport: BrowserViewport }>
   openRequests: Array<{ workspaceId: string; url: string | null; tabId?: string | null }>
@@ -48,6 +50,8 @@ type Harness = {
 function harness(controlOverrides: Partial<BrowserToolsDeps['control']> = {}): Harness {
   const tabs = new Map<string, { workspaceId: string; state: BrowserTabState }>()
   const active = new Map<string, string>()
+  const assignments = new Map<string, string>()
+  const assignmentKey = (workspaceId: string, agentId: string) => `${workspaceId}\u0000${agentId}`
   const calls: string[] = []
   const viewports: Harness['viewports'] = []
   const openRequests: Harness['openRequests'] = []
@@ -59,6 +63,15 @@ function harness(controlOverrides: Partial<BrowserToolsDeps['control']> = {}): H
       if (preferred && tabs.has(preferred)) return { tabId: preferred }
       const first = [...tabs.entries()].find(([, tab]) => tab.workspaceId === workspaceId)
       return first ? { tabId: first[0] } : null
+    },
+    assignedTab: (workspaceId, agentId) => {
+      const tabId = assignments.get(assignmentKey(workspaceId, agentId))
+      if (tabId && tabs.get(tabId)?.workspaceId === workspaceId) return { tabId }
+      assignments.delete(assignmentKey(workspaceId, agentId))
+      return null
+    },
+    assignTab: (workspaceId, agentId, tabId) => {
+      if (tabs.get(tabId)?.workspaceId === workspaceId) assignments.set(assignmentKey(workspaceId, agentId), tabId)
     },
     requestOpen: (workspaceId, url, tabId = null) => {
       openRequests.push({ workspaceId, url, tabId })
@@ -127,10 +140,13 @@ function harness(controlOverrides: Partial<BrowserToolsDeps['control']> = {}): H
     hasWorkspace: (workspaceId) => workspaceId === 'ws-1' || workspaceId === 'ws-2',
     sleep: async () => {},
   })
-  return { tools: new Map(registrations.map((tool) => [tool.name, tool])), tabs, active, calls, viewports, openRequests, manager }
+  return { tools: new Map(registrations.map((tool) => [tool.name, tool])), tabs, active, assignments, calls, viewports, openRequests, manager }
 }
 
 const bound: McpConnectionContext = { metadata: { kind: 'studio-agent', workspaceId: 'ws-1' } }
+/** Two agents in the SAME workspace — the case that used to share one tab. */
+const agentA: McpConnectionContext = { metadata: { kind: 'studio-agent', workspaceId: 'ws-1', agentId: 'agent-a' } }
+const agentB: McpConnectionContext = { metadata: { kind: 'studio-agent', workspaceId: 'ws-1', agentId: 'agent-b' } }
 const unbound: McpConnectionContext = { metadata: { kind: 'external-local' } }
 
 function structured(result: { structuredContent?: Record<string, unknown> }): Record<string, unknown> {
@@ -344,6 +360,70 @@ async function main(): Promise<void> {
     assert.deepEqual(h.calls, ['scheme:t1:dark', 'badge:t1'])
     const bad = await h.tools.get('browser.set_appearance')!.handler({ scheme: 'sepia' }, bound)
     assert.equal((structured(bad).error as { code: string }).code, 'invalid')
+  })
+
+  // Per-agent tabs. Before this, the tab a tool acted on was the tab the PERSON
+  // was looking at, so every agent in a workspace drove the same page.
+
+  await run('an agent claims the tab it first acts on and stays there', async () => {
+    const h = harness()
+    h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'http://localhost:5173/') })
+    h.active.set('ws-1', 't1')
+    await h.tools.get('browser.navigate')!.handler({ action: 'reload' }, agentA)
+    assert.equal(h.assignments.get('ws-1\u0000agent-a'), 't1')
+    // The person moves to another tab; the agent does not follow it.
+    h.tabs.set('t2', { workspaceId: 'ws-1', state: tabState('t2', 'http://localhost:3000/') })
+    h.active.set('ws-1', 't2')
+    h.calls.length = 0
+    await h.tools.get('browser.navigate')!.handler({ action: 'reload' }, agentA)
+    assert.deepEqual(h.calls, ['reload:t1:soft', 'badge:t1'])
+  })
+
+  await run('two agents in one workspace do not drive the same tab', async () => {
+    const h = harness()
+    h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'http://localhost:5173/') })
+    h.active.set('ws-1', 't1')
+    // A takes the existing tab; B asks for a new one and gets its own.
+    await h.tools.get('browser.navigate')!.handler({ action: 'reload' }, agentA)
+    h.tabs.set('t2', { workspaceId: 'ws-1', state: tabState('t2', 'http://localhost:3000/') })
+    await h.tools.get('browser.navigate')!.handler({ action: 'reload', tabId: 't2' }, agentB)
+    assert.equal(h.assignments.get('ws-1\u0000agent-a'), 't1')
+    assert.equal(h.assignments.get('ws-1\u0000agent-b'), 't2')
+    // Now neither steals from the other.
+    h.calls.length = 0
+    await h.tools.get('browser.navigate')!.handler({ action: 'reload' }, agentA)
+    await h.tools.get('browser.navigate')!.handler({ action: 'reload' }, agentB)
+    assert.deepEqual(h.calls, ['reload:t1:soft', 'badge:t1', 'reload:t2:soft', 'badge:t2'])
+  })
+
+  await run('browser.open reuses the agent’s own tab, not the person’s', async () => {
+    const h = harness()
+    h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'http://localhost:5173/') })
+    h.tabs.set('t2', { workspaceId: 'ws-1', state: tabState('t2', 'http://localhost:3000/') })
+    h.assignments.set('ws-1\u0000agent-a', 't1')
+    // The person is reading t2; the agent's open must not navigate it.
+    h.active.set('ws-1', 't2')
+    await h.tools.get('browser.open')!.handler({ url: 'http://localhost:5173/next' }, agentA)
+    assert.ok(h.calls.includes('navigate:t1:http://localhost:5173/next'), 'the agent navigated its own tab')
+    assert.ok(!h.calls.some((call) => call.startsWith('navigate:t2')), 'the person’s tab was left alone')
+  })
+
+  await run('an agent whose tab closed resolves afresh instead of failing', async () => {
+    const h = harness()
+    h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'http://localhost:5173/') })
+    h.assignments.set('ws-1\u0000agent-a', 'gone')
+    h.active.set('ws-1', 't1')
+    const result = await h.tools.get('browser.navigate')!.handler({ action: 'reload' }, agentA)
+    assert.equal(structured(result).error, undefined)
+    assert.equal(h.assignments.get('ws-1\u0000agent-a'), 't1')
+  })
+
+  await run('a connection with no agent keeps the person’s active tab, claiming nothing', async () => {
+    const h = harness()
+    h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'http://localhost:5173/') })
+    h.active.set('ws-1', 't1')
+    await h.tools.get('browser.navigate')!.handler({ action: 'reload' }, bound)
+    assert.equal(h.assignments.size, 0, 'an agent-less connection claims no tab')
   })
 }
 

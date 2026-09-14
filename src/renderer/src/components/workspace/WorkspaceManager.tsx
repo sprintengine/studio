@@ -1985,6 +1985,15 @@ export default function WorkspaceManager() {
       if (getWorkspaceActivity(workspace, terminalSessions) !== 'idle') {
         busyWorkspaceIds.add(workspace.id)
       }
+      // A live browser tab is a held resource, like a live pty. Evicting the
+      // layer destroys the <webview> guest, and with it everything the page was
+      // holding — a session the person signed into, a half-filled form, the tab
+      // an agent is driving mid-interaction. None of that survives a remount,
+      // and none of its loss is visible until someone comes back to it. An
+      // idle-looking workspace with a browser tab open is not idle.
+      if (workspace.paneState?.tabs?.some((tab) => tab.kind === 'browser')) {
+        busyWorkspaceIds.add(workspace.id)
+      }
     }
     for (const session of terminalSessions) {
       if (session.processAlive && typeof session.workspaceId === 'string') {
