@@ -143,3 +143,14 @@ electron.vite.config.*.mjs
 # it is never read by the registry verifier, and a committed copy would be a
 # second signing authority shipped to every user.
 resources/marketplace/trusted-publishers.dev.json
+
+# The backlog lives outside the checkout. It is planning material, not source:
+# it names unshipped work, priorities and rationale, and a public repository is
+# the wrong place for it. Each machine points at its own folder through
+# `backlog/config.json` in the workspace sidecar (`root`), which is ignored with
+# the rest of that directory, so the location never ships either.
+#
+# Nothing in the build reads it: the frontmatter round-trip property tests use a
+# checked-in fixture corpus under src/shared/backlog/__fixtures__/ rather than
+# this repository's own items.
+backlog/
