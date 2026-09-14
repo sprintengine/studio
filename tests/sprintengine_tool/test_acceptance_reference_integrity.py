@@ -19,7 +19,7 @@ from sprintengine_core.tool import plans
 
 
 def _state_path(root: Path) -> Path:
-    return root / ".multi-code" / "sprintengine" / "team" / "run.yaml"
+    return root / ".sprintengine" / "sprintengine" / "team" / "run.yaml"
 
 
 def _repo(tmp_path: Path, monkeypatch) -> Path:

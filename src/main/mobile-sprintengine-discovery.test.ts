@@ -54,7 +54,7 @@ async function assertDiscoveryUsesProjectionMtimeWhenPresent(): Promise<void> {
 }
 
 function writeRun(root: string, teamName: string, timestampOffsetSeconds: number): { statePath: string; projectionPath: string } {
-  const teamDirectory = join(root, '.multi-code', 'sprintengine', teamName)
+  const teamDirectory = join(root, '.sprintengine', 'sprintengine', teamName)
   mkdirSync(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   const projectionPath = join(teamDirectory, 'projection.json')

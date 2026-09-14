@@ -26,8 +26,8 @@ from sprintengine_core.tool import shell
 def _workspace(tmp_path: Path) -> Path:
     """A project root with the run directory a `state_path` points into."""
     (tmp_path / "backlog").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".multi-code" / "sprintengine" / "run").mkdir(parents=True, exist_ok=True)
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "run" / "run.yaml"
+    (tmp_path / ".sprintengine" / "sprintengine" / "run").mkdir(parents=True, exist_ok=True)
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "run" / "run.yaml"
     state_path.write_text("{}\n", encoding="utf-8")
     return state_path
 

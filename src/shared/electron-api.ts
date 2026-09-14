@@ -1699,7 +1699,7 @@ export type TerminalSpawnMetadata = {
   // Distinct from the terminal-tracking `sessionId`; supplied on resume so the
   // CLI reattaches its own conversation. See TerminalSpawnPayload.cliSessionId.
   cliSessionId?: string
-  // Agent display name, exposed to the session as MULTICODE_AGENT_NAME for the
+  // Agent display name, exposed to the session as SPRINTENGINE_AGENT_NAME for the
   // typed-handoff Backlog link label. See agentIdentityEnv (terminal-launch).
   agentName?: string
   terminalId?: string

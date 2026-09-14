@@ -1,5 +1,6 @@
 import { BrowserWindow, Menu, type IpcMain } from 'electron'
 import type { AppMenuAcceleratorUpdate, AppMenuAcceleratorUpdateResult } from '../shared/electron-api'
+import { readStudioEnv } from '../shared/studio-env'
 
 const MENU_ACCELERATOR_COMMAND_IDS = new Set([
   'app.settings.open',
@@ -117,9 +118,9 @@ export function createAppMenu(): Menu {
         },
         { type: 'separator' },
         // Performance diagnostics is an engineering tool; only surface it when
-        // diagnostics are on (dev build or MULTICODE_DIAGNOSTICS=1), matching
+        // diagnostics are on (dev build or SPRINTENGINE_DIAGNOSTICS=1), matching
         // the diagnostics.open command's availability gate.
-        ...(process.env.NODE_ENV === 'development' || process.env.MULTICODE_DIAGNOSTICS === '1'
+        ...(process.env.NODE_ENV === 'development' || readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
           ? [
               {
                 label: 'Performance Diagnostics',

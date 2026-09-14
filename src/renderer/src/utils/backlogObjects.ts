@@ -49,6 +49,8 @@ const EMPTY_BACKLOG_OBJECT_STORE: BacklogObjectStore = {
 export function hydrateBacklogScanResult(
   scan: BacklogScanResult,
   store: BacklogObjectStore,
+  /** The project scanned, so durable run links resolve into its own sidecar. */
+  workspaceRoot?: string,
 ): BacklogScanResult {
   if (scan.items.length === 0) return scan
   const byPath = recordsByPath(store)
@@ -73,6 +75,7 @@ export function hydrateBacklogScanResult(
       sourceContent: item.sourceContent,
       stats: { modifiedAtMs: item.modifiedAt, sizeBytes: item.size },
       object,
+      workspaceRoot,
     })
   })
   return { ...scan, items } as BacklogScanResult

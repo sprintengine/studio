@@ -73,8 +73,8 @@ const multicode = '/work/multicode'
 const multiauth = '/work/multiauth'
 const mobile = '/work/multicode-mobile'
 
-const residentStatePath = `${multicode}/.multi-code/sprintengine/live-run/run.yaml`
-const orphanStatePath = `${mobile}/.multi-code/sprintengine/old-run/run.yaml`
+const residentStatePath = `${multicode}/.sprintengine/sprintengine/live-run/run.yaml`
+const orphanStatePath = `${mobile}/.sprintengine/sprintengine/old-run/run.yaml`
 
 function summary(over: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -206,7 +206,7 @@ const api: Record<string, unknown> = {
   platform: 'darwin',
   listSprintRuns: async () => {
     indexCalls += 1
-    if (indexFails) throw new Error('EACCES: permission denied, scandir /work/multicode/.multi-code')
+    if (indexFails) throw new Error('EACCES: permission denied, scandir /work/multicode/.sprintengine')
     return runs
   },
   onSprintRunsChanged: () => () => {},
@@ -406,7 +406,7 @@ async function main(): Promise<void> {
         createdAt: 4,
         sprintEngineContext: {
           statePath: residentStatePath,
-          teamDir: `${multicode}/.multi-code/sprintengine/live-run`,
+          teamDir: `${multicode}/.sprintengine/sprintengine/live-run`,
           teamSlug: 'live-run',
           rootPath: multicode,
         },

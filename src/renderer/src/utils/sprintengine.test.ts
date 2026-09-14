@@ -1196,7 +1196,7 @@ const reviewProjection = fakeProjection({
           id: 'R1',
           kind: 'code_review',
           title: 'Self review pass 1',
-          path: '.multi-code/sprintengine/run-id/reviews/code-review-1.md',
+          path: '.sprintengine/sprintengine/run-id/reviews/code-review-1.md',
           createdBy: 'developer-1',
           createdAt: '2026-05-16T19:55:00Z',
         },
@@ -2447,11 +2447,11 @@ const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprint
     joinFilePath: (a: string, b: string) => `${a.replace(/\/$/, '')}/${b.replace(/^\//, '')}`,
     isAbsoluteFilePath: (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p),
   }
-  // statePath is `<workspaceRoot>/.multi-code/sprintengine/<team>/run.yaml`.
-  // teamDirectory = `<workspaceRoot>/.multi-code/sprintengine/<team>`.
+  // statePath is `<workspaceRoot>/.sprintengine/sprintengine/<team>/run.yaml`.
+  // teamDirectory = `<workspaceRoot>/.sprintengine/sprintengine/<team>`.
   // workspaceRoot = parentPath x 3 of teamDirectory.
-  const statePath = '/root/.multi-code/sprintengine/team-1/run.yaml'
-  const teamDir = '/root/.multi-code/sprintengine/team-1'
+  const statePath = '/root/.sprintengine/sprintengine/team-1/run.yaml'
+  const teamDir = '/root/.sprintengine/sprintengine/team-1'
 
   // Relative artifact path resolves under team directory.
   const resolved = resolveSprintEngineArtifactEditorPath(statePath, 'designs/mockup.html', helpers)

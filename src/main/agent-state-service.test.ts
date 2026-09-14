@@ -98,7 +98,7 @@ async function run(): Promise<void> {
   await writeFile(reporterSrc, '// reporter\n', 'utf8')
 
   const opencodeReporterSrc = join(workspaceRoot, 'opencode-reporter-src.mjs')
-  await writeFile(opencodeReporterSrc, "const BAKED = '__MULTICODE_AGENT_STATE_SOCKET__'\n", 'utf8')
+  await writeFile(opencodeReporterSrc, "const BAKED = '__SPRINTENGINE_AGENT_STATE_SOCKET__'\n", 'utf8')
 
   let resolveCalls = 0
   let templateResolveCalls = 0
@@ -175,7 +175,7 @@ async function run(): Promise<void> {
   assert.equal(resolveCalls, 3, 'opencode must not consume the shared stdin reporter resolver')
   const opencodePlugin = await readFile(join(workspaceRoot, '.opencode', 'plugin', 'multicode-agent-state.js'), 'utf8')
   assert.ok(opencodePlugin.includes(JSON.stringify(installSvc.getSocketPath())), 'opencode plugin missing baked socket path')
-  assert.ok(!opencodePlugin.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
+  assert.ok(!opencodePlugin.includes("'__SPRINTENGINE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
   // …and is install-once.
   await installSvc.installForWorkspace(workspaceRoot, 'opencode')
   assert.equal(templateResolveCalls, 1)

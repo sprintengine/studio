@@ -60,7 +60,7 @@ function workspace(): Workspace {
     agents: {},
     layoutModel: null,
     sprintEngineContext: {
-      statePath: '/tmp/workspace/.multi-code/sprintengine/unified-refresh/run.yaml',
+      statePath: '/tmp/workspace/.sprintengine/sprintengine/unified-refresh/run.yaml',
       teamSlug: 'unified-refresh',
       teamName: 'Unified Refresh',
     },
@@ -402,7 +402,7 @@ async function testCompletedProjectionRefreshesMatchingBacklogLink(): Promise<vo
             target: {
               kind: 'sprintengine.run',
               id: 'unified-refresh',
-              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+              path: '.sprintengine/sprintengine/unified-refresh/run.yaml',
             },
             status: 'active',
           }],
@@ -419,7 +419,7 @@ async function testCompletedProjectionRefreshesMatchingBacklogLink(): Promise<vo
             target: {
               kind: 'sprintengine.run',
               id: 'other',
-              path: '.multi-code/sprintengine/other/run.yaml',
+              path: '.sprintengine/sprintengine/other/run.yaml',
             },
             status: 'active',
           }],
@@ -452,7 +452,7 @@ async function testCompletedMultiProjectRunLinksEveryPullRequest(): Promise<void
   }
   completedProjection.run.vcs = {
     mode: 'run_worktree',
-    worktreePath: '.multi-code/sprintengine/unified-refresh/worktree',
+    worktreePath: '.sprintengine/sprintengine/unified-refresh/worktree',
     branchName: 'sprintengine/unified-refresh',
     pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
     pullRequestState: 'open',
@@ -460,7 +460,7 @@ async function testCompletedMultiProjectRunLinksEveryPullRequest(): Promise<void
       {
         id: 'primary',
         root: '.',
-        worktreePath: '.multi-code/sprintengine/unified-refresh/worktree',
+        worktreePath: '.sprintengine/sprintengine/unified-refresh/worktree',
         branchName: 'sprintengine/unified-refresh',
         pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
         pullRequestState: 'open',
@@ -468,7 +468,7 @@ async function testCompletedMultiProjectRunLinksEveryPullRequest(): Promise<void
       {
         id: 'mobile',
         root: '../multicode-mobile',
-        worktreePath: '.multi-code/sprintengine/unified-refresh/worktree-mobile',
+        worktreePath: '.sprintengine/sprintengine/unified-refresh/worktree-mobile',
         branchName: 'sprintengine/unified-refresh',
         pullRequestUrl: 'https://github.com/acme/multicode-mobile/pull/9',
         pullRequestState: 'open',
@@ -499,7 +499,7 @@ async function testCompletedMultiProjectRunLinksEveryPullRequest(): Promise<void
             target: {
               kind: 'sprintengine.run',
               id: 'unified-refresh',
-              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+              path: '.sprintengine/sprintengine/unified-refresh/run.yaml',
             },
             status: 'active',
           }],
@@ -541,14 +541,14 @@ async function testCompletedSingleProjectRunLinksOneUnlabeledPullRequest(): Prom
   }
   completedProjection.run.vcs = {
     mode: 'run_worktree',
-    worktreePath: '.multi-code/sprintengine/unified-refresh/worktree',
+    worktreePath: '.sprintengine/sprintengine/unified-refresh/worktree',
     branchName: 'sprintengine/unified-refresh',
     pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
     pullRequestState: 'open',
     repos: [{
       id: 'primary',
       root: '.',
-      worktreePath: '.multi-code/sprintengine/unified-refresh/worktree',
+      worktreePath: '.sprintengine/sprintengine/unified-refresh/worktree',
       branchName: 'sprintengine/unified-refresh',
       pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
       pullRequestState: 'open',
@@ -578,7 +578,7 @@ async function testCompletedSingleProjectRunLinksOneUnlabeledPullRequest(): Prom
             target: {
               kind: 'sprintengine.run',
               id: 'unified-refresh',
-              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+              path: '.sprintengine/sprintengine/unified-refresh/run.yaml',
             },
             status: 'active',
           }],
@@ -633,7 +633,7 @@ async function testCanceledProjectionRecolorsBacklogLinkWithoutDrivingItem(): Pr
             target: {
               kind: 'sprintengine.run',
               id: 'unified-refresh',
-              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+              path: '.sprintengine/sprintengine/unified-refresh/run.yaml',
             },
             status: 'active',
           }],
@@ -677,7 +677,7 @@ async function testDormantCanceledRefreshRecolorsLinkOnRoutineTick(): Promise<vo
         target: {
           kind: 'sprintengine.run',
           id: 'unified-refresh',
-          path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+          path: '.sprintengine/sprintengine/unified-refresh/run.yaml',
         },
         status: 'active' as const,
       }],
@@ -746,7 +746,7 @@ async function testCompletedProjectionSparesEpicStatus(): Promise<void> {
     moduleId: 'sprint-engine',
     type: 'execution',
     label: 'Sprint Engine run',
-    target: { kind: 'sprintengine.run', id: 'unified-refresh', path: '.multi-code/sprintengine/unified-refresh/run.yaml' },
+    target: { kind: 'sprintengine.run', id: 'unified-refresh', path: '.sprintengine/sprintengine/unified-refresh/run.yaml' },
     status: 'active',
   })
   await refreshSprintEngineWorkspaceProjection({
@@ -816,7 +816,7 @@ async function testNonterminalProjectionDoesNotCompleteBacklogLink(): Promise<vo
             target: {
               kind: 'sprintengine.run',
               id: 'unified-refresh',
-              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+              path: '.sprintengine/sprintengine/unified-refresh/run.yaml',
             },
             status: 'active',
           }],
@@ -927,7 +927,7 @@ async function testDormantWorkspaceRefreshIsDisplayOnly(): Promise<void> {
             target: {
               kind: 'sprintengine.run',
               id: 'unified-refresh',
-              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+              path: '.sprintengine/sprintengine/unified-refresh/run.yaml',
             },
             status: 'active',
           }],
@@ -1173,7 +1173,7 @@ function childFanoutStore(childStatuses: [string, string, string]): BacklogObjec
   const runTarget = {
     kind: 'sprintengine.run',
     id: 'unified-refresh',
-    path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+    path: '.sprintengine/sprintengine/unified-refresh/run.yaml',
   }
   return {
     schemaVersion: 1,
@@ -1368,7 +1368,7 @@ const UNLINKED_PATHS = ['backlog/item-a.md', 'backlog/item-b.md']
 const RUN_TARGET = {
   kind: 'sprintengine.run',
   id: 'unified-refresh',
-  path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+  path: '.sprintengine/sprintengine/unified-refresh/run.yaml',
 }
 
 function unlinkedRunProjection(input: {
@@ -1421,7 +1421,7 @@ function unlinkedRunProjection(input: {
 }
 
 // The store a non-epic run leaves behind: item records with no Sprint link on
-// them, exactly as `.multi-code/backlog/items.json` carries them (links only —
+// them, exactly as `.sprintengine/backlog/items.json` carries them (links only —
 // lifecycle lives in the item's frontmatter, so records carry no `status`).
 function unlinkedStore(input?: {
   itemPaths?: string[]
@@ -1728,7 +1728,7 @@ async function testUnwritableRunStoreIsReportedNotSwallowed(): Promise<void> {
   const stranded = {
     ...workspace(),
     sprintEngineContext: {
-      statePath: '/elsewhere/.multi-code/sprintengine/unified-refresh/run.yaml',
+      statePath: '/elsewhere/.sprintengine/sprintengine/unified-refresh/run.yaml',
       teamSlug: 'unified-refresh',
       teamName: 'Unified Refresh',
     },

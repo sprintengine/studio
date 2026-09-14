@@ -28,7 +28,7 @@ def _declare_repos(state_path: Path, *repo_ids: str) -> None:
     state = read_state(state_path)
     state.setdefault("sprintengine", {})["vcs"] = {
         "mode": "run_worktree",
-        "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+        "worktreePath": ".sprintengine/sprintengine/alpha/worktree",
         "branchName": "sprintengine/alpha",
         "baseRef": "main",
         "status": "ready",
@@ -37,9 +37,9 @@ def _declare_repos(state_path: Path, *repo_ids: str) -> None:
                 "id": repo_id,
                 "root": "." if index == 0 else f"../{repo_id}",
                 "worktreePath": (
-                    ".multi-code/sprintengine/alpha/worktree"
+                    ".sprintengine/sprintengine/alpha/worktree"
                     if index == 0
-                    else f".multi-code/sprintengine/alpha/worktree-{repo_id}"
+                    else f".sprintengine/sprintengine/alpha/worktree-{repo_id}"
                 ),
                 "branchName": "sprintengine/alpha",
                 "baseRef": "main",

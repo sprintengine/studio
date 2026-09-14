@@ -47,7 +47,7 @@ def _epic_workspace(tmp_path: Path):
     child_a = _write(root / "backlog" / CHILD_A.split("/", 1)[1], "---\nepic: auth-revamp\n---\n# Login form\n")
     child_b = _write(root / "backlog" / CHILD_B.split("/", 1)[1], "---\nepic: auth-revamp\n---\n# Session store\n")
     mockup = _write(root / "backlog" / "mockups" / "login-form.html", "<h1>Login</h1>\n")
-    state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "auth-revamp" / "run.yaml"
     return root, epic, child_a, child_b, mockup, state_path
 
 
@@ -323,7 +323,7 @@ def test_a_goal_sourced_run_keeps_its_plan_gate_verbatim(tmp_path) -> None:
     architect has always read."""
     root = tmp_path / "project"
     root.mkdir(parents=True, exist_ok=True)
-    state_path = root / ".multi-code" / "sprintengine" / "goal-run" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "goal-run" / "run.yaml"
     cli = SwarmCli(state_path, cwd=root)
     init_payload = cli.run("init", "--name", "goal-run", "--goal", "Build the thing")
 

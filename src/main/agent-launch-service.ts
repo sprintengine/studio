@@ -246,7 +246,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     // The project's Knowledge Graph, resolved the same way the interactive
     // launch resolves it: the per-project setting from the main-owned store,
     // falling back to the workspace's own override. Without this a
-    // headless-launched agent silently loses `MULTICODE_KNOWLEDGE_ROOT`, and the
+    // headless-launched agent silently loses `SPRINTENGINE_KNOWLEDGE_ROOT`, and the
     // spawn has nothing to build the host-context document's knowledge section
     // from — it would then either ignore the project's recorded context or guess
     // at a folder.

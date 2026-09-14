@@ -23,6 +23,7 @@ import {
 import { BROWSER_ZOOM_LEVELS, nextZoomLevel, type BrowserColorScheme, type BrowserViewport } from '../../shared/browser-devices'
 import { safeExternalUrl } from '../ipc/external-url'
 import { parsePsTree, type ProcRow } from '../terminal-subtree-probe'
+import { workspaceSidecarPath } from '../workspace-sidecar'
 
 // The embedded browser's main-process half (browser-pane epic). The renderer
 // owns the `<webview>` elements; this owns everything the renderer must not:
@@ -761,7 +762,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       return true
     },
 
-    /** PNG of the page (or a crop of it) into the workspace's `.multi-code/browser/`. */
+    /** PNG of the page (or a crop of it) into the workspace's `.sprintengine/browser/`. */
     async captureScreenshot(input: BrowserCaptureInput): Promise<BrowserScreenshotResult> {
       const tab = requireTab(input.tabId)
       if (!tab) return { ok: false, message: 'This browser tab is gone.' }
@@ -784,7 +785,7 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
           image = full.crop(crop)
         }
         const size = image.getSize()
-        const directory = resolve(workspaceRoot, '.multi-code', 'browser')
+        const directory = resolve(workspaceSidecarPath(workspaceRoot, 'browser'))
         await mkdir(directory, { recursive: true })
         // The folder ignores itself, so a project that does not list it in
         // its own .gitignore still never sees screenshots in `git status`.

@@ -1,12 +1,16 @@
 import { statSync } from 'fs'
-import { join } from 'path'
 import {
   isAbsoluteFilePath,
   trimPath,
 } from '../shared/paths'
 import {
+  forgetSidecarDirName,
+  knownSidecarDirName,
   LEGACY_SIDECAR_DIR_NAME,
+  rememberSidecarDirName,
+  setUnknownSidecarDirNameResolver,
   SIDECAR_DIR_NAME,
+  sidecarCandidates,
   sidecarFor,
   sidecarPath,
   type SidecarDirName,
@@ -16,14 +20,7 @@ import {
 export type { SidecarDirName, WorkspaceSidecar }
 export { SIDECAR_DIR_NAME, LEGACY_SIDECAR_DIR_NAME, sidecarPath }
 
-/**
- * Which sidecar name each workspace uses. Memoized because the question is
- * asked on nearly every path build and the answer cannot change under a running
- * app: nothing renames a workspace's sidecar (see the migration note below), so
- * the only way to invalidate one is to delete the directory by hand, which
- * `forgetWorkspaceSidecar` exists for.
- */
-const resolvedByWorkspaceRoot = new Map<string, SidecarDirName>()
+const resolvedWorkspaceRoots = new Set<string>()
 
 function isDirectory(pathValue: string): boolean {
   return statSync(pathValue, { throwIfNoEntry: false })?.isDirectory() === true
@@ -61,15 +58,16 @@ export function resolveWorkspaceSidecar(workspaceRoot: string): WorkspaceSidecar
   // consult, so answer with the current name and cache nothing.
   if (!root || !isAbsoluteFilePath(root)) return sidecarFor(workspaceRoot, SIDECAR_DIR_NAME)
 
-  const cached = resolvedByWorkspaceRoot.get(root)
-  if (cached) return sidecarFor(root, cached)
+  // Answered once per workspace per run: the question is asked on nearly every
+  // path build, and the answer cannot change under a running app because
+  // nothing renames a workspace's sidecar (see above). `forgetWorkspaceSidecar`
+  // is the way back for a directory removed by hand, and for tests.
+  if (resolvedWorkspaceRoots.has(root)) return sidecarFor(root, knownSidecarDirName(root))
 
-  const dirName = isDirectory(join(root, SIDECAR_DIR_NAME))
-    ? SIDECAR_DIR_NAME
-    : isDirectory(join(root, LEGACY_SIDECAR_DIR_NAME))
-      ? LEGACY_SIDECAR_DIR_NAME
-      : SIDECAR_DIR_NAME
-  resolvedByWorkspaceRoot.set(root, dirName)
+  const dirName = sidecarCandidates(root).find((candidate) => isDirectory(candidate.root))?.dirName
+    ?? SIDECAR_DIR_NAME
+  rememberSidecarDirName(root, dirName)
+  resolvedWorkspaceRoots.add(root)
   return sidecarFor(root, dirName)
 }
 
@@ -83,14 +81,19 @@ export function workspaceSidecarPath(workspaceRoot: string, ...segments: string[
   return sidecarPath(resolveWorkspaceSidecar(workspaceRoot), ...segments)
 }
 
+// Back the shared registry's fallback with the disk lookup, so a shared path
+// builder reached in this process before anything resolved the workspace still
+// answers from the workspace itself. Installed on import rather than from a
+// startup sequence: every module that builds a sidecar path in main imports this
+// one, so there is no ordering to get wrong.
+setUnknownSidecarDirNameResolver((workspaceRoot) => resolveWorkspaceSidecar(workspaceRoot).dirName)
+
 /**
  * Drop a memoized answer. Called when a workspace is removed, and by tests that
  * build a workspace on disk after having already asked about its root.
  */
 export function forgetWorkspaceSidecar(workspaceRoot?: string): void {
-  if (workspaceRoot === undefined) {
-    resolvedByWorkspaceRoot.clear()
-    return
-  }
-  resolvedByWorkspaceRoot.delete(trimPath(workspaceRoot))
+  forgetSidecarDirName(workspaceRoot)
+  if (workspaceRoot === undefined) resolvedWorkspaceRoots.clear()
+  else resolvedWorkspaceRoots.delete(trimPath(workspaceRoot))
 }

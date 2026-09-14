@@ -27,6 +27,7 @@ import type { SprintRuntimeRunRegistration } from '../shared/sprintengine/runtim
 import type { SprintRunSummary } from '../shared/sprintengine/runSummary'
 import { discoverSprintEngineRunStatePaths, readSprintRunSummary } from './sprintengine-run-index'
 import { uniqueResolvedRoots } from './workspace-roots'
+import { studioEnvNames } from '../shared/studio-env'
 
 /** Why a discovered run was not registered as active. */
 type SprintBootDiscoverySkip =
@@ -178,17 +179,17 @@ function bootDiscoveredWorkspaceId(statePath: string): string {
 
 /**
  * The renderer's auto-run kill switches, read from the process environment:
- * `MULTICODE_SAFE_MODE` implies the auto-run one, and both are accepted with the
+ * `SPRINTENGINE_SAFE_MODE` implies the auto-run one, and both are accepted with the
  * `VITE_` prefix because that is how they are set for a dev run (the renderer
  * reads them through `import.meta.env` — see `renderer/src/utils/runtimeFlags.ts`).
  */
 export function sprintAutoRunDisabledByEnv(env: NodeJS.ProcessEnv): boolean {
-  return [
-    'MULTICODE_SAFE_MODE',
-    'VITE_MULTICODE_SAFE_MODE',
-    'MULTICODE_DISABLE_SPRINTENGINE_AUTORUN',
-    'VITE_MULTICODE_DISABLE_SPRINTENGINE_AUTORUN',
-  ].some((name) => env[name] === '1')
+  // Both spellings of both switches: the legacy `MULTICODE_*` names still work
+  // for anyone whose shell profile or CI job sets them.
+  return ['SPRINTENGINE_SAFE_MODE', 'SPRINTENGINE_DISABLE_AUTORUN']
+    .flatMap((name) => studioEnvNames(name))
+    .flatMap((name) => [name, `VITE_${name}`])
+    .some((name) => env[name] === '1')
 }
 
 async function defaultDiscoverStatePaths(roots: string[]): Promise<string[]> {

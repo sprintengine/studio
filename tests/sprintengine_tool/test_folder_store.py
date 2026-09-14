@@ -25,7 +25,7 @@ RETIRED_SUPPORT_FOLDERS = ("plan-reviews",)
 
 
 def test_init_creates_folder_store_layout(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "folder-layout" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "folder-layout" / "run.yaml"
     payload = SwarmCli(state_path).run("init", "--goal", "Create a folder store")
 
     team_dir = state_path.parent
@@ -54,7 +54,7 @@ def test_init_creates_folder_store_layout(tmp_path) -> None:
 
 
 def test_handover_creates_folder_store_layout(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "handover-layout" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "handover-layout" / "run.yaml"
     payload = SwarmCli(state_path).run(
         "handover",
         "--name",
@@ -741,7 +741,7 @@ def test_activity_ids_use_max_existing_id_after_compaction() -> None:
 
 
 def test_projection_covers_empty_run_summary_and_board(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "empty-projection" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "empty-projection" / "run.yaml"
     payload = SwarmCli(state_path).run("init", "--goal", "Project the run", "--agent", "developer:developer-1")
     state = read_state(state_path)
     state["tasks"] = []

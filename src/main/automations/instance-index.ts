@@ -7,7 +7,7 @@ import type {
 import type { AutomationsStore, AutomationStoreProblem } from './store'
 
 // A known project root the index scans. `folderPath` is the project root (the
-// automations store lives at `<folderPath>/.multi-code/automations/`);
+// automations store lives at `<folderPath>/.sprintengine/automations/`);
 // `workspaceId` is a representative open workspace rooted there.
 export type AutomationsInstanceProjectFolder = {
   workspaceId: string

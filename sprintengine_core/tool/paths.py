@@ -28,12 +28,31 @@ def repository_root_for_tool() -> Path:
 REPO_ROOT = repository_root_for_tool()
 PROMPTS_DIR = REPO_ROOT / ".agents" / "skills" / "sprintengine" / "prompts"
 
-MULTICODE_DIR_NAME = ".multi-code"
+# The app-owned directory inside a workspace. It was called ".multi-code"
+# before the app was renamed (2026-09-08) and is called ".sprintengine" now, but
+# the old name is on every existing workspace's disk holding live run stores, so
+# both are read and nothing is migrated. SIDECAR_DIR_NAMES is in preference
+# order, and the Node side (src/shared/workspace-sidecar.ts) uses the same one.
+SIDECAR_DIR_NAME = ".sprintengine"
+LEGACY_SIDECAR_DIR_NAME = ".multi-code"
+SIDECAR_DIR_NAMES = (SIDECAR_DIR_NAME, LEGACY_SIDECAR_DIR_NAME)
 SPRINTENGINE_DIR_NAME = "sprintengine"
 
 
+def is_sidecar_dir_name(name: str) -> bool:
+    return name in SIDECAR_DIR_NAMES
+
+
+def sidecar_dir_name_for(workspace_root: Path) -> str:
+    """Which sidecar a workspace uses: the current name unless only the old one is there."""
+    for name in SIDECAR_DIR_NAMES:
+        if (workspace_root / name).is_dir():
+            return name
+    return SIDECAR_DIR_NAME
+
+
 def sprintengine_root_for(workspace_root: Path) -> Path:
-    return workspace_root / MULTICODE_DIR_NAME / SPRINTENGINE_DIR_NAME
+    return workspace_root / sidecar_dir_name_for(workspace_root) / SPRINTENGINE_DIR_NAME
 
 
 def sprintengine_state_path_for(workspace_root: Path, team_slug: str) -> Path:
@@ -44,7 +63,7 @@ def workspace_root_for_state_path(state_path: Path) -> Path:
     resolved = state_path.resolve()
     parts = resolved.parts
     for index in range(len(parts) - 2):
-        if parts[index] == MULTICODE_DIR_NAME and parts[index + 1] == SPRINTENGINE_DIR_NAME:
+        if is_sidecar_dir_name(parts[index]) and parts[index + 1] == SPRINTENGINE_DIR_NAME:
             return Path(*parts[:index])
     return resolved.parent.parent.parent.parent
 

@@ -98,6 +98,7 @@ import {
 } from './automation-lifecycle'
 import { agentCliSupportsConversationResume } from '../agent-cli-resume'
 import type { ResumeCapabilities } from '../agent-cli-resume'
+import { isSidecarDirName } from '../workspace-sidecar'
 
 // Sprint Engine board column → the shared lifecycle vocabulary. The pipeline
 // reads as a filling gauge: todo → ready → in_progress → review → done, with
@@ -1691,7 +1692,7 @@ export function sprintEngineCoordinatorSeat(
 /**
  * The run's own plan file, in the team-relative form `plans.plan_path_artifact_value`
  * produces. Compared through {@link isSameSprintEngineArtifactFile}, so the
- * equivalent full-prefix spelling (`.multi-code/sprintengine/<team>/plan.md`)
+ * equivalent full-prefix spelling (`.sprintengine/sprintengine/<team>/plan.md`)
  * that `sprintengine.init` actually records resolves to the same file.
  */
 const SPRINT_ENGINE_PLAN_ARTIFACT_PATH = 'plan.md'
@@ -2188,7 +2189,7 @@ export function isSprintEngineArtifactAutoApprovableKind(kind: string): boolean 
 
 // Stored artifact paths are project-relative but recorded in two equivalent
 // forms that resolve to the same file: a bare team-relative path (`plan.md`)
-// and a full-prefix path (`.multi-code/sprintengine/<team>/plan.md`). This
+// and a full-prefix path (`.sprintengine/sprintengine/<team>/plan.md`). This
 // mirrors the Python `artifact_absolute_path` resolution (which lands both
 // forms at `<teamDir>/<rest>`) without filesystem access, so renderer and
 // main-process gates agree on which artifacts point at the same file.
@@ -2199,7 +2200,8 @@ function normalizeSprintEngineArtifactFileKey(path: string): string {
     .split('/')
     .filter((segment) => segment !== '' && segment !== '.')
   if (
-    segments[0] === '.multi-code'
+    segments[0] !== undefined
+    && isSidecarDirName(segments[0])
     && segments[1] === 'sprintengine'
     && segments.length > 3
   ) {

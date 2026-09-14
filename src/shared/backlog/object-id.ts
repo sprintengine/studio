@@ -1,7 +1,7 @@
 // Single source of truth for the Backlog **object-store record id** — the key
 // under which an item's app-owned churn (working-agent/execution links, the
 // star/highlight, module metadata, timestamps) lives in
-// `.multi-code/backlog/items.json`. It is derived purely from the item's file
+// `.sprintengine/backlog/items.json`. It is derived purely from the item's file
 // path so every producer agrees on one key per file: the renderer, the main
 // process, and the `/backlog` skill (which documents `backlog_` + FNV-1a).
 //

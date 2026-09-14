@@ -173,8 +173,8 @@ const v60SprintEnginePermissionState = {
       sprintEngineContext: {
         teamName: 'run-permission',
         teamSlug: 'run-permission',
-        teamDirectoryPath: '/repo/.multi-code/sprintengine/run-permission',
-        statePath: '/repo/.multi-code/sprintengine/run-permission/run.yaml',
+        teamDirectoryPath: '/repo/.sprintengine/sprintengine/run-permission',
+        statePath: '/repo/.sprintengine/sprintengine/run-permission/run.yaml',
       },
       sprintEngineState: {
         name: 'run-permission',

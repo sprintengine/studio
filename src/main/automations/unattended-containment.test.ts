@@ -125,7 +125,7 @@ function harness(
       if (options.worktree === 'creation-failed') {
         throw new RunWorktreeUnavailableError('worktree_creation_failed', 'fatal: could not create work tree dir')
       }
-      return { worktreePath: join(root, '.multi-code/automations/worktrees', input.runId), branch: `automations/${input.runId}` }
+      return { worktreePath: join(root, '.sprintengine/automations/worktrees', input.runId), branch: `automations/${input.runId}` }
     },
   })
 
@@ -254,14 +254,14 @@ async function assertContainmentHoldsWhenTheWorktreeIsCreated(): Promise<void> {
     assert.equal(launch.permissionPreset, 'bypass', `${path}: launches unattended`)
     assert.equal(
       launch.worktreePath,
-      join(root, '.multi-code/automations/worktrees', 'run-1'),
+      join(root, '.sprintengine/automations/worktrees', 'run-1'),
       `${path}: the agent runs in the run's own worktree, not the user's checkout`
     )
     assert.equal(run.branch, 'automations/run-1', `${path}: the run carries its own branch`)
     assert.equal(run.isolation, 'worktree', `${path}: the record says the run was contained`)
     assert.deepEqual(
       pullRequests,
-      [{ worktreePath: join(root, '.multi-code/automations/worktrees', 'run-1'), branch: 'automations/run-1' }],
+      [{ worktreePath: join(root, '.sprintengine/automations/worktrees', 'run-1'), branch: 'automations/run-1' }],
       `${path}: the finalize opens a PR from the run's branch`
     )
     await rm(root, { recursive: true, force: true })
@@ -380,7 +380,7 @@ async function assertRealWorktreeFailuresAreClassified(): Promise<void> {
 // the marker derived from it is written back.
 async function assertLegacyReviewOnlyDefinitionKeepsItsIntent(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'multicode-containment-legacy-'))
-  const definitionsDirectory = join(root, '.multi-code', 'automations', 'definitions')
+  const definitionsDirectory = join(root, '.sprintengine', 'automations', 'definitions')
   await mkdir(definitionsDirectory, { recursive: true })
   const definitionPath = join(definitionsDirectory, 'nightly-sweep.json')
   const legacy = {

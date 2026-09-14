@@ -2,7 +2,7 @@
 
 <what-to-do>
 
-Before anything else in this skill, check the `MULTICODE_KNOWLEDGE_ROOT` environment variable (or the legacy alias `MULTICODE_MEMORY_ROOT`). If neither is set, this workspace has no Knowledge Graph: skip every step below — do not create notes, do not write into a default `knowledge/` folder, and do not stop the task to ask for one. Reviewers must not flag KG drift in unconfigured workspaces.
+Before anything else in this skill, check the `SPRINTENGINE_KNOWLEDGE_ROOT` environment variable (or any of its older spellings: `SPRINTENGINE_MEMORY_ROOT`, `MULTICODE_KNOWLEDGE_ROOT`, `MULTICODE_MEMORY_ROOT`). If neither is set, this workspace has no Knowledge Graph: skip every step below — do not create notes, do not write into a default `knowledge/` folder, and do not stop the task to ask for one. Reviewers must not flag KG drift in unconfigured workspaces.
 
 When either is set, treat its value as the KG root. KG updates are part of acceptance evidence, not follow-up work: when your change touches a documented behavior, contract, file layout, or convention, update the relevant note in the same handoff as the source change and log the note path as file evidence.
 

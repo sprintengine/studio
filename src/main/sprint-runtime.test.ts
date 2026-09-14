@@ -32,7 +32,7 @@ import { createSprintRuntime, type SprintRuntimeDeps } from './sprint-runtime'
 // runtime, projection reads, clock, timers, power) is faked.
 // ---------------------------------------------------------------------------
 
-const STATE_PATH = '/repo/fixture/.multi-code/sprintengine/team/run.yaml'
+const STATE_PATH = '/repo/fixture/.sprintengine/sprintengine/team/run.yaml'
 const FOLDER_PATH = '/repo/fixture'
 const WORKSPACE_ID = 'ws-fixture'
 
@@ -954,7 +954,7 @@ async function testDormancyRecompletesWithMarkerSet(): Promise<void> {
 // (16) Unregistering an old run must not orphan a newer run that reused the
 // same workspace (new team dir = new statePath, same workspaceId).
 async function testUnregisterOldRunKeepsNewRunMapping(): Promise<void> {
-  const NEW_STATE_PATH = '/repo/fixture/.multi-code/sprintengine/team-2/run.yaml'
+  const NEW_STATE_PATH = '/repo/fixture/.sprintengine/sprintengine/team-2/run.yaml'
   const harness = createHarness()
   harness.projections.set(NEW_STATE_PATH, bootstrapProjection())
   harness.modes.set(NEW_STATE_PATH, automationRecord('run_agents'))

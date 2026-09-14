@@ -21,7 +21,7 @@ REPOS = [
     {
         "id": "primary",
         "root": ".",
-        "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+        "worktreePath": ".sprintengine/sprintengine/alpha/worktree",
         "branchName": "sprintengine/alpha",
         "baseRef": "main",
         "status": "ready",
@@ -30,7 +30,7 @@ REPOS = [
     {
         "id": "api",
         "root": "packages/api",
-        "worktreePath": ".multi-code/sprintengine/alpha/worktree-api",
+        "worktreePath": ".sprintengine/sprintengine/alpha/worktree-api",
         "branchName": "sprintengine/alpha",
         "baseRef": "main",
         "status": "ready",
@@ -42,7 +42,7 @@ REPOS = [
 def _vcs_with_repos() -> dict:
     return {
         "mode": "run_worktree",
-        "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+        "worktreePath": ".sprintengine/sprintengine/alpha/worktree",
         "branchName": "sprintengine/alpha",
         "baseRef": "main",
         "status": "ready",
@@ -57,7 +57,7 @@ def _hand_write_run_yaml(tmp_path: Path, vcs: dict) -> Path:
     requires; overwriting run.yaml afterwards is the "hand-written run.yaml" the
     acceptance criteria call for — a store the projection never itself produced.
     """
-    team_dir = tmp_path / ".multi-code" / "sprintengine" / "alpha"
+    team_dir = tmp_path / ".sprintengine" / "sprintengine" / "alpha"
     folder_store.initialize_run_store(team_dir, name="alpha", goal="seam", status="executing")
     run = folder_store.load_run_yaml(team_dir)
     run["schemaVersion"] = folder_store.RUN_SCHEMA_VERSION
@@ -77,7 +77,7 @@ def test_build_projection_preserves_vcs_repos(tmp_path) -> None:
     assert projected_vcs["repos"] == REPOS, "vcs.repos preserved verbatim in projection"
     # The known fields still ride through alongside the unknown array.
     assert projected_vcs["branchName"] == "sprintengine/alpha"
-    assert projected_vcs["worktreePath"] == ".multi-code/sprintengine/alpha/worktree"
+    assert projected_vcs["worktreePath"] == ".sprintengine/sprintengine/alpha/worktree"
 
 
 def test_build_projection_omits_repos_when_absent(tmp_path) -> None:
@@ -98,7 +98,7 @@ def test_vcs_repos_round_trips_through_sync_and_projection(tmp_path) -> None:
     # (buildVcsState) with its own test; this pins the Python projection it reads.
     state = base_state("alpha", [])
     state["sprintengine"]["vcs"] = _vcs_with_repos()
-    team_dir = tmp_path / ".multi-code" / "sprintengine" / "alpha"
+    team_dir = tmp_path / ".sprintengine" / "sprintengine" / "alpha"
     state_path = team_dir / "run.yaml"
 
     write_state(state_path, state)
@@ -125,7 +125,7 @@ def test_worktree_discipline_emitted_from_single_template_site() -> None:
     vcs_state = base_state("alpha", [])
     vcs_state["sprintengine"]["vcs"] = _vcs_with_repos()
     worktree_block = phase_prompts.worker_execution_workspace_block(
-        vcs_state, Path("/tmp/ws/.multi-code/sprintengine/alpha/run.yaml")
+        vcs_state, Path("/tmp/ws/.sprintengine/sprintengine/alpha/run.yaml")
     )
 
     # The shared discipline lines every execution-workspace prompt must carry,
@@ -135,7 +135,7 @@ def test_worktree_discipline_emitted_from_single_template_site() -> None:
     shared_lines = (
         "## Execution Workspace Discipline",
         "- Treat task-owned paths as the primary edit surface and collision boundary.",
-        "- The canonical plan is normally `.multi-code/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
+        "- The canonical plan is normally `.sprintengine/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
     )
     for line in shared_lines:
         assert plan_block.count(line) == 1, f"plan block must emit {line!r} exactly once"
@@ -151,7 +151,7 @@ def _worktree_block_for(vcs: dict) -> str:
     state = base_state("alpha", [])
     state["sprintengine"]["vcs"] = vcs
     return phase_prompts.worker_execution_workspace_block(
-        state, Path("/tmp/ws/.multi-code/sprintengine/alpha/run.yaml")
+        state, Path("/tmp/ws/.sprintengine/sprintengine/alpha/run.yaml")
     )
 
 
@@ -187,10 +187,10 @@ def test_single_repo_worktree_prompt_reads_as_one_project(tmp_path) -> None:
     block = _worktree_block_for(
         {
             "mode": "run_worktree",
-            "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+            "worktreePath": ".sprintengine/sprintengine/alpha/worktree",
             "branchName": "sprintengine/alpha",
         }
     )
-    assert "This run's projects are: `primary` (`.multi-code/sprintengine/alpha/worktree` on branch `sprintengine/alpha`)." in block
+    assert "This run's projects are: `primary` (`.sprintengine/sprintengine/alpha/worktree` on branch `sprintengine/alpha`)." in block
     assert "`api`" not in block
     assert "do not `cd` elsewhere" in block

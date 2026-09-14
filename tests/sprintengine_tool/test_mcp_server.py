@@ -932,7 +932,7 @@ def test_mcp_plan_list_read_and_handover_bootstrap_cover_agent_workflows(tmp_pat
         {"statePath": str(fixture.state_path)},
         actor("workspace-user", "user"),
     )
-    handover_state_path = tmp_path / ".multi-code" / "sprintengine" / "mcp-handover-bootstrap" / "run.yaml"
+    handover_state_path = tmp_path / ".sprintengine" / "sprintengine" / "mcp-handover-bootstrap" / "run.yaml"
     handover = server.call_tool(
         "sprintengine.handover",
         {
@@ -984,7 +984,7 @@ def test_mcp_epic_reference_handover_and_init_over_mcp_route(tmp_path) -> None:
     )
     (workspace / "backlog" / "login-form.md").write_text("---\nepic: auth-revamp\n---\n# Login\n", encoding="utf-8")
     (workspace / "backlog" / "session-store.md").write_text("---\nepic: auth-revamp\n---\n# Session\n", encoding="utf-8")
-    state_path = workspace / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    state_path = workspace / ".sprintengine" / "sprintengine" / "auth-revamp" / "run.yaml"
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     handover = server.call_tool(
@@ -1039,7 +1039,7 @@ def test_mcp_epic_reference_handover_and_init_over_mcp_route(tmp_path) -> None:
     assert not (team_dir / "plan.md").exists()
 
     # The opt-in planner is still one param away, over the same MCP route.
-    planned_state_path = workspace / ".multi-code" / "sprintengine" / "auth-revamp-planned" / "run.yaml"
+    planned_state_path = workspace / ".sprintengine" / "sprintengine" / "auth-revamp-planned" / "run.yaml"
     server.call_tool(
         "sprintengine.handover",
         {
@@ -1908,7 +1908,7 @@ def test_handover_resolves_project_relative_bundle_paths_against_http_workspace_
     (workspace / "product" / ".versions" / "plan.md").write_text("# Architecture Plan\n", encoding="utf-8")
     (workspace / "product" / ".versions" / "ui.md").write_text("# UI Direction\n", encoding="utf-8")
     (workspace / "mockups" / ".versions" / "app.html").write_text("<!doctype html><title>Mockup</title>", encoding="utf-8")
-    state_path = workspace / ".multi-code" / "sprintengine" / "guided-build" / "run.yaml"
+    state_path = workspace / ".sprintengine" / "sprintengine" / "guided-build" / "run.yaml"
     context = McpRequestContext(
         actor=ActorContext(id="workspace-user", role="user", authenticated=True, mcp_authorized=True),
         state_path=state_path,

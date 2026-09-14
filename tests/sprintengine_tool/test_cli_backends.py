@@ -83,7 +83,7 @@ def test_direct_core_backend_is_default_and_preserves_cli_json_shape(tmp_path) -
 
 
 def test_direct_core_rejects_uninitialized_run_store(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "uninitialized" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "uninitialized" / "run.yaml"
     state_path.parent.mkdir(parents=True)
     state_path.write_text("not: a run store\n", encoding="utf-8")
 
@@ -528,7 +528,7 @@ def test_mcp_backend_errors_disclose_backend_mode_for_unsupported_command(tmp_pa
             "--backend",
             "mcp-local",
             "--state",
-            str(tmp_path / ".multi-code" / "sprintengine" / "run.yaml"),
+            str(tmp_path / ".sprintengine" / "sprintengine" / "run.yaml"),
             "handover",
             "--name",
             "unsupported",

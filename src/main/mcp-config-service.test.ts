@@ -190,8 +190,8 @@ async function main(): Promise<void> {
 
   // --- OpenCode writer (format 'opencode'): real bundled manifest ---
   const opencodeRoot = join(temp, 'opencode-workspace')
-  await mkdir(join(opencodeRoot, '.multi-code', 'sprintengine', 'managed'), { recursive: true })
-  const opencodeStatePath = join(opencodeRoot, '.multi-code', 'sprintengine', 'managed', 'run.yaml')
+  await mkdir(join(opencodeRoot, '.sprintengine', 'sprintengine', 'managed'), { recursive: true })
+  const opencodeStatePath = join(opencodeRoot, '.sprintengine', 'sprintengine', 'managed', 'run.yaml')
   await writeFile(opencodeStatePath, 'sprintengine:\n  name: managed\n  status: active\n', 'utf-8')
   const opencodeConfigPath = join(opencodeRoot, 'opencode.json')
   // Pre-existing user config: a top-level key and a user-authored server that must survive sync.
@@ -469,9 +469,9 @@ async function main(): Promise<void> {
   )
 
   const siblingRoot = join(temp, 'sibling-workspace')
-  await mkdir(join(siblingRoot, '.multi-code', 'sprintengine', 'managed'), { recursive: true })
+  await mkdir(join(siblingRoot, '.sprintengine', 'sprintengine', 'managed'), { recursive: true })
   await mkdir(join(siblingRoot, '.codex'), { recursive: true })
-  const managedStatePath = join(siblingRoot, '.multi-code', 'sprintengine', 'managed', 'run.yaml')
+  const managedStatePath = join(siblingRoot, '.sprintengine', 'sprintengine', 'managed', 'run.yaml')
   await writeFile(managedStatePath, 'sprintengine:\n  name: managed\n  status: active\n', 'utf-8')
   await writeFile(
     join(siblingRoot, '.codex', 'config.toml'),

@@ -158,7 +158,7 @@ def test_a_restarted_engine_advertises_its_tools(engine: RestartedEngine) -> Non
 def test_a_restarted_engine_runs_a_sprint_from_creation_to_completion(
     engine: RestartedEngine, project: Path
 ) -> None:
-    state_path = project / ".multi-code" / "sprintengine" / "smoke" / "run.yaml"
+    state_path = project / ".sprintengine" / "sprintengine" / "smoke" / "run.yaml"
     state_path.parent.mkdir(parents=True)
     engine.rpc("initialize", {"protocolVersion": "2024-11-05"})
 

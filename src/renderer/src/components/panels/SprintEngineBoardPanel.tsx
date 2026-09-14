@@ -163,6 +163,7 @@ import {
   loadInspectorPaneWidth,
   saveInspectorPaneWidth,
 } from './sprintEngineBoard/inspectorPaneWidth'
+import { SIDECAR_DIR_PATTERN_SOURCE } from '../../../../shared/workspace-sidecar'
 
 
 
@@ -622,7 +623,7 @@ const CLOSED_WORKSPACE_REASON =
 const CLOSED_TEAM_REASON =
   'this sprint keeps its team in its workspace, and that workspace is closed'
 
-// `<projectRoot>/.multi-code/sprintengine/<team>/run.yaml` is the canonical run
+// `<projectRoot>/<sidecar>/sprintengine/<team>/run.yaml` is the canonical run
 // layout, so a run's own state path names the project it belongs to. The door
 // mount has no workspace folder to read the role registry from; without this it
 // would fall back to the bundled role set and could offer almost nothing to
@@ -630,7 +631,7 @@ const CLOSED_TEAM_REASON =
 function projectRootFromStatePath(statePath: string): string | null {
   const match = statePath
     .replace(/\\/g, '/')
-    .match(/^(.+)\/\.multi-code\/sprintengine\/[^/]+\/run\.ya?ml$/iu)
+    .match(new RegExp(`^(.+)/${SIDECAR_DIR_PATTERN_SOURCE}/sprintengine/[^/]+/run\\.ya?ml$`, 'iu'))
   return match?.[1] || null
 }
 

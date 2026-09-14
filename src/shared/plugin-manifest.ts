@@ -330,7 +330,7 @@ type PluginAgentStateEventSpec = {
 // user's home directory — for CLIs whose only hook config is user-global
 // (Kimi Code's ~/.kimi-code/config.toml). A user-scoped registration fires for
 // every session of that CLI on the machine; the reporter exits silently when
-// the MULTICODE_* launch env is absent, so outside-app sessions cost one
+// the SPRINTENGINE_* launch env is absent, so outside-app sessions cost one
 // short-lived no-op process per event and report nothing.
 type PluginAgentStateRegistrationScope = 'workspace' | 'user'
 

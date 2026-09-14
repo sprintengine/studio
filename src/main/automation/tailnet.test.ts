@@ -803,7 +803,7 @@ export async function testUploadDestinationsCannotEscapeTheThreadsFolder(): Prom
   const ok = resolveUploadDestination({ cwd, sessionId: 'sess_1', name: 'shot.png' })
   assert.equal(ok.ok, true)
   if (ok.ok) {
-    assert.equal(ok.path, '/Users/someone/repo/.multi-code/uploads/sess_1/shot.png')
+    assert.equal(ok.path, '/Users/someone/repo/.sprintengine/uploads/sess_1/shot.png')
     assert.ok(ok.path.startsWith(cwd + '/'), 'the file lands under the working directory')
   }
 
@@ -822,7 +822,7 @@ export async function testUploadDestinationsCannotEscapeTheThreadsFolder(): Prom
     assert.equal(attempt.ok, true, `${name} should be sanitised, not refused`)
     if (attempt.ok) {
       assert.ok(
-        attempt.path.startsWith('/Users/someone/repo/.multi-code/uploads/sess_1/'),
+        attempt.path.startsWith('/Users/someone/repo/.sprintengine/uploads/sess_1/'),
         `${name} escaped to ${attempt.path}`
       )
       assert.doesNotMatch(attempt.path.split('/uploads/sess_1/')[1] ?? '', /[\\/]/u, `${name} kept a separator`)
@@ -833,7 +833,7 @@ export async function testUploadDestinationsCannotEscapeTheThreadsFolder(): Prom
   const forgedSession = resolveUploadDestination({ cwd, sessionId: '../../..', name: 'shot.png' })
   assert.equal(forgedSession.ok, true)
   if (forgedSession.ok) {
-    assert.ok(forgedSession.path.startsWith('/Users/someone/repo/.multi-code/uploads/'), 'a forged session id escaped')
+    assert.ok(forgedSession.path.startsWith('/Users/someone/repo/.sprintengine/uploads/'), 'a forged session id escaped')
   }
 
   // No working directory is a refusal, not a fallback to somewhere convenient:
@@ -2144,12 +2144,12 @@ export async function testAPairedDeviceUploadsIntoTheThreadsFolderAndGetsThePath
     assert.equal(answer.status, 200)
     const body = answer.body as { path: string; bytes: number }
     assert.equal(body.bytes, bytes.length)
-    assert.equal(body.path, join(projectDir, '.multi-code', 'uploads', 'session_one', 'shot.png'))
+    assert.equal(body.path, join(projectDir, '.sprintengine', 'uploads', 'session_one', 'shot.png'))
     assert.deepEqual(readFileSync(body.path), bytes, 'the bytes on disk are the bytes that were sent')
 
     // The folder ignores itself, so a phone never adds untracked files to
     // someone's `git status`.
-    const ignore = join(projectDir, '.multi-code', 'uploads', 'session_one', '.gitignore')
+    const ignore = join(projectDir, '.sprintengine', 'uploads', 'session_one', '.gitignore')
     assert.equal(readFileSync(ignore, 'utf8'), '*\n')
   } finally {
     await harness.close()
@@ -2176,7 +2176,7 @@ export async function testASecondFileOfTheSameNameIsSuffixedRatherThanRefused():
     const second = await send('two')
     assert.equal(second.status, 200, JSON.stringify(second.body))
     const secondPath = (second.body as { path: string }).path
-    assert.equal(secondPath, join(projectDir, '.multi-code', 'uploads', 'session_one', 'shot (2).png'))
+    assert.equal(secondPath, join(projectDir, '.sprintengine', 'uploads', 'session_one', 'shot (2).png'))
     assert.equal(readFileSync((first.body as { path: string }).path, 'utf8'), 'one', 'the first upload survives')
     assert.equal(readFileSync(secondPath, 'utf8'), 'two')
 
@@ -2200,7 +2200,7 @@ export async function testAnUploadedNameCannotEscapeTheThreadsFolderOverTheWire(
       })
       assert.equal(answer.status, 200, `${name} was not handled`)
       const written = (answer.body as { path: string }).path
-      const inside = join(projectDir, '.multi-code', 'uploads', 'session_one')
+      const inside = join(projectDir, '.sprintengine', 'uploads', 'session_one')
       assert.ok(written.startsWith(`${inside}/`), `${name} landed at ${written}`)
     }
     assert.equal(existsSync(join(projectDir, 'escaped.txt')), false)
@@ -2292,7 +2292,7 @@ export async function testAnOversizedUploadIsCutOffAndLeavesNothingBehind(): Pro
     assert.equal(counted.status, 413)
     assert.equal((counted.body as { error: { code: string } }).error.code, 'too_large')
     assert.equal(
-      existsSync(join(projectDir, '.multi-code', 'uploads', 'session_one', 'sneaky.bin')),
+      existsSync(join(projectDir, '.sprintengine', 'uploads', 'session_one', 'sneaky.bin')),
       false,
       'nothing partial is left where an agent would read it'
     )

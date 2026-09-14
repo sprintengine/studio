@@ -31,7 +31,7 @@ const store: BacklogObjectStore = {
           moduleId: 'sprint-engine',
           type: 'execution',
           label: 'Sprint Engine run',
-          target: { kind: 'sprintengine.run', id: 'checkout', path: '.multi-code/sprintengine/checkout/run.yaml' },
+          target: { kind: 'sprintengine.run', id: 'checkout', path: '.sprintengine/sprintengine/checkout/run.yaml' },
           status: 'active',
         },
       ],
@@ -50,7 +50,7 @@ assert.equal(hydrated.items[0]?.type, undefined)
 assert.equal(hydrated.items[0]?.difficulty, undefined)
 assert.equal(hydrated.items[0]?.criticality, undefined)
 // App churn still merges from the sidecar: links, module metadata, and highlight.
-assert.equal(hydrated.items[0]?.links[0]?.target.path, '.multi-code/sprintengine/checkout/run.yaml')
+assert.equal(hydrated.items[0]?.links[0]?.target.path, '.sprintengine/sprintengine/checkout/run.yaml')
 assert.deepEqual(hydrated.items[0]?.metadata, { 'sprint-engine': { lastRunId: 'checkout' } })
 assert.equal(item.highlight, undefined)
 assert.deepEqual(hydrated.items[0]?.highlight, { starred: true, color: 'amber' })

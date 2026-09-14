@@ -421,7 +421,7 @@ async function testColdLoadPersistedRecordDoesNotSpawnUntilIntent(): Promise<voi
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'companion-'))
   try {
     // Seed a prior run's transcript for this companion (a persisted record).
-    const dir = join(workspaceRoot, '.multi-code', 'conversations', 'workspace')
+    const dir = join(workspaceRoot, '.sprintengine', 'conversations', 'workspace')
     await mkdir(dir, { recursive: true })
     const prior = [
       { id: 'p1', sessionId: 'conv_old', workspaceId: 'workspace', agentId: 'review-guide', providerId: 'companion-mock', modelId: 'companion-model', type: 'session_started', createdAt: 1, payload: {} },

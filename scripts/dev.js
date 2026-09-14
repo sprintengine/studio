@@ -53,22 +53,26 @@ function devProfileDir(port) {
   return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), `multicode-dev-${port}`)
 }
 
+// Both spellings of the app's variables are honoured, the way
+// `src/shared/studio-env.ts` does it for everything that can import TypeScript.
+// This launcher runs as plain node ahead of any build step, so the rule is
+// spelled out inline rather than imported.
 async function configureParallelDevInstance() {
-  const requestedPort = parsePort(env.MULTICODE_RENDERER_PORT)
+  const requestedPort = parsePort(env.SPRINTENGINE_RENDERER_PORT ?? env.MULTICODE_RENDERER_PORT)
   let rendererPort = requestedPort ?? defaultRendererPort
 
   if (!requestedPort && !(await isPortAvailable(defaultRendererPort))) {
     const availablePort = await findAvailablePort(defaultRendererPort + 1)
     if (!availablePort) throw new Error('No available renderer port found for Multicode dev.')
     rendererPort = availablePort
-    env.MULTICODE_RENDERER_PORT = String(rendererPort)
+    env.SPRINTENGINE_RENDERER_PORT = String(rendererPort)
   }
 
-  if (rendererPort !== defaultRendererPort && !env.MULTICODE_USER_DATA_DIR) {
-    env.MULTICODE_USER_DATA_DIR = devProfileDir(rendererPort)
-    env.MULTICODE_ALLOW_MULTI_INSTANCE = '1'
+  if (rendererPort !== defaultRendererPort && !(env.SPRINTENGINE_USER_DATA_DIR ?? env.MULTICODE_USER_DATA_DIR)) {
+    env.SPRINTENGINE_USER_DATA_DIR = devProfileDir(rendererPort)
+    env.SPRINTENGINE_ALLOW_MULTI_INSTANCE = '1'
     console.info(
-      `Starting parallel Multicode dev instance on port ${rendererPort} with userData ${env.MULTICODE_USER_DATA_DIR}`
+      `Starting parallel Multicode dev instance on port ${rendererPort} with userData ${env.SPRINTENGINE_USER_DATA_DIR}`
     )
   }
 }

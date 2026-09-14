@@ -154,7 +154,7 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
     // template into `.multicode/studio-plugin` and copying the skills from
     // there (studio-plugin.ts). A catalogue install would be a SECOND copy of
     // the same skills under a second provenance marker — and of the published
-    // template, whose `.mcp.json` and hooks still carry `__MULTICODE_*` tokens
+    // template, whose `.mcp.json` and hooks still carry `__SPRINTENGINE_*` tokens
     // only that materialise step can fill in. The catalogue draws it as the
     // built-in row with no Install; this refuses the same install reached any
     // other way, such as from a hand-added source pointing at our releases

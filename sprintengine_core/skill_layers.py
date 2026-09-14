@@ -20,8 +20,8 @@ envelope as the soul.
 
 from __future__ import annotations
 
-import os
 from typing import Any, Mapping, Optional
+from sprintengine_core.studio_env import read_studio_env
 
 # Multicode product skills (Backlog, Knowledge Graph). Not soul-related; layered
 # by the host onto Multicode-managed agents when the matching feature is active.
@@ -62,8 +62,10 @@ SPRINTENGINE_ROLELESS_WORKFLOW_SKILL: str = "sprintengine_roleless_workflow"
 
 def knowledge_root_is_configured(env: Optional[Mapping[str, str]] = None) -> bool:
     """Whether this process was launched with a workspace Knowledge Graph root."""
-    source = os.environ if env is None else env
-    return bool(source.get("MULTICODE_KNOWLEDGE_ROOT") or source.get("MULTICODE_MEMORY_ROOT"))
+    return bool(
+        read_studio_env("SPRINTENGINE_KNOWLEDGE_ROOT", env)
+        or read_studio_env("SPRINTENGINE_MEMORY_ROOT", env)
+    )
 
 
 def run_is_backlog_sourced(state: Mapping[str, Any]) -> bool:

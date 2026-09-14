@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import yaml
+from sprintengine_core.studio_env import read_studio_env
 
 
 REGISTRY_DIRNAME = ".sprintengine"
@@ -18,7 +19,7 @@ BUNDLED_REGISTRY_ROOT = Path(__file__).resolve().parents[1] / "resources" / "spr
 # agent terminals at spawn (withSprintEngineEnv in src/main/terminal-launch.ts).
 # Plugin roots are dynamic — only the running app knows which plugins are
 # installed — so they must be passed in rather than discovered statically.
-SESSION_REGISTRY_ROOTS_ENV = "MULTICODE_SPRINTENGINE_REGISTRY_ROOTS"
+SESSION_REGISTRY_ROOTS_ENV = "SPRINTENGINE_REGISTRY_ROOTS"
 
 # Canonical Multicode user-level registry root, where the app installs the
 # specialist pack and user-added roles. MUST stay in sync with
@@ -30,11 +31,11 @@ SESSION_REGISTRY_ROOTS_ENV = "MULTICODE_SPRINTENGINE_REGISTRY_ROOTS"
 # menu just offered.
 # The env override exists for hermeticity: tests (and any embedder that must
 # not read the machine's home) point it at a directory they control.
-USER_REGISTRY_ROOT_ENV = "MULTICODE_SPRINTENGINE_USER_REGISTRY_ROOT"
+USER_REGISTRY_ROOT_ENV = "SPRINTENGINE_USER_REGISTRY_ROOT"
 
 
 def multicode_user_registry_root() -> Path:
-    raw = os.environ.get(USER_REGISTRY_ROOT_ENV, "").strip()
+    raw = (read_studio_env(USER_REGISTRY_ROOT_ENV) or "").strip()
     return Path(raw).expanduser() if raw else Path.home() / ".multicode" / "sprintengine-roles"
 SUPPORTED_TEMPLATE_VARIABLES = frozenset({"role", "role_label", "workspace_root", "run_id"})
 TEMPLATE_PATTERN = re.compile(r"{{\s*([^{}]+?)\s*}}")
@@ -447,7 +448,7 @@ def session_registry_roots_from_env(
     env is unset or unparseable, so a raw install resolves no extra roots.
     """
     source = os.environ if env is None else env
-    raw = source.get(SESSION_REGISTRY_ROOTS_ENV, "").strip()
+    raw = (read_studio_env(SESSION_REGISTRY_ROOTS_ENV, source) or "").strip()
     if not raw:
         return []
     try:

@@ -10,8 +10,18 @@ import type {
 } from '../../shared/automations/contracts'
 import { translateRetiredAutonomy, withoutWriteUpOnlyMarker } from '../../shared/automations/contracts'
 import { isRecord } from '../../shared/records'
+import { workspaceSidecarPath } from '../workspace-sidecar'
+import { knownSidecarDirName, SIDECAR_DIR_NAME, sidecarRelativePath } from '../../shared/workspace-sidecar'
 
-export const AUTOMATIONS_STORE_DIRECTORY = '.multi-code/automations'
+/** Workspace-relative, under the sidecar this workspace uses. */
+export function automationsStoreDirectory(workspaceRoot: string): string {
+  return sidecarRelativePath(knownSidecarDirName(workspaceRoot), 'automations')
+}
+
+// What a store problem names when it is about the store as a whole rather than
+// one file in it. No workspace is in scope at either site, and the label is read
+// by a person, not opened.
+const AUTOMATIONS_STORE_LABEL = sidecarRelativePath(SIDECAR_DIR_NAME, 'automations')
 const AUTOMATION_RUN_HISTORY_LIMIT = 50
 
 export type AutomationStoreProblemCode =
@@ -65,7 +75,7 @@ export class AutomationsStore {
     private readonly workspaceRoot: string,
     private readonly options: { runHistoryLimit?: number } = {}
   ) {
-    this.rootPath = join(workspaceRoot, AUTOMATIONS_STORE_DIRECTORY)
+    this.rootPath = workspaceSidecarPath(workspaceRoot, 'automations')
   }
 
   async createDefinition(definition: AutomationDefinition): Promise<AutomationStoreWriteResult<AutomationDefinition>> {
@@ -295,7 +305,7 @@ export class AutomationsStore {
       ok: false,
       error: {
         code: 'invalid_id',
-        path: AUTOMATIONS_STORE_DIRECTORY,
+        path: AUTOMATIONS_STORE_LABEL,
         message:
           'Automation store ids must be non-empty file names containing only letters, numbers, dot, underscore, or hyphen, and cannot be dot segments.',
       },
@@ -520,7 +530,7 @@ function aggregateProblems(errors: AutomationStoreProblem[]): AutomationStorePro
   if (errors.length === 1) return errors[0]
   return {
     code: 'invalid_payload',
-    path: AUTOMATIONS_STORE_DIRECTORY,
+    path: AUTOMATIONS_STORE_LABEL,
     message: `${errors.length} automations store files are malformed or unreadable.`,
   }
 }

@@ -32,6 +32,7 @@ import {
   defaultBacklogLocation,
   type BacklogLocation,
 } from '../../../shared/backlog/scan'
+import { workspaceSidecarPath } from '../../workspace-sidecar'
 
 const BACKLOG_FOLDER = 'backlog'
 const ARCHIVED_PREFIX = 'backlog/archived/'
@@ -67,7 +68,7 @@ export async function readMobileBacklogWorkspaceSnapshot(
 
 const EPICS_RELATIVE_PATH = 'backlog/epics'
 
-// Read the workspace's backlog display key (`.multi-code/backlog/config.json`),
+// Read the workspace's backlog display key (`.sprintengine/backlog/config.json`),
 // read-only — unlike the desktop resolver, this never persists a derived default,
 // because a snapshot read must not write to the workspace.
 // Where this workspace keeps its items. Read-only, like the key resolver above:
@@ -75,7 +76,7 @@ const EPICS_RELATIVE_PATH = 'backlog/epics'
 // configured root reads as the default `<root>/backlog`.
 async function readBacklogLocation(root: string): Promise<BacklogLocation> {
   try {
-    const raw = await readFile(join(root, '.multi-code', 'backlog', 'config.json'), 'utf-8')
+    const raw = await readFile(workspaceSidecarPath(root, 'backlog', 'config.json'), 'utf-8')
     const parsed = JSON.parse(raw) as { root?: unknown }
     if (typeof parsed.root === 'string' && parsed.root.trim()) return backlogLocationFor(root, parsed.root)
   } catch {
@@ -86,7 +87,7 @@ async function readBacklogLocation(root: string): Promise<BacklogLocation> {
 
 async function readBacklogWorkspaceKey(root: string): Promise<string> {
   try {
-    const raw = await readFile(join(root, '.multi-code', 'backlog', 'config.json'), 'utf-8')
+    const raw = await readFile(workspaceSidecarPath(root, 'backlog', 'config.json'), 'utf-8')
     const parsed = JSON.parse(raw) as { key?: unknown }
     if (isValidBacklogKey(parsed.key)) return parsed.key
   } catch {

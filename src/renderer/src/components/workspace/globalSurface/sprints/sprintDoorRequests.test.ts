@@ -31,10 +31,10 @@ anyGlobal.CustomEvent = dom.window.CustomEvent
 // whatever they were last reading.
 assert.equal(consumeSprintDoorSelection(), null, 'no claim without a handover')
 
-noteSprintDoorSelection('/work/multicode/.multi-code/sprintengine/july-hardening/run.yaml')
+noteSprintDoorSelection('/work/multicode/.sprintengine/sprintengine/july-hardening/run.yaml')
 assert.equal(
   consumeSprintDoorSelection(),
-  '/work/multicode/.multi-code/sprintengine/july-hardening/run.yaml',
+  '/work/multicode/.sprintengine/sprintengine/july-hardening/run.yaml',
   'the handed-over run is what the surface opens on',
 )
 assert.equal(

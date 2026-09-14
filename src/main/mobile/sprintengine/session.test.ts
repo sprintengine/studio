@@ -190,7 +190,7 @@ async function writeFixture(sprintEngineId: string): Promise<{
   statePath: string
 }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-session-'))
-  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', sprintEngineId)
+  const teamDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine', sprintEngineId)
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   // The mobile session orchestrator now reads `projection.json` (the canonical

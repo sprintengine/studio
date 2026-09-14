@@ -203,7 +203,14 @@ async function assertScanIsRootsScopedAndKillSwitchHonoured(): Promise<void> {
     assert.equal(safeReport.discovered, 0, 'the kill switch stops the scan before any disk work')
     safeMode.runtime.shutdown()
 
+    // Four spellings reach this switch: the variable and its VITE_ dev form,
+    // each under the current name and the pre-rename one an existing shell
+    // profile or CI job may still export.
+    assert.equal(sprintAutoRunDisabledByEnv({ SPRINTENGINE_DISABLE_AUTORUN: '1' }), true)
+    assert.equal(sprintAutoRunDisabledByEnv({ VITE_SPRINTENGINE_DISABLE_AUTORUN: '1' }), true)
+    assert.equal(sprintAutoRunDisabledByEnv({ MULTICODE_DISABLE_SPRINTENGINE_AUTORUN: '1' }), true)
     assert.equal(sprintAutoRunDisabledByEnv({ VITE_MULTICODE_DISABLE_SPRINTENGINE_AUTORUN: '1' }), true)
+    assert.equal(sprintAutoRunDisabledByEnv({ SPRINTENGINE_SAFE_MODE: '1' }), true)
     assert.equal(sprintAutoRunDisabledByEnv({}), false)
   } finally {
     rmSync(scanned, { recursive: true, force: true })
@@ -275,7 +282,7 @@ function writeRun(
   teamSlug: string,
   options: { desiredMode: 'run_agents' | 'manual' | null; projection: unknown },
 ): { statePath: string } {
-  const teamDirectory = join(projectRoot, '.multi-code', 'sprintengine', teamSlug)
+  const teamDirectory = join(projectRoot, '.sprintengine', 'sprintengine', teamSlug)
   mkdirSync(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   writeFileSync(statePath, 'name: fixture\n', 'utf8')

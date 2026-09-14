@@ -208,8 +208,8 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
     folderPath: '/tmp/workspace',
     sprintEngineContext: {
       teamSlug: 'team',
-      teamRoot: '/tmp/workspace/.multi-code/sprintengine/team',
-      statePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+      teamRoot: '/tmp/workspace/.sprintengine/sprintengine/team',
+      statePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     },
     templateId: 'sprintengine',
     layoutModel: { global: {}, layout: { type: 'row', children: [] } },
@@ -1490,11 +1490,11 @@ function testKeyHelpersAreStableAndScoped(): void {
   )
   assert.equal(
     continuationMessageKey(workspace, 'T3', 'developer-1'),
-    'workspace-1:/tmp/workspace/.multi-code/sprintengine/team/run.yaml:T3:developer-1'
+    'workspace-1:/tmp/workspace/.sprintengine/sprintengine/team/run.yaml:T3:developer-1'
   )
   assert.equal(
     architectTriageMessageKey(workspace, ['T2', 'T1'], 'architect'),
-    'workspace-1:/tmp/workspace/.multi-code/sprintengine/team/run.yaml:architect:T1,T2',
+    'workspace-1:/tmp/workspace/.sprintengine/sprintengine/team/run.yaml:architect:T1,T2',
     'triage key sorts task ids so order does not produce duplicate notifications'
   )
 
@@ -1509,7 +1509,7 @@ function testKeyHelpersAreStableAndScoped(): void {
   }
   assert.equal(
     agentNotificationDeliveryKey(workspace, event),
-    '/tmp/workspace/.multi-code/sprintengine/team/run.yaml:EV-001'
+    '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml:EV-001'
   )
   assert.equal(
     sprintEngineDispatchDeliveryKey(workspace, 'developer-1', {
@@ -1517,7 +1517,7 @@ function testKeyHelpersAreStableAndScoped(): void {
       targetKind: 'task',
       taskId: 'T3',
     }),
-    '/tmp/workspace/.multi-code/sprintengine/team/run.yaml:developer-1:DISP-1',
+    '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml:developer-1:DISP-1',
     'dispatch delivery prefers durable dispatch id'
   )
   assert.equal(
@@ -1527,7 +1527,7 @@ function testKeyHelpersAreStableAndScoped(): void {
       taskId: 'T3',
       reason: 'task_claimed',
     }),
-    '/tmp/workspace/.multi-code/sprintengine/team/run.yaml:developer-1:task:T3::task_claimed',
+    '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml:developer-1:task:T3::task_claimed',
     'dispatch delivery has a stable target fallback when dispatch id is unavailable'
   )
 }
@@ -1536,13 +1536,13 @@ function testStartupPromptIsMcpNative(): void {
   const prompt = buildSprintEngineStartupPrompt('frontend', 'frontend-2', 'Ship MCP runtime', {
     executionCwd: '/tmp/workspace',
     workspaceRoot: '/tmp/workspace',
-    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    sprintEngineStatePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     commandMode: 'join',
   })
 
   assert.ok(prompt.startsWith('Your first action is to run the MCP calls listed in the "First MCP Calls" section below'))
   assert.ok(prompt.includes('Worker cwd: /tmp/workspace'))
-  assert.ok(!prompt.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'startup prompt does not expose the run state path')
+  assert.ok(!prompt.includes('/tmp/workspace/.sprintengine/sprintengine/team/run.yaml'), 'startup prompt does not expose the run state path')
   assert.ok(prompt.includes('sprintengine.agent.join'), 'startup prompt names the MCP join tool')
   assert.ok(prompt.includes('sprintengine.task.next'), 'startup prompt names the MCP claim tool')
   assert.ok(!prompt.includes('sprintengine.agent.next_directive'), 'startup prompt does not route through the directive hop')
@@ -1575,7 +1575,7 @@ function testArchitectInitStartupPromptIsMcpNative(): void {
   const prompt = buildSprintEngineStartupPrompt('architect', 'architect', 'Ship MCP runtime', {
     executionCwd: '/tmp/workspace',
     workspaceRoot: '/tmp/workspace',
-    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    sprintEngineStatePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     rosterArgs: ['developer:developer-1', 'frontend:frontend'],
     commandMode: 'init',
   })
@@ -1597,7 +1597,7 @@ function testRolelessStartupPromptIsMcpNative(): void {
   const prompt = buildSprintEngineStartupPrompt(undefined, 'coordinator', 'Ship the sprint', {
     executionCwd: '/tmp/workspace',
     workspaceRoot: '/tmp/workspace',
-    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    sprintEngineStatePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     commandMode: 'join',
   })
 
@@ -1624,7 +1624,7 @@ function testRolelessStartupPromptIsMcpNative(): void {
   // Same no-statePath/workspaceRoot routing invariant as every other startup prompt.
   assert.ok(!prompt.includes('"statePath"'), 'roleless startup prompt must not embed statePath in the MCP payload')
   assert.ok(!prompt.includes('"workspaceRoot"'), 'roleless startup prompt must not embed workspaceRoot in the MCP payload')
-  assert.ok(!prompt.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'roleless startup prompt does not expose the run state path')
+  assert.ok(!prompt.includes('/tmp/workspace/.sprintengine/sprintengine/team/run.yaml'), 'roleless startup prompt does not expose the run state path')
   assert.ok(prompt.includes('sprintengine-studio'), 'roleless startup prompt names the managed MCP server entry')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
@@ -1639,7 +1639,7 @@ function testArchitectWakeStartupPromptCarriesConfiguredRoles(): void {
   // roles and escalates to the user rather than inventing an off-roster role.
   const wake = buildSprintEngineStartupPrompt('architect', 'architect', 'Ship it', {
     executionCwd: '/tmp/workspace',
-    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    sprintEngineStatePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     configuredRoles: ['architect', 'developer', 'tester'],
     commandMode: 'join',
   })
@@ -1674,7 +1674,7 @@ function testArchitectWakeStartupPromptCarriesConfiguredRoles(): void {
 }
 
 function testPromptBuildersIncludeAgentIdAndCommand(): void {
-  const teamStatePath = '/tmp/workspace/.multi-code/sprintengine/team/run.yaml'
+  const teamStatePath = '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml'
   const readyTask = task({ id: 'T3', title: 'Build feature', role: 'developer' })
   const continuation = buildSprintEngineContinuationPrompt(readyTask, 'developer-1')
   assert.ok(!continuation.includes('sprintengine.agent.next_directive'), 'continuation prompt does not route through the directive hop')
@@ -1764,7 +1764,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
 
   const triage = buildArchitectNeedsInputTriagePrompt({
     workspaceFolderPath: '/tmp/workspace',
-    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    sprintEngineStatePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     agentId: 'architect',
     taskIds: ['T5', 'T6'],
   })
@@ -1773,7 +1773,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
     !triage.includes('"statePath"'),
     'architect triage payload must not embed statePath; the managed MCP server resolves it from run context'
   )
-  assert.ok(!triage.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'architect triage prompt does not expose the run state path')
+  assert.ok(!triage.includes('/tmp/workspace/.sprintengine/sprintengine/team/run.yaml'), 'architect triage prompt does not expose the run state path')
   assert.ok(triage.includes('"id": "architect"'), 'architect triage payload embeds the architect actor id')
   assert.ok(triage.includes('sprintengine.task.note'), 'architect triage prompt names the MCP task-note tool for handoff')
   assert.ok(triage.includes('T5, T6'))
@@ -1787,7 +1787,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   // tool could not resolve an actor from it.
   const rolelessTriage = buildArchitectNeedsInputTriagePrompt({
     workspaceFolderPath: '/tmp/workspace',
-    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    sprintEngineStatePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     agentId: 'coordinator',
     taskIds: ['T5'],
   })
@@ -2235,7 +2235,7 @@ function testGetAutoApprovalIntentArtifactsExcludesSameFileDuplicateVeto(): void
     kind: 'architect_plan',
     title: 'Plan',
     status: 'draft',
-    path: '.multi-code/sprintengine/team/plan.md',
+    path: '.sprintengine/sprintengine/team/plan.md',
     createdBy: 'sprintengine',
     createdAt: '2026-06-19T00:00:00Z',
   } as SprintEngineArtifact

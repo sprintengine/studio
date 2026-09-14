@@ -1,8 +1,10 @@
 import { joinFilePath as joinPath, slugify } from '../paths'
+import { knownSidecarDirName } from '../workspace-sidecar'
 
 export type RunKind = 'sprintengine'
 
 type RunKindConfig = {
+  /** Under the workspace's sidecar directory, whichever name it goes by. */
   rootSegments: string[]
   slugFallback: string
   stateFileName: string
@@ -10,7 +12,7 @@ type RunKindConfig = {
 
 const RUN_KIND_CONFIG: Record<RunKind, RunKindConfig> = {
   sprintengine: {
-    rootSegments: ['.multi-code', 'sprintengine'],
+    rootSegments: ['sprintengine'],
     slugFallback: 'sprintengine-team',
     stateFileName: 'run.yaml',
   },
@@ -23,7 +25,7 @@ export function slugifyRunName(kind: RunKind, name: string | null | undefined): 
 export function getRunRootDirectoryPath(folderPath: string, kind: RunKind): string {
   return RUN_KIND_CONFIG[kind].rootSegments.reduce(
     (accumulator, segment) => joinPath(accumulator, segment),
-    folderPath
+    joinPath(folderPath, knownSidecarDirName(folderPath))
   )
 }
 

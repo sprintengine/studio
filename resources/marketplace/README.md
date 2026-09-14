@@ -68,7 +68,7 @@ is no longer the *only* source the app will consume:
 - **Allowlisted sources, not a single-repo pin**: the app downloader and the
   registry verifier accept any bundle `source` that is HTTPS on an allowlisted
   host (`github.com`, `api.github.com`, `raw.githubusercontent.com`, plus an
-  optional `MULTICODE_MARKETPLACE_EXTRA_HOSTS` list), covering the entry URL and
+  optional `SPRINTENGINE_MARKETPLACE_EXTRA_HOSTS` list), covering the entry URL and
   every followed per-file `download_url`. First-party seed staging is still
   scoped to `sprintengine/studio-releases` (via
   `src/shared/marketplace/canonical-source.ts`), not implied by the source
@@ -83,7 +83,7 @@ is no longer the *only* source the app will consume:
   trust prompt. The four MCP seeds remain signed and verified via the
   trusted-publisher fingerprint; the automation starters do not, and say so by
   declaring `publisher.verified: false`.
-- **Registry read is config-swappable**: `MULTICODE_MARKETPLACE_REGISTRY_URL`
+- **Registry read is config-swappable**: `SPRINTENGINE_MARKETPLACE_REGISTRY_URL`
   can point the read at a hosted catalogue's `GET /v1/registry`; this seed
   stays the offline/packaged fallback either way.
 

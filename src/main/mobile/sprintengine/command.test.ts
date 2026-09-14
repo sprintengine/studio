@@ -518,7 +518,7 @@ function automationsWorkspaceSnapshot(workspaceRoot: string): WorkspaceSyncSnaps
 async function assertSetAutomationModeRoutesToDesktopSession(): Promise<void> {
   // MC-1497: the mode is renderer-owned, so the command routes to the desktop
   // session orchestrator rather than the CLI.
-  const fixture = await writeSprintEngineFixture('automation-team', '.multi-code/sprintengine/automation-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('automation-team', '.sprintengine/sprintengine/automation-team/documents/requirements.md')
   const calls: Array<{ mode: string; sprintEngineId: string; statePath: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -555,7 +555,7 @@ async function assertSetAutomationModeRoutesToDesktopSession(): Promise<void> {
 async function assertSetAutomationModeRejectsWhenHeadless(): Promise<void> {
   // With no desktop session (no orchestrator wire), the command must reject
   // cleanly rather than write a value the supervisor won't read.
-  const fixture = await writeSprintEngineFixture('automation-headless-team', '.multi-code/sprintengine/automation-headless-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('automation-headless-team', '.sprintengine/sprintengine/automation-headless-team/documents/requirements.md')
   const service = new MobileSprintEngineCommandService({
     workspaceRoot: fixture.workspaceRoot,
     statePaths: [fixture.statePath],
@@ -575,7 +575,7 @@ async function assertSetAutomationModeRejectsWhenHeadless(): Promise<void> {
 async function assertOpenPullRequestInvokesVcsPr(): Promise<void> {
   // MC-1496: the mobile openPullRequest command shells the Sprint Engine CLI
   // `vcs pr` with the mobile actor id; the CLI owns idempotency + guards.
-  const fixture = await writeSprintEngineFixture('pr-team', '.multi-code/sprintengine/pr-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('pr-team', '.sprintengine/sprintengine/pr-team/documents/requirements.md')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -600,7 +600,7 @@ async function assertOpenPullRequestLinksThePrToItsBacklogItem(): Promise<void> 
   // The payoff of the epic: with the desktop closed, opening the PR must reach
   // back to the item that started the run. The renderer's projection tick does
   // this today, but it only runs with a window mounted on the workspace.
-  const fixture = await writeSprintEngineFixture('pr-link-team', '.multi-code/sprintengine/pr-link-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('pr-link-team', '.sprintengine/sprintengine/pr-link-team/documents/requirements.md')
   await mkdir(join(fixture.workspaceRoot, 'backlog'), { recursive: true })
   await writeFile(
     join(fixture.workspaceRoot, 'backlog', 'feature.md'),
@@ -613,7 +613,7 @@ async function assertOpenPullRequestLinksThePrToItsBacklogItem(): Promise<void> 
     relativePath: 'backlog/feature.md',
     link: buildSprintEngineRunLink({
       teamSlug: 'pr-link-team',
-      runRelativePath: '.multi-code/sprintengine/pr-link-team/run.yaml',
+      runRelativePath: '.sprintengine/sprintengine/pr-link-team/run.yaml',
     }),
   })
 
@@ -647,7 +647,7 @@ async function assertOpenPullRequestReturnsAndLinksEveryProjectsPullRequest(): P
   // MC-1612: a run spanning projects opens one pull request per project. The phone
   // must be told about all of them, and the item must link all of them — a single
   // link would silently hide half of what the sprint delivered.
-  const fixture = await writeSprintEngineFixture('multi-pr-team', '.multi-code/sprintengine/multi-pr-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('multi-pr-team', '.sprintengine/sprintengine/multi-pr-team/documents/requirements.md')
   await mkdir(join(fixture.workspaceRoot, 'backlog'), { recursive: true })
   await writeFile(
     join(fixture.workspaceRoot, 'backlog', 'feature.md'),
@@ -659,7 +659,7 @@ async function assertOpenPullRequestReturnsAndLinksEveryProjectsPullRequest(): P
     relativePath: 'backlog/feature.md',
     link: buildSprintEngineRunLink({
       teamSlug: 'multi-pr-team',
-      runRelativePath: '.multi-code/sprintengine/multi-pr-team/run.yaml',
+      runRelativePath: '.sprintengine/sprintengine/multi-pr-team/run.yaml',
     }),
   })
 
@@ -710,7 +710,7 @@ async function assertOpenPullRequestReturnsAndLinksEveryProjectsPullRequest(): P
 }
 
 async function assertArtifactApproveInvokesSprintEngineTool(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('review-team', '.multi-code/sprintengine/review-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('review-team', '.sprintengine/sprintengine/review-team/documents/requirements.md')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -744,7 +744,7 @@ async function assertArtifactApproveInvokesSprintEngineTool(): Promise<void> {
 }
 
 async function assertArtifactApproveUsesAuthorizedDiscoveredStateOutsideServiceCwd(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('discovered-review-team', '.multi-code/sprintengine/discovered-review-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('discovered-review-team', '.sprintengine/sprintengine/discovered-review-team/documents/requirements.md')
   const serviceWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-cwd-'))
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
@@ -774,7 +774,7 @@ async function assertArtifactApproveUsesAuthorizedDiscoveredStateOutsideServiceC
 }
 
 async function assertArtifactApproveRejectsUnauthorizedDiscoveredStatePath(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('unauthorized-review-team', '.multi-code/sprintengine/unauthorized-review-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('unauthorized-review-team', '.sprintengine/sprintengine/unauthorized-review-team/documents/requirements.md')
   const allowedWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-allowed-'))
   let invocationCount = 0
   const service = new MobileSprintEngineCommandService({
@@ -803,7 +803,7 @@ async function assertArtifactApproveRejectsUnauthorizedDiscoveredStatePath(): Pr
 }
 
 async function assertArtifactRequestChangesInvokesSprintEngineTool(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('request-changes-team', '.multi-code/sprintengine/request-changes-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('request-changes-team', '.sprintengine/sprintengine/request-changes-team/documents/requirements.md')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -840,13 +840,13 @@ async function assertArtifactRequestChangesInvokesSprintEngineTool(): Promise<vo
 
 function assertAutoRunArtifactApproveArgsUseCanonicalActor(): void {
   assert.deepEqual(buildSprintEngineArtifactReviewArgs({
-    statePath: '/workspace/.multi-code/sprintengine/team/run.yaml',
+    statePath: '/workspace/.sprintengine/sprintengine/team/run.yaml',
     action: 'approve',
     artifactId: 'A1',
     actorId: 'auto-run',
   }), [
     '--state',
-    '/workspace/.multi-code/sprintengine/team/run.yaml',
+    '/workspace/.sprintengine/sprintengine/team/run.yaml',
     'artifact',
     'approve',
     '--artifact-id',
@@ -857,7 +857,7 @@ function assertAutoRunArtifactApproveArgsUseCanonicalActor(): void {
 }
 
 async function assertArtifactRequestChangesRejectsStaleSnapshot(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('stale-team', '.multi-code/sprintengine/stale-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('stale-team', '.sprintengine/sprintengine/stale-team/documents/requirements.md')
   const service = new MobileSprintEngineCommandService({
     workspaceRoot: fixture.workspaceRoot,
     statePaths: [fixture.statePath],
@@ -881,7 +881,7 @@ async function assertArtifactRequestChangesRejectsStaleSnapshot(): Promise<void>
 }
 
 async function assertSameIdempotencyKeyAndBodyReplaysCachedResult(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('replay-team', '.multi-code/sprintengine/replay-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('replay-team', '.sprintengine/sprintengine/replay-team/documents/requirements.md')
   let invocationCount = 0
   const service = new MobileSprintEngineCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -912,7 +912,7 @@ async function assertSameIdempotencyKeyAndBodyReplaysCachedResult(): Promise<voi
 }
 
 async function assertSameIdempotencyKeyWithDifferentBodyIsRejected(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('replay-conflict-team', '.multi-code/sprintengine/replay-conflict-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('replay-conflict-team', '.sprintengine/sprintengine/replay-conflict-team/documents/requirements.md')
   let invocationCount = 0
   const service = new MobileSprintEngineCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -953,7 +953,7 @@ async function assertSameIdempotencyKeyWithDifferentBodyIsRejected(): Promise<vo
 }
 
 async function assertIdempotencyReplaySurvivesServiceRecreation(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('replay-recreate-team', '.multi-code/sprintengine/replay-recreate-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('replay-recreate-team', '.sprintengine/sprintengine/replay-recreate-team/documents/requirements.md')
   let invocationCount = 0
   const firstService = new MobileSprintEngineCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -990,7 +990,7 @@ async function assertIdempotencyReplaySurvivesServiceRecreation(): Promise<void>
 }
 
 async function assertToolSuccessResponseLossRetryDoesNotReinvokeTool(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('response-loss-team', '.multi-code/sprintengine/response-loss-team/documents/requirements.md')
+  const fixture = await writeSprintEngineFixture('response-loss-team', '.sprintengine/sprintengine/response-loss-team/documents/requirements.md')
   let invocationCount = 0
   const service = new MobileSprintEngineCommandService({
     workspaceRoot: fixture.workspaceRoot,
@@ -1070,7 +1070,7 @@ async function assertSprintEngineCreateUsesControlledHandover(): Promise<void> {
 
 async function assertSprintEngineCreateHonorsSprintConfig(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-create-config-'))
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'checkout-flow', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'checkout-flow', 'run.yaml')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot,
@@ -1156,7 +1156,7 @@ async function assertSprintEngineCreateHonorsSprintConfig(): Promise<void> {
 }
 
 async function assertTaskStartUsesDesktopSessionOrchestration(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('task-start-team', '.multi-code/sprintengine/task-start-team/documents/requirements.md', {
+  const fixture = await writeSprintEngineFixture('task-start-team', '.sprintengine/sprintengine/task-start-team/documents/requirements.md', {
     tasks: [
       task('T1', 'architect', 'done'),
       task('T2', 'developer', 'todo', { dependsOn: ['T1'] }),
@@ -1204,7 +1204,7 @@ async function assertTaskStartUsesDesktopSessionOrchestration(): Promise<void> {
 }
 
 async function assertTaskStartUsesAuthorizedDiscoveredStateOutsideServiceCwd(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('discovered-task-start-team', '.multi-code/sprintengine/discovered-task-start-team/documents/requirements.md', {
+  const fixture = await writeSprintEngineFixture('discovered-task-start-team', '.sprintengine/sprintengine/discovered-task-start-team/documents/requirements.md', {
     tasks: [
       task('T1', 'architect', 'done'),
       task('T2', 'developer', 'todo', { dependsOn: ['T1'] }),
@@ -1246,7 +1246,7 @@ async function assertTaskStartUsesAuthorizedDiscoveredStateOutsideServiceCwd(): 
 }
 
 async function assertTaskStartRejectsBlockedDependencies(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('task-blocked-team', '.multi-code/sprintengine/task-blocked-team/documents/requirements.md', {
+  const fixture = await writeSprintEngineFixture('task-blocked-team', '.sprintengine/sprintengine/task-blocked-team/documents/requirements.md', {
     tasks: [
       task('T1', 'architect', 'todo'),
       task('T2', 'developer', 'todo', { dependsOn: ['T1'] }),
@@ -1288,7 +1288,7 @@ async function assertTaskStartConsultsProjectionWhenRunYamlGraphMirrorIsStale():
   // up-to-date board, not a stale graph mirror.
   const fixture = await writeSprintEngineFixture(
     'task-projection-team',
-    '.multi-code/sprintengine/task-projection-team/documents/requirements.md',
+    '.sprintengine/sprintengine/task-projection-team/documents/requirements.md',
     {
       // run.yaml says T2 is still blocked by an unfinished T1.
       tasks: [
@@ -1344,7 +1344,7 @@ async function assertTaskStartConsultsProjectionWhenRunYamlGraphMirrorIsStale():
 }
 
 async function assertFollowUpUsesKnownAgentSessionOrchestration(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('follow-up-team', '.multi-code/sprintengine/follow-up-team/documents/requirements.md', {
+  const fixture = await writeSprintEngineFixture('follow-up-team', '.sprintengine/sprintengine/follow-up-team/documents/requirements.md', {
     tasks: [
       task('T1', 'developer', 'in_progress', { ownerAgentId: 'developer-1' }),
     ],
@@ -1383,7 +1383,7 @@ async function assertFollowUpUsesKnownAgentSessionOrchestration(): Promise<void>
 }
 
 async function assertFollowUpUsesAuthorizedDiscoveredStateOutsideServiceCwd(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('discovered-follow-up-team', '.multi-code/sprintengine/discovered-follow-up-team/documents/requirements.md', {
+  const fixture = await writeSprintEngineFixture('discovered-follow-up-team', '.sprintengine/sprintengine/discovered-follow-up-team/documents/requirements.md', {
     tasks: [
       task('T1', 'developer', 'in_progress', { ownerAgentId: 'developer-1' }),
     ],
@@ -1426,7 +1426,7 @@ async function assertFollowUpUsesAuthorizedDiscoveredStateOutsideServiceCwd(): P
 }
 
 async function assertFollowUpRejectsTerminalControlCharacters(): Promise<void> {
-  const fixture = await writeSprintEngineFixture('follow-up-control-team', '.multi-code/sprintengine/follow-up-control-team/documents/requirements.md', {
+  const fixture = await writeSprintEngineFixture('follow-up-control-team', '.sprintengine/sprintengine/follow-up-control-team/documents/requirements.md', {
     tasks: [
       task('T1', 'developer', 'in_progress', { ownerAgentId: 'developer-1' }),
     ],
@@ -1524,7 +1524,7 @@ async function assertBacklogUpdateWritesFrontmatter(): Promise<void> {
   assert.equal(updated.fields.criticality, 'high')
   assert.equal(updated.body, body, 'backlog.update must preserve the document body')
   await assert.rejects(
-    () => readFile(join(workspaceRoot, '.multi-code', 'backlog', 'cache', 'links.json'), 'utf8'),
+    () => readFile(join(workspaceRoot, '.sprintengine', 'backlog', 'cache', 'links.json'), 'utf8'),
     /ENOENT/,
     'backlog.update must not write the link cache for lifecycle/triage',
   )
@@ -1551,7 +1551,7 @@ type BacklogStoreItem = {
 
 async function readBacklogStoreItems(workspaceRoot: string): Promise<BacklogStoreItem[]> {
   const store = JSON.parse(
-    await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'cache', 'links.json'), 'utf8')
+    await readFile(join(workspaceRoot, '.sprintengine', 'backlog', 'cache', 'links.json'), 'utf8')
   ) as { items: BacklogStoreItem[] }
   return store.items
 }
@@ -1571,7 +1571,7 @@ async function assertBacklogStartSprintEngineUsesHandoverAndMarksItem(): Promise
     '---\ntype: feature\n---\n\n# Ship the widget\n\nUsers need the widget.\n',
     'utf8'
   )
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'backlog-cmd_backlog_start', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'backlog-cmd_backlog_start', 'run.yaml')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot,
@@ -1628,7 +1628,7 @@ async function assertBacklogStartSprintEngineUsesHandoverAndMarksItem(): Promise
   const runLink = record?.links?.find((link) => link.type === 'execution')
   assert.equal(runLink?.target.kind, 'sprintengine.run')
   assert.equal(runLink?.target.id, 'backlog-cmd_backlog_start')
-  assert.equal(runLink?.target.path, '.multi-code/sprintengine/backlog-cmd_backlog_start/run.yaml')
+  assert.equal(runLink?.target.path, '.sprintengine/sprintengine/backlog-cmd_backlog_start/run.yaml')
 }
 
 async function assertBacklogStartLaunchesAnEpicWithItsChildren(): Promise<void> {
@@ -1656,7 +1656,7 @@ async function assertBacklogStartLaunchesAnEpicWithItsChildren(): Promise<void> 
     'utf8'
   )
 
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'backlog-cmd_epic', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'backlog-cmd_epic', 'run.yaml')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot,
@@ -1725,7 +1725,7 @@ async function assertBacklogStartHonoursExplicitWorktreeOptOut(): Promise<void> 
   await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
   await mkdir(join(workspaceRoot, '.git'), { recursive: true })
   await writeFile(join(workspaceRoot, 'backlog', 'feature.md'), '---\ntype: feature\n---\n\n# Thing\n\nBody.\n', 'utf8')
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'backlog-cmd_no_worktree', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'backlog-cmd_no_worktree', 'run.yaml')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot,
@@ -1766,7 +1766,7 @@ async function assertBacklogStartLinksTheRunThroughASymlinkedWorkspaceRoot(): Pr
   await symlink(realRoot, linkRoot, 'dir')
 
   // The tool answers with the RESOLVED state path, as the real engine does.
-  const resolvedStatePath = join(await realpath(realRoot), '.multi-code', 'sprintengine', 'backlog-cmd_symlink', 'run.yaml')
+  const resolvedStatePath = join(await realpath(realRoot), '.sprintengine', 'sprintengine', 'backlog-cmd_symlink', 'run.yaml')
   const service = new MobileSprintEngineCommandService({
     workspaceRoot: linkRoot,
     now: () => now,
@@ -1789,7 +1789,7 @@ async function assertBacklogStartLinksTheRunThroughASymlinkedWorkspaceRoot(): Pr
   const items = await readBacklogStoreItems(linkRoot)
   const record = items.find((item) => item.source.relativePath === 'backlog/feature.md')
   const runLink = record?.links?.find((link) => link.type === 'execution')
-  assert.equal(runLink?.target.path, '.multi-code/sprintengine/backlog-cmd_symlink/run.yaml')
+  assert.equal(runLink?.target.path, '.sprintengine/sprintengine/backlog-cmd_symlink/run.yaml')
   assert.equal(runLink?.target.id, 'backlog-cmd_symlink')
   const frontmatter = parseBacklogFrontmatter(await readFile(join(realRoot, 'backlog', 'feature.md'), 'utf8'))
   assert.equal(frontmatter.fields.status, 'in_progress')
@@ -1804,7 +1804,7 @@ async function assertBacklogStartRollsBackTheRunStoreWhenInitFails(): Promise<vo
   await mkdir(join(workspaceRoot, '.git'), { recursive: true })
   await writeFile(join(workspaceRoot, 'backlog', 'feature.md'), '---\ntype: feature\n---\n\n# Thing\n\nBody.\n', 'utf8')
 
-  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'backlog-cmd_initfail')
+  const teamDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine', 'backlog-cmd_initfail')
   const statePath = join(teamDirectory, 'run.yaml')
 
   const service = new MobileSprintEngineCommandService({
@@ -1852,7 +1852,7 @@ async function assertBacklogStartSkipsWorktreesInANonGitWorkspace(): Promise<voi
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-nogit-'))
   await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
   await writeFile(join(workspaceRoot, 'backlog', 'feature.md'), '---\ntype: feature\n---\n\n# Thing\n\nBody.\n', 'utf8')
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'backlog-cmd_nogit', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'backlog-cmd_nogit', 'run.yaml')
   const invocations: Array<{ args: string[]; cwd: string }> = []
   const service = new MobileSprintEngineCommandService({
     workspaceRoot,
@@ -1938,7 +1938,7 @@ async function assertBacklogCreateWritesFileAndRecord(): Promise<void> {
     /^---\nid: 1\ntype: spike\nstatus: idea\ndifficulty: m\ncriticality: high\nupdated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\n---\n\n# Ship the phone widget\n\nUsers need the widget on the phone\.\n$/
   )
 
-  const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'cache', 'links.json'), 'utf8')) as {
+  const store = JSON.parse(await readFile(join(workspaceRoot, '.sprintengine', 'backlog', 'cache', 'links.json'), 'utf8')) as {
     items: Array<{ id: string; source: { relativePath: string }; status?: string; type?: string; difficulty?: string; criticality?: string }>
   }
   const record = store.items.find((item) => item.source.relativePath === data!.relativePath)
@@ -2001,7 +2001,7 @@ async function assertBacklogCreateKeepsGeneratedPathUnderBacklog(): Promise<void
 async function assertFilesystemMutationHandlersProtectSprintEngineStateAliases(): Promise<void> {
   const handlers = await importMainProcessIpcHandlers()
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-fs-guard-'))
-  const sprintEngineDirectory = join(workspaceRoot, '.multi-code', 'sprintengine')
+  const sprintEngineDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine')
   const teamDirectory = join(sprintEngineDirectory, 'team')
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
@@ -2245,7 +2245,7 @@ async function writeSprintEngineFixture(
   } = {}
 ): Promise<{ workspaceRoot: string; statePath: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-'))
-  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', sprintEngineId)
+  const teamDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine', sprintEngineId)
   await mkdir(join(teamDirectory, 'documents'), { recursive: true })
   await writeFile(join(teamDirectory, 'documents', 'requirements.md'), '# Requirements\n', 'utf8')
   const statePath = join(teamDirectory, 'run.yaml')

@@ -23,7 +23,7 @@ async function createHarness(root: string, options?: {
   failRunnerWrite?: boolean
   now?: () => number
 }): Promise<Harness> {
-  const teamDirectory = join(root, '.multi-code', 'sprintengine', 'team')
+  const teamDirectory = join(root, '.sprintengine', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, 'schemaVersion: 2\n', 'utf8')

@@ -44,7 +44,7 @@ export type SprintRunSummary = {
   teamSlug: string
   /** Human run name from the projection, falling back to the team slug. */
   teamName: string
-  /** Absolute project root holding this run's `.multi-code/sprintengine/` tree. */
+  /** Absolute project root holding this run's `.sprintengine/sprintengine/` tree. */
   projectRoot: string
   /** Last path segment of {@link projectRoot} (the `projectDisplayName` rule). */
   projectName: string

@@ -53,7 +53,7 @@ def add_ready_artifact(
 
 
 def test_full_run_mock_swarm_covers_phase_walk_review_scheduling_auto_approval_and_final_follow_up(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "full-run-mock" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "full-run-mock" / "run.yaml"
     cli = SwarmCli(state_path)
 
     init_payload = cli.run(
@@ -306,7 +306,7 @@ def test_full_run_mock_swarm_covers_phase_walk_review_scheduling_auto_approval_a
         "--summary",
         "Scheduled product final review and skipped security/performance for this fixture.",
         "--file",
-        ".multi-code/sprintengine/sprintengine-tool-mcp-server-and-test-harness/reviews/final-review-schedule-1.md",
+        ".sprintengine/sprintengine/sprintengine-tool-mcp-server-and-test-harness/reviews/final-review-schedule-1.md",
         "--command",
         "Sprint Engine plan add-task --task-id T7 ... and Sprint Engine plan add-task --task-id T8 ...",
         "--result",
@@ -377,7 +377,7 @@ def test_full_run_mock_swarm_covers_phase_walk_review_scheduling_auto_approval_a
         "--summary",
         "Converted final review gap into follow-up tasks.",
         "--file",
-        ".multi-code/sprintengine/sprintengine-tool-mcp-server-and-test-harness/reviews/architect-final-review-1.md",
+        ".sprintengine/sprintengine/sprintengine-tool-mcp-server-and-test-harness/reviews/architect-final-review-1.md",
         "--command",
         "Sprint Engine plan add-task --task-id T9 ... and Sprint Engine plan add-task --task-id T10 ...",
         "--result",

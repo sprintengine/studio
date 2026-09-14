@@ -112,6 +112,7 @@ import {
 import { recordReapEvent } from './terminal-reap-log'
 import type { TerminalRootInfo } from './workspace-memory'
 import type { ChangelistEdit } from '../shared/git/changelists'
+import { isSidecarDirName } from '../shared/workspace-sidecar'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
@@ -416,18 +417,18 @@ export function mcpSettingsForManagedSprintEngineLaunch(
 /**
  * Run registration must authorize the run store, not just the terminal cwd:
  * worktree-mode agents launch in
- * `<root>/.multi-code/sprintengine/<run>/worktree` while `run.yaml` lives in
+ * `<root>/.sprintengine/sprintengine/<run>/worktree` while `run.yaml` lives in
  * that directory's parent, so registering the launch cwd as the workspace
  * root rejects the statePath (HTTP 400 invalid_run_registration: statePath
  * is outside allowedRoots). Mirror the MCP server's own
  * `_default_workspace_root` derivation: the project root is the parent of
- * the `.multi-code` segment the state path lives under, falling back to the
+ * the sidecar segment the state path lives under, falling back to the
  * launch cwd for non-standard layouts.
  */
 export function deriveSprintEngineRegistrationRoot(statePath: string, launchCwd: string): string {
   let current = dirname(statePath)
   while (true) {
-    if (basename(current) === '.multi-code') return dirname(current)
+    if (isSidecarDirName(basename(current))) return dirname(current)
     const parent = dirname(current)
     if (parent === current) return launchCwd
     current = parent
@@ -2613,7 +2614,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // our terminal id since we mint and pass it; Codex/others mint their own and
   // we only learn it here). This is the id used to resume the conversation, so
   // persist it the first time the hook reports one. The frame is already routed
-  // to the right session by the per-terminal MULTICODE_AGENT_ID, so concurrent
+  // to the right session by the per-terminal SPRINTENGINE_AGENT_ID, so concurrent
   // spawns can't cross-assign it.
   const cliSessionIdChanged =
     !!frame.sessionId && frame.sessionId !== session.cliSessionId
@@ -3214,7 +3215,7 @@ async function spawnAgentSessionFromDescriptor(input: {
 
     const initialSize = getTerminalSize(120, 30)
     // Inject the agent's durable identity so the agent-state reporter's hook
-    // frames map back to this session (MULTICODE_AGENT_ID === executionId ===
+    // frames map back to this session (SPRINTENGINE_AGENT_ID === executionId ===
     // session.agentId below), and strip any stale id the app process inherited.
     // Descriptor env wins over the base, identity wins over both.
     const descriptorEnv = applyAgentIdentityEnv(

@@ -27,7 +27,7 @@ const readCalls: Array<{ statePath: string; knownToken?: string }> = []
   },
 }
 
-const STATE_PATH = '/tmp/proj/.multi-code/sprintengine/demo-run/run.yaml'
+const STATE_PATH = '/tmp/proj/.sprintengine/sprintengine/demo-run/run.yaml'
 
 function projection(tasks: Array<{ id: string; status: string }>): ProjectionResult {
   return {
@@ -147,7 +147,7 @@ test('from-workspace: sprintRunHandleFromWorkspace mirrors the resident workspac
     sprintEngineContext: {
       teamName: 'Demo Run',
       teamSlug: 'demo-run',
-      teamDirectoryPath: '/tmp/proj/.multi-code/sprintengine/demo-run',
+      teamDirectoryPath: '/tmp/proj/.sprintengine/sprintengine/demo-run',
       statePath: STATE_PATH,
     },
   }

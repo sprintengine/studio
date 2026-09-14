@@ -31,8 +31,9 @@ import { adoptLegacySkillSources, isDefaultProfileDir } from './skills/legacy-pr
 import { registerCoreIpc } from './register-core-ipc'
 import { registerWorkflowIpc } from './register-workflow-ipc'
 import { attachStartupTimeline, markStartup } from './startup-timeline'
+import { readStudioEnv } from '../shared/studio-env'
 
-// Boot measurement (MC-2075), off unless MULTICODE_STARTUP_TIMELINE=1 or the
+// Boot measurement (MC-2075), off unless SPRINTENGINE_STARTUP_TIMELINE=1 or the
 // diagnostics flag is set. Attached before anything else registers so the
 // renderer's marks have somewhere to land the moment it starts sending them.
 protocol.registerSchemesAsPrivileged([{
@@ -56,8 +57,8 @@ carryLegacySkillSourcesForward()
 // what to drop there. Best-effort — never block startup on it.
 const extensionFolders = ensureExtensionFolders()
 
-const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
-const services = createAppServices(MULTICODE_DIAGNOSTICS)
+const DIAGNOSTICS_ENABLED = readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
+const services = createAppServices(DIAGNOSTICS_ENABLED)
 let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
 // Dev-only capability surfaces (Voice, Mobile Relay) ship only in
@@ -66,7 +67,7 @@ let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 // src/shared/modules/dev-only.ts.
 const includeDevModules = !app.isPackaged
 
-registerCoreIpc(ipcMain, services, MULTICODE_DIAGNOSTICS, {
+registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
   includeDevModules,
   applyModuleEnablementLive: (overrides) => applyModuleEnablementLive?.(overrides),
 })
@@ -210,7 +211,7 @@ void app.whenReady().then(() => {
     },
   }))
 })
-if (MULTICODE_DIAGNOSTICS) {
+if (DIAGNOSTICS_ENABLED) {
   console.info('[modules] extension roots:', extensionFolders.moduleRoot, extensionFolders.pluginRoot)
   if (extensionFolders.errors.length > 0) {
     console.warn('[modules] extension folder setup errors:', extensionFolders.errors)
@@ -271,7 +272,7 @@ function checkAutomationProviderPermission(
 }
 
 function configureDevUserData(): void {
-  const userDataDir = process.env['MULTICODE_USER_DATA_DIR']?.trim()
+  const userDataDir = readStudioEnv('SPRINTENGINE_USER_DATA_DIR')?.trim()
   if (!userDataDir || app.isPackaged) return
 
   app.setPath('userData', userDataDir)
@@ -305,11 +306,11 @@ function carryLegacySkillSourcesForward(): void {
 markStartup('main.module-evaluated')
 
 registerAppLifecycle({
-  diagnosticsEnabled: MULTICODE_DIAGNOSTICS,
+  diagnosticsEnabled: DIAGNOSTICS_ENABLED,
   allowMultipleInstances:
     !app.isPackaged &&
-    process.env['MULTICODE_ALLOW_MULTI_INSTANCE'] === '1' &&
-    Boolean(process.env['MULTICODE_USER_DATA_DIR']?.trim()),
+    readStudioEnv('SPRINTENGINE_ALLOW_MULTI_INSTANCE') === '1' &&
+    Boolean(readStudioEnv('SPRINTENGINE_USER_DATA_DIR')?.trim()),
   terminalRuntime: services.terminalRuntime,
   conversationRuntime: services.conversationRuntime,
   automationService: services.automationService,

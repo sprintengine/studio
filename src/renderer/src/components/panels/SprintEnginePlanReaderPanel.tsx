@@ -14,6 +14,7 @@ import {
   getSprintEnginePlanFilePath,
   getSprintEngineRootDirectoryPath,
 } from '../../utils/sprintengineStateFile'
+import { SIDECAR_DIR_NAME } from '../../../../shared/workspace-sidecar'
 
 type Props = {
   workspaceId: string
@@ -135,7 +136,7 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
           tool="sprintengine"
           title="Architect plan"
           titleId={TITLE_ID}
-          subtitle={planFilePath ?? '.multi-code/sprintengine/<team>/plan.md'}
+          subtitle={planFilePath ?? `${SIDECAR_DIR_NAME}/sprintengine/<team>/plan.md`}
           primaryAction={
             <GhostButton onClick={() => void loadPlan()} disabled={status === 'loading'}>
               {status === 'loading' ? 'Loading…' : 'Refresh'}

@@ -50,7 +50,7 @@ def _two_project_run(tmp_path: Path) -> tuple[SwarmTeamFixture, Path, Path]:
     sibling = tmp_path / "multicode-mobile"
     _init_git_repo(workspace)
     _init_git_repo(sibling)
-    team_dir = workspace / ".multi-code" / "sprintengine" / "alpha"
+    team_dir = workspace / ".sprintengine" / "sprintengine" / "alpha"
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state("alpha", []))
     fixture = SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))
@@ -137,7 +137,7 @@ def test_sibling_commit_records_its_own_repo_status_not_the_primarys(tmp_path) -
     result = fixture.cli.run("vcs", "commit", "--task-id", "T1", "--id", "developer-1")
     assert result["committed"] is True
     assert result["repo"] == "mobile"
-    assert result["worktreePath"] == ".multi-code/sprintengine/alpha/worktree-mobile"
+    assert result["worktreePath"] == ".sprintengine/sprintengine/alpha/worktree-mobile"
 
     vcs = read_state(fixture.state_path)["sprintengine"]["vcs"]
     mobile = next(repo for repo in vcs["repos"] if repo["id"] == "mobile")
@@ -394,7 +394,7 @@ def test_vcs_status_returns_a_block_per_declared_project(tmp_path) -> None:
     assert mobile["branchName"] == "sprintengine/alpha"
     # The top-level fields keep describing the primary project.
     assert status["clean"] is True
-    assert status["worktreePath"] == ".multi-code/sprintengine/alpha/worktree"
+    assert status["worktreePath"] == ".sprintengine/sprintengine/alpha/worktree"
 
 
 def test_vcs_status_for_a_single_project_run_is_unchanged(tmp_path) -> None:
@@ -402,7 +402,7 @@ def test_vcs_status_for_a_single_project_run_is_unchanged(tmp_path) -> None:
     # one block that says the same thing.
     workspace = tmp_path / "ws"
     _init_git_repo(workspace)
-    team_dir = workspace / ".multi-code" / "sprintengine" / "solo"
+    team_dir = workspace / ".sprintengine" / "sprintengine" / "solo"
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state("solo", []))
     fixture = SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))
@@ -412,7 +412,7 @@ def test_vcs_status_for_a_single_project_run_is_unchanged(tmp_path) -> None:
     status = fixture.cli.run("vcs", "status")
 
     assert status["enabled"] is True
-    assert status["worktreePath"] == ".multi-code/sprintengine/solo/worktree"
+    assert status["worktreePath"] == ".sprintengine/sprintengine/solo/worktree"
     assert status["branchName"] == "sprintengine/solo"
     assert status["clean"] is False
     assert status["dirtyFiles"] == ["?? src/"]

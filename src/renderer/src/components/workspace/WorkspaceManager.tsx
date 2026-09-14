@@ -910,7 +910,7 @@ export default function WorkspaceManager() {
     const context: CommandAvailabilityContext = {}
     if (workspaceActionsEnabled) context.activeWorkspace = true
     // The performance diagnostics panel is an engineering tool, offered only in
-    // dev or when MULTICODE_DIAGNOSTICS=1 (matching the View-menu gate).
+    // dev or when SPRINTENGINE_DIAGNOSTICS=1 (matching the View-menu gate).
     if (window.api.isDevelopment || window.api.isDiagnosticsEnabled) context.diagnosticsEnabled = true
     // The Knowledge Graph toggle is the panel's only entry point (no rail
     // glyph), so its availability tracks the memory-graph module directly.

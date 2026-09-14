@@ -240,7 +240,7 @@ async function writeIdleFleetFixture(): Promise<string> {
 
 async function writeStateFixture(state: Record<string, unknown>): Promise<string> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'multicode-snapshot-request-'))
-  const teamDirectory = join(workspacePath, '.multi-code', 'sprintengine', 'team')
+  const teamDirectory = join(workspacePath, '.sprintengine', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
@@ -252,9 +252,9 @@ async function writeStateFixture(state: Record<string, unknown>): Promise<string
 async function writeBacklogFixture(workspaceRoot: string, itemId: string, title: string, status: string): Promise<void> {
   await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
   await writeFile(join(workspaceRoot, 'backlog', `${itemId}.md`), `---\ntype: feature\n---\n\n# ${title}\n\nBody.\n`, 'utf8')
-  await mkdir(join(workspaceRoot, '.multi-code', 'backlog'), { recursive: true })
+  await mkdir(join(workspaceRoot, '.sprintengine', 'backlog'), { recursive: true })
   await writeFile(
-    join(workspaceRoot, '.multi-code', 'backlog', 'items.json'),
+    join(workspaceRoot, '.sprintengine', 'backlog', 'items.json'),
     JSON.stringify({
       schemaVersion: 1,
       items: [{
@@ -305,7 +305,7 @@ function artifact(id: string, kind: string, status: string, taskId: string): Rec
     id,
     kind,
     title: `Artifact ${id}`,
-    path: '.multi-code/sprintengine/team/product-requirements.md',
+    path: '.sprintengine/sprintengine/team/product-requirements.md',
     status,
     createdBy: 'product',
     taskId,

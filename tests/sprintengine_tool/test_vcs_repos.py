@@ -16,7 +16,7 @@ from sprintengine_core.tool import shell
 
 FLAT_VCS = {
     "mode": "run_worktree",
-    "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+    "worktreePath": ".sprintengine/sprintengine/alpha/worktree",
     "branchName": "sprintengine/alpha",
     "baseRef": "main",
     "status": "committed",
@@ -30,7 +30,7 @@ def _repos_vcs() -> dict:
         {
             "id": "primary",
             "root": ".",
-            "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+            "worktreePath": ".sprintengine/sprintengine/alpha/worktree",
             "branchName": "sprintengine/alpha",
             "baseRef": "main",
             "status": "committed",
@@ -42,7 +42,7 @@ def _repos_vcs() -> dict:
         {
             "id": "mobile",
             "root": "../multicode-mobile",
-            "worktreePath": ".multi-code/sprintengine/alpha/worktree-mobile",
+            "worktreePath": ".sprintengine/sprintengine/alpha/worktree-mobile",
             "branchName": "sprintengine/alpha",
             "baseRef": "main",
             "status": "ready",
@@ -64,7 +64,7 @@ def test_flat_vcs_reads_back_as_a_one_entry_repo_list() -> None:
         {
             "id": "primary",
             "root": ".",
-            "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+            "worktreePath": ".sprintengine/sprintengine/alpha/worktree",
             "branchName": "sprintengine/alpha",
             "baseRef": "main",
             "status": "committed",
@@ -149,7 +149,7 @@ def test_status_writes_on_a_flat_only_store_stay_flat() -> None:
 def test_v3_store_is_rejected_naming_the_break_and_the_remedy(tmp_path: Path) -> None:
     # AC4. Standing policy: pre-release stores are rejected, never migrated — the
     # v3→v4 bump kills every existing run store, which is the point.
-    team_dir = tmp_path / ".multi-code" / "sprintengine" / "alpha"
+    team_dir = tmp_path / ".sprintengine" / "sprintengine" / "alpha"
 
     with pytest.raises(folder_store.RunStoreVersionError) as excinfo:
         folder_store.assert_store_is_current({"schemaVersion": 3}, team_dir)

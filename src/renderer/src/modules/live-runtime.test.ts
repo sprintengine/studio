@@ -236,7 +236,7 @@ const worktreeBackedWorkspace: WorkingRootInput = {
   sprintEngineState: {
     vcs: {
       mode: 'run_worktree',
-      worktreePath: '.multi-code/sprintengine/auth/worktree',
+      worktreePath: '.sprintengine/sprintengine/auth/worktree',
       branchName: 'sprintengine/auth',
     },
   } as unknown as Workspace['sprintEngineState'],
@@ -246,7 +246,7 @@ async function testEffectiveWorkingRoot(): Promise<void> {
   // Worktree-backed sprint workspace: live work happens under the worktree.
   assert.equal(
     workspaceWorkingRoot(worktreeBackedWorkspace),
-    '/Users/example/project/.multi-code/sprintengine/auth/worktree'
+    '/Users/example/project/.sprintengine/sprintengine/auth/worktree'
   )
   // Plain workspace: the primary checkout IS the working root.
   assert.equal(
@@ -271,7 +271,7 @@ async function testEffectiveWorkingRoot(): Promise<void> {
   const stop = await watcher('ws-1', 'state/loop.json', () => {})
   assert.equal(
     watchedPaths[0],
-    '/Users/example/project/.multi-code/sprintengine/auth/worktree/state',
+    '/Users/example/project/.sprintengine/sprintengine/auth/worktree/state',
     'the watch attaches under the worktree, not the primary checkout'
   )
   stop()

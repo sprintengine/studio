@@ -37,7 +37,7 @@ def _init_git_repo(root: Path) -> None:
 
 
 def _worktree_team(workspace: Path, name: str) -> SwarmTeamFixture:
-    team_dir = workspace / ".multi-code" / "sprintengine" / name
+    team_dir = workspace / ".sprintengine" / "sprintengine" / name
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state(name, []))
     return SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))
@@ -76,7 +76,7 @@ def test_init_creates_shared_run_worktree(tmp_path) -> None:
     vcs = payload["vcs"]
     assert vcs is not None
     assert vcs["mode"] == "run_worktree"
-    assert vcs["worktreePath"] == ".multi-code/sprintengine/alpha/worktree"
+    assert vcs["worktreePath"] == ".sprintengine/sprintengine/alpha/worktree"
     assert vcs["branchName"] == "sprintengine/alpha"
     assert vcs["status"] == "ready"
 

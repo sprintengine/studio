@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   assert.equal(JSON.stringify(readyStatus).includes(first.adminToken), false)
 
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mcp-hub-'))
-  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'team')
+  const teamDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
   const registration = await service.ensureRunRegistered({
     workspaceRoot,
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   assert.match(proxiedHelp.content?.[0]?.text ?? '', /sprintengine\.agent\.join/)
 
   const concurrentWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mcp-hub-concurrent-'))
-  const concurrentTeamDirectory = join(concurrentWorkspaceRoot, '.multi-code', 'sprintengine', 'team')
+  const concurrentTeamDirectory = join(concurrentWorkspaceRoot, '.sprintengine', 'sprintengine', 'team')
   await mkdir(concurrentTeamDirectory, { recursive: true })
   const concurrentInput = {
     workspaceRoot: concurrentWorkspaceRoot,
@@ -205,7 +205,7 @@ async function testStatelessSingleRequestToolCall(): Promise<void> {
     await started
 
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mcp-hub-stateless-'))
-    const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'team')
+    const teamDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team')
     await mkdir(teamDirectory, { recursive: true })
     const registration = await service.ensureRunRegistered({
       workspaceRoot,
@@ -367,7 +367,7 @@ async function testKernelOwnedSidecarLifecycle(): Promise<void> {
   // Demand trigger: a managed run registration spawns the hub and performs a
   // real MCP run registration over HTTP.
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mcp-hub-sidecar-'))
-  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'team')
+  const teamDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
   const registration = await hub.ensureRunRegistered({
     workspaceRoot,

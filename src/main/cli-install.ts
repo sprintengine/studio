@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync, chmodSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, delimiter, join, resolve } from 'path'
+import { readStudioEnv } from '../shared/studio-env'
 
 type CliTool = {
   name: 'sprintengine' | 'souls'
@@ -19,7 +20,7 @@ const CLI_TOOLS: CliTool[] = [
 ]
 
 function getMulticodeCliBinDir(): string {
-  const configured = process.env['MULTICODE_CLI_BIN']
+  const configured = readStudioEnv('SPRINTENGINE_CLI_BIN')
   if (configured && configured.trim()) return resolve(configured)
   if (process.platform === 'win32') {
     return resolve(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'Multicode', 'bin')
@@ -99,7 +100,7 @@ export function installMulticodeCliTools(): CliInstallResult {
 }
 
 function resolveToolScript(name: string, windows: boolean): string {
-  const override = process.env[`MULTICODE_${name.toUpperCase()}_CLI${windows ? '_CMD' : ''}`]
+  const override = readStudioEnv(`SPRINTENGINE_${name.toUpperCase()}_CLI${windows ? '_CMD' : ''}`)
   if (override && override.trim()) return resolve(override)
 
   const filename = windows ? `${name}.cmd` : name
@@ -114,7 +115,7 @@ function candidateToolRoots(): string[] {
   const starts = [
     process.resourcesPath,
     process.env['APPDIR'],
-    process.env['MULTICODE_TOOL_ROOT'],
+    readStudioEnv('SPRINTENGINE_TOOL_ROOT'),
     __dirname,
     process.cwd(),
   ].filter(Boolean) as string[]

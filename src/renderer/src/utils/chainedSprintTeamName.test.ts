@@ -10,7 +10,7 @@ import {
 // keys off it.
 function buildContext(name: string): { teamSlug: string; statePath: string } {
   const teamSlug = name.trim().toLowerCase().replace(/\s+/g, '-')
-  return { teamSlug, statePath: `/root/.multi-code/sprintengine/${teamSlug}/run.yaml` }
+  return { teamSlug, statePath: `/root/.sprintengine/sprintengine/${teamSlug}/run.yaml` }
 }
 
 function existsProbe(existingSlugs: string[]): {

@@ -14,7 +14,7 @@
 // nothing changed; from the app's side every refresh is a reading.
 //
 //   --socket <path>   Agent-state socket, baked in at install time. The env
-//                     `MULTICODE_AGENT_STATE_SOCKET` WINS over it, for the same
+//                     `SPRINTENGINE_AGENT_STATE_SOCKET` WINS over it, for the same
 //                     reason it does in the agent-state reporter: the arg lives
 //                     in the repo's shared settings.local.json, which is
 //                     last-writer-wins across app instances, while the env is
@@ -26,7 +26,7 @@
 //                     the person had none, so there is nothing to print.
 //
 // Rules this script never breaks:
-//   * A session launched outside the app (no MULTICODE_AGENT_ID, no socket) is
+//   * A session launched outside the app (no SPRINTENGINE_AGENT_ID, no socket) is
 //     none of our business: report nothing, but STILL run the wrapped command,
 //     so a person whose status line we wrapped keeps their status line whether
 //     or not the app started the session.
@@ -46,6 +46,17 @@
 
 import { spawn } from 'node:child_process'
 import { connect } from 'node:net'
+
+// The app's own variables answer to two names. Everything was spelled
+// `MULTICODE_*` before the 2026-09-08 rename to SprintEngine Studio and is
+// spelled `SPRINTENGINE_*` now, and this file is a COPY installed into a
+// workspace: the app instance launching an agent may be either side of that
+// rename, and this copy may be either side of it too. New name first, old name
+// second. An empty value counts as unset here, matching the `||` fallbacks the
+// call sites already had.
+const studioEnv = (name) =>
+  process.env[name] || process.env[name.replace(/^SPRINTENGINE_/, 'MULTICODE_')] || ''
+
 
 // One attempt, short. The reporter retries because a lost `Stop` strands a
 // session; a lost status-line reading is replaced by the next refresh.
@@ -306,7 +317,7 @@ function buildFrame(data, agentId) {
   return {
     type: 'agent_state',
     agentId,
-    workspaceId: process.env.MULTICODE_WORKSPACE_ID ?? null,
+    workspaceId: studioEnv('SPRINTENGINE_WORKSPACE_ID') ?? null,
     sessionId: typeof payload.session_id === 'string' ? payload.session_id : null,
     event: 'StatusLine',
     ts: Date.now(),
@@ -324,8 +335,8 @@ async function main() {
   // the same bytes are its input.)
   const wrappedRun = wrapped ? runWrapped(wrapped, data) : Promise.resolve(0)
 
-  const socketPath = process.env.MULTICODE_AGENT_STATE_SOCKET || args.socket
-  const agentId = process.env.MULTICODE_AGENT_ID
+  const socketPath = studioEnv('SPRINTENGINE_AGENT_STATE_SOCKET') || args.socket
+  const agentId = studioEnv('SPRINTENGINE_AGENT_ID')
   let sent = Promise.resolve()
   if (socketPath && agentId && !overParseCap) {
     const frame = buildFrame(data, agentId)

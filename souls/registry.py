@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 
+from sprintengine_core.studio_env import read_studio_env
 from sprintengine_core.role_registry import (
     RegistryDiscovery,
     SoulRenderError,
@@ -19,11 +20,11 @@ from sprintengine_core.role_registry import (
 # plugin-contributed specialists the menu offered. Plugin roots are dynamic
 # (only the running app knows which plugins are installed), so they must be
 # passed in rather than discovered statically.
-REGISTRY_ROOTS_ENV = "MULTICODE_SPRINTENGINE_REGISTRY_ROOTS"
+REGISTRY_ROOTS_ENV = "SPRINTENGINE_REGISTRY_ROOTS"
 
 
 def _session_plugin_roots() -> list[dict[str, str]]:
-    raw = os.environ.get(REGISTRY_ROOTS_ENV, "").strip()
+    raw = (read_studio_env(REGISTRY_ROOTS_ENV) or "").strip()
     if not raw:
         return []
     try:

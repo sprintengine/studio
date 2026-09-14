@@ -54,7 +54,7 @@ dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.R
 const projectRoot = '/work/multicode'
 const runSlug = 'july-hardening'
 const runName = 'july-hardening'
-const statePath = `${projectRoot}/.multi-code/sprintengine/${runSlug}/run.yaml`
+const statePath = `${projectRoot}/.sprintengine/sprintengine/${runSlug}/run.yaml`
 
 const runSummary = {
   statePath,
@@ -169,7 +169,7 @@ async function main(): Promise<void> {
     sprintEngineContext: {
       teamName: runName,
       teamSlug: runSlug,
-      teamDirectoryPath: `${projectRoot}/.multi-code/sprintengine/${runSlug}`,
+      teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/${runSlug}`,
       statePath,
     },
   }
@@ -385,7 +385,7 @@ async function main(): Promise<void> {
   await settle(2)
   assert.deepEqual(
     trashed,
-    [`${projectRoot}/.multi-code/sprintengine/${runSlug}`],
+    [`${projectRoot}/.sprintengine/sprintengine/${runSlug}`],
     'the run’s own folder is what moves to the trash, never the state file alone',
   )
   assert.equal(

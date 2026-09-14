@@ -6,6 +6,7 @@ import { basename, join } from 'path'
 import { BUNDLED_MODULE_IDS, type CapabilityManifest } from '../../shared/modules/manifest'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
 import { classifyModuleTrust, isSignedByTrustedPublisher, manifestFingerprint, type ModuleTrust, type ModuleTrustContext } from './module-signature'
+import { readStudioEnv } from '../../shared/studio-env'
 
 // Discovery + install for third-party capability modules under
 // ~/.multicode/modules/<id>/manifest.json. Mirrors the BYO-CLI plugin-registry
@@ -13,12 +14,12 @@ import { classifyModuleTrust, isSignedByTrustedPublisher, manifestFingerprint, t
 // execute module code; trusted `entry.main` loading is wired separately through
 // third-party-main-loader.
 
-// MULTICODE_USER_MODULE_ROOT redirects discovery for hermetic end-to-end
-// testing (paired with MULTICODE_USER_DATA_DIR temp profiles). It moves the
+// SPRINTENGINE_USER_MODULE_ROOT redirects discovery for hermetic end-to-end
+// testing (paired with SPRINTENGINE_USER_DATA_DIR temp profiles). It moves the
 // install root only — trust classification, signing, and isLoadEligible gating
 // apply to that root exactly as they do to the default one.
 export function defaultUserModuleRoot(): string {
-  const override = process.env.MULTICODE_USER_MODULE_ROOT?.trim()
+  const override = readStudioEnv('SPRINTENGINE_USER_MODULE_ROOT')?.trim()
   if (override) return override
   return join(homedir(), '.multicode', 'modules')
 }

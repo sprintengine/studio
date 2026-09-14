@@ -233,12 +233,12 @@ assert.deepEqual(normalizeNewChatAgentChoice(undefined), { kind: 'general' })
 assert.deepEqual(normalizeNewChatAgentChoice('terminal'), { kind: 'general' })
 assert.deepEqual(defaultAppSettings().lastNewChatAgent, { kind: 'general' })
 assert.equal(
-  sprintEngineRunSettingsKey('/Users/example/Project/.multi-code\\sprintengine/run.yaml/'),
-  '/users/example/project/.multi-code/sprintengine/run.yaml',
+  sprintEngineRunSettingsKey('/Users/example/Project/.sprintengine\\sprintengine/run.yaml/'),
+  '/users/example/project/.sprintengine/sprintengine/run.yaml',
 )
 assert.deepEqual(
   normalizeSprintEngineRunSettings({
-    ' /Users/example/Project/.multi-code\\sprintengine/run.yaml/ ': {
+    ' /Users/example/Project/.sprintengine\\sprintengine/run.yaml/ ': {
       cliPermissionPreset: 'bypass',
       maxConcurrentAgents: 99,
     },
@@ -246,7 +246,7 @@ assert.deepEqual(
     '': { cliPermissionPreset: 'bypass' },
   }),
   {
-    '/users/example/project/.multi-code/sprintengine/run.yaml': {
+    '/users/example/project/.sprintengine/sprintengine/run.yaml': {
       cliPermissionPreset: 'bypass',
       maxConcurrentAgents: 10,
     },
@@ -256,7 +256,7 @@ assert.deepEqual(
   normalizeAppSettings(
     {
       sprintEngineRunSettings: {
-        '/Users/example/Project/.multi-code/sprintengine/run.yaml': {
+        '/Users/example/Project/.sprintengine/sprintengine/run.yaml': {
           cliPermissionPreset: 'auto',
         },
       },
@@ -264,7 +264,7 @@ assert.deepEqual(
     [],
   ).sprintEngineRunSettings,
   {
-    '/users/example/project/.multi-code/sprintengine/run.yaml': {
+    '/users/example/project/.sprintengine/sprintengine/run.yaml': {
       cliPermissionPreset: 'auto',
     },
   },
@@ -614,7 +614,7 @@ for (const foldedTab of ['mcps', 'skill-packs', 'extensions', EXTENSIONS_BROWSE_
   )
 }
 
-const sprintEngineRunPath = '/Users/example/project/.multi-code/sprintengine/run/run.yaml'
+const sprintEngineRunPath = '/Users/example/project/.sprintengine/sprintengine/run/run.yaml'
 const permissionCarrier = {
   workspaces: [
     {
@@ -631,7 +631,7 @@ const permissionCarrier = {
       sprintEngineContext: {
         teamName: 'run',
         teamSlug: 'run',
-        teamDirectoryPath: '/Users/example/project/.multi-code/sprintengine/run',
+        teamDirectoryPath: '/Users/example/project/.sprintengine/sprintengine/run',
         statePath: sprintEngineRunPath,
       },
       sprintEngineState: createInitialSprintEngineState({

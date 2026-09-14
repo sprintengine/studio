@@ -847,7 +847,7 @@ export function migratePersistedWorkspaceState(
     // a workspace type. Drop any persisted automations workspaces: their only
     // content was the locked control-center tab — every automation definition
     // and run history lives on disk under each project's
-    // `.multi-code/automations/`, so nothing the user authored is lost. Window
+    // `.sprintengine/automations/`, so nothing the user authored is lost. Window
     // membership and the active-workspace pointer are reconciled against the
     // surviving workspaces by normalizeWorkspaceWindows during merge.
     migrationState.workspaces = (migrationState.workspaces ?? []).filter(
@@ -870,7 +870,7 @@ export function migratePersistedWorkspaceState(
     // run minted a duplicate host. Keep the earliest-created host per folder —
     // the one the user most likely arranged — and drop the duplicates. Nothing
     // durable is lost: automation definitions and run history live on disk under
-    // each project's `.multi-code/automations/`, and host agents are finalized
+    // each project's `.sprintengine/automations/`, and host agents are finalized
     // runs whose launch state is cleared on load anyway. Window membership is
     // reconciled by normalizeWorkspaceWindows during merge.
     const keptHostByFolder = new Map<string, WorkspaceId>()
@@ -1050,7 +1050,7 @@ export function migratePersistedWorkspaceState(
     // module whose guide spawns into the workspace the door was opened from, so
     // the per-project background host has no producer left. Drop any persisted
     // reviews-host row — its guide-terminal agent records go with it, and the
-    // review data on disk (`.multi-code/review/`) is untouched. Mirrors the v66
+    // review data on disk (`.sprintengine/review/`) is untouched. Mirrors the v66
     // multiloop-mode drop above, active pointer included.
     migrationState.workspaces = dropRetiredModeWorkspaces(migrationState.workspaces ?? [])
     if (

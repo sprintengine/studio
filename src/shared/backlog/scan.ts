@@ -25,6 +25,7 @@ import {
   toTitleName,
   workspaceRelativePath,
 } from '../source-paths'
+import { knownSidecarDirName, sidecarRelativePath } from '../workspace-sidecar'
 
 export type BacklogItemKind = SprintEngineSourcePlanKind | 'html_mockup'
 export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
@@ -387,7 +388,13 @@ export async function scanBacklog(
         const [sourceContent, stats] = await Promise.all([fs.readfile(filePath), fs.statPath(filePath)])
         if (!stats.isFile) continue
         slotResults[index] = {
-          item: createBacklogItem({ path: filePath, relativePath, sourceContent, stats }),
+          item: createBacklogItem({
+            path: filePath,
+            relativePath,
+            sourceContent,
+            stats,
+            workspaceRoot: location.workspaceRoot,
+          }),
         }
       } catch (error) {
         slotResults[index] = {
@@ -435,6 +442,8 @@ export function createBacklogItem(input: {
   sourceContent: string
   stats: Pick<FileSystemStat, 'modifiedAtMs' | 'sizeBytes'>
   object?: BacklogItemObjectMetadata
+  /** The project this item belongs to, for resolving its durable run links. */
+  workspaceRoot?: string
 }): BacklogItem {
   const relativePath = normalizeRelativePath(input.relativePath)
   const { body, fields } = parseBacklogFrontmatter(input.sourceContent)
@@ -487,7 +496,10 @@ export function createBacklogItem(input: {
     // and never depend on a sidecar keyed by path. `input.object` is now the
     // volatile cache: it overlays resolved status onto those, and contributes the
     // agent-terminal link, which has no durable half.
-    links: mergeBacklogLinks(durableBacklogLinksFromFrontmatter(fields), input.object?.links ?? []),
+    links: mergeBacklogLinks(
+      durableBacklogLinksFromFrontmatter(fields, input.workspaceRoot),
+      input.object?.links ?? [],
+    ),
     objectUpdatedAt: input.object?.updatedAt,
     excerpt: backlogExcerpt(body, title),
     modifiedAt: resolveBacklogRecencyMs(frontmatterValue(fields, 'updated'), input.stats.modifiedAtMs),
@@ -620,10 +632,14 @@ export function normalizeRelativePath(pathValue: string): string {
 export { stableBacklogObjectId }
 
 // The relative path of a project's Backlog display-key config, under the
-// app-owned `.multi-code/` sidecar. The `key:` inside prefixes every item's
-// human id (`MC-240`); the cross-project read model resolves it per project so
-// aggregated rows never collide (`MA-112` beside `MC-1758`).
-export const BACKLOG_CONFIG_RELATIVE_PATH = '.multi-code/backlog/config.json'
+// app-owned sidecar. Takes the project root because the sidecar's name differs
+// between a project made before the rename and one made after. The `key:`
+// inside prefixes every item's human id (`MC-240`); the cross-project read
+// model resolves it per project so aggregated rows never collide (`MA-112`
+// beside `MC-1758`).
+export function backlogConfigRelativePath(folderPath: string): string {
+  return sidecarRelativePath(knownSidecarDirName(folderPath), 'backlog', 'config.json')
+}
 
 // Resolve a project's Backlog display key from its `config.json` contents,
 // falling back to the name-derived default when the file is absent, unreadable,

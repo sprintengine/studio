@@ -21,7 +21,7 @@ const MARKETPLACE_ALLOWED_SOURCE_HOSTS: readonly string[] = [
 // Comma-separated extra hosts to extend the allowlist (default empty). Read by
 // each consumer from its own environment and passed in — this module stays free
 // of runtime/host coupling.
-export const MARKETPLACE_EXTRA_HOSTS_ENV = 'MULTICODE_MARKETPLACE_EXTRA_HOSTS'
+export const MARKETPLACE_EXTRA_HOSTS_ENV = 'SPRINTENGINE_MARKETPLACE_EXTRA_HOSTS'
 
 // Parse the extra-host allowlist extension. Hostnames only, lowercased; blank,
 // wildcard, and path-bearing tokens are dropped so the list can never widen to

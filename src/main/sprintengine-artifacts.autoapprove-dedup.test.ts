@@ -103,7 +103,7 @@ function seedRealStore(args: {
 
 async function createWorkspace(team: string): Promise<{ workspaceRoot: string; teamDir: string; statePath: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-dedup-'))
-  const teamDir = join(workspaceRoot, '.multi-code', 'sprintengine', team)
+  const teamDir = join(workspaceRoot, '.sprintengine', 'sprintengine', team)
   await mkdir(teamDir, { recursive: true })
   return { workspaceRoot, teamDir, statePath: join(teamDir, 'run.yaml') }
 }
@@ -155,7 +155,7 @@ async function testAutoApproveSelfHealsStaleSameFileDuplicate(): Promise<void> {
     }],
     artifacts: [
       // Stale init placeholder, stored as the full-prefix path.
-      { id: 'A1', kind: 'architect_plan', title: 'Architect Plan', path: `.multi-code/sprintengine/${team}/plan.md`, status: 'draft', createdBy: 'sprintengine', taskId: 'T0' },
+      { id: 'A1', kind: 'architect_plan', title: 'Architect Plan', path: `.sprintengine/sprintengine/${team}/plan.md`, status: 'draft', createdBy: 'sprintengine', taskId: 'T0' },
       // Real plan, stored bare; resolves to the same file as A1.
       { id: 'A2', kind: 'architect_plan', title: 'Real Plan', path: 'plan.md', status: 'ready_for_review', createdBy: 'architect', taskId: 'T0' },
     ],

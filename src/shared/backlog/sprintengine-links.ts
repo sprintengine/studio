@@ -13,6 +13,7 @@
 // a third copy of the status union would drift from the two that already mirror
 // each other.
 import type { BacklogItemStatusPayload } from '../electron-api'
+import { SIDECAR_DIR_PATTERN_SOURCE } from '../workspace-sidecar'
 
 export const SPRINT_ENGINE_MODULE_ID = 'sprint-engine'
 export const SPRINT_ENGINE_RUN_TARGET_KIND = 'sprintengine.run'
@@ -144,9 +145,11 @@ export function sprintEngineRepoDisplayName(input: { workspaceRoot: string; root
   return path.replace(/\\/g, '/').replace(/\/+$/u, '').split('/').pop() || 'project'
 }
 
-// The canonical run-store layout: `<root>/.multi-code/sprintengine/<team>/run.yaml`.
-const RUN_RELATIVE_PATH_PATTERN = /^\.multi-code\/sprintengine\/[^/]+\/run\.yaml$/u
-const RUN_STATE_PATH_PATTERN = /(?:^|\/)\.multi-code\/sprintengine\/([^/]+)\/run\.yaml$/u
+// The canonical run-store layout: `<root>/<sidecar>/sprintengine/<team>/run.yaml`.
+// Both sidecar names match: a link stored by a build from before the rename has
+// to keep resolving, and it is read far more often than it is written.
+const RUN_RELATIVE_PATH_PATTERN = new RegExp(`^${SIDECAR_DIR_PATTERN_SOURCE}/sprintengine/[^/]+/run\\.yaml$`, 'u')
+const RUN_STATE_PATH_PATTERN = new RegExp(`(?:^|/)${SIDECAR_DIR_PATTERN_SOURCE}/sprintengine/([^/]+)/run\\.yaml$`, 'u')
 
 // Accept only a project-relative run.yaml under the run store. Rejects absolute
 // paths, drive letters, UNC prefixes and any `..` segment, so a link read off

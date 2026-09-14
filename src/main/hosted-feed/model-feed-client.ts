@@ -24,6 +24,7 @@ import {
   parseHostedModelFeed,
   type HostedModelFeed,
 } from '../../shared/hosted-model-feed'
+import { readStudioEnv } from '../../shared/studio-env'
 
 const MODEL_FEED_CACHE_FILENAME = 'model-feed-cache.json'
 const MODEL_FEED_SEED_FILENAME = 'model-feed.json'
@@ -32,11 +33,11 @@ const DEFAULT_MODEL_FEED_TIMEOUT_MS = 10_000
 const MODEL_FEED_TTL_MS = 60 * 60 * 1_000
 const MODEL_FEED_RETRY_MS = 5 * 60 * 1_000
 
-// MULTICODE_MODEL_FEED_URL points the client at another copy of the file — a
+// SPRINTENGINE_MODEL_FEED_URL points the client at another copy of the file — a
 // local static server while developing, a fork's raw URL — with every other
 // rule (ETag, cache, seed, schema gate) unchanged. HTTPS only, like the default.
 export function configuredModelFeedUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.MULTICODE_MODEL_FEED_URL?.trim()
+  const override = readStudioEnv('SPRINTENGINE_MODEL_FEED_URL', env)?.trim()
   return override || HOSTED_MODEL_FEED_URL
 }
 

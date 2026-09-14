@@ -27,7 +27,7 @@ const OTHER_ROOTS = JSON.stringify(['/work/mobile'])
 
 function summary(teamSlug: string): SprintRunSummary {
   return {
-    statePath: `/work/multicode/.multi-code/sprintengine/${teamSlug}/run.yaml`,
+    statePath: `/work/multicode/.sprintengine/sprintengine/${teamSlug}/run.yaml`,
     teamSlug,
     teamName: teamSlug,
     projectRoot: '/work/multicode',

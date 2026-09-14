@@ -189,13 +189,13 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path / "allowed"])
 
     out_of_scope = server.call_tool("sprintengine.summary", {"statePath": str(fixture.state_path)}, actor("workspace-user", "user"))
-    platform_confused = server.call_tool("sprintengine.summary", {"statePath": r"C:\workspace\.multi-code\sprintengine\run.yaml"}, actor("workspace-user", "user"))
+    platform_confused = server.call_tool("sprintengine.summary", {"statePath": r"C:\workspace\.sprintengine\sprintengine\run.yaml"}, actor("workspace-user", "user"))
     handover_file = tmp_path / "handover.md"
     handover_file.write_text("Outside allowed root.", encoding="utf-8")
     out_of_scope_handover = server.call_tool(
         "sprintengine.handover",
         {
-            "statePath": str(tmp_path / "allowed" / ".multi-code" / "sprintengine" / "mcp-handover" / "run.yaml"),
+            "statePath": str(tmp_path / "allowed" / ".sprintengine" / "sprintengine" / "mcp-handover" / "run.yaml"),
             "name": "mcp-handover",
             "handoverPath": str(handover_file),
         },
@@ -237,7 +237,7 @@ def test_allowed_roots_contain_traversal_symlink_and_prefix_collision_escapes(tm
     # talking and not a broken fixture.
     assert summary(inside.state_path)["ok"] is True
 
-    traversal = summary(tmp_path / "allowed" / ".." / "outside" / ".multi-code" / "sprintengine" / "outside-run" / "run.yaml")
+    traversal = summary(tmp_path / "allowed" / ".." / "outside" / ".sprintengine" / "sprintengine" / "outside-run" / "run.yaml")
     assert traversal["ok"] is False
     assert traversal["error"]["code"] == "state_path_not_allowed"
 
@@ -251,7 +251,7 @@ def test_allowed_roots_contain_traversal_symlink_and_prefix_collision_escapes(tm
         # compared — following the link must not launder the escape.
         link = tmp_path / "allowed" / "escape-hatch"
         link.symlink_to(tmp_path / "outside", target_is_directory=True)
-        symlinked = summary(link / ".multi-code" / "sprintengine" / "outside-run" / "run.yaml")
+        symlinked = summary(link / ".sprintengine" / "sprintengine" / "outside-run" / "run.yaml")
         assert symlinked["ok"] is False
         assert symlinked["error"]["code"] == "state_path_not_allowed"
         # The escape targeted a real run: prove it, so this can never pass vacuously.
@@ -259,7 +259,7 @@ def test_allowed_roots_contain_traversal_symlink_and_prefix_collision_escapes(tm
 
 
 def test_artifact_approval_is_operator_surface_with_payload_actor_independence(tmp_path) -> None:
-    artifact_file = tmp_path / ".multi-code" / "sprintengine" / "mcp-artifact-auth" / "review.md"
+    artifact_file = tmp_path / ".sprintengine" / "sprintengine" / "mcp-artifact-auth" / "review.md"
     artifact_file.parent.mkdir(parents=True)
     artifact_file.write_text("review", encoding="utf-8")
     fixture = create_team(

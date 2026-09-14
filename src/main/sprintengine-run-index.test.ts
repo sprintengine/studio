@@ -39,7 +39,7 @@ type RunOptions = {
 }
 
 function writeRun(root: string, teamName: string, options: RunOptions = {}): { statePath: string; teamDirectory: string } {
-  const teamDirectory = join(root, '.multi-code', 'sprintengine', teamName)
+  const teamDirectory = join(root, '.sprintengine', 'sprintengine', teamName)
   mkdirSync(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   const projectionPath = join(teamDirectory, 'projection.json')

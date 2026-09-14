@@ -29,9 +29,9 @@ Installer: `src/main/skills/studio-plugin.ts` (what it writes) and
 Three things in this tree cannot be known until the app is running on a
 particular machine: the binary that will run the bridge, the absolute path of
 that bridge inside this app bundle, and the live agent-state socket. They appear
-here as tokens — `__MULTICODE_NODE__`, `__MULTICODE_BRIDGE__`,
-`__MULTICODE_USER_DATA_DIR__`, `__MULTICODE_AGENT_STATE_REPORTER__`,
-`__MULTICODE_AGENT_STATE_SOCKET__` — and install materialises the whole
+here as tokens — `__SPRINTENGINE_NODE__`, `__SPRINTENGINE_BRIDGE__`,
+`__SPRINTENGINE_USER_DATA_DIR__`, `__SPRINTENGINE_AGENT_STATE_REPORTER__`,
+`__SPRINTENGINE_AGENT_STATE_SOCKET__` — and install materialises the whole
 marketplace into `<workspace>/.multicode/studio-plugin` with each one replaced.
 A test walks every materialised file and fails if a token survives.
 

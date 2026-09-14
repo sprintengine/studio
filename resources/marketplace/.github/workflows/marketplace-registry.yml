@@ -35,8 +35,8 @@ jobs:
       - name: Checkout Multicode validation tooling
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.MULTICODE_APP_REPOSITORY || 'sprintengine/studio' }}
-          ref: ${{ vars.MULTICODE_APP_REF || 'main' }}
+          repository: ${{ vars.SPRINTENGINE_APP_REPOSITORY || vars.MULTICODE_APP_REPOSITORY || 'sprintengine/studio' }}
+          ref: ${{ vars.SPRINTENGINE_APP_REF || vars.MULTICODE_APP_REF || 'main' }}
           path: multicode
 
       - name: Setup Node

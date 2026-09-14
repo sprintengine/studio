@@ -490,7 +490,7 @@ export function PluginsCatalogue({
    * Our own plugin is the built-in row and nothing else. The marketplace lists
    * it like any other, but a second row for it would offer an Install that
    * cannot work: what we PUBLISH is a template, and its `.mcp.json` and
-   * `hooks/hooks.json` carry `__MULTICODE_*` tokens that only the app's own
+   * `hooks/hooks.json` carry `__SPRINTENGINE_*` tokens that only the app's own
    * materialise step can fill in. The same goes for the MCP server it
    * declares — added from a row here it would be a server whose command is
    * the literal token (`hiddenMcpFor`).
@@ -1071,7 +1071,7 @@ function sumCounts(left: CatalogueCount, right: CatalogueCount): CatalogueCount 
  *
  * Only ever our own plugin, on our own tab. Its server is the bridge to this
  * running app: it is disclosed on the built-in row, it cannot be "added"
- * (the published `.mcp.json` is a template carrying `__MULTICODE_*` tokens
+ * (the published `.mcp.json` is a template carrying `__SPRINTENGINE_*` tokens
  * only the app's install can fill in), and drawing it would be the same thing
  * counted twice — once as the plugin, once as its contents.
  */

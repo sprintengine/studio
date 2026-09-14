@@ -14,7 +14,7 @@ import {
 // collects its own phases, listens for the renderer's, and prints one read-out
 // when boot is done.
 //
-// Off unless asked for (`MULTICODE_STARTUP_TIMELINE=1`, or the diagnostics
+// Off unless asked for (`SPRINTENGINE_STARTUP_TIMELINE=1`, or the diagnostics
 // build flag). When off, `markStartup` is a no-op and no IPC listener is
 // registered — a renderer that still sends a mark hits an unhandled channel,
 // which is a no-op by design.

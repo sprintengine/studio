@@ -39,8 +39,8 @@ function buildSnapshotFixture(root: string): MobileControlSnapshot {
         sprintEngineId: 'team-1',
         name: 'Team One',
         workspacePath: root,
-        statePath: join(root, '.multi-code', 'sprintengine', 'team-1', 'run.yaml'),
-        planPath: join(root, '.multi-code', 'sprintengine', 'team-1', 'plan.md'),
+        statePath: join(root, '.sprintengine', 'sprintengine', 'team-1', 'run.yaml'),
+        planPath: join(root, '.sprintengine', 'sprintengine', 'team-1', 'plan.md'),
         snapshotVersion: 'v1',
         updatedAt: '2026-06-27T00:00:00.000Z',
         board: {
@@ -68,7 +68,7 @@ function buildSnapshotFixture(root: string): MobileControlSnapshot {
         kind: 'sprintengine',
         name: 'Sprint Engine',
         workspacePath: root,
-        statePath: join(root, '.multi-code', 'sprintengine'),
+        statePath: join(root, '.sprintengine', 'sprintengine'),
         updatedAt: '2026-06-27T00:00:00.000Z',
         capabilities: ['summary.read'],
         detailVersion: 2,
@@ -103,7 +103,7 @@ function assertTokenRoundTrips(): void {
 
 function assertStateRootDerivation(): void {
   const root = '/Users/example/workspace/projA'
-  const statePath = join(root, '.multi-code', 'sprintengine', 'team-1', 'run.yaml')
+  const statePath = join(root, '.sprintengine', 'sprintengine', 'team-1', 'run.yaml')
   assert.equal(workspaceRootFromStatePath(statePath), resolve(root))
 }
 

@@ -364,7 +364,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       return {
         title: (
           <span className="truncate font-mono text-meta font-normal text-[color:var(--text-subtle)]">
-            {`${projectLabel(editorTarget.workspaceRoot)} · .multi-code/automations`}
+            {`${projectLabel(editorTarget.workspaceRoot)} · .sprintengine/automations`}
           </span>
         ),
         actions: <span ref={setEditorActionsEl} className="flex items-center gap-1.5" />,

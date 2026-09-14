@@ -130,7 +130,7 @@ async function assertLegacyAutonomyDefinitionLoadsAndIsNotWrittenBack(): Promise
   // read into the runtime-only marker the launch prompt reads — that marker is
   // not persisted either, so the round trip drops the intent along with the key.
   const workspaceRoot = await createWorkspace()
-  const definitionsDirectory = join(workspaceRoot, '.multi-code', 'automations', 'definitions')
+  const definitionsDirectory = join(workspaceRoot, '.sprintengine', 'automations', 'definitions')
   await mkdir(definitionsDirectory, { recursive: true })
   const path = join(definitionsDirectory, 'nightly-review.json')
   await writeFile(path, JSON.stringify({ ...definition(), autonomyDefault: 'review_only' }, null, 2), 'utf8')
@@ -180,7 +180,7 @@ async function assertRunHistoryIsBounded(): Promise<void> {
   assert.equal(runs.ok && runs.values[0]?.id, 'run-054')
   assert.equal(runs.ok && runs.values.at(-1)?.id, 'run-005')
 
-  const runFiles = await readdir(join(workspaceRoot, '.multi-code', 'automations', 'runs', 'nightly-review'))
+  const runFiles = await readdir(join(workspaceRoot, '.sprintengine', 'automations', 'runs', 'nightly-review'))
   assert.equal(runFiles.filter((file) => file.endsWith('.json')).length, 50)
   assert.equal(runFiles.includes('run-004.json'), false)
 }
@@ -211,7 +211,7 @@ async function assertMalformedDefinitionFailsClosed(): Promise<void> {
   const store = new AutomationsStore(workspaceRoot)
   assert.equal((await store.createDefinition(definition())).ok, true)
 
-  const brokenPath = join(workspaceRoot, '.multi-code', 'automations', 'definitions', 'broken.json')
+  const brokenPath = join(workspaceRoot, '.sprintengine', 'automations', 'definitions', 'broken.json')
   await writeFile(brokenPath, '{not-json', 'utf8')
 
   const listed = await store.listDefinitions()
@@ -227,7 +227,7 @@ async function assertRunWriteRequiresReadableDefinition(): Promise<void> {
   const store = new AutomationsStore(workspaceRoot)
   assert.equal((await store.createDefinition(definition())).ok, true)
 
-  const definitionPath = join(workspaceRoot, '.multi-code', 'automations', 'definitions', 'nightly-review.json')
+  const definitionPath = join(workspaceRoot, '.sprintengine', 'automations', 'definitions', 'nightly-review.json')
   await writeFile(definitionPath, '{not-json', 'utf8')
 
   const recorded = await store.recordRun(run(1))
@@ -245,7 +245,7 @@ async function assertMalformedRunListFailsClosedButWriteSkipsBadRun(): Promise<v
   assert.equal((await store.createDefinition(definition())).ok, true)
   assert.equal((await store.recordRun(run(1))).ok, true)
 
-  const runDirectory = join(workspaceRoot, '.multi-code', 'automations', 'runs', 'nightly-review')
+  const runDirectory = join(workspaceRoot, '.sprintengine', 'automations', 'runs', 'nightly-review')
   await mkdir(runDirectory, { recursive: true })
   const brokenPath = join(runDirectory, 'broken-run.json')
   await writeFile(brokenPath, '{not-json', 'utf8')
@@ -288,7 +288,7 @@ async function assertDotSegmentIdsAreRejected(): Promise<void> {
   assert.equal(unsafeRun.ok, false)
   assert.equal(!unsafeRun.ok && unsafeRun.error.code, 'invalid_id')
 
-  const escapedStatePath = join(workspaceRoot, '.multi-code', 'automations', 'state.json')
+  const escapedStatePath = join(workspaceRoot, '.sprintengine', 'automations', 'state.json')
   await assert.rejects(readFile(escapedStatePath, 'utf8'), { code: 'ENOENT' })
 }
 
@@ -321,7 +321,7 @@ async function assertStateRoundTrip(): Promise<void> {
   assert.equal(readBack.ok, true)
   assert.deepEqual(readBack.ok && readBack.value, nextState)
 
-  const stateFile = await readFile(join(workspaceRoot, '.multi-code', 'automations', 'state.json'), 'utf8')
+  const stateFile = await readFile(join(workspaceRoot, '.sprintengine', 'automations', 'state.json'), 'utf8')
   assert.match(stateFile, /nextRunAtByAutomationId/)
 
   const legacyRepoEventState = {
@@ -335,7 +335,7 @@ async function assertStateRoundTrip(): Promise<void> {
     },
     lock: null,
   }
-  await writeFile(join(workspaceRoot, '.multi-code', 'automations', 'state.json'), JSON.stringify(legacyRepoEventState), 'utf8')
+  await writeFile(join(workspaceRoot, '.sprintengine', 'automations', 'state.json'), JSON.stringify(legacyRepoEventState), 'utf8')
   const migratedLegacyState = await store.readState()
   assert.equal(migratedLegacyState.ok, true)
   assert.deepEqual(
@@ -364,9 +364,9 @@ async function assertStateRoundTrip(): Promise<void> {
 async function assertMalformedStateFailsClosed(): Promise<void> {
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
-  const statePath = join(workspaceRoot, '.multi-code', 'automations', 'state.json')
+  const statePath = join(workspaceRoot, '.sprintengine', 'automations', 'state.json')
 
-  await mkdir(join(workspaceRoot, '.multi-code', 'automations'), { recursive: true })
+  await mkdir(join(workspaceRoot, '.sprintengine', 'automations'), { recursive: true })
   await writeFile(statePath, '{not-json', 'utf8')
 
   const corruptJson = await store.readState()

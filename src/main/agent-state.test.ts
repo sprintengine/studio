@@ -1044,12 +1044,12 @@ async function run(): Promise<void> {
   assert.ok(!codexConfig.includes('[[hooks.SessionStart]]'), 'uninstall left the hooks block')
 
   // --- plugin-file: socket baking renders a valid JS string literal --------
-  const ocTemplate = "const BAKED_SOCKET = '__MULTICODE_AGENT_STATE_SOCKET__'\n"
+  const ocTemplate = "const BAKED_SOCKET = '__SPRINTENGINE_AGENT_STATE_SOCKET__'\n"
   // A Windows pipe path's backslashes must survive as data, not act as escapes.
   const winSocket = '\\\\.\\pipe\\multicode-agent-state-abc'
   const renderedWin = renderAgentStatePluginTemplate(ocTemplate, winSocket)
   assert.ok(renderedWin.includes(`const BAKED_SOCKET = ${JSON.stringify(winSocket)}`), renderedWin)
-  assert.ok(!renderedWin.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'token left unsubstituted')
+  assert.ok(!renderedWin.includes("'__SPRINTENGINE_AGENT_STATE_SOCKET__'"), 'token left unsubstituted')
   // The rendered literal round-trips back to the exact path.
   assert.equal(JSON.parse(renderedWin.split('= ')[1].trim()), winSocket)
 
@@ -1066,7 +1066,7 @@ async function run(): Promise<void> {
   const ocPluginPath = join(ocRoot, '.opencode', 'plugin', 'multicode-agent-state.js')
   let ocPlugin = await readFile(ocPluginPath, 'utf8')
   assert.ok(ocPlugin.includes(JSON.stringify(ocSocket)), 'opencode plugin missing baked socket')
-  assert.ok(!ocPlugin.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
+  assert.ok(!ocPlugin.includes("'__SPRINTENGINE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
 
   // Re-install is idempotent (overwrites in place, no second copy).
   const ocReinstall = await installAgentStateReporter(ocRoot, opencodeSpec, { sourceScriptPath: ocReporter, socketPath: ocSocket })

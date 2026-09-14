@@ -46,7 +46,7 @@ def _init_git_repo(root: Path) -> None:
 def _worktree_run(tmp_path: Path, name: str) -> SwarmTeamFixture:
     workspace = tmp_path / "ws"
     _init_git_repo(workspace)
-    team_dir = workspace / ".multi-code" / "sprintengine" / name
+    team_dir = workspace / ".sprintengine" / "sprintengine" / name
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state(name, []))
     fixture = SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))

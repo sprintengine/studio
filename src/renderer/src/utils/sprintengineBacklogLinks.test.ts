@@ -25,7 +25,7 @@ const baseLink: BacklogItemLink = {
   target: {
     kind: SPRINT_ENGINE_RUN_TARGET_KIND,
     id: 'run',
-    path: '.multi-code/sprintengine/team/run.yaml',
+    path: '.sprintengine/sprintengine/team/run.yaml',
   },
   status: 'active',
 }
@@ -159,10 +159,10 @@ async function main(): Promise<void> {
     '/tmp/other/run.yaml',
     'C:\\tmp\\other\\run.yaml',
     '\\\\server\\share\\run.yaml',
-    '../.multi-code/sprintengine/team/run.yaml',
-    '.multi-code/sprintengine/team/run.yml',
-    '.multi-code/sprintengine/team/notes.md',
-    '.multi-code/sprintengine/team/tasks/T1.json',
+    '../.sprintengine/sprintengine/team/run.yaml',
+    '.sprintengine/sprintengine/team/run.yml',
+    '.sprintengine/sprintengine/team/notes.md',
+    '.sprintengine/sprintengine/team/tasks/T1.json',
   ]) {
     let projectionReads = 0
     const invalid = await resolveSprintEngineBacklogLink({
@@ -202,7 +202,7 @@ async function main(): Promise<void> {
     true,
     'a run link opens the Sprints door on its run',
   )
-  assert.deepEqual(doorOpens, ['/repo/.multi-code/sprintengine/team/run.yaml'])
+  assert.deepEqual(doorOpens, ['/repo/.sprintengine/sprintengine/team/run.yaml'])
 
   // WHICH door it opens (item 2470). The link's port reads the run's projection
   // before opening anything — it already has to, to prove the link still points
@@ -251,7 +251,7 @@ async function main(): Promise<void> {
 
   // Path validation still runs BEFORE the door is asked: an absolute or non-
   // run.yaml target never reaches it.
-  for (const badPath of ['/tmp/other/run.yaml', '.multi-code/sprintengine/team/run.yml']) {
+  for (const badPath of ['/tmp/other/run.yaml', '.sprintengine/sprintengine/team/run.yml']) {
     const rejectedOpens: string[] = []
     assert.equal(
       await openSprintEngineBacklogLink({
@@ -325,7 +325,7 @@ function worktreeVcs(...pullRequestStates: Array<'open' | 'merged'>): unknown {
 
 const childLink = buildSprintEngineRunLink({
   teamSlug: 'team',
-  runRelativePath: '.multi-code/sprintengine/team/run.yaml',
+  runRelativePath: '.sprintengine/sprintengine/team/run.yaml',
   status: 'pending',
   priorStatus: 'ready',
 })

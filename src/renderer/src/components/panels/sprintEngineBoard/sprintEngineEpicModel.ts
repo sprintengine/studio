@@ -18,6 +18,7 @@ import type {
   SprintEngineSourceBundleStateItem,
   SprintEngineTask,
 } from '../../../types/workspace'
+import { SIDECAR_DIR_NAMES } from '../../../../../shared/workspace-sidecar'
 
 /** The epic a run was seeded from: its project-relative file, the slug its
  *  children point up at, and the member files the run itself recorded at
@@ -138,7 +139,7 @@ function backlogPathOf(originalPath: string | undefined, path: string): string |
 
 /**
  * A run's project root, read from where its store sits:
- * `<root>/.multi-code/sprintengine/<team>/run.yaml` — the same derivation the
+ * `<root>/<sidecar>/sprintengine/<team>/run.yaml` — the same derivation the
  * main-process run index makes (`resolveRunIdentity`).
  *
  * The board reads its project from the workspace's folder status, which a DOOR
@@ -151,7 +152,9 @@ export function sprintEngineProjectRootFromStatePath(statePath: string | null | 
   if (!statePath) return null
   // Length-preserving, so the index maps straight back onto the original.
   const normalized = statePath.replace(/\\/g, '/').toLowerCase()
-  const marker = normalized.lastIndexOf('/.multi-code/sprintengine/')
+  const marker = SIDECAR_DIR_NAMES
+    .map((dirName) => normalized.lastIndexOf(`/${dirName}/sprintengine/`))
+    .reduce((furthest, index) => Math.max(furthest, index), -1)
   if (marker <= 0) return null
   return statePath.slice(0, marker)
 }

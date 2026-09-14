@@ -15,11 +15,11 @@
 // `agentStateSpec.events` table — no CLI vocabulary lives in this script, so
 // it never needs to change when a CLI's mapping does. Which events fire at all
 // is decided by the hook REGISTRATION the app writes from that same manifest
-// data. The agent's identity comes from the MULTICODE_* env the app injects at
+// data. The agent's identity comes from the SPRINTENGINE_* env the app injects at
 // launch.
 //
 // Socket address resolution — env FIRST, arg as fallback:
-//   MULTICODE_AGENT_STATE_SOCKET   Injected into the launch env by the app
+//   SPRINTENGINE_AGENT_STATE_SOCKET  Injected into the launch env by the app
 //                     instance that spawned this agent. Wins because it is
 //                     per-process and cannot be clobbered: the --socket arg
 //                     below lives in the repo's shared settings.local.json,
@@ -27,7 +27,7 @@
 //                     may point at another (possibly dead) instance's socket.
 //   --socket <path>   Agent-state socket (unix domain socket / named pipe)
 //                     baked in at install time. Fallback for sessions launched
-//                     outside the app (no MULTICODE_* env).
+//                     outside the app (no SPRINTENGINE_* env).
 //
 // The script ALWAYS exits 0 and never blocks meaningfully: a reporter failure
 // must never break or stall the agent.
@@ -35,6 +35,16 @@
 import { readFileSync, statSync } from 'node:fs'
 import { connect } from 'node:net'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
+
+// The app's own variables answer to two names. Everything was spelled
+// `MULTICODE_*` before the 2026-09-08 rename to SprintEngine Studio and is
+// spelled `SPRINTENGINE_*` now, and this file is a COPY installed into a
+// workspace: the app instance launching an agent may be either side of that
+// rename, and this copy may be either side of it too. New name first, old name
+// second. An empty value counts as unset here, matching the `||` fallbacks the
+// call sites already had.
+const studioEnv = (name) =>
+  process.env[name] || process.env[name.replace(/^SPRINTENGINE_/, 'MULTICODE_')] || ''
 
 const CONNECT_TIMEOUT_MS = 1000
 // Bounded retry: a transiently busy listener must not silently eat a frame —
@@ -977,10 +987,10 @@ async function writeFrame(socketPath, frames) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
-  const socketPath = process.env.MULTICODE_AGENT_STATE_SOCKET || args.socket
+  const socketPath = studioEnv('SPRINTENGINE_AGENT_STATE_SOCKET') || args.socket
   if (!socketPath) return
 
-  const agentId = process.env.MULTICODE_AGENT_ID
+  const agentId = studioEnv('SPRINTENGINE_AGENT_ID')
   if (!agentId) return
 
   const stdinRaw = await readStdin()
@@ -1008,7 +1018,7 @@ async function main() {
   const frame = {
     type: 'agent_state',
     agentId,
-    workspaceId: process.env.MULTICODE_WORKSPACE_ID ?? null,
+    workspaceId: studioEnv('SPRINTENGINE_WORKSPACE_ID') ?? null,
     // The CLI's own session identity, under its known spellings: session_id
     // (Claude/Codex/Kimi), sessionId (Grok), conversation_id (Cursor — its
     // chat id, which is what `--resume <chatId>` takes).

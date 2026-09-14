@@ -108,7 +108,7 @@ function harness(root: string, options: { triggerKind?: string } = {}) {
     // isolation it asks for — a run that cannot get a worktree is blocked, and
     // would never reach the launch this file reads the preset off.
     createRunWorktree: async (input) => ({
-      worktreePath: join(root, '.multi-code/automations/worktrees', input.runId),
+      worktreePath: join(root, '.sprintengine/automations/worktrees', input.runId),
       branch: `automations/${input.runId}`,
     }),
   })

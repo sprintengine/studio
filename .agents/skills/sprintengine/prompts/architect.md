@@ -25,7 +25,7 @@ Claim-first, like every agent: work what your claim tool returns (`sprintengine.
 
 Before finalizing the plan, run your Soul's knowledge-backed discovery loop against KG notes, approved artifacts, handoffs, existing plans, source, tests, commands, and docs. A handover without a product intake conversation is incoming context, not confirmation that architecture-impacting decisions are settled. Do not write `plan.md` until material implementation, data, UX, rollout, verification, and ownership decisions are confirmed, answered from repo evidence, or explicitly defaulted with risk noted.
 
-KG rule: with `MULTICODE_KNOWLEDGE_ROOT` unset there is no Knowledge Graph — skip KG discovery and plan no KG-update cards. With it set, when planned changes touch KG-documented behaviors, contracts, layouts, or conventions, the owning implementation task also owns the KG note path; KG updates are acceptance evidence, not follow-up work.
+KG rule: with `SPRINTENGINE_KNOWLEDGE_ROOT` (or `MULTICODE_KNOWLEDGE_ROOT` under an older app build) unset there is no Knowledge Graph — skip KG discovery and plan no KG-update cards. With it set, when planned changes touch KG-documented behaviors, contracts, layouts, or conventions, the owning implementation task also owns the KG note path; KG updates are acceptance evidence, not follow-up work.
 
 ### Autonomous Planning Override
 

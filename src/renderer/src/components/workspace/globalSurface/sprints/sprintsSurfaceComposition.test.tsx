@@ -67,7 +67,7 @@ function summary({
 }: Partial<RunSummary> & { teamSlug: string; root?: string }): RunSummary {
   const root = rootOverride ?? projectRoot
   return {
-    statePath: `${root}/.multi-code/sprintengine/${over.teamSlug}/run.yaml`,
+    statePath: `${root}/.sprintengine/sprintengine/${over.teamSlug}/run.yaml`,
     teamName: over.teamSlug,
     projectRoot: root,
     projectName: root.slice(root.lastIndexOf('/') + 1),
@@ -86,7 +86,7 @@ function summary({
 }
 
 function statePathOf(root: string, slug: string): string {
-  return `${root}/.multi-code/sprintengine/${slug}/run.yaml`
+  return `${root}/.sprintengine/sprintengine/${slug}/run.yaml`
 }
 
 type RepoSpec = {
@@ -122,13 +122,13 @@ function projection(input: {
         : {}),
       vcs: {
         mode: 'run_worktree',
-        worktreePath: '.multi-code/worktree',
+        worktreePath: '.sprintengine/worktree',
         branchName: `sprintengine/${input.name}`,
         baseRef: 'main',
         repos: input.repos.map((repo) => ({
           id: repo.id,
           root: repo.root,
-          worktreePath: `.multi-code/worktree/${repo.id}`,
+          worktreePath: `.sprintengine/worktree/${repo.id}`,
           branchName: `sprintengine/${input.name}`,
           baseRef: 'main',
           lastCommitSha: 'c0ffee',
@@ -1072,7 +1072,7 @@ async function main(): Promise<void> {
         sprintEngineContext: {
           teamName: 'wake-filter-sprint',
           teamSlug: 'wake-filter-sprint',
-          teamDirectoryPath: `${projectRoot}/.multi-code/sprintengine/wake-filter-sprint`,
+          teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/wake-filter-sprint`,
           statePath: doorStatePath,
         },
         sprintEngineState: normalizeSprintEngineProjection(
@@ -1181,12 +1181,12 @@ async function main(): Promise<void> {
     root3.unmount()
   })
   const windowsRoot = 'C:\\work\\multicode'
-  const windowsStatePath = `${windowsRoot}\\.multi-code\\sprintengine\\win-run\\run.yaml`
+  const windowsStatePath = `${windowsRoot}\\.sprintengine\\sprintengine\\win-run\\run.yaml`
   listed = [
     summary({
       teamSlug: 'other-run',
       root: windowsRoot,
-      statePath: `${windowsRoot}\\.multi-code\\sprintengine\\other-run\\run.yaml`,
+      statePath: `${windowsRoot}\\.sprintengine\\sprintengine\\other-run\\run.yaml`,
       runtimeState: 'needs_input',
       needsInputCount: 1,
     }),
@@ -1352,7 +1352,7 @@ async function main(): Promise<void> {
         sprintEngineContext: {
           teamName: 'roleless-resident',
           teamSlug: 'roleless-resident',
-          teamDirectoryPath: `${projectRoot}/.multi-code/sprintengine/roleless-resident`,
+          teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/roleless-resident`,
           statePath: residentRolelessStatePath,
         },
         sprintEngineState: normalizeSprintEngineProjection(

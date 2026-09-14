@@ -146,7 +146,7 @@ export type WebhookTriggerConfig = {
 }
 
 // Sprint-landed trigger wire config (MC-1438). `team` is the watched run's team
-// directory name under `.multi-code/sprintengine/`. Shared so the main-process
+// directory name under `.sprintengine/sprintengine/`. Shared so the main-process
 // provider and the renderer editor build/parse it typed.
 export type SprintEngineRunLandedTriggerConfig = {
   kind: typeof SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
@@ -156,7 +156,7 @@ export type SprintEngineRunLandedTriggerConfig = {
 // Run-event trigger wire configs (MC-1656). Both watch one team's `projection.
 // json` and fire on a run-state predicate — `run-needs-input` per blocked task,
 // `run-completed` once per finished run. `team` is the watched run's team
-// directory name under `.multi-code/sprintengine/`; `label` is an optional
+// directory name under `.sprintengine/sprintengine/`; `label` is an optional
 // display note. Shared so the main-process providers and the renderer editor
 // build/parse them typed.
 export type SprintEngineRunNeedsInputTriggerConfig = {
@@ -556,7 +556,7 @@ export function withoutWriteUpOnlyMarker(definition: AutomationDefinition): Auto
 
 export type AutomationsInstanceEntry = {
   /**
-   * Project root the automation is stored under (its `.multi-code/automations/`
+   * Project root the automation is stored under (its `.sprintengine/automations/`
    * lives here). This is the `workspaceRoot` the {@link AUTOMATIONS_RUNS_LIST_CHANNEL}
    * read takes, so the surface can lazily load an automation's recent runs.
    */

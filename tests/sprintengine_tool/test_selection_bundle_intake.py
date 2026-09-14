@@ -66,7 +66,7 @@ def _selection_workspace(tmp_path: Path):
     _write(root / PLAIN_EXPORT, "# Export CSV\n")
     _write(root / ORPHAN_CHILD, "---\nepic: some-other-epic\n---\n# Orphan tweak\n")
     _write(root / MOCKUP, "<h1>Login</h1>\n")
-    state_path = root / ".multi-code" / "sprintengine" / "mixed-selection" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "mixed-selection" / "run.yaml"
     return root, state_path
 
 
@@ -281,7 +281,7 @@ def test_a_one_epic_selection_still_arrives_as_epic_and_the_gate_is_byte_identic
     epic = _write(root / "backlog" / "epics" / "auth-revamp.md", "# Auth revamp\n\nEpic design.\n")
     child_a = _write(root / "backlog" / "login-form.md", "---\nepic: auth-revamp\n---\n# Login form\n")
     child_b = _write(root / "backlog" / "session-store.md", "---\nepic: auth-revamp\n---\n# Session store\n")
-    state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "auth-revamp" / "run.yaml"
     cli = SwarmCli(state_path, cwd=root)
     cli.run(
         "handover",

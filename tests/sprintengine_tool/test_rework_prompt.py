@@ -57,7 +57,7 @@ def reopened_task(comments: list[dict]) -> dict:
 
 
 def state_path(tmp_path) -> Path:
-    return tmp_path / ".multi-code" / "sprintengine" / "rework-team" / "run.yaml"
+    return tmp_path / ".sprintengine" / "sprintengine" / "rework-team" / "run.yaml"
 
 
 def test_rework_prompt_hands_the_owner_its_open_feedback_newest_first(tmp_path) -> None:

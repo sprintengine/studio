@@ -237,7 +237,7 @@ export class MulticodeAccountClient {
   // Resume whatever session is on disk: the provider the last sign-in used
   // first, then the other. Under an operator override only that provider is
   // tried, so a pinned desktop never silently resumes the other issuer's
-  // session — which is what makes `MULTICODE_IDENTITY_PROVIDER=multiauth`
+  // session — which is what makes `SPRINTENGINE_IDENTITY_PROVIDER=multiauth`
   // after a Clerk sign-in resume the RETAINED Multiauth token (the rollback).
   resumeStoredSession(): Promise<TokenSet> {
     if (this.resumeInFlight) return this.resumeInFlight

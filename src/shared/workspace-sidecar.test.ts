@@ -4,7 +4,12 @@ import {
   SIDECAR_DIR_NAME,
   SIDECAR_DIR_NAMES,
   SIDECAR_DIR_PATTERN_SOURCE,
+  forgetSidecarDirName,
   isSidecarDirName,
+  knownSidecarDirName,
+  rememberSidecarDirName,
+  setUnknownSidecarDirNameResolver,
+  sidecarCandidates,
   sidecarDirNameOfPath,
   sidecarFor,
   sidecarPath,
@@ -88,6 +93,59 @@ run('the sidecar prefix comes off under either name, and only when it is there',
   assert.deepEqual(withoutSidecarPrefix(['.sprintengine']), [])
   assert.equal(withoutSidecarPrefix(['plan.md']), null)
   assert.equal(withoutSidecarPrefix([]), null)
+})
+
+// The registry is how one process's answer reaches every path builder in it,
+// including the ones that cannot look at a disk.
+run('a root nobody has resolved reads as the current name', () => {
+  forgetSidecarDirName()
+  assert.equal(knownSidecarDirName(WORKSPACE), SIDECAR_DIR_NAME)
+  assert.equal(sidecarFor(WORKSPACE).dirName, SIDECAR_DIR_NAME)
+})
+
+run('a recorded root is read back under either spelling of its path', () => {
+  forgetSidecarDirName()
+  rememberSidecarDirName(WORKSPACE, LEGACY_SIDECAR_DIR_NAME)
+  assert.equal(knownSidecarDirName(WORKSPACE), LEGACY_SIDECAR_DIR_NAME)
+  assert.equal(knownSidecarDirName(`${WORKSPACE}/`), LEGACY_SIDECAR_DIR_NAME)
+  assert.equal(sidecarFor(WORKSPACE).root, `${WORKSPACE}/.multi-code`)
+  forgetSidecarDirName(WORKSPACE)
+  assert.equal(knownSidecarDirName(WORKSPACE), SIDECAR_DIR_NAME)
+})
+
+// The main process installs a disk lookup here, so a path built for a workspace
+// nothing has resolved yet still lands in that workspace's own sidecar instead
+// of creating a second one beside it.
+run('an unresolved root falls through to the installed resolver', () => {
+  forgetSidecarDirName()
+  const asked: string[] = []
+  setUnknownSidecarDirNameResolver((root) => {
+    asked.push(root)
+    return LEGACY_SIDECAR_DIR_NAME
+  })
+  try {
+    assert.equal(knownSidecarDirName(WORKSPACE), LEGACY_SIDECAR_DIR_NAME)
+    assert.deepEqual(asked, [WORKSPACE])
+    // A recorded answer wins over it, so installing one costs nothing per call.
+    rememberSidecarDirName(WORKSPACE, SIDECAR_DIR_NAME)
+    assert.equal(knownSidecarDirName(WORKSPACE), SIDECAR_DIR_NAME)
+    assert.equal(asked.length, 1)
+  } finally {
+    setUnknownSidecarDirNameResolver(null)
+    forgetSidecarDirName()
+  }
+})
+
+// The order is the part the two processes must not disagree on: the main process
+// stats these in turn, the renderer asks over IPC in the same turn.
+run('the candidates are the current name first, then the legacy one', () => {
+  assert.deepEqual(
+    sidecarCandidates(WORKSPACE).map((candidate) => [candidate.dirName, candidate.root]),
+    [
+      [SIDECAR_DIR_NAME, `${WORKSPACE}/.sprintengine`],
+      [LEGACY_SIDECAR_DIR_NAME, `${WORKSPACE}/.multi-code`],
+    ],
+  )
 })
 
 function main(): void {

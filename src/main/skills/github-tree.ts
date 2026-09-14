@@ -16,6 +16,7 @@ import {
   parseMarketplaceExtraHosts,
 } from '../../shared/marketplace/source-policy'
 import type { SkillTreeEntry } from './scan'
+import { readStudioEnv } from '../../shared/studio-env'
 
 export type SkillFetch = (url: string, init: RequestInit) => Promise<Response>
 
@@ -346,7 +347,7 @@ function parseAllowedUrl(value: string): URL {
     throw new SkillFetchError('Skill source URL is invalid.')
   }
   if (url.protocol !== 'https:') throw new SkillFetchError('Skill source URL must use HTTPS.')
-  const extraHosts = parseMarketplaceExtraHosts(process.env[MARKETPLACE_EXTRA_HOSTS_ENV])
+  const extraHosts = parseMarketplaceExtraHosts(readStudioEnv(MARKETPLACE_EXTRA_HOSTS_ENV))
   if (!isMarketplaceSourceHostAllowed(url.hostname, extraHosts)) {
     throw new SkillFetchError(`Skill source host "${url.hostname}" is not on the allowlist.`)
   }

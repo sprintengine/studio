@@ -25,8 +25,10 @@ start without it.
 `npm run dev` starts the Electron main process and the renderer dev server
 together. It takes port 5173 by default; if that port is busy it moves to the
 next free one and gives that instance its own user-data directory, so you can
-run more than one dev build side by side. Set `MULTICODE_RENDERER_PORT` to pin
-a port, or `MULTICODE_USER_DATA_DIR` to pin a profile.
+run more than one dev build side by side. Set `SPRINTENGINE_RENDERER_PORT` to
+pin a port, or `SPRINTENGINE_USER_DATA_DIR` to pin a profile. Every variable the
+app owns was spelled `MULTICODE_*` before the 2026-09-08 rename and is still
+read under that name, so an old export in your shell profile keeps working.
 
 Some of the app's services are Python, and the full verification chain spawns
 them for real. If you intend to run `npm run verify:app` or the Python tests,

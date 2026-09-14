@@ -43,7 +43,7 @@ def _init_git_repo(root: Path) -> None:
 
 
 def _worktree_team(workspace: Path, name: str) -> SwarmTeamFixture:
-    team_dir = workspace / ".multi-code" / "sprintengine" / name
+    team_dir = workspace / ".sprintengine" / "sprintengine" / name
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state(name, []))
     return SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))
@@ -105,7 +105,7 @@ def test_declared_repo_gets_its_own_worktree_on_the_run_branch(tmp_path) -> None
     repos = payload["vcs"]["repos"]
     assert [repo["id"] for repo in repos] == ["primary", "mobile"]
     assert repos[1]["root"] == "../multicode-mobile"
-    assert repos[1]["worktreePath"] == ".multi-code/sprintengine/alpha/worktree-mobile"
+    assert repos[1]["worktreePath"] == ".sprintengine/sprintengine/alpha/worktree-mobile"
     assert repos[1]["branchName"] == "sprintengine/alpha"
 
     # The sibling's worktree lives under the PRIMARY run dir (one anchor) but is a
@@ -159,7 +159,7 @@ def test_single_repo_run_is_unchanged_by_the_repo_list(tmp_path) -> None:
     payload = fixture.cli.run("init", "--goal", "One project", "--use-worktrees", "true")
 
     vcs = payload["vcs"]
-    assert vcs["worktreePath"] == ".multi-code/sprintengine/alpha/worktree"
+    assert vcs["worktreePath"] == ".sprintengine/sprintengine/alpha/worktree"
     assert vcs["branchName"] == "sprintengine/alpha"
     assert vcs["status"] == "ready"
     assert [repo["id"] for repo in vcs["repos"]] == ["primary"]

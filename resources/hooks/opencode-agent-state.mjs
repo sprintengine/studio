@@ -10,8 +10,8 @@
 // socket that the .claude/.codex reporter writes, so the runtime ingestion is
 // unchanged.
 //
-// Agent identity comes from the MULTICODE_* env the app injects at launch. The
-// socket address prefers MULTICODE_AGENT_STATE_SOCKET from that same env — it
+// Agent identity comes from the SPRINTENGINE_* env the app injects at launch. The
+// socket address prefers SPRINTENGINE_AGENT_STATE_SOCKET from that same env — it
 // is per-process, so the agent always reports to the instance that launched it.
 // The install-time baked path (the quoted token below, replaced with the live
 // path) is the fallback for sessions launched outside the app: the baked copy
@@ -29,12 +29,23 @@
 import { connect } from 'node:net'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 
+// The app's own variables answer to two names. Everything was spelled
+// `MULTICODE_*` before the 2026-09-08 rename to SprintEngine Studio and is
+// spelled `SPRINTENGINE_*` now, and this file is a COPY installed into a
+// workspace: the app instance launching an agent may be either side of that
+// rename, and this copy may be either side of it too. New name first, old name
+// second. An empty value counts as unset here, matching the `||` fallbacks the
+// call sites already had.
+const studioEnv = (name) =>
+  process.env[name] || process.env[name.replace(/^SPRINTENGINE_/, 'MULTICODE_')] || ''
+
+
 // Replaced with the live socket path (as a JSON string literal) at install time.
 // Left as the raw token only if the file was copied without substitution.
-const BAKED_SOCKET = '__MULTICODE_AGENT_STATE_SOCKET__'
+const BAKED_SOCKET = '__SPRINTENGINE_AGENT_STATE_SOCKET__'
 // Reconstructed by concatenation so the install-time replacer (a plain replace
 // of the quoted token) can never rewrite this guard value.
-const RAW_TOKEN = '__MULTICODE' + '_AGENT_STATE_SOCKET__'
+const RAW_TOKEN = '__SPRINTENGINE' + '_AGENT_STATE_SOCKET__'
 const CONNECT_TIMEOUT_MS = 1000
 // Bounded retry, mirroring multicode-agent-state.mjs: a transiently busy
 // listener must not eat a frame (a lost final `idle` parks the agent as
@@ -46,7 +57,7 @@ const RETRY_BACKOFF_MS = 200
 const TOTAL_DEADLINE_MS = 2000
 
 function resolveSocketPath() {
-  if (process.env.MULTICODE_AGENT_STATE_SOCKET) return process.env.MULTICODE_AGENT_STATE_SOCKET
+  if (studioEnv('SPRINTENGINE_AGENT_STATE_SOCKET')) return studioEnv('SPRINTENGINE_AGENT_STATE_SOCKET')
   if (BAKED_SOCKET && BAKED_SOCKET !== RAW_TOKEN) return BAKED_SOCKET
   return null
 }
@@ -547,12 +558,12 @@ async function report(phase, event, sessionId, fileChanges = [], pullRequest = n
   lastEvent = event
   const socketPath = resolveSocketPath()
   if (!socketPath) return
-  const agentId = process.env.MULTICODE_AGENT_ID
+  const agentId = studioEnv('SPRINTENGINE_AGENT_ID')
   if (!agentId) return
   const frame = {
     type: 'agent_state',
     agentId,
-    workspaceId: process.env.MULTICODE_WORKSPACE_ID || null,
+    workspaceId: studioEnv('SPRINTENGINE_WORKSPACE_ID') || null,
     sessionId: lockedSessionId,
     phase,
     event: event || null,

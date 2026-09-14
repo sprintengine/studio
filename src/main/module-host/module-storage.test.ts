@@ -36,12 +36,12 @@ async function main(): Promise<void> {
     assert.deepEqual(await storage.get('calendar', { key: 'prefs' }), { ok: true, value: globalValue, found: true })
     assert.equal(existsSync(join(userData, 'module-storage', 'calendar', 'prefs.json')), true)
 
-    // Workspace-scoped keys land in the workspace's .multi-code/modules/<id>/.
+    // Workspace-scoped keys land in the workspace's .sprintengine/modules/<id>/.
     assert.deepEqual(
       await storage.set('calendar', { key: 'events', value: [{ id: 'ev-1' }], workspaceRoot }),
       { ok: true }
     )
-    assert.equal(existsSync(join(workspaceRoot, '.multi-code', 'modules', 'calendar', 'events.json')), true)
+    assert.equal(existsSync(join(workspaceRoot, '.sprintengine', 'modules', 'calendar', 'events.json')), true)
     assert.deepEqual(await storage.get('calendar', { key: 'events', workspaceRoot }), {
       ok: true,
       value: [{ id: 'ev-1' }],

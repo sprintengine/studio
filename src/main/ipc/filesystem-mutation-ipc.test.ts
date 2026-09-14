@@ -19,7 +19,7 @@ function createIpcMain(): { handle(channel: string, handler: Handler): void; han
 
 async function main(): Promise<void> {
   const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-fs-mutation-'))
-  const guardedStatePath = join(tempRoot, '.multi-code', 'sprintengine', 'team', 'state.yaml')
+  const guardedStatePath = join(tempRoot, '.sprintengine', 'sprintengine', 'team', 'state.yaml')
   const guardCalls: string[] = []
   const ipcMain = createIpcMain()
 

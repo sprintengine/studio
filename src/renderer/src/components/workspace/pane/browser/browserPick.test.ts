@@ -29,7 +29,7 @@ run('the element block carries url, selector, component chain, source, html, sty
       components: ['SignInButton', 'SignInForm'],
       source: 'src/components/SignIn.tsx:42:7',
     },
-    '/repo/.multi-code/browser/element-localhost-5173-2026.png',
+    '/repo/.sprintengine/browser/element-localhost-5173-2026.png',
   )
   assert.equal(
     block,
@@ -38,7 +38,7 @@ run('the element block carries url, selector, component chain, source, html, sty
       '<html><button class="btn-primary" type="submit">Sign in</button></html>',
       '<styles>display:inline-flex; color:rgb(255, 255, 255)</styles>',
       '</browser_element>',
-      'Screenshot: /repo/.multi-code/browser/element-localhost-5173-2026.png',
+      'Screenshot: /repo/.sprintengine/browser/element-localhost-5173-2026.png',
     ].join('\n'),
   )
 })

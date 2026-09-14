@@ -13,6 +13,7 @@ import { collectDanglingMockups } from '../utils/backlogMockups'
 import { formatBacklogDisplayId } from '../../../shared/backlog/item-id'
 import { normalizeProjectRootKey } from '../utils/projectKnowledge'
 import type { BacklogItemRecordInput } from '../../../shared/electron-api'
+import { knownSidecarDirName, sidecarRelativePath } from '../../../shared/workspace-sidecar'
 
 // Project-folder-keyed shared Backlog scan, modeled on the shared-subscription
 // pattern in useGitStatus: workspaces are grouped by folder, so several
@@ -96,9 +97,9 @@ async function defaultBacklogScanRunner(folderPath: string): Promise<BacklogScan
       return null
     })
   let result: BacklogScanResult
-  if (ensured?.ok) result = hydrateBacklogScanResult(scanned, ensured.store)
-  else if (ensured && !ensured.ok) result = mergeMetadataError(scanned, ensured.message)
-  else if (metadataError) result = mergeMetadataError(scanned, metadataError)
+  if (ensured?.ok) result = hydrateBacklogScanResult(scanned, ensured.store, folderPath)
+  else if (ensured && !ensured.ok) result = mergeMetadataError(scanned, folderPath, ensured.message)
+  else if (metadataError) result = mergeMetadataError(scanned, folderPath, metadataError)
   else result = scanned
   return annotateBacklogDanglingMockups(folderPath, await allocateBacklogItemIds(folderPath, result))
 }
@@ -170,8 +171,9 @@ function emit(subscription: BacklogScanSubscription): void {
   subscription.subscribers.forEach((subscriber) => subscriber(snapshot))
 }
 
-function mergeMetadataError(scan: BacklogScanResult, message: string): BacklogScanResult {
-  const errors = [...scan.errors, { relativePath: '.multi-code/backlog/items.json', message }]
+function mergeMetadataError(scan: BacklogScanResult, folderPath: string, message: string): BacklogScanResult {
+  const relativePath = sidecarRelativePath(knownSidecarDirName(folderPath), 'backlog', 'items.json')
+  const errors = [...scan.errors, { relativePath, message }]
   return scan.items.length > 0
     ? { state: 'partial', items: scan.items, errors }
     : { state: 'error', items: [], errors }
@@ -332,7 +334,7 @@ export function subscribeBacklogScan(
 // Re-scan one project's shared entry imperatively. Exported for cross-project
 // consumers that hold no single `folderPath` hook instance (the Backlog door
 // mutates N projects and must refresh whichever one it just wrote): sidecar-only
-// writes — star, highlight, triage — land in `.multi-code/backlog/items.json`,
+// writes — star, highlight, triage — land in `.sprintengine/backlog/items.json`,
 // which sits OUTSIDE the watched `backlog/` directory and therefore never trips
 // the filesystem watcher, so an explicit refresh is the only way those mutations
 // become visible. Coalesces with any in-flight scan, exactly like the hook's own

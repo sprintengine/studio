@@ -123,10 +123,11 @@ module.exports = {
     isPackaged: false,
     // A per-process scratch directory, so a suite that registers an IPC surface
     // keyed on `userData` (the marketplace install receipts) writes somewhere
-    // disposable instead of the real profile. `MULTICODE_USER_DATA_DIR` wins
-    // when a suite wants to look at what was written.
+    // disposable instead of the real profile. `SPRINTENGINE_USER_DATA_DIR` wins
+    // when a suite wants to look at what was written, under either of its names
+    // because this stub cannot import the TypeScript seam that reconciles them.
     getPath(name) {
-      const override = process.env.MULTICODE_USER_DATA_DIR
+      const override = process.env.SPRINTENGINE_USER_DATA_DIR ?? process.env.MULTICODE_USER_DATA_DIR
       const base = override && override.trim().length > 0
         ? override.trim()
         : require('node:path').join(require('node:os').tmpdir(), `multicode-electron-stub-${process.pid}`)

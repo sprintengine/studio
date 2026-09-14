@@ -15,7 +15,7 @@ async function main(): Promise<void> {
     settings: { syncEnabled: false, servers: {} },
     clients: ['codex'],
     managedSprintEngine: {
-      statePath: '/workspace/.multi-code/sprintengine/team/run.yaml',
+      statePath: '/workspace/.sprintengine/sprintengine/team/run.yaml',
       workspaceRoot: '/workspace',
       allowedRoots: ['/workspace'],
       registryRoots: [],

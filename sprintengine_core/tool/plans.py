@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 from sprintengine_core.tool.artifacts import *  # noqa: F403,F401
 from sprintengine_core.tool.common import path_is_relative_to, unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
-from sprintengine_core.tool.paths import MULTICODE_DIR_NAME, SPRINTENGINE_DIR_NAME, now_iso
+from sprintengine_core.tool.paths import SPRINTENGINE_DIR_NAME, is_sidecar_dir_name, now_iso
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 from sprintengine_core.tool.tasks import *  # noqa: F403,F401
 
@@ -728,7 +728,7 @@ def workspace_root_for_state_path(state_path: Path) -> Path:
     team_dir = state_path.parent.resolve()
     if (
         team_dir.parent.name == SPRINTENGINE_DIR_NAME
-        and team_dir.parent.parent.name == MULTICODE_DIR_NAME
+        and is_sidecar_dir_name(team_dir.parent.parent.name)
     ):
         return team_dir.parent.parent.parent.resolve()
     return team_dir
@@ -1251,8 +1251,8 @@ def plan_path_for_state(state_path: Path) -> Path:
 
 def plan_prompt_path(state_path: Path) -> str:
     team_dir = state_path.parent
-    if team_dir.parent.name == SPRINTENGINE_DIR_NAME and team_dir.parent.parent.name == MULTICODE_DIR_NAME:
-        return f"{MULTICODE_DIR_NAME}/{SPRINTENGINE_DIR_NAME}/{team_dir.name}/plan.md"
+    if team_dir.parent.name == SPRINTENGINE_DIR_NAME and is_sidecar_dir_name(team_dir.parent.parent.name):
+        return f"{team_dir.parent.parent.name}/{SPRINTENGINE_DIR_NAME}/{team_dir.name}/plan.md"
     return "plan.md"
 
 def default_swarm_name_for_state(state_path: Path) -> str:

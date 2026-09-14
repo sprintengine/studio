@@ -152,7 +152,7 @@ def read_state(state_path: Path) -> dict[str, Any]:
 
 
 def create_team(tmp_path: Path, name: str, tasks: list[dict[str, Any]]) -> SwarmTeamFixture:
-    team_dir = tmp_path / ".multi-code" / "sprintengine" / name
+    team_dir = tmp_path / ".sprintengine" / "sprintengine" / name
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state(name, tasks))
     return SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path))
@@ -160,7 +160,7 @@ def create_team(tmp_path: Path, name: str, tasks: list[dict[str, Any]]) -> Swarm
 
 def create_workspace_team(tmp_path: Path, workspace_name: str, name: str, tasks: list[dict[str, Any]]) -> SwarmTeamFixture:
     workspace = tmp_path / workspace_name
-    team_dir = workspace / ".multi-code" / "sprintengine" / name
+    team_dir = workspace / ".sprintengine" / "sprintengine" / name
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state(name, tasks))
     return SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))

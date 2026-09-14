@@ -28,7 +28,7 @@ import {
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { workspaceFolderKey } from '../../../store/slices/workspacesSlice'
 import {
-  BACKLOG_CONFIG_RELATIVE_PATH,
+  backlogConfigRelativePath,
   backlogItemSlugFromPath,
   resolveBacklogDisplayKey,
   type BacklogItem,
@@ -100,7 +100,7 @@ export function useSprintEngineEpicBacklog(input: {
     void (async () => {
       let raw: string | null = null
       try {
-        raw = await window.api.readfile(joinFilePath(folderPath, BACKLOG_CONFIG_RELATIVE_PATH))
+        raw = await window.api.readfile(joinFilePath(folderPath, backlogConfigRelativePath(folderPath)))
       } catch {
         raw = null
       }

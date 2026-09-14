@@ -50,8 +50,8 @@ function sprintEngineContext(): NonNullable<Workspace['sprintEngineContext']> {
   return {
     teamName: 'Run',
     teamSlug: 'run',
-    teamDirectoryPath: '/workspace/.multi-code/sprintengine/run',
-    statePath: '/workspace/.multi-code/sprintengine/run/run.yaml',
+    teamDirectoryPath: '/workspace/.sprintengine/sprintengine/run',
+    statePath: '/workspace/.sprintengine/sprintengine/run/run.yaml',
   }
 }
 

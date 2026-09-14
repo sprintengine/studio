@@ -15,7 +15,7 @@ function run(name: string, body: () => void): void {
 
 const projectRoot = '/work/multicode'
 const teamSlug = 'july-hardening'
-const statePath = `${projectRoot}/.multi-code/sprintengine/${teamSlug}/run.yaml`
+const statePath = `${projectRoot}/.sprintengine/sprintengine/${teamSlug}/run.yaml`
 
 // A projection as `sprintengine:projection:read` hands it back, normalized the
 // same way the run index normalizes one before it derives a summary — so these
@@ -42,14 +42,14 @@ function task(id: string, over: Record<string, unknown> = {}): Record<string, un
 
 const vcs = {
   mode: 'run_worktree',
-  worktreePath: '.multi-code/worktrees/july-hardening',
+  worktreePath: '.sprintengine/worktrees/july-hardening',
   branchName: 'sprintengine/july-hardening',
   baseRef: 'main',
   repos: [
     {
       id: 'primary',
       root: '.',
-      worktreePath: '.multi-code/worktrees/july-hardening',
+      worktreePath: '.sprintengine/worktrees/july-hardening',
       branchName: 'sprintengine/july-hardening',
     },
   ],
@@ -65,7 +65,7 @@ run('the branch and worktree come off the run vcs block, worktree left relative'
   assert.equal(summary.branchName, 'sprintengine/july-hardening')
   // Project-root-RELATIVE, exactly as recorded — never joined onto projectRoot,
   // which would make this module reach for node's path.
-  assert.equal(summary.worktreePath, '.multi-code/worktrees/july-hardening')
+  assert.equal(summary.worktreePath, '.sprintengine/worktrees/july-hardening')
   assert.ok(!summary.worktreePath?.startsWith(projectRoot), 'worktree stays relative')
 })
 

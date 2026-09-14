@@ -330,9 +330,9 @@ function testTheZshShimHandsEveryStageBackToTheUsersOwnFiles(): void {
       shim.includes(`if [[ -f "$ZDOTDIR/${fileName}" ]]; then source "$ZDOTDIR/${fileName}"; fi`),
       `${fileName} sources the user's own copy — zsh takes the WHOLE set from $ZDOTDIR, so a missing shim silently drops that file`,
     )
-    assert.ok(shim.includes('ZDOTDIR=${MULTICODE_USER_ZDOTDIR:-$HOME}'), `${fileName} runs it with their own $ZDOTDIR`)
+    assert.ok(shim.includes('ZDOTDIR=${SPRINTENGINE_USER_ZDOTDIR:-$HOME}'), `${fileName} runs it with their own $ZDOTDIR`)
     assert.ok(
-      shim.includes('if [[ $ZDOTDIR == "$MULTICODE_ZDOTDIR_SELF" ]]; then ZDOTDIR=$HOME; fi'),
+      shim.includes('if [[ $ZDOTDIR == "$SPRINTENGINE_ZDOTDIR_SELF" ]]; then ZDOTDIR=$HOME; fi'),
       `${fileName} refuses to source itself if a relaunch pointed us at ourselves`,
     )
   }
@@ -349,7 +349,7 @@ function testTheZshShimHandsEveryStageBackToTheUsersOwnFiles(): void {
     zshrc.includes('  precmd_functions+=(__multicode_osc7_cwd)\nfi\n__multicode_osc7_cwd\n'),
     'the launch directory is reported before the first prompt — the call still follows its own registration',
   )
-  assert.ok(zshrc.includes('ZDOTDIR=$MULTICODE_USER_ZDOTDIR'), 'the shell is left holding its own $ZDOTDIR')
+  assert.ok(zshrc.includes('ZDOTDIR=$SPRINTENGINE_USER_ZDOTDIR'), 'the shell is left holding its own $ZDOTDIR')
   for (const fileName of ['.zshenv', '.zprofile', '.zlogin'] as const) {
     assert.ok(
       !buildShellIntegrationZshShim(fileName).includes('precmd_functions'),
@@ -370,7 +370,7 @@ function testOnlyTheShellsWeCanReachThroughEnvAreArmed(): void {
   const zsh = buildShellIntegrationSetup('zsh', '/profile/shell-integration/zsh')
   assert.equal(
     zsh,
-    'if [ "${ZDOTDIR:-}" != \'/profile/shell-integration/zsh\' ]; then export MULTICODE_USER_ZDOTDIR="${ZDOTDIR:-$HOME}"; fi; '
+    'if [ "${ZDOTDIR:-}" != \'/profile/shell-integration/zsh\' ]; then export SPRINTENGINE_USER_ZDOTDIR="${ZDOTDIR:-$HOME}"; fi; '
     + "export ZDOTDIR='/profile/shell-integration/zsh'",
   )
 
@@ -510,7 +510,7 @@ function testTheMarksAreArmedForShellsOnly(): void {
 // The right side of `==` inside `[[ ]]` is a GLOB unless it is quoted, and under
 // `setopt globsubst` — which a user's own .zshenv can set, and which is in
 // effect by the time three of the four shim stages reach this line — an
-// unquoted `$MULTICODE_ZDOTDIR_SELF` is a pattern rather than a string. The
+// unquoted `$SPRINTENGINE_ZDOTDIR_SELF` is a pattern rather than a string. The
 // shim path is `~/Library/Application Support/<productName>/…`, so a single
 // `[`, `]`, `*`, `?`, `(` or `)` anywhere in it made the self-reference guard
 // either miss (the shim sources itself) or fire against a directory that merely
@@ -541,11 +541,11 @@ function testBashKeepsTheUsersOwnPromptCommand(): void {
 
   assert.ok(
     bash.startsWith('case "${PROMPT_COMMAND:-}" in *__multicode_status*) ;; *) '
-      + 'MULTICODE_USER_PROMPT_COMMAND=${PROMPT_COMMAND:-}; export MULTICODE_USER_PROMPT_COMMAND ;; esac; '),
+      + 'SPRINTENGINE_USER_PROMPT_COMMAND=${PROMPT_COMMAND:-}; export SPRINTENGINE_USER_PROMPT_COMMAND ;; esac; '),
     'the inherited value is captured before it is replaced',
   )
   assert.ok(
-    bash.includes('${MULTICODE_USER_PROMPT_COMMAND:+"; $MULTICODE_USER_PROMPT_COMMAND"}'),
+    bash.includes('${SPRINTENGINE_USER_PROMPT_COMMAND:+"; $SPRINTENGINE_USER_PROMPT_COMMAND"}'),
     'and run BEHIND ours — the emitter puts $? back last precisely so it can be',
   )
   assert.ok(

@@ -1,6 +1,6 @@
 import { constants } from 'fs'
 import { access, stat } from 'fs/promises'
-import { basename, dirname, isAbsolute, join, resolve } from 'path'
+import { basename, dirname, isAbsolute, resolve } from 'path'
 import { readSprintEngineSnapshot } from './snapshot'
 import { MobileSprintEngineCommandError } from './command-error'
 import { isPathInsideOrEqual, isSafePathSegment } from './path-utils'
@@ -9,6 +9,7 @@ import {
   validateSprintEngineStatePath,
   type ValidSprintEngineStatePath,
 } from './state-path'
+import { workspaceSidecarPath } from '../../workspace-sidecar'
 
 export async function resolveStateForSprintEngine(input: {
   sprintEngineId: string
@@ -23,7 +24,7 @@ export async function resolveStateForSprintEngine(input: {
 
   const statePath = statePaths.length > 0
     ? statePaths.find((candidate) => basename(dirname(candidate)) === sprintEngineId)
-    : join(workspaceRoot, '.multi-code', 'sprintengine', sprintEngineId, 'run.yaml')
+    : workspaceSidecarPath(workspaceRoot, 'sprintengine', sprintEngineId, 'run.yaml')
 
   if (!statePath) {
     throw new MobileSprintEngineCommandError('sprintengine_not_found', 'Requested sprintengine is not available to mobile control.', false)

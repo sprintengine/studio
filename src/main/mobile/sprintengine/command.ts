@@ -75,6 +75,7 @@ import type {
   MobileControlCommandType,
   MobileControlError,
 } from '../../../shared/mobile-control/protocol'
+import { workspaceSidecarPath } from '../../workspace-sidecar'
 
 export type { MobileControlCommand, MobileControlCommandType, MobileControlError }
 
@@ -339,7 +340,7 @@ async function isGitRepositoryRoot(workspaceRoot: string): Promise<boolean> {
 // Roll back a run store this command just bootstrapped, after a later step failed.
 //
 // Deliberately narrow: it removes the team directory only when the path really is
-// `<workspaceRoot>/.multi-code/sprintengine/<team>/run.yaml` — the layout the
+// `<workspaceRoot>/.sprintengine/sprintengine/<team>/run.yaml` — the layout the
 // engine just wrote — so a malformed or out-of-tree state path can never turn this
 // into an arbitrary recursive delete. Best-effort: a failure to clean up must not
 // mask the original error the caller is about to report.
@@ -359,7 +360,7 @@ async function discardBootstrappedRunStore(workspaceRoot: string, statePath: str
     realpath(resolve(workspaceRoot)).catch(() => resolve(workspaceRoot)),
     realpath(resolve(statePath)).catch(() => resolve(statePath)),
   ])
-  const expected = join(realRoot, '.multi-code', 'sprintengine', teamSlug, 'run.yaml')
+  const expected = workspaceSidecarPath(realRoot, 'sprintengine', teamSlug, 'run.yaml')
   if (realState !== expected) return
   try {
     await rm(dirname(expected), { force: true, recursive: true })

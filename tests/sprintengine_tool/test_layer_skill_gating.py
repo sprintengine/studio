@@ -74,7 +74,7 @@ def test_cli_join_prompt_gates_backlog_skill_by_run_source(tmp_path, monkeypatch
 
 def test_http_registration_knowledge_root_is_tri_state(tmp_path) -> None:
     registry = HttpMcpRunRegistry(ActorContext(id="op", role="user", authenticated=True, mcp_authorized=True))
-    team = tmp_path / ".multi-code" / "sprintengine" / "reg"
+    team = tmp_path / ".sprintengine" / "sprintengine" / "reg"
     team.mkdir(parents=True)
     state_path = team / "run.yaml"
     state_path.write_text("{}", encoding="utf-8")

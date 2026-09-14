@@ -58,7 +58,7 @@ def _init_epic_run(
     epic_file: str = EPIC_FILE,
 ) -> tuple[SwarmCli, Path]:
     _write(root / EPIC, epic_file + "\nEpic design.\n")
-    state_path = root / ".multi-code" / "sprintengine" / name / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / name / "run.yaml"
     cli = SwarmCli(state_path, cwd=root)
     cli.run(
         "init",
@@ -131,7 +131,7 @@ def test_the_closed_children_are_reported_not_silently_dropped(tmp_path) -> None
         _child(root, "dead-idea", "Dead idea", status="archived"),
     ]
     _write(root / EPIC, EPIC_FILE)
-    state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "auth-revamp" / "run.yaml"
     cli = SwarmCli(state_path, cwd=root)
     payload = cli.run(
         "init",
@@ -201,7 +201,7 @@ def test_a_completed_outside_dependency_yields_no_edge_and_no_warning(tmp_path) 
     )
     children = [_child(root, "login-form", "Login form", depends_on="old-groundwork")]
     _write(root / EPIC, EPIC_FILE)
-    state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "auth-revamp" / "run.yaml"
     payload = SwarmCli(state_path, cwd=root).run(
         "init",
         "--name", "auth-revamp",
@@ -227,7 +227,7 @@ def test_an_open_outside_dependency_warns_but_never_blocks_creation(tmp_path) ->
     )
     children = [_child(root, "login-form", "Login form", depends_on="unfinished-groundwork")]
     _write(root / EPIC, EPIC_FILE)
-    state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "auth-revamp" / "run.yaml"
     payload = SwarmCli(state_path, cwd=root).run(
         "init",
         "--name", "auth-revamp",
@@ -363,7 +363,7 @@ def test_intake_planned_reproduces_the_planning_gate(tmp_path) -> None:
 def test_a_goal_sourced_run_is_untouched_and_still_plans(tmp_path) -> None:
     root = tmp_path / "project"
     root.mkdir(parents=True, exist_ok=True)
-    state_path = root / ".multi-code" / "sprintengine" / "goal-run" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "goal-run" / "run.yaml"
     SwarmCli(state_path, cwd=root).run("init", "--name", "goal-run", "--goal", "Build a thing")
 
     state = read_state(state_path)
@@ -464,7 +464,7 @@ def test_a_direct_import_works_under_per_task_worktree_isolation(tmp_path) -> No
 
     children = [_child(root, "login-form", "Login form")]
     _write(root / EPIC, EPIC_FILE)
-    state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "auth-revamp" / "run.yaml"
     cli = SwarmCli(state_path, cwd=root)
     cli.run(
         "init",

@@ -42,6 +42,7 @@ import {
 } from './account-client'
 import { getErrorMessage } from './error-message'
 import { DEFAULT_MULTIAUTH_BASE_URL } from './service-endpoints'
+import { readStudioEnv } from '../shared/studio-env'
 
 // `MULTIAUTH_BASE_URL` names the Multicode ACCOUNT SERVICE: where entitlement
 // snapshots come from and where the mobile relay lives. It is no longer, by
@@ -60,7 +61,7 @@ const MULTICODE_LOOPBACK_REDIRECT_URI = `http://${MULTICODE_LOOPBACK_HOST}:${MUL
 // What a custom-scheme sign-in asks the issuer to redirect to. Unlike the rest
 // of the rename this half is not ours alone: a redirect_uri has to be on the
 // issuer's registered list for the client or the authorization request is
-// refused outright, so `MULTICODE_AUTH_REDIRECT_MODE=custom` needs this
+// refused outright, so `SPRINTENGINE_AUTH_REDIRECT_MODE=custom` needs this
 // spelling registered before it works. Loopback, the default, is unaffected.
 const CUSTOM_SCHEME_REDIRECT_URI = `${CURRENT_DEEP_LINK_SCHEME}://auth/callback` as const
 // The same callback under the scheme the app shipped under before the
@@ -74,13 +75,14 @@ const LEGACY_CUSTOM_SCHEME_REDIRECT_URI = `${LEGACY_DEEP_LINK_SCHEME}://auth/cal
 // macOS LaunchServices to whichever Electron bundle registered it last — a
 // released build beside a beta is enough to send the callback to the wrong
 // app — while RFC 8252 loopback has no such ambiguity. The custom scheme stays
-// registered and reachable with `MULTICODE_AUTH_REDIRECT_MODE=custom` for the
+// registered and reachable with `SPRINTENGINE_AUTH_REDIRECT_MODE=custom` for the
 // one case loopback loses: the port being occupied.
 const DEFAULT_MULTICODE_AUTH_REDIRECT_MODE = 'loopback'
-const MULTICODE_AUTH_REDIRECT_MODE = process.env['MULTICODE_AUTH_REDIRECT_MODE'] === 'custom' ||
-  process.env['MULTICODE_AUTH_REDIRECT_MODE'] === 'loopback'
-  ? process.env['MULTICODE_AUTH_REDIRECT_MODE']
-  : DEFAULT_MULTICODE_AUTH_REDIRECT_MODE
+const CONFIGURED_AUTH_REDIRECT_MODE = readStudioEnv('SPRINTENGINE_AUTH_REDIRECT_MODE')
+const MULTICODE_AUTH_REDIRECT_MODE =
+  CONFIGURED_AUTH_REDIRECT_MODE === 'custom' || CONFIGURED_AUTH_REDIRECT_MODE === 'loopback'
+    ? CONFIGURED_AUTH_REDIRECT_MODE
+    : DEFAULT_MULTICODE_AUTH_REDIRECT_MODE
 const MULTICODE_REDIRECT_URI: typeof CUSTOM_SCHEME_REDIRECT_URI | typeof MULTICODE_LOOPBACK_REDIRECT_URI =
   MULTICODE_AUTH_REDIRECT_MODE === 'loopback' ? MULTICODE_LOOPBACK_REDIRECT_URI : CUSTOM_SCHEME_REDIRECT_URI
 const MULTICODE_PRODUCT = 'multicode' as const
