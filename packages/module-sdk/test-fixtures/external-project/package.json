@@ -2,7 +2,7 @@
   "name": "module-sdk-external-fixture",
   "private": true,
   "version": "0.0.0",
-  "description": "Minimal external module project that must compile against the packed @multicode/module-sdk tarball types only.",
+  "description": "Minimal external module project that must compile against the packed @sprintengine/module-sdk tarball types only.",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   }

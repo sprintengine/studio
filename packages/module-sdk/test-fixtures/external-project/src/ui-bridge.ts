@@ -2,7 +2,7 @@
 // host-bridged UI kit, door shell and Monaco (D6). It proves three things the
 // other fixtures cannot:
 //
-//   1. `@multicode/module-sdk/ui` and `@multicode/module-sdk/surface` resolve
+//   1. `@sprintengine/module-sdk/ui` and `@sprintengine/module-sdk/surface` resolve
 //      as published subpath entry points (the tarball's `exports` map), not
 //      just as files that happen to be in `dist/`.
 //   2. Their props typecheck as a module author would actually write them.
@@ -17,8 +17,8 @@
 //     --external:react --external:react-dom --external:react-dom/client \
 //     --external:react/jsx-runtime \
 //     --external:@monaco-editor/react \
-//     --external:@multicode/module-sdk/ui \
-//     --external:@multicode/module-sdk/surface
+//     --external:@sprintengine/module-sdk/ui \
+//     --external:@sprintengine/module-sdk/surface
 //
 // verify-module-sdk-pack.mjs runs exactly that bundle over this file and fails
 // if a stub was inlined instead of externalised.
@@ -26,7 +26,7 @@
 import { createElement } from 'react'
 import { DiffEditor } from '@monaco-editor/react'
 
-import type { GlobalSurfaceComponent, RegisterRenderer } from '@multicode/module-sdk'
+import type { GlobalSurfaceComponent, RegisterRenderer } from '@sprintengine/module-sdk'
 import {
   Banner,
   EmptyState,
@@ -34,14 +34,14 @@ import {
   Select,
   type SelectItem,
   type Tone,
-} from '@multicode/module-sdk/ui'
+} from '@sprintengine/module-sdk/ui'
 import {
   GlobalSurfaceShell,
   SurfaceCanvasState,
   SurfaceRail,
   useSurfaceBackNav,
   type SurfaceRailRow,
-} from '@multicode/module-sdk/surface'
+} from '@sprintengine/module-sdk/surface'
 
 const BRANCHES: SelectItem<string>[] = [
   { value: 'main', label: 'main' },

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // multicode-module — packaging and signing CLI for Multicode capability
 // module authors. Runs without repo access: everything it needs ships in the
-// @multicode/module-sdk tarball.
+// @sprintengine/module-sdk tarball.
 //
 //   keygen           generate an ed25519 signing keypair (private key PEM)
 //   pack             validate a module directory and assemble an installable copy

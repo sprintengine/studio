@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, net } from 'electron'
 import { createAppMenu } from './app-menu'
 import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
+import { DEEP_LINK_SCHEMES } from './deep-link-scheme'
 import { runBootDiscovery } from './boot-discovery'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
 import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
@@ -174,7 +175,7 @@ export function registerAppLifecycle({
         process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.sprintengine.studio'
       )
     }
-    registerMulticodeProtocol()
+    registerDeepLinkProtocols()
 
     Menu.setApplicationMenu(createAppMenu())
     // Always-on: one local SprintEngine Studio MCP gateway per app instance.
@@ -353,12 +354,17 @@ export function registerAppLifecycle({
   })
 }
 
-function registerMulticodeProtocol(): void {
-  if (!app.isPackaged) {
-    const appEntry = app.getAppPath()
-    app.setAsDefaultProtocolClient('multicode', process.execPath, [appEntry])
-    return
+// Both schemes, current and legacy — see `deep-link-scheme.ts` for why the old
+// one is still claimed. Registering is cheap and idempotent; an unclaimed
+// scheme is a dead link with nowhere to report itself.
+function registerDeepLinkProtocols(): void {
+  for (const scheme of DEEP_LINK_SCHEMES) {
+    if (!app.isPackaged) {
+      // A dev build is `electron <app-dir>`, so the OS has to be handed both
+      // halves; a packaged bundle describes its own entry point.
+      app.setAsDefaultProtocolClient(scheme, process.execPath, [app.getAppPath()])
+    } else {
+      app.setAsDefaultProtocolClient(scheme)
+    }
   }
-
-  app.setAsDefaultProtocolClient('multicode')
 }

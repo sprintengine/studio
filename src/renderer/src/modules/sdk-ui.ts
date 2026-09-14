@@ -1,6 +1,6 @@
-// The host half of `@multicode/module-sdk/ui` (D6).
+// The host half of `@sprintengine/module-sdk/ui` (D6).
 //
-// A third-party module's renderer bundle marks `@multicode/module-sdk/ui`
+// A third-party module's renderer bundle marks `@sprintengine/module-sdk/ui`
 // external and imports the kit from it; the SDK tarball ships only types and a
 // throwing runtime stub, and the real components arrive through the import map
 // third-party-loader.ts installs, whose target for that specifier is THIS

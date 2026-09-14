@@ -1,4 +1,4 @@
-// @multicode/module-sdk — the published contract surface external authors
+// @sprintengine/module-sdk — the published contract surface external authors
 // compile against when building Multicode capability modules.
 //
 // The repository is the consumer-of-record: a drift guard inside the Multicode

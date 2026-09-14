@@ -1,4 +1,4 @@
-// The host half of `@multicode/module-sdk/surface` (D6) — the door shell a
+// The host half of `@sprintengine/module-sdk/surface` (D6) — the door shell a
 // module's modal or global surface renders inside, so a module-owned door is
 // laid out, titled, back-navigated and empty-stated exactly like a bundled one
 // instead of re-implementing the chrome a shade off.

@@ -10,6 +10,7 @@ import type {
   SessionUser,
 } from '../shared/electron-api'
 import { AccountPhotoCache } from './account-photo-cache'
+import { CURRENT_DEEP_LINK_SCHEME, DEEP_LINK_SCHEMES, LEGACY_DEEP_LINK_SCHEME } from './deep-link-scheme'
 import {
   ENTITLEMENT_GRACE_MS,
   ENTITLEMENT_MAX_CACHE_AGE_MS,
@@ -56,11 +57,23 @@ const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
 const MULTICODE_LOOPBACK_HOST = '127.0.0.1' as const
 const MULTICODE_LOOPBACK_PORT = 43110
 const MULTICODE_LOOPBACK_REDIRECT_URI = `http://${MULTICODE_LOOPBACK_HOST}:${MULTICODE_LOOPBACK_PORT}/callback` as const
-const MULTICODE_CUSTOM_REDIRECT_URI = 'multicode://auth/callback' as const
+// What a custom-scheme sign-in asks the issuer to redirect to. Unlike the rest
+// of the rename this half is not ours alone: a redirect_uri has to be on the
+// issuer's registered list for the client or the authorization request is
+// refused outright, so `MULTICODE_AUTH_REDIRECT_MODE=custom` needs this
+// spelling registered before it works. Loopback, the default, is unaffected.
+const CUSTOM_SCHEME_REDIRECT_URI = `${CURRENT_DEEP_LINK_SCHEME}://auth/callback` as const
+// The same callback under the scheme the app shipped under before the
+// 2026-09-08 rename. A constant of its own rather than folded into the one
+// above because the token exchange has to echo back the *exact* redirect_uri
+// the authorization request carried (RFC 6749 §4.1.3) — so a callback that
+// arrives on the old scheme has to be exchanged with the old spelling, and
+// guessing from the mode this process would pick now would get it wrong.
+const LEGACY_CUSTOM_SCHEME_REDIRECT_URI = `${LEGACY_DEEP_LINK_SCHEME}://auth/callback` as const
 // Loopback for packaged builds too (MC-2183). The custom scheme is bound by
 // macOS LaunchServices to whichever Electron bundle registered it last — a
 // released build beside a beta is enough to send the callback to the wrong
-// app — while RFC 8252 loopback has no such ambiguity. `multicode://` stays
+// app — while RFC 8252 loopback has no such ambiguity. The custom scheme stays
 // registered and reachable with `MULTICODE_AUTH_REDIRECT_MODE=custom` for the
 // one case loopback loses: the port being occupied.
 const DEFAULT_MULTICODE_AUTH_REDIRECT_MODE = 'loopback'
@@ -68,8 +81,8 @@ const MULTICODE_AUTH_REDIRECT_MODE = process.env['MULTICODE_AUTH_REDIRECT_MODE']
   process.env['MULTICODE_AUTH_REDIRECT_MODE'] === 'loopback'
   ? process.env['MULTICODE_AUTH_REDIRECT_MODE']
   : DEFAULT_MULTICODE_AUTH_REDIRECT_MODE
-const MULTICODE_REDIRECT_URI: typeof MULTICODE_CUSTOM_REDIRECT_URI | typeof MULTICODE_LOOPBACK_REDIRECT_URI =
-  MULTICODE_AUTH_REDIRECT_MODE === 'loopback' ? MULTICODE_LOOPBACK_REDIRECT_URI : MULTICODE_CUSTOM_REDIRECT_URI
+const MULTICODE_REDIRECT_URI: typeof CUSTOM_SCHEME_REDIRECT_URI | typeof MULTICODE_LOOPBACK_REDIRECT_URI =
+  MULTICODE_AUTH_REDIRECT_MODE === 'loopback' ? MULTICODE_LOOPBACK_REDIRECT_URI : CUSTOM_SCHEME_REDIRECT_URI
 const MULTICODE_PRODUCT = 'multicode' as const
 const MULTIAUTH_DESKTOP_SCOPE = 'openid profile entitlements:read relay:desktop'
 const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
@@ -360,12 +373,14 @@ export class MulticodeAuthBridge {
 
     await this.client.exchangeCode({
       identity: pending.identity,
-      redirectUri: url.protocol === 'multicode:' ? MULTICODE_CUSTOM_REDIRECT_URI : MULTICODE_LOOPBACK_REDIRECT_URI,
+      redirectUri: customSchemeRedirectUriFor(url) ?? MULTICODE_LOOPBACK_REDIRECT_URI,
       code,
       codeVerifier: pending.codeVerifier,
     })
     this.pendingLogin = null
-    if (url.protocol === 'multicode:') {
+    if (customSchemeRedirectUriFor(url)) {
+      // The callback came in over the OS rather than the loopback listener, so
+      // the listener (if `beginLogin` opened one) has nothing left to answer.
       await this.closeCallbackServer()
     }
     if (pending.organizationId) {
@@ -764,9 +779,20 @@ async function closeServer(server: Server): Promise<void> {
   await new Promise<void>((resolve) => server.close(() => resolve()))
 }
 
+// Null for anything that is not one of the app's own schemes — loopback
+// included — so callers can use it both as "which redirect_uri does this
+// callback belong to" and as "did this arrive over the OS".
+function customSchemeRedirectUriFor(
+  url: URL
+): typeof CUSTOM_SCHEME_REDIRECT_URI | typeof LEGACY_CUSTOM_SCHEME_REDIRECT_URI | null {
+  if (url.protocol === `${CURRENT_DEEP_LINK_SCHEME}:`) return CUSTOM_SCHEME_REDIRECT_URI
+  if (url.protocol === `${LEGACY_DEEP_LINK_SCHEME}:`) return LEGACY_CUSTOM_SCHEME_REDIRECT_URI
+  return null
+}
+
 function isSupportedAuthCallbackUrl(url: URL): boolean {
   return (url.protocol === 'http:' && url.hostname === MULTICODE_LOOPBACK_HOST && url.port === String(MULTICODE_LOOPBACK_PORT) && url.pathname === '/callback')
-    || (url.protocol === 'multicode:' && url.hostname === 'auth' && url.pathname === '/callback')
+    || (customSchemeRedirectUriFor(url) !== null && url.hostname === 'auth' && url.pathname === '/callback')
 }
 
 function callbackSuccessHtml(): string {
@@ -815,8 +841,18 @@ function pkceChallenge(codeVerifier: string): string {
   return createHash('sha256').update(codeVerifier).digest('base64url')
 }
 
+// Picked out of the raw command line rather than parsed, because a
+// second-instance relaunch hands over every argument the OS launched with and
+// most of them are not URLs. Case-folded first: a scheme is case-insensitive
+// and nothing guarantees which case the OS hands back.
+function isAuthCallbackArg(arg: string): boolean {
+  const lowered = arg.toLowerCase()
+  return DEEP_LINK_SCHEMES.some((scheme) => lowered.startsWith(`${scheme}://auth/callback`))
+    || lowered.startsWith(MULTICODE_LOOPBACK_REDIRECT_URI)
+}
+
 export async function parseAuthCallbackFromArgv(auth: MulticodeAuthBridge, argv: string[]): Promise<void> {
-  const callbackUrl = argv.find((arg) => /^multicode:\/\/auth\/callback/i.test(arg) || /^http:\/\/127\.0\.0\.1:43110\/callback/i.test(arg))
+  const callbackUrl = argv.find(isAuthCallbackArg)
   if (!callbackUrl) return
 
   try {

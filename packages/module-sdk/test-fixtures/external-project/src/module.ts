@@ -36,7 +36,7 @@ import {
   type WorkspaceTypeCreateRequest,
   type WorkspaceTypeDefinition,
   WorkspaceContextToken,
-} from '@multicode/module-sdk'
+} from '@sprintengine/module-sdk'
 
 export const manifest: CapabilityManifest = {
   id: 'weather-deck',

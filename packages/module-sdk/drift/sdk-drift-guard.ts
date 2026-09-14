@@ -648,12 +648,12 @@ const declaredExports = (file: string): string[] => {
 assert.deepEqual(
   declaredExports('ui.d.ts').sort(),
   [...SDK_UI_EXPORT_NAMES].sort(),
-  '@multicode/module-sdk/ui declares a different set of components than the host bridges'
+  '@sprintengine/module-sdk/ui declares a different set of components than the host bridges'
 )
 assert.deepEqual(
   declaredExports('surface.d.ts').sort(),
   [...SDK_SURFACE_EXPORT_NAMES].sort(),
-  '@multicode/module-sdk/surface declares a different set of exports than the host bridges'
+  '@sprintengine/module-sdk/surface declares a different set of exports than the host bridges'
 )
 
 // The subpaths must be reachable as published entry points, not just as files.
@@ -661,7 +661,7 @@ const sdkPackageJson = JSON.parse(
   readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'package.json'), 'utf8')
 ) as { exports: Record<string, { types: string; default: string } | undefined> }
 for (const subpath of ['./ui', './surface']) {
-  assert.ok(sdkPackageJson.exports[subpath], `@multicode/module-sdk is missing the "${subpath}" export`)
+  assert.ok(sdkPackageJson.exports[subpath], `@sprintengine/module-sdk is missing the "${subpath}" export`)
 }
 
 // And the runtime stub must refuse loudly, so an author who forgot to mark the
@@ -671,9 +671,9 @@ for (const subpath of ['ui', 'surface'] as const) {
   const runtime = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', `${subpath}.js`), 'utf8')
   assert.ok(
     runtime.includes(
-      `const HOST_PROVIDED_MESSAGE = '@multicode/module-sdk/${subpath} is provided by the host at runtime; mark it external in your bundler'`
+      `const HOST_PROVIDED_MESSAGE = '@sprintengine/module-sdk/${subpath} is provided by the host at runtime; mark it external in your bundler'`
     ) && runtime.includes('throw new Error(HOST_PROVIDED_MESSAGE)'),
-    `@multicode/module-sdk/${subpath} must throw its host-provided message when it is bundled instead of externalised`
+    `@sprintengine/module-sdk/${subpath} must throw its host-provided message when it is bundled instead of externalised`
   )
 }
 

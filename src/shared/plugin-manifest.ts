@@ -1,6 +1,6 @@
 // Plugin manifest schema for the BYO-CLI system.
 //
-// The authoring contract is `CliPluginManifest` in `@multicode/module-sdk`; the
+// The authoring contract is `CliPluginManifest` in `@sprintengine/module-sdk`; the
 // bundled manifests under `resources/plugins/` are the worked examples.
 //
 // The running app consumes the registry for terminal agent launches, the

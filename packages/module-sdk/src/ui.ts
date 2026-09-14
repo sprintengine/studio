@@ -1,4 +1,4 @@
-// `@multicode/module-sdk/ui` — the host-provided UI kit.
+// `@sprintengine/module-sdk/ui` — the host-provided UI kit.
 //
 // TYPES ONLY AT RUNTIME. The host supplies the real components through an
 // import map when it evaluates a third-party renderer bundle (see the app's
@@ -7,7 +7,7 @@
 // loud failure if the specifier is not marked external. Evaluating it throws.
 //
 // esbuild:
-//   --external:@multicode/module-sdk/ui
+//   --external:@sprintengine/module-sdk/ui
 //
 // The shapes below are restated by hand — the SDK cannot import app source —
 // and are pinned against the app's components by the drift guard
@@ -25,7 +25,7 @@
 import type * as React from 'react'
 
 const HOST_PROVIDED_MESSAGE =
-  '@multicode/module-sdk/ui is provided by the host at runtime; mark it external in your bundler'
+  '@sprintengine/module-sdk/ui is provided by the host at runtime; mark it external in your bundler'
 
 function hostProvided(): never {
   throw new Error(HOST_PROVIDED_MESSAGE)

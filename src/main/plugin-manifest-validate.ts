@@ -40,7 +40,7 @@ export function validateManifestStructure(value: unknown): PluginManifestValidat
 
   // CLI manifest validation is single-sourced in the published SDK
   // (packages/module-sdk/src/cli-manifest.ts), the same way the third-party
-  // module manifest validator is. The app and the @multicode/module-sdk
+  // module manifest validator is. The app and the @sprintengine/module-sdk
   // authoring tooling therefore validate a plugin.json identically — they
   // cannot drift, because this is the one implementation. Provider manifests
   // (above) remain app-only.

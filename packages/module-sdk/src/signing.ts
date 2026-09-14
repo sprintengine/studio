@@ -1,6 +1,6 @@
 // Module signing: ed25519 sign/verify over the canonical manifest payload.
 //
-// Subpath export `@multicode/module-sdk/signing` (not part of the root index:
+// Subpath export `@sprintengine/module-sdk/signing` (not part of the root index:
 // this file needs node:crypto, and the root index must stay loadable in a
 // renderer). The Multicode app's signature verification
 // (src/main/modules/module-signature.ts) and the `multicode-module` CLI both

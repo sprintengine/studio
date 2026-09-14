@@ -1,3 +1,5 @@
+import { CURRENT_DEEP_LINK_SCHEME } from '../../deep-link-scheme'
+
 type PairingPayload = {
   mobileControlProtocolVersion: 2
   pairingChallengeId: string
@@ -29,7 +31,12 @@ export function manualPairingValueFromRelayChallenge(challenge: PairingChallenge
   try {
     url = new URL(challenge.pairingUri)
   } catch {
-    url = new URL('multicode://mobile/pair')
+    // The relay owns the link it hands back, including which scheme it carries,
+    // and a phone paired against an older desktop may still be shown the old
+    // one. This base is only reached when the relay's link does not parse at
+    // all, so it is the one pairing link the desktop mints itself — and it
+    // mints the current scheme.
+    url = new URL(`${CURRENT_DEEP_LINK_SCHEME}://mobile/pair`)
   }
 
   url.searchParams.set('mobileControlProtocolVersion', String(challenge.pairingPayload.mobileControlProtocolVersion))
