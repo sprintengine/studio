@@ -51,13 +51,20 @@ export function isSupportedMobileControlProtocolVersion(value: unknown): value i
  * thread that carries only one number cannot tell a phone that is too old from
  * one that is too new.
  */
-export function unsupportedMobileControlProtocolVersion(seen: unknown): string {
-  // Collapses to a single number on its own once the window narrows to one.
-  const window = [
-    ...new Set<number>([mobileControlMinSupportedProtocolVersion, mobileControlProtocolVersion]),
-  ].join("-");
+export function unsupportedMobileControlProtocolVersion(
+  seen: unknown,
+  accepts: "window" | "current" = "window",
+): string {
+  // What the READER accepts, which is not always the window — a payload the
+  // desktop sends is read at the current version only. Saying "speaks 1-2" on a
+  // refusal that accepted neither would send someone looking for a bug that is
+  // not there. Collapses to a single number once the window narrows to one.
+  const speaks =
+    accepts === "current"
+      ? String(mobileControlProtocolVersion)
+      : [...new Set<number>([mobileControlMinSupportedProtocolVersion, mobileControlProtocolVersion])].join("-");
   const saw = typeof seen === "number" ? String(seen) : "no readable version";
-  return `mobile-control protocol version ${saw} is not supported; this build speaks ${window}`;
+  return `mobile-control protocol version ${saw} is not supported; this build speaks ${speaks}`;
 }
 
 export type MobileControlCommandType =
@@ -1430,7 +1437,7 @@ export function validateMobileControlEvent(input: unknown): ValidationResult<Mob
     return invalidPayload(event.error);
   }
 
-  const versionError = validateProtocolVersion(event.value);
+  const versionError = validateProtocolVersion(event.value, "current");
   if (versionError) {
     return versionError;
   }
@@ -1467,7 +1474,7 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
     return invalidPayload(snapshot.error);
   }
 
-  const versionError = validateProtocolVersion(snapshot.value);
+  const versionError = validateProtocolVersion(snapshot.value, "current");
   if (versionError) {
     return versionError;
   }
@@ -1645,13 +1652,39 @@ export function validateMobileControlError(input: unknown): ValidationResult<Mob
   return { ok: true, value: input as MobileControlError };
 }
 
-function validateProtocolVersion(record: Record<string, unknown>): ValidationResult<never> | null {
-  if (!isSupportedMobileControlProtocolVersion(record.protocolVersion)) {
+/**
+ * How strict a reader is about the version stamped on what it just received.
+ *
+ * `window` accepts anything in `mobileControlSupportedProtocolVersions`, and is
+ * for records where an OLDER counterpart is a case worth surviving: a command
+ * from a phone whose store build has not cleared review yet, and the device and
+ * capability records read back from disk, which were written by whatever version
+ * was installed when they were stored.
+ *
+ * `current` accepts only the version this build speaks, and is for the payloads
+ * the desktop SENDS. A window buys nothing there — a phone receiving a snapshot
+ * from a newer desktop is not helped by also accepting older ones — and it costs
+ * something real: a v1 snapshot carries the retired gate-era task vocabulary
+ * (`testing`, `product`, `changes_requested`, `blocked`), so accepting the
+ * version would only get the reader further in before failing on a status it
+ * cannot render.
+ */
+type ProtocolVersionStrictness = "window" | "current";
+
+function validateProtocolVersion(
+  record: Record<string, unknown>,
+  strictness: ProtocolVersionStrictness = "window",
+): ValidationResult<never> | null {
+  const accepted =
+    strictness === "current"
+      ? record.protocolVersion === mobileControlProtocolVersion
+      : isSupportedMobileControlProtocolVersion(record.protocolVersion);
+  if (!accepted) {
     return {
       ok: false,
       error: buildError(
         "unsupported_protocol_version",
-        unsupportedMobileControlProtocolVersion(record.protocolVersion),
+        unsupportedMobileControlProtocolVersion(record.protocolVersion, strictness),
         false,
       ),
     };

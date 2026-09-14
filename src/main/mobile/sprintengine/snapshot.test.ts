@@ -88,7 +88,7 @@ async function main(): Promise<void> {
 // desktop now accepts one version of slack from a phone instead of demanding
 // exact equality. The mobile copy has to take the same edit before a build of
 // it ships against this desktop.
-const mobileProtocolSourceSha256 = 'e23dee51cde54d3a52659a0263586e17ae9efa8f896f120d26b9068ffdd4d272'
+const mobileProtocolSourceSha256 = 'cb448e716bf7a9cdd681c78d33c3c95494a80e316f7905f6c21c24cd2432fb2a'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'src/shared/mobile-control/protocol.ts'))
