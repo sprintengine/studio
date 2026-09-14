@@ -167,6 +167,11 @@ export type { CheckRowCheckedState, CheckRowProps } from './CheckRow'
 // difference a caller must not be able to make by accident.
 export { DescribedCheckRow, DescribedCheckRowList } from './CheckRow'
 export type { DescribedCheckRowProps } from './CheckRow'
+// One setting and the card a run of them sits in
+// (design-system/components/setting-row). Not an InboxRow: nothing here is
+// picked, so the row carries no hover fill and no selection.
+export { SettingCard, SettingRow } from './SettingRow'
+export type { SettingRowProps } from './SettingRow'
 // One machine-readable scope name in a pill (design-system/components/scope-pill).
 // Not a Badge and not a MicroChip: those are UI-face labels, and this content is
 // the identifier itself.

@@ -1,0 +1,105 @@
+/* Setting row — the state-a-value-and-change-it row of a settings surface.
+ *
+ * Two parts that only make sense together: the row, and the card the rows sit
+ * in. The card is the reason this component exists — a settings page is a long
+ * scroll of unrelated switches, and space alone does not say where one group
+ * stops and the next starts once the groups are ten rows long.
+ */
+
+/* The card. Full-bleed rows inside a clipped radius, hairlines between them
+ * and never around them — the same surface contract as
+ * `check-row --described`'s list, which drew this shape first. One idiom for
+ * "a run of rows in a bordered surface", not two. */
+.ds-setting-row-list {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface-raised);
+  list-style: none;
+  /* The rows are square-cornered and full-bleed; the surface's radius clips
+     them rather than each row rounding itself (a rounded row inset in a padded
+     surface is a card in a card). */
+  overflow: hidden;
+}
+
+/* The divider goes on the second and subsequent children, so the card's own
+ * border is never doubled and a one-row card carries no rule at all. */
+.ds-setting-row-list > * + * {
+  border-top: 1px solid var(--sem-color-border-subtle);
+}
+
+.ds-setting-row {
+  display: flex;
+  min-height: var(--sem-size-control-lg);
+  align-items: center;
+  justify-content: space-between;
+  /* Wide enough that a long help line breaks before it reaches the control,
+     rather than the control being pushed off its right edge. */
+  gap: var(--sem-space-2xl);
+  padding: var(--sem-space-md) var(--sem-space-lg);
+}
+
+.ds-setting-row-text {
+  /* Claims the width and is the part that gives it up. */
+  min-width: 0;
+}
+
+.ds-setting-row-label {
+  display: block;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-tight);
+  color: var(--sem-color-text-primary);
+}
+
+/* A muted suffix naming an unmet prerequisite — "· Needs Sprint Engine". It
+ * sits on the label line because it is a fact about the control, not about the
+ * setting, and the help line below is already spoken for. */
+.ds-setting-row-requirement {
+  margin-left: var(--sem-space-xs);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-regular);
+  color: var(--sem-color-text-subtle);
+}
+
+/* One or two lines saying what the setting does. It wraps rather than
+ * truncating: a setting whose description the reader cannot finish is a
+ * setting they cannot decide about. */
+.ds-setting-row-help {
+  margin-top: var(--sem-space-3xs);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-setting-row-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sem-space-sm);
+}
+
+/* --stacked: the control drops under the text, for a control that needs the
+ * full width (a path field, a segmented control with four options). The row
+ * keeps its padding and its hairline; only the axis changes. */
+.ds-setting-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sem-space-md);
+}
+
+.ds-setting-row--stacked .ds-setting-row-control {
+  flex: initial;
+}
+
+/* A row whose control cannot be used yet. The label drops to the muted tone so
+ * the row reads as inactive, and the requirement suffix says why.
+ *
+ * The control host is deliberately NOT dimmed here: every control in this
+ * system already draws its own disabled treatment, and a second opacity on the
+ * host multiplies with it — a switch at 0.45 inside a host at 0.5 lands near a
+ * fifth, which is past unreadable. The control owns its own disabled tone. */
+.ds-setting-row--disabled .ds-setting-row-label {
+  color: var(--sem-color-text-muted);
+}

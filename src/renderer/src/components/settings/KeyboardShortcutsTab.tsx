@@ -25,7 +25,7 @@ import {
 } from '../../commands'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import type { KeybindingSettings } from '../../types/workspace'
-import { SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
+import { SettingCard, SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
 import {
   GhostButton,
   IconButton,
@@ -339,12 +339,14 @@ export function KeyboardShortcutsTab() {
           {groups.map((group, index) => (
             <section
               key={group.category}
-              className={index > 0 ? 'mt-4 border-t border-[color:var(--border-subtle)] pt-4' : ''}
+              // No rule between groups: each group's card draws its own edge,
+              // so a border here was a second boundary beside the first.
+              className={index > 0 ? 'mt-5' : ''}
             >
               <SettingsSectionTitle count={group.rows.length} className="mb-1.5">
                 {group.label}
               </SettingsSectionTitle>
-              <ul className="flex flex-col">
+              <SettingCard as="ul">
                 {group.rows.map((row) => (
                   <ShortcutRowView
                     key={row.id}
@@ -365,7 +367,7 @@ export function KeyboardShortcutsTab() {
                     }}
                   />
                 ))}
-              </ul>
+              </SettingCard>
             </section>
           ))}
         </div>
@@ -401,7 +403,7 @@ function ShortcutRowView({
   const defaultRendered = row.defaults.map((chord) => renderKeybinding(chord, platform)).join(' or ')
 
   return (
-    <li className="group flex items-center gap-3 py-1.5">
+    <li className="group flex items-center gap-3 px-3 py-2">
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <span className="truncate text-body text-[color:var(--text-strong)]">{row.title}</span>
         {tone && message ? (

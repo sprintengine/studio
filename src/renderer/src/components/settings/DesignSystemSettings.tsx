@@ -3,7 +3,7 @@ import type { DesignSystemAttachSource } from '../../../../shared/design-system/
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../../../../shared/design-system/bundle-scaffold'
 import type { DesignSystemBundleReadFailure } from '../../../../shared/design-system/bundle-view'
 import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/library'
-import { GhostButton, InlineNotice, OutlineButton, PrimaryButton } from '../ui'
+import { GhostButton, InlineNotice, OutlineButton, PrimaryButton, SettingCard } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { DesignSystemAttachStep } from '../workspace/newWorkspace/DesignSystemAttachStep'
 import { pathJoin } from '../../utils/paths'
@@ -224,49 +224,57 @@ export function DesignSystemSettings({ workspaceRoot }: { workspaceRoot: string 
     <div className="space-y-3">
       {bundle.kind === 'attached' ? (
         <>
-          <div className="flex items-center gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-raised)] px-3 py-2.5">
-            <span
-              aria-hidden="true"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[color:var(--bg-active)] font-mono text-micro text-[color:var(--text-muted)]"
-            >
-              DS
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-mono text-body font-medium text-[color:var(--text-strong)]">
-                {bundle.name}
-              </div>
-              <div className="truncate font-mono text-meta tabular-nums text-[color:var(--text-subtle)]">
-                v{bundle.version} · {bundle.componentCount} component
-                {bundle.componentCount === 1 ? '' : 's'} · {BUNDLE_ORIGIN_LABEL[bundle.origin]}
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <OutlineButton size="xs" onClick={() => void onReplace()} disabled={busy}>
-                Replace
-              </OutlineButton>
-              <OutlineButton size="xs" onClick={() => void onDetach()} disabled={busy}>
-                {pending === 'detach' ? 'Detaching…' : 'Detach'}
-              </OutlineButton>
-            </div>
-          </div>
-          {update?.version ? (
-            <div className="flex items-center gap-3 rounded-md border border-[color:var(--border-default)] px-3 py-2 text-meta text-[color:var(--text-muted)]">
-              <span>
-                <span className="font-medium text-[color:var(--text-strong)]">
-                  v{update.version}
-                </span>{' '}
-                available
-              </span>
-              <OutlineButton
-                size="xs"
-                className="ml-auto"
-                onClick={() => void onUpdate(update)}
-                disabled={busy}
+          {/* The kit card, not a private box: this drew `rounded-md` over
+              `--bg-raised` while every other settings surface draws
+              `radius.shell` over `bg.surface-raised`. */}
+          <SettingCard>
+            <div className="flex items-center gap-3 px-3 py-2.5">
+              <span
+                aria-hidden="true"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[color:var(--bg-active)] font-mono text-micro text-[color:var(--text-muted)]"
               >
-                {pending === 'update' ? 'Updating…' : 'Update'}
-              </OutlineButton>
+                DS
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-body font-medium text-[color:var(--text-strong)]">
+                  {bundle.name}
+                </div>
+                <div className="truncate font-mono text-meta tabular-nums text-[color:var(--text-subtle)]">
+                  v{bundle.version} · {bundle.componentCount} component
+                  {bundle.componentCount === 1 ? '' : 's'} · {BUNDLE_ORIGIN_LABEL[bundle.origin]}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <OutlineButton size="xs" onClick={() => void onReplace()} disabled={busy}>
+                  Replace
+                </OutlineButton>
+                <OutlineButton size="xs" onClick={() => void onDetach()} disabled={busy}>
+                  {pending === 'detach' ? 'Detaching…' : 'Detach'}
+                </OutlineButton>
+              </div>
             </div>
-          ) : null}
+            {/* The update line is a second row of the same card, not a box under
+                it: it is a fact about the bundle above, and the card's hairline
+                already separates them. */}
+            {update?.version ? (
+              <div className="flex items-center gap-3 px-3 py-2 text-meta text-[color:var(--text-muted)]">
+                <span>
+                  <span className="font-medium text-[color:var(--text-strong)]">
+                    v{update.version}
+                  </span>{' '}
+                  available
+                </span>
+                <OutlineButton
+                  size="xs"
+                  className="ml-auto"
+                  onClick={() => void onUpdate(update)}
+                  disabled={busy}
+                >
+                  {pending === 'update' ? 'Updating…' : 'Update'}
+                </OutlineButton>
+              </div>
+            ) : null}
+          </SettingCard>
         </>
       ) : null}
 

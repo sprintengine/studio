@@ -14,7 +14,7 @@ import { EmptyState, GhostButton, InboxSearchInput, Switch } from '../ui'
 import { mcpMonogram } from '../ui/mcpMonogram'
 import { COMING_SOON_IDS, MODULE_CATEGORY_GROUPS, categoryLabel } from './ModuleControls'
 import { ThirdPartyModuleList } from './ThirdPartyModuleList'
-import { SettingsPageHeader } from './SettingsAtoms'
+import { SettingCard, SettingsPageHeader } from './SettingsAtoms'
 
 // Module manager: one surface for everything that plugs into the app — the
 // bundled capability modules, the specialist packs that feed the spawn menu,
@@ -111,11 +111,7 @@ function SpecialistPackCard({
         }
       />
       {expanded ? (
-        <div
-          className={`divide-y divide-[color:var(--border-subtle)] rounded-md border border-[color:var(--border-subtle)] ${
-            enabled ? '' : 'opacity-50'
-          }`}
-        >
+        <SettingCard className={enabled ? '' : 'opacity-50'}>
           {pack.specialists.map((specialist) => (
             <div key={specialist.id} className="flex items-center gap-3 px-3 py-2.5">
               <SpecialistActionIcon
@@ -134,7 +130,7 @@ function SpecialistPackCard({
               </div>
             </div>
           ))}
-        </div>
+        </SettingCard>
       ) : null}
     </div>
   )

@@ -10,6 +10,14 @@ before any container: no card, no fill, no border box around the content. If
 the content genuinely needs containment, that is a different decision made for
 a stated reason — not this component growing chrome.
 
+One such reason is on the record: a run of
+[setting-row](../setting-row/component.md)s takes a bordered card, because a
+settings page's groups are long enough that the gap between two groups and the
+gap between two rows become the same gap. The card belongs to that component,
+not to this one — the section still contributes only its title, which sits
+*outside* the card and keeps the typography specified here. `principles.md`,
+*Hairlines carry the structure*, ruling 2026-09-14.
+
 **A heading must separate something from something else.** One section alone
 on a surface is not a group; render its content bare and let the surface's own
 name (the panel title, the list's accessible name) carry the label. The title

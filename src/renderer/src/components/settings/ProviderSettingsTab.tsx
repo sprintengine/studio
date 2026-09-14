@@ -24,7 +24,7 @@ import {
   PrimaryButton,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import { SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
+import { SettingCard, SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
 import {
   type ConversationProviderListEntry,
   type ProviderSecretView,
@@ -239,86 +239,93 @@ function ProviderRow({
   const canClear = canClearProviderSecret(secretView)
 
   return (
-    <section
-      aria-labelledby={headingId}
-      className="space-y-2 border-t border-[color:var(--border-subtle)] pt-5 first:border-t-0 first:pt-0"
-    >
+    // No rule between providers: each one's card draws its own edge, and the
+    // border-t was a second boundary right beside it.
+    <section aria-labelledby={headingId} className="space-y-2">
       <SettingsSectionTitle id={headingId}>{provider.displayName}</SettingsSectionTitle>
 
-      {secretView?.kind === 'error' ? (
-        <InlineNotice tone="error">{secretView.message}</InlineNotice>
-      ) : secretView?.kind === 'none-required' ? (
-        <p className="text-body leading-5 text-[color:var(--text-muted)]">No API key needed.</p>
-      ) : configured ? (
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            {/* The saved key is shown as the field it will be edited in,
-                read-only — not as a div wearing a copy of the field's chrome.
-                The value IS the mask, so the accessible name says so. */}
-            <Input
-              readOnly
-              value="••••••••••••"
-              aria-label={`${provider.displayName} API key is saved`}
-              size="md"
-              className="tracking-[0.3em] text-[color:var(--text-muted)]"
-            />
-            {canClear ? (
-              <OutlineButton
-                size="md"
-                onClick={onClear}
-                disabled={busy}
-                className="shrink-0"
-              >
-                {pending === 'clearing' ? 'Removing…' : 'Remove'}
-              </OutlineButton>
-            ) : null}
-          </div>
-          {!canClear ? (
-            <p className="text-meta leading-5 text-[color:var(--text-subtle)]">
-              Set from the environment.
-            </p>
-          ) : secretView.persistence === 'session' ? (
-            <p className="text-meta leading-5 text-[color:var(--tone-warn)]">
-              Kept for this session only.
-            </p>
-          ) : null}
+      <SettingCard>
+        <div className="px-3 py-2.5">
+          {secretView?.kind === 'error' ? (
+            <InlineNotice tone="error">{secretView.message}</InlineNotice>
+          ) : secretView?.kind === 'none-required' ? (
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">No API key needed.</p>
+          ) : configured ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                {/* The saved key is shown as the field it will be edited in,
+                    read-only — not as a div wearing a copy of the field's chrome.
+                    The value IS the mask, so the accessible name says so. */}
+                <Input
+                  readOnly
+                  value="••••••••••••"
+                  aria-label={`${provider.displayName} API key is saved`}
+                  size="md"
+                  className="tracking-[0.3em] text-[color:var(--text-muted)]"
+                />
+                {canClear ? (
+                  <OutlineButton
+                    size="md"
+                    onClick={onClear}
+                    disabled={busy}
+                    className="shrink-0"
+                  >
+                    {pending === 'clearing' ? 'Removing…' : 'Remove'}
+                  </OutlineButton>
+                ) : null}
+              </div>
+              {!canClear ? (
+                <p className="text-meta leading-5 text-[color:var(--text-subtle)]">
+                  Set from the environment.
+                </p>
+              ) : secretView.persistence === 'session' ? (
+                <p className="text-meta leading-5 text-[color:var(--tone-warn)]">
+                  Kept for this session only.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <label htmlFor={inputId} className="sr-only">
+                {provider.displayName} API key
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id={inputId}
+                  type="password"
+                  value={draft}
+                  onChange={(event) => onDraftChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && draft.trim() && !busy) onSave()
+                  }}
+                  placeholder="Paste API key"
+                  autoComplete="off"
+                  disabled={busy}
+                  size="md"
+                  fullWidth={false}
+                  className={`min-w-0 flex-1 ${MONO_FIELD}`}
+                />
+                <PrimaryButton
+                  size="md"
+                  onClick={onSave}
+                  disabled={busy || !draft.trim()}
+                  className="shrink-0"
+                >
+                  {pending === 'saving' ? 'Saving…' : 'Save'}
+                </PrimaryButton>
+              </div>
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="space-y-1.5">
-          <label htmlFor={inputId} className="sr-only">
-            {provider.displayName} API key
-          </label>
-          <div className="flex items-center gap-2">
-            <Input
-              id={inputId}
-              type="password"
-              value={draft}
-              onChange={(event) => onDraftChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && draft.trim() && !busy) onSave()
-              }}
-              placeholder="Paste API key"
-              autoComplete="off"
-              disabled={busy}
-              size="md"
-              fullWidth={false}
-              className={`min-w-0 flex-1 ${MONO_FIELD}`}
-            />
-            <PrimaryButton
-              size="md"
-              onClick={onSave}
-              disabled={busy || !draft.trim()}
-              className="shrink-0"
-            >
-              {pending === 'saving' ? 'Saving…' : 'Save'}
-            </PrimaryButton>
-          </div>
+        {/* `empty:hidden` matters more inside a card: the card draws a hairline
+            before every child after the first, so a live region with nothing
+            in it would show as a rule under an otherwise single-row card.
+            `ActionResultMessage` returns null with no message, so the div is
+            genuinely `:empty` and the variant fires. */}
+        <div aria-live="polite" className="px-3 py-2.5 empty:hidden">
+          <ActionResultMessage message={message} />
         </div>
-      )}
-
-      <div aria-live="polite" className="empty:hidden">
-        <ActionResultMessage message={message} />
-      </div>
+      </SettingCard>
     </section>
   )
 }

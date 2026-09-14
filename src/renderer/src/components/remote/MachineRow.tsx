@@ -3,7 +3,15 @@ import React from 'react'
 import type { TailnetScope } from '../../../../shared/tailnet'
 import type { TailnetMachine } from '../../../../shared/tailnet-machines'
 import { relativeSeen } from '../../../../shared/tailnet-machines'
-import { GhostButton, LinkButton, MicroChip, OutlineButton, Popover, deviceGlyphFor } from '../ui'
+import {
+  GhostButton,
+  LinkButton,
+  MicroChip,
+  OutlineButton,
+  Popover,
+  SettingCard,
+  deviceGlyphFor,
+} from '../ui'
 import { missingScopes, terminalGapNote } from './scopePickerModel'
 import { platformLabel } from './machineRowModel'
 
@@ -21,21 +29,18 @@ import { platformLabel } from './machineRowModel'
 // appears: a machine that is off is not in an error state, and a red dot beside
 // four of five rows on a personal tailnet trains a person to ignore dots.
 
-/** The machines list surface: one bordered card, rows divided by hairlines. */
+/**
+ * The machines list surface: one bordered card, rows divided by hairlines.
+ *
+ * Now the kit's `SettingCard` in its list form — this file drew the same
+ * surface by hand until 2026-09-14, which made it the third copy of one card
+ * after `DescribedCheckRowList`.
+ */
 export function MachineList({ ariaLabel, children }: { ariaLabel?: string; children: React.ReactNode }) {
   return (
-    <ul
-      aria-label={ariaLabel}
-      className={[
-        // `overflow-hidden` so the first and last row's fill is clipped by the
-        // surface's radius rather than a rounded fill sitting inside a padded box.
-        'list-none overflow-hidden rounded-lg border border-[color:var(--border-subtle)]',
-        'bg-[color:var(--bg-surface-raised)] p-0',
-        '[&>li+li]:border-t [&>li+li]:border-[color:var(--border-subtle)]',
-      ].join(' ')}
-    >
+    <SettingCard as="ul" ariaLabel={ariaLabel}>
       {children}
-    </ul>
+    </SettingCard>
   )
 }
 

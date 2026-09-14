@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Setting row</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="../switch/component.css" />
+<link rel="stylesheet" href="../select/component.css" />
+<link rel="stylesheet" href="../input/component.css" />
+<link rel="stylesheet" href="../button/component.css" />
+<link rel="stylesheet" href="../segmented-control/component.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-page {
+    max-width: 680px;
+  }
+  /* The section label: outside the card, in the section component's own
+     typography. The card is what separates, so the label only has to name. */
+  .demo-section-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-section + .demo-section {
+    margin-top: var(--sem-space-3xl);
+  }
+  .demo-note {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-input-fixed {
+    width: 64px;
+  }
+</style>
+</head>
+<body>
+
+<!-- LIGHT -->
+<div class="demo-stage">
+  <div class="demo-page">
+
+    <!-- Default rows: a group of booleans, the commonest card there is. -->
+    <div class="demo-section">
+      <p class="demo-section-label">Organization</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-grouping">Project grouping</label>
+            <div class="ds-setting-row-help" id="l-grouping-help">
+              Combine matching repositories across environments.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="true" id="l-grouping"
+                    aria-describedby="l-grouping-help" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-settle">Auto-settle merged threads</label>
+            <div class="ds-setting-row-help" id="l-settle-help">
+              Settle a thread when its pull request merges. Closed pull requests still
+              settle automatically.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="true" id="l-settle"
+                    aria-describedby="l-settle-help" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <!-- A row with no help: its label already says everything. -->
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-days">Days of inactivity before auto-settle</label>
+          </div>
+          <div class="ds-setting-row-control">
+            <input class="ds-input demo-input-fixed" id="l-days" type="number" min="1" value="3" />
+          </div>
+        </div>
+        <!-- A select, sized to its content. -->
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-time">Time format</label>
+            <div class="ds-setting-row-help">
+              System default follows your OS clock preference.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-select" id="l-time" aria-haspopup="listbox" aria-expanded="false">
+              <span class="ds-select-value">System default</span>
+              <span aria-hidden="true" class="ds-select-chevron"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- --disabled and the requirement suffix. -->
+    <div class="demo-section">
+      <p class="demo-section-label">Behavior</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row ds-setting-row--disabled">
+          <div class="ds-setting-row-text">
+            <span class="ds-setting-row-label" id="l-publish">
+              Publish agent activity
+              <span class="ds-setting-row-requirement">· Needs Sprint Engine</span>
+            </span>
+            <div class="ds-setting-row-help" id="l-publish-help">
+              Send activity to mobile notifications without a paired device.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="false" aria-labelledby="l-publish"
+                    aria-describedby="l-publish-help" class="ds-switch" disabled>
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <!-- A row whose control is a pair of buttons: no `for` target, so the
+             text is pointed at instead. -->
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <span class="ds-setting-row-label" id="l-reset">Restore defaults</span>
+            <div class="ds-setting-row-help" id="l-reset-help">
+              Put every setting on this page back to how it shipped.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-button ds-button--outline ds-button--md"
+                    aria-labelledby="l-reset" aria-describedby="l-reset-help">Restore</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- --stacked: the control needs the width. -->
+    <div class="demo-section">
+      <p class="demo-section-label">Projects</p>
+      <p class="demo-note">The stacked variant — a control that needs the full width.</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row ds-setting-row--stacked">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-path">Default checkout path</label>
+            <div class="ds-setting-row-help">
+              Where new projects are cloned when you do not pick a folder.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <input class="ds-input" id="l-path" type="text" value="~/code/projects" />
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-layout">Diff layout</label>
+            <div class="ds-setting-row-help">
+              The toggle in the diff toolbar changes this too.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-select" id="l-layout" aria-haspopup="listbox" aria-expanded="false">
+              <span class="ds-select-value">Stacked</span>
+              <span aria-hidden="true" class="ds-select-chevron"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- A one-row card is legal markup and a usage smell; shown so the spec's
+         rule against it has something to point at. -->
+    <div class="demo-section">
+      <p class="demo-section-label">Legacy features</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-legacy">Keep the old composer</label>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="false" id="l-legacy" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- DARK -->
+<div class="demo-stage" data-mode="dark">
+  <div class="demo-page">
+
+    <div class="demo-section">
+      <p class="demo-section-label">Organization</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-grouping">Project grouping</label>
+            <div class="ds-setting-row-help" id="d-grouping-help">
+              Combine matching repositories across environments.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="true" id="d-grouping"
+                    aria-describedby="d-grouping-help" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-settle">Auto-settle merged threads</label>
+            <div class="ds-setting-row-help" id="d-settle-help">
+              Settle a thread when its pull request merges. Closed pull requests still
+              settle automatically.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="true" id="d-settle"
+                    aria-describedby="d-settle-help" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-days">Days of inactivity before auto-settle</label>
+          </div>
+          <div class="ds-setting-row-control">
+            <input class="ds-input demo-input-fixed" id="d-days" type="number" min="1" value="3" />
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-time">Time format</label>
+            <div class="ds-setting-row-help">
+              System default follows your OS clock preference.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-select" id="d-time" aria-haspopup="listbox" aria-expanded="false">
+              <span class="ds-select-value">System default</span>
+              <span aria-hidden="true" class="ds-select-chevron"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <p class="demo-section-label">Behavior</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row ds-setting-row--disabled">
+          <div class="ds-setting-row-text">
+            <span class="ds-setting-row-label" id="d-publish">
+              Publish agent activity
+              <span class="ds-setting-row-requirement">· Needs Sprint Engine</span>
+            </span>
+            <div class="ds-setting-row-help" id="d-publish-help">
+              Send activity to mobile notifications without a paired device.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="false" aria-labelledby="d-publish"
+                    aria-describedby="d-publish-help" class="ds-switch" disabled>
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <span class="ds-setting-row-label" id="d-reset">Restore defaults</span>
+            <div class="ds-setting-row-help" id="d-reset-help">
+              Put every setting on this page back to how it shipped.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-button ds-button--outline ds-button--md"
+                    aria-labelledby="d-reset" aria-describedby="d-reset-help">Restore</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <p class="demo-section-label">Projects</p>
+      <p class="demo-note">The stacked variant — a control that needs the full width.</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row ds-setting-row--stacked">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-path">Default checkout path</label>
+            <div class="ds-setting-row-help">
+              Where new projects are cloned when you do not pick a folder.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <input class="ds-input" id="d-path" type="text" value="~/code/projects" />
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-layout">Diff layout</label>
+            <div class="ds-setting-row-help">
+              The toggle in the diff toolbar changes this too.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-select" id="d-layout" aria-haspopup="listbox" aria-expanded="false">
+              <span class="ds-select-value">Stacked</span>
+              <span aria-hidden="true" class="ds-select-chevron"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <p class="demo-section-label">Legacy features</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-legacy">Keep the old composer</label>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="false" id="d-legacy" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

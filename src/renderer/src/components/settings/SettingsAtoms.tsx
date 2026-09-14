@@ -1,5 +1,7 @@
 import React from 'react'
-import { Switch } from '../ui'
+import { SettingRow, Switch } from '../ui'
+
+export { SettingCard } from '../ui'
 
 export type MetaTone = 'positive' | 'muted'
 
@@ -80,45 +82,18 @@ export function SettingsSectionTitle({
 /**
  * Canonical settings row: label and one line of help on the left, a compact
  * right-aligned control on the right. Switches, inputs, selects, and action
- * sets all take this grammar. Compose consecutive rows inside a
- * `divide-y divide-[color:var(--border-subtle)]` wrapper for hairline rhythm.
+ * sets all take this grammar. Compose consecutive rows inside a `SettingCard`
+ * — the card owns the hairlines between them.
  *
  * Controls passed as children stay sized to their content (240 px inputs,
- * intrinsic buttons) — never full-width.
+ * intrinsic buttons) — never full-width. A control that needs the width takes
+ * `stacked`.
+ *
+ * This is now a thin alias for the kit's `SettingRow`
+ * (design-system/components/setting-row), kept because eleven files call it by
+ * this name. New callers should reach for `SettingRow` directly.
  */
-export function SettingsRow({
-  label,
-  help,
-  htmlFor,
-  children,
-  className,
-}: {
-  label: React.ReactNode
-  help?: React.ReactNode
-  /** When set, the label element targets this control id. */
-  htmlFor?: string
-  children: React.ReactNode
-  className?: string
-}) {
-  const labelClass = 'block text-body font-medium text-[color:var(--text-strong)]'
-  return (
-    <div className={`flex items-center justify-between gap-8 py-3 first:pt-0 last:pb-0 ${className ?? ''}`}>
-      <div className="min-w-0">
-        {htmlFor ? (
-          <label htmlFor={htmlFor} className={labelClass}>
-            {label}
-          </label>
-        ) : (
-          <div className={labelClass}>{label}</div>
-        )}
-        {help ? (
-          <div className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">{help}</div>
-        ) : null}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
-    </div>
-  )
-}
+export const SettingsRow = SettingRow
 
 /**
  * The switch row: the one shape for every boolean setting in the modal. Was
@@ -145,22 +120,14 @@ export function SettingToggle({
   const labelId = React.useId()
   const helpId = description ? `${labelId}-help` : undefined
   return (
-    <div className="flex items-center justify-between gap-8 py-3 first:pt-0 last:pb-0">
-      <div className="min-w-0">
-        <div id={labelId} className="text-body font-medium text-[color:var(--text-strong)]">
-          {label}
-          {requirement ? (
-            <span className="ml-1.5 text-meta font-normal text-[color:var(--text-subtle)]">
-              · {requirement}
-            </span>
-          ) : null}
-        </div>
-        {description ? (
-          <div id={helpId} className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
-            {description}
-          </div>
-        ) : null}
-      </div>
+    <SettingRow
+      label={label}
+      help={description}
+      requirement={requirement}
+      disabled={disabled}
+      labelId={labelId}
+      helpId={helpId}
+    >
       <Switch
         checked={enabled}
         onChange={onChange}
@@ -168,7 +135,7 @@ export function SettingToggle({
         ariaLabelledBy={labelId}
         ariaDescribedBy={helpId}
       />
-    </div>
+    </SettingRow>
   )
 }
 

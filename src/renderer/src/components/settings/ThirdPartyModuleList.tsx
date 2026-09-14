@@ -24,7 +24,7 @@ import type { Tone } from '../ui/tokens'
 import { type ActionResult, ActionResultMessage, Badge, EmptyState, IconButton, InlineNotice, OutlineButton, Spinner, StatusDot, Switch, Tooltip } from '../ui'
 import { FolderPlusIcon } from '../AppIcons'
 import { addThirdPartyModuleFromFolder } from './addThirdPartyModuleFromFolder'
-import { SettingsSectionTitle } from './SettingsAtoms'
+import { SettingCard, SettingsSectionTitle } from './SettingsAtoms'
 
 // Settings → Modules: the third-party (installed-from-disk) module group. It
 // installs, validates, trust-classifies modules, and reports startup readiness;
@@ -213,7 +213,9 @@ export function ThirdPartyModuleRow({
     : 'Enable contributions'
   const enableLabelId = useId()
   return (
-    <div className="flex flex-col gap-2 py-3">
+    // A row inside the modules card: the card owns the hairline, so the row
+    // pads its sides too — the card is full-bleed.
+    <div className="flex flex-col gap-2 px-3 py-2.5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -417,7 +419,9 @@ export function ThirdPartyModuleList({
   const canUninstall = typeof window.api.uninstallMarketplacePlugin === 'function'
 
   return (
-    <div className="flex flex-col gap-3 border-t border-[color:var(--border-subtle)] pt-5">
+    // No top rule: the modules card below draws its own edge, and a section
+    // border right above it was two rules saying one boundary.
+    <div className="flex flex-col gap-3 pt-2">
       <SettingsSectionTitle
         count={modules.length || undefined}
         action={
@@ -443,7 +447,7 @@ export function ThirdPartyModuleList({
           title="No third-party modules installed."
         />
       ) : (
-        <div className="divide-y divide-[color:var(--border-subtle)] border-y border-[color:var(--border-subtle)]">
+        <SettingCard>
           {modules.map((module) => (
             <ThirdPartyModuleRow
               key={module.manifest.id}
@@ -455,7 +459,7 @@ export function ThirdPartyModuleList({
               {...(canUninstall ? { onUninstall: () => void uninstall(module) } : {})}
             />
           ))}
-        </div>
+        </SettingCard>
       )}
 
       {rejected.length > 0 ? (

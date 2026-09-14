@@ -265,6 +265,20 @@ person with everything at once.
 - Borders do the structural work. Cards, fills, and shadows do not. Group with
   space and a heading before reaching for a container; a card inside a card
   needs a real containment reason.
+- **A settings group is a card, and that is the stated reason** (ruled
+  2026-09-14). The rule above still holds everywhere else: space and a heading
+  first, a container only for a reason. A settings page is the reason. It is a
+  long scroll of rows that have nothing to do with each other except which page
+  they landed on, and the groups run eight and ten rows deep — at that length
+  the gap between two groups and the gap between two rows are the same gap, and
+  the heading is left labelling a region with no edge. So a run of setting rows
+  takes a bordered surface: `border.subtle`, `radius.shell`,
+  `bg.surface-raised`, hairlines between rows and never around them. The
+  section label stays **outside** the card and keeps its own typography — the
+  card is the group's edge, so a heading inside it would draw a second one. See
+  [setting-row](../components/setting-row/component.md). This does not license
+  cards elsewhere: it licenses them where a group's own length has eaten the
+  space that was separating it.
 - Hairlines are 1px at canonical zoom. No doubled borders where surfaces meet,
   no 2px divider as decoration.
 - **Elevation is a three-step ramp, and every step is an overlay:**

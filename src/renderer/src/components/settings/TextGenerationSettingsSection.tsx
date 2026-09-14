@@ -20,7 +20,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { AgentCli } from '../../types/workspace'
 import { CliModelPickerButton } from '../ui'
 import { selectAgentCliCatalog } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { SettingsRow, SettingsSectionTitle, SettingToggle } from './SettingsAtoms'
+import { SettingCard, SettingsRow, SettingsSectionTitle, SettingToggle } from './SettingsAtoms'
 
 export function TextGenerationSettingsSection(): JSX.Element {
   const textGeneration = useWorkspaceStore((s) => s.appSettings.textGeneration)
@@ -82,9 +82,10 @@ export function TextGenerationSettingsSection(): JSX.Element {
   }
 
   return (
-    <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">
+    // No top rule on the section: the card draws its own edge.
+    <section className="space-y-3 pt-2">
       <SettingsSectionTitle>Text generation</SettingsSectionTitle>
-      <div className="divide-y divide-[color:var(--border-subtle)]">
+      <SettingCard>
         <SettingToggle
           label="Name chats with your agent"
           description="A few words per chat, written by the CLI you already run under its own login. It counts against that subscription. Off, or with no supported CLI installed, the first words of your prompt name the chat."
@@ -116,7 +117,7 @@ export function TextGenerationSettingsSection(): JSX.Element {
             />
           )}
         </SettingsRow>
-      </div>
+      </SettingCard>
     </section>
   )
 }

@@ -66,7 +66,9 @@ export function PairRequestCard({
   const frame =
     variant === 'card'
       ? 'mx-2.5 my-1.5 rounded-[7px] border border-[color:var(--border-default)] p-2.5'
-      : 'py-3 first:pt-0 last:pb-0'
+      // A row inside a card: the card owns the hairline, so the row owns only
+      // its padding — and it pads its sides too, since the card is full-bleed.
+      : 'px-3 py-2.5'
 
   return (
     <div className={frame} data-pair-request={request.id}>

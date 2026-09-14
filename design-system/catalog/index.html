@@ -644,6 +644,8 @@ code {
 #ds-view-component-segmented-control:checked ~ .ds-catalog #component-segmented-control { display: block; }
 #ds-view-component-select:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-select:checked ~ .ds-catalog #component-select { display: block; }
+#ds-view-component-setting-row:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-setting-row:checked ~ .ds-catalog #component-setting-row { display: block; }
 #ds-view-component-side-pane:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-side-pane:checked ~ .ds-catalog #component-side-pane { display: block; }
 #ds-view-component-skeleton:checked ~ .ds-catalog #components { display: block; }
@@ -752,6 +754,8 @@ code {
 #ds-view-component-segmented-control:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-segmented-control"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-select:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-select"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-select:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-select"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-setting-row:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-setting-row"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-setting-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-setting-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-side-pane:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-side-pane"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-side-pane:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-side-pane"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-skeleton:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-skeleton"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -6283,6 +6287,113 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   }
 }
 
+/* components/setting-row/component.css */
+/* Setting row — the state-a-value-and-change-it row of a settings surface.
+ *
+ * Two parts that only make sense together: the row, and the card the rows sit
+ * in. The card is the reason this component exists — a settings page is a long
+ * scroll of unrelated switches, and space alone does not say where one group
+ * stops and the next starts once the groups are ten rows long.
+ */
+
+/* The card. Full-bleed rows inside a clipped radius, hairlines between them
+ * and never around them — the same surface contract as
+ * `check-row --described`'s list, which drew this shape first. One idiom for
+ * "a run of rows in a bordered surface", not two. */
+.ds-setting-row-list {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface-raised);
+  list-style: none;
+  /* The rows are square-cornered and full-bleed; the surface's radius clips
+     them rather than each row rounding itself (a rounded row inset in a padded
+     surface is a card in a card). */
+  overflow: hidden;
+}
+
+/* The divider goes on the second and subsequent children, so the card's own
+ * border is never doubled and a one-row card carries no rule at all. */
+.ds-setting-row-list > * + * {
+  border-top: 1px solid var(--sem-color-border-subtle);
+}
+
+.ds-setting-row {
+  display: flex;
+  min-height: var(--sem-size-control-lg);
+  align-items: center;
+  justify-content: space-between;
+  /* Wide enough that a long help line breaks before it reaches the control,
+     rather than the control being pushed off its right edge. */
+  gap: var(--sem-space-2xl);
+  padding: var(--sem-space-md) var(--sem-space-lg);
+}
+
+.ds-setting-row-text {
+  /* Claims the width and is the part that gives it up. */
+  min-width: 0;
+}
+
+.ds-setting-row-label {
+  display: block;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-tight);
+  color: var(--sem-color-text-primary);
+}
+
+/* A muted suffix naming an unmet prerequisite — "· Needs Sprint Engine". It
+ * sits on the label line because it is a fact about the control, not about the
+ * setting, and the help line below is already spoken for. */
+.ds-setting-row-requirement {
+  margin-left: var(--sem-space-xs);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-regular);
+  color: var(--sem-color-text-subtle);
+}
+
+/* One or two lines saying what the setting does. It wraps rather than
+ * truncating: a setting whose description the reader cannot finish is a
+ * setting they cannot decide about. */
+.ds-setting-row-help {
+  margin-top: var(--sem-space-3xs);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-setting-row-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sem-space-sm);
+}
+
+/* --stacked: the control drops under the text, for a control that needs the
+ * full width (a path field, a segmented control with four options). The row
+ * keeps its padding and its hairline; only the axis changes. */
+.ds-setting-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sem-space-md);
+}
+
+.ds-setting-row--stacked .ds-setting-row-control {
+  flex: initial;
+}
+
+/* A row whose control cannot be used yet. The label drops to the muted tone so
+ * the row reads as inactive, and the requirement suffix says why.
+ *
+ * The control host is deliberately NOT dimmed here: every control in this
+ * system already draws its own disabled treatment, and a second opacity on the
+ * host multiplies with it — a switch at 0.45 inside a host at 0.5 lands near a
+ * fifth, which is past unreadable. The control owns its own disabled tone. */
+.ds-setting-row--disabled .ds-setting-row-label {
+  color: var(--sem-color-text-muted);
+}
+
 /* components/side-pane/component.css */
 /* Side pane — the column that shares the page. Extracted from the source
  * product's SidePane / SidePaneHeader primitives
@@ -9574,6 +9685,35 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-select .ds-select-listbox.demo-parked {
     position: static;
   }
+.ds-embed-component-setting-row {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-setting-row .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-setting-row .demo-page {
+    max-width: 680px;
+  }
+.ds-embed-component-setting-row .demo-section-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-setting-row .demo-section + .demo-section {
+    margin-top: var(--sem-space-3xl);
+  }
+.ds-embed-component-setting-row .demo-note {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-setting-row .demo-input-fixed {
+    width: 64px;
+  }
 .ds-embed-component-side-pane {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -10933,6 +11073,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-section" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-segmented-control" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-select" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-setting-row" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-side-pane" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-skeleton" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-slider" />
@@ -11007,6 +11148,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-section">Section</label>
 <label class="catalog-nav-item" for="ds-view-component-segmented-control">Segmented control</label>
 <label class="catalog-nav-item" for="ds-view-component-select">Select</label>
+<label class="catalog-nav-item" for="ds-view-component-setting-row">Setting row</label>
 <label class="catalog-nav-item" for="ds-view-component-side-pane">Side pane</label>
 <label class="catalog-nav-item" for="ds-view-component-skeleton">Skeleton</label>
 <label class="catalog-nav-item" for="ds-view-component-slider">Slider</label>
@@ -11178,7 +11320,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.xs</code><code class="catalog-token-value">26px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Dense control height: icon buttons and in-row triggers. Height of icon buttons, controls inside a list row, and dense labelled chrome — toolbar and row actions carrying a font.size.meta label. <strong>Do not:</strong> Ordinary labelled controls, which start at sm. This step is for dense chrome only: a form field, or a button that is the point of its section, is not dense chrome.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.sm</code><code class="catalog-token-value">30px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Default control height: buttons, inputs, selects. The default height for every labelled control. An input and a select side by side must share it.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.md</code><code class="catalog-token-value">34px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Comfortable control height for primary actions in overlays. Modal and drawer primary actions, where density relaxes. <strong>Do not:</strong> Inline chrome inside a modal — a row action or a section-header action in a settings tab is not the modal’s primary action, and takes sm or xs.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.lg</code><code class="catalog-token-value">40px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The app rail's glyph square: the one control drawn to be found from across the window rather than read in a row. The app rail's section and tool glyphs, and the account + Settings cluster at its foot (owner ruling 2026-09-07: the app's rail squares are a step above the product's largest control, and that step is what makes them findable). Pairs with icon.size.lg. <strong>Do not:</strong> Anything inside a panel, a row, a toolbar or an overlay — those stop at md. This step exists for one column of window chrome, and a second consumer is a ruling, not a styling choice.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.lg</code><code class="catalog-token-value">40px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The app rail's glyph square: the one control drawn to be found from across the window rather than read in a row. The app rail's section and tool glyphs, and the account + Settings cluster at its foot (owner ruling 2026-09-07: Slack's rail squares are a step above the product's largest control, and that step is what makes them findable). Pairs with icon.size.lg. <strong>Do not:</strong> Anything inside a panel, a row, a toolbar or an overlay — those stop at md. This step exists for one column of window chrome, and a second consumer is a ruling, not a styling choice.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.hit-target-min</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The smallest permitted pointer target. A floor, not a size: every step of size.control.* clears it. Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area. <strong>Do not:</strong> Shrinking a target below this because the glyph inside is small.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-offset</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The transparent gap between a focused control and its focus outline. outline-offset, wherever focus.ring is applied. The gap is what keeps focus readable on a control whose own fill is the accent: color.border-focus and accent.primary resolve to the same hue, so a zero-offset ring on an accent fill has nothing to contrast against. <strong>Do not:</strong> A wider offset to make focus louder — the gap is spatial separation, not emphasis.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring</code><code class="catalog-token-value">2px solid var(--sem-color-border-focus)</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The single focus treatment: an outline drawn on :focus-visible at focus.ring-offset. Keyboard focus on every interactive element. Apply as `outline` on :focus-visible together with focus.ring-offset, never on :focus. An outline rather than a box-shadow ring: the offset gap is transparent and shows whatever surface is actually behind the control, where a ring offset has to be told that background and gets it wrong the moment the control changes surface. <strong>Do not:</strong> Hover, selection, or validation — focus is its own signal and never shares a treatment. Never at a zero offset, and never suppressed without a replacement.</p></div></div>
@@ -11406,7 +11548,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>What you withhold is as deliberate as what you show. No screen confronts a person with everything at once.</p>
 <ul><li>Each screen gets one visual priority. High-signal status and the default reading path are visible; secondary detail and lower-frequency configuration are revealed as the user reaches for them, behind nearby disclosure.</li><li><strong>Prefer per-row and per-cell actions revealed on hover or focus over always-on controls.</strong> Delete, roll back, close, reveal-in-folder, and the rest belong to the row you are pointing at — not to every row simultaneously.</li><li>Anything revealed on hover <strong>must also appear on keyboard focus</strong>, and must have a non-hover path (an overflow menu, a context menu, or the detail pane). Hover-only is a bug, not a style.</li><li>Revealing an action must not resize or reflow the row. Reserve its space, or reveal it over the row's trailing padding.</li><li>Disclosure is not concealment: destructive or state-changing actions stay discoverable, and a state a person must act on is never hidden behind hover.</li></ul>
 <h4>Hairlines carry the structure</h4>
-<ul><li>Borders do the structural work. Cards, fills, and shadows do not. Group with space and a heading before reaching for a container; a card inside a card needs a real containment reason.</li><li>Hairlines are 1px at canonical zoom. No doubled borders where surfaces meet, no 2px divider as decoration.</li><li><strong>Elevation is a three-step ramp, and every step is an overlay:</strong> <code>shadow.popover</code> for trigger-anchored surfaces, <code>shadow.drawer</code> for drawers and side panels, <code>shadow.modal</code> for centred dialogs. Nothing in the document flow — no card, row, or hover state — takes a shadow.</li><li>In light mode, <code>bg.surface-raised</code> is deliberately the same white as <code>bg.surface</code>: raised surfaces separate by shadow and <code>border.strong</code>, not by tone. In dark mode the tone step does the work.</li><li><strong>Inside an overlay, space separates — rules do not.</strong> A dialog's title, its content, and its buttons are divided by padding. A rule under the title and another above the buttons cuts a small surface into three boxed strips and buys nothing: the shell already draws its own edge, and a shell that scrolls as one piece never needed the rules as scroll affordances.</li><li><strong>One chrome row per content region.</strong> Everything that is chrome for the same content shares a band — status on the left, controls on the right. A tools bar stacked on a status bar spends a second band of vertical space to say what the first could hold. When you reach for a second row, the question is which row the new control belongs in, not where to put the new row.</li><li><strong>A notice carries its tone with a glyph, not a coloured edge.</strong> A 2px stripe down one side of an error or warning card is decoration wearing a hairline's clothes: it doubles the card's own border, breaks the 1px rule, and leaves the tone carried by colour alone. Use a 1px neutral hairline, the soft tone tint, and the tone glyph at the leading edge — which is what makes it survive greyscale.</li></ul>
+<ul><li>Borders do the structural work. Cards, fills, and shadows do not. Group with space and a heading before reaching for a container; a card inside a card needs a real containment reason.</li><li><strong>A settings group is a card, and that is the stated reason</strong> (ruled 2026-09-14). The rule above still holds everywhere else: space and a heading first, a container only for a reason. A settings page is the reason. It is a long scroll of rows that have nothing to do with each other except which page they landed on, and the groups run eight and ten rows deep — at that length the gap between two groups and the gap between two rows are the same gap, and the heading is left labelling a region with no edge. So a run of setting rows takes a bordered surface: <code>border.subtle</code>, <code>radius.shell</code>, <code>bg.surface-raised</code>, hairlines between rows and never around them. The section label stays <strong>outside</strong> the card and keeps its own typography — the card is the group's edge, so a heading inside it would draw a second one. See [setting-row](../components/setting-row/component.md). This does not license cards elsewhere: it licenses them where a group's own length has eaten the space that was separating it.</li><li>Hairlines are 1px at canonical zoom. No doubled borders where surfaces meet, no 2px divider as decoration.</li><li><strong>Elevation is a three-step ramp, and every step is an overlay:</strong> <code>shadow.popover</code> for trigger-anchored surfaces, <code>shadow.drawer</code> for drawers and side panels, <code>shadow.modal</code> for centred dialogs. Nothing in the document flow — no card, row, or hover state — takes a shadow.</li><li>In light mode, <code>bg.surface-raised</code> is deliberately the same white as <code>bg.surface</code>: raised surfaces separate by shadow and <code>border.strong</code>, not by tone. In dark mode the tone step does the work.</li><li><strong>Inside an overlay, space separates — rules do not.</strong> A dialog's title, its content, and its buttons are divided by padding. A rule under the title and another above the buttons cuts a small surface into three boxed strips and buys nothing: the shell already draws its own edge, and a shell that scrolls as one piece never needed the rules as scroll affordances.</li><li><strong>One chrome row per content region.</strong> Everything that is chrome for the same content shares a band — status on the left, controls on the right. A tools bar stacked on a status bar spends a second band of vertical space to say what the first could hold. When you reach for a second row, the question is which row the new control belongs in, not where to put the new row.</li><li><strong>A notice carries its tone with a glyph, not a coloured edge.</strong> A 2px stripe down one side of an error or warning card is decoration wearing a hairline's clothes: it doubles the card's own border, breaks the 1px rule, and leaves the tone carried by colour alone. Use a 1px neutral hairline, the soft tone tint, and the tone glyph at the leading edge — which is what makes it survive greyscale.</li></ul>
 <h4>Space and size</h4>
 <ul><li>Every padding, gap, and margin comes from <code>sem.space.*</code> — a 2px grid at the dense end opening to 4px steps at panel scale. A raw pixel value in a component means the scale is missing a step; add it here rather than locally.</li><li>Controls come from <code>sem.size.control.*</code>: <code>xs</code> (26px) for icon buttons and in-row triggers, <code>sm</code> (30px) as the default for anything with a label, <code>md</code> (34px) for overlay primary actions. An input and a select side by side must share a height.</li><li>Nothing interactive is drawn below <code>sem.size.hit-target-min</code>. A small glyph pads out to it with a transparent hit area rather than shrinking its target.</li><li>An indent that aligns text to a reserved glyph slot (the 28px a leading 16px glyph plus its gap occupies) is structure, not rhythm: it keeps its computed value, off the space scale if need be, with a one-line comment saying what it lines up with. Moving it to the nearest step misaligns the column it exists to align.</li><li>At most 2 radii per view. <code>radius.control</code> (5px) is the default; larger radii belong to overlay and modal shells. Marketing radii (<code>rounded-2xl</code> and up) never appear on operational chrome.</li><li>A capped column is centred or it is a bug. When a <code>max-width</code> element IS the page's content — a wizard step, a settings body, a door canvas — it centres (<code>max-w-*</code> + <code>mx-auto</code>), and its footer actions cap to the same measure so they align with the content edges. A reading-measure cap *inside* a left-anchored composition (prose under an uncapped heading, beside a figure) stays anchored with its siblings; centring it alone would misalign the page.</li></ul>
 <h4>Type</h4>
@@ -11439,8 +11581,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>Three tests, all of which a modal must pass. A destination that fails any of them is a door.</p>
 <p>1. <strong>The thing underneath is still the subject.</strong> The workspace being configured, the layout the diff is a bigger view of, the change being reviewed. If the surface replaces the subject rather than acting on it, it wants the region, not a scrim. 2. <strong>Nothing that names a PLACE leads to it.</strong> No section glyph, no drawer row, no history entry — a destination reached by navigation has to be somewhere the region can go, or back and forward step to a page that mounts invisibly behind the scrim. Note the test is about naming a place, not about being chrome: Settings is opened from the rail's FOOT, and the foot is deliberately not navigation — the account and the gear belong to the window rather than to any section of the product, so they route nothing and no history entry records them. 3. <strong>It is a task with an end.</strong> Opened, done, dismissed. A surface a person navigates around inside, or comes back to and expects to find as they left it, is a place, and places are doors.</p>
 <p><strong>A heading must separate something from something else.</strong> Do not label an ungrouped list (&quot;Rosters&quot; over a field that already reads &quot;Search rosters…&quot;), and do not render a group heading when there is only one group — &quot;Recent&quot; spanning every row groups nothing. Headings appear when there are at least two groups to tell apart; the list's accessible name carries the label otherwise.</p>
-<p><strong>The app rail</strong> (ruled 2026-09-05; glyphs-only and then three-glyph, same day) — the window's far-left column of glyphs, the editor's tool stripe and the app's rail — is chrome, not a rail in the context-rail sense. It names AREAS of the product (Home, Extensions) and holds its one standing tool (Automations), never things inside an area; the sidebar column beside it lists the things, and a drilled-in surface still replaces that column's content rather than standing beside it. &quot;One rail, ever&quot; is unchanged: the app rail holds no list a person walks. Its anatomy:</p>
-<p>1. <strong>A fixed set of glyphs on <code>size.control.lg</code> squares, no captions.</strong> A house and a tile grid do not need &quot;Home&quot; and &quot;Extensions&quot; written under them, and the caption is what made the first cut 76px wide. The name is the glyph's tooltip and accessible name — the idiom the sidebar's collapsed rows already use. The column is one square plus a <code>space.sm</code> gutter each side: 56px, and no wider. (Revised 2026-09-07 from <code>control.md</code> squares in a 46px column: the app's rail squares are a step above its largest in-panel control, and that step is what lets the column be found from across the window rather than read. <code>size.control.lg</code> exists for this column and nothing else; the glyphs on it are <code>icon.size.lg</code>.) 2. <strong>Selection is <code>bg.selected</code> on the square.</strong> Never the accent, never a bar on the window's edge. A section glyph is current while its column shows; a tool glyph is pressed while its surface floats. The two can light together, and they say different things. 3. <strong>Three glyphs: Home, Automations, Extensions.</strong> Automations stands on the rail because it is what the product DOES, not something added to it; it is the module's own registered surface, gated on the module's enablement, so a turned-off module's glyph is simply absent. Plugins does not: it is one of the five things under Extensions, and a glyph of its own said it stood beside them. 4. <strong>Extensions opens its home, and the sidebar becomes the drawer.</strong> The drawer is five rows in a fixed order — Sprints, Design, Plugins, Skills, Agent CLIs — with the same <code>SidebarNavButton</code> chrome for all five. The order is the ruling's, not the registry's <code>order</code>; a module contributes a row's name, glyph and behaviour, never its place. The drawer STAYS PUT while the card region swaps, which is what makes it the navigation rather than a menu: a door that is one of its rows renders its own rail beside its canvas instead of taking the column. Only Sprints, which has its own list of runs, replaces it for the length of its visit — and Automations, which is not a drawer row at all, because the automations it lists ARE the navigation while it is open. A drawer row reads <code>aria-current</code> while its page is showing (it is navigation, exactly like a workspace row); the rail's square reads <code>aria-pressed</code>. Two honest readings of one state — what would be wrong is one row of the drawer disagreeing with the row above it. <strong>The home is those same five rows, said again as tiles</strong> — glyph, name, a one-line summary, a live count, a chevron — resolved from the one function the drawer's rows are resolved by, so a tile cannot open something its row does not, and a module that is off takes both away together. A count on a tile is LIVE or ABSENT: a number nobody has measured yet is no line at all, and a number that really is nothing is words (&quot;No runs&quot;, &quot;None installed&quot;), because &quot;0 running&quot; reads as a counter that has not started rather than as an answer. No module list on the page: those switches live in Settings → Modules, and one choice in two shapes on two surfaces is two things to keep in agreement. 5. <strong>The account and Settings cluster pins to its foot.</strong> They belong to the window, not to whichever section the sidebar is showing. They sit on the same <code>control.lg</code> squares as the sections, and no rule separates them from the glyphs above: the rail is one column from its first square to its last, and the space does the separating (*Hairlines carry the structure*). The sidebar's chrome makes the same call — no rule under New chat. 6. <strong>Its top reserves the title strip's height</strong> on every platform, so its first glyph sits below the chrome row beside it. On macOS the native traffic lights start in that reserve and run past the rail's edge; the sidebar's chrome row insets for the remainder. 7. <strong>The divider starts below that reserve, never at the top.</strong> The rail's right-hand hairline is a positioned strip from the title row down, not a full-height <code>border-r</code>: the traffic lights are wider than the rail, so an edge that ran the whole height drew a line straight through the green light. Across the title row the rail and the chrome beside it are one unbroken band. 8. <strong>A square with news wears the badge's corner count</strong> (2026-09-07) — the unread activity count. Home counts chats wanting you (blocked on a prompt, crashed, or finished while you were away) other than the one on screen; Automations counts scheduled runs that ended while its door was closed; Extensions counts unread news from anything under it, cards published since its home was last open, and sprints waiting on an answer. The tone is the loudest thing counted — danger, then warn, then good or the accent. A thing still waiting on the person stays counted. Never a toast: a glass card for every chat that finished would be over the top, and the count is what says &quot;come back here&quot; without interrupting. 9. <strong>Each drawer row wears its own count, and the square is their sum</strong> (2026-09-08). The Extensions square used to read everything under it the moment the section opened, and the drawer that appeared said nothing about which row the news belonged to — a count that vanished on the click it asked for. Now the news goes on the row it came from: a source drift notice on Plugins, a CLI update on Agent CLIs, a run waiting on an answer on the door that lists it, entries arrived since the bundle was last shown on Design. The row draws the same corner counter — trailing when the column is expanded, docked on the icon when collapsed — in place of any status dot it would otherwise wear (one status idiom per surface), with the row's name in its accessible name. Opening a ROW reads its news; opening the section reads nothing, and the square keeps counting while the drawer is on screen, the way a workspace icon does above its unread channels. The one thing the square counts that no row wears is the hosted cards: the square's own click opens the home that shows them, so the square is their row. The home reads its own cards as it mounts, and marks the ones that were new with the New mark, so what the count pointed at is still on screen when the person arrives.</p>
+<p><strong>The app rail</strong> (ruled 2026-09-05; glyphs-only and then three-glyph, same day) — the window's far-left column of glyphs — is chrome, not a rail in the context-rail sense. It names AREAS of the product (Home, Extensions) and holds its one standing tool (Automations), never things inside an area; the sidebar column beside it lists the things, and a drilled-in surface still replaces that column's content rather than standing beside it. &quot;One rail, ever&quot; is unchanged: the app rail holds no list a person walks. Its anatomy:</p>
+<p>1. <strong>A fixed set of glyphs on <code>size.control.lg</code> squares, no captions.</strong> A house and a tile grid do not need &quot;Home&quot; and &quot;Extensions&quot; written under them, and the caption is what made the first cut 76px wide. The name is the glyph's tooltip and accessible name — the idiom the sidebar's collapsed rows already use. The column is one square plus a <code>space.sm</code> gutter each side: 56px, and no wider. (Revised 2026-09-07 from <code>control.md</code> squares in a 46px column: the rail squares are a step above the largest in-panel control, and that step is what lets the column be found from across the window rather than read. <code>size.control.lg</code> exists for this column and nothing else; the glyphs on it are <code>icon.size.lg</code>.) 2. <strong>Selection is <code>bg.selected</code> on the square.</strong> Never the accent, never a bar on the window's edge. A section glyph is current while its column shows; a tool glyph is pressed while its surface floats. The two can light together, and they say different things. 3. <strong>Three glyphs: Home, Automations, Extensions.</strong> Automations stands on the rail because it is what the product DOES, not something added to it; it is the module's own registered surface, gated on the module's enablement, so a turned-off module's glyph is simply absent. Plugins does not: it is one of the six product things under Extensions, and a glyph of its own said it stood beside them. 4. <strong>Extensions opens its home, and the sidebar becomes the drawer.</strong> The drawer starts with six product rows in a fixed order — Workflows, Sprints, Design, Plugins, Skills, Agent CLIs — and installed module doors follow in stable registry order, all with the same <code>SidebarNavButton</code> chrome. Registry <code>order</code> never moves the six product rows; an installed door contributes its name, glyph and behaviour, then takes the next available place. The drawer STAYS PUT while the card region swaps, which is what makes it the navigation rather than a menu: a door that is one of its rows renders its own rail beside its canvas instead of taking the column. Only Sprints, which has its own list of runs, replaces it for the length of its visit — and Automations, which is not a drawer row at all, because the automations it lists ARE the navigation while it is open. <strong>Add extension leads the drawer.</strong> It is the dashed add-row used by the other door rails, opening the native folder chooser for an installable module directory. Selection runs through the same validation, copying, signature, and trust workflow as Settings → Modules, then opens that settings page for access review; choosing a folder never silently grants trust. A drawer row reads <code>aria-current</code> while its page is showing (it is navigation, exactly like a workspace row); the rail's square reads <code>aria-pressed</code>. Two honest readings of one state — what would be wrong is one row of the drawer disagreeing with the row above it. <strong>The home is those same rows, said again as tiles</strong> — glyph, name, a one-line summary, a live count, a chevron — resolved from the one function the drawer's rows are resolved by, so a tile cannot open something its row does not, and a module that is off takes both away together. A count on a tile is LIVE or ABSENT: a number nobody has measured yet is no line at all, and a number that really is nothing is words (&quot;No runs&quot;, &quot;None installed&quot;), because &quot;0 running&quot; reads as a counter that has not started rather than as an answer. No module list on the page: those switches live in Settings → Modules, and one choice in two shapes on two surfaces is two things to keep in agreement. 5. <strong>The account and Settings cluster pins to its foot.</strong> They belong to the window, not to whichever section the sidebar is showing. They sit on the same <code>control.lg</code> squares as the sections, and no rule separates them from the glyphs above: the rail is one column from its first square to its last, and the space does the separating (*Hairlines carry the structure*). The sidebar's chrome makes the same call — no rule under New chat. 6. <strong>Its top reserves the title strip's height</strong> on every platform, so its first glyph sits below the chrome row beside it. On macOS the native traffic lights start in that reserve and run past the rail's edge; the sidebar's chrome row insets for the remainder. 7. <strong>The divider starts below that reserve, never at the top.</strong> The rail's right-hand hairline is a positioned strip from the title row down, not a full-height <code>border-r</code>: the traffic lights are wider than the rail, so an edge that ran the whole height drew a line straight through the green light. Across the title row the rail and the chrome beside it are one unbroken band. 8. <strong>A square with news wears the badge's corner count</strong> (2026-09-07) — an unread activity count. Home counts chats wanting you (blocked on a prompt, crashed, or finished while you were away) other than the one on screen; Automations counts scheduled runs that ended while its door was closed; Extensions counts unread news from anything under it, cards published since its home was last open, and sprints waiting on an answer. The tone is the loudest thing counted — danger, then warn, then good or the accent. A thing still waiting on the person stays counted. Never a toast: a glass card for every chat that finished would be over the top, and the count is what says &quot;come back here&quot; without interrupting. 9. <strong>Each product drawer row wears its own count, and the square is their sum</strong> (2026-09-08). The Extensions square used to read everything under it the moment the section opened, and the drawer that appeared said nothing about which row the news belonged to — a count that vanished on the click it asked for. Now the news goes on the row it came from: a source drift notice on Plugins, a CLI update on Agent CLIs, a run waiting on an answer on the door that lists it, entries arrived since the bundle was last shown on Design. Installed module rows carry no inferred count: a module owns its status inside its door until it contributes a notification contract. A counted row draws the same corner counter — trailing when the column is expanded, docked on the icon when collapsed — in place of any status dot it would otherwise wear (one status idiom per surface), with the row's name in its accessible name. Opening a ROW reads its news; opening the section reads nothing, and the square keeps counting while the drawer is on screen, the way a workspace icon does above its unread channels. The one thing the square counts that no row wears is the hosted cards: the square's own click opens the home that shows them, so the square is their row. The home reads its own cards as it mounts, and marks the ones that were new with the New mark, so what the count pointed at is still on screen when the person arrives.</p>
 <p><strong>A dialog is header, content, actions — separated by space.</strong> No rule under the title, none above the buttons. See *Hairlines carry the structure*.</p>
 <h4>Status is earned</h4>
 <ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot and a tinted pill saying the same thing.</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
@@ -29711,6 +29853,7 @@ window.addEventListener('resize', repositionAll)
 <div class="catalog-doc">
 <p>A titled region of a panel or pane: a one-line heading row — title, optional canonical count, at most one trailing control — over its content. Extracted from the source product's <code>Section</code> (<code>src/renderer/src/components/ui/Section.tsx</code>).</p>
 <p>A section groups with <strong>space and a heading</strong>, which is the system's answer before any container: no card, no fill, no border box around the content. If the content genuinely needs containment, that is a different decision made for a stated reason — not this component growing chrome.</p>
+<p>One such reason is on the record: a run of [setting-row](../setting-row/component.md)s takes a bordered card, because a settings page's groups are long enough that the gap between two groups and the gap between two rows become the same gap. The card belongs to that component, not to this one — the section still contributes only its title, which sits *outside* the card and keeps the typography specified here. <code>principles.md</code>, *Hairlines carry the structure*, ruling 2026-09-14.</p>
 <p><strong>A heading must separate something from something else.</strong> One section alone on a surface is not a group; render its content bare and let the surface's own name (the panel title, the list's accessible name) carry the label. The title is optional for exactly this case — a section with no title is just the padding contract.</p>
 <h4>Anatomy</h4>
 <p>| Part | Class | Required | |---|---|---| | Region | <code>.ds-section</code> | yes — a real <code>&lt;section&gt;</code> | | Header row | <code>.ds-section-header</code> | when titled — baseline-aligned, <code>space.sm</code> gap | | Heading cluster | <code>.ds-section-heading</code> | with the header — title + count, <code>space.xs</code> gap, shrinks first | | Title | <code>.ds-section-title</code> | with the header — an <code>&lt;h2&gt;</code>–<code>&lt;h4&gt;</code>, truncates | | Count | <code>.ds-section-count</code> | no — <code>tabular-nums</code>, <code>text.muted</code> | | Action | <code>.ds-section-action</code> | no — <strong>one</strong> trailing control | | Body | <code>.ds-section-body</code> | yes — the content, inset unless <code>--flush</code> |</p>
@@ -30744,6 +30887,798 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
     &lt;/div&gt;
   &lt;/div&gt;
 &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-setting-row" class="catalog-view catalog-component">
+<h3>Setting row</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-setting-row">
+<!-- LIGHT -->
+<div class="demo-stage">
+  <div class="demo-page">
+
+    <!-- Default rows: a group of booleans, the commonest card there is. -->
+    <div class="demo-section">
+      <p class="demo-section-label">Organization</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-grouping">Project grouping</label>
+            <div class="ds-setting-row-help" id="l-grouping-help">
+              Combine matching repositories across environments.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="true" id="l-grouping"
+                    aria-describedby="l-grouping-help" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-settle">Auto-settle merged threads</label>
+            <div class="ds-setting-row-help" id="l-settle-help">
+              Settle a thread when its pull request merges. Closed pull requests still
+              settle automatically.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="true" id="l-settle"
+                    aria-describedby="l-settle-help" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <!-- A row with no help: its label already says everything. -->
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-days">Days of inactivity before auto-settle</label>
+          </div>
+          <div class="ds-setting-row-control">
+            <input class="ds-input demo-input-fixed" id="l-days" type="number" min="1" value="3" />
+          </div>
+        </div>
+        <!-- A select, sized to its content. -->
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-time">Time format</label>
+            <div class="ds-setting-row-help">
+              System default follows your OS clock preference.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-select" id="l-time" aria-haspopup="listbox" aria-expanded="false">
+              <span class="ds-select-value">System default</span>
+              <span aria-hidden="true" class="ds-select-chevron"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- --disabled and the requirement suffix. -->
+    <div class="demo-section">
+      <p class="demo-section-label">Behavior</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row ds-setting-row--disabled">
+          <div class="ds-setting-row-text">
+            <span class="ds-setting-row-label" id="l-publish">
+              Publish agent activity
+              <span class="ds-setting-row-requirement">· Needs Sprint Engine</span>
+            </span>
+            <div class="ds-setting-row-help" id="l-publish-help">
+              Send activity to mobile notifications without a paired device.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="false" aria-labelledby="l-publish"
+                    aria-describedby="l-publish-help" class="ds-switch" disabled>
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <!-- A row whose control is a pair of buttons: no `for` target, so the
+             text is pointed at instead. -->
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <span class="ds-setting-row-label" id="l-reset">Restore defaults</span>
+            <div class="ds-setting-row-help" id="l-reset-help">
+              Put every setting on this page back to how it shipped.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-button ds-button--outline ds-button--md"
+                    aria-labelledby="l-reset" aria-describedby="l-reset-help">Restore</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- --stacked: the control needs the width. -->
+    <div class="demo-section">
+      <p class="demo-section-label">Projects</p>
+      <p class="demo-note">The stacked variant — a control that needs the full width.</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row ds-setting-row--stacked">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-path">Default checkout path</label>
+            <div class="ds-setting-row-help">
+              Where new projects are cloned when you do not pick a folder.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <input class="ds-input" id="l-path" type="text" value="~/code/projects" />
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-layout">Diff layout</label>
+            <div class="ds-setting-row-help">
+              The toggle in the diff toolbar changes this too.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-select" id="l-layout" aria-haspopup="listbox" aria-expanded="false">
+              <span class="ds-select-value">Stacked</span>
+              <span aria-hidden="true" class="ds-select-chevron"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- A one-row card is legal markup and a usage smell; shown so the spec's
+         rule against it has something to point at. -->
+    <div class="demo-section">
+      <p class="demo-section-label">Legacy features</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="l-legacy">Keep the old composer</label>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="false" id="l-legacy" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- DARK -->
+<div class="demo-stage" data-mode="dark">
+  <div class="demo-page">
+
+    <div class="demo-section">
+      <p class="demo-section-label">Organization</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-grouping">Project grouping</label>
+            <div class="ds-setting-row-help" id="d-grouping-help">
+              Combine matching repositories across environments.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="true" id="d-grouping"
+                    aria-describedby="d-grouping-help" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-settle">Auto-settle merged threads</label>
+            <div class="ds-setting-row-help" id="d-settle-help">
+              Settle a thread when its pull request merges. Closed pull requests still
+              settle automatically.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="true" id="d-settle"
+                    aria-describedby="d-settle-help" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-days">Days of inactivity before auto-settle</label>
+          </div>
+          <div class="ds-setting-row-control">
+            <input class="ds-input demo-input-fixed" id="d-days" type="number" min="1" value="3" />
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-time">Time format</label>
+            <div class="ds-setting-row-help">
+              System default follows your OS clock preference.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-select" id="d-time" aria-haspopup="listbox" aria-expanded="false">
+              <span class="ds-select-value">System default</span>
+              <span aria-hidden="true" class="ds-select-chevron"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <p class="demo-section-label">Behavior</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row ds-setting-row--disabled">
+          <div class="ds-setting-row-text">
+            <span class="ds-setting-row-label" id="d-publish">
+              Publish agent activity
+              <span class="ds-setting-row-requirement">· Needs Sprint Engine</span>
+            </span>
+            <div class="ds-setting-row-help" id="d-publish-help">
+              Send activity to mobile notifications without a paired device.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="false" aria-labelledby="d-publish"
+                    aria-describedby="d-publish-help" class="ds-switch" disabled>
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <span class="ds-setting-row-label" id="d-reset">Restore defaults</span>
+            <div class="ds-setting-row-help" id="d-reset-help">
+              Put every setting on this page back to how it shipped.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-button ds-button--outline ds-button--md"
+                    aria-labelledby="d-reset" aria-describedby="d-reset-help">Restore</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <p class="demo-section-label">Projects</p>
+      <p class="demo-note">The stacked variant — a control that needs the full width.</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row ds-setting-row--stacked">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-path">Default checkout path</label>
+            <div class="ds-setting-row-help">
+              Where new projects are cloned when you do not pick a folder.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <input class="ds-input" id="d-path" type="text" value="~/code/projects" />
+          </div>
+        </div>
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-layout">Diff layout</label>
+            <div class="ds-setting-row-help">
+              The toggle in the diff toolbar changes this too.
+            </div>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" class="ds-select" id="d-layout" aria-haspopup="listbox" aria-expanded="false">
+              <span class="ds-select-value">Stacked</span>
+              <span aria-hidden="true" class="ds-select-chevron"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <p class="demo-section-label">Legacy features</p>
+      <div class="ds-setting-row-list">
+        <div class="ds-setting-row">
+          <div class="ds-setting-row-text">
+            <label class="ds-setting-row-label" for="d-legacy">Keep the old composer</label>
+          </div>
+          <div class="ds-setting-row-control">
+            <button type="button" role="switch" aria-checked="false" id="d-legacy" class="ds-switch">
+              <span aria-hidden="true" class="ds-switch-thumb"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>The state-a-value-and-change-it row: one setting, said in a label and at most two lines of help, with the control that changes it on the right. A settings page is nothing but these.</p>
+<p>It is <strong>not</strong> a list row. [list-row](../list-row/component.md) is the pick-an-item row — the person chooses it, it becomes selected, and the detail pane answers. Nothing here is selectable and nothing here is chosen: the row is a label for a control, and the only interactive thing in it is that control. So this row has no hover fill, no selected state, and no cursor — three channels it would otherwise have to keep apart for no reason.</p>
+<p>Use [check-row](../check-row/component.md) when the row's own value is a tick and the rows are a list the person is marking up. Use [provider-row](../provider-row/component.md) for a connected service with a status and a connect action. Use this for a setting.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Card | <code>.ds-setting-row-list</code> | yes — the surface a run of rows sits in | | Row | <code>.ds-setting-row</code> | yes — a <code>&lt;div&gt;</code>; the row is never a control | | Text block | <code>.ds-setting-row-text</code> | yes — claims the width, gives it up first | | Label | <code>.ds-setting-row-label</code> | yes — a <code>&lt;label&gt;</code> when one control owns the row | | Requirement | <code>.ds-setting-row-requirement</code> | no — a muted suffix on the label line naming an unmet prerequisite | | Help | <code>.ds-setting-row-help</code> | no — one or two lines, wraps, never truncates | | Control host | <code>.ds-setting-row-control</code> | yes — the control that changes the value |</p>
+<p><strong>The card is part of the component, not a wrapper someone remembers to add.</strong> A run of setting rows is always in one, and the rows are drawn to be full-bleed inside it: square corners, hairlines between rows only, the card's radius doing the clipping. Rows loose on a page is the shape this component replaced.</p>
+<h5>The section label sits outside the card</h5>
+<p>A group of settings is a [section](../section/component.md) title above a card, not a title inside one. The card is the group's edge; a heading inside it would draw a second one. So the page reads: label, card, gap, label, card.</p>
+<p>The label keeps the section component's own typography — this component does not restyle it. What changes is that the label no longer has to carry the separation on its own, which is the whole point: the card holds the group, and the heading goes back to only naming it.</p>
+<p>This is the &quot;stated reason&quot; the section spec asks for before content takes a container. Recorded in <code>foundations/principles.md</code> under *Hairlines carry the structure* (ruling 2026-09-14).</p>
+<h4>Variants</h4>
+<ul><li><strong>Default</strong> — label and help on the left, control on the right, vertically centred.</li><li><strong><code>--stacked</code></strong> — the control drops under the text, for a control that needs the full width: a path field, a four-option segmented control, a text area. The row keeps its padding and its hairline; only the axis changes. Reach for it per row, not per card — a card of stacked rows is a form, and a form wants [field](../field/component.md).</li><li><strong><code>--disabled</code></strong> — the control cannot be used yet. The label drops to <code>text.muted</code>; the help stays as it is, because a person has to be able to read what they cannot have. Pair it with a <code>--requirement</code> suffix saying why. The <strong>control host does not dim</strong> — every control here draws its own disabled treatment, and a second opacity on the host multiplies with it (a switch at 0.45 inside a host at 0.5 lands near a fifth). The control owns its own disabled tone; the row owns the label and the reason.</li></ul>
+<h4>States</h4>
+<p>The row has none. It is a label and a container — every state belongs to the control inside it, which brings its own hover, focus ring and disabled tone from its own component.</p>
+<p>| Part | Treatment | |---|---| | Row | No hover, no focus, no selection. It is not a control | | Card | No hover, no shadow. <code>border.subtle</code> at rest and always | | Control | Whatever its own component specifies, disabled included | | Disabled row | Label drops to <code>text.muted</code>. The host itself is untouched |</p>
+<p><strong>No shadow, ever.</strong> The card is in the document flow, and elevation in this system is a three-step overlay ramp for popovers, drawers and modals only (<code>principles.md</code>, *Hairlines carry the structure*). A settings card that lifts off the page is an overlay that forgot it was content.</p>
+<h4>Usage</h4>
+<ul><li><strong>One setting per row.</strong> Two switches on one row is two settings sharing one label, and the help line can only describe one of them.</li><li><strong>Help is one or two lines, and it says what the setting does</strong> — not what the control is. &quot;Settle a thread when its pull request merges&quot; earns its line; &quot;Toggle this on or off&quot; does not. A row whose help would only restate its label ships without help.</li><li><strong>The control stays sized to its content.</strong> A 240px input, an intrinsic select, a switch. A full-width control in the default variant is the <code>--stacked</code> variant asking to be used.</li><li><strong>Group by what a person would change together</strong>, and keep a card to a readable run — past roughly eight rows the card stops being a group and goes back to being a scroll, and the group wants splitting.</li><li><strong>A card is a group, so a card of one row is not a group.</strong> One row alone under its own label belongs in the neighbouring card, or the label goes and the row joins the page's first card.</li><li>Do not nest a card in a card. A setting that opens onto more settings is a row with a disclosure, or a page of its own.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The row is a <code>&lt;div&gt;</code> and takes no focus. The control is the only tab stop.</li><li>When one control owns the row, the label is a real <code>&lt;label&gt;</code> with <code>for</code> pointing at it, so the label text is clickable and is read as the control's name.</li><li>When the control cannot take a <code>for</code> (a switch rendered as a <code>&lt;button&gt;</code>, an action pair), point the control at the text instead: <code>aria-labelledby</code> on the label and <code>aria-describedby</code> on the help. Never both a <code>&lt;label for&gt;</code> and an <code>aria-labelledby</code> — that is two names for one control.</li><li>The requirement suffix is inside the labelled element, so &quot;Needs Sprint Engine&quot; is read as part of the control's name rather than being lost.</li><li>A disabled control uses the <code>disabled</code> attribute, or <code>aria-disabled=&quot;true&quot;</code> when it must stay focusable to explain why.</li><li>The card is a plain container with no role. When the rows are genuinely a list of like things the card may be a <code>&lt;ul&gt;</code> with <code>&lt;li&gt;</code> rows; a card of unrelated settings is not a list and must not claim to be one.</li><li>Help text is never the only place a constraint appears. A numeric field with a floor states it on the control (<code>min</code>), not only in prose.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/setting-row/component.css</summary><pre><code>/* Setting row — the state-a-value-and-change-it row of a settings surface.
+ *
+ * Two parts that only make sense together: the row, and the card the rows sit
+ * in. The card is the reason this component exists — a settings page is a long
+ * scroll of unrelated switches, and space alone does not say where one group
+ * stops and the next starts once the groups are ten rows long.
+ */
+
+/* The card. Full-bleed rows inside a clipped radius, hairlines between them
+ * and never around them — the same surface contract as
+ * `check-row --described`'s list, which drew this shape first. One idiom for
+ * &quot;a run of rows in a bordered surface&quot;, not two. */
+.ds-setting-row-list {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-shell);
+  background: var(--sem-color-bg-surface-raised);
+  list-style: none;
+  /* The rows are square-cornered and full-bleed; the surface's radius clips
+     them rather than each row rounding itself (a rounded row inset in a padded
+     surface is a card in a card). */
+  overflow: hidden;
+}
+
+/* The divider goes on the second and subsequent children, so the card's own
+ * border is never doubled and a one-row card carries no rule at all. */
+.ds-setting-row-list &gt; * + * {
+  border-top: 1px solid var(--sem-color-border-subtle);
+}
+
+.ds-setting-row {
+  display: flex;
+  min-height: var(--sem-size-control-lg);
+  align-items: center;
+  justify-content: space-between;
+  /* Wide enough that a long help line breaks before it reaches the control,
+     rather than the control being pushed off its right edge. */
+  gap: var(--sem-space-2xl);
+  padding: var(--sem-space-md) var(--sem-space-lg);
+}
+
+.ds-setting-row-text {
+  /* Claims the width and is the part that gives it up. */
+  min-width: 0;
+}
+
+.ds-setting-row-label {
+  display: block;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-tight);
+  color: var(--sem-color-text-primary);
+}
+
+/* A muted suffix naming an unmet prerequisite — &quot;· Needs Sprint Engine&quot;. It
+ * sits on the label line because it is a fact about the control, not about the
+ * setting, and the help line below is already spoken for. */
+.ds-setting-row-requirement {
+  margin-left: var(--sem-space-xs);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-regular);
+  color: var(--sem-color-text-subtle);
+}
+
+/* One or two lines saying what the setting does. It wraps rather than
+ * truncating: a setting whose description the reader cannot finish is a
+ * setting they cannot decide about. */
+.ds-setting-row-help {
+  margin-top: var(--sem-space-3xs);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-setting-row-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sem-space-sm);
+}
+
+/* --stacked: the control drops under the text, for a control that needs the
+ * full width (a path field, a segmented control with four options). The row
+ * keeps its padding and its hairline; only the axis changes. */
+.ds-setting-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sem-space-md);
+}
+
+.ds-setting-row--stacked .ds-setting-row-control {
+  flex: initial;
+}
+
+/* A row whose control cannot be used yet. The label drops to the muted tone so
+ * the row reads as inactive, and the requirement suffix says why.
+ *
+ * The control host is deliberately NOT dimmed here: every control in this
+ * system already draws its own disabled treatment, and a second opacity on the
+ * host multiplies with it — a switch at 0.45 inside a host at 0.5 lands near a
+ * fifth, which is past unreadable. The control owns its own disabled tone. */
+.ds-setting-row--disabled .ds-setting-row-label {
+  color: var(--sem-color-text-muted);
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/setting-row/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Setting row&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../switch/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../select/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../input/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../button/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../segmented-control/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-page {
+    max-width: 680px;
+  }
+  /* The section label: outside the card, in the section component's own
+     typography. The card is what separates, so the label only has to name. */
+  .demo-section-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-section + .demo-section {
+    margin-top: var(--sem-space-3xl);
+  }
+  .demo-note {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-micro);
+    color: var(--sem-color-text-subtle);
+  }
+  .demo-input-fixed {
+    width: 64px;
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+
+&lt;!-- LIGHT --&gt;
+&lt;div class=&quot;demo-stage&quot;&gt;
+  &lt;div class=&quot;demo-page&quot;&gt;
+
+    &lt;!-- Default rows: a group of booleans, the commonest card there is. --&gt;
+    &lt;div class=&quot;demo-section&quot;&gt;
+      &lt;p class=&quot;demo-section-label&quot;&gt;Organization&lt;/p&gt;
+      &lt;div class=&quot;ds-setting-row-list&quot;&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;l-grouping&quot;&gt;Project grouping&lt;/label&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;l-grouping-help&quot;&gt;
+              Combine matching repositories across environments.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; id=&quot;l-grouping&quot;
+                    aria-describedby=&quot;l-grouping-help&quot; class=&quot;ds-switch&quot;&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;l-settle&quot;&gt;Auto-settle merged threads&lt;/label&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;l-settle-help&quot;&gt;
+              Settle a thread when its pull request merges. Closed pull requests still
+              settle automatically.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; id=&quot;l-settle&quot;
+                    aria-describedby=&quot;l-settle-help&quot; class=&quot;ds-switch&quot;&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;!-- A row with no help: its label already says everything. --&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;l-days&quot;&gt;Days of inactivity before auto-settle&lt;/label&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;input class=&quot;ds-input demo-input-fixed&quot; id=&quot;l-days&quot; type=&quot;number&quot; min=&quot;1&quot; value=&quot;3&quot; /&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;!-- A select, sized to its content. --&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;l-time&quot;&gt;Time format&lt;/label&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot;&gt;
+              System default follows your OS clock preference.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; class=&quot;ds-select&quot; id=&quot;l-time&quot; aria-haspopup=&quot;listbox&quot; aria-expanded=&quot;false&quot;&gt;
+              &lt;span class=&quot;ds-select-value&quot;&gt;System default&lt;/span&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-select-chevron&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;!-- --disabled and the requirement suffix. --&gt;
+    &lt;div class=&quot;demo-section&quot;&gt;
+      &lt;p class=&quot;demo-section-label&quot;&gt;Behavior&lt;/p&gt;
+      &lt;div class=&quot;ds-setting-row-list&quot;&gt;
+        &lt;div class=&quot;ds-setting-row ds-setting-row--disabled&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;span class=&quot;ds-setting-row-label&quot; id=&quot;l-publish&quot;&gt;
+              Publish agent activity
+              &lt;span class=&quot;ds-setting-row-requirement&quot;&gt;· Needs Sprint Engine&lt;/span&gt;
+            &lt;/span&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;l-publish-help&quot;&gt;
+              Send activity to mobile notifications without a paired device.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;false&quot; aria-labelledby=&quot;l-publish&quot;
+                    aria-describedby=&quot;l-publish-help&quot; class=&quot;ds-switch&quot; disabled&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;!-- A row whose control is a pair of buttons: no `for` target, so the
+             text is pointed at instead. --&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;span class=&quot;ds-setting-row-label&quot; id=&quot;l-reset&quot;&gt;Restore defaults&lt;/span&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;l-reset-help&quot;&gt;
+              Put every setting on this page back to how it shipped.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--outline ds-button--md&quot;
+                    aria-labelledby=&quot;l-reset&quot; aria-describedby=&quot;l-reset-help&quot;&gt;Restore&lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;!-- --stacked: the control needs the width. --&gt;
+    &lt;div class=&quot;demo-section&quot;&gt;
+      &lt;p class=&quot;demo-section-label&quot;&gt;Projects&lt;/p&gt;
+      &lt;p class=&quot;demo-note&quot;&gt;The stacked variant — a control that needs the full width.&lt;/p&gt;
+      &lt;div class=&quot;ds-setting-row-list&quot;&gt;
+        &lt;div class=&quot;ds-setting-row ds-setting-row--stacked&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;l-path&quot;&gt;Default checkout path&lt;/label&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot;&gt;
+              Where new projects are cloned when you do not pick a folder.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;input class=&quot;ds-input&quot; id=&quot;l-path&quot; type=&quot;text&quot; value=&quot;~/code/projects&quot; /&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;l-layout&quot;&gt;Diff layout&lt;/label&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot;&gt;
+              The toggle in the diff toolbar changes this too.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; class=&quot;ds-select&quot; id=&quot;l-layout&quot; aria-haspopup=&quot;listbox&quot; aria-expanded=&quot;false&quot;&gt;
+              &lt;span class=&quot;ds-select-value&quot;&gt;Stacked&lt;/span&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-select-chevron&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;!-- A one-row card is legal markup and a usage smell; shown so the spec's
+         rule against it has something to point at. --&gt;
+    &lt;div class=&quot;demo-section&quot;&gt;
+      &lt;p class=&quot;demo-section-label&quot;&gt;Legacy features&lt;/p&gt;
+      &lt;div class=&quot;ds-setting-row-list&quot;&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;l-legacy&quot;&gt;Keep the old composer&lt;/label&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;false&quot; id=&quot;l-legacy&quot; class=&quot;ds-switch&quot;&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;!-- DARK --&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;div class=&quot;demo-page&quot;&gt;
+
+    &lt;div class=&quot;demo-section&quot;&gt;
+      &lt;p class=&quot;demo-section-label&quot;&gt;Organization&lt;/p&gt;
+      &lt;div class=&quot;ds-setting-row-list&quot;&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;d-grouping&quot;&gt;Project grouping&lt;/label&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;d-grouping-help&quot;&gt;
+              Combine matching repositories across environments.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; id=&quot;d-grouping&quot;
+                    aria-describedby=&quot;d-grouping-help&quot; class=&quot;ds-switch&quot;&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;d-settle&quot;&gt;Auto-settle merged threads&lt;/label&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;d-settle-help&quot;&gt;
+              Settle a thread when its pull request merges. Closed pull requests still
+              settle automatically.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; id=&quot;d-settle&quot;
+                    aria-describedby=&quot;d-settle-help&quot; class=&quot;ds-switch&quot;&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;d-days&quot;&gt;Days of inactivity before auto-settle&lt;/label&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;input class=&quot;ds-input demo-input-fixed&quot; id=&quot;d-days&quot; type=&quot;number&quot; min=&quot;1&quot; value=&quot;3&quot; /&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;d-time&quot;&gt;Time format&lt;/label&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot;&gt;
+              System default follows your OS clock preference.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; class=&quot;ds-select&quot; id=&quot;d-time&quot; aria-haspopup=&quot;listbox&quot; aria-expanded=&quot;false&quot;&gt;
+              &lt;span class=&quot;ds-select-value&quot;&gt;System default&lt;/span&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-select-chevron&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-section&quot;&gt;
+      &lt;p class=&quot;demo-section-label&quot;&gt;Behavior&lt;/p&gt;
+      &lt;div class=&quot;ds-setting-row-list&quot;&gt;
+        &lt;div class=&quot;ds-setting-row ds-setting-row--disabled&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;span class=&quot;ds-setting-row-label&quot; id=&quot;d-publish&quot;&gt;
+              Publish agent activity
+              &lt;span class=&quot;ds-setting-row-requirement&quot;&gt;· Needs Sprint Engine&lt;/span&gt;
+            &lt;/span&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;d-publish-help&quot;&gt;
+              Send activity to mobile notifications without a paired device.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;false&quot; aria-labelledby=&quot;d-publish&quot;
+                    aria-describedby=&quot;d-publish-help&quot; class=&quot;ds-switch&quot; disabled&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;span class=&quot;ds-setting-row-label&quot; id=&quot;d-reset&quot;&gt;Restore defaults&lt;/span&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;d-reset-help&quot;&gt;
+              Put every setting on this page back to how it shipped.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--outline ds-button--md&quot;
+                    aria-labelledby=&quot;d-reset&quot; aria-describedby=&quot;d-reset-help&quot;&gt;Restore&lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-section&quot;&gt;
+      &lt;p class=&quot;demo-section-label&quot;&gt;Projects&lt;/p&gt;
+      &lt;p class=&quot;demo-note&quot;&gt;The stacked variant — a control that needs the full width.&lt;/p&gt;
+      &lt;div class=&quot;ds-setting-row-list&quot;&gt;
+        &lt;div class=&quot;ds-setting-row ds-setting-row--stacked&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;d-path&quot;&gt;Default checkout path&lt;/label&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot;&gt;
+              Where new projects are cloned when you do not pick a folder.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;input class=&quot;ds-input&quot; id=&quot;d-path&quot; type=&quot;text&quot; value=&quot;~/code/projects&quot; /&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;d-layout&quot;&gt;Diff layout&lt;/label&gt;
+            &lt;div class=&quot;ds-setting-row-help&quot;&gt;
+              The toggle in the diff toolbar changes this too.
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; class=&quot;ds-select&quot; id=&quot;d-layout&quot; aria-haspopup=&quot;listbox&quot; aria-expanded=&quot;false&quot;&gt;
+              &lt;span class=&quot;ds-select-value&quot;&gt;Stacked&lt;/span&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-select-chevron&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-section&quot;&gt;
+      &lt;p class=&quot;demo-section-label&quot;&gt;Legacy features&lt;/p&gt;
+      &lt;div class=&quot;ds-setting-row-list&quot;&gt;
+        &lt;div class=&quot;ds-setting-row&quot;&gt;
+          &lt;div class=&quot;ds-setting-row-text&quot;&gt;
+            &lt;label class=&quot;ds-setting-row-label&quot; for=&quot;d-legacy&quot;&gt;Keep the old composer&lt;/label&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;ds-setting-row-control&quot;&gt;
+            &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;false&quot; id=&quot;d-legacy&quot; class=&quot;ds-switch&quot;&gt;
+              &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+  &lt;/div&gt;
+&lt;/div&gt;
+
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

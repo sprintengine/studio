@@ -41,7 +41,14 @@ import { RemoteTailnetSettingsTab } from './RemoteTailnetSettingsTab'
 import { TextGenerationSettingsSection } from './TextGenerationSettingsSection'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
-import { MetaCell, SettingsPageHeader, SettingsRow, SettingsSectionTitle, SettingToggle } from './SettingsAtoms'
+import {
+  MetaCell,
+  SettingCard,
+  SettingsPageHeader,
+  SettingsRow,
+  SettingsSectionTitle,
+  SettingToggle,
+} from './SettingsAtoms'
 import {
   resolveVersionControlRow,
   versionControlSections,
@@ -1411,40 +1418,44 @@ export default function SettingsPanel({
               Appearance and not General: it changes the shape of a list, not
               what the app does — the same question as the theme and the window
               material it sits under. */}
-          <div className="border-t border-[color:var(--border-subtle)] pt-5">
-            <SettingsRow
-              label="Chat list"
-              help="Group chats under their project, or list them all together, most recently messaged first."
-            >
-              <SegmentedControl<'projects' | 'all'>
-                ariaLabel="Chat list"
-                items={[
-                  { value: 'projects', label: 'By project' },
-                  { value: 'all', label: 'All chats' },
-                ]}
-                value={chatListView}
-                onChange={setChatListView}
-              />
-            </SettingsRow>
-          </div>
-          {window.api.platform === 'darwin' ? (
-            <div className="border-t border-[color:var(--border-subtle)] pt-5">
-              <SettingsRow label="Window material" help="Glass frosts the sidebar and title bar.">
-                {/* A value choice, so the kit's segmented control: one tab stop,
-                    arrow keys, and a neutral selected segment — not an
-                    aria-pressed pair painted with the accent. */}
-                <SegmentedControl<'solid' | 'glass'>
-                  ariaLabel="Window material"
+          {/* One card, not a rule between each row: these were two one-row
+              groups divided by top borders, which spent two rules to say what
+              one card's edge says. */}
+          <section className="space-y-3">
+            <SettingsSectionTitle>Interface</SettingsSectionTitle>
+            <SettingCard>
+              <SettingsRow
+                label="Chat list"
+                help="Group chats under their project, or list them all together, most recently messaged first."
+              >
+                <SegmentedControl<'projects' | 'all'>
+                  ariaLabel="Chat list"
                   items={[
-                    { value: 'solid', label: 'Solid' },
-                    { value: 'glass', label: 'Glass' },
+                    { value: 'projects', label: 'By project' },
+                    { value: 'all', label: 'All chats' },
                   ]}
-                  value={appearanceWindowMaterial}
-                  onChange={setAppearanceWindowMaterial}
+                  value={chatListView}
+                  onChange={setChatListView}
                 />
               </SettingsRow>
-            </div>
-          ) : null}
+              {window.api.platform === 'darwin' ? (
+                <SettingsRow label="Window material" help="Glass frosts the sidebar and title bar.">
+                  {/* A value choice, so the kit's segmented control: one tab stop,
+                      arrow keys, and a neutral selected segment — not an
+                      aria-pressed pair painted with the accent. */}
+                  <SegmentedControl<'solid' | 'glass'>
+                    ariaLabel="Window material"
+                    items={[
+                      { value: 'solid', label: 'Solid' },
+                      { value: 'glass', label: 'Glass' },
+                    ]}
+                    value={appearanceWindowMaterial}
+                    onChange={setAppearanceWindowMaterial}
+                  />
+                </SettingsRow>
+              ) : null}
+            </SettingCard>
+          </section>
         </div>
       ) : null}
 
@@ -1478,7 +1489,12 @@ export default function SettingsPanel({
               on the right. The update flow is a line (check → download →
               restart), so only the current step's action renders. Checking is
               a glyph; downloading and restarting are the primary action. */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-4">
+          {/* No rule under this row any more: the card below brings its own
+              top border, and a hairline immediately above it was two rules
+              saying one boundary. The row's `pb-4` went with it — the gap to
+              the card is the card's own `mt-5`, so the two do not add up to a
+              step no other section spends. */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
               <SprintEngineFrond tone="current" className="icon-md shrink-0" />
               <div className="min-w-0">
@@ -1536,7 +1552,7 @@ export default function SettingsPanel({
             </div>
           ) : null}
 
-          <div className="mt-4 divide-y divide-[color:var(--border-subtle)]">
+          <SettingCard className="mt-5">
             {backgroundModeDescriptor ? (
               <RegistrySwitchRow
                 descriptor={backgroundModeDescriptor}
@@ -1551,7 +1567,7 @@ export default function SettingsPanel({
                 onChange={(enabled) => setTelemetryEnabled(enabled)}
               />
             ) : null}
-          </div>
+          </SettingCard>
         </div>
       ) : null}
 
@@ -1685,7 +1701,7 @@ export default function SettingsPanel({
               if (checkCliVersions) void refreshCliVersionAdvisories({ force: true, cliRuntimes })
             }}
           />
-          <div className="divide-y divide-[color:var(--border-subtle)]">
+          <SettingCard>
             <SettingToggle
               label="Check for CLI updates"
               description="Offers Update when a newer version is published."
@@ -1693,7 +1709,7 @@ export default function SettingsPanel({
               onChange={setCheckCliVersions}
             />
             <HostedFeedRow now={agentsFreshnessNow} />
-          </div>
+          </SettingCard>
           <ActionResultMessage message={cliInstallMessage} />
           {/* First-run agent-config adoption. It runs silently at the first
               workspace creation — the user is never asked — so this line is the
@@ -1952,14 +1968,16 @@ export default function SettingsPanel({
           <TextGenerationSettingsSection />
 
           {idleSuspendDescriptor ? (
-            <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">
+            // No top rule on the section: the card draws its own edge, and a
+            // section rule above it doubled the boundary.
+            <section className="space-y-3 pt-2">
               <SettingsSectionTitle>Memory</SettingsSectionTitle>
-              <div className="divide-y divide-[color:var(--border-subtle)]">
+              <SettingCard>
                 <IdleSuspendField descriptor={idleSuspendDescriptor} />
                 {keepRecentAliveDescriptor ? (
                   <KeepRecentAliveField descriptor={keepRecentAliveDescriptor} />
                 ) : null}
-              </div>
+              </SettingCard>
             </section>
           ) : null}
           {/* The MCP gateway every Studio-launched agent receives. It was a rail
@@ -1995,14 +2013,17 @@ export default function SettingsPanel({
 
           <ProjectKnowledgeList activeProjectRoot={activeProjectRoot} />
 
-          <div className="border-t border-[color:var(--border-subtle)] pt-4">
-            <SettingToggle
-              label="Activity tracking"
-              description="Record which knowledge files Claude Code reads."
-              enabled={activityInstalled}
-              disabled={activityPending || !activeProjectRoot || !activeKnowledgeConfig?.relativeRoot}
-              onChange={(next) => void toggleActivityTracking(next)}
-            />
+          {/* No top rule: the card draws its own edge. */}
+          <div className="pt-2">
+            <SettingCard>
+              <SettingToggle
+                label="Activity tracking"
+                description="Record which knowledge files Claude Code reads."
+                enabled={activityInstalled}
+                disabled={activityPending || !activeProjectRoot || !activeKnowledgeConfig?.relativeRoot}
+                onChange={(next) => void toggleActivityTracking(next)}
+              />
+            </SettingCard>
             {activityMessage ? (
               <div className="mt-2">
                 <InlineNotice tone="warn">{activityMessage}</InlineNotice>

@@ -4,7 +4,7 @@ import type { AutomationServerStatus } from '../../../../shared/automation'
 import { STUDIO_MCP_SERVER_NAME } from '../../../../shared/product-identity'
 import { IconButton, InlineNotice, Tooltip } from '../ui'
 import { CopyIcon } from '../AppIcons'
-import { SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
+import { SettingCard, SettingsRow, SettingsSectionTitle } from './SettingsAtoms'
 
 // Settings → MCPs: read-only diagnostics for the always-on SprintEngine Studio
 // MCP gateway. Studio agents receive it automatically; the bridge command is
@@ -36,9 +36,11 @@ export function AutomationServerSettings() {
   // an outside MCP client needs — behind a copy glyph, since a path nobody can
   // retype is a thing to copy rather than to read.
   return (
-    <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">
+    // No top rule on the section: the card draws its own edge, and a section
+    // rule above it doubled the boundary.
+    <section className="space-y-3 pt-2">
       <SettingsSectionTitle>Automation</SettingsSectionTitle>
-      <div className="divide-y divide-[color:var(--border-subtle)]">
+      <SettingCard>
         <SettingsRow
           label={STUDIO_MCP_SERVER_NAME}
           help={
@@ -63,7 +65,7 @@ export function AutomationServerSettings() {
             </Tooltip>
           </SettingsRow>
         ) : null}
-      </div>
+      </SettingCard>
       {status.lastError ? (
         <InlineNotice tone="error">{status.lastError}</InlineNotice>
       ) : null}

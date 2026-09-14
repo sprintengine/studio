@@ -21,7 +21,7 @@ import {
   SplitButton,
   StatusDot,
 } from '../ui'
-import { SettingsPageHeader, SettingsSectionTitle, SettingToggle } from './SettingsAtoms'
+import { SettingCard, SettingsPageHeader, SettingsSectionTitle, SettingToggle } from './SettingsAtoms'
 import { outstandingPairingNote, pairingExpiry, tailnetReadiness } from './tailnetPanelModel'
 import { MachineList, MachineRow } from '../remote/MachineRow'
 import { PairDeviceModal, type PairDeviceTarget } from '../remote/PairDeviceModal'
@@ -284,7 +284,7 @@ export function RemoteTailnetSettingsTab() {
         </p>
       ) : null}
 
-      <div>
+      <SettingCard>
         <SettingToggle
           label="Remote control over your tailnet"
           enabled={enabled}
@@ -294,7 +294,7 @@ export function RemoteTailnetSettingsTab() {
           disabled={busy || (!enabled && !readiness.canTurnOn)}
           requirement={readiness.canTurnOn ? undefined : 'Needs Tailscale'}
         />
-      </div>
+      </SettingCard>
 
       <section className="space-y-2">
         {pairing ? (
@@ -400,11 +400,11 @@ export function RemoteTailnetSettingsTab() {
           <SettingsSectionTitle className="mb-1.5" count={pairRequests.length}>
             Waiting to be answered
           </SettingsSectionTitle>
-          <div className="divide-y divide-[color:var(--bg-selected)]">
+          <SettingCard>
             {pairRequests.map((request) => (
               <PairRequestCard key={request.id} request={request} now={now} variant="flush" />
             ))}
-          </div>
+          </SettingCard>
         </section>
       ) : null}
 
@@ -417,11 +417,11 @@ export function RemoteTailnetSettingsTab() {
           <SettingsSectionTitle className="mb-1.5" count={presence.fleetRequests.length}>
             Waiting for another machine — with the code to type on it
           </SettingsSectionTitle>
-          <div className="divide-y divide-[color:var(--bg-selected)]">
+          <SettingCard>
             {presence.fleetRequests.map((request) => (
               <OutboundPairRequestCard key={request.requestId} request={request} now={now} variant="flush" />
             ))}
-          </div>
+          </SettingCard>
         </section>
       ) : null}
 

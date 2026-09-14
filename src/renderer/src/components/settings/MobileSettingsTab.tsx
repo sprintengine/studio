@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useId, useState } from 'react'
 import { EmptyState, GhostButton, InlineNotice, Input, LinkButton, OutlineButton, PrimaryButton, StatusDot, type Tone } from '../ui'
-import { MetaCell, SettingsPageHeader, SettingsRow, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
+import {
+  MetaCell,
+  SettingCard,
+  SettingsPageHeader,
+  SettingsRow,
+  SettingsSectionTitle,
+  SettingToggle,
+  formatNullableDate,
+} from './SettingsAtoms'
 
 type MobileControlCommandType =
   | 'snapshot.request'
@@ -328,7 +336,7 @@ export default function MobileSettingsTab() {
         <p className="text-body leading-5 text-[color:var(--text-muted)]">{action.message || statusMessage(state)}</p>
       ) : null}
 
-      <div className="divide-y divide-[color:var(--border-subtle)]">
+      <SettingCard>
         <SettingToggle
           label="Mobile companion"
           description="Paired phones can watch runs and send follow-ups."
@@ -360,7 +368,7 @@ export default function MobileSettingsTab() {
             Save
           </PrimaryButton>
         </SettingsRow>
-      </div>
+      </SettingCard>
 
       <section>
         <SettingsSectionTitle
@@ -399,11 +407,11 @@ export default function MobileSettingsTab() {
           Paired phones
         </SettingsSectionTitle>
         {activeDevices.length > 0 ? (
-          <div className="divide-y divide-[color:var(--bg-selected)]">
+          <SettingCard>
             {activeDevices.map((device) => (
               <div
                 key={device.deviceId}
-                className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                className="grid gap-3 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
               >
                 <div className="min-w-0">
                   <div className="truncate text-body font-medium text-[color:var(--text-strong)]">
@@ -426,7 +434,7 @@ export default function MobileSettingsTab() {
                 </OutlineButton>
               </div>
             ))}
-          </div>
+          </SettingCard>
         ) : (
           <p className="text-body leading-5 text-[color:var(--text-muted)]">No phones paired.</p>
         )}
@@ -456,9 +464,9 @@ export default function MobileSettingsTab() {
           Recent messages
         </SettingsSectionTitle>
         {recentCommands.length > 0 ? (
-          <div className="divide-y divide-[color:var(--bg-selected)]">
+          <SettingCard>
             {recentCommands.map((event) => (
-              <div key={event.id} className="grid gap-1 py-2.5 first:pt-0 last:pb-0">
+              <div key={event.id} className="grid gap-1 px-3 py-2.5">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 truncate text-body text-[color:var(--text-strong)]">
                     {commandLabel(event.commandType)}
@@ -474,7 +482,7 @@ export default function MobileSettingsTab() {
                 </div>
               </div>
             ))}
-          </div>
+          </SettingCard>
         ) : (
           <EmptyState density="list" title="No messages yet." />
         )}
