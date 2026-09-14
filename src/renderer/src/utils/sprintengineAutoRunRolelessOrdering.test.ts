@@ -68,8 +68,8 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
     folderPath: '/tmp/workspace',
     sprintEngineContext: {
       teamSlug: 'team',
-      teamRoot: '/tmp/workspace/.multi-code/sprintengine/team',
-      statePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+      teamRoot: '/tmp/workspace/.sprintengine/sprintengine/team',
+      statePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     },
     agents: {},
     ...overrides,

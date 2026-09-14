@@ -54,6 +54,7 @@ import {
   mobileControlProtocolVersion,
   type MobileControlProtocolVersion,
 } from '../../../../packages/mobile-control-protocol/src/index'
+import { readStudioEnv } from '../../../shared/studio-env'
 
 export type MobileControlCommandType =
   | 'snapshot.request'
@@ -393,9 +394,9 @@ export type MobileBridgeOptions = {
 }
 
 // The default relay; `./service-endpoints` lets a build bake in a different
-// one via MULTICODE_MOBILE_RELAY_URL, which also overrides it at runtime.
+// one via SPRINTENGINE_MOBILE_RELAY_URL, which also overrides it at runtime.
 const DEFAULT_RELAY_URL = DEFAULT_MOBILE_RELAY_URL
-const RELAY_URL = process.env['MULTICODE_MOBILE_RELAY_URL']?.replace(/\/+$/u, '') || DEFAULT_RELAY_URL
+const RELAY_URL = readStudioEnv('SPRINTENGINE_MOBILE_RELAY_URL')?.replace(/\/+$/u, '') || DEFAULT_RELAY_URL
 const USING_DEFAULT_RELAY_URL = RELAY_URL === DEFAULT_RELAY_URL
 const INITIAL_RECONNECT_DELAY_MS = 1000
 const MAX_RECONNECT_DELAY_MS = 60 * 1000

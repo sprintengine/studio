@@ -28,17 +28,17 @@
 //     claude mcp add sprintengine-studio-mac-mini -- \
 //       node /path/to/mcp-stdio-bridge.mjs --token-file ~/.sprintengine/mac-mini.json
 //
-// The device token is read from a file (or `MULTICODE_TAILNET_TOKEN`) and never
+// The device token is read from a file (or `SPRINTENGINE_TAILNET_TOKEN`) and never
 // from argv: process arguments are visible to every user on the machine via
 // `ps`, and MCP clients echo the command they launched into their own logs.
 //
 // Resolution order for the canonical discovery file in LOCAL mode (with a
 // legacy filename fallback):
 //   1. --info-path <file>          explicit override (tests, extra profiles)
-//   2. $MULTICODE_USER_DATA_DIR    the same override the dev app honors
+//   2. $SPRINTENGINE_USER_DATA_DIR the same override the dev app honors
 //   3. the default Multicode userData dir for this platform
 //
-// Dev instances launched with MULTICODE_USER_DATA_DIR must pass the same env
+// Dev instances launched with SPRINTENGINE_USER_DATA_DIR must pass the same env
 // var (or --info-path) to the bridge; the default dir is the packaged app's.
 //
 // Standalone by design: only node: builtins, runs on any recent Node.
@@ -50,6 +50,16 @@ import { connect } from 'node:net'
 import { homedir, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
+
+// The app's own variables answer to two names. Everything was spelled
+// `MULTICODE_*` before the 2026-09-08 rename to SprintEngine Studio and is
+// spelled `SPRINTENGINE_*` now, and this file is a COPY installed into a
+// workspace: the app instance that launched this bridge may be either side of
+// that rename, and this copy may be either side of it too. New name first, old
+// name second. An empty value counts as unset, which is what every call site
+// here already assumed.
+const studioEnv = (name) =>
+  process.env[name] || process.env[name.replace(/^SPRINTENGINE_/, 'MULTICODE_')] || ''
 
 const INFO_FILENAMES = ['sprintengine-studio-mcp-info.json', 'automation-server-info.json']
 
@@ -134,7 +144,7 @@ function defaultUserDataDirs() {
 
 function resolveInfoPath(explicit) {
   if (explicit) return explicit
-  const envDir = process.env.MULTICODE_USER_DATA_DIR?.trim()
+  const envDir = studioEnv('SPRINTENGINE_USER_DATA_DIR')?.trim()
   if (envDir) {
     const candidates = INFO_FILENAMES.map((filename) => join(envDir, filename))
     return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]
@@ -183,11 +193,11 @@ function connectFrameBody() {
     jsonrpc: '2.0',
     method: 'sprintengine.studio/connect',
     params: {
-      workspaceId: process.env.MULTICODE_WORKSPACE_ID,
-      agentId: process.env.MULTICODE_AGENT_ID,
-      agentName: process.env.MULTICODE_AGENT_NAME,
-      cliId: process.env.MULTICODE_AGENT_CLI,
-      sprintRunId: process.env.MULTICODE_SPRINTENGINE_MCP_RUN_ID,
+      workspaceId: studioEnv('SPRINTENGINE_WORKSPACE_ID'),
+      agentId: studioEnv('SPRINTENGINE_AGENT_ID'),
+      agentName: studioEnv('SPRINTENGINE_AGENT_NAME'),
+      cliId: studioEnv('SPRINTENGINE_AGENT_CLI'),
+      sprintRunId: studioEnv('SPRINTENGINE_SPRINTENGINE_MCP_RUN_ID'),
     },
   })
 }
@@ -284,8 +294,8 @@ function readTokenFile(path) {
 }
 
 function resolveRemoteCredential(values) {
-  const envToken = process.env.MULTICODE_TAILNET_TOKEN?.trim()
-  const tokenFilePath = values['--token-file'] ?? process.env.MULTICODE_TAILNET_TOKEN_FILE?.trim()
+  const envToken = studioEnv('SPRINTENGINE_TAILNET_TOKEN')?.trim()
+  const tokenFilePath = values['--token-file'] ?? studioEnv('SPRINTENGINE_TAILNET_TOKEN_FILE')?.trim()
   let token = null
   let storedEndpoint = null
   if (tokenFilePath) {
@@ -298,7 +308,7 @@ function resolveRemoteCredential(values) {
   if (!token) {
     fail(
       'Remote mode needs a device token. Pass --token-file <path> (written by "mcp-stdio-bridge.mjs pair") '
-        + 'or set MULTICODE_TAILNET_TOKEN. The token is never accepted as a command-line argument.'
+        + 'or set SPRINTENGINE_TAILNET_TOKEN. The token is never accepted as a command-line argument.'
     )
   }
   const endpointValue = values['--remote'] ?? storedEndpoint
@@ -647,9 +657,9 @@ function parsePairingUrl(value) {
 }
 
 async function runPair(values) {
-  const urlValue = values['--pairing-url'] ?? process.env.MULTICODE_TAILNET_PAIRING_URL?.trim()
-  if (!urlValue) fail(`pair needs --pairing-url (or MULTICODE_TAILNET_PAIRING_URL).\n${USAGE}`)
-  const tokenFilePath = values['--token-file'] ?? process.env.MULTICODE_TAILNET_TOKEN_FILE?.trim()
+  const urlValue = values['--pairing-url'] ?? studioEnv('SPRINTENGINE_TAILNET_PAIRING_URL')?.trim()
+  if (!urlValue) fail(`pair needs --pairing-url (or SPRINTENGINE_TAILNET_PAIRING_URL).\n${USAGE}`)
+  const tokenFilePath = values['--token-file'] ?? studioEnv('SPRINTENGINE_TAILNET_TOKEN_FILE')?.trim()
   if (!tokenFilePath) fail(`pair needs --token-file <path>: the device token it receives is written there and nowhere else.\n${USAGE}`)
   const { endpoint, pairingToken } = parsePairingUrl(urlValue)
   const deviceName = (values['--device-name'] ?? hostname() ?? '').trim()
@@ -717,7 +727,7 @@ for (const flag of command === 'pair' ? SERVE_ONLY_FLAGS : PAIR_ONLY_FLAGS) {
 
 if (command === 'pair') {
   await runPair(values)
-} else if (values['--remote'] || values['--token-file'] || process.env.MULTICODE_TAILNET_TOKEN || process.env.MULTICODE_TAILNET_TOKEN_FILE) {
+} else if (values['--remote'] || values['--token-file'] || studioEnv('SPRINTENGINE_TAILNET_TOKEN') || studioEnv('SPRINTENGINE_TAILNET_TOKEN_FILE')) {
   if (values['--info-path']) fail(`--info-path is local-socket mode and --remote/--token-file is tailnet mode; pass one.\n${USAGE}`)
   await runRemote(values)
 } else {

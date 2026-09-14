@@ -297,7 +297,7 @@ export type WebhookForm = {
 }
 
 // The sprint-landed editor sub-state (triggers/sprint-engine-run-landed.ts
-// schema: the watched team dir under .multi-code/sprintengine/).
+// schema: the watched team dir under .sprintengine/sprintengine/).
 export type SprintLandedForm = {
   team: string
 }

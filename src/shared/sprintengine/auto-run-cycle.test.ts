@@ -35,7 +35,7 @@ type Captured = {
   writes: Array<{ sessionId: string; data: string }>
 }
 
-const STATE_PATH = '/tmp/workspace/.multi-code/sprintengine/team/run.yaml'
+const STATE_PATH = '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml'
 
 function agentSession(agentId: string, role?: string): TerminalSessionSnapshot {
   return {
@@ -792,12 +792,12 @@ function isolatedWorkspace(): { state: SprintEngineState; workspace: SprintEngin
     vcs: {
       mode: 'run_worktree',
       taskIsolation: true,
-      worktreePath: '.multi-code/sprintengine/team/worktree',
+      worktreePath: '.sprintengine/sprintengine/team/worktree',
       branchName: 'run/main',
       repos: [{
         id: 'primary',
         root: '.',
-        worktreePath: '.multi-code/sprintengine/team/worktree',
+        worktreePath: '.sprintengine/sprintengine/team/worktree',
         branchName: 'run/main',
       }],
     },
@@ -826,7 +826,7 @@ async function testPerTaskIsolationSpawnsInTheTasksOwnWorktree(): Promise<void> 
     taskWorktreeResult: {
       ok: true,
       isolated: true,
-      worktreePath: '.multi-code/sprintengine/team/task-worktrees/T7/primary',
+      worktreePath: '.sprintengine/sprintengine/team/task-worktrees/T7/primary',
     },
   })
   const result = await spawnAutoRunCandidate(
@@ -836,7 +836,7 @@ async function testPerTaskIsolationSpawnsInTheTasksOwnWorktree(): Promise<void> 
   assert.deepEqual(captured.taskWorktreeRequests, ['T7'], 'the spawn provisions its own task’s tree first')
   assert.equal(
     captured.spawns[0]?.cwd,
-    '/tmp/workspace/.multi-code/sprintengine/team/task-worktrees/T7/primary',
+    '/tmp/workspace/.sprintengine/sprintengine/team/task-worktrees/T7/primary',
     'the terminal opens in the task worktree, not the shared run worktree',
   )
 }
@@ -858,7 +858,7 @@ async function testFailedTaskWorktreeStillSpawnsAndWarns(): Promise<void> {
   assert.equal(result, 'started', 'a provisioning failure is not a spawn failure')
   assert.equal(
     captured.spawns[0]?.cwd,
-    '/tmp/workspace/.multi-code/sprintengine/team/worktree',
+    '/tmp/workspace/.sprintengine/sprintengine/team/worktree',
     'it falls back to the run worktree it would have used before isolation existed',
   )
   const warned = captured.diagnostics.find((entry) => entry.title === 'Task worktree could not be prepared')
@@ -879,7 +879,7 @@ async function testSharedWorktreeRunNeverAsksForATaskTree(): Promise<void> {
     ports, workspace, state, candidate, cliRuntimes, {} as McpSettings, ref(new Set<string>()), {},
   )
   assert.deepEqual(captured.taskWorktreeRequests, [], 'a shared-worktree run never provisions a task tree')
-  assert.equal(captured.spawns[0]?.cwd, '/tmp/workspace/.multi-code/sprintengine/team/worktree')
+  assert.equal(captured.spawns[0]?.cwd, '/tmp/workspace/.sprintengine/sprintengine/team/worktree')
 }
 
 async function main(): Promise<void> {

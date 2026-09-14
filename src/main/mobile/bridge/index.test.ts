@@ -732,7 +732,7 @@ async function writeSprintEngineFixture(
   options: { extraTaskCount?: number; nonAsciiPayload?: string; pairDevice?: boolean } = {}
 ): Promise<{ workspaceRoot: string; statePath: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-'))
-  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'relay-team')
+  const teamDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine', 'relay-team')
   await mkdir(join(teamDirectory, 'documents'), { recursive: true })
   await writeFile(join(teamDirectory, 'documents', 'requirements.md'), '# Requirements\n', 'utf8')
   const statePath = join(teamDirectory, 'run.yaml')
@@ -772,7 +772,7 @@ async function writeSprintEngineFixture(
         id: 'A1',
         kind: 'requirements',
         title: 'Requirements',
-        path: '.multi-code/sprintengine/relay-team/documents/requirements.md',
+        path: '.sprintengine/sprintengine/relay-team/documents/requirements.md',
         status: 'ready_for_review',
         taskId: 'T1',
       },

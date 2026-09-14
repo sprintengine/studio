@@ -19,7 +19,7 @@ from helpers import SwarmCli, read_state
 
 def init_run(tmp_path: Path, name: str, *extra: str) -> Path:
     """Initialize a real run through the engine CLI, as the app's launch does."""
-    state_path = tmp_path / ".multi-code" / "sprintengine" / name / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / name / "run.yaml"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     SwarmCli(state_path).run(
         "init",

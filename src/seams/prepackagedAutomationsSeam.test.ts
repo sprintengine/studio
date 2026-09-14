@@ -206,7 +206,7 @@ async function assertEveryShippedStarterSurvivesTheWholeChain(): Promise<void> {
       // T2: the retired field is on neither the record nor the file.
       assert.equal(Object.hasOwn(definition, 'autonomyDefault'), false, `${id}: nothing writes the retired field`)
       const onDisk = JSON.parse(
-        await readFile(join(root, '.multi-code', 'automations', 'definitions', `${definition.id}.json`), 'utf8'),
+        await readFile(join(root, '.sprintengine', 'automations', 'definitions', `${definition.id}.json`), 'utf8'),
       )
       assert.equal(Object.hasOwn(onDisk, 'autonomyDefault'), false, `${id}: nor does it reach disk`)
       assert.equal(Object.hasOwn(onDisk, 'legacyWriteUpOnly'), false, `${id}: nor does its runtime marker`)
@@ -283,7 +283,7 @@ async function assertLegacyRecordKeepsItsIntentBesideAnInstalledStarter(): Promi
     })
     assert.equal(legacyCreated.ok, true, legacyCreated.ok ? '' : legacyCreated.message)
     if (!legacyCreated.ok) return
-    const legacyPath = join(root, '.multi-code', 'automations', 'definitions', `${legacyCreated.value.id}.json`)
+    const legacyPath = join(root, '.sprintengine', 'automations', 'definitions', `${legacyCreated.value.id}.json`)
     const legacyFile = JSON.parse(await readFile(legacyPath, 'utf8'))
     await writeJson(legacyPath, { ...legacyFile, autonomyDefault: 'review_only' })
 

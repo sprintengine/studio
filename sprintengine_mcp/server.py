@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any, Sequence
 
 from sprintengine_core.analysis import analyze_feedback_metrics
+from sprintengine_core.tool.paths import SIDECAR_DIR_NAMES
 from sprintengine_core.audit import record_audit_event
 from sprintengine_core.health import build_health_report
 from sprintengine_core import store as folder_store
@@ -1190,7 +1191,7 @@ def _handle_jsonrpc_message(
 
 def _default_workspace_root(state_path: Path) -> Path:
     for parent in state_path.parents:
-        if (parent / ".multi-code").exists() or (parent / ".git").exists():
+        if any((parent / name).exists() for name in SIDECAR_DIR_NAMES) or (parent / ".git").exists():
             return parent
     return state_path.parent
 

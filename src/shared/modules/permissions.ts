@@ -83,7 +83,7 @@ export type CapabilityPermission =
   // started and named, never another module's and never the user's.
   | 'agents:session'
   // Persist the module's own data through the SDK's scoped storage service
-  // (host-placed: workspace `.multi-code/modules/<id>/` or per-user app data).
+  // (host-placed: workspace `.sprintengine/modules/<id>/` or per-user app data).
   | 'storage'
   // Extensible: unknown scopes validate structurally but are flagged as unknown
   // so the consent UI can warn rather than silently grant something opaque.

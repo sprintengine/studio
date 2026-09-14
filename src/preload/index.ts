@@ -1,5 +1,6 @@
 import { contextBridge } from 'electron'
 import type { ElectronApi } from '../shared/electron-api'
+import { readStudioEnv } from '../shared/studio-env'
 import { instrumentApi, snapshotIpcStats } from './ipcStats'
 import { agentConfigImportApi } from './api/agent-config-import'
 import { appMenuApi } from './api/app-menu'
@@ -45,12 +46,12 @@ import { workspaceSkillsApi } from './api/workspace-skills'
 import { workspaceSyncApi } from './api/workspace-sync'
 
 const diagnosticsEnabled =
-  process.env.NODE_ENV === 'development' || process.env.MULTICODE_DIAGNOSTICS === '1'
+  process.env.NODE_ENV === 'development' || readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1'
 
 const api = {
   platform: process.platform,
   isDevelopment: process.env.NODE_ENV === 'development',
-  isDiagnosticsEnabled: process.env.MULTICODE_DIAGNOSTICS === '1',
+  isDiagnosticsEnabled: readStudioEnv('SPRINTENGINE_DIAGNOSTICS') === '1',
   diagnosticsGetIpcStats: snapshotIpcStats,
   ...agentConfigImportApi,
   ...windowApi,

@@ -26,7 +26,7 @@ import {
 // can distinguish a missing CLI from a CLI that exists but whose --version
 // failed for some other reason.
 const NOT_FOUND_EXIT = 3
-const PATH_SENTINEL = 'MULTICODE_PATH:'
+const PATH_SENTINEL = 'SPRINTENGINE_PATH:'
 
 export type SpawnDescriptor = { file: string; args: string[] }
 // `timedOut` is carried alongside the exit code because a killed probe reports

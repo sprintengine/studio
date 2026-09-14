@@ -129,7 +129,7 @@ class FakeGh:
 
 
 def _team(workspace: Path) -> SwarmTeamFixture:
-    team_dir = workspace / ".multi-code" / "sprintengine" / "alpha"
+    team_dir = workspace / ".sprintengine" / "sprintengine" / "alpha"
     state_path = team_dir / "run.yaml"
     from helpers import write_state
 

@@ -41,7 +41,7 @@ from sprintengine_core.tool import shell
 
 # Captured from the pre-epic engine (`main` @ cfce6533). Every value below is what a
 # default run produced BEFORE `vcs.repos` existed.
-PRE_EPIC_WORKTREE_PATH = ".multi-code/sprintengine/alpha/worktree"
+PRE_EPIC_WORKTREE_PATH = ".sprintengine/sprintengine/alpha/worktree"
 PRE_EPIC_BRANCH_NAME = "sprintengine/alpha"
 PRE_EPIC_COMMIT_SUBJECT = "SprintEngine T1: Add the endpoint"
 PRE_EPIC_COMMIT_BODY = "Task: T1\nAgent: developer-1"
@@ -96,7 +96,7 @@ def _default_run(tmp_path: Path) -> SwarmTeamFixture:
     """A run created the way nearly every real run is: `--use-worktrees`, no `--repo`."""
     workspace = tmp_path / "ws"
     _init_git_repo(workspace)
-    team_dir = workspace / ".multi-code" / "sprintengine" / "alpha"
+    team_dir = workspace / ".sprintengine" / "sprintengine" / "alpha"
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state("alpha", []))
     fixture = SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))

@@ -8,11 +8,12 @@
 // `GET /api/auth/identity`: itself on a self-hosted deployment (MC-2151
 // constraint 6), Clerk on the hosted one. The desktop reads that document at
 // sign-in and keeps a refresh token per provider so that flipping the issuer
-// back — on the server or with `MULTICODE_IDENTITY_PROVIDER` — signs in
+// back — on the server or with `SPRINTENGINE_IDENTITY_PROVIDER` — signs in
 // against the credential that provider issued (the dual-accept window,
 // MC-2185).
 
 import { isRecord } from '../shared/records'
+import { readStudioEnv } from '../shared/studio-env'
 
 export const MULTIAUTH_IDENTITY_PROVIDER = 'multiauth' as const
 export const CLERK_IDENTITY_PROVIDER = 'clerk' as const
@@ -148,7 +149,7 @@ export function parseIdentityDiscovery(payload: unknown, clientName: string): Id
   }
 }
 
-// `process.env` or any subset of it; only the three MULTICODE_* keys are read.
+// `process.env` or any subset of it; only the three SPRINTENGINE_* keys are read.
 // A stored Clerk config (the `desktop-identity.json` marker) re-validated
 // before it is trusted. The marker is plain JSON beside a safeStorage-protected
 // refresh token, so it must not be the weakest link: every endpoint is https,
@@ -184,13 +185,13 @@ export function parseClerkIdentityConfig(value: unknown): ClerkIdentityConfig | 
 
 export type IdentityEnvironment = Record<string, string | undefined>
 
-// The operator override. `MULTICODE_IDENTITY_PROVIDER=multiauth` pins the
+// The operator override. `SPRINTENGINE_IDENTITY_PROVIDER=multiauth` pins the
 // desktop to Multiauth identity whatever the server publishes — the rollback
 // lever inside the dual-accept window. `=clerk` pins it to Clerk and needs the
 // issuer and client id alongside, since discovery is being bypassed. Unset
 // means "ask the account service".
 export function resolveIdentityOverride(env: IdentityEnvironment): IdentityConfig | null {
-  const provider = env.MULTICODE_IDENTITY_PROVIDER?.trim()
+  const provider = readStudioEnv('SPRINTENGINE_IDENTITY_PROVIDER', env)?.trim()
   if (!provider) return null
 
   if (provider === MULTIAUTH_IDENTITY_PROVIDER) {
@@ -199,14 +200,14 @@ export function resolveIdentityOverride(env: IdentityEnvironment): IdentityConfi
 
   if (provider !== CLERK_IDENTITY_PROVIDER) {
     throw new IdentityDiscoveryError(
-      `MULTICODE_IDENTITY_PROVIDER must be "multiauth" or "clerk", not "${provider}".`
+      `SPRINTENGINE_IDENTITY_PROVIDER must be "multiauth" or "clerk", not "${provider}".`
     )
   }
 
-  const issuer = readHttpsUrl(env.MULTICODE_CLERK_ISSUER, 'MULTICODE_CLERK_ISSUER')
-  const clientId = env.MULTICODE_CLERK_CLIENT_ID?.trim()
+  const issuer = readHttpsUrl(readStudioEnv('SPRINTENGINE_CLERK_ISSUER', env), 'SPRINTENGINE_CLERK_ISSUER')
+  const clientId = readStudioEnv('SPRINTENGINE_CLERK_CLIENT_ID', env)?.trim()
   if (!clientId) {
-    throw new IdentityDiscoveryError('MULTICODE_IDENTITY_PROVIDER=clerk needs MULTICODE_CLERK_CLIENT_ID.')
+    throw new IdentityDiscoveryError('SPRINTENGINE_IDENTITY_PROVIDER=clerk needs SPRINTENGINE_CLERK_CLIENT_ID.')
   }
 
   return {

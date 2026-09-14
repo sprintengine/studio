@@ -258,7 +258,7 @@ def test_a_roleless_init_opens_no_unclaimable_product_gate(tmp_path) -> None:
     # is seated — so a run of plain agents opened a `product` task that no agent could
     # ever claim (the role is off-roster) while the plan gate dependsOn it. Dead on
     # arrival. The run's enabled roles decide it now.
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "roleless-init" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "roleless-init" / "run.yaml"
     cli = SwarmCli(state_path)
 
     payload = cli.run(
@@ -278,7 +278,7 @@ def test_a_roleless_init_opens_no_unclaimable_product_gate(tmp_path) -> None:
 def test_a_product_staffed_run_still_opens_its_intake_gate(tmp_path) -> None:
     # The other side of that guard: an enabled `product` role still gets its gate,
     # even though no product agent is seated at init.
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "product-staffed-init" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "product-staffed-init" / "run.yaml"
     cli = SwarmCli(state_path)
 
     payload = cli.run(

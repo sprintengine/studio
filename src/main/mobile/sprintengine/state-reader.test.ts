@@ -30,7 +30,7 @@ async function writeFixture(state: {
   projection?: Record<string, unknown> | null
 }): Promise<{ teamDirectory: string; statePath: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'mobile-state-reader-'))
-  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', 'team')
+  const teamDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, state.stateContent ?? '{}', 'utf8')

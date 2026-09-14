@@ -26,7 +26,7 @@ async function scanBacklogReadOnly(folderPath: string): Promise<BacklogScanResul
   const scanned = await scanBacklog(folderPath, adapter)
   const result = await window.api.readBacklogObjectStore(folderPath).catch(() => null)
   if (!result?.ok) return scanned
-  return hydrateBacklogScanResult(scanned, result.store)
+  return hydrateBacklogScanResult(scanned, result.store, folderPath)
 }
 
 export function useBacklogScan(folderPath: string | null): {

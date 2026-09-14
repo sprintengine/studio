@@ -36,10 +36,10 @@ export function resolveWorkspaceIdToRoot(
 }
 
 // Derive a workspace root from a Sprint Engine run.yaml state path, mirroring the
-// layout `<root>/.multi-code/sprintengine/<team>/run.yaml`. Used to widen the
+// layout `<root>/<sidecar>/sprintengine/<team>/run.yaml`. Used to widen the
 // candidate set for token resolution so workspaces that live under a configured
 // parent root still resolve.
 export function workspaceRootFromStatePath(statePath: string): string {
-  // run.yaml -> <team> -> sprintengine -> .multi-code -> <root>
+  // run.yaml -> <team> -> sprintengine -> <sidecar> -> <root>
   return dirname(dirname(dirname(dirname(resolve(statePath)))))
 }

@@ -86,8 +86,9 @@ design that no longer fits. Where it has drifted, fix the item first and say wha
 you changed. Then run the lifecycle above.
 
 For a typed pickup not already linked by drag/drop or `backlog.work`, record
-attribution with `backlog.assign`, passing the real `MULTICODE_AGENT_ID` and
-using `MULTICODE_AGENT_NAME` as its label when present. Never invent identity —
+attribution with `backlog.assign`, passing the real `SPRINTENGINE_AGENT_ID` and
+using `SPRINTENGINE_AGENT_NAME` as its label when present (older app builds
+export both under their `MULTICODE_*` names). Never invent identity —
 skip attribution when no agent id is exposed.
 
 </supporting-info>

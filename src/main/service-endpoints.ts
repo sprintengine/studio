@@ -1,7 +1,7 @@
 // The two public deployments a stock build talks to, in one place.
 //
 // Each has three layers, most specific first:
-//   1. runtime env — `MULTIAUTH_BASE_URL` / `MULTICODE_MOBILE_RELAY_URL`, read
+//   1. runtime env — `MULTIAUTH_BASE_URL` / `SPRINTENGINE_MOBILE_RELAY_URL`, read
 //      at the use site, so a developer can point a running app anywhere;
 //   2. build-time env — the same two names set when `electron-vite build` runs,
 //      baked in through the `define` block in `electron.vite.config.ts`, so a
@@ -22,7 +22,7 @@ export const DEFAULT_MULTIAUTH_BASE_URL =
     ? __MULTIAUTH_BASE_URL__
     : FALLBACK_ACCOUNT_SERVICE_URL
 
-/** Default mobile relay base URL; override with `MULTICODE_MOBILE_RELAY_URL`. */
+/** Default mobile relay base URL; override with `SPRINTENGINE_MOBILE_RELAY_URL`. */
 export const DEFAULT_MOBILE_RELAY_URL =
   typeof __MOBILE_RELAY_URL__ === 'string' && __MOBILE_RELAY_URL__
     ? __MOBILE_RELAY_URL__

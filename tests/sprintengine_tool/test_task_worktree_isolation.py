@@ -47,7 +47,7 @@ def _init_git_repo(root: Path) -> None:
 def _isolated_run(tmp_path: Path, name: str, *, isolation: bool = True) -> SwarmTeamFixture:
     workspace = tmp_path / "ws"
     _init_git_repo(workspace)
-    team_dir = workspace / ".multi-code" / "sprintengine" / name
+    team_dir = workspace / ".sprintengine" / "sprintengine" / name
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state(name, []))
     fixture = SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))
@@ -314,11 +314,11 @@ def test_run_level_operations_still_read_the_run_branch(tmp_path) -> None:
     vcs = read_state(fixture.state_path)["sprintengine"]["vcs"]
     # The recorded worktree and branch are still the RUN's — what the diff view,
     # the board, and PR creation all resolve through.
-    assert vcs["worktreePath"] == ".multi-code/sprintengine/iso-runlevel/worktree"
+    assert vcs["worktreePath"] == ".sprintengine/sprintengine/iso-runlevel/worktree"
     assert vcs["branchName"] == "sprintengine/iso-runlevel"
     primary = next(repo for repo in status["repos"] if repo["id"] == "primary")
     assert primary["branchName"] == "sprintengine/iso-runlevel"
-    assert primary["worktreePath"] == ".multi-code/sprintengine/iso-runlevel/worktree"
+    assert primary["worktreePath"] == ".sprintengine/sprintengine/iso-runlevel/worktree"
     # The run tree is clean: agents never wrote in it, only integrations did.
     assert primary["clean"] is True and primary["dirtyFiles"] == []
     assert vcs["lastCommitSha"], "the run branch carries the integrated work"
@@ -368,7 +368,7 @@ def test_a_provisioned_task_worktree_is_recorded_on_the_task(tmp_path) -> None:
     fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
 
     recorded = get_task(read_state(fixture.state_path), "T1")["worktreePath"]
-    assert recorded == ".multi-code/sprintengine/iso-record/task-worktrees/T1/primary"
+    assert recorded == ".sprintengine/sprintengine/iso-record/task-worktrees/T1/primary"
     # Project-root-relative, exactly like the run worktree, so every reader joins
     # it onto the workspace root the same way.
     assert (fixture.state_path.parents[3] / recorded).exists()
@@ -383,7 +383,7 @@ def test_the_dispatch_command_provisions_ahead_of_the_claim(tmp_path) -> None:
     result = fixture.cli.run("vcs", "task-worktree", "--task-id", "T1")
 
     assert result["isolated"] is True
-    assert result["worktreePath"] == ".multi-code/sprintengine/iso-dispatch/task-worktrees/T1/primary"
+    assert result["worktreePath"] == ".sprintengine/sprintengine/iso-dispatch/task-worktrees/T1/primary"
     assert _task_worktree(fixture, "T1").exists(), "the tree stands up before anyone claims"
     # Re-entrant: the claim that follows adopts the same tree rather than failing
     # or losing what the agent already wrote into it.

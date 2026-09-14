@@ -16,7 +16,7 @@ async function setupWorkspace(files: Record<string, string>, store?: unknown): P
     await writeFile(abs, content, 'utf-8')
   }
   if (store !== undefined) {
-    const storeDir = join(root, '.multi-code', 'backlog')
+    const storeDir = join(root, '.sprintengine', 'backlog')
     await mkdir(storeDir, { recursive: true })
     await writeFile(join(storeDir, 'items.json'), `${JSON.stringify(store, null, 2)}\n`, 'utf-8')
   }
@@ -145,7 +145,7 @@ run('readBacklogEpicChildren returns the active children pointing at a slug', as
 
 run('MC-1498: the epics block carries display id, color, title, and a done/total rollup', async () => {
   const root = await setupWorkspace({
-    '.multi-code/backlog/config.json': JSON.stringify({ schemaVersion: 1, key: 'MC' }),
+    '.sprintengine/backlog/config.json': JSON.stringify({ schemaVersion: 1, key: 'MC' }),
     'backlog/epics/checkout.md': '---\ntype: epic\nid: 1493\ncolor: green\n---\n# Checkout epic\n',
     'backlog/cart.md': '---\nstatus: completed\nepic: checkout\n---\n# Cart\n',
     'backlog/pay.md': '---\nstatus: ready\nepic: checkout\n---\n# Pay\n',

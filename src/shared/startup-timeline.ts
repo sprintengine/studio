@@ -13,6 +13,8 @@
 // the main process's origin here. Both processes read the same wall clock, so
 // the offsets compose; nothing depends on the two `now()` origins agreeing.
 
+import { readStudioEnv } from './studio-env'
+
 type StartupMarkSource = 'main' | 'renderer'
 
 export type StartupMarkId =
@@ -315,7 +317,10 @@ export function formatStartupTimeline(report: StartupTimelineReport): string {
 // and the renderer's reporting can never disagree about whether boot is being
 // measured. Off by default: this is a diagnostic, not a always-on cost.
 export function startupTimelineEnabledFor(env: Record<string, string | undefined>): boolean {
-  return env['MULTICODE_STARTUP_TIMELINE'] === '1' || env['MULTICODE_DIAGNOSTICS'] === '1'
+  return (
+    readStudioEnv('SPRINTENGINE_STARTUP_TIMELINE', env) === '1' ||
+    readStudioEnv('SPRINTENGINE_DIAGNOSTICS', env) === '1'
+  )
 }
 
 export const STARTUP_MARK_CHANNEL = 'app:startup-mark'

@@ -168,7 +168,7 @@ function remoteTools(): McpToolRegistration[] {
         },
       ],
     }),
-    tool('sprint.list', { runs: [{ slug: 'nightly', statePath: '.multi-code/sprintengine/nightly/run.yaml' }] }),
+    tool('sprint.list', { runs: [{ slug: 'nightly', statePath: '.sprintengine/sprintengine/nightly/run.yaml' }] }),
     tool('workspace.checkout', {
       workspaceId: 'ws-1',
       git: true,

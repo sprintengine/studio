@@ -13,7 +13,7 @@ a discoverable place to drop things.
 In both cases the folder name must equal the manifest `id`. A user plugin with
 the same id as a bundled CLI overrides the bundled one.
 
-The module root can be relocated with the `MULTICODE_USER_MODULE_ROOT`
+The module root can be relocated with the `SPRINTENGINE_USER_MODULE_ROOT`
 environment variable (used by the dev harness); plugins always resolve under
 `~/.multicode/plugins`.
 
@@ -154,7 +154,7 @@ the marketplace registry as a signed plugin bundle:
    `name`/`latest`/`provides`/`signature` match your `plugin.json`
    byte-for-byte, with a `source` URL on an allowlisted HTTPS host
    (`github.com`, `api.github.com`, `raw.githubusercontent.com`, plus anything
-   `MULTICODE_MARKETPLACE_EXTRA_HOSTS` adds). Registry CI runs the same
+   `SPRINTENGINE_MARKETPLACE_EXTRA_HOSTS` adds). Registry CI runs the same
    verifier the app build runs (`verify:marketplace-registry`). The full
    command walkthrough, including the registry-entry shape, lives in
    [`docs/plugin-authors/README.md`](../plugin-authors/README.md). Registry

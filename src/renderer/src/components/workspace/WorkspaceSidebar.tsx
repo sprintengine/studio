@@ -115,6 +115,7 @@ import {
   type SnoozePresetId,
 } from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
+import { ensureProjectSidecarDirName } from '../../utils/projectSidecar'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -1944,6 +1945,18 @@ export default function WorkspaceSidebar({
       [localRailWorkspaces]
     )
   )
+  // Which sidecar directory each of those projects uses, resolved here because
+  // the rail is the one surface that sees every open project — including the
+  // ones restored from persistence and the ones another window created, which
+  // no single store action sees. Everything downstream that builds a path into
+  // the sidecar (the sprint run store, the backlog config, the automations team
+  // picker) reads the answer out of the shared registry.
+  useEffect(() => {
+    for (const workspace of localRailWorkspaces) {
+      ensureProjectSidecarDirName(workspace.folderPath, (path) => window.api.pathExists(path))
+      ensureProjectSidecarDirName(workspaceProjectRoot(workspace), (path) => window.api.pathExists(path))
+    }
+  }, [localRailWorkspaces])
   // Resolved over the rail's rows, not every workspace: a local folder whose
   // rows are all hidden or archived is not a header a remote row can join.
   const resolvedGroups = useMemo(() => resolveGroups(localRailWorkspaces, folderIdentities), [localRailWorkspaces, folderIdentities])

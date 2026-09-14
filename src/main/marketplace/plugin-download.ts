@@ -34,6 +34,7 @@ import {
 } from '../modules/module-signature'
 import { findMarketplaceResourcePath, type MarketplaceResourceResolver } from './resources'
 import { verifyBundledSkillFolder } from './skill-content'
+import { readStudioEnv } from '../../shared/studio-env'
 
 const DEFAULT_MARKETPLACE_PLUGIN_STAGING_DIR = 'marketplace-plugin-staging'
 const DEFAULT_MARKETPLACE_PLUGIN_DOWNLOAD_TIMEOUT_MS = 30_000
@@ -769,7 +770,7 @@ function parseHttpsUrl(value: string): { ok: true; url: URL } | { ok: false; mes
     return { ok: false, message: 'Marketplace plugin source URL is invalid.' }
   }
   if (url.protocol !== 'https:') return { ok: false, message: 'Marketplace plugin source URL must use HTTPS.' }
-  const extraHosts = parseMarketplaceExtraHosts(process.env[MARKETPLACE_EXTRA_HOSTS_ENV])
+  const extraHosts = parseMarketplaceExtraHosts(readStudioEnv(MARKETPLACE_EXTRA_HOSTS_ENV))
   if (!isMarketplaceSourceHostAllowed(url.hostname, extraHosts)) {
     return { ok: false, message: `Marketplace plugin source host "${url.hostname}" is not on the allowlist.` }
   }

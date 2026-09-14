@@ -398,7 +398,7 @@ def seed_v4_general_store(tmp_path: Path, name: str):
     done = state["tasks"][0]
     done["evidence"] = {
         "summary": "Planned the graph.",
-        "touchedFiles": [".multi-code/sprintengine/plan.md"],
+        "touchedFiles": [".sprintengine/sprintengine/plan.md"],
         "commandsRan": ["sprintengine plan list"],
         "results": ["3 tasks"],
         "scopeExpansions": [],

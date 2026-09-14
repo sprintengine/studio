@@ -26,7 +26,7 @@ function errorMessage(error: unknown): string {
 }
 
 // Two scopes share this data layer (global-surfaces epic 1704 / item 1707):
-// - folder: one host's `.multi-code/automations/` store, keyed by `folderPath`
+// - folder: one host's `.sprintengine/automations/` store, keyed by `folderPath`
 //   (the workspace-hosted control-center panel). Every read/write targets that
 //   single root; `workspaceId` scopes a run-now launch to the host workspace.
 // - instance: every automation across every known project root, loaded through

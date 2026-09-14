@@ -31,6 +31,7 @@ import {
 } from './providers/mock-conversation-provider'
 import { createOpenAiCompatibleProvider } from './providers/openai-compatible-provider'
 import { CLAUDE_AGENT_PROVIDER_ID, createClaudeAgentProvider } from './providers/claude-agent-provider'
+import { workspaceSidecarPath } from './workspace-sidecar'
 
 type RuntimeSession = ConversationSessionSummary & {
   workspaceRoot: string
@@ -727,7 +728,7 @@ export class ConversationRuntime {
   }
 
   private async persistEvent(session: RuntimeSession, event: ConversationEvent): Promise<void> {
-    const dir = join(session.workspaceRoot, '.multi-code', 'conversations', safeSegment(session.workspaceId))
+    const dir = workspaceSidecarPath(session.workspaceRoot, 'conversations', safeSegment(session.workspaceId))
     await this.mkdir(dir, { recursive: true })
     await this.appendFile(
       join(dir, `${safeSegment(session.agentId)}.jsonl`),
@@ -737,9 +738,8 @@ export class ConversationRuntime {
   }
 
   private transcriptPath(workspaceRoot: string, workspaceId: string, agentId: string): string {
-    return join(
+    return workspaceSidecarPath(
       workspaceRoot,
-      '.multi-code',
       'conversations',
       safeSegment(workspaceId),
       `${safeSegment(agentId)}.jsonl`

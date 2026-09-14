@@ -125,8 +125,8 @@ function sprintengine(
     sprintEngineId,
     name: 'Mobile SprintEngine',
     workspacePath: '/private/workspace',
-    statePath: `/private/workspace/.multi-code/sprintengine/${sprintEngineId}/run.yaml`,
-    planPath: `/private/workspace/.multi-code/sprintengine/${sprintEngineId}/plan.md`,
+    statePath: `/private/workspace/.sprintengine/sprintengine/${sprintEngineId}/run.yaml`,
+    planPath: `/private/workspace/.sprintengine/sprintengine/${sprintEngineId}/plan.md`,
     snapshotVersion: `snap_${sprintEngineId}`,
     updatedAt: now.toISOString(),
     board: {
@@ -162,7 +162,7 @@ function artifact(
     kind: 'requirements',
     status,
     taskId: 'T1',
-    path: `/private/workspace/.multi-code/sprintengine/team/documents/${artifactId}.md`,
+    path: `/private/workspace/.sprintengine/sprintengine/team/documents/${artifactId}.md`,
   }
 }
 
@@ -177,7 +177,7 @@ function commandAudit(): MobileSprintEngineCommandAuditEntry {
     code: 'python_tool_failed',
     message: 'Sprint Engine tool failed without exposing output.',
     recordedAt: now.toISOString(),
-    statePath: '/private/workspace/.multi-code/sprintengine/team/run.yaml',
+    statePath: '/private/workspace/.sprintengine/sprintengine/team/run.yaml',
     artifactId: 'A1',
     toolArgs: ['artifact', 'approve'],
     exitCode: 1,

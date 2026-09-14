@@ -8,7 +8,7 @@ import type { Workspace } from '../../types/workspace'
 // run. Everything else is being read on its own cadence, and refreshing it here
 // would just duplicate a read that is about to happen anyway.
 
-const STATE_PATH = '/projects/alpha/.multi-code/sprintengine/alpha/run.yaml'
+const STATE_PATH = '/projects/alpha/.sprintengine/sprintengine/alpha/run.yaml'
 
 // `canStopPollingCompletedSprintEngineProjection` quiesces on a run that is
 // lifecycle-`complete`, hydrated complete, and torn down.
@@ -41,7 +41,7 @@ const workspaces: Workspace[] = [
   // A different run entirely.
   workspace({
     id: 'other-run',
-    sprintEngineContext: { statePath: '/projects/beta/.multi-code/sprintengine/beta/run.yaml' },
+    sprintEngineContext: { statePath: '/projects/beta/.sprintengine/sprintengine/beta/run.yaml' },
   } as unknown as Partial<Workspace> & { id: string }),
   // Not a sprint workspace.
   { id: 'plain', mode: 'terminal' } as unknown as Workspace,

@@ -47,6 +47,7 @@ import {
 } from '../shared/sprintengine/store-schema'
 import { asRecord } from '../shared/records'
 import { isPathInsideOrEqual } from './path-containment'
+import { SIDECAR_DIR_NAME, isSidecarDirName } from '../shared/workspace-sidecar'
 
 export { SPRINT_ENGINE_RUN_SCHEMA_VERSION, describeUnsupportedSprintEngineStore }
 
@@ -192,16 +193,16 @@ function validateSprintEngineStatePath(input: unknown): ValidSprintEngineStatePa
   const statePath = resolve(rawStatePath)
   const teamDirectory = dirname(statePath)
   const sprintEngineDirectory = dirname(teamDirectory)
-  const multiCodeDirectory = dirname(sprintEngineDirectory)
-  const workspaceRoot = dirname(multiCodeDirectory)
+  const sidecarDirectory = dirname(sprintEngineDirectory)
+  const workspaceRoot = dirname(sidecarDirectory)
 
   if (
     basename(statePath) !== 'run.yaml'
     || basename(sprintEngineDirectory) !== 'sprintengine'
-    || basename(multiCodeDirectory) !== '.multi-code'
-    || workspaceRoot === multiCodeDirectory
+    || !isSidecarDirName(basename(sidecarDirectory))
+    || workspaceRoot === sidecarDirectory
   ) {
-    throw new Error('Sprint run path must point to .multi-code/sprintengine/<team>/run.yaml.')
+    throw new Error(`Sprint run path must point to ${SIDECAR_DIR_NAME}/sprintengine/<team>/run.yaml.`)
   }
 
   return { statePath, teamDirectory, workspaceRoot }
@@ -659,20 +660,20 @@ function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): 
     // validation (--agent role:id) resolves exactly
     // the roles the menu offered — plugin roots are dynamic and only the
     // running app knows them (the user-install root the engine now finds
-    // natively; see MULTICODE_SPRINTENGINE_USER_REGISTRY_ROOT in role_registry.py).
+    // natively; see SPRINTENGINE_USER_REGISTRY_ROOT in role_registry.py).
     const registryRoots = sprintEngineRegistryRootsForRead()
     const cliEnv: NodeJS.ProcessEnv = {
       ...process.env,
       PYTHONPATH: [runtimeRoot, state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
     }
     if (registryRoots.length > 0) {
-      cliEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS = JSON.stringify(registryRoots)
+      cliEnv.SPRINTENGINE_REGISTRY_ROOTS = JSON.stringify(registryRoots)
     } else {
       // Never let a stale value inherited from the base env (app launched from
       // inside an agent shell that had it set) leak into a spawn that resolved
       // no roots of its own — init would validate roles against another
       // session's registry. Mirrors terminal-launch.ts.
-      delete cliEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS
+      delete cliEnv.SPRINTENGINE_REGISTRY_ROOTS
     }
     const child = spawn(getSprintEngineMcpPythonExecutable(runtimeRoot), [toolPath, ...args], {
       cwd: state.workspaceRoot,
@@ -851,10 +852,10 @@ function runSprintEngineMcpToolProcess(
       SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
     }
     if (registryRoots.length > 0) {
-      mcpEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS = JSON.stringify(registryRoots)
+      mcpEnv.SPRINTENGINE_REGISTRY_ROOTS = JSON.stringify(registryRoots)
     } else {
       // Same stale-env guard as the CLI spawn above and terminal-launch.ts.
-      delete mcpEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS
+      delete mcpEnv.SPRINTENGINE_REGISTRY_ROOTS
     }
     const child = spawn(getSprintEngineMcpPythonExecutable(runtimeRoot), args, {
       cwd: context.workspaceRoot,
@@ -1058,7 +1059,7 @@ function parseSprintEngineProjectionForArtifactReview(content: string): {
 
 // Stored artifact paths are project-relative but recorded in two equivalent
 // forms that resolve to the same file: a bare team-relative path (`plan.md`)
-// and a full-prefix path (`.multi-code/sprintengine/<team>/plan.md`). Normalize
+// and a full-prefix path (`.sprintengine/sprintengine/<team>/plan.md`). Normalize
 // both to the team-relative form so a duplicate stored differently is
 // recognized as the same file. Mirrors Python `artifact_absolute_path` (which
 // resolves both forms to `<teamDir>/<rest>`) and the renderer helper of the
@@ -1069,7 +1070,7 @@ function normalizeSprintEngineArtifactFileKey(path: string): string {
     .replace(/\\/g, '/')
     .split('/')
     .filter((segment) => segment !== '' && segment !== '.')
-  if (segments[0] === '.multi-code' && segments[1] === 'sprintengine' && segments.length > 3) {
+  if (segments[0] !== undefined && isSidecarDirName(segments[0]) && segments[1] === 'sprintengine' && segments.length > 3) {
     return segments.slice(3).join('/')
   }
   return segments.join('/')

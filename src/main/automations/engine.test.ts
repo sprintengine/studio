@@ -757,7 +757,7 @@ async function assertAgentBackedRunStaysRunningUntilFinalize(): Promise<void> {
       status: 'running',
       workspaceId: 'ws-automations',
       agentId: 'agent-1',
-      worktreePath: `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`,
+      worktreePath: `${workspaceRoot}/.sprintengine/automations/worktrees/run-agent`,
       branch: 'automations/run-agent',
       summary: 'Launched; working…',
     }),
@@ -840,7 +840,7 @@ function agentEngine(
   const removedWorktrees: string[] = []
   const disposedAgents: Array<{ workspaceId: string; agentId: string }> = []
   const counters = { prCalls: 0 }
-  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const worktreePath = `${workspaceRoot}/.sprintengine/automations/worktrees/run-agent`
   const engine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
     now: () => now,
@@ -887,7 +887,7 @@ async function setupAgentRunWithExecutionId(
     trigger: { kind: 'schedule', config: intervalConfig(10) },
     nextRunAt: new Date(now).toISOString(),
   }))).ok, true)
-  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const worktreePath = `${workspaceRoot}/.sprintengine/automations/worktrees/run-agent`
   const harness = agentEngine(workspaceRoot, now, {
     runAutomation: async () => ({
       status: 'running',
@@ -1276,7 +1276,7 @@ async function assertConcurrentManualAndAutoFinalizeOnce(): Promise<void> {
   const prStarted = new Promise<void>((resolve) => { markPrStarted = resolve })
   let releasePr: () => void = () => undefined
   const prGate = new Promise<void>((resolve) => { releasePr = resolve })
-  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const worktreePath = `${workspaceRoot}/.sprintengine/automations/worktrees/run-agent`
   const engine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
     now: () => now,
@@ -1707,7 +1707,7 @@ async function assertFinalizePublishesWorkingDiff(): Promise<void> {
   const { deps, calls } = recordingGitDeps(' M src/feature.ts\n')
   const events: AutomationsRunEvent[] = []
   const removed = { count: 0 }
-  const worktreePath = `${workspaceRoot}/.multi-code/automations/worktrees/run-agent`
+  const worktreePath = `${workspaceRoot}/.sprintengine/automations/worktrees/run-agent`
   const engine = realOpenerEngine({ workspaceRoot, worktreePath, now, deps, events, removed })
 
   assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
@@ -2097,7 +2097,7 @@ async function assertWebhookDeliveryFailureRedactsProblemFromCaller(): Promise<v
   const store = new AutomationsStore(workspaceRoot)
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const secret = 'test-webhook-secret-redacted'
-  const sensitiveMessage = `${workspaceRoot}/.multi-code/automations/state.json: disk full`
+  const sensitiveMessage = `${workspaceRoot}/.sprintengine/automations/state.json: disk full`
   const loggedMessages: string[] = []
   assert.equal((await store.createDefinition(definition({
     id: 'webhook-redacted-failure',
@@ -2152,7 +2152,7 @@ async function assertWebhookDeliveryFailureRedactsProblemFromCaller(): Promise<v
     assert.equal(delivered.ok ? '' : delivered.code, 'state_write_failed')
     assert.equal(delivered.ok ? '' : delivered.message, 'Webhook delivery failed.')
     assert.equal(JSON.stringify(delivered).includes(workspaceRoot), false)
-    assert.equal(JSON.stringify(delivered).includes('.multi-code/automations'), false)
+    assert.equal(JSON.stringify(delivered).includes('.sprintengine/automations'), false)
     assert.deepEqual(loggedMessages, [sensitiveMessage])
   } finally {
     await receiver.stop()

@@ -153,7 +153,7 @@ const STUDIO_SCAN: ScanResult = {
       name: 'sprintengine-studio',
       description: '',
       transport: 'stdio',
-      command: '__MULTICODE_NODE__',
+      command: '__SPRINTENGINE_NODE__',
       args: [],
       url: '',
       env: {},
@@ -546,7 +546,7 @@ async function main(): Promise<void> {
     assert.ok(body.includes('Studio skills'), 'the marketplace’s other plugin is an ordinary row')
     // Once, not twice: a second row for it would carry an Open/Install, and
     // what we publish is a template whose `.mcp.json` still holds
-    // `__MULTICODE_*`. The built-in row has no such control at all, so its
+    // `__SPRINTENGINE_*`. The built-in row has no such control at all, so its
     // absence is exactly what says the marketplace's copy is not drawn.
     assert.ok(container.querySelector('[aria-label="Details for Studio skills"]'), 'the other plugin does open')
     assert.equal(
@@ -555,7 +555,7 @@ async function main(): Promise<void> {
       'our plugin is not listed a second time under Plugins',
     )
     assert.equal(
-      body.includes('__MULTICODE_NODE__'),
+      body.includes('__SPRINTENGINE_NODE__'),
       false,
       'and the server it declares is never offered as one to add',
     )

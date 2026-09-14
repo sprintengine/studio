@@ -23,7 +23,7 @@ def _epic_workspace(tmp_path: Path):
     epic = _write(root / "backlog" / "epics" / "auth-revamp.md", "# Auth revamp\n\nEpic design.\n")
     child_a = _write(root / "backlog" / "login-form.md", "---\nepic: auth-revamp\n---\n# Login form\n")
     child_b = _write(root / "backlog" / "session-store.md", "---\nepic: auth-revamp\n---\n# Session store\n")
-    state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "auth-revamp" / "run.yaml"
     return root, epic, child_a, child_b, state_path
 
 
@@ -131,7 +131,7 @@ def test_epic_with_product_plan_child_opens_product_gate_from_reference(tmp_path
 def test_markdown_reference_handover_leaves_no_copy(tmp_path) -> None:
     root = tmp_path / "project"
     plan = _write(root / "backlog" / "checkout-plan.md", "# Checkout plan\n\nDetails.\n")
-    state_path = root / ".multi-code" / "sprintengine" / "checkout" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "checkout" / "run.yaml"
     cli = SwarmCli(state_path, cwd=root)
     cli.run(
         "handover",
@@ -151,7 +151,7 @@ def test_markdown_reference_handover_leaves_no_copy(tmp_path) -> None:
 def test_referenced_plan_init_mints_review_in_place_task_without_seeding_plan(tmp_path) -> None:
     root = tmp_path / "project"
     plan = _write(root / "backlog" / "checkout-plan.md", "# Checkout plan\n\nDetails.\n")
-    state_path = root / ".multi-code" / "sprintengine" / "checkout" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "checkout" / "run.yaml"
     cli = SwarmCli(state_path, cwd=root)
     cli.run(
         "handover",
@@ -181,7 +181,7 @@ def test_referenced_plan_init_mints_review_in_place_task_without_seeding_plan(tm
 
 
 def test_text_handover_still_copies_into_run_store(tmp_path) -> None:
-    state_path = tmp_path / "project" / ".multi-code" / "sprintengine" / "inline" / "run.yaml"
+    state_path = tmp_path / "project" / ".sprintengine" / "sprintengine" / "inline" / "run.yaml"
     cli = SwarmCli(state_path, cwd=tmp_path / "project")
     (tmp_path / "project").mkdir(parents=True, exist_ok=True)
     cli.run(

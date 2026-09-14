@@ -16,12 +16,18 @@ failure is trivial and already reproduced.
 Keep one state file per investigation at:
 
 ```
-.multi-code/debug/<MULTICODE_AGENT_ID>.json
+<sidecar>/debug/<SPRINTENGINE_AGENT_ID>.json
 ```
 
-`<MULTICODE_AGENT_ID>` is the value of the `MULTICODE_AGENT_ID` environment
-variable already exported into this terminal (one file per agent terminal). If
-the variable is unset, fall back to `.multi-code/debug/session.json`.
+`<sidecar>` is the app-owned directory already in this workspace: `.sprintengine`
+in a workspace made since the 2026-09-08 rename, `.multi-code` in an older one.
+Use whichever is there, and `.sprintengine` when neither is — never create the
+second one beside an existing first, because the app reads only one of them.
+
+`<SPRINTENGINE_AGENT_ID>` is the value of the `SPRINTENGINE_AGENT_ID` environment
+variable already exported into this terminal (one file per agent terminal); older
+app builds export it as `MULTICODE_AGENT_ID` instead, so read that if the first is
+unset. If neither is set, fall back to `<sidecar>/debug/session.json`.
 
 **Every turn, before doing anything else, read this file.** It tells you the
 current `state`, the confirmed reproduction, your ranked hypotheses, and which
@@ -34,7 +40,7 @@ Create it (with `state: "reproducing"`) on the first turn if it does not exist.
 ```json
 {
   "schemaVersion": 1,
-  "agentId": "<MULTICODE_AGENT_ID>",
+  "agentId": "<SPRINTENGINE_AGENT_ID>",
   "state": "reproducing",
   "bug": {
     "symptom": "exact error text, wrong output, timing, or visual state",

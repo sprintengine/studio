@@ -2,7 +2,7 @@
 // scalars so the item's own markdown file carries them — committed, diffable,
 // and carried along by a `git mv`.
 //
-// Links used to live entirely in `.multi-code/backlog/items.json`, a single
+// Links used to live entirely in `.sprintengine/backlog/items.json`, a single
 // tracked file every agent and branch wrote to. Two problems came with that: the
 // file was a permanent merge-conflict surface, and most of what it held was not
 // durable at all. A link mixes two kinds of fact:
@@ -33,6 +33,7 @@ import {
   SPRINT_ENGINE_PR_TARGET_KIND,
   SPRINT_ENGINE_RUN_TARGET_KIND,
 } from './sprintengine-links'
+import { knownSidecarDirName, sidecarRelativePath } from '../workspace-sidecar'
 
 // Frontmatter keys this module owns. `pr` and `sprints` follow the existing
 // comma-separated scalar convention (`dependsOn`, `mockups`) rather than
@@ -40,9 +41,11 @@ import {
 export const DURABLE_LINK_FIELDS = ['sprints', 'pr'] as const
 
 // The sprintengine run layout. One definition so the derivation here and the
-// runtime that owns those directories cannot drift.
-export function sprintRunPath(slug: string): string {
-  return `.multi-code/sprintengine/${slug}/run.yaml`
+// runtime that owns those directories cannot drift. The sidecar name comes from
+// the project the frontmatter was read out of; without one, the current name —
+// which is what a project with no run store yet would get anyway.
+export function sprintRunPath(slug: string, folderPath = ''): string {
+  return sidecarRelativePath(knownSidecarDirName(folderPath), 'sprintengine', slug, 'run.yaml')
 }
 
 // `<slug>` or `<slug>#<taskId>` — the task suffix is present only for an epic
@@ -73,6 +76,11 @@ function splitScalarList(value: string | undefined): string[] {
 // what it is before anything resolves it.
 export function durableBacklogLinksFromFrontmatter(
   fields: Readonly<Record<string, string>>,
+  // The project the frontmatter was read out of, so a `sprints:` slug resolves
+  // to the run store that project actually has. Optional because two callers
+  // read links for an item they only know by path; those get the current
+  // sidecar name, which is what a project with no run store yet would get.
+  folderPath = '',
 ): BacklogItemLink[] {
   const links: BacklogItemLink[] = []
 
@@ -85,7 +93,7 @@ export function durableBacklogLinksFromFrontmatter(
     // status to a tracked file is the churn this migration exists to end.
     const { status: _status, priorStatus: _priorStatus, ...link } = buildSprintEngineRunLink({
       teamSlug: parsed.slug,
-      runRelativePath: sprintRunPath(parsed.slug),
+      runRelativePath: sprintRunPath(parsed.slug, folderPath),
       ...(parsed.taskId ? { taskId: parsed.taskId } : {}),
     })
     links.push(link)

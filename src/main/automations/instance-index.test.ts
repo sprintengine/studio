@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import { WEBHOOK_TRIGGER_KIND } from '../../shared/automations/contracts'
-import { AutomationsStore, AUTOMATIONS_STORE_DIRECTORY } from './store'
+import { AutomationsStore, automationsStoreDirectory } from './store'
 import { buildAutomationsInstanceIndex } from './instance-index'
 
 void main().catch((error) => {
@@ -123,7 +123,7 @@ async function assertLastRunAndRunningNow(): Promise<void> {
 async function assertMalformedRootIsReportedNotFatal(): Promise<void> {
   const badRoot = await createRoot('bad')
   const goodRoot = await createRoot('good')
-  const definitionsDir = join(badRoot, AUTOMATIONS_STORE_DIRECTORY, 'definitions')
+  const definitionsDir = join(badRoot, automationsStoreDirectory(badRoot), 'definitions')
   await mkdir(definitionsDir, { recursive: true })
   await writeFile(join(definitionsDir, 'broken.json'), '{ not valid json', 'utf8')
   await new AutomationsStore(goodRoot).createDefinition(definition('healthy'))

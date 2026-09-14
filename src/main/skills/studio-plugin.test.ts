@@ -135,7 +135,7 @@ function tokensAreSplicedSafely(): void {
     agentStateSocketPath: '\\\\.\\pipe\\multicode-agent-state-abc123',
   }
   const out = substituteStudioPluginTokens(
-    '{"a":"__MULTICODE_NODE__","b":"__MULTICODE_AGENT_STATE_SOCKET__"}',
+    '{"a":"__SPRINTENGINE_NODE__","b":"__SPRINTENGINE_AGENT_STATE_SOCKET__"}',
     windows
   )
   const parsed = JSON.parse(out) as { a: string; b: string }

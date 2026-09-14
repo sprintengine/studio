@@ -11,8 +11,8 @@ import { dropDeletedSprintRunDebris, noteSprintRunDeleted } from './sprintRunTom
 // and the index, which reads disk, lists it again as an `unknown`-state row for
 // a run that no longer exists.
 
-const DELETED = '/work/multicode/.multi-code/sprintengine/july-hardening/run.yaml'
-const KEPT = '/work/multicode/.multi-code/sprintengine/august-audit/run.yaml'
+const DELETED = '/work/multicode/.sprintengine/sprintengine/july-hardening/run.yaml'
+const KEPT = '/work/multicode/.sprintengine/sprintengine/august-audit/run.yaml'
 
 function run(statePath: string, runtimeState: SprintRunSummary['runtimeState']): SprintRunSummary {
   return {
@@ -103,7 +103,7 @@ void (async () => {
     },
   }
 
-  const target = { statePath: DELETED, runDirectory: '/work/multicode/.multi-code/sprintengine/july-hardening', residentWorkspaceId: 'ws-run' }
+  const target = { statePath: DELETED, runDirectory: '/work/multicode/.sprintengine/sprintengine/july-hardening', residentWorkspaceId: 'ws-run' }
   const deleting = deleteSprintRun(target, ports)
   await Promise.resolve()
   assert.deepEqual(calls, ['close:ws-run'], 'the directory is NOT trashed while the terminals are still being killed')
@@ -120,7 +120,7 @@ void (async () => {
   // waiting for a teardown that will never happen.
   const soloCalls: string[] = []
   await deleteSprintRun(
-    { statePath: KEPT, runDirectory: '/work/multicode/.multi-code/sprintengine/august-audit', residentWorkspaceId: null },
+    { statePath: KEPT, runDirectory: '/work/multicode/.sprintengine/sprintengine/august-audit', residentWorkspaceId: null },
     {
       closeWorkspace: () => {
         soloCalls.push('close')

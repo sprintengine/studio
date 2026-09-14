@@ -1,10 +1,11 @@
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { isAbsolute, join } from 'path'
+import { workspaceSidecarPath } from '../workspace-sidecar'
 
 // Per-module, per-workspace JSON storage for capability modules (SDK
 // getModuleStorage). The host owns file placement so modules stop inventing
 // locations: workspace-scoped keys live in the workspace folder
-// (`<workspaceRoot>/.multi-code/modules/<moduleId>/<key>.json`), global keys
+// (`<workspaceRoot>/.sprintengine/modules/<moduleId>/<key>.json`), global keys
 // under userData (`<userData>/module-storage/<moduleId>/<key>.json`). The
 // registry takes the module id on every call; the SDK helper closes over
 // `host.moduleId` (same scoping structure as the Automations module service).
@@ -87,7 +88,7 @@ export function createModuleStorageRegistry(options: { userDataDir: () => string
           message: 'workspaceRoot must be an absolute path (resolve it via the workspace context).',
         }
       }
-      return { ok: true, dir: join(workspaceRoot, '.multi-code', 'modules', moduleId) }
+      return { ok: true, dir: workspaceSidecarPath(workspaceRoot, 'modules', moduleId) }
     }
     return { ok: true, dir: join(options.userDataDir(), 'module-storage', moduleId) }
   }

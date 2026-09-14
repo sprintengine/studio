@@ -2282,17 +2282,17 @@ async function testSprintReadToolsAnswerFromDisk(): Promise<void> {
     backendsOf({
       workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
       listSprintRunStatePaths: async (root) => [
-        `${root}/.multi-code/sprintengine/checkout-flow/run.yaml`,
-        `${root}/.multi-code/sprintengine/older-run/run.yaml`,
+        `${root}/.sprintengine/sprintengine/checkout-flow/run.yaml`,
+        `${root}/.sprintengine/sprintengine/older-run/run.yaml`,
       ],
       readSprintEngineProjection: async (statePath) =>
-        statePath === '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
+        statePath === '/tmp/project-a/.sprintengine/sprintengine/checkout-flow/run.yaml'
           ? { ok: true, data: { goal: 'Ship checkout', tasks: [] }, token: '123:456' }
           : { ok: false, message: `no projection at ${statePath}` },
       // sprint.status now discloses the main-owned automation mode; a run with a
       // sidecar record reports its desiredMode.
       readSprintAutomationMode: async (input) =>
-        input.statePath === '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
+        input.statePath === '/tmp/project-a/.sprintengine/sprintengine/checkout-flow/run.yaml'
           ? {
               ok: true,
               record: {
@@ -2310,8 +2310,8 @@ async function testSprintReadToolsAnswerFromDisk(): Promise<void> {
   const listed = await tool(tools, 'sprint.list').handler({ workspaceId: 'ws-1' })
   assert.deepEqual(listed.structuredContent, {
     runs: [
-      { slug: 'checkout-flow', statePath: '.multi-code/sprintengine/checkout-flow/run.yaml' },
-      { slug: 'older-run', statePath: '.multi-code/sprintengine/older-run/run.yaml' },
+      { slug: 'checkout-flow', statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml' },
+      { slug: 'older-run', statePath: '.sprintengine/sprintengine/older-run/run.yaml' },
     ],
   })
 
@@ -2721,7 +2721,7 @@ async function testSprintCreateWarnsOnAnUnmarkedEpic(): Promise<void> {
 }
 
 async function testSprintLifecycleToolsMutateViaMainServices(): Promise<void> {
-  const statePath = '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
+  const statePath = '/tmp/project-a/.sprintengine/sprintengine/checkout-flow/run.yaml'
   const setModeInputs: Array<{ statePath: string; mode: string; actor: string; reason?: string }> = []
   let resumed: string | null = null
   const cancelPayloads: string[] = []
@@ -2811,7 +2811,7 @@ async function testSprintLifecycleToolsMutateViaMainServices(): Promise<void> {
 }
 
 async function testSprintSteeringToolsMutateViaMainServices(): Promise<void> {
-  const statePath = '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
+  const statePath = '/tmp/project-a/.sprintengine/sprintengine/checkout-flow/run.yaml'
   const reviewCalls: Array<{ payload: SprintEngineArtifactReviewPayload; action: string }> = []
   const commentCalls: SprintEngineTaskCommentInput[] = []
   const resolveCalls: SprintEngineTaskResolveInput[] = []
@@ -3020,7 +3020,7 @@ async function testSprintSteeringToolsMutateViaMainServices(): Promise<void> {
 }
 
 async function testSprintVcsAndUsageToolsReadViaMainServices(): Promise<void> {
-  const statePath = '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
+  const statePath = '/tmp/project-a/.sprintengine/sprintengine/checkout-flow/run.yaml'
   const prCreateCalls: string[] = []
   const prStatusCalls: string[] = []
   const usageCalls: string[] = []

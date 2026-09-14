@@ -10,7 +10,7 @@ import { createSprintEngineRunnerLog, RUNNER_LOG_MAX_BYTES } from './sprintengin
 
 function tempRun(): { statePath: string; runnerFile: string } {
   const root = mkdtempSync(join(tmpdir(), 'sprintengine-runner-log-'))
-  const teamDir = join(root, '.multi-code', 'sprintengine', 'team')
+  const teamDir = join(root, '.sprintengine', 'sprintengine', 'team')
   return {
     statePath: join(teamDir, 'run.yaml'),
     runnerFile: join(teamDir, 'runner', 'runner-log.jsonl'),
@@ -38,7 +38,7 @@ function testWritesEventsToTheOwningRunsRunnerDir(): void {
 
 function testRelativeStatePathResolvesAgainstFolderPath(): void {
   const run = tempRun()
-  const folder = run.statePath.slice(0, run.statePath.indexOf('/.multi-code'))
+  const folder = run.statePath.slice(0, run.statePath.indexOf('/.sprintengine'))
   const relative = run.statePath.slice(folder.length + 1)
   const log = createSprintEngineRunnerLog(() => ({ statePath: relative, folderPath: folder }))
 

@@ -21,6 +21,7 @@ import {
 import { withMulticodeCliPath } from './cli-install'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, getManagedPython, withManagedRuntimePath } from './managed-runtime'
+import { compatStudioEnvEntry, studioEnvNames, withoutStudioEnv } from '../shared/studio-env'
 
 export type ShellLaunchConfig = {
   command: string
@@ -75,7 +76,7 @@ export function getTerminalEnv(): Record<string, string> {
 // PTY/CLI session id, which is reaped or changes across relaunch); the name is
 // for the link label. Only non-empty values are emitted, so a plain terminal or
 // an identity-less launch adds nothing. Mirrors how `withSprintEngineEnv` places
-// MULTICODE_* values directly on the session env record.
+// SPRINTENGINE_* values directly on the session env record.
 //
 // Agent launches also carry THIS instance's agent-state socket address. The
 // reporter hook prefers the env address over the `--socket` arg baked into the
@@ -93,11 +94,15 @@ function agentIdentityEnv(input: {
   const agentId = input.agentId?.trim()
   const agentName = input.agentName?.trim()
   const agentStateSocketPath = agentId ? agentStateSocketPathForLaunch() : null
+  // Both spellings of every value. The reader is a hook script the app copied
+  // into the person's workspace at some earlier version and does not rewrite on
+  // launch; a copy from before the rename reads MULTICODE_*, one from after
+  // reads SPRINTENGINE_*, and the same app instance has to satisfy both.
   return {
-    ...(workspaceId ? { MULTICODE_WORKSPACE_ID: workspaceId } : {}),
-    ...(agentId ? { MULTICODE_AGENT_ID: agentId } : {}),
-    ...(agentName ? { MULTICODE_AGENT_NAME: agentName } : {}),
-    ...(agentStateSocketPath ? { MULTICODE_AGENT_STATE_SOCKET: agentStateSocketPath } : {}),
+    ...compatStudioEnvEntry('SPRINTENGINE_WORKSPACE_ID', workspaceId),
+    ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', agentId),
+    ...compatStudioEnvEntry('SPRINTENGINE_AGENT_NAME', agentName),
+    ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', agentStateSocketPath),
   }
 }
 
@@ -213,10 +218,15 @@ export function launchPluginsSupportedOnThisPlatform(): boolean {
 }
 
 // The identity vars `agentIdentityEnv` owns. Cleared from a base env before the
-// session's own identity is applied, so a stale `MULTICODE_AGENT_ID` inherited
+// session's own identity is applied, so a stale `SPRINTENGINE_AGENT_ID` inherited
 // by the app's own process (e.g. the app launched from inside an agent shell)
 // never leaks into a plain terminal or the wrong agent.
-const AGENT_IDENTITY_ENV_KEYS = ['MULTICODE_WORKSPACE_ID', 'MULTICODE_AGENT_ID', 'MULTICODE_AGENT_NAME', 'MULTICODE_AGENT_STATE_SOCKET'] as const
+const AGENT_IDENTITY_ENV_KEYS = [
+  'SPRINTENGINE_WORKSPACE_ID',
+  'SPRINTENGINE_AGENT_ID',
+  'SPRINTENGINE_AGENT_NAME',
+  'SPRINTENGINE_AGENT_STATE_SOCKET',
+] as const
 
 // Apply this session's agent identity onto a base env: strip any inherited
 // identity first (no leak), then set this session's values. A non-agent launch
@@ -225,9 +235,10 @@ export function applyAgentIdentityEnv(
   baseEnv: Record<string, string>,
   input: { workspaceId?: string; agentId?: string; agentName?: string }
 ): Record<string, string> {
-  const next = { ...baseEnv }
-  for (const key of AGENT_IDENTITY_ENV_KEYS) delete next[key]
-  return { ...next, ...agentIdentityEnv(input) }
+  // Stripped under BOTH names: the app's own process may have inherited a
+  // legacy-named identity from the shell that started it, and clearing only the
+  // new name would leave that to be read as this session's agent.
+  return { ...withoutStudioEnv(baseEnv, AGENT_IDENTITY_ENV_KEYS), ...agentIdentityEnv(input) }
 }
 
 // Identity/terminal keys a CLI manifest's `launch.env` must never override.
@@ -239,7 +250,10 @@ export function applyAgentIdentityEnv(
 // PROVIDER, and every key in here is a fact about the pane or about which agent
 // this is — neither of which a manifest is in a position to restate.
 const PROTECTED_LAUNCH_ENV_KEYS = new Set<string>([
-  ...AGENT_IDENTITY_ENV_KEYS,
+  // Both spellings: `agentIdentityEnv` writes both, so protecting only the new
+  // one would leave a manifest able to set the legacy name and have an older
+  // hook copy report this session under another agent's identity.
+  ...AGENT_IDENTITY_ENV_KEYS.flatMap(studioEnvNames),
   'TERM',
   'COLORTERM',
   // Same reasoning as TERM: whether this terminal renders OSC 8 hyperlinks is a
@@ -322,7 +336,7 @@ function parseJsonObject(value: string): Record<string, unknown> | null {
 }
 
 // JSON for the dynamic plugin registry roots the souls CLI should also search
-// (consumed by souls/registry.py via MULTICODE_SPRINTENGINE_REGISTRY_ROOTS).
+// (consumed by souls/registry.py via SPRINTENGINE_REGISTRY_ROOTS).
 // Mirrors the plugin roots the spawn menu discovers through
 // sprintEngineRegistryRootsForRead(), so `souls get` resolves the same
 // plugin-contributed specialists the menu offered. The canonical user-install
@@ -345,12 +359,12 @@ function withSprintEngineEnv(
   const registryRootsEnv = sprintEngineRegistryRootsEnvValue()
   // Expose the bundled CPython to the tool shims, but only when we actually have
   // a managed interpreter (bundled runtime or operator override). When we'd fall
-  // back to a repo `.venv` or system Python, leave MULTICODE_PYTHON unset so the
+  // back to a repo `.venv` or system Python, leave SPRINTENGINE_PYTHON unset so the
   // shims keep their existing dev-friendly `$PWD/.venv → python3` behavior.
   const managedPython = getManagedPython(cwd)
   const managedPythonEnv: Record<string, string> =
     managedPython.source === 'bundled' || managedPython.source === 'override'
-      ? { MULTICODE_PYTHON: managedPython.command }
+      ? { SPRINTENGINE_PYTHON: managedPython.command }
       : {}
   // Annotated rather than inferred: spreading `env` into a literal drops its
   // index signature, and the PATH lookup below indexes by a key computed at
@@ -360,19 +374,21 @@ function withSprintEngineEnv(
     SPRINTENGINE_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
     SPRINTENGINE_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
     ...managedPythonEnv,
-    ...(bundledToolPath ? { MULTICODE_SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
-    ...(soulsRoot ? { MULTICODE_SOULS_ROOT: soulsRoot } : {}),
-    ...(registryRootsEnv ? { MULTICODE_SPRINTENGINE_REGISTRY_ROOTS: registryRootsEnv } : {}),
+    ...(bundledToolPath ? { SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
+    ...(soulsRoot ? { SPRINTENGINE_SOULS_ROOT: soulsRoot } : {}),
+    ...(registryRootsEnv ? { SPRINTENGINE_REGISTRY_ROOTS: registryRootsEnv } : {}),
     ...(sprintEngineStatePath ? { SPRINTENGINE_STATE_PATH: sprintEngineStatePath } : {}),
     ...(managedMcpEnv ?? {}),
-    ...(memoryRootPath ? { MULTICODE_KNOWLEDGE_ROOT: memoryRootPath, MULTICODE_MEMORY_ROOT: memoryRootPath } : {}),
+    ...(memoryRootPath ? { SPRINTENGINE_KNOWLEDGE_ROOT: memoryRootPath, SPRINTENGINE_MEMORY_ROOT: memoryRootPath } : {}),
   }
 
   // Never let a stale registry-roots value inherited from the base env (e.g. the
   // app launched from inside an agent shell that had it set) leak into a spawn
   // that resolved none of its own — otherwise `souls get` would search another
   // session's plugin roots. Mirrors the AGENT_IDENTITY_ENV_KEYS stripping above.
-  if (!registryRootsEnv) delete nextEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS
+  if (!registryRootsEnv) {
+    for (const key of studioEnvNames('SPRINTENGINE_REGISTRY_ROOTS')) delete nextEnv[key]
+  }
 
   if (process.platform !== 'win32') {
     const shimDirectory = ensurePosixToolShimDirectory()
@@ -409,10 +425,12 @@ function ensurePosixToolShimDirectory(): string | null {
         'tool_path=""',
         'if [[ -n "${SPRINTENGINE_REPO_WRAPPER_PATH:-}" && -f "$SPRINTENGINE_REPO_WRAPPER_PATH" ]]; then tool_path="$SPRINTENGINE_REPO_WRAPPER_PATH";',
         'elif [[ -n "${SPRINTENGINE_REPO_TOOL_PATH:-}" && -f "$SPRINTENGINE_REPO_TOOL_PATH" ]]; then tool_path="$SPRINTENGINE_REPO_TOOL_PATH";',
+        'elif [[ -n "${SPRINTENGINE_TOOL_PATH:-}" && -f "$SPRINTENGINE_TOOL_PATH" ]]; then tool_path="$SPRINTENGINE_TOOL_PATH";',
         'elif [[ -n "${MULTICODE_SPRINTENGINE_TOOL_PATH:-}" && -f "$MULTICODE_SPRINTENGINE_TOOL_PATH" ]]; then tool_path="$MULTICODE_SPRINTENGINE_TOOL_PATH";',
         'else echo "Sprint Engine tool not found" >&2; exit 127; fi',
         'python_exe="python3"',
-        'if [[ -n "${MULTICODE_PYTHON:-}" && -x "$MULTICODE_PYTHON" ]]; then python_exe="$MULTICODE_PYTHON";',
+        'if [[ -n "${SPRINTENGINE_PYTHON:-}" && -x "$SPRINTENGINE_PYTHON" ]]; then python_exe="$SPRINTENGINE_PYTHON";',
+        'elif [[ -n "${MULTICODE_PYTHON:-}" && -x "$MULTICODE_PYTHON" ]]; then python_exe="$MULTICODE_PYTHON";',
         'elif [[ -x "$PWD/.venv/bin/python" ]]; then python_exe="$PWD/.venv/bin/python";',
         'elif [[ -x "$PWD/.venv/Scripts/python.exe" ]]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi',
         'exec "$python_exe" "$tool_path" "$@"',
@@ -427,11 +445,12 @@ function ensurePosixToolShimDirectory(): string | null {
         '#!/usr/bin/env bash',
         'set -euo pipefail',
         'python_exe="python3"',
-        'if [[ -n "${MULTICODE_PYTHON:-}" && -x "$MULTICODE_PYTHON" ]]; then python_exe="$MULTICODE_PYTHON";',
+        'if [[ -n "${SPRINTENGINE_PYTHON:-}" && -x "$SPRINTENGINE_PYTHON" ]]; then python_exe="$SPRINTENGINE_PYTHON";',
+        'elif [[ -n "${MULTICODE_PYTHON:-}" && -x "$MULTICODE_PYTHON" ]]; then python_exe="$MULTICODE_PYTHON";',
         'elif [[ -x "$PWD/.venv/bin/python" ]]; then python_exe="$PWD/.venv/bin/python";',
         'elif [[ -x "$PWD/.venv/Scripts/python.exe" ]]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi',
-        'if [[ -n "${MULTICODE_SOULS_ROOT:-}" ]]; then',
-        '  export PYTHONPATH="$MULTICODE_SOULS_ROOT:${PYTHONPATH:-}"',
+        'if [[ -n "${SPRINTENGINE_SOULS_ROOT:-}" ]]; then',
+        '  export PYTHONPATH="$SPRINTENGINE_SOULS_ROOT:${PYTHONPATH:-}"',
         'fi',
         'exec "$python_exe" -m souls "$@"',
         '',
@@ -462,13 +481,14 @@ function ensureWindowsSprintEngineShimDirectory(): string | null {
         'if exist "%TOOL%" goto run',
         'set "TOOL=%SPRINTENGINE_REPO_TOOL_PATH%"',
         'if exist "%TOOL%" goto run',
-        'set "TOOL=%MULTICODE_SPRINTENGINE_TOOL_PATH%"',
+        'set "TOOL=%SPRINTENGINE_TOOL_PATH%"',
         'if exist "%TOOL%" goto run',
         'echo Sprint Engine tool not found 1>&2',
         'exit /b 127',
         ':run',
         'set "PYTHON_EXE="',
-        'if defined MULTICODE_PYTHON if exist "%MULTICODE_PYTHON%" set "PYTHON_EXE=%MULTICODE_PYTHON%"',
+        'if defined SPRINTENGINE_PYTHON if exist "%SPRINTENGINE_PYTHON%" set "PYTHON_EXE=%SPRINTENGINE_PYTHON%"',
+        'if not defined SPRINTENGINE_PYTHON if defined MULTICODE_PYTHON if exist "%MULTICODE_PYTHON%" set "PYTHON_EXE=%MULTICODE_PYTHON%"',
         'if defined PYTHON_EXE goto run_python',
         'if exist ".venv\\Scripts\\python.exe" set "PYTHON_EXE=.venv\\Scripts\\python.exe"',
         'if defined PYTHON_EXE goto run_python',
@@ -494,7 +514,8 @@ function ensureWindowsSprintEngineShimDirectory(): string | null {
         '@echo off',
         'setlocal',
         'set "PYTHON_EXE="',
-        'if defined MULTICODE_PYTHON if exist "%MULTICODE_PYTHON%" set "PYTHON_EXE=%MULTICODE_PYTHON%"',
+        'if defined SPRINTENGINE_PYTHON if exist "%SPRINTENGINE_PYTHON%" set "PYTHON_EXE=%SPRINTENGINE_PYTHON%"',
+        'if not defined SPRINTENGINE_PYTHON if defined MULTICODE_PYTHON if exist "%MULTICODE_PYTHON%" set "PYTHON_EXE=%MULTICODE_PYTHON%"',
         'if defined PYTHON_EXE goto run_python',
         'if exist ".venv\\Scripts\\python.exe" set "PYTHON_EXE=.venv\\Scripts\\python.exe"',
         'if defined PYTHON_EXE goto run_python',
@@ -503,7 +524,7 @@ function ensureWindowsSprintEngineShimDirectory(): string | null {
         'echo python not found; expected repo venv at .venv\\Scripts\\python.exe 1>&2',
         'exit /b 127',
         ':run_python',
-        'if not "%MULTICODE_SOULS_ROOT%"=="" set "PYTHONPATH=%MULTICODE_SOULS_ROOT%;%PYTHONPATH%"',
+        'if not "%SPRINTENGINE_SOULS_ROOT%"=="" set "PYTHONPATH=%SPRINTENGINE_SOULS_ROOT%;%PYTHONPATH%"',
         '"%PYTHON_EXE%" -m souls %*',
         'exit /b %errorlevel%',
         '',
@@ -755,21 +776,21 @@ function buildSprintEngineShellBootstrap(
   }
 
   if (shellMemoryRootPath) {
-    lines.push(`export MULTICODE_KNOWLEDGE_ROOT=${quotePosix(shellMemoryRootPath)}`)
-    lines.push(`export MULTICODE_MEMORY_ROOT=${quotePosix(shellMemoryRootPath)}`)
+    lines.push(`export SPRINTENGINE_KNOWLEDGE_ROOT=${quotePosix(shellMemoryRootPath)}`)
+    lines.push(`export SPRINTENGINE_MEMORY_ROOT=${quotePosix(shellMemoryRootPath)}`)
   }
 
   if (shellBundledToolPath) {
-    lines.push(`export MULTICODE_SPRINTENGINE_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
+    lines.push(`export SPRINTENGINE_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
   }
 
   if (shellSoulsRoot) {
-    lines.push(`export MULTICODE_SOULS_ROOT=${quotePosix(shellSoulsRoot)}`)
+    lines.push(`export SPRINTENGINE_SOULS_ROOT=${quotePosix(shellSoulsRoot)}`)
   }
 
   const shellRegistryRootsEnv = sprintEngineRegistryRootsEnvValue()
   if (shellRegistryRootsEnv) {
-    lines.push(`export MULTICODE_SPRINTENGINE_REGISTRY_ROOTS=${quotePosix(shellRegistryRootsEnv)}`)
+    lines.push(`export SPRINTENGINE_REGISTRY_ROOTS=${quotePosix(shellRegistryRootsEnv)}`)
   }
 
   lines.push(
@@ -778,10 +799,12 @@ function buildSprintEngineShellBootstrap(
       'local tool_path="";',
       'if [ -f "$SPRINTENGINE_REPO_WRAPPER_PATH" ]; then tool_path="$SPRINTENGINE_REPO_WRAPPER_PATH";',
       'elif [ -f "$SPRINTENGINE_REPO_TOOL_PATH" ]; then tool_path="$SPRINTENGINE_REPO_TOOL_PATH";',
+      'elif [ -n "${SPRINTENGINE_TOOL_PATH:-}" ] && [ -f "$SPRINTENGINE_TOOL_PATH" ]; then tool_path="$SPRINTENGINE_TOOL_PATH";',
       'elif [ -n "${MULTICODE_SPRINTENGINE_TOOL_PATH:-}" ] && [ -f "$MULTICODE_SPRINTENGINE_TOOL_PATH" ]; then tool_path="$MULTICODE_SPRINTENGINE_TOOL_PATH";',
       'else echo "Sprint Engine tool not found" >&2; return 127; fi;',
       'local python_exe="python3";',
-      'if [ -n "${MULTICODE_PYTHON:-}" ] && [ -x "$MULTICODE_PYTHON" ]; then python_exe="$MULTICODE_PYTHON";',
+      'if [ -n "${SPRINTENGINE_PYTHON:-}" ] && [ -x "$SPRINTENGINE_PYTHON" ]; then python_exe="$SPRINTENGINE_PYTHON";',
+      'elif [ -n "${MULTICODE_PYTHON:-}" ] && [ -x "$MULTICODE_PYTHON" ]; then python_exe="$MULTICODE_PYTHON";',
       'elif [ -x "$PWD/.venv/bin/python" ]; then python_exe="$PWD/.venv/bin/python";',
       'elif [ -x "$PWD/.venv/Scripts/python.exe" ]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi;',
       '"$python_exe" "$tool_path" "$@";',
@@ -791,10 +814,11 @@ function buildSprintEngineShellBootstrap(
     [
       'souls() {',
       'local python_exe="python3";',
-      'if [ -n "${MULTICODE_PYTHON:-}" ] && [ -x "$MULTICODE_PYTHON" ]; then python_exe="$MULTICODE_PYTHON";',
+      'if [ -n "${SPRINTENGINE_PYTHON:-}" ] && [ -x "$SPRINTENGINE_PYTHON" ]; then python_exe="$SPRINTENGINE_PYTHON";',
+      'elif [ -n "${MULTICODE_PYTHON:-}" ] && [ -x "$MULTICODE_PYTHON" ]; then python_exe="$MULTICODE_PYTHON";',
       'elif [ -x "$PWD/.venv/bin/python" ]; then python_exe="$PWD/.venv/bin/python";',
       'elif [ -x "$PWD/.venv/Scripts/python.exe" ]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi;',
-      'if [ -n "${MULTICODE_SOULS_ROOT:-}" ]; then PYTHONPATH="$MULTICODE_SOULS_ROOT:${PYTHONPATH:-}" "$python_exe" -m souls "$@";',
+      'if [ -n "${SPRINTENGINE_SOULS_ROOT:-}" ]; then PYTHONPATH="$SPRINTENGINE_SOULS_ROOT:${PYTHONPATH:-}" "$python_exe" -m souls "$@";',
       'else "$python_exe" -m souls "$@"; fi;',
       '}',
     ].join(' '),
@@ -838,7 +862,7 @@ function buildUserShellStartup(): string {
 //   `$ZDOTDIR` while they run, and the shell is left holding it afterwards.
 //
 // A user who has already set `PROMPT_COMMAND` or `ZDOTDIR` keeps it: both are
-// captured into a `MULTICODE_USER_…` variable before they are replaced, and
+// captured into a `SPRINTENGINE_USER_…` variable before they are replaced, and
 // theirs is run behind ours (`PROMPT_COMMAND`) or handed back to them
 // (`ZDOTDIR`). Both captures are guarded against a relaunch inside one of our
 // own terminals, where the inherited value is already ours. A rc file that
@@ -1067,37 +1091,37 @@ export function buildShellIntegrationZshShim(fileName: '.zshenv' | '.zprofile' |
     '#',
     '# This directory stands in front of the user\'s $ZDOTDIR and hands each stage',
     '# straight back to it, so their own files run with their own $ZDOTDIR set.',
-    'MULTICODE_ZDOTDIR_SELF=${ZDOTDIR}',
-    'ZDOTDIR=${MULTICODE_USER_ZDOTDIR:-$HOME}',
+    'SPRINTENGINE_ZDOTDIR_SELF=${ZDOTDIR}',
+    'ZDOTDIR=${SPRINTENGINE_USER_ZDOTDIR:-$HOME}',
     '# A nested launch could point us at ourselves; $HOME is the shell\'s own default.',
     // The right side of `==` inside `[[ ]]` is a GLOB PATTERN unless it is
     // quoted, and this path is `~/Library/Application Support/<productName>/…`
     // — one `[`, `*`, `?` or `(` in the product name or the user's home and the
     // self-reference guard either stops firing or fires against a directory
     // that merely matched, throwing away a real `~/.config/zsh`.
-    'if [[ $ZDOTDIR == "$MULTICODE_ZDOTDIR_SELF" ]]; then ZDOTDIR=$HOME; fi',
+    'if [[ $ZDOTDIR == "$SPRINTENGINE_ZDOTDIR_SELF" ]]; then ZDOTDIR=$HOME; fi',
     // Quoted for the same reason one layer down: these run with the USER'S
     // options in effect (their .zshenv has already been sourced by the shim
     // above), so `SH_WORD_SPLIT` or `GLOB_SUBST` would otherwise reach an
     // unquoted expansion of a path we do not control.
     `if [[ -f "$ZDOTDIR/${fileName}" ]]; then source "$ZDOTDIR/${fileName}"; fi`,
     '# Their file may have moved $ZDOTDIR itself; that is the value to keep.',
-    'export MULTICODE_USER_ZDOTDIR="$ZDOTDIR"',
+    'export SPRINTENGINE_USER_ZDOTDIR="$ZDOTDIR"',
   ]
 
   if (fileName === '.zshrc') {
     // Interactive shells end here, so this is where the shell gets its own
     // $ZDOTDIR back for good and where the hook goes.
     lines.push(
-      'ZDOTDIR=$MULTICODE_USER_ZDOTDIR',
-      'unset MULTICODE_ZDOTDIR_SELF',
+      'ZDOTDIR=$SPRINTENGINE_USER_ZDOTDIR',
+      'unset SPRINTENGINE_ZDOTDIR_SELF',
       '',
       OSC7_ZSH_HOOK,
       '',
       OSC133_ZSH_HOOK,
     )
   } else {
-    lines.push('ZDOTDIR=$MULTICODE_ZDOTDIR_SELF', 'unset MULTICODE_ZDOTDIR_SELF')
+    lines.push('ZDOTDIR=$SPRINTENGINE_ZDOTDIR_SELF', 'unset SPRINTENGINE_ZDOTDIR_SELF')
   }
 
   return `${lines.join('\n')}\n`
@@ -1173,14 +1197,14 @@ export function buildShellIntegrationSetup(shellName: string | undefined, zdotdi
       // The `case` is the self-reference guard: relaunching inside one of our
       // own terminals inherits `<ours>; <theirs>`, and re-capturing THAT would
       // append our emitter to itself once per nesting level. `__multicode_status`
-      // appears only in our string, and `MULTICODE_USER_PROMPT_COMMAND` is
+      // appears only in our string, and `SPRINTENGINE_USER_PROMPT_COMMAND` is
       // exported, so the nested shell keeps the value the outer one captured.
-      `case "\${PROMPT_COMMAND:-}" in *${OSC133_BASH_STATUS_CAPTURE_VARIABLE}*) ;; *) MULTICODE_USER_PROMPT_COMMAND=\${PROMPT_COMMAND:-}; export MULTICODE_USER_PROMPT_COMMAND ;; esac`,
+      `case "\${PROMPT_COMMAND:-}" in *${OSC133_BASH_STATUS_CAPTURE_VARIABLE}*) ;; *) SPRINTENGINE_USER_PROMPT_COMMAND=\${PROMPT_COMMAND:-}; export SPRINTENGINE_USER_PROMPT_COMMAND ;; esac`,
       // Theirs runs AFTER ours, which is the order the emitter is built for:
       // its last act is to put `$?` back, so a command appended behind it still
       // reads the real exit status. A plain assignment rather than
       // `export NAME=…` so no shell can field-split the joined value.
-      `PROMPT_COMMAND=${quotePosix(SHELL_INTEGRATION_BASH_PROMPT_COMMAND)}\${MULTICODE_USER_PROMPT_COMMAND:+"; \$MULTICODE_USER_PROMPT_COMMAND"}`,
+      `PROMPT_COMMAND=${quotePosix(SHELL_INTEGRATION_BASH_PROMPT_COMMAND)}\${SPRINTENGINE_USER_PROMPT_COMMAND:+"; \$SPRINTENGINE_USER_PROMPT_COMMAND"}`,
       'export PROMPT_COMMAND',
     ].join('; ')
   }
@@ -1188,7 +1212,7 @@ export function buildShellIntegrationSetup(shellName: string | undefined, zdotdi
     return [
       // Captured before it is replaced, and guarded so a relaunch inside one of
       // our own terminals does not record the shim directory as "the user's".
-      `if [ "\${ZDOTDIR:-}" != ${quotePosix(zdotdir)} ]; then export MULTICODE_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"; fi`,
+      `if [ "\${ZDOTDIR:-}" != ${quotePosix(zdotdir)} ]; then export SPRINTENGINE_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"; fi`,
       `export ZDOTDIR=${quotePosix(zdotdir)}`,
     ].join('; ')
   }
@@ -1726,6 +1750,7 @@ function buildNativeAgentLaunchPowerShellScript(
     cli,
     sessionId,
     resume,
+    workspaceRoot: cwd,
     initialPrompt,
     cliRuntime,
     cliPermissionPreset,
@@ -1773,7 +1798,7 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   const codexPlugin = getPluginById('codex')
   const nativeInvocation = debugMode && codexPlugin ? resolveDebugSkillInvocation(codexPlugin) : undefined
   const debugPrompt = debugMode
-    ? applyDebugDirective(initialPrompt ?? '', true, nativeInvocation)
+    ? applyDebugDirective(initialPrompt ?? '', true, nativeInvocation, cwd)
     : initialPrompt
   const promptArg = nativeWindowsCodexPromptArg(debugPrompt)
   // The model flag is hardcoded like the rest of this acknowledged-legacy

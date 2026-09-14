@@ -287,7 +287,7 @@ async function testRecordSpawnFailureResetsStoreAndPublishesDiagnostic(): Promis
     taskId: 'T1',
     sessionId: 'session-x',
     executionCwd: '/tmp/workspace',
-    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    sprintEngineStatePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     spawnMessage: 'MCP config sync failed: missing server multicode-sprintengine',
   })
   const findCall = (method: string): Call | undefined => calls.find((call) => call.method === method)
@@ -348,7 +348,7 @@ async function testRecordSpawnFailureOrdersStoreUpdatesBeforeDiagnostic(): Promi
     taskId: 'T1',
     sessionId: 'session-x',
     executionCwd: '/tmp/workspace',
-    sprintEngineStatePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+    sprintEngineStatePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     spawnMessage: 'spawn failed',
   })
   const order = calls.map((call) => call.method)

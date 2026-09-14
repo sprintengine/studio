@@ -143,7 +143,7 @@ def test_init_persists_configured_roles(tmp_path) -> None:
     # CLI-default roles). `--agent` no longer seeds a roster (leases replaced it).
     from helpers import SwarmCli, read_state
 
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "init-configured-roles" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "init-configured-roles" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "init",
@@ -163,7 +163,7 @@ def test_init_without_configured_roles_omits_key(tmp_path) -> None:
     # absent and the role boundary no-ops.
     from helpers import SwarmCli, read_state
 
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "init-no-configured-roles" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "init-no-configured-roles" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run("init", "--name", "init-no-configured-roles", "--agent", "developer:developer-1")
     state = read_state(state_path)

@@ -29,6 +29,7 @@ import {
   parseHostedSourcesFeed,
   type HostedSourcesFeed,
 } from '../../shared/hosted-sources-feed'
+import { readStudioEnv } from '../../shared/studio-env'
 
 const SOURCES_FEED_CACHE_FILENAME = 'sources-feed-cache.json'
 const SOURCES_FEED_SEED_FILENAME = 'sources.json'
@@ -37,11 +38,11 @@ const DEFAULT_SOURCES_FEED_TIMEOUT_MS = 10_000
 const SOURCES_FEED_TTL_MS = 60 * 60 * 1_000
 const SOURCES_FEED_RETRY_MS = 5 * 60 * 1_000
 
-// MULTICODE_SOURCES_FEED_URL points the client at another copy of the file — a
+// SPRINTENGINE_SOURCES_FEED_URL points the client at another copy of the file — a
 // local static server while developing, a fork's raw URL — with every other
 // rule (ETag, cache, seed, schema gate) unchanged. HTTPS only, like the default.
 export function configuredSourcesFeedUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.MULTICODE_SOURCES_FEED_URL?.trim()
+  const override = readStudioEnv('SPRINTENGINE_SOURCES_FEED_URL', env)?.trim()
   return override || HOSTED_SOURCES_FEED_URL
 }
 

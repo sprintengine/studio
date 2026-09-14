@@ -111,15 +111,15 @@ test('omitting the effort map leaves every entry byte-identical to before', () =
 // --- buildPlanSourcedSprintEngineWorkspaceContext ---------------------------
 // Derives the run's team name, slug, directory, and state-file path from the
 // project root and team name. The state file must live inside the team directory
-// under `.multi-code/sprintengine`, and inputs are trimmed before derivation.
+// under `.sprintengine/sprintengine`, and inputs are trimmed before derivation.
 
-test('the context places run.yaml inside the team directory under .multi-code/sprintengine', () => {
+test('the context places run.yaml inside the team directory under .sprintengine/sprintengine', () => {
   const context = buildPlanSourcedSprintEngineWorkspaceContext('/repo', 'Login Redirect Fix')
 
   assert.equal(context.teamName, 'Login Redirect Fix')
   assert.ok(context.teamSlug.length > 0, 'slug is derived and non-empty')
   assert.ok(
-    context.teamDirectoryPath.includes('.multi-code/sprintengine'),
+    context.teamDirectoryPath.includes('.sprintengine/sprintengine'),
     `team dir under the sprintengine run root: ${context.teamDirectoryPath}`,
   )
   assert.ok(

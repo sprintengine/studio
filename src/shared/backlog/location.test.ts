@@ -89,7 +89,7 @@ run('traversal out of the backlog root is refused', () => {
 
 run('a path that is not under backlog/ is refused', () => {
   const location = defaultBacklogLocation(WORKSPACE)
-  for (const attempt of ['src/main/index.ts', 'notbacklog/a.md', '.multi-code/backlog/config.json', '']) {
+  for (const attempt of ['src/main/index.ts', 'notbacklog/a.md', '.sprintengine/backlog/config.json', '']) {
     assert.equal(backlogAbsolutePath(location, attempt), null, `${attempt} must be refused`)
   }
 })

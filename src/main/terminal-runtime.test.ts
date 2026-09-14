@@ -1133,7 +1133,7 @@ async function assertDescriptorSpawnSucceedsWithNoWindows(runtimeModule: Runtime
 // closed and a window opened later picks up the session with replay.
 async function assertMobileAgentSpawnSucceedsWithNoWindows(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-headless-mobile-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   mockPty.spawnCalls = []
   mockSender.sent = []
 
@@ -2205,7 +2205,7 @@ async function assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule
 
 async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-idle-dispose-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const toolCalls: ToolCallInput[] = []
   const reapDiagnostics: Array<{ message: string; sessionId?: string }> = []
   mockPty.spawnCalls = []
@@ -2329,7 +2329,7 @@ async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: Runti
 
 async function assertSprintEngineAgentHeartbeatAndLeaveUseManagedMcp(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-liveness-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const toolCalls: ToolCallInput[] = []
   const releasedRuns: ReleaseInput[] = []
   const order: string[] = []
@@ -2410,7 +2410,7 @@ async function assertSprintEngineAgentHeartbeatAndLeaveUseManagedMcp(runtimeModu
 
 async function assertSprintEngineShutdownWaitsForLeaveBeforeRelease(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-shutdown-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const releasedRuns: ReleaseInput[] = []
   const order: string[] = []
   let resolveLeave: (() => void) | undefined
@@ -2473,7 +2473,7 @@ async function assertSprintEngineShutdownWaitsForLeaveBeforeRelease(runtimeModul
 
 async function assertSprintEngineTeardownIsSessionObjectScoped(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-respawn-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const toolCalls: ToolCallInput[] = []
   const releasedRuns: ReleaseInput[] = []
   const leaveResolvers: Array<() => void> = []
@@ -2945,7 +2945,7 @@ function createRecordingViewer(viewerId: string): {
 
 async function assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-release-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const releasedRuns: ReleaseInput[] = []
   mockPty.spawnCalls = []
   mockPty.spawnError = new Error('pty spawn failed')
@@ -2991,7 +2991,7 @@ async function assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtime
 
 async function assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-shared-run-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const releasedRuns: ReleaseInput[] = []
   mockPty.spawnCalls = []
   mockSender.sent = []
@@ -3043,7 +3043,7 @@ async function assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule: R
 
 async function assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-reserved-run-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const releasedRuns: ReleaseInput[] = []
   let secondSpawn: Promise<TerminalSpawnResult> | undefined
   mockPty.spawnCalls = []
@@ -3115,7 +3115,7 @@ async function assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeM
 
 async function assertSprintEngineSpawnReportsThrownHttpMcpSetupFailureWithoutPtySpawn(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-thrown-setup-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const failureMessage = 'Timed out starting Sprint Engine MCP HTTP hub.'
   mockPty.spawnCalls = []
   mockSender.sent = []
@@ -3198,12 +3198,12 @@ function assertSprintEngineLaunchMcpSettingsDerivation(runtimeModule: RuntimeMod
 
 function assertRegistrationRootDerivation(runtimeModule: RuntimeModule): void {
   const root = join(tmpdir(), 'project-root')
-  const statePath = join(root, '.multi-code', 'sprintengine', 'team', 'run.yaml')
-  const worktreeCwd = join(root, '.multi-code', 'sprintengine', 'team', 'worktree')
+  const statePath = join(root, '.sprintengine', 'sprintengine', 'team', 'run.yaml')
+  const worktreeCwd = join(root, '.sprintengine', 'sprintengine', 'team', 'worktree')
   assert.equal(
     runtimeModule.deriveSprintEngineRegistrationRoot(statePath, worktreeCwd),
     root,
-    'worktree launches register the project root (parent of .multi-code), not the worktree cwd'
+    'worktree launches register the project root (parent of .sprintengine), not the worktree cwd'
   )
   assert.equal(
     runtimeModule.deriveSprintEngineRegistrationRoot(statePath, root),
@@ -3214,18 +3214,18 @@ function assertRegistrationRootDerivation(runtimeModule: RuntimeModule): void {
   assert.equal(
     runtimeModule.deriveSprintEngineRegistrationRoot(exoticStatePath, root),
     root,
-    'state paths outside a .multi-code layout fall back to the launch cwd'
+    'state paths outside a .sprintengine layout fall back to the launch cwd'
   )
 }
 
 async function assertWorktreeSpawnRegistersProjectRootNotWorktreeCwd(runtimeModule: RuntimeModule): Promise<void> {
   // Live-reproduced regression: a worktree-mode agent launches with
-  // cwd <root>/.multi-code/sprintengine/<run>/worktree while run.yaml lives
+  // cwd <root>/.sprintengine/sprintengine/<run>/worktree while run.yaml lives
   // in that directory's parent. Registering the cwd as workspaceRoot and the
   // sole allowed root made every worktree spawn fail run registration with
   // HTTP 400 invalid_run_registration: statePath is outside allowedRoots.
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-worktree-'))
-  const runDir = join(workspaceRoot, '.multi-code', 'sprintengine', 'v2-5-capture-everywhere')
+  const runDir = join(workspaceRoot, '.sprintengine', 'sprintengine', 'v2-5-capture-everywhere')
   const sprintEngineStatePath = join(runDir, 'run.yaml')
   const worktreeCwd = join(runDir, 'worktree')
   await mkdir(worktreeCwd, { recursive: true })
@@ -3291,7 +3291,7 @@ async function assertMultiRepoSpawnAllowsEveryDeclaredProjectAndNothingElse(runt
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-multi-repo-'))
   const declared = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-declared-'))
   const undeclared = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-undeclared-'))
-  const runDir = join(workspaceRoot, '.multi-code', 'sprintengine', 'multi-repo')
+  const runDir = join(workspaceRoot, '.sprintengine', 'sprintengine', 'multi-repo')
   const sprintEngineStatePath = join(runDir, 'run.yaml')
   const worktreeCwd = join(runDir, 'worktree')
   const mobileWorktreeCwd = join(runDir, 'worktree-mobile')
@@ -3391,7 +3391,7 @@ async function assertMultiRepoSpawnAllowsEveryDeclaredProjectAndNothingElse(runt
 
 async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-success-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const order: string[] = []
   const syncInputs: SyncInput[] = []
   const releasedRuns: ReleaseInput[] = []
@@ -4557,7 +4557,7 @@ async function assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeMo
 
 async function assertSprintEngineSpawnKeepsEnabledConnectorMcpSettings(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprint-mcp-filter-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const syncInputs: SyncInput[] = []
   const mcpSettings = createOptionalMcpSettings()
   mockPty.spawnCalls = []
@@ -4619,7 +4619,7 @@ async function assertSprintEngineSpawnKeepsEnabledConnectorMcpSettings(runtimeMo
 
 async function assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-failure-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const failureMessage = 'MCP sync writer for format "generic" is not implemented yet; cannot launch a Sprint Engine agent.'
   mockPty.spawnCalls = []
   mockSender.sent = []
@@ -4674,7 +4674,7 @@ async function assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeM
 
 async function assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-missing-identity-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
+  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
   const syncInputs: SyncInput[] = []
   mockPty.spawnCalls = []
   mockSender.sent = []

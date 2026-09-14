@@ -920,7 +920,7 @@ async function testStatefulProviderResumeCursorReadFromTranscript(): Promise<voi
       messages: [],
     }
     // Simulate a previous app run's transcript carrying the provider cursor.
-    const dir = join(workspaceRoot, '.multi-code', 'conversations', 'workspace')
+    const dir = join(workspaceRoot, '.sprintengine', 'conversations', 'workspace')
     await mkdir(dir, { recursive: true })
     const priorEvents = [
       { id: 'old_1', sessionId: 'conv_old', workspaceId: 'workspace', agentId: 'agent', providerId: 'stateful-provider', modelId: 'stateful-model', type: 'session_started', createdAt: 1, payload: { providerSessionId: null } },
@@ -950,7 +950,7 @@ async function testStatefulProviderResumeCursorReadFromTranscript(): Promise<voi
 async function testReadTranscriptClosesUnfinishedTurns(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
   try {
-    const dir = join(workspaceRoot, '.multi-code', 'conversations', 'workspace')
+    const dir = join(workspaceRoot, '.sprintengine', 'conversations', 'workspace')
     await mkdir(dir, { recursive: true })
     const base = { sessionId: 'conv_x', workspaceId: 'workspace', agentId: 'agent', providerId: 'p', modelId: 'm' }
     const lines = [
@@ -1700,7 +1700,7 @@ async function readLastEvent(workspaceRoot: string, workspaceId: string, agentId
 
 async function readConversationEvents(workspaceRoot: string, workspaceId: string, agentId: string): Promise<Record<string, any>[]> {
   const content = await readFile(
-    join(workspaceRoot, '.multi-code', 'conversations', encodeURIComponent(workspaceId.replace(/[\\/]/g, '-')), `${agentId}.jsonl`),
+    join(workspaceRoot, '.sprintengine', 'conversations', encodeURIComponent(workspaceId.replace(/[\\/]/g, '-')), `${agentId}.jsonl`),
     'utf-8'
   )
   return content.trim().split('\n').map((line) => JSON.parse(line) as Record<string, any>)

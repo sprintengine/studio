@@ -76,7 +76,7 @@ function workspaceFixture(overrides: Partial<SprintEngineWorkspaceView> = {}): S
     agents: {},
     sprintEngineContext: {
       teamSlug: 'team',
-      statePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml',
+      statePath: '/tmp/workspace/.sprintengine/sprintengine/team/run.yaml',
     },
     ...overrides,
   } as SprintEngineWorkspaceView
@@ -95,11 +95,11 @@ function pickOptions(overrides: Partial<Parameters<typeof pickNextAutoRuns>[2]> 
 function twoRepoVcs(): SprintEngineState['vcs'] {
   return {
     mode: 'run_worktree',
-    worktreePath: '.multi-code/wt/run',
+    worktreePath: '.sprintengine/wt/run',
     branchName: 'run/main',
     repos: [
-      { id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' },
-      { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/run-mobile', branchName: 'run/main' },
+      { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/run', branchName: 'run/main' },
+      { id: 'mobile', root: '../mobile', worktreePath: '.sprintengine/wt/run-mobile', branchName: 'run/main' },
     ],
   } as SprintEngineState['vcs']
 }
@@ -110,14 +110,14 @@ function testResolveSessionCwdWorktreeMode(): void {
   const state = stateFixture({
     vcs: {
       mode: 'run_worktree',
-      worktreePath: '.multi-code/wt/run',
+      worktreePath: '.sprintengine/wt/run',
       branchName: 'run/main',
-      repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' }],
+      repos: [{ id: 'primary', root: '.', worktreePath: '.sprintengine/wt/run', branchName: 'run/main' }],
     },
   })
   const cwd = resolveSprintEngineSessionCwd(state, 'T1')
   assert.equal(cwd.executionMode, 'worktree')
-  assert.equal(cwd.worktreeRelativePath, '.multi-code/wt/run', 'the worktree path is the run worktree, relative to the workspace folder')
+  assert.equal(cwd.worktreeRelativePath, '.sprintengine/wt/run', 'the worktree path is the run worktree, relative to the workspace folder')
 }
 
 function testResolveSessionCwdCurrentWorkspaceWhenNoWorktree(): void {
@@ -140,17 +140,17 @@ function testResolveSessionCwdSelectsTheTasksRepoWorktree(): void {
     vcs: twoRepoVcs(),
     tasks: [task({ id: 'D1', repo: 'primary' }), task({ id: 'M1', repo: 'mobile' })],
   })
-  assert.equal(resolveSprintEngineSessionCwd(state, 'D1').worktreeRelativePath, '.multi-code/wt/run')
+  assert.equal(resolveSprintEngineSessionCwd(state, 'D1').worktreeRelativePath, '.sprintengine/wt/run')
   assert.equal(
     resolveSprintEngineSessionCwd(state, 'M1').worktreeRelativePath,
-    '.multi-code/wt/run-mobile',
+    '.sprintengine/wt/run-mobile',
     'a task targeting the mobile repo spawns its session in the mobile worktree',
   )
   // A repo id routes directly, and an unknown key lands in the primary worktree
   // rather than guessing a sibling.
-  assert.equal(resolveSprintEngineSessionCwd(state, 'mobile').worktreeRelativePath, '.multi-code/wt/run-mobile')
-  assert.equal(resolveSprintEngineSessionCwd(state, 'nope').worktreeRelativePath, '.multi-code/wt/run')
-  assert.equal(resolveSprintEngineSessionCwd(state, null).worktreeRelativePath, '.multi-code/wt/run')
+  assert.equal(resolveSprintEngineSessionCwd(state, 'mobile').worktreeRelativePath, '.sprintengine/wt/run-mobile')
+  assert.equal(resolveSprintEngineSessionCwd(state, 'nope').worktreeRelativePath, '.sprintengine/wt/run')
+  assert.equal(resolveSprintEngineSessionCwd(state, null).worktreeRelativePath, '.sprintengine/wt/run')
 }
 
 function testResolveSessionCwdSkipsSiblingMissingItsWorktree(): void {
@@ -161,9 +161,9 @@ function testResolveSessionCwdSkipsSiblingMissingItsWorktree(): void {
   const state = stateFixture({
     vcs: {
       mode: 'run_worktree',
-      worktreePath: '.multi-code/wt/run',
+      worktreePath: '.sprintengine/wt/run',
       branchName: 'run/main',
-      repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' }],
+      repos: [{ id: 'primary', root: '.', worktreePath: '.sprintengine/wt/run', branchName: 'run/main' }],
     },
     tasks: [task({ id: 'M1', repo: 'mobile' })],
   })
@@ -171,8 +171,8 @@ function testResolveSessionCwdSkipsSiblingMissingItsWorktree(): void {
   assert.equal(cwd.executionMode, 'current_workspace', 'an unresolvable sibling skips rather than binding to primary')
   assert.equal(cwd.worktreeRelativePath, undefined)
   // The primary repo still resolves to the run worktree via the flat fallback.
-  assert.equal(resolveSprintEngineSessionCwd(state, 'primary').worktreeRelativePath, '.multi-code/wt/run')
-  assert.equal(resolveSprintEngineSessionCwd(state, null).worktreeRelativePath, '.multi-code/wt/run')
+  assert.equal(resolveSprintEngineSessionCwd(state, 'primary').worktreeRelativePath, '.sprintengine/wt/run')
+  assert.equal(resolveSprintEngineSessionCwd(state, null).worktreeRelativePath, '.sprintengine/wt/run')
 }
 
 // --- MC-2136: under per-task isolation the session opens in ITS TASK'S tree ---
@@ -181,20 +181,20 @@ function testResolveSessionCwdUsesTheTasksOwnWorktreeUnderIsolation(): void {
   const isolated = {
     mode: 'run_worktree',
     taskIsolation: true,
-    worktreePath: '.multi-code/wt/run',
+    worktreePath: '.sprintengine/wt/run',
     branchName: 'run/main',
-    repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' }],
+    repos: [{ id: 'primary', root: '.', worktreePath: '.sprintengine/wt/run', branchName: 'run/main' }],
   } as SprintEngineState['vcs']
   const state = stateFixture({
     vcs: isolated,
     tasks: [
-      task({ id: 'T1', repo: 'primary', worktreePath: '.multi-code/wt/task-worktrees/T1/primary' }),
+      task({ id: 'T1', repo: 'primary', worktreePath: '.sprintengine/wt/task-worktrees/T1/primary' }),
       task({ id: 'T2', repo: 'primary' }),
     ],
   })
   assert.equal(
     resolveSprintEngineSessionCwd(state, 'T1').worktreeRelativePath,
-    '.multi-code/wt/task-worktrees/T1/primary',
+    '.sprintengine/wt/task-worktrees/T1/primary',
     'the agent works in the tree the engine commits its task from',
   )
   // No tree recorded yet = there is none. Falling back to the run worktree is
@@ -202,16 +202,16 @@ function testResolveSessionCwdUsesTheTasksOwnWorktreeUnderIsolation(): void {
   // would cwd a session into a directory that does not exist.
   assert.equal(
     resolveSprintEngineSessionCwd(state, 'T2').worktreeRelativePath,
-    '.multi-code/wt/run',
+    '.sprintengine/wt/run',
     'a task with no provisioned tree falls back to the run worktree',
   )
   // The spawn path provisions before the projection refreshes, so the fresh
   // path wins over the state in hand — same field, one refresh newer.
   assert.equal(
     resolveSprintEngineSessionCwd(state, 'T2', {
-      provisionedTaskWorktreePath: '.multi-code/wt/task-worktrees/T2/primary',
+      provisionedTaskWorktreePath: '.sprintengine/wt/task-worktrees/T2/primary',
     }).worktreeRelativePath,
-    '.multi-code/wt/task-worktrees/T2/primary',
+    '.sprintengine/wt/task-worktrees/T2/primary',
     'a just-provisioned tree is where the spawn goes',
   )
   // Same run WITHOUT the flag: a recorded task path is ignored, because the
@@ -219,15 +219,15 @@ function testResolveSessionCwdUsesTheTasksOwnWorktreeUnderIsolation(): void {
   const shared = stateFixture({
     vcs: {
       mode: 'run_worktree',
-      worktreePath: '.multi-code/wt/run',
+      worktreePath: '.sprintengine/wt/run',
       branchName: 'run/main',
-      repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' }],
+      repos: [{ id: 'primary', root: '.', worktreePath: '.sprintengine/wt/run', branchName: 'run/main' }],
     },
-    tasks: [task({ id: 'T1', repo: 'primary', worktreePath: '.multi-code/wt/task-worktrees/T1/primary' })],
+    tasks: [task({ id: 'T1', repo: 'primary', worktreePath: '.sprintengine/wt/task-worktrees/T1/primary' })],
   })
   assert.equal(
     resolveSprintEngineSessionCwd(shared, 'T1').worktreeRelativePath,
-    '.multi-code/wt/run',
+    '.sprintengine/wt/run',
     'without the run-level flag the shared tree stays the session cwd',
   )
 }
@@ -240,22 +240,22 @@ function testSessionRepoIdRecognisesATaskWorktree(): void {
     vcs: {
       mode: 'run_worktree',
       taskIsolation: true,
-      worktreePath: '.multi-code/wt/run',
+      worktreePath: '.sprintengine/wt/run',
       branchName: 'run/main',
       repos: [
-        { id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' },
-        { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/run-mobile', branchName: 'run/main' },
+        { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/run', branchName: 'run/main' },
+        { id: 'mobile', root: '../mobile', worktreePath: '.sprintengine/wt/run-mobile', branchName: 'run/main' },
       ],
     } as SprintEngineState['vcs'],
-    tasks: [task({ id: 'M1', repo: 'mobile', worktreePath: '.multi-code/wt/task-worktrees/M1/mobile' })],
+    tasks: [task({ id: 'M1', repo: 'mobile', worktreePath: '.sprintengine/wt/task-worktrees/M1/mobile' })],
   })
   assert.equal(
-    sprintEngineRepoIdForSessionCwd(state, '/ws', '/ws/.multi-code/wt/task-worktrees/M1/mobile'),
+    sprintEngineRepoIdForSessionCwd(state, '/ws', '/ws/.sprintengine/wt/task-worktrees/M1/mobile'),
     'mobile',
     'the task is the authority on the project its tree belongs to',
   )
   // A repo's own tree still resolves, and an unrelated cwd is still no evidence.
-  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/ws', '/ws/.multi-code/wt/run-mobile'), 'mobile')
+  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/ws', '/ws/.sprintengine/wt/run-mobile'), 'mobile')
   assert.equal(sprintEngineRepoIdForSessionCwd(state, '/ws', '/ws/src'), null)
 }
 
@@ -287,8 +287,8 @@ function testWorkerRepoIdPrefersSessionCwdOverPrimary(): void {
 
 function testResolveSessionRepoIdFromSessionCwd(): void {
   const state = stateFixture({ vcs: twoRepoVcs() })
-  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/proj', '/proj/.multi-code/wt/run-mobile'), 'mobile')
-  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/proj', '/proj/.multi-code/wt/run'), 'primary')
+  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/proj', '/proj/.sprintengine/wt/run-mobile'), 'mobile')
+  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/proj', '/proj/.sprintengine/wt/run'), 'primary')
   // No repo evidence is null, never a guess at primary.
   assert.equal(sprintEngineRepoIdForSessionCwd(state, '/proj', '/proj'), null)
   assert.equal(sprintEngineRepoIdForSessionCwd(state, '/proj', undefined), null)

@@ -100,7 +100,7 @@ def test_non_worktree_change_detection_reads_the_working_tree(tmp_path: Path) ->
     workspace = tmp_path / "repo"
     workspace.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
-    team_dir = workspace / ".multi-code" / "sprintengine" / "cd-plain"
+    team_dir = workspace / ".sprintengine" / "sprintengine" / "cd-plain"
     state_path = team_dir / "run.yaml"
     write_state(state_path, {
         "sprintengine": {"name": "cd-plain", "goal": "g", "status": "executing", "rosterConfigured": True},
@@ -518,7 +518,7 @@ def _git_workspace_team(tmp_path: Path, name: str, tasks: list[dict]) -> tuple[P
     workspace = tmp_path / "repo"
     workspace.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
-    team_dir = workspace / ".multi-code" / "sprintengine" / name
+    team_dir = workspace / ".sprintengine" / "sprintengine" / name
     state_path = team_dir / "run.yaml"
     write_state(state_path, {
         "sprintengine": {"name": name, "goal": "g", "status": "executing", "rosterConfigured": True},

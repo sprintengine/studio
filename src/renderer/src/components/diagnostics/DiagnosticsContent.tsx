@@ -1156,7 +1156,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             </Table>
           ) : (
             <p className="text-[color:var(--text-muted)]">
-              IPC accounting is active only when diagnostics is enabled (dev or MULTICODE_DIAGNOSTICS=1).
+              IPC accounting is active only when diagnostics is enabled (dev or SPRINTENGINE_DIAGNOSTICS=1).
             </p>
           )}
         </section>

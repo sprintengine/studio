@@ -16,7 +16,7 @@ const CLONE_TIMEOUT_MS = 15 * 60 * 1000
 // cloned repo's config (the remote URL stays clean). The helper reads the
 // host git is asking about from stdin and answers ONLY for github.com, so a
 // cross-host redirect mid-clone gets nothing rather than the token.
-const TOKEN_ENV_VAR = 'MULTICODE_GITHUB_CLONE_TOKEN'
+const TOKEN_ENV_VAR = 'SPRINTENGINE_GITHUB_CLONE_TOKEN'
 const TOKEN_CREDENTIAL_HELPER =
   '!f() { h=; while IFS= read -r l; do [ "$l" = "host=github.com" ] && h=1; [ -z "$l" ] && break; done; '
   + `[ "$h" = "1" ] && printf "username=x-access-token\\npassword=%s\\n" "$${TOKEN_ENV_VAR}"; :; }; f`

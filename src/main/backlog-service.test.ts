@@ -35,7 +35,7 @@ const PRECISE_ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 async function main(): Promise<void> {
   const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-service-'))
   const itemPath = join(tempRoot, 'backlog', 'checkout.md')
-  const storePath = join(tempRoot, '.multi-code', 'backlog', 'cache', 'links.json')
+  const storePath = join(tempRoot, '.sprintengine', 'backlog', 'cache', 'links.json')
 
   // The exact body the lifecycle/triage writes must preserve byte-for-byte.
   const body = '# Checkout\n\nSpeed up the checkout flow.\n\n- step one\n- step two\n'
@@ -518,12 +518,12 @@ async function main(): Promise<void> {
         moduleId: 'sprint-engine',
         type: 'execution',
         label: 'Sprint Engine run',
-        target: { kind: 'sprintengine.run', id: 'checkout', path: '.multi-code/sprintengine/checkout/run.yaml' },
+        target: { kind: 'sprintengine.run', id: 'checkout', path: '.sprintengine/sprintengine/checkout/run.yaml' },
         status: 'active',
       },
     })
     assert.equal(linked.ok, true)
-    assert.equal(linked.ok ? linked.store.items[0]?.links?.[0]?.target.path : null, '.multi-code/sprintengine/checkout/run.yaml')
+    assert.equal(linked.ok ? linked.store.items[0]?.links?.[0]?.target.path : null, '.sprintengine/sprintengine/checkout/run.yaml')
     assert.equal(linked.ok ? linked.store.items[0]?.status : null, undefined, 'link lifecycle must not leak into the link cache')
     assert.equal((await readItem()).fields.status, 'in_progress', 'link lifecycle writes the frontmatter source of truth')
 
@@ -646,7 +646,7 @@ async function main(): Promise<void> {
       })
       assert.equal(rejectedFreshAbsoluteItem.ok, false)
       await assert.rejects(
-        () => stat(join(absoluteFreshRoot, '.multi-code', 'backlog', 'cache', 'links.json')),
+        () => stat(join(absoluteFreshRoot, '.sprintengine', 'backlog', 'cache', 'links.json')),
         /ENOENT/,
         'absolute backlog item paths must not create a missing sidecar',
       )
@@ -749,7 +749,7 @@ async function main(): Promise<void> {
 // guard for T23 (T21 live-verification F-1).
 async function assertArchiveLeavesSidecarLifecycleFree(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-archive-'))
-  const storePath = join(root, '.multi-code', 'backlog', 'cache', 'links.json')
+  const storePath = join(root, '.sprintengine', 'backlog', 'cache', 'links.json')
   const lifecycleKeys = ['status', 'type', 'difficulty', 'criticality', 'risk', 'epic']
   try {
     // The file has already been moved on disk to its archived path, carrying its
@@ -834,13 +834,13 @@ async function assertLazyMigrationMatrix(): Promise<void> {
 
   // --- On-disk migration via readBacklogObjectStore -------------------------
   const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-migrate-'))
-  const storePath = join(root, '.multi-code', 'backlog', 'cache', 'links.json')
+  const storePath = join(root, '.sprintengine', 'backlog', 'cache', 'links.json')
   try {
     const body = '# Checkout\n\nSpeed up checkout.\n'
     await mkdir(join(root, 'backlog'), { recursive: true })
     // The file already carries a status; the sidecar must WIN over it on migrate.
     await writeFile(join(root, 'backlog', 'a.md'), `---\nstatus: idea\n---\n${body}`, 'utf-8')
-    await mkdir(join(root, '.multi-code', 'backlog', 'cache'), { recursive: true })
+    await mkdir(join(root, '.sprintengine', 'backlog', 'cache'), { recursive: true })
     await writeFile(storePath, `${JSON.stringify({
       schemaVersion: 1,
       items: [
@@ -964,7 +964,7 @@ async function testBacklogIntegrityRepairsAreNarrowAndIdempotent(): Promise<void
 
 // Read-only listing/reading for the automation server's backlog tools: files +
 // frontmatter are the whole read model, and neither call may create or touch
-// .multi-code state (an external read tool must not mutate the app's stores).
+// .sprintengine state (an external read tool must not mutate the app's stores).
 async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
   const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-list-'))
   try {
@@ -1007,10 +1007,10 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
       { relativePath: 'backlog/roadmaps/payments.md', title: 'Payments roadmap', isEpic: false, isRoadmap: true, status: 'ready' },
     ])
     // Read-only means read-only: listing registers nothing and persists no key.
-    await assert.rejects(() => stat(join(tempRoot, '.multi-code')), /ENOENT/, 'listing must not create .multi-code')
+    await assert.rejects(() => stat(join(tempRoot, '.sprintengine')), /ENOENT/, 'listing must not create .sprintengine')
 
-    await mkdir(join(tempRoot, '.multi-code', 'backlog', 'cache'), { recursive: true })
-    await writeFile(join(tempRoot, '.multi-code', 'backlog', 'config.json'), '{"key":"MC"}\n', 'utf-8')
+    await mkdir(join(tempRoot, '.sprintengine', 'backlog', 'cache'), { recursive: true })
+    await writeFile(join(tempRoot, '.sprintengine', 'backlog', 'config.json'), '{"key":"MC"}\n', 'utf-8')
     const keyed = await listBacklogItems(tempRoot)
     assert.equal(keyed.ok && keyed.key, 'MC')
 
@@ -1044,7 +1044,7 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
 // content, because only the pair proves no write happened at all.
 async function testConfirmingRewritesLeaveTheSidecarAlone(): Promise<void> {
   const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-nochurn-'))
-  const storePath = join(tempRoot, '.multi-code', 'backlog', 'cache', 'links.json')
+  const storePath = join(tempRoot, '.sprintengine', 'backlog', 'cache', 'links.json')
   try {
     const created = await createBacklogItem({ workspaceRoot: tempRoot, title: 'Churn guard' })
     assert.equal(created.ok, true)
@@ -1077,7 +1077,7 @@ async function testConfirmingRewritesLeaveTheSidecarAlone(): Promise<void> {
     // Studio writes this cache into every workspace it opens, including repos
     // whose .gitignore we have no business editing. The folder therefore ignores
     // itself, exactly as the browser pane's screenshot folder does.
-    const cacheIgnore = join(tempRoot, '.multi-code', 'backlog', 'cache', '.gitignore')
+    const cacheIgnore = join(tempRoot, '.sprintengine', 'backlog', 'cache', '.gitignore')
     assert.equal(await readFile(cacheIgnore, 'utf-8'), '*\n', 'the cache folder ignores itself')
 
     // A hand-edited ignore file is never clobbered on a later save.
@@ -1105,13 +1105,13 @@ async function testConfirmingRewritesLeaveTheSidecarAlone(): Promise<void> {
 // volatile ones reach the cache, orphans are dropped, and the sidecar goes.
 async function testLegacySidecarMigration(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-legacy-'))
-  const legacyPath = join(root, '.multi-code', 'backlog', 'items.json')
-  const cachePath = join(root, '.multi-code', 'backlog', 'cache', 'links.json')
+  const legacyPath = join(root, '.sprintengine', 'backlog', 'items.json')
+  const cachePath = join(root, '.sprintengine', 'backlog', 'cache', 'links.json')
   try {
     const body = '# Worked item\n\nBody text that must survive byte-for-byte.\n'
     await mkdir(join(root, 'backlog'), { recursive: true })
     await writeFile(join(root, 'backlog', 'worked.md'), `---\nstatus: completed\nid: 7\n---\n${body}`, 'utf-8')
-    await mkdir(join(root, '.multi-code', 'backlog'), { recursive: true })
+    await mkdir(join(root, '.sprintengine', 'backlog'), { recursive: true })
     await writeFile(legacyPath, `${JSON.stringify({
       schemaVersion: 1,
       items: [
@@ -1127,7 +1127,7 @@ async function testLegacySidecarMigration(): Promise<void> {
               moduleId: 'sprint-engine',
               type: 'execution',
               label: 'Sprint',
-              target: { kind: 'sprintengine.run', id: '2026-08-04-a-run', path: '.multi-code/sprintengine/2026-08-04-a-run/run.yaml' },
+              target: { kind: 'sprintengine.run', id: '2026-08-04-a-run', path: '.sprintengine/sprintengine/2026-08-04-a-run/run.yaml' },
               status: 'completed',
             },
             {
@@ -1276,9 +1276,9 @@ async function testABacklogCanLiveOutsideTheCheckout(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-redirect-ws-'))
   const elsewhere = await mkdtemp(join(tmpdir(), 'multicode-backlog-redirect-store-'))
   try {
-    await mkdir(join(root, '.multi-code', 'backlog'), { recursive: true })
+    await mkdir(join(root, '.sprintengine', 'backlog'), { recursive: true })
     await writeFile(
-      join(root, '.multi-code', 'backlog', 'config.json'),
+      join(root, '.sprintengine', 'backlog', 'config.json'),
       JSON.stringify({ schemaVersion: 2, key: 'MC', root: elsewhere }, null, 2),
       'utf-8',
     )
@@ -1317,13 +1317,13 @@ async function testABacklogCanLiveOutsideTheCheckout(): Promise<void> {
     // The sidecar stays in the workspace: it is app state about this checkout,
     // not backlog content, and a shared backlog folder must not collect it.
     const store = JSON.parse(
-      await readFile(join(root, '.multi-code', 'backlog', 'cache', 'links.json'), 'utf-8'),
+      await readFile(join(root, '.sprintengine', 'backlog', 'cache', 'links.json'), 'utf-8'),
     ) as { items: Array<{ source: { relativePath: string } }> }
     assert.equal(store.items[0]?.source.relativePath, relativePath)
 
     // And the display key survives a config rewrite rather than being clobbered
     // by a whole-object write from the key path.
-    const config = JSON.parse(await readFile(join(root, '.multi-code', 'backlog', 'config.json'), 'utf-8')) as Record<string, unknown>
+    const config = JSON.parse(await readFile(join(root, '.sprintengine', 'backlog', 'config.json'), 'utf-8')) as Record<string, unknown>
     assert.equal(config['root'], elsewhere, 'persisting the key must not drop the configured root')
     assert.equal(config['key'], 'MC')
   } finally {
@@ -1374,7 +1374,7 @@ async function testSettingABacklogRootValidatesWhatItIsGiven(): Promise<void> {
     const reset = await setBacklogRoot({ workspaceRoot: root, root: null })
     assert.equal(reset.ok, true)
     assert.equal(reset.ok && reset.location.isDefault, true)
-    const config = JSON.parse(await readFile(join(root, '.multi-code', 'backlog', 'config.json'), 'utf-8')) as Record<string, unknown>
+    const config = JSON.parse(await readFile(join(root, '.sprintengine', 'backlog', 'config.json'), 'utf-8')) as Record<string, unknown>
     assert.equal('root' in config, false, 'resetting removes the field rather than writing an empty one')
   } finally {
     await rm(root, { force: true, recursive: true })

@@ -30,7 +30,7 @@ import { resolveClaudeConfigDir } from './conversation-peek/locate'
 export const AGENT_STATE_HOOK_TAG = 'multicode-agent-state'
 
 // Where the reporter script is copied inside a workspace. The reporter also
-// honours a MULTICODE_AGENT_STATE_SOCKET env fallback (see the .mjs), but the
+// honours a SPRINTENGINE_AGENT_STATE_SOCKET env fallback (see the .mjs), but the
 // install always passes the socket via --socket, so it is not referenced here.
 export const AGENT_STATE_HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'agent-state.mjs')
 
@@ -780,7 +780,7 @@ function parseFrameWakeup(raw: unknown): AgentStateFrameWakeup | null {
 // =============================================================================
 // Frame → session resolution (pure; tested independently of the runtime)
 //
-// The reporter frame carries MULTICODE_AGENT_ID — for an interactively-launched
+// The reporter frame carries SPRINTENGINE_AGENT_ID — for an interactively-launched
 // agent that equals the session's agentId; we also match the execution and PTY
 // session ids so resolution is robust to launch paths that key identity
 // differently. When more than one live session matches the same id (e.g. a
@@ -1707,7 +1707,7 @@ export function renderOwnedJsonAgentStateHooksConfig(
 //
 // A plugin can't take a --socket arg, so the live socket path is baked into the
 // file at install time (token substitution); the plugin also honours
-// MULTICODE_AGENT_STATE_SOCKET as a fallback. Note the OpenCode dest extension
+// SPRINTENGINE_AGENT_STATE_SOCKET as a fallback. Note the OpenCode dest extension
 // is .js while the bundled template ships as .mjs (the packaging filter is
 // **/*.mjs; OpenCode's loader picks up .js/.ts but not .mjs, verified against
 // opencode v1.17.11) — the manifest declares both names, so the rename is data.
@@ -1718,7 +1718,7 @@ export function renderOwnedJsonAgentStateHooksConfig(
 // the value valid even for a Windows pipe path full of backslashes (splicing a
 // bare string back inside the quotes would let those backslashes act as JS
 // escapes and corrupt the path).
-const PLUGIN_SOCKET_PLACEHOLDER = "'__MULTICODE_AGENT_STATE_SOCKET__'"
+const PLUGIN_SOCKET_PLACEHOLDER = "'__SPRINTENGINE_AGENT_STATE_SOCKET__'"
 
 export function renderAgentStatePluginTemplate(template: string, socketPath: string): string {
   return template.split(PLUGIN_SOCKET_PLACEHOLDER).join(JSON.stringify(socketPath))

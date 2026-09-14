@@ -327,8 +327,8 @@ function writeFor(writes: BacklogWrite[], relativePath: string): BacklogWrite | 
 // --- the walk -----------------------------------------------------------------
 
 async function testSeededEpicPipeline(root: string): Promise<void> {
-  const statePath = join(root, '.multi-code', 'sprintengine', 'delivery', 'run.yaml')
-  const runRelativePath = '.multi-code/sprintengine/delivery/run.yaml'
+  const statePath = join(root, '.sprintengine', 'sprintengine', 'delivery', 'run.yaml')
+  const runRelativePath = '.sprintengine/sprintengine/delivery/run.yaml'
   makeGitProject(root)
   makeFixtureEpic(root)
 
@@ -495,7 +495,7 @@ async function testSeededEpicPipeline(root: string): Promise<void> {
   // 6. FINISHED BUT UNMERGED — every task done, the run complete, the branch still
   //    out. The children must stay in flight: there is no point completing an item
   //    that sits on a branch.
-  const worktree = join(root, '.multi-code', 'sprintengine', 'delivery', 'worktree')
+  const worktree = join(root, '.sprintengine', 'sprintengine', 'delivery', 'worktree')
   const finish = (taskId: string, agentId: string, module: string): void => {
     write(worktree, `${module}/impl.ts`, `export const ${taskId} = true\n`)
     engine(root, statePath, 'task', 'publish', '--task-id', taskId, '--id', agentId,
@@ -557,8 +557,8 @@ async function testSeededEpicPipeline(root: string): Promise<void> {
  * cancel is terminal.
  */
 async function testCancelRestoresPriorStatus(root: string): Promise<void> {
-  const statePath = join(root, '.multi-code', 'sprintengine', 'delivery', 'run.yaml')
-  const runRelativePath = '.multi-code/sprintengine/delivery/run.yaml'
+  const statePath = join(root, '.sprintengine', 'sprintengine', 'delivery', 'run.yaml')
+  const runRelativePath = '.sprintengine/sprintengine/delivery/run.yaml'
   makeGitProject(root)
   makeFixtureEpic(root)
   launchEpicRun(root, statePath, [CHILD_TOTAL, CHILD_TAX, CHILD_MAILER, CHILD_DOCS])
@@ -638,6 +638,10 @@ function testPreChangeRunStoreStillWorks(root: string): void {
   git(root, 'add', '-A')
   git(root, 'commit', '-qm', 'seed')
 
+  // Under the OLD sidecar name on purpose. The captured store records its
+  // worktree as `.multi-code/sprintengine/<team>/worktree`, and a workspace that
+  // predates the rename still has that directory — so this is also the test that
+  // the sidecar fallback resolves a real pre-change workspace end to end.
   const teamDir = join(root, '.multi-code', 'sprintengine', teamSlug)
   mkdirSync(dirname(teamDir), { recursive: true })
   cpSync(legacyStoreFixture, teamDir, { recursive: true })
@@ -740,8 +744,8 @@ function testPreChangeRunStoreStillWorks(root: string): void {
  * child status propagation) is indifferent to which path minted it.
  */
 async function testDirectEpicImportPipeline(root: string): Promise<void> {
-  const statePath = join(root, '.multi-code', 'sprintengine', 'delivery', 'run.yaml')
-  const runRelativePath = '.multi-code/sprintengine/delivery/run.yaml'
+  const statePath = join(root, '.sprintengine', 'sprintengine', 'delivery', 'run.yaml')
+  const runRelativePath = '.sprintengine/sprintengine/delivery/run.yaml'
   makeGitProject(root)
   makeFixtureEpic(root)
 

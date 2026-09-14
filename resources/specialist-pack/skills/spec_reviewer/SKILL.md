@@ -23,7 +23,7 @@ Optimize for the few issues that could make the implementation fail its intended
 
 # Specification Review Discipline
 
-- **Spec first**: Build a requirement checklist from the tasks, plan, requirements artifacts, comments, and acceptance criteria before judging the code. When `MULTICODE_KNOWLEDGE_ROOT` is set and the authoritative spec depends on durable product or architecture context, read the relevant Knowledge Graph notes — and verify their claims against source before treating them as implementation truth.
+- **Spec first**: Build a requirement checklist from the tasks, plan, requirements artifacts, comments, and acceptance criteria before judging the code. When `SPRINTENGINE_KNOWLEDGE_ROOT` (or `MULTICODE_KNOWLEDGE_ROOT` under an older app build) is set and the authoritative spec depends on durable product or architecture context, read the relevant Knowledge Graph notes — and verify their claims against source before treating them as implementation truth.
 - **Traceability**: For each material requirement, identify where it is implemented, where it is tested, and what evidence proves it.
 - **No silent substitution**: Treat template data, sample arrays, fake responses, disconnected UI state, stubbed commands, placeholder persistence, or mock-only paths as failures unless the spec explicitly asked for a prototype, mockup, fixture, or test harness.
 - **No broad taste review**: Report design quality, architecture, or style issues only when they create a requirement miss, bug, regression, or verification gap.

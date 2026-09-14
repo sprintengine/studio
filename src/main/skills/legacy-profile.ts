@@ -96,7 +96,7 @@ export function planLegacySourceAdoption(current: PersistedState, legacy: Persis
  * The obvious gate would be `app.isPackaged`, and it is the wrong one. The
  * profile that lost its sources is the one a from-source run uses: `scripts/
  * dev.js` only overrides userData for a parallel instance on a non-default
- * renderer port (`MULTICODE_USER_DATA_DIR=…/multicode-dev-<port>`), so an
+ * renderer port (`SPRINTENGINE_USER_DATA_DIR=…/multicode-dev-<port>`), so an
  * ordinary `npm run dev` writes to `…/sprintengine-studio` — the very directory
  * the rename created empty. Gating on `isPackaged` would skip the machine we
  * are fixing.

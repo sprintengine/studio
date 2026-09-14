@@ -53,7 +53,7 @@ const CLAUDE_AGENT_MODELS = ['claude-opus-5', 'sonnet', 'opus', 'haiku'] as cons
 
 // Env marker so process-tree diagnostics can attribute the headless child to
 // its conversation session (the SDK exposes no child PID).
-export const CLAUDE_AGENT_SESSION_ENV_KEY = 'MULTICODE_CONVERSATION_SESSION_ID'
+export const CLAUDE_AGENT_SESSION_ENV_KEY = 'SPRINTENGINE_CONVERSATION_SESSION_ID'
 
 type SdkQueryFunction = typeof import('@anthropic-ai/claude-agent-sdk').query
 

@@ -1107,7 +1107,7 @@ export type SprintEngineSavedRoster = {
 //
 // NAMING (MC-1874): a ROSTER is agent CONFIGURATION — which roles, which CLIs,
 // which models. It is NOT a "team". In this codebase `team` means the run
-// directory slug (`.multi-code/sprintengine/<team>/run.yaml`) and appears as
+// directory slug (`.sprintengine/sprintengine/<team>/run.yaml`) and appears as
 // `teamSlug` / `teamName` / `teamDirectoryPath`. The two used to share the word
 // and met in the same signatures; keep them apart.
 //

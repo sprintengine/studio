@@ -127,9 +127,9 @@ function launchEnv(profileDir) {
   for (const key of PASSTHROUGH_ENV_KEYS) {
     if (process.env[key] !== undefined) env[key] = process.env[key]
   }
-  env.MULTICODE_STARTUP_TIMELINE = '1'
-  env.MULTICODE_USER_DATA_DIR = profileDir
-  env.MULTICODE_ALLOW_MULTI_INSTANCE = '1'
+  env.SPRINTENGINE_STARTUP_TIMELINE = '1'
+  env.SPRINTENGINE_USER_DATA_DIR = profileDir
+  env.SPRINTENGINE_ALLOW_MULTI_INSTANCE = '1'
   return env
 }
 

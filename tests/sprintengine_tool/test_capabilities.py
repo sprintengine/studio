@@ -375,11 +375,11 @@ def _repo_bound_fixture(tmp_path, name: str):
     state = read_state(fixture.state_path)
     state.setdefault("sprintengine", {})["vcs"] = {
         "mode": "run_worktree",
-        "worktreePath": ".multi-code/sprintengine/x/worktree",
+        "worktreePath": ".sprintengine/sprintengine/x/worktree",
         "branchName": "sprintengine/x",
         "repos": [
-            {"id": "primary", "root": ".", "worktreePath": ".multi-code/sprintengine/x/worktree", "branchName": "sprintengine/x"},
-            {"id": "mobile", "root": "../mobile", "worktreePath": ".multi-code/sprintengine/x/worktree-mobile", "branchName": "sprintengine/x"},
+            {"id": "primary", "root": ".", "worktreePath": ".sprintengine/sprintengine/x/worktree", "branchName": "sprintengine/x"},
+            {"id": "mobile", "root": "../mobile", "worktreePath": ".sprintengine/sprintengine/x/worktree-mobile", "branchName": "sprintengine/x"},
         ],
     }
     write_state(fixture.state_path, state)

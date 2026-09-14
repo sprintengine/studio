@@ -169,7 +169,7 @@ assert.deepEqual(
 // ── 1b. The project a door-mounted run reads its backlog from ───────────────
 
 assert.equal(
-  sprintEngineProjectRootFromStatePath('/Users/me/work/app/.multi-code/sprintengine/checkout/run.yaml'),
+  sprintEngineProjectRootFromStatePath('/Users/me/work/app/.sprintengine/sprintengine/checkout/run.yaml'),
   '/Users/me/work/app',
   'a run store names the project it lives in',
 )

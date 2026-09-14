@@ -26,6 +26,7 @@ import {
   type SprintLandedForm,
   type WebhookForm,
 } from './automationsFormat'
+import { knownSidecarDirName } from '../../../../../shared/workspace-sidecar'
 
 // The trigger families the picker always offers, in priority order. Each is shown
 // even when unavailable (disabled + reason) so a control boundary is never hidden.
@@ -161,7 +162,8 @@ export function TriggerFields({
 }
 
 // Watched-team picker for the sprint-landed family: the sprint runs that exist
-// in this project, enumerated from `.multi-code/sprintengine/*`. A stored team
+// in this project, enumerated from the project's own `<sidecar>/sprintengine/*`.
+// A stored team
 // whose directory no longer exists stays visible (marked missing) rather than
 // being silently dropped.
 function SprintLandedFields({
@@ -175,7 +177,7 @@ function SprintLandedFields({
   useEffect(() => {
     let cancelled = false
     const separator = workspaceRoot.includes('\\') ? '\\' : '/'
-    const teamsDir = [workspaceRoot.replace(/[\\/]+$/, ''), '.multi-code', 'sprintengine'].join(separator)
+    const teamsDir = [workspaceRoot.replace(/[\\/]+$/, ''), knownSidecarDirName(workspaceRoot), 'sprintengine'].join(separator)
     void window.api.readdir(teamsDir)
       .then((entries) => {
         if (cancelled) return

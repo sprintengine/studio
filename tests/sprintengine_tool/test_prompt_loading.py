@@ -110,7 +110,7 @@ def use_python_sprintengine_tool_on_windows(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_init_bootstraps_board_without_returning_role_prompt(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "init-prompt" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "init-prompt" / "run.yaml"
     payload = SwarmCli(state_path).run("init", "--goal", "Capture current prompt behavior")
 
     assert payload["ok"] is True
@@ -263,7 +263,7 @@ def test_phase_respawn_brief_rebuilds_the_context_a_cold_owner_lost(tmp_path) ->
         [
             "# Sprint Engine Phase Handover",
             "You previously owned `T1` and are resuming it mid-phase.",
-            "Plan path: `.multi-code/sprintengine/phase-respawn-brief/plan.md`",
+            "Plan path: `.sprintengine/sprintengine/phase-respawn-brief/plan.md`",
             "Task role: `developer`",
             "Description: Wire the reviewed feature into the real CLI path.",
             "Owned Paths",
@@ -532,7 +532,7 @@ def test_recover_returns_integrity_prompt(tmp_path) -> None:
 
 
 def test_handover_returns_architect_startup_prompt_for_canonical_tool_fetch(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "handover-prompt" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "handover-prompt" / "run.yaml"
     payload = SwarmCli(state_path).run(
         "handover",
         "--name",
@@ -562,7 +562,7 @@ def test_handover_returns_architect_startup_prompt_for_canonical_tool_fetch(tmp_
     assert isinstance(state["source"]["capturedAt"], str)
     assert state["source"]["kind"] == "markdown"
     assert state["source"]["origin"] == "inline"
-    assert state["source"]["path"].endswith(".multi-code/sprintengine/handover-prompt/handover.md")
+    assert state["source"]["path"].endswith(".sprintengine/sprintengine/handover-prompt/handover.md")
     assert state["artifacts"][0]["id"] == "A1"
     assert state["artifacts"][0]["kind"] == "requirements"
     assert state["artifacts"][0]["title"] == "Source Handoff"
@@ -572,7 +572,7 @@ def test_handover_returns_architect_startup_prompt_for_canonical_tool_fetch(tmp_
 
 
 def test_handover_records_markdown_file_source_metadata(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "file-handover" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "file-handover" / "run.yaml"
     source_path = tmp_path / "future-plans" / "source-plan.md"
     source_path.parent.mkdir(parents=True)
     source_path.write_text("# Source Plan\n\nBuild the feature.\n", encoding="utf-8")
@@ -595,7 +595,7 @@ def test_handover_records_markdown_file_source_metadata(tmp_path) -> None:
     assert isinstance(state["source"]["capturedAt"], str)
     assert state["source"]["kind"] == "markdown"
     assert state["source"]["origin"] == "file"
-    assert state["source"]["path"].endswith(".multi-code/sprintengine/file-handover/handover.md")
+    assert state["source"]["path"].endswith(".sprintengine/sprintengine/file-handover/handover.md")
     assert state["source"]["originalPath"].endswith("future-plans/source-plan.md")
     assert state["artifacts"][0]["title"] == "Source Handoff"
     assert state["artifacts"][0]["path"] == state["source"]["path"]
@@ -603,7 +603,7 @@ def test_handover_records_markdown_file_source_metadata(tmp_path) -> None:
 
 
 def test_product_plan_handover_seeds_reviewable_product_requirements(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "product-plan" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "product-plan" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "handover",
@@ -634,7 +634,7 @@ def test_product_plan_handover_seeds_reviewable_product_requirements(tmp_path) -
 
 
 def test_backlog_handover_initial_architect_task_names_selected_backlog_item(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "backlog-item" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "backlog-item" / "run.yaml"
     backlog_path = tmp_path / "backlog" / "checkout-flow.md"
     backlog_path.parent.mkdir(parents=True)
     backlog_path.write_text("# Checkout Flow\n\nFix the provider status link.\n", encoding="utf-8")
@@ -666,7 +666,7 @@ def test_backlog_handover_initial_architect_task_names_selected_backlog_item(tmp
 
 
 def test_source_bundle_handover_seeds_product_and_architect_sources(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "source-bundle" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "source-bundle" / "run.yaml"
     product_path = tmp_path / "future-plans" / "product.md"
     architect_path = tmp_path / "future-plans" / "implementation.md"
     mockup_path = tmp_path / "future-plans" / "mockup.html"
@@ -713,7 +713,7 @@ def test_source_bundle_handover_seeds_product_and_architect_sources(tmp_path) ->
 
 
 def test_html_only_source_bundle_routes_mockup_context_to_review_tasks(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "html-only-source" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "html-only-source" / "run.yaml"
     mockup_path = tmp_path / "future-plans" / "mockup.html"
     mockup_path.parent.mkdir(parents=True)
     mockup_path.write_text("<!doctype html><title>Mockup</title>\n", encoding="utf-8")
@@ -742,7 +742,7 @@ def test_html_only_source_bundle_routes_mockup_context_to_review_tasks(tmp_path)
 
 
 def test_html_source_can_be_classified_as_architect_plan(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "html-architect-plan" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "html-architect-plan" / "run.yaml"
     html_plan_path = tmp_path / "future-plans" / "implementation.html"
     html_plan_path.parent.mkdir(parents=True)
     html_plan_path.write_text("<!doctype html><title>Implementation Plan</title><main>Tasks</main>\n", encoding="utf-8")
@@ -772,7 +772,7 @@ def test_html_source_can_be_classified_as_architect_plan(tmp_path) -> None:
 
 
 def test_unknown_source_bundle_routes_context_to_review_tasks(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "unknown-source" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "unknown-source" / "run.yaml"
     context_path = tmp_path / "future-plans" / "source.html"
     context_path.parent.mkdir(parents=True)
     context_path.write_text("<!doctype html><title>Context</title>\n", encoding="utf-8")
@@ -794,7 +794,7 @@ def test_unknown_source_bundle_routes_context_to_review_tasks(tmp_path) -> None:
 
 
 def test_product_plan_without_product_reviewer_seeds_architect_review_input(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "product-plan-no-product" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "product-plan-no-product" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "handover",
@@ -820,7 +820,7 @@ def test_product_plan_without_product_reviewer_seeds_architect_review_input(tmp_
 
 
 def test_architect_plan_handover_skips_product_gate_even_when_product_rostered(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "architect-plan" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "architect-plan" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "handover",
@@ -868,7 +868,7 @@ def test_architect_plan_handover_skips_product_gate_even_when_product_rostered(t
 
 
 def test_typed_handover_init_preserves_reviewed_file_edits(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "idempotent-architect-plan" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "idempotent-architect-plan" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "handover",
@@ -908,7 +908,7 @@ def test_typed_handover_init_preserves_reviewed_file_edits(tmp_path) -> None:
 
 
 def test_product_plan_init_preserves_reviewed_requirements_edits(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "idempotent-product-plan" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "idempotent-product-plan" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "handover",
@@ -946,7 +946,7 @@ def test_product_plan_init_preserves_reviewed_requirements_edits(tmp_path) -> No
 
 
 def test_init_does_not_refresh_approved_artifact_fingerprint_after_file_edit(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "approved-plan-edit" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "approved-plan-edit" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "handover",
@@ -983,7 +983,7 @@ def test_init_does_not_refresh_approved_artifact_fingerprint_after_file_edit(tmp
 
 
 def test_init_refreshes_ready_for_review_artifact_fingerprint_after_file_edit(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "ready-plan-edit" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "ready-plan-edit" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "handover",
@@ -1016,7 +1016,7 @@ def test_init_refreshes_ready_for_review_artifact_fingerprint_after_file_edit(tm
 
 
 def test_product_intake_task_includes_handover_note_without_duplicates(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "handover-product-note" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "handover-product-note" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "handover",

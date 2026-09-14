@@ -123,7 +123,7 @@ Everything unrecognized is dropped (forward-compatible with SDK churn).
 The adapter keeps a session registry `sessionId → { query, child env marker,
 lastTurnAt, pendingPermission }` and exposes `listLiveSessions()` +
 `disposeAll()`. The SDK child is spawned with
-`env.MULTICODE_CONVERSATION_SESSION={sessionId}` so process-tree metrics can
+`env.SPRINTENGINE_CONVERSATION_SESSION={sessionId}` so process-tree metrics can
 attribute it. Idle reaping and quit disposal are wired in MC-1481, not here —
 but dispose-with-resume must already work (stop keeps the cursor; next
 `startSession` resumes).

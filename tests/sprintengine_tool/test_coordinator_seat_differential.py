@@ -43,18 +43,18 @@ MATRIX: dict[str, Any] = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
 
 @pytest.fixture()
 def state_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A run laid out the way a real one is: `<repoRoot>/.multi-code/sprintengine/<team>/`.
+    """A run laid out the way a real one is: `<repoRoot>/.sprintengine/sprintengine/<team>/`.
 
     The layout is load-bearing for the path condition. `artifact_absolute_path`
     resolves an artifact path against the repository root first and the team
     folder second, so only under a real repo root do `plan.md` and the
-    full-prefix `.multi-code/sprintengine/<team>/plan.md` name the same file —
+    full-prefix `.sprintengine/sprintengine/<team>/plan.md` name the same file —
     which is what makes both spellings the run's plan. The marker directory and
     the chdir pin that root to the fixture instead of this checkout.
     """
     (tmp_path / ".git").mkdir()
     monkeypatch.chdir(tmp_path)
-    team_dir = tmp_path / ".multi-code" / "sprintengine" / MATRIX["team"]
+    team_dir = tmp_path / ".sprintengine" / "sprintengine" / MATRIX["team"]
     team_dir.mkdir(parents=True)
     return team_dir / "run.yaml"
 

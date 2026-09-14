@@ -3,13 +3,14 @@ import { existsSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import type { SoulPromptResult, SpecialistActionId } from '../shared/electron-api'
 import { getManagedPython, managedPythonSpawnEnv, type ResolvedPython } from './managed-runtime'
+import { readStudioEnv } from '../shared/studio-env'
 
 type SoulsCliResult =
   | { ok: true; payload: Record<string, unknown> }
   | { ok: false; message: string }
 
 function findRepositoryRoot(): string {
-  const explicit = process.env['MULTICODE_SOULS_REPO_ROOT']
+  const explicit = readStudioEnv('SPRINTENGINE_SOULS_REPO_ROOT')
   if (explicit) return resolve(explicit)
   const starts = [
     process.cwd(),

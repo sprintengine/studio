@@ -227,7 +227,7 @@ function executorHarness(
       // the run still gets the isolation it asked for — a run that cannot get a
       // worktree is blocked now, so "no worktree" is not a neutral default.
       createRunWorktree: options.createRunWorktree ?? (async (input) => ({
-        worktreePath: `${input.workspaceRoot}/.multi-code/automations/worktrees/${input.runId}`,
+        worktreePath: `${input.workspaceRoot}/.sprintengine/automations/worktrees/${input.runId}`,
         branch: `automations/${input.runId}`,
       })),
       ...(options.actionProviders ? { actionProviders: options.actionProviders } : {}),
@@ -467,7 +467,7 @@ async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
   const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
   const harness = executorHarness([host], {
     createRunWorktree: async (input) => ({
-      worktreePath: `/repo/a/.multi-code/automations/worktrees/${input.runId}`,
+      worktreePath: `/repo/a/.sprintengine/automations/worktrees/${input.runId}`,
       branch: `automations/${input.runId}`,
     }),
   })
@@ -479,14 +479,14 @@ async function assertRunWorktreeIsThreadedToLaunchAndPatch(): Promise<void> {
   })
 
   assert.equal(result.status, 'running')
-  assert.equal(result.worktreePath, '/repo/a/.multi-code/automations/worktrees/run-1')
+  assert.equal(result.worktreePath, '/repo/a/.sprintengine/automations/worktrees/run-1')
   assert.equal(result.branch, 'automations/run-1')
 
   const launch = harness.requests[0]
   assert.equal(launch.kind, 'agent.launch')
   assert.equal(
     launch.kind === 'agent.launch' ? launch.worktreePath : '',
-    '/repo/a/.multi-code/automations/worktrees/run-1',
+    '/repo/a/.sprintengine/automations/worktrees/run-1',
   )
 }
 
@@ -497,7 +497,7 @@ async function assertConnectorRunForcesWorktreeAndThreadsConnectorId(): Promise<
   const host = workspace('ws-host', '/repo/a', { mode: 'automations-host' })
   const harness = executorHarness([host], {
     createRunWorktree: async (input) => ({
-      worktreePath: `/repo/a/.multi-code/automations/worktrees/${input.runId}`,
+      worktreePath: `/repo/a/.sprintengine/automations/worktrees/${input.runId}`,
       branch: `automations/${input.runId}`,
     }),
   })
@@ -513,13 +513,13 @@ async function assertConnectorRunForcesWorktreeAndThreadsConnectorId(): Promise<
 
   assert.equal(result.status, 'running')
   // The connectorId overrode runInWorktree === false — the run still got a worktree.
-  assert.equal(result.worktreePath, '/repo/a/.multi-code/automations/worktrees/run-1')
+  assert.equal(result.worktreePath, '/repo/a/.sprintengine/automations/worktrees/run-1')
   const launch = harness.requests[0]
   assert.equal(launch.kind, 'agent.launch')
   assert.equal(launch.kind === 'agent.launch' ? launch.connectorId : '', 'railway')
   assert.equal(
     launch.kind === 'agent.launch' ? launch.worktreePath : '',
-    '/repo/a/.multi-code/automations/worktrees/run-1',
+    '/repo/a/.sprintengine/automations/worktrees/run-1',
     'connector launch runs in the forced worktree',
   )
 }
@@ -843,7 +843,7 @@ async function assertFirstPartyActionsInvokeFrontDoors(): Promise<void> {
   assert.match(sprintEngine.summary ?? '', /ship-squad/)
 
   assert.deepEqual(calls, [
-    'sprint-mode:/repo/a/.multi-code/sprintengine/ship-squad/run.yaml:enabled',
+    'sprint-mode:/repo/a/.sprintengine/sprintengine/ship-squad/run.yaml:enabled',
   ])
 }
 

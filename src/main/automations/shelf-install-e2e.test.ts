@@ -16,7 +16,7 @@ import { join, resolve } from 'node:path'
 
 import { installMarketplacePlugin } from '../modules/plugin-bundle-installer'
 import { registerAutomationsIpc } from '../ipc/automations-ipc'
-import { AutomationsStore, AUTOMATIONS_STORE_DIRECTORY } from './store'
+import { AutomationsStore, automationsStoreDirectory } from './store'
 import { createBuiltInAutomationProviderRegistry } from './provider-registry'
 import { AutomationsEngine } from './engine'
 
@@ -107,7 +107,7 @@ async function pressGet(
 }
 
 async function readStoreDefinitions(root: string): Promise<Array<Record<string, unknown>>> {
-  const dir = join(root, AUTOMATIONS_STORE_DIRECTORY, 'definitions')
+  const dir = join(root, automationsStoreDirectory(root), 'definitions')
   const files = await readdir(dir).catch(() => [] as string[])
   const out: Array<Record<string, unknown>> = []
   for (const file of files.filter((name) => name.endsWith('.json')).sort()) {

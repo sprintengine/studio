@@ -24,6 +24,7 @@
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { delimiter, join } from 'path'
+import { readStudioEnv } from '../shared/studio-env'
 
 export type PythonSource = 'override' | 'bundled' | 'venv' | 'system'
 
@@ -44,13 +45,13 @@ export type RuntimeEnv = {
   execPath: string
   /** Working directory / dev checkout root used to find `resources/` in dev. */
   cwd: string
-  /** Explicit interpreter override (MULTICODE_PYTHON), if set. */
+  /** Explicit interpreter override (SPRINTENGINE_PYTHON), if set. */
   pythonOverride?: string | undefined
   /** Predicate for path existence (injectable for tests). */
   exists: (path: string) => boolean
 }
 
-const PYTHON_OVERRIDE_ENV = 'MULTICODE_PYTHON'
+const PYTHON_OVERRIDE_ENV = 'SPRINTENGINE_PYTHON'
 
 // Where extraResources lands the vendored runtimes. Kept in one place so the
 // fetch script (scripts/fetch-runtimes.mjs) and electron-builder config stay in
@@ -102,7 +103,7 @@ export function bundledNpmCliPath(env: RuntimeEnv): string | null {
 
 /**
  * Resolves the Python interpreter to spawn, in precedence order:
- *   1. MULTICODE_PYTHON override (operator escape hatch / CI).
+ *   1. SPRINTENGINE_PYTHON override (operator escape hatch / CI).
  *   2. Bundled CPython under resources/runtime (the shipping default).
  *   3. A repo `.venv` at `repoRoot` (dev convenience for contributors).
  *   4. System `python3` (POSIX) / `python` (Windows) on PATH (last resort).
@@ -253,7 +254,7 @@ export function managedPythonSpawnEnv<T extends NodeJS.ProcessEnv>(base: T, sour
 
 /** User-writable directory that npm global installs are redirected into. */
 function getManagedNpmPrefixDir(platform: NodeJS.Platform = process.platform): string {
-  const override = process.env['MULTICODE_NODE_PREFIX']
+  const override = readStudioEnv('SPRINTENGINE_NODE_PREFIX')
   if (override && override.trim()) return override.trim()
   if (platform === 'win32') {
     return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'Multicode', 'node')

@@ -53,7 +53,7 @@ async function main(): Promise<void> {
 
 async function createStateFixture(): Promise<{ workspaceRoot: string; teamDir: string; statePath: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-bridge-'))
-  const teamDir = join(workspaceRoot, '.multi-code', 'sprintengine', 'team')
+  const teamDir = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team')
   await mkdir(teamDir, { recursive: true })
   const statePath = join(teamDir, 'run.yaml')
   await writeFile(statePath, 'name: Bridge Test\n', 'utf-8')
@@ -493,7 +493,7 @@ function testGateApprovesWhenOnlyStaleSameFileDuplicateBlocks(): void {
   const candidate = gateArtifact({ id: 'A2', path: 'plan.md', status: 'ready_for_review' })
   const staleDuplicate = gateArtifact({
     id: 'A1',
-    path: '.multi-code/sprintengine/team/plan.md',
+    path: '.sprintengine/sprintengine/team/plan.md',
     status: 'draft',
     createdBy: 'sprintengine',
   })
@@ -521,7 +521,7 @@ function testGateNormalizesBareVsFullPrefixSameFile(): void {
   // a duplicate in a different subdirectory is a distinct file and still blocks.
   const candidate = gateArtifact({
     id: 'A2',
-    path: '.multi-code/sprintengine/team/plan.md',
+    path: '.sprintengine/sprintengine/team/plan.md',
     status: 'ready_for_review',
   })
   const bareDuplicate = gateArtifact({ id: 'A1', path: 'plan.md', status: 'draft' })
@@ -550,7 +550,7 @@ function testGateDecisionMatchesAutoApprovalIntentContract(): void {
   const candidate = gateArtifact({ id: 'A2', path: 'plan.md', status: 'ready_for_review' })
   const staleSameFile = gateArtifact({
     id: 'A1',
-    path: '.multi-code/sprintengine/team/plan.md',
+    path: '.sprintengine/sprintengine/team/plan.md',
     status: 'draft',
   })
   assert.equal(
@@ -766,7 +766,7 @@ async function testReadRegistryRoleSurfacesUnknownRole(): Promise<void> {
 
 async function testRunnerModeCliInvocationUsesSprintEngineTool(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-runner-'))
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team', 'run.yaml')
   const handlers = createHandlers(async () => {
     throw new Error('runner mode writes must use the Sprint Engine CLI bridge')
   })
@@ -801,7 +801,7 @@ async function testRunnerModeCliInvocationUsesSprintEngineTool(): Promise<void> 
 // stdout would pin the mock's shape rather than the CLI's.
 async function testMergePullRequestSurfacesTheEnginesRefusal(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-pr-merge-'))
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team', 'run.yaml')
   const handlers = createHandlers(async () => {
     throw new Error('pr-merge must use the Sprint Engine CLI bridge')
   })
@@ -827,7 +827,7 @@ async function testMergePullRequestSurfacesTheEnginesRefusal(): Promise<void> {
 
 async function testInitializeSprintEngineStatePreservesDisplayName(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-init-name-'))
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'ship-squad', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'ship-squad', 'run.yaml')
   const handlers = createHandlers(async () => {
     throw new Error('init must use the Sprint Engine CLI bridge')
   })
@@ -858,7 +858,7 @@ async function testInitializeSprintEngineStatePreservesDisplayName(): Promise<vo
 
 async function testInitializeSprintEngineStateRecordsRoleRuntimes(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-role-runtimes-'))
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team', 'run.yaml')
   const handlers = createHandlers(async () => {
     throw new Error('init must use the Sprint Engine CLI bridge')
   })
@@ -893,7 +893,7 @@ async function testInitializeSprintEngineStateRecordsRoleRuntimes(): Promise<voi
 
 async function testInitializeSprintEngineStateRecordsConfiguredRoles(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-configured-roles-'))
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team', 'run.yaml')
   const handlers = createHandlers(async () => {
     throw new Error('init must use the Sprint Engine CLI bridge')
   })
@@ -934,7 +934,7 @@ async function testInitializeSprintEngineStateRecordsConfiguredRoles(): Promise<
 // stop rejecting a mistyped role.
 async function testInitializeSprintEngineStateRecordsAnExplicitEmptyRoleSet(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-roleless-'))
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team', 'run.yaml')
   const handlers = createHandlers(async () => {
     throw new Error('init must use the Sprint Engine CLI bridge')
   })
@@ -975,7 +975,7 @@ async function testInitializeSprintEngineStateRecordsAnExplicitEmptyRoleSet(): P
 // above must stay distinguishable from.
 async function testInitializeSprintEngineStateOmitsAnUnsuppliedRoleSet(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-unconfigured-'))
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const statePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'team', 'run.yaml')
   const handlers = createHandlers(async () => {
     throw new Error('init must use the Sprint Engine CLI bridge')
   })

@@ -99,6 +99,7 @@ import {
 import { createSourceUpdateChecker } from './source-updates'
 import { STUDIO_MARKETPLACE_RESOURCE_DIR } from './studio-plugin'
 import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills, refreshSourceMcpServers } from './sync'
+import { readStudioEnv } from '../../shared/studio-env'
 
 // How many entry documents a scan reads to fill in names and descriptions. The
 // listing is what makes a source browsable, so this runs at scan time and the
@@ -1124,7 +1125,7 @@ async function scanGithubSource(
     cached: previous ? scanPlugins(previous) : [],
     marketplaceManifest: manifest,
     budget: context.linkedBudget,
-    extraHosts: parseMarketplaceExtraHosts(process.env[MARKETPLACE_EXTRA_HOSTS_ENV]),
+    extraHosts: parseMarketplaceExtraHosts(readStudioEnv(MARKETPLACE_EXTRA_HOSTS_ENV)),
     reader: linkedPluginReaderOver(context),
   })
   // `fileCount` is recounted because a skipped skill takes its files with it.

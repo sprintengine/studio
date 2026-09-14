@@ -19,7 +19,7 @@ function repo(id: string, overrides: Partial<SprintEngineVcsRepo> = {}): SprintE
   return {
     id,
     root: id === 'primary' ? '.' : `../${id}`,
-    worktreePath: `.multi-code/sprintengine/alpha/worktree${id === 'primary' ? '' : `-${id}`}`,
+    worktreePath: `.sprintengine/sprintengine/alpha/worktree${id === 'primary' ? '' : `-${id}`}`,
     branchName: 'sprintengine/alpha',
     pullRequestState: 'open',
     pullRequestUrl: 'https://pr',
@@ -104,7 +104,7 @@ async function settle(): Promise<void> {
 // ---------------------------------------------------------------------------
 {
   const clock = makeClock()
-  const statePath = '/projects/alpha/.multi-code/sprintengine/alpha/run.yaml'
+  const statePath = '/projects/alpha/.sprintengine/sprintengine/alpha/run.yaml'
   // The faked PR-status port: the probe is what flips the stored state to merged,
   // exactly as `sprintengine vcs pr-status` rewrites the projection.
   let stored = vcs([repo('primary')])

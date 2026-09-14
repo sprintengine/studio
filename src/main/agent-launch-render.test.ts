@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 
-import { DEBUG_DIRECTIVE, applyDebugDirective } from '../shared/debug-directive'
+import { applyDebugDirective, debugDirectiveFor } from '../shared/debug-directive'
+
+// The directive names the workspace's own sidecar directory, so the expected
+// text is derived the same way the launch derives it rather than pinned.
+const DEBUG_DIRECTIVE = debugDirectiveFor()
 import type { SprintEngineCliPermissionPreset } from '../shared/electron-api'
 import {
   argvToPosixShellCommand,
@@ -937,7 +941,7 @@ function testDebugDirectiveReachesRenderedArgvAllPaths(): void {
   // apostrophe in the directive, so assert on a quote-free fragment + the state
   // file path rather than the raw directive string.
   assert.ok(shell.includes('You are in DEBUG MODE.'), 'posix/wsl shell command embeds the directive')
-  assert.ok(shell.includes('.multi-code/debug/'), 'directive state-file path reaches the shell command')
+  assert.ok(shell.includes('.sprintengine/debug/'), 'directive state-file path reaches the shell command')
   assert.ok(shell.includes('--permission-mode bypassPermissions'), 'permission flags unchanged in shell command')
 }
 

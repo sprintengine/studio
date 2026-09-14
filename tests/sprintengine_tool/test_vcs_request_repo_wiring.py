@@ -43,20 +43,20 @@ def test_every_joined_agent_may_call_it_without_a_planning_grant() -> None:
 def test_payload_maps_root_repo_id_and_agent_id() -> None:
     ns = command_payload_to_namespace(
         TOOL,
-        Path("/ws/.multi-code/sprintengine/alpha/run.yaml"),
+        Path("/ws/.sprintengine/sprintengine/alpha/run.yaml"),
         {"root": "../multicode-mobile", "repoId": "mobile", "id": "developer-1"},
         None,
     )
     assert ns.root == "../multicode-mobile"
     assert ns.repo_id == "mobile"
     assert ns.id == "developer-1"
-    assert ns.state == Path("/ws/.multi-code/sprintengine/alpha/run.yaml")
+    assert ns.state == Path("/ws/.sprintengine/sprintengine/alpha/run.yaml")
 
 
 def test_payload_leaves_repo_id_none_when_omitted() -> None:
     ns = command_payload_to_namespace(
         TOOL,
-        Path("/ws/.multi-code/sprintengine/alpha/run.yaml"),
+        Path("/ws/.sprintengine/sprintengine/alpha/run.yaml"),
         {"root": "../multicode-mobile", "id": "developer-1"},
         None,
     )

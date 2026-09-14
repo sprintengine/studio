@@ -55,7 +55,7 @@ def _two_project_workspace(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _worktree_team(workspace: Path, name: str) -> SwarmTeamFixture:
-    team_dir = workspace / ".multi-code" / "sprintengine" / name
+    team_dir = workspace / ".sprintengine" / "sprintengine" / name
     state_path = team_dir / "run.yaml"
     write_state(state_path, base_state(name, []))
     return SwarmTeamFixture(team_dir=team_dir, state_path=state_path, cli=SwarmCli(state_path, cwd=workspace))

@@ -9,6 +9,7 @@ import {
   marketplaceComponentDigestMismatchIssuesSync,
 } from '../../packages/module-sdk/src/plugin-component-digests'
 import { normalizeMcpServerConfig } from '../../src/main/mcp-config-service'
+import { readStudioEnv } from '../../src/shared/studio-env'
 import { verifyBundledSkillFolder } from '../../src/main/marketplace/skill-content'
 import {
   MARKETPLACE_COMPONENT_KINDS,
@@ -213,7 +214,7 @@ function validateEntrySource(entryId: string, source: string, issues: Verificati
     issues.push(issue(`plugins.${entryId}.source`, 'source must be an HTTPS URL.'))
     return
   }
-  const extraHosts = parseMarketplaceExtraHosts(process.env[MARKETPLACE_EXTRA_HOSTS_ENV])
+  const extraHosts = parseMarketplaceExtraHosts(readStudioEnv(MARKETPLACE_EXTRA_HOSTS_ENV))
   if (!isMarketplaceSourceHostAllowed(parsed.hostname, extraHosts)) {
     issues.push(issue(
       `plugins.${entryId}.source`,

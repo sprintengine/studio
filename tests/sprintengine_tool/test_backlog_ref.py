@@ -124,13 +124,13 @@ def test_the_same_path_under_two_declared_projects_is_two_items(tmp_path: Path) 
     state = read_state(fixture.state_path)
     state.setdefault("sprintengine", {})["vcs"] = {
         "mode": "run_worktree",
-        "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+        "worktreePath": ".sprintengine/sprintengine/alpha/worktree",
         "branchName": "sprintengine/alpha",
         "baseRef": "main",
         "status": "ready",
         "repos": [
-            {"id": "primary", "root": ".", "worktreePath": ".multi-code/sprintengine/alpha/worktree", "branchName": "sprintengine/alpha", "baseRef": "main", "status": "ready"},
-            {"id": "mobile", "root": "../mobile", "worktreePath": ".multi-code/sprintengine/alpha/worktree-mobile", "branchName": "sprintengine/alpha", "baseRef": "main", "status": "ready"},
+            {"id": "primary", "root": ".", "worktreePath": ".sprintengine/sprintengine/alpha/worktree", "branchName": "sprintengine/alpha", "baseRef": "main", "status": "ready"},
+            {"id": "mobile", "root": "../mobile", "worktreePath": ".sprintengine/sprintengine/alpha/worktree-mobile", "branchName": "sprintengine/alpha", "baseRef": "main", "status": "ready"},
         ],
     }
     write_state(fixture.state_path, state)

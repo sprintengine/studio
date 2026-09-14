@@ -72,7 +72,7 @@ function sprintWorkspace(id: string, overrides: Partial<Workspace>): Workspace {
     mode: 'sprintengine',
     agents: {},
     sprintEngineContext: {
-      statePath: `/tmp/${id}/.multi-code/sprintengine/${id}/run.yaml`,
+      statePath: `/tmp/${id}/.sprintengine/sprintengine/${id}/run.yaml`,
       teamSlug: id,
       teamName: id,
     },

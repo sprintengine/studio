@@ -19,7 +19,7 @@ function run(name: string, body: () => void): void {
 function summary(overrides: Partial<SprintRunSummary> & { teamSlug: string }): SprintRunSummary {
   const projectRoot = overrides.projectRoot ?? '/work/multicode'
   return {
-    statePath: `${projectRoot}/.multi-code/sprintengine/${overrides.teamSlug}/run.yaml`,
+    statePath: `${projectRoot}/.sprintengine/sprintengine/${overrides.teamSlug}/run.yaml`,
     teamName: overrides.teamSlug,
     projectRoot,
     projectName: projectRoot.slice(projectRoot.lastIndexOf('/') + 1),
@@ -133,7 +133,7 @@ run('a live run wears its branch and how long it has been at it; a waiting run s
     runtimeState: 'running',
     startedAt: new Date(now - 14 * 60_000).toISOString(),
     branchName: 'sprint/live',
-    worktreePath: '.multi-code/sprintengine/live/worktree',
+    worktreePath: '.sprintengine/sprintengine/live/worktree',
   })
   const waiting = summary({ teamSlug: 'ask', runtimeState: 'needs_input', updatedAt: new Date(now - 2 * 86_400_000).toISOString() })
   const html = render({ runs: [live, waiting], selectedStatePath: null, now })

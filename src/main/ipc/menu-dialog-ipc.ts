@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises'
 import { BrowserWindow, Menu, app, dialog, type IpcMain } from 'electron'
 import type { ContextMenuItem } from '../../shared/electron-api'
 
-export const TEST_OPEN_DIR_ENV = 'MULTICODE_TEST_OPEN_DIR'
+export const TEST_OPEN_DIR_ENV = 'SPRINTENGINE_TEST_OPEN_DIR'
 
 export type TestOpenDirOverrideOptions = {
   isPackaged: boolean

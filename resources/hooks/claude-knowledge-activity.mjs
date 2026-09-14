@@ -15,6 +15,17 @@
 import { appendFile, mkdir } from 'node:fs/promises'
 import { isAbsolute, resolve, sep } from 'node:path'
 
+// The app's own variables answer to two names. Everything was spelled
+// `MULTICODE_*` before the 2026-09-08 rename to SprintEngine Studio and is
+// spelled `SPRINTENGINE_*` now, and this file is a COPY installed into a
+// workspace: the app instance launching an agent may be either side of that
+// rename, and this copy may be either side of it too. New name first, old name
+// second. An empty value counts as unset here, matching the `||` fallbacks the
+// call sites already had.
+const studioEnv = (name) =>
+  process.env[name] || process.env[name.replace(/^SPRINTENGINE_/, 'MULTICODE_')] || ''
+
+
 async function readStdin() {
   return new Promise((res) => {
     let buf = ''
@@ -78,7 +89,7 @@ function extractFilePath(payload) {
 }
 
 async function main() {
-  const debug = process.env.MULTICODE_HOOK_DEBUG === '1'
+  const debug = studioEnv('SPRINTENGINE_HOOK_DEBUG') === '1'
   const log = (msg) => {
     if (debug) process.stderr.write(`[hook] ${msg}\n`)
   }

@@ -74,7 +74,7 @@ async function run(projectRoot: string): Promise<void> {
   const { sprintEngineApi } = await import('../preload/api/sprintengine')
 
   const teamSlug = 'seam-run'
-  const teamDirectory = join(projectRoot, '.multi-code', 'sprintengine', teamSlug)
+  const teamDirectory = join(projectRoot, '.sprintengine', 'sprintengine', teamSlug)
   mkdirSync(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   writeFileSync(statePath, 'sprintengine: {}\n', 'utf8')
@@ -127,14 +127,14 @@ async function run(projectRoot: string): Promise<void> {
       configuredRoles: [...configuredRoles],
       vcs: {
         mode: 'run_worktree',
-        worktreePath: '.multi-code/worktree',
+        worktreePath: '.sprintengine/worktree',
         branchName: `sprintengine/${teamSlug}`,
         baseRef: 'main',
         repos: [
           {
             id: 'primary',
             root: '.',
-            worktreePath: '.multi-code/worktree/primary',
+            worktreePath: '.sprintengine/worktree/primary',
             branchName: `sprintengine/${teamSlug}`,
             baseRef: 'main',
             lastCommitSha: 'c0ffee',

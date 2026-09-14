@@ -66,13 +66,13 @@ function main(): void {
   assert.deepEqual(parseProbeOutput(3, ''), { installed: false, version: null, resolvedPath: null })
 
   // parseProbeOutput pulls the path sentinel and the first version-looking line.
-  const parsed = parseProbeOutput(0, 'MULTICODE_PATH:/usr/local/bin/claude\nclaude 1.4.2 (build 99)\n')
+  const parsed = parseProbeOutput(0, 'SPRINTENGINE_PATH:/usr/local/bin/claude\nclaude 1.4.2 (build 99)\n')
   assert.equal(parsed.installed, true)
   assert.equal(parsed.resolvedPath, '/usr/local/bin/claude')
   assert.equal(parsed.version, 'claude 1.4.2 (build 99)')
 
   // Installed but version line missing a number still counts as installed.
-  const noVersion = parseProbeOutput(0, 'MULTICODE_PATH:/usr/local/bin/codex\n')
+  const noVersion = parseProbeOutput(0, 'SPRINTENGINE_PATH:/usr/local/bin/codex\n')
   assert.equal(noVersion.installed, true)
   assert.equal(noVersion.resolvedPath, '/usr/local/bin/codex')
   assert.equal(noVersion.version, null)
@@ -130,7 +130,7 @@ function main(): void {
   // below are synthetic fixtures; real ones only ever come from a real probe.
   assert.deepEqual(
     binaryVersionProbeFrom({
-      parsed: parseProbeOutput(0, 'MULTICODE_PATH:/usr/bin/git\ngit version 0.0.0-fixture\n'),
+      parsed: parseProbeOutput(0, 'SPRINTENGINE_PATH:/usr/bin/git\ngit version 0.0.0-fixture\n'),
       inconclusive: false,
     }),
     { outcome: 'resolved', version: 'git version 0.0.0-fixture', resolvedPath: '/usr/bin/git' },
@@ -148,7 +148,7 @@ function main(): void {
   )
   // Resolves on PATH but prints no version line: ran, told us nothing usable.
   assert.deepEqual(
-    binaryVersionProbeFrom({ parsed: parseProbeOutput(0, 'MULTICODE_PATH:/usr/bin/true\n'), inconclusive: false }),
+    binaryVersionProbeFrom({ parsed: parseProbeOutput(0, 'SPRINTENGINE_PATH:/usr/bin/true\n'), inconclusive: false }),
     { outcome: 'probe_failed' },
   )
 

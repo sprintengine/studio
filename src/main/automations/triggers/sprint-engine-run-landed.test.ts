@@ -14,7 +14,7 @@ import {
 // main's synchronous prologue instead of throwing.
 const WORKSPACE_ROOT = '/repo'
 const TEAM = 'team-a'
-const STATE_PATH = join(WORKSPACE_ROOT, '.multi-code', 'sprintengine', TEAM, 'run.yaml')
+const STATE_PATH = join(WORKSPACE_ROOT, '.sprintengine', 'sprintengine', TEAM, 'run.yaml')
 // One step past the confirmation window, used to advance the clock between the
 // baseline poll and the confirming poll.
 const CONFIRM_STEP_MS = LANDED_CONFIRMATION_MS + 1_000
@@ -77,15 +77,15 @@ function projection(overrides: ProjectionOverrides = {}): unknown {
 function worktreeVcs(pullRequestStates: Array<string | null>): unknown {
   return {
     mode: 'run_worktree',
-    worktreePath: '.multi-code/sprintengine/team-a/worktree',
+    worktreePath: '.sprintengine/sprintengine/team-a/worktree',
     branchName: 'sprintengine/team-a',
     baseRef: 'main',
     repos: pullRequestStates.map((state, index) => ({
       id: index === 0 ? 'primary' : `sibling-${index}`,
       root: index === 0 ? '.' : `../sibling-${index}`,
       worktreePath: index === 0
-        ? '.multi-code/sprintengine/team-a/worktree'
-        : `.multi-code/sprintengine/team-a/worktree-sibling-${index}`,
+        ? '.sprintengine/sprintengine/team-a/worktree'
+        : `.sprintengine/sprintengine/team-a/worktree-sibling-${index}`,
       branchName: 'sprintengine/team-a',
       lastCommitSha: null,
       pullRequestUrl: `https://github.com/acme/repo-${index}/pull/1`,
@@ -101,14 +101,14 @@ function worktreeVcs(pullRequestStates: Array<string | null>): unknown {
 function worktreeVcsWithIncompleteSibling(primaryState: string | null): unknown {
   return {
     mode: 'run_worktree',
-    worktreePath: '.multi-code/sprintengine/team-a/worktree',
+    worktreePath: '.sprintengine/sprintengine/team-a/worktree',
     branchName: 'sprintengine/team-a',
     baseRef: 'main',
     repos: [
       {
         id: 'primary',
         root: '.',
-        worktreePath: '.multi-code/sprintengine/team-a/worktree',
+        worktreePath: '.sprintengine/sprintengine/team-a/worktree',
         branchName: 'sprintengine/team-a',
         lastCommitSha: null,
         pullRequestUrl: 'https://github.com/acme/repo-0/pull/1',

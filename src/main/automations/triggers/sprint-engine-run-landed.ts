@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
 
 import {
   SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
@@ -17,6 +16,7 @@ import {
   SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID,
   type SprintEngineAutomationFrontDoors,
 } from '../actions/sprint-engine'
+import { workspaceSidecarPath } from '../../workspace-sidecar'
 
 export { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND }
 
@@ -83,7 +83,7 @@ export function createSprintEngineRunLandedTriggerProvider(
       if (!validation.ok) return { ok: false, blockedReason: validation.error }
 
       const team = validation.value.team
-      const statePath = join(input.workspaceRoot, '.multi-code', 'sprintengine', team, 'run.yaml')
+      const statePath = workspaceSidecarPath(input.workspaceRoot, 'sprintengine', team, 'run.yaml')
       let state = await readRunState(frontDoors, statePath, team)
       if ('blockedReason' in state) return { ok: false, blockedReason: state.blockedReason }
 

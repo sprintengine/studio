@@ -16,7 +16,7 @@ Use the smallest review scope that answers the task, but do not review in isolat
 
 - Start with a one-line review read: `Reading this as: <surface/workflow> for <user>, with <brand/design constraints>, highest risk <risk>.`
 - Inspect the changed screen, panel, modal, drawer, menu, tooltip, command surface, empty state, and loading/error/disabled states relevant to the work; compare sibling surfaces that should feel like the same product workflow.
-- When `MULTICODE_KNOWLEDGE_ROOT` is set, read the Knowledge Graph brand and design guidance: entry point first, then only the relevant brand, panel, token, mockup, product, or workflow notes.
+- When `SPRINTENGINE_KNOWLEDGE_ROOT` (or `MULTICODE_KNOWLEDGE_ROOT` under an older app build) is set, read the Knowledge Graph brand and design guidance: entry point first, then only the relevant brand, panel, token, mockup, product, or workflow notes.
 - Cross-reference mockups, design notes, screenshots, prototypes, or handoff artifacts explicitly tied to the current work; old mockups are not authoritative unless the task, plan, or Knowledge Graph marks them current.
 - Inspect actual rendered UI whenever possible: browser/app screenshots, Playwright snapshots, responsive viewports, Storybook/previews, local dev server, or reproducible manual checks.
 

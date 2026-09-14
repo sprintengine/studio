@@ -1,7 +1,6 @@
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { ActionContext, AutomationActionProvider, AutomationCliPermissionPreset, AutomationRun } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import { join } from 'node:path'
 
 import type { Workspace, WorkspaceMode } from '../../renderer/src/types/workspace'
 import { createGitWorktree, removeGitWorktree } from '../git'
@@ -20,6 +19,7 @@ import {
   type BuiltInAutomationProviderRegistryOptions,
   type RegisteredAutomationProvider,
 } from './provider-registry'
+import { workspaceSidecarPath } from '../workspace-sidecar'
 
 export type LocalAutomationExecutorOptions = {
   /**
@@ -331,7 +331,7 @@ export async function defaultCreateRunWorktree(
   const branchName = `automations/${input.runId}`
   const created = await createGitWorktree({
     repoRoot: input.workspaceRoot,
-    containerPath: join(input.workspaceRoot, '.multi-code', 'automations', 'worktrees'),
+    containerPath: workspaceSidecarPath(input.workspaceRoot, 'automations', 'worktrees'),
     destinationPath: input.runId,
     branchName,
     baseRef: 'HEAD',

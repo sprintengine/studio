@@ -109,7 +109,7 @@ function makeWorkspace(agents: Record<string, AgentState>, layoutModel?: unknown
     name: 'design-system-platform',
     agents,
     layoutModel,
-    sprintEngineContext: { statePath: '/proj/.multi-code/sprintengine/x/run.yaml' },
+    sprintEngineContext: { statePath: '/proj/.sprintengine/sprintengine/x/run.yaml' },
     sprintEngineState: {
       sprintEngineAgents: {
         architect: { role: 'architect' },
@@ -191,7 +191,7 @@ void (async () => {
         kind: 'agent',
         workspaceId: 'ws-1',
         agentId: 'architect',
-        sprintEngineStatePath: '/proj/.multi-code/sprintengine/x/run.yaml',
+        sprintEngineStatePath: '/proj/.sprintengine/sprintengine/x/run.yaml',
       } as unknown as TerminalSessionSnapshot,
     ]
     const { ports, recorded, removed, removedTabs, killed, diagnostics } = stubPorts(workspace, sessions)
@@ -282,7 +282,7 @@ void (async () => {
         workspaceId: 'ws-1',
         agentId: 'dev-1',
         cliSessionId: 'harness-123',
-        sprintEngineStatePath: '/proj/.multi-code/sprintengine/x/run.yaml',
+        sprintEngineStatePath: '/proj/.sprintengine/sprintengine/x/run.yaml',
       } as unknown as TerminalSessionSnapshot,
       // Exited (not suspended) session: nothing to kill or dispose.
       {
@@ -292,7 +292,7 @@ void (async () => {
         kind: 'agent',
         workspaceId: 'ws-1',
         agentId: 'architect',
-        sprintEngineStatePath: '/proj/.multi-code/sprintengine/x/run.yaml',
+        sprintEngineStatePath: '/proj/.sprintengine/sprintengine/x/run.yaml',
       } as unknown as TerminalSessionSnapshot,
     ]
     const { ports, recorded, killed } = stubPorts(workspace, sessions)
@@ -337,7 +337,7 @@ void (async () => {
         kind: 'agent',
         workspaceId: 'ws-1',
         agentId: 'dev-1',
-        sprintEngineStatePath: '/proj/.multi-code/sprintengine/x/run.yaml',
+        sprintEngineStatePath: '/proj/.sprintengine/sprintengine/x/run.yaml',
       } as unknown as TerminalSessionSnapshot,
     ]
     const { ports, recorded, removed, removedTabs, killed } = stubPorts(workspace, sessions)
@@ -402,7 +402,7 @@ void (async () => {
         kind: 'agent',
         workspaceId: 'ws-1',
         agentId: 'dev-1',
-        sprintEngineStatePath: '/proj/.multi-code/sprintengine/x/run.yaml',
+        sprintEngineStatePath: '/proj/.sprintengine/sprintengine/x/run.yaml',
       } as unknown as TerminalSessionSnapshot,
     ]
     const { ports, killed } = stubPorts(workspace, [])

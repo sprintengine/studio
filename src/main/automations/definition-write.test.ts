@@ -120,7 +120,7 @@ async function withProjectRoots<T>(count: number, fn: (roots: string[]) => Promi
 }
 
 async function definitionFiles(workspaceRoot: string): Promise<string[]> {
-  return readdir(join(workspaceRoot, '.multi-code', 'automations', 'definitions')).catch(() => [])
+  return readdir(join(workspaceRoot, '.sprintengine', 'automations', 'definitions')).catch(() => [])
 }
 
 async function assertInstallCreatesOneEnabledDefinitionWithProvenance(): Promise<void> {

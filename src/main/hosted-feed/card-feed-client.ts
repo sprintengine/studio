@@ -39,6 +39,7 @@ import {
   parseHostedCardFeed,
   type HostedCardFeed,
 } from '../../shared/hosted-card-feed'
+import { readStudioEnv } from '../../shared/studio-env'
 
 const CARD_FEED_CACHE_FILENAME = 'card-feed-cache.json'
 const CARD_FEED_SEED_FILENAME = 'cards-feed.json'
@@ -47,13 +48,13 @@ const DEFAULT_CARD_FEED_TIMEOUT_MS = 10_000
 const CARD_FEED_TTL_MS = 60 * 60 * 1_000
 const CARD_FEED_RETRY_MS = 5 * 60 * 1_000
 
-// MULTICODE_CARD_FEED_URL points the client at another copy of the file — a
+// SPRINTENGINE_CARD_FEED_URL points the client at another copy of the file — a
 // local static server while developing, a fork's raw URL — with every other
 // rule (ETag, cache, seed, schema gate) unchanged. HTTPS only, like the
 // default: the override is checked by the same `parseHttpsUrl` on every read,
 // so there is no way in through the environment that the default does not have.
 export function configuredCardFeedUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.MULTICODE_CARD_FEED_URL?.trim()
+  const override = readStudioEnv('SPRINTENGINE_CARD_FEED_URL', env)?.trim()
   return override || HOSTED_CARD_FEED_URL
 }
 

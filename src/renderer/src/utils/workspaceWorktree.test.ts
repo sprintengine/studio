@@ -40,14 +40,14 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
     sprintEngineState: {
       vcs: {
         mode: 'run_worktree',
-        worktreePath: '.multi-code/sprintengine/auth/worktree',
+        worktreePath: '.sprintengine/sprintengine/auth/worktree',
         branchName: 'sprintengine/auth',
       },
     } as unknown as Workspace['sprintEngineState'],
   })
   const resolved = resolveWorkspaceWorktree(ws)
   assert.deepEqual(resolved, {
-    gitRoot: '/Users/example/project/.multi-code/sprintengine/auth/worktree',
+    gitRoot: '/Users/example/project/.sprintengine/sprintengine/auth/worktree',
     branch: 'sprintengine/auth',
     // A store with no `repos` list describes its one repo with the flat fields:
     // that repo is the primary, and its root is the workspace itself.
@@ -98,7 +98,7 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
   const ws = make({
     worktree: { branch: 'ignored' },
     sprintEngineState: {
-      vcs: { mode: 'run_worktree', worktreePath: '.multi-code/sprintengine/x/worktree', branchName: 'sprintengine/x' },
+      vcs: { mode: 'run_worktree', worktreePath: '.sprintengine/sprintengine/x/worktree', branchName: 'sprintengine/x' },
     } as unknown as Workspace['sprintEngineState'],
   })
   assert.equal(resolveWorkspaceWorktree(ws)?.branch, 'sprintengine/x')
@@ -139,11 +139,11 @@ function twoRepoWorkspace(): WorktreeInput {
     sprintEngineState: {
       vcs: {
         mode: 'run_worktree',
-        worktreePath: '.multi-code/sprintengine/x/worktree',
+        worktreePath: '.sprintengine/sprintengine/x/worktree',
         branchName: 'sprintengine/x',
         repos: [
-          { id: 'primary', root: '.', worktreePath: '.multi-code/sprintengine/x/worktree', branchName: 'sprintengine/x' },
-          { id: 'mobile', root: '../multicode-mobile', worktreePath: '.multi-code/sprintengine/x/worktree-mobile', branchName: 'sprintengine/x' },
+          { id: 'primary', root: '.', worktreePath: '.sprintengine/sprintengine/x/worktree', branchName: 'sprintengine/x' },
+          { id: 'mobile', root: '../multicode-mobile', worktreePath: '.sprintengine/sprintengine/x/worktree-mobile', branchName: 'sprintengine/x' },
         ],
       },
     } as unknown as Workspace['sprintEngineState'],
@@ -156,13 +156,13 @@ function twoRepoWorkspace(): WorktreeInput {
   const resolved = resolveWorkspaceWorktrees(twoRepoWorkspace())
   assert.deepEqual(resolved, [
     {
-      gitRoot: '/Users/example/project/.multi-code/sprintengine/x/worktree',
+      gitRoot: '/Users/example/project/.sprintengine/sprintengine/x/worktree',
       branch: 'sprintengine/x',
       repoId: 'primary',
       repoRoot: '/Users/example/project',
     },
     {
-      gitRoot: '/Users/example/project/.multi-code/sprintengine/x/worktree-mobile',
+      gitRoot: '/Users/example/project/.sprintengine/sprintengine/x/worktree-mobile',
       branch: 'sprintengine/x',
       repoId: 'mobile',
       repoRoot: '/Users/example/multicode-mobile',
@@ -179,14 +179,14 @@ function twoRepoWorkspace(): WorktreeInput {
     sprintEngineState: {
       vcs: {
         mode: 'run_worktree',
-        worktreePath: '.multi-code/sprintengine/x/worktree',
+        worktreePath: '.sprintengine/sprintengine/x/worktree',
         branchName: 'sprintengine/x',
-        repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/sprintengine/x/worktree', branchName: 'sprintengine/x' }],
+        repos: [{ id: 'primary', root: '.', worktreePath: '.sprintengine/sprintengine/x/worktree', branchName: 'sprintengine/x' }],
       },
     } as unknown as Workspace['sprintEngineState'],
   })
   assert.deepEqual(resolveWorkspaceWorktrees(ws), [{
-    gitRoot: '/Users/example/project/.multi-code/sprintengine/x/worktree',
+    gitRoot: '/Users/example/project/.sprintengine/sprintengine/x/worktree',
     branch: 'sprintengine/x',
     repoId: 'primary',
     repoRoot: '/Users/example/project',
@@ -201,12 +201,12 @@ function twoRepoWorkspace(): WorktreeInput {
 {
   const ws = twoRepoWorkspace()
   assert.equal(
-    resolveWorktreeFallbackRoot(ws, '/Users/example/project/.multi-code/sprintengine/x/worktree-mobile'),
+    resolveWorktreeFallbackRoot(ws, '/Users/example/project/.sprintengine/sprintengine/x/worktree-mobile'),
     '/Users/example/multicode-mobile',
     'a pruned mobile worktree redirects into the mobile checkout, not the multicode root',
   )
   assert.equal(
-    resolveWorktreeFallbackRoot(ws, '/Users/example/project/.multi-code/sprintengine/x/worktree'),
+    resolveWorktreeFallbackRoot(ws, '/Users/example/project/.sprintengine/sprintengine/x/worktree'),
     '/Users/example/project',
   )
   // A cwd belonging to no declared worktree, and a workspace with none at all,
@@ -232,7 +232,7 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 
 // 8. Matches the worktree by path.
 {
-  const wt = scope({ id: 'worktree:/wt', path: '/Users/example/project/.multi-code/sprintengine/a/worktree', branch: 'sprintengine/a' })
+  const wt = scope({ id: 'worktree:/wt', path: '/Users/example/project/.sprintengine/sprintengine/a/worktree', branch: 'sprintengine/a' })
   const found = findHealthyWorktreeScope([mainScope, wt], wt.path, 'sprintengine/a')
   assert.equal(found?.id, wt.id)
 }
@@ -240,8 +240,8 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 // 9. Branch recovers the match when the path diverges (symlinked root): the
 //    joined gitRoot points at /tmp/... but git lists /private/tmp/...
 {
-  const wt = scope({ id: 'worktree:/private', path: '/private/tmp/proj/.multi-code/sprintengine/a/worktree', branch: 'sprintengine/a' })
-  const joinedButSymlinked = '/tmp/proj/.multi-code/sprintengine/a/worktree'
+  const wt = scope({ id: 'worktree:/private', path: '/private/tmp/proj/.sprintengine/sprintengine/a/worktree', branch: 'sprintengine/a' })
+  const joinedButSymlinked = '/tmp/proj/.sprintengine/sprintengine/a/worktree'
   const found = findHealthyWorktreeScope([mainScope, wt], joinedButSymlinked, 'sprintengine/a')
   assert.equal(found?.id, wt.id, 'branch match recovers a symlinked path divergence')
 }
@@ -464,18 +464,18 @@ void (async () => {
   {
     const result = await resolveWorktreeSpawnFallback(
       'worktree',
-      '/proj/.multi-code/sprintengine/a/worktree',
+      '/proj/.sprintengine/sprintengine/a/worktree',
       '/proj',
       existsAlways,
     )
-    assert.deepEqual(result, { fellBack: false, cwd: '/proj/.multi-code/sprintengine/a/worktree' })
+    assert.deepEqual(result, { fellBack: false, cwd: '/proj/.sprintengine/sprintengine/a/worktree' })
   }
 
   // 14. Worktree cwd removed → fall back to the workspace folder and flag it.
   {
     const result = await resolveWorktreeSpawnFallback(
       'worktree',
-      '/proj/.multi-code/sprintengine/a/worktree',
+      '/proj/.sprintengine/sprintengine/a/worktree',
       '/proj',
       existsNever,
     )
@@ -539,17 +539,17 @@ void (async () => {
   // 26. Distinct gitRoot present on disk → spawn into the worktree.
   {
     const result = await resolveWorkspaceTerminalCwd(
-      '/proj/.multi-code/sprintengine/a/worktree',
+      '/proj/.sprintengine/sprintengine/a/worktree',
       '/proj',
       existsAlways,
     )
-    assert.deepEqual(result, { cwd: '/proj/.multi-code/sprintengine/a/worktree', missing: false })
+    assert.deepEqual(result, { cwd: '/proj/.sprintengine/sprintengine/a/worktree', missing: false })
   }
 
   // 27. Distinct gitRoot gone from disk → missing, no cwd override.
   {
     const result = await resolveWorkspaceTerminalCwd(
-      '/proj/.multi-code/sprintengine/a/worktree',
+      '/proj/.sprintengine/sprintengine/a/worktree',
       '/proj',
       existsNever,
     )

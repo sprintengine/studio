@@ -253,7 +253,7 @@ def test_product_intake_task_stamped_on_claim(tmp_path) -> None:
     # worker claim loop; confirm the product-intake task (T0) still records its
     # role's model when the product agent claims it. Regression for the gap where
     # only worker tasks were stamped.
-    team_dir = tmp_path / ".multi-code" / "sprintengine" / "init-gates"
+    team_dir = tmp_path / ".sprintengine" / "sprintengine" / "init-gates"
     state_path = team_dir / "run.yaml"
     from helpers import SwarmCli
 
@@ -275,7 +275,7 @@ def test_product_intake_task_stamped_on_claim(tmp_path) -> None:
 
 
 def test_init_role_runtimes_json_persists(tmp_path) -> None:
-    team_dir = tmp_path / ".multi-code" / "sprintengine" / "init-runtimes"
+    team_dir = tmp_path / ".sprintengine" / "sprintengine" / "init-runtimes"
     state_path = team_dir / "run.yaml"
     from helpers import SwarmCli
 
@@ -342,7 +342,7 @@ def test_role_runtime_edit_preserves_a_level_it_does_not_mention() -> None:
 
 
 def test_seat_reasoning_level_survives_init_and_projection_round_trip(tmp_path) -> None:
-    team_dir = tmp_path / ".multi-code" / "sprintengine" / "init-reasoning"
+    team_dir = tmp_path / ".sprintengine" / "sprintengine" / "init-reasoning"
     state_path = team_dir / "run.yaml"
     from helpers import SwarmCli
 

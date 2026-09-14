@@ -6,6 +6,7 @@ import { normalizeSprintEngineProjection } from '../shared/sprintengine/state'
 import { describeUnsupportedSprintEngineStore } from '../shared/sprintengine/store-schema'
 import { deriveSprintRunSummary, type SprintRunSummary } from '../shared/sprintengine/runSummary'
 import type { SprintEngineVcs } from '../shared/sprintengine/run-types'
+import { workspaceSidecarPath } from './workspace-sidecar'
 
 // The main-process index answering "what sprint runs exist in this Multicode —
 // live AND historical — across every known project root", without a resident
@@ -29,10 +30,10 @@ export type DiscoveredSprintEngineStatePath = {
   updatedAtMs: number
 }
 
-// Scan one project root for its `<root>/.multi-code/sprintengine/*/run.yaml`
+// Scan one project root for its `<root>/.sprintengine/sprintengine/*/run.yaml`
 // runs. A root with no sprint tree (or an unreadable one) contributes nothing.
 async function discoverSprintEngineStatePaths(workspaceRoot: string): Promise<DiscoveredSprintEngineStatePath[]> {
-  const sprintEngineRoot = join(workspaceRoot, '.multi-code', 'sprintengine')
+  const sprintEngineRoot = workspaceSidecarPath(workspaceRoot, 'sprintengine')
   let entries
   try {
     entries = await readdir(sprintEngineRoot, { withFileTypes: true })
@@ -115,7 +116,7 @@ export function invalidateSprintRunSummary(statePath: string): void {
   summaryCache.delete(statePath)
 }
 
-// `<root>/.multi-code/sprintengine/<team>/run.yaml` → its identity fields.
+// `<root>/.sprintengine/sprintengine/<team>/run.yaml` → its identity fields.
 function resolveRunIdentity(statePath: string): {
   teamDirectory: string
   teamSlug: string

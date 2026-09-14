@@ -1,15 +1,17 @@
 import { isAbsolute, join, resolve, sep } from 'path'
+import { workspaceSidecarPath } from '../../workspace-sidecar'
 
 // Where a file uploaded from a phone lands, and the guard that keeps it there
 // (backlog id 88, multicode-mobile: "files and images from the phone").
 //
-// Pure, and separate from the route, because this is the security-critical
-// half: a phone is naming a file on someone else's machine, and the whole
-// contract is that whatever it names ends up inside the thread's own working
-// directory or nowhere at all.
+// Separate from the route because this is the security-critical half: a phone
+// is naming a file on someone else's machine, and the whole contract is that
+// whatever it names ends up inside the thread's own working directory or
+// nowhere at all. The only thing read off disk is which sidecar directory the
+// thread's cwd uses; both containment guards below hold whatever the answer is.
 
-/** The per-thread directory uploads land in, relative to the session's cwd. */
-const UPLOAD_DIR_SEGMENTS = ['.multi-code', 'uploads'] as const
+/** The per-thread directory uploads land in, inside the session cwd's sidecar. */
+const UPLOAD_DIR_SEGMENTS = ['uploads'] as const
 
 /**
  * The ceiling, enforced where the bytes land rather than where they are picked.
@@ -80,7 +82,7 @@ export function resolveUploadDestination(input: {
     }
   }
   const sessionSegment = sanitizeUploadName(input.sessionId)
-  const directory = resolve(join(cwd, ...UPLOAD_DIR_SEGMENTS, sessionSegment))
+  const directory = resolve(workspaceSidecarPath(cwd, ...UPLOAD_DIR_SEGMENTS, sessionSegment))
   const root = resolve(cwd)
   // `sep` on the prefix so `/repo-backup` cannot pass as inside `/repo`.
   if (directory !== root && !directory.startsWith(root + sep)) {

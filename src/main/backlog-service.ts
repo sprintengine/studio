@@ -67,27 +67,32 @@ import type {
   BacklogMoveSourceInput,
 } from '../shared/electron-api'
 import { isPathInsideOrEqual } from './path-containment'
+import { workspaceSidecarPath } from './workspace-sidecar'
 
 // The volatile half of an item's links, and nothing else: resolved statuses, the
 // agent terminal currently holding an item, module metadata keyed to a live
 // session. Gitignored, because every value in here is re-derived from the world
 // and worthless after a restart — which is precisely why it used to churn a
-// TRACKED file (`.multi-code/backlog/items.json`) on every resolve tick.
+// TRACKED file (`backlog/items.json` in the sidecar) on every resolve tick.
 //
 // Durable facts moved to the item's own markdown frontmatter (see
 // shared/backlog/durable-links.ts), so they travel with the file, diff for a
 // human, and cannot be a merge-conflict surface between two agents.
 //
 // Deleting this file is always safe: the next scan resolves it again.
-const STORE_PATH = ['.multi-code', 'backlog', 'cache', 'links.json'] as const
+//
+// These three are relative to the workspace's sidecar directory, whose name
+// differs between a workspace made before the rename and one made after;
+// `workspaceSidecarPath` is what resolves it.
+const STORE_PATH = ['backlog', 'cache', 'links.json'] as const
 // The retired sidecar, read once by migrateBacklogSidecarToFiles and then
 // deleted. Kept as a constant so the migration cannot drift from the path it
 // must look under.
-const LEGACY_STORE_PATH = ['.multi-code', 'backlog', 'items.json'] as const
+const LEGACY_STORE_PATH = ['backlog', 'items.json'] as const
 // Per-workspace, committed config holding the display key (`MC`) so `KEY-n` ids
 // render identically on every machine. Separate from the cache, whose store
 // shape is normalized down to `{schemaVersion, items}` and would drop a key.
-const CONFIG_PATH = ['.multi-code', 'backlog', 'config.json'] as const
+const CONFIG_PATH = ['backlog', 'config.json'] as const
 // v1 carried the display key alone; v2 adds `root`. A v1 file reads correctly as
 // a workspace with no configured root, so there is no migration to run.
 const BACKLOG_CONFIG_SCHEMA_VERSION = 2
@@ -172,7 +177,7 @@ export async function readBacklogObjectStore(workspaceRoot: string): Promise<Bac
 // a default derived from the workspace folder name and persisted so it stays
 // stable. A malformed config is non-fatal — we derive a fresh default.
 async function resolveBacklogWorkspaceKey(workspace: ValidWorkspace): Promise<string> {
-  const configPath = join(workspace.root, ...CONFIG_PATH)
+  const configPath = workspaceSidecarPath(workspace.root, ...CONFIG_PATH)
   try {
     const raw = await readFile(configPath, 'utf-8')
     const parsed = JSON.parse(raw) as { key?: unknown }
@@ -192,7 +197,7 @@ async function resolveBacklogWorkspaceKey(workspace: ValidWorkspace): Promise<st
 // than failing to show a backlog at all.
 async function readBacklogConfigFile(workspaceRoot: string): Promise<Record<string, unknown>> {
   try {
-    const raw = await readFile(join(workspaceRoot, ...CONFIG_PATH), 'utf-8')
+    const raw = await readFile(workspaceSidecarPath(workspaceRoot, ...CONFIG_PATH), 'utf-8')
     const parsed = JSON.parse(raw) as unknown
     return isPlainRecord(parsed) ? parsed : {}
   } catch {
@@ -215,7 +220,7 @@ async function readConfiguredBacklogRoot(workspaceRoot: string): Promise<string 
 // root, and each is written by a different path — a whole-object write from
 // either one silently drops the other.
 async function writeBacklogConfigFields(workspaceRoot: string, fields: Record<string, unknown>): Promise<void> {
-  const target = resolve(join(workspaceRoot, ...CONFIG_PATH))
+  const target = resolve(workspaceSidecarPath(workspaceRoot, ...CONFIG_PATH))
   if (!isPathInsideOrEqual(workspaceRoot, target)) return
   const existing = await readBacklogConfigFile(workspaceRoot)
   const next = { ...existing, ...fields, schemaVersion: BACKLOG_CONFIG_SCHEMA_VERSION }
@@ -355,7 +360,7 @@ function recordRelativePath(raw: unknown): string | null {
 // Read items.json, run the lazy migration when it still carries v1 fields, and
 // return the (slimmed) store. When nothing needs migrating this is a plain load,
 // so steady-state reads incur no extra fs writes (idempotent).
-// One-time move off the committed sidecar. `.multi-code/backlog/items.json` held
+// One-time move off the committed sidecar. `.sprintengine/backlog/items.json` held
 // both halves of every link plus the star; the durable halves go into each item's
 // own frontmatter, the volatile remainder becomes the gitignored cache, and the
 // sidecar is deleted.
@@ -369,7 +374,7 @@ function recordRelativePath(raw: unknown): string | null {
 // because serializeBacklogFrontmatterFields returns the content unchanged and the
 // writer compares before writing — so re-running costs reads and no writes.
 async function migrateLegacyBacklogSidecar(workspace: ValidWorkspace): Promise<void> {
-  const legacyPath = resolve(join(workspace.root, ...LEGACY_STORE_PATH))
+  const legacyPath = resolve(workspaceSidecarPath(workspace.root, ...LEGACY_STORE_PATH))
   if (!isPathInsideOrEqual(workspace.root, legacyPath)) return
   let rawText: string
   try {
@@ -757,7 +762,7 @@ async function nextBacklogNumericId(workspace: ValidWorkspace): Promise<number> 
 // readBacklogWorkspaceKey — a pure peek for read-only surfaces.
 async function peekBacklogWorkspaceKey(workspace: ValidWorkspace): Promise<string | null> {
   try {
-    const raw = await readFile(join(workspace.root, ...CONFIG_PATH), 'utf-8')
+    const raw = await readFile(workspaceSidecarPath(workspace.root, ...CONFIG_PATH), 'utf-8')
     const parsed = JSON.parse(raw) as { key?: unknown }
     return isValidBacklogKey(parsed.key) ? parsed.key : null
   } catch {
@@ -1241,7 +1246,7 @@ async function readDurableBacklogLinks(
     const target = backlogAbsolutePath(workspace.location, normalizedPath)
     if (!target) return []
     const { fields } = parseBacklogFrontmatter(await readFile(target, 'utf-8'))
-    return durableBacklogLinksFromFrontmatter(fields) as BacklogItemLinkPayload[]
+    return durableBacklogLinksFromFrontmatter(fields, workspace.root) as BacklogItemLinkPayload[]
   } catch {
     // A missing or unreadable item contributes no links; the caller's own write
     // reports the real failure.
@@ -1440,7 +1445,7 @@ async function validateWorkspaceRoot(workspaceRoot: string): Promise<ValidWorksp
   if (!rootStat.isDirectory()) throw new Error('Backlog workspace root must be an existing folder.')
   return {
     root,
-    storePath: join(root, ...STORE_PATH),
+    storePath: workspaceSidecarPath(root, ...STORE_PATH),
     location: backlogLocationFor(root, await readConfiguredBacklogRoot(root)),
   }
 }

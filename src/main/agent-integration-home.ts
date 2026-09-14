@@ -22,7 +22,7 @@
 // collision the shared workspace file had.
 //
 // The socket is substituted too, but the reporter prefers
-// `MULTICODE_AGENT_STATE_SOCKET` from the launch env over the baked value, so a
+// `SPRINTENGINE_AGENT_STATE_SOCKET` from the launch env over the baked value, so a
 // copy written by one app instance still reports to the instance that actually
 // launched the agent.
 

@@ -1398,7 +1398,7 @@ def test_bare_needs_input_keeps_legacy_status_without_routing_metadata(tmp_path)
 
 
 def test_product_and_architect_artifact_approvals_control_downstream_readiness(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "approval-gates" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "approval-gates" / "run.yaml"
     cli = SwarmCli(state_path)
 
     init_payload = cli.run("init", "--goal", "Exercise approval gates")
@@ -1455,7 +1455,7 @@ def test_product_and_architect_artifact_approvals_control_downstream_readiness(t
 
 
 def test_init_respects_selected_roster_without_a_product_intake_task(tmp_path) -> None:
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "rostered-team" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "rostered-team" / "run.yaml"
     cli = SwarmCli(state_path)
 
     payload = cli.run(
@@ -1484,7 +1484,7 @@ def test_architect_cannot_add_tasks_for_roles_absent_from_roster(tmp_path) -> No
     # The role boundary is `configuredRoles` now (leases dropped the seated
     # roster): a task role outside the enabled set is refused, an enabled one
     # accepted — with zero live workers of that role (the lazy roster).
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "rostered-plan" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "rostered-plan" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run(
         "init",
@@ -1525,7 +1525,7 @@ def test_architect_cannot_add_tasks_for_roles_absent_from_roster(tmp_path) -> No
 def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
     workspace = tmp_path / "custom-role-workspace"
     write_workspace_role(workspace, "marketer", aliases=["growth-marketer"])
-    state_path = workspace / ".multi-code" / "sprintengine" / "custom-role-flow" / "run.yaml"
+    state_path = workspace / ".sprintengine" / "sprintengine" / "custom-role-flow" / "run.yaml"
     cli = SwarmCli(state_path, cwd=workspace)
     cli.run(
         "init",
@@ -1581,7 +1581,7 @@ def test_unknown_role_is_rejected_by_the_registry_not_argparse(tmp_path) -> None
     # The CLI accepts any --role string and validates it against the role registry
     # itself (require_configured_role), so an unknown role is a clean registry
     # error, never an argparse "invalid choice".
-    state_path = tmp_path / ".multi-code" / "sprintengine" / "unknown-role" / "run.yaml"
+    state_path = tmp_path / ".sprintengine" / "sprintengine" / "unknown-role" / "run.yaml"
     cli = SwarmCli(state_path)
     cli.run("init", "--goal", "Reject unknown roles", "--agent", "architect:architect")
 

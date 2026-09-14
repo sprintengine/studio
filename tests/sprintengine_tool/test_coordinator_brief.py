@@ -127,7 +127,7 @@ def _sourced_workspace(tmp_path: Path):
     epic.parent.mkdir(parents=True, exist_ok=True)
     epic.write_text("# Auth revamp\n", encoding="utf-8")
     child.write_text("---\nepic: auth-revamp\n---\n# Login form\n", encoding="utf-8")
-    return root, epic, child, root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    return root, epic, child, root / ".sprintengine" / "sprintengine" / "auth-revamp" / "run.yaml"
 
 
 def test_the_brief_survives_the_epic_branch_and_points_at_the_source_documents(tmp_path) -> None:

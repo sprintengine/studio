@@ -33,7 +33,7 @@ import { partializeWorkspacePaneState } from './workspacePaneSlice'
 //                 which spawns its guide into the workspace the door was opened
 //                 from, so the per-project background host has no producer left.
 //                 The row and the guide-terminal agent records nested in it go;
-//                 the review data on disk (`.multi-code/review/`) is untouched.
+//                 the review data on disk (`.sprintengine/review/`) is untouched.
 const RETIRED_WORKSPACE_MODES: readonly string[] = ['roadmap', 'multiloop', 'guided-brief', 'reviews-host']
 
 export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(

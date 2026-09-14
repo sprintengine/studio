@@ -138,8 +138,8 @@ export const CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH = '.claude/settings.local.json'
  *      second one.
  *   3. With both done, the five skills loaded — and the plugin loaded from the
  *      PUBLISHED copy, whose `.mcp.json` and `hooks/hooks.json` still carry the
- *      `__MULTICODE_*` tokens. The MCP server failed to connect, and the
- *      SessionEnd hook ran `node "__MULTICODE_AGENT_STATE_REPORTER__"` and
+ *      `__SPRINTENGINE_*` tokens. The MCP server failed to connect, and the
+ *      SessionEnd hook ran `node "__SPRINTENGINE_AGENT_STATE_REPORTER__"` and
  *      died with MODULE_NOT_FOUND. That is the deeper reason this flag stays
  *      off: what we publish is a TEMPLATE, and the three values it cannot
  *      carry (this machine's node, this build's bridge, this session's socket)
@@ -209,11 +209,11 @@ export type StudioPluginTokens = {
 }
 
 const TOKEN_NAMES = {
-  nodeCommand: '__MULTICODE_NODE__',
-  bridgeScriptPath: '__MULTICODE_BRIDGE__',
-  userDataDir: '__MULTICODE_USER_DATA_DIR__',
-  agentStateReporterPath: '__MULTICODE_AGENT_STATE_REPORTER__',
-  agentStateSocketPath: '__MULTICODE_AGENT_STATE_SOCKET__',
+  nodeCommand: '__SPRINTENGINE_NODE__',
+  bridgeScriptPath: '__SPRINTENGINE_BRIDGE__',
+  userDataDir: '__SPRINTENGINE_USER_DATA_DIR__',
+  agentStateReporterPath: '__SPRINTENGINE_AGENT_STATE_REPORTER__',
+  agentStateSocketPath: '__SPRINTENGINE_AGENT_STATE_SOCKET__',
 } as const satisfies Record<keyof StudioPluginTokens, string>
 
 /**

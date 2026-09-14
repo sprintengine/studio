@@ -18,7 +18,7 @@ from helpers import SwarmCli, read_state
 def _workspace(tmp_path: Path):
     root = tmp_path / "project"
     root.mkdir(parents=True, exist_ok=True)
-    state_path = root / ".multi-code" / "sprintengine" / "auth-revamp" / "run.yaml"
+    state_path = root / ".sprintengine" / "sprintengine" / "auth-revamp" / "run.yaml"
     return root, state_path
 
 

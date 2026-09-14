@@ -88,6 +88,7 @@ import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '.
 import type { WorkspaceCreateRequest, WorkspaceCreateResult } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
 import { getWorkspaceChangeSummary } from '../workspace-change-summary'
+import { resolveWorkspaceSidecar } from '../workspace-sidecar'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
 // workspace.status / agent.launch / agent.status; the read expansion adds
@@ -149,7 +150,7 @@ export type AutomationBackends = {
   listBacklogItems(workspaceRoot: string): Promise<BacklogListItemsResult>
   /** Read one backlog item (validated backlog/ relative path). */
   readBacklogItem(workspaceRoot: string, relativePath: string): Promise<BacklogReadItemResult>
-  /** Automation definitions from the workspace's .multi-code/automations store. */
+  /** Automation definitions from the workspace's .sprintengine/automations store. */
   listAutomationDefinitions(workspaceRoot: string): Promise<AutomationStoreListResult<AutomationDefinition>>
   /** Run history for one automation, newest-first (store-capped). */
   listAutomationRuns(workspaceRoot: string, automationId: string): Promise<AutomationStoreListResult<AutomationRun>>
@@ -162,7 +163,7 @@ export type AutomationBackends = {
    * loaded — tools report that explicitly instead of buffering.
    */
   getAutomationsFrontDoor(): AutomationsAppFrontDoor | null
-  /** Absolute run.yaml paths under <root>/.multi-code/sprintengine, newest first. */
+  /** Absolute run.yaml paths under <root>/.sprintengine/sprintengine, newest first. */
   listSprintRunStatePaths(workspaceRoot: string): Promise<string[]>
   /** One run's projection.json via the sprint-engine artifact reader (main-owned). */
   readSprintEngineProjection(statePath: string): Promise<SprintEngineProjectionReadResult>
@@ -1319,7 +1320,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const automationList: McpToolRegistration = {
     name: 'automation.list',
     description:
-      "List a workspace's Automations (the outbound trigger/action definitions in .multi-code/automations). Read-only.",
+      "List a workspace's Automations (the outbound trigger/action definitions in .sprintengine/automations). Read-only.",
     inputSchema: {
       type: 'object',
       properties: { workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' } },
@@ -2016,7 +2017,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   ]
 
   function sprintStatePath(root: string, slug: string): string {
-    return [root, '.multi-code', 'sprintengine', slug, 'run.yaml'].join('/')
+    return [root, resolveWorkspaceSidecar(root).dirName, 'sprintengine', slug, 'run.yaml'].join('/')
   }
 
   // Every sprint tool is keyed workspaceId + slug and NEVER accepts a caller

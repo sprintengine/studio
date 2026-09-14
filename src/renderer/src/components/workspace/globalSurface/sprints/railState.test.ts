@@ -29,7 +29,7 @@ function run(name: string, body: () => void): void {
 function summary(overrides: Partial<SprintRunSummary> & { teamSlug: string }): SprintRunSummary {
   const projectRoot = overrides.projectRoot ?? '/work/multicode'
   return {
-    statePath: `${projectRoot}/.multi-code/sprintengine/${overrides.teamSlug}/run.yaml`,
+    statePath: `${projectRoot}/.sprintengine/sprintengine/${overrides.teamSlug}/run.yaml`,
     teamName: overrides.teamSlug,
     projectRoot,
     projectName: projectRoot.slice(projectRoot.lastIndexOf('/') + 1),

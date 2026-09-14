@@ -38,7 +38,7 @@ const sprintRunLink: BacklogItemLink = {
   moduleId: 'sprint-engine',
   type: 'execution',
   label: 'Sprint Engine run',
-  target: { kind: 'sprintengine.run', id: 'run', path: '.multi-code/sprintengine/run/run.yaml' },
+  target: { kind: 'sprintengine.run', id: 'run', path: '.sprintengine/sprintengine/run/run.yaml' },
   status: 'active',
 }
 
@@ -47,7 +47,7 @@ const sprintArtifactLink: BacklogItemLink = {
   moduleId: 'sprint-engine',
   type: 'external',
   label: 'Sprint Engine artifact',
-  target: { kind: 'sprintengine.artifact', id: 'artifact', path: '.multi-code/sprintengine/artifacts/a.md' },
+  target: { kind: 'sprintengine.artifact', id: 'artifact', path: '.sprintengine/sprintengine/artifacts/a.md' },
   status: 'unknown',
 }
 

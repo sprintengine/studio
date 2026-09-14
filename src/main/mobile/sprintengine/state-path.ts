@@ -1,5 +1,6 @@
 import { basename, dirname, isAbsolute, resolve } from 'path'
 import { MobileSprintEngineCommandError } from './command-error'
+import { SIDECAR_DIR_NAME, isSidecarDirName } from '../../../shared/workspace-sidecar'
 
 export type ValidSprintEngineStatePath = {
   statePath: string
@@ -20,16 +21,16 @@ export function validateSprintEngineStatePath(input: string): ValidSprintEngineS
   const statePath = resolve(rawStatePath)
   const teamDirectory = dirname(statePath)
   const sprintEngineDirectory = dirname(teamDirectory)
-  const multiCodeDirectory = dirname(sprintEngineDirectory)
-  const workspaceRoot = dirname(multiCodeDirectory)
+  const sidecarDirectory = dirname(sprintEngineDirectory)
+  const workspaceRoot = dirname(sidecarDirectory)
 
   if (
     basename(statePath) !== 'run.yaml'
     || basename(sprintEngineDirectory) !== 'sprintengine'
-    || basename(multiCodeDirectory) !== '.multi-code'
-    || workspaceRoot === multiCodeDirectory
+    || !isSidecarDirName(basename(sidecarDirectory))
+    || workspaceRoot === sidecarDirectory
   ) {
-    throw new MobileSprintEngineCommandError('path_not_allowed', 'Sprint run path must point to .multi-code/sprintengine/<team>/run.yaml.', false)
+    throw new MobileSprintEngineCommandError('path_not_allowed', `Sprint run path must point to ${SIDECAR_DIR_NAME}/sprintengine/<team>/run.yaml.`, false)
   }
 
   return { statePath, teamDirectory, workspaceRoot }

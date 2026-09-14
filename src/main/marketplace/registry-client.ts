@@ -13,20 +13,21 @@ import {
   type MarketplaceManifestIssue,
 } from '../../shared/marketplace'
 import { findMarketplaceResourcePath } from './resources'
+import { readStudioEnv } from '../../shared/studio-env'
 
 export const DEFAULT_MARKETPLACE_REGISTRY_URL = `https://raw.githubusercontent.com/${MARKETPLACE_CANONICAL_SOURCE.owner}/${MARKETPLACE_CANONICAL_SOURCE.repo}/${MARKETPLACE_CANONICAL_SOURCE.ref}/marketplace.json`
 const MARKETPLACE_REGISTRY_CACHE_FILENAME = 'marketplace-registry-cache.json'
 const MARKETPLACE_REGISTRY_SEED_FILENAME = 'marketplace.json'
 const DEFAULT_MARKETPLACE_REGISTRY_TIMEOUT_MS = 15_000
 
-// MULTICODE_MARKETPLACE_REGISTRY_URL points the registry read at an alternate
+// SPRINTENGINE_MARKETPLACE_REGISTRY_URL points the registry read at an alternate
 // index endpoint (e.g. a hosted catalogue's GET /v1/registry). GitHub-raw
 // stays the shipped default; the override changes only where the index is
 // fetched from — schema validation, ETag/304 handling, cache invalidation, and
 // the packaged-seed fallback apply to the configured URL exactly as they do to
 // the default one.
 export function configuredMarketplaceRegistryUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.MULTICODE_MARKETPLACE_REGISTRY_URL?.trim()
+  const override = readStudioEnv('SPRINTENGINE_MARKETPLACE_REGISTRY_URL', env)?.trim()
   if (override) return override
   return DEFAULT_MARKETPLACE_REGISTRY_URL
 }
@@ -38,7 +39,7 @@ export function configuredMarketplaceRegistryUrl(env: NodeJS.ProcessEnv = proces
  * case needs no network and must not render as a degraded/offline notice.
  */
 export function isMarketplaceRegistryOverrideConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.MULTICODE_MARKETPLACE_REGISTRY_URL?.trim())
+  return Boolean(readStudioEnv('SPRINTENGINE_MARKETPLACE_REGISTRY_URL', env)?.trim())
 }
 
 export type MarketplaceRegistryFetch = (url: string, init: RequestInit) => Promise<Response>
@@ -53,7 +54,7 @@ export type MarketplaceRegistryClientOptions = {
   usePackagedSeedFallback?: boolean
   /**
    * Serve the packaged seed directly (source 'bundled', state 'ok') instead
-   * of fetching — the default when no MULTICODE_MARKETPLACE_REGISTRY_URL
+   * of fetching — the default when no SPRINTENGINE_MARKETPLACE_REGISTRY_URL
    * override is configured. Falls through to the remote path only if the
    * packaged seed is missing or unreadable.
    */

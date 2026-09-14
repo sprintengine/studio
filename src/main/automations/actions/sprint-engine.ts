@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process'
-import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { SprintCreateRequest, SprintCreateResult } from '../../../shared/sprint-create'
@@ -11,6 +10,7 @@ import type {
   SprintEngineRunnerSetInput,
   SprintEngineTaskMutationRole,
 } from '../../../shared/electron-api'
+import { workspaceSidecarPath } from '../../workspace-sidecar'
 
 export const SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID = 'module:sprint-engine'
 export const SPRINT_ENGINE_RUN_ACTION_KIND = 'sprint-engine-run'
@@ -70,7 +70,7 @@ export function createSprintEngineRunActionProvider(
     run: async (config, ctx) => {
       ctx.requireIntegration(SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID)
       const parsed = parseSprintEngineRunConfig(config)
-      const statePath = join(ctx.workspaceRoot, '.multi-code', 'sprintengine', parsed.team, 'run.yaml')
+      const statePath = workspaceSidecarPath(ctx.workspaceRoot, 'sprintengine', parsed.team, 'run.yaml')
 
       // Enabling the runner starts the sprint; the supervisor mints and spawns
       // task-scoped workers on its own as ready tasks appear (MC-1591 leases —

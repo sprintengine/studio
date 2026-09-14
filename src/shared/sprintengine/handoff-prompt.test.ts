@@ -10,7 +10,7 @@ function testPlanFileHandoffIsMcpNative(): void {
     sourcePath: 'future-plans/2026-05-23-mcp-runtime.md',
     sourceContent: 'line1\nline2\nline3',
     sourcePlanKind: 'architect_plan',
-    statePath: '.multi-code/sprintengine/mcp-runtime/run.yaml',
+    statePath: '.sprintengine/sprintengine/mcp-runtime/run.yaml',
     rosterArgs: ['frontend:frontend', 'developer:developer-1'],
     autoRunRequested: true,
   })
@@ -21,7 +21,7 @@ function testPlanFileHandoffIsMcpNative(): void {
   assert.ok(prompt.includes('sprintengine.agent.join'), 'auto-run flow names the MCP join tool')
   assert.ok(prompt.includes('sprintengine.task.next'), 'auto-run flow names the MCP claim tool')
   assert.ok(!prompt.includes('sprintengine.agent.next_directive'), 'auto-run flow does not route through the directive hop')
-  assert.ok(!prompt.includes('.multi-code/sprintengine/mcp-runtime/run.yaml'), 'handoff prompt does not expose the run state path')
+  assert.ok(!prompt.includes('.sprintengine/sprintengine/mcp-runtime/run.yaml'), 'handoff prompt does not expose the run state path')
   assert.ok(!prompt.includes('statePath'), 'handoff prompt does not expose statePath')
   assert.ok(!prompt.includes('workspaceRoot'), 'handoff prompt does not expose workspaceRoot')
   assert.ok(prompt.includes('"name": "mcp-runtime"'), 'handover payload embeds the team name')
@@ -56,7 +56,7 @@ function testPlanFileHandoffBundleIssuesOneHandoverCallWithSourceBundle(): void 
       { kind: 'product_plan', sourcePath: 'future-plans/product.md', sourceContent: 'p1\np2' },
       { kind: 'architect_plan', sourcePath: 'future-plans/plan.md', sourceContent: 'a1\na2\na3' },
     ],
-    statePath: '.multi-code/sprintengine/mcp-runtime/run.yaml',
+    statePath: '.sprintengine/sprintengine/mcp-runtime/run.yaml',
   })
 
   assert.ok(prompt.includes('once with the selected markdown source and the complete source bundle'), 'bundle handoff uses one bootstrap call')
@@ -81,7 +81,7 @@ function testBacklogHandoffUsesBacklogPathsAndKeepsManagedMcpInvariants(): void 
     sourcePath: 'backlog/checkout-flow.md',
     sourceContent: '# Checkout Flow\nShip it.',
     sourcePlanKind: 'product_plan',
-    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml',
     autoRunRequested: true,
   })
 
@@ -89,7 +89,7 @@ function testBacklogHandoffUsesBacklogPathsAndKeepsManagedMcpInvariants(): void 
   assert.ok(prompt.includes('"handoverPath": "backlog/checkout-flow.md"'), 'handover path uses backlog relative path')
   assert.ok(!prompt.includes('future plan'), 'active runtime copy no longer says future plan')
   assert.ok(!prompt.includes('future-plans/'), 'backlog handoff does not rewrite to legacy future-plans paths')
-  assert.ok(!prompt.includes('.multi-code/sprintengine/checkout-flow/run.yaml'), 'backlog handoff does not expose the run state path')
+  assert.ok(!prompt.includes('.sprintengine/sprintengine/checkout-flow/run.yaml'), 'backlog handoff does not expose the run state path')
   assert.ok(!prompt.includes('statePath'), 'backlog handoff does not expose statePath')
   assert.ok(!prompt.includes('workspaceRoot'), 'backlog handoff does not expose workspaceRoot')
   assert.ok(!CLI_INSTRUCTION_PATTERN.test(prompt), 'backlog handoff does not instruct the agent to run sprintengine CLI commands')
@@ -117,7 +117,7 @@ function testBacklogBundleUsesRelativeBundlePaths(): void {
         sourceContent: '# Checkout Flow',
       },
     ],
-    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml',
   })
 
   assert.ok(prompt.includes('"handoverPath": "backlog/product.md"'), 'bundle manifest uses selected backlog source')
@@ -136,7 +136,7 @@ function testWorktreeModeFlowsIntoInitPayload(): void {
     sourcePath: 'backlog/checkout-flow.md',
     sourceContent: '# Checkout Flow\nShip it.',
     sourcePlanKind: 'product_plan',
-    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml',
   }
 
   const withWorktrees = buildPlanFileSprintEngineHandoffPrompt({ ...base, useWorktrees: true })
@@ -159,7 +159,7 @@ function testReferenceFlagFlowsIntoHandoverPayload(): void {
     sourcePath: 'backlog/checkout-flow.md',
     sourceContent: '# Checkout Flow\nShip it.',
     sourcePlanKind: 'architect_plan' as const,
-    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml',
   }
 
   const referenced = buildPlanFileSprintEngineHandoffPrompt({ ...base, reference: true })
@@ -194,7 +194,7 @@ function testEpicHandoffReferencesChildrenAndGuidesInPlaceReview(): void {
         sourceContent: '# Session store',
       },
     ],
-    statePath: '.multi-code/sprintengine/auth-revamp/run.yaml',
+    statePath: '.sprintengine/sprintengine/auth-revamp/run.yaml',
   })
 
   // The epic is the handover root; its children are the source bundle.
@@ -216,7 +216,7 @@ function testReferencedArchitectPlanGetsManifestGuidanceNotSeedGuidance(): void 
     sourcePath: 'backlog/checkout-flow.md',
     sourceContent: '# Checkout Flow\nShip it.',
     sourcePlanKind: 'architect_plan' as const,
-    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml',
   }
 
   const referenced = buildPlanFileSprintEngineHandoffPrompt({ ...base, reference: true })
@@ -253,7 +253,7 @@ function testRolesSentenceUsesConfiguredRolesNotSeats(): void {
     sourcePath: 'backlog/checkout-flow.md',
     sourceContent: '# Checkout Flow\nShip it.',
     sourcePlanKind: 'product_plan' as const,
-    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml',
   }
 
   // Lease-era lazy roster: only the planner is seated, but the run's legal
@@ -288,7 +288,7 @@ function testSeedAlreadyPersistedDropsHandoverStep(): void {
     sourcePath: 'backlog/checkout-flow.md',
     sourceContent: '# Checkout Flow\nShip it.',
     sourcePlanKind: 'architect_plan' as const,
-    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml',
     reference: true,
   }
 
@@ -321,7 +321,7 @@ function testMockupBundleItemsGetTheMockupDirectiveAndRootStaysListed(): void {
         sourceContent: '<h1>Checkout</h1>',
       },
     ],
-    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml',
   })
 
   // The primary markdown source must not vanish from the summary just because
@@ -346,7 +346,7 @@ function testMockupBundleItemsGetTheMockupDirectiveAndRootStaysListed(): void {
     sourcePath: 'backlog/checkout-flow.md',
     sourceContent: '# Checkout Flow',
     sourcePlanKind: 'product_plan',
-    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml',
   })
   assert.ok(!noMockups.includes('Attached mockups'), 'directive is dropped when no mockup is attached')
 }
@@ -370,7 +370,7 @@ function testSupportOnlyBundleDoesNotReclassifyThePlanSource(): void {
         sourceContent: '<h1>Checkout</h1>',
       },
     ],
-    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+    statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml',
   })
 
   assert.ok(
@@ -398,7 +398,7 @@ function testRootSourceLineIsNotDuplicatedWhenRootIsABundleItem(): void {
         sourceContent: '<h1>Picker</h1>',
       },
     ],
-    statePath: '.multi-code/sprintengine/mockup-run/run.yaml',
+    statePath: '.sprintengine/sprintengine/mockup-run/run.yaml',
   })
 
   assert.ok(!prompt.includes('Source path: `mockups/picker.html`'), 'no duplicate root line when the root is a bundle item')

@@ -100,7 +100,7 @@ async function run(): Promise<void> {
   const pluginPath = join(workDir, 'multicode-agent-state.mjs')
   const rendered = renderAgentStatePluginTemplate(template, socketPath)
   assert.ok(rendered.includes(JSON.stringify(socketPath)), 'the socket path must be baked into the rendered plugin')
-  assert.ok(!rendered.includes("'__MULTICODE_AGENT_STATE_SOCKET__'"), 'the socket token must not survive rendering')
+  assert.ok(!rendered.includes("'__SPRINTENGINE_AGENT_STATE_SOCKET__'"), 'the socket token must not survive rendering')
   await writeFile(pluginPath, rendered, 'utf8')
   console.log('ok - the bundled OpenCode template renders with the live socket path baked in')
 

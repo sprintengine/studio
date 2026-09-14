@@ -680,7 +680,7 @@ async function assertReviewProjectionSnapshotExposesReviewContext(): Promise<voi
             id: 'R1',
             kind: 'code_review',
             title: 'Self review pass 1',
-            path: '.multi-code/sprintengine/review-team/reviews/code-review-1.md',
+            path: '.sprintengine/sprintengine/review-team/reviews/code-review-1.md',
             createdAt: generatedAt,
           },
         ],
@@ -781,9 +781,9 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
     '---\ntype: feature\n---\n\n# Ship the widget\n\nUsers need the widget on the phone.\n',
     'utf8'
   )
-  await mkdir(join(workspaceRoot, '.multi-code', 'backlog'), { recursive: true })
+  await mkdir(join(workspaceRoot, '.sprintengine', 'backlog'), { recursive: true })
   await writeFile(
-    join(workspaceRoot, '.multi-code', 'backlog', 'items.json'),
+    join(workspaceRoot, '.sprintengine', 'backlog', 'items.json'),
     JSON.stringify({
       schemaVersion: 1,
       items: [
@@ -987,7 +987,7 @@ async function assertBacklogOnlyChangeBumpsTopLevelSnapshotVersion(): Promise<vo
 
   const before = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
   await writeFile(
-    join(workspaceRoot, '.multi-code', 'backlog', 'items.json'),
+    join(workspaceRoot, '.sprintengine', 'backlog', 'items.json'),
     JSON.stringify({
       schemaVersion: 1,
       items: [
@@ -1680,7 +1680,7 @@ async function assertSnapshotOmitsNonMobileStatePayloads(): Promise<void> {
   assert.equal(serialized.includes('raw terminal stream'), false)
   assert.equal(serialized.includes('private source output'), false)
   assert.equal(serialized.includes('secret-ish-hash'), false)
-  assert.equal(snapshot.artifacts[0].path, '.multi-code/sprintengine/team/product-requirements.md')
+  assert.equal(snapshot.artifacts[0].path, '.sprintengine/sprintengine/team/product-requirements.md')
 }
 
 async function assertPublishingIsThrottled(): Promise<void> {
@@ -1721,7 +1721,7 @@ async function assertSnapshotSkipsMalformedStateFiles(): Promise<void> {
     artifacts: [],
   })
   const malformedStatePath = await writeStateText(
-    `${String.raw`{"sprintengine":{"name":"Bad"},"tasks":[{"evidence":{"commandsRan":[".multi-code\sprintengine\run.yaml"]}}]}`}\n`
+    `${String.raw`{"sprintengine":{"name":"Bad"},"tasks":[{"evidence":{"commandsRan":[".sprintengine\sprintengine\run.yaml"]}}]}`}\n`
   )
   const service = new MobileSprintEngineSnapshotService()
 
@@ -1737,7 +1737,7 @@ async function assertSnapshotSkipsMalformedStateFiles(): Promise<void> {
 
 async function writeStateFixture(state: Record<string, unknown>): Promise<string> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-snapshot-'))
-  const teamDirectory = join(workspacePath, '.multi-code', 'sprintengine', 'team')
+  const teamDirectory = join(workspacePath, '.sprintengine', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
@@ -1749,7 +1749,7 @@ async function writeStateFixture(state: Record<string, unknown>): Promise<string
 // by the scoping/terminal-filter tests, which read that status.
 async function writeRunProjectionFixture(input: { id: string; status: string }): Promise<string> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-snapshot-'))
-  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', input.id)
+  const teamDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine', input.id)
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   const isLive = input.status === 'executing' || input.status === 'planning' || input.status === 'planned'
@@ -1768,9 +1768,9 @@ async function writeRunProjectionFixture(input: { id: string; status: string }):
 async function writeBacklogFixture(workspaceRoot: string, itemId: string, title: string): Promise<void> {
   await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
   await writeFile(join(workspaceRoot, 'backlog', `${itemId}.md`), `---\ntype: feature\n---\n\n# ${title}\n\nBody.\n`, 'utf8')
-  await mkdir(join(workspaceRoot, '.multi-code', 'backlog'), { recursive: true })
+  await mkdir(join(workspaceRoot, '.sprintengine', 'backlog'), { recursive: true })
   await writeFile(
-    join(workspaceRoot, '.multi-code', 'backlog', 'items.json'),
+    join(workspaceRoot, '.sprintengine', 'backlog', 'items.json'),
     JSON.stringify({
       schemaVersion: 1,
       items: [
@@ -1792,7 +1792,7 @@ async function writeBacklogFixture(workspaceRoot: string, itemId: string, title:
 
 async function writeStateText(content: string): Promise<string> {
   const workspacePath = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-snapshot-'))
-  const teamDirectory = join(workspacePath, '.multi-code', 'sprintengine', 'team')
+  const teamDirectory = join(workspacePath, '.sprintengine', 'sprintengine', 'team')
   await mkdir(teamDirectory, { recursive: true })
   const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, content, 'utf8')
@@ -1815,7 +1815,7 @@ function artifact(id: string, kind: string, status: string, taskId: string): Rec
     id,
     kind,
     title: `Artifact ${id}`,
-    path: '.multi-code/sprintengine/team/product-requirements.md',
+    path: '.sprintengine/sprintengine/team/product-requirements.md',
     status,
     createdBy: 'product',
     taskId,

@@ -25,7 +25,7 @@ async function main(): Promise<void> {
       moduleId: 'sprint-engine',
       type: 'execution',
       label: 'Sprint Engine run',
-      target: { kind: 'sprintengine.run', id: 'plan', path: '.multi-code/sprintengine/plan/run.yaml' },
+      target: { kind: 'sprintengine.run', id: 'plan', path: '.sprintengine/sprintengine/plan/run.yaml' },
     },
   })
   await api.removeBacklogLink({

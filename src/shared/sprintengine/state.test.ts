@@ -138,7 +138,7 @@ function testVcsReposRoundTripWithoutFieldLoss(): void {
     {
       id: 'primary',
       root: '.',
-      worktreePath: '.multi-code/wt/app',
+      worktreePath: '.sprintengine/wt/app',
       branchName: 'run/main',
       baseRef: 'main',
       status: 'ready',
@@ -150,7 +150,7 @@ function testVcsReposRoundTripWithoutFieldLoss(): void {
     {
       id: 'mobile',
       root: '../multicode-mobile',
-      worktreePath: '.multi-code/wt/mobile',
+      worktreePath: '.sprintengine/wt/mobile',
       branchName: 'run/main',
       baseRef: 'main',
       status: 'committed',
@@ -168,7 +168,7 @@ function testVcsReposRoundTripWithoutFieldLoss(): void {
       status: 'planning',
       vcs: {
         mode: 'run_worktree',
-        worktreePath: '.multi-code/wt/app',
+        worktreePath: '.sprintengine/wt/app',
         branchName: 'run/main',
         repos,
       },
@@ -178,7 +178,7 @@ function testVcsReposRoundTripWithoutFieldLoss(): void {
   assert.ok(state?.vcs, 'vcs parsed')
   assert.deepEqual(state.vcs.repos, repos, 'declared repos round-trip with no field loss')
   // The flat fields still parse alongside the list they duplicate.
-  assert.equal(state.vcs.worktreePath, '.multi-code/wt/app')
+  assert.equal(state.vcs.worktreePath, '.sprintengine/wt/app')
   assert.equal(state.vcs.branchName, 'run/main')
 }
 
@@ -192,7 +192,7 @@ function testVcsFlatBlockReadsBackAsOneEntryRepoList(): void {
       status: 'planning',
       vcs: {
         mode: 'run_worktree',
-        worktreePath: '.multi-code/wt/app',
+        worktreePath: '.sprintengine/wt/app',
         branchName: 'run/main',
         baseRef: 'main',
         status: 'ready',
@@ -208,7 +208,7 @@ function testVcsFlatBlockReadsBackAsOneEntryRepoList(): void {
       {
         id: 'primary',
         root: '.',
-        worktreePath: '.multi-code/wt/app',
+        worktreePath: '.sprintengine/wt/app',
         branchName: 'run/main',
         baseRef: 'main',
         status: 'ready',
@@ -233,7 +233,7 @@ function testVcsPrimaryPullRequestReadsBackOnBothShapes(): void {
       status: 'planning',
       vcs: {
         mode: 'run_worktree',
-        worktreePath: '.multi-code/wt/app',
+        worktreePath: '.sprintengine/wt/app',
         branchName: 'run/main',
         pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
         pullRequestState: 'merged',
@@ -259,13 +259,13 @@ function testVcsPullRequestStateOfAnUnknownValueIsNull(): void {
       status: 'planning',
       vcs: {
         mode: 'run_worktree',
-        worktreePath: '.multi-code/wt/app',
+        worktreePath: '.sprintengine/wt/app',
         branchName: 'run/main',
         repos: [
           {
             id: 'primary',
             root: '.',
-            worktreePath: '.multi-code/wt/app',
+            worktreePath: '.sprintengine/wt/app',
             branchName: 'run/main',
             pullRequestState: 'draft',
           },
@@ -288,10 +288,10 @@ function testVcsReposUnresolvableEntriesDropped(): void {
       status: 'planning',
       vcs: {
         mode: 'run_worktree',
-        worktreePath: '.multi-code/wt/app',
+        worktreePath: '.sprintengine/wt/app',
         branchName: 'run/main',
         repos: [
-          { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main' },
+          { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/app', branchName: 'run/main' },
           { id: 'broken', root: '../other', branchName: 'run/main' },
         ],
       },
@@ -309,7 +309,7 @@ function mergeRollupState(repos: Record<string, unknown>[]): ReturnType<typeof n
         name: 'Work Queue',
         goal: 'ship it',
         status: 'planning',
-        vcs: { mode: 'run_worktree', worktreePath: '.multi-code/wt/app', branchName: 'run/main', repos },
+        vcs: { mode: 'run_worktree', worktreePath: '.sprintengine/wt/app', branchName: 'run/main', repos },
       },
     }),
   )
@@ -321,7 +321,7 @@ function testMergeRollupCountsDroppedDeclaredEntryAsUnmerged(): void {
   // rollup — otherwise `allMerged` flips true off the surviving primary alone and
   // the run-landed chain fires on an unmerged declared branch.
   const state = mergeRollupState([
-    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
+    { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
     { id: 'mobile', root: '../mobile', branchName: 'run/main' },
   ])
   assert.ok(state?.vcs)
@@ -337,8 +337,8 @@ function testMergeRollupCountsDroppedDeclaredEntryAsUnmerged(): void {
 
 function testMergeRollupAllMergedWhenEveryDeclaredRepoMerged(): void {
   const state = mergeRollupState([
-    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
-    { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', pullRequestState: 'merged' },
+    { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
+    { id: 'mobile', root: '../mobile', worktreePath: '.sprintengine/wt/mobile', branchName: 'run/main', pullRequestState: 'merged' },
   ])
   const rollup = deriveSprintEngineRepoMergeRollup(state?.vcs)
   assert.ok(rollup)
@@ -349,8 +349,8 @@ function testMergeRollupAllMergedWhenEveryDeclaredRepoMerged(): void {
 
 function testMergeRollupOpenSiblingHoldsAllMergedFalse(): void {
   const state = mergeRollupState([
-    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
-    { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', pullRequestState: 'open' },
+    { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
+    { id: 'mobile', root: '../mobile', worktreePath: '.sprintengine/wt/mobile', branchName: 'run/main', pullRequestState: 'open' },
   ])
   const rollup = deriveSprintEngineRepoMergeRollup(state?.vcs)
   assert.ok(rollup)
@@ -367,8 +367,8 @@ function testMergeRollupZeroCommitSiblingHasNoBranchToMerge(): void {
   // `no_commits`) so its PR state can never advance; counting it would hold
   // `allMerged` false forever and wedge run-landed chaining.
   const state = mergeRollupState([
-    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', lastCommitSha: 'abc123', pullRequestState: 'merged' },
-    { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', lastCommitSha: null, status: 'ready' },
+    { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/app', branchName: 'run/main', lastCommitSha: 'abc123', pullRequestState: 'merged' },
+    { id: 'mobile', root: '../mobile', worktreePath: '.sprintengine/wt/mobile', branchName: 'run/main', lastCommitSha: null, status: 'ready' },
   ])
   const rollup = deriveSprintEngineRepoMergeRollup(state?.vcs)
   assert.ok(rollup)
@@ -379,8 +379,8 @@ function testMergeRollupZeroCommitSiblingHasNoBranchToMerge(): void {
   )
   // A sibling with commits but no PR yet still counts — it has a branch to land.
   const committed = mergeRollupState([
-    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', lastCommitSha: 'abc123', pullRequestState: 'merged' },
-    { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', lastCommitSha: 'def456' },
+    { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/app', branchName: 'run/main', lastCommitSha: 'abc123', pullRequestState: 'merged' },
+    { id: 'mobile', root: '../mobile', worktreePath: '.sprintengine/wt/mobile', branchName: 'run/main', lastCommitSha: 'def456' },
   ])
   const committedRollup = deriveSprintEngineRepoMergeRollup(committed?.vcs)
   assert.equal(committedRollup?.allMerged, false, 'a committed-but-unmerged sibling still holds the run open')
@@ -390,7 +390,7 @@ function testMergeRollupRunThatDeliveredNothingStaysUnlanded(): void {
   // Every leg delivered nothing: there is no landing to report, so the rollup
   // stays fail-closed rather than reading all-merged on an empty run.
   const state = mergeRollupState([
-    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', lastCommitSha: null },
+    { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/app', branchName: 'run/main', lastCommitSha: null },
   ])
   const rollup = deriveSprintEngineRepoMergeRollup(state?.vcs)
   assert.ok(rollup)
@@ -415,14 +415,14 @@ function testPullRequestWatchability(): void {
   assert.equal(isRunPullRequestWatchable(undefined), false)
   assert.equal(isRunPullRequestWatchable(null), false)
 
-  const openPrimary = { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', pullRequestState: 'open', pullRequestUrl: 'https://pr' }
+  const openPrimary = { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/app', branchName: 'run/main', pullRequestState: 'open', pullRequestUrl: 'https://pr' }
   assert.equal(isRunPullRequestWatchable(mergeRollupState([openPrimary])?.vcs), true)
 
   // Every project terminal → the whole run is settled.
   assert.equal(
     isRunPullRequestWatchable(mergeRollupState([
       { ...openPrimary, pullRequestState: 'merged' },
-      { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', pullRequestState: 'closed', pullRequestUrl: 'https://pr2' },
+      { id: 'mobile', root: '../mobile', worktreePath: '.sprintengine/wt/mobile', branchName: 'run/main', pullRequestState: 'closed', pullRequestUrl: 'https://pr2' },
     ])?.vcs),
     false,
   )
@@ -431,7 +431,7 @@ function testPullRequestWatchability(): void {
   assert.equal(
     isRunPullRequestWatchable(mergeRollupState([
       { ...openPrimary, pullRequestState: 'merged' },
-      { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', pullRequestState: 'open', pullRequestUrl: 'https://pr2' },
+      { id: 'mobile', root: '../mobile', worktreePath: '.sprintengine/wt/mobile', branchName: 'run/main', pullRequestState: 'open', pullRequestUrl: 'https://pr2' },
     ])?.vcs),
     true,
   )
@@ -442,7 +442,7 @@ function testPullRequestWatchability(): void {
   assert.equal(
     isRunPullRequestWatchable(mergeRollupState([
       { ...openPrimary, pullRequestState: 'merged' },
-      { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', lastCommitSha: 'abc123' },
+      { id: 'mobile', root: '../mobile', worktreePath: '.sprintengine/wt/mobile', branchName: 'run/main', lastCommitSha: 'abc123' },
     ])?.vcs),
     false,
   )
@@ -451,7 +451,7 @@ function testPullRequestWatchability(): void {
 function testMergeRollupSingleRepoAndNullVcs(): void {
   // A single-repo run rolls up to total 1 — the flat field's answer.
   const single = mergeRollupState([
-    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
+    { id: 'primary', root: '.', worktreePath: '.sprintengine/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
   ])
   const singleRollup = deriveSprintEngineRepoMergeRollup(single?.vcs)
   assert.deepEqual(
@@ -462,7 +462,7 @@ function testMergeRollupSingleRepoAndNullVcs(): void {
   // count; the rollup floors on the survivor list rather than reading undefined.
   const legacy = deriveSprintEngineRepoMergeRollup({
     mode: 'run_worktree',
-    worktreePath: '.multi-code/wt/app',
+    worktreePath: '.sprintengine/wt/app',
     branchName: 'run/main',
     pullRequestState: 'merged',
     repos: [],

@@ -195,7 +195,7 @@ def test_approving_duplicate_same_file_artifact_supersedes_stale_blocker(tmp_pat
 
     # Legacy duplicate state: A1 stored as the full-prefix path, A2 stored bare;
     # both resolve to the same plan.md file.
-    _seed_plan_artifact(fixture, "A1", ".multi-code/sprintengine/duplicate-plan-artifacts/plan.md", "draft")
+    _seed_plan_artifact(fixture, "A1", ".sprintengine/sprintengine/duplicate-plan-artifacts/plan.md", "draft")
     _seed_plan_artifact(fixture, "A2", "plan.md", "ready_for_review", created_by="architect")
 
     approved = fixture.cli.run("artifact", "approve", "--artifact-id", "A2", "--id", "user")
@@ -223,7 +223,7 @@ def test_registering_same_file_plan_artifact_reuses_existing_full_prefix_artifac
     write_team_file(fixture, "plan.md", "# Plan\n")
 
     # An init-seeded placeholder stored as the full-prefix path.
-    _seed_plan_artifact(fixture, "A1", ".multi-code/sprintengine/dedup-registration/plan.md", "draft")
+    _seed_plan_artifact(fixture, "A1", ".sprintengine/sprintengine/dedup-registration/plan.md", "draft")
 
     # find_architect_plan_gate must resolve the bare plan.md value to the same
     # file and match the full-prefix stored artifact rather than miss it. Run
@@ -272,7 +272,7 @@ def test_marking_ready_supersedes_stale_same_file_duplicate(tmp_path) -> None:
     # Stale full-prefix draft placeholder plus a bare-path real plan; both
     # resolve to the same file. Marking the real plan ready must self-heal the
     # stale duplicate so it cannot deadlock the auto-approval gate.
-    _seed_plan_artifact(fixture, "A1", ".multi-code/sprintengine/ready-self-heal/plan.md", "draft")
+    _seed_plan_artifact(fixture, "A1", ".sprintengine/sprintengine/ready-self-heal/plan.md", "draft")
     _seed_plan_artifact(fixture, "A2", "plan.md", "draft", created_by="architect")
 
     fixture.cli.run("artifact", "ready", "--artifact-id", "A2", "--id", "architect")

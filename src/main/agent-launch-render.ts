@@ -60,6 +60,10 @@ export type AgentLaunchRenderInput = {
   cli: AgentCli
   sessionId: string
   resume?: boolean
+  // The workspace this launch runs in, so Debug Mode's directive names the
+  // sidecar directory that workspace actually uses. Absent leaves the current
+  // name, which is right for a launch with no workspace behind it.
+  workspaceRoot?: string
   initialPrompt?: string
   cliRuntime?: CliRuntimeSettings
   cliPermissionPreset?: SprintEngineCliPermissionPreset
@@ -152,7 +156,7 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
   // touched when debugMode is set, preserving an undefined prompt (and thus the
   // no-prompt argv shape) for ordinary launches.
   const prompt = input.debugMode
-    ? applyDebugDirective(input.initialPrompt ?? '', true, resolveDebugSkillInvocation(plugin))
+    ? applyDebugDirective(input.initialPrompt ?? '', true, resolveDebugSkillInvocation(plugin), input.workspaceRoot)
     : input.initialPrompt
   const context: PluginRenderContext = {
     binary,

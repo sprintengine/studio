@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from sprintengine_core.tool.common import path_is_relative_to, unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
-from sprintengine_core.tool.paths import MULTICODE_DIR_NAME, SPRINTENGINE_DIR_NAME, now_iso
+from sprintengine_core.tool.paths import SPRINTENGINE_DIR_NAME, is_sidecar_dir_name, now_iso
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 
 def repository_root_for_state(state_path: Path) -> Path:
@@ -22,7 +22,7 @@ def repository_root_for_state(state_path: Path) -> Path:
             seen.add(key)
             if (candidate / ".git").exists():
                 return candidate
-    if state_path.parent.parent.name == SPRINTENGINE_DIR_NAME and state_path.parent.parent.parent.name == MULTICODE_DIR_NAME:
+    if state_path.parent.parent.name == SPRINTENGINE_DIR_NAME and is_sidecar_dir_name(state_path.parent.parent.parent.name):
         return state_path.parent.parent.parent.parent.resolve()
     if state_path.parent.parent.name == SPRINTENGINE_DIR_NAME:
         return state_path.parent.parent.parent.resolve()

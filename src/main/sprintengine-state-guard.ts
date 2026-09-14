@@ -1,19 +1,20 @@
 import { lstat, readdir, realpath, stat } from 'fs/promises'
 import { basename, dirname, resolve } from 'path'
 import { isMissingPathError } from './filesystem-workspace'
+import { isSidecarDirName } from '../shared/workspace-sidecar'
 
 function isSprintEngineStateFilePath(input: string): boolean {
   const statePath = resolve(input)
   const teamDirectory = dirname(statePath)
   const sprintEngineDirectory = dirname(teamDirectory)
-  const multiCodeDirectory = dirname(sprintEngineDirectory)
-  const workspaceRoot = dirname(multiCodeDirectory)
+  const sidecarDirectory = dirname(sprintEngineDirectory)
+  const workspaceRoot = dirname(sidecarDirectory)
 
   return (
     basename(statePath) === 'run.yaml'
     && basename(sprintEngineDirectory) === 'sprintengine'
-    && basename(multiCodeDirectory) === '.multi-code'
-    && workspaceRoot !== multiCodeDirectory
+    && isSidecarDirName(basename(sidecarDirectory))
+    && workspaceRoot !== sidecarDirectory
   )
 }
 

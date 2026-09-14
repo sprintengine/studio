@@ -75,7 +75,7 @@ def test_normalize_task_drops_empty_source_docs() -> None:
 def test_rework_prompt_injects_source_docs_as_read_in_full_context(tmp_path: Path) -> None:
     record = task("T1", "Implement child item", "developer", "in_progress", owner="developer-1")
     record["sourceDocs"] = [ITEM, PLAN]
-    prompt = build_rework_prompt(tmp_path / ".multi-code" / "sprintengine" / "s" / "run.yaml", record)
+    prompt = build_rework_prompt(tmp_path / ".sprintengine" / "sprintengine" / "s" / "run.yaml", record)
     assert "read each in full before implementing" in prompt
     assert f"- `{ITEM}`" in prompt
     assert f"- `{PLAN}`" in prompt
@@ -84,7 +84,7 @@ def test_rework_prompt_injects_source_docs_as_read_in_full_context(tmp_path: Pat
 
 def test_rework_prompt_unchanged_without_source_docs(tmp_path: Path) -> None:
     record = task("T1", "Implement", "developer", "in_progress", owner="developer-1")
-    prompt = build_rework_prompt(tmp_path / ".multi-code" / "sprintengine" / "s" / "run.yaml", record)
+    prompt = build_rework_prompt(tmp_path / ".sprintengine" / "sprintengine" / "s" / "run.yaml", record)
     assert "Canonical sources" not in prompt
     assert "read each in full" not in prompt
 
