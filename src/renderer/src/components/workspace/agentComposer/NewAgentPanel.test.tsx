@@ -222,6 +222,11 @@ async function main(): Promise<void> {
       appSettings: {
         ...useWorkspaceStore.getState().appSettings,
         mcp: { syncEnabled: true, servers: { linear: { ...LINEAR } } },
+        // Engine picks persist on the store; a check that opens the picker
+        // would otherwise leave General's remembered CLI for the next one.
+        lastSelectedCli: 'claude-code',
+        specialistCliDefaults: {},
+        specialistModelDefaults: {},
       },
     } as never)
   }
@@ -659,6 +664,100 @@ async function main(): Promise<void> {
     assert.equal(view.launches.length, 1, 'exactly one launch was reported')
     assert.equal(view.launches[0]?.prompt, 'review the auth flow', 'carrying what was typed')
     assert.equal(view.launches[0]?.kind, 'general', 'and which agent was chosen')
+    assert.equal(
+      'model' in (view.launches[0] ?? {}),
+      true,
+      'the confirm always names the model, even when it is the CLI’s own default',
+    )
+    assert.equal(view.launches[0]?.model, null, 'and with no pick that name is null — not an omitted field the host would re-read')
+    assert.equal(
+      'reasoning' in (view.launches[0] ?? {}),
+      true,
+      'and it always names the effort, for the same reason',
+    )
+    assert.equal(view.launches[0]?.reasoning, null, 'with no pick that is the CLI’s own default too')
+    view.unmount()
+  })
+
+  // Codex with no `--model` launches Astra. The chip’s pick has to ride Start,
+  // not a later re-read of the remembered defaults (which can miss in the same
+  // turn and leave the flag off).
+  await check('picking a catalog model puts that id on Start, not the CLI’s own default', async () => {
+    seedStore({
+      plugins: [
+        {
+          id: 'claude-code',
+          displayName: 'Claude Code',
+          source: 'bundled',
+          version: 1,
+          binary: 'claude',
+          resumeSession: true,
+          sessionIdFromCaller: true,
+          modelSelection: { options: [{ id: 'claude-opus-5', label: 'Opus 5' }], allowCustomId: true },
+          reasoningSelection: { levels: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }] },
+          skillIntegration: {
+            support: 'native',
+            harnessId: 'claude',
+            installTargets: [],
+            invocation: { explicitTemplate: '/{{skillId}}', nativeSlashCommand: true, mentionPrefix: '/' },
+          },
+        },
+        {
+          id: 'codex',
+          displayName: 'Codex',
+          source: 'bundled',
+          version: 1,
+          binary: 'codex',
+          resumeSession: true,
+          sessionIdFromCaller: true,
+          modelSelection: {
+            options: [
+              { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+              { id: 'gpt-6-astra', label: 'GPT-6-Astra' },
+            ],
+            allowCustomId: true,
+          },
+          reasoningSelection: { levels: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }], default: 'medium' },
+          skillIntegration: {
+            support: 'native',
+            harnessId: 'codex',
+            installTargets: [],
+            invocation: { explicitTemplate: '${{skillId}}', nativeSlashCommand: false },
+          },
+        },
+      ],
+    })
+    const view = await render()
+    const engine = [...view.container.querySelectorAll('button')].find((button) =>
+      (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
+    )
+    await act(async () => {
+      engine!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    const codexTab = [...dom.window.document.querySelectorAll('button')].find(
+      (button) => button.getAttribute('role') === 'radio' && button.getAttribute('aria-label') === 'Codex',
+    )
+    assert.ok(codexTab, 'Codex is on the runtime rail')
+    await act(async () => {
+      codexTab!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    const sol = [...dom.window.document.querySelectorAll('[data-model-row="true"]')].find((row) =>
+      (row.textContent ?? '').includes('GPT-5.6 Sol'),
+    )
+    assert.ok(sol, 'the Sol row is in the picker')
+    await act(async () => {
+      sol!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    const start = [...view.container.querySelectorAll('button')].find(
+      (button) => button.getAttribute('aria-label') === 'Start agent',
+    )
+    await act(async () => {
+      start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    assert.equal(view.launches.length, 1, 'exactly one launch')
+    assert.equal(view.launches[0]?.cli, 'codex', 'on the runtime that owned the row')
+    assert.equal(view.launches[0]?.model, 'gpt-5.6-sol', 'carrying the id the chip named, not the CLI’s own default')
+    assert.equal('reasoning' in (view.launches[0] ?? {}), true, 'and the effort rides the same confirm')
     view.unmount()
   })
 

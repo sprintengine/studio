@@ -68,9 +68,10 @@ export type AgentComposerConfirm = (
   // installed on pick; the spawn prefills their invocations as the agent's
   // first input, in pick order, never auto-sent. Terminal confirms ignore them.
   skills?: WorkspaceSkill[]
-  // The effort level the launch runs at, carried only when the surface opened on
-  // an engine nothing had stored (see `initialEngine`). Absent otherwise, and
-  // the host resolves the level from the remembered defaults as it always has.
+  // The effort level the launch runs at. Always named for general/specialist
+  // (null = the CLI's own default). The host must not re-read the remembered
+  // defaults for this; the same-turn miss that dropped `--model` would drop
+  // the effort flag the same way.
   reasoning?: string | null
   // Optional "+ Worktree" attachment (general/specialist only): the spawn
   // creates a git worktree off the workspace repo and executes the agent in it.
@@ -392,12 +393,13 @@ export function useAgentComposer({
     [specialistModelDefaults, openingEngine, resolvePickerCli],
   )
 
-  // `engine` names the runtime the confirm must launch on, for a surface where
-  // the RUNTIME is the thing clicked (the spawn picker, MC-2122). Without it the
-  // confirm resolves the target's remembered engine, which is what every
-  // surface that picks an agent first still wants. It is passed explicitly
-  // rather than persisted-then-read because a spawn that writes its default and
-  // reads it back in the same event would read the value from before the write.
+  // The confirm names the runtime the surface is standing on. `engine` is the
+  // same-event override for a click that picks a row and launches in one
+  // gesture. Without it the confirm still carries the resolved model and
+  // effort — a spawn that omitted them used to re-read the remembered
+  // defaults, and a write and a read in the same turn can miss, so Codex
+  // launched its own default (Astra) instead of the chip the person chose.
+  // `null` is the CLI's own default (no `--model` / no effort flag).
   const buildConfirm = React.useCallback(
     (target: AgentComposerSelection, engine?: { cli: AgentCli; model: string | null }): AgentComposerConfirm => {
       const picked = skills.length > 0 ? { skills } : {}
@@ -407,21 +409,26 @@ export function useAgentComposer({
       // MCP servers reach CLI agents through their workspace config, so only
       // general/specialist confirms carry the picks.
       const servers = mcpServers.length > 0 ? { mcpServers } : {}
-      // An opening engine is carried on the confirm for the same reason `engine`
-      // is: nothing wrote it to the defaults, so a host that read the defaults
-      // back would launch the row this surface was NOT standing on.
-      const opening = !engine && target.kind === 'general' && openingEngine
-      const model = engine ? { model: engine.model } : opening ? { model: openingEngine.model } : {}
-      const reasoning = opening ? { reasoning: openingEngine.reasoning } : {}
       if (target.kind === 'terminal') return { kind: 'terminal' }
       if (target.kind === 'conversation') return { kind: 'conversation', ...picked }
       const cli = engine?.cli ?? cliForSelection(target)
+      const model = engine ? engine.model : (modelForSelection(target, cli) ?? null)
+      const reasoning = reasoningForSelection(target, cli) ?? null
       if (target.kind === 'specialist') {
-        return { kind: 'specialist', specialistId: target.specialistId, cli, ...model, ...picked, ...worktree, ...servers }
+        return {
+          kind: 'specialist',
+          specialistId: target.specialistId,
+          cli,
+          model,
+          reasoning,
+          ...picked,
+          ...worktree,
+          ...servers,
+        }
       }
-      return { kind: 'general', cli, ...model, ...reasoning, ...picked, ...worktree, ...servers }
+      return { kind: 'general', cli, model, reasoning, ...picked, ...worktree, ...servers }
     },
-    [cliForSelection, skills, worktreeName, mcpServers, openingEngine],
+    [cliForSelection, modelForSelection, reasoningForSelection, skills, worktreeName, mcpServers],
   )
 
   const moveSelection = React.useCallback(

@@ -1525,14 +1525,12 @@ export default function WorkspaceManager() {
     // The chat lives in a worktree the door just made: `folderPath` IS that
     // worktree, and the marker carries its branch for the Git view and row.
     worktree?: WorkspaceWorktree,
-    // See addNewCliAgent: the model the caller just picked, when the chat must
-    // start on exactly the row that was clicked rather than on whatever the
-    // remembered default resolves to a tick later (the Backlog handoff).
+    // The model the composer is standing on. Always handed over from the
+    // confirm so the terminal starts on the chip, not on a later re-read of
+    // the remembered defaults. `null` is the CLI's own default.
     selectedModel?: string | null,
-    // The effort level of that same row, for a caller whose pick was never
-    // written to the defaults at all (a card's row, parked in a New chat draft —
-    // item 2473). Absent means "read the level the defaults remember", which is
-    // every other caller.
+    // The effort of that same row. Same contract as the model: present on the
+    // confirm, `null` for the CLI's own default.
     selectedReasoning?: string | null,
   ): { workspaceId: WorkspaceId; agentId: AgentId } | null => {
     const chosenCli = cli && cli.trim() ? cli.trim() : null
@@ -2587,11 +2585,12 @@ export default function WorkspaceManager() {
     selectedCli?: AgentCli,
     skills?: WorkspaceSkill[],
     worktree?: { name: string },
-    // The model this spawn must launch, when the caller picked one in the same
-    // event that persisted it (the spawn picker clicks a model row). Reading it
-    // back off `specialistModelDefaults` here would read the value from before
-    // that write; `undefined` keeps the remembered default.
+    // The model the composer is standing on. Always handed over from the
+    // confirm so the terminal starts on the chip. `null` is the CLI's own
+    // default; `undefined` (keyboard shortcuts, no confirm) still reads the
+    // remembered default.
     selectedModel?: string | null,
+    selectedReasoning?: string | null,
     // MC-2147: when the spawn came from a new-agent tab, that tab becomes the
     // terminal (same node, same place) and the user's prompt rides along.
     placement?: AgentSpawnPlacement,
@@ -2629,11 +2628,15 @@ export default function WorkspaceManager() {
       selectedModel !== undefined
         ? selectedModel ?? undefined
         : resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id])
+    const cliReasoning =
+      selectedReasoning !== undefined
+        ? selectedReasoning ?? undefined
+        : resolveCliReasoning(cliForSpawn, specialistModelDefaults[specialist.id])
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       cli: cliForSpawn,
       cliModel,
-      cliReasoning: resolveCliReasoning(cliForSpawn, specialistModelDefaults[specialist.id]),
+      cliReasoning,
       ...(execution ? { execution } : {}),
       cliPermissionPreset: resolveModelPermissionPreset(cliForSpawn, cliModel, agentSpawnPermissionPreset),
       debugMode: agentSpawnDebugMode,
@@ -2660,15 +2663,13 @@ export default function WorkspaceManager() {
     cli: AgentCli,
     skills?: WorkspaceSkill[],
     worktree?: { name: string },
-    // See addNewSpecialist: the model the caller just picked, when it cannot be
-    // read back from the defaults yet.
+    // See addNewSpecialist: the model the composer is standing on. Always
+    // handed over from the confirm so the terminal starts on the chip.
     selectedModel?: string | null,
     placement?: AgentSpawnPlacement,
-    // The rest of a model row the caller just picked, for the same reason the
-    // model is passed in: the row it chose was never written to the defaults, so
-    // reading the defaults back here would answer with a different row. A card's
-    // `Go` is the one caller with a row to hand over (item 2473); every other
-    // spawn omits this and the remembered defaults answer, exactly as before.
+    // The rest of that same row. The composer always names the effort; a
+    // card's `Go` is the other caller with a row that was never written to
+    // the defaults (item 2473).
     //
     // Model and EFFORT only. The preset is not an axis a caller may hand over —
     // see the `cliPermissionPreset` note below.
@@ -2842,9 +2843,7 @@ export default function WorkspaceManager() {
     skills?: WorkspaceSkill[],
     startupPrompt?: string,
     worktree?: WorkspaceWorktree,
-    // The rest of a row the composer was standing on but had never stored (see
-    // `createNewChat`). Undefined on an ordinary launch, where the defaults the
-    // door writes as you pick are the record.
+    // The rest of the row the composer is standing on (see `createNewChat`).
     selectedModel?: string | null,
     selectedReasoning?: string | null,
   ) => createNewChat(folderPath, cli, skills, startupPrompt, worktree, selectedModel, selectedReasoning)
@@ -2856,6 +2855,8 @@ export default function WorkspaceManager() {
     skills?: WorkspaceSkill[],
     startupPrompt?: string,
     worktree?: WorkspaceWorktree,
+    selectedModel?: string | null,
+    selectedReasoning?: string | null,
   ) => {
     const specialist = getSpecialistAction(specialistId)
     const tabName = pickRandomAgentName([])
@@ -2867,7 +2868,10 @@ export default function WorkspaceManager() {
       routeToCliInstall()
       return
     }
-    const specialistChatModel = resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id])
+    const specialistChatModel =
+      selectedModel !== undefined
+        ? selectedModel ?? undefined
+        : resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id])
     createSoloChatWorkspace({
       folderPath,
       templateAgentCli: cliForSpawn,
@@ -2878,7 +2882,10 @@ export default function WorkspaceManager() {
           name: tabName,
           cli: cliForSpawn,
           cliModel: specialistChatModel,
-          cliReasoning: resolveCliReasoning(cliForSpawn, specialistModelDefaults[specialist.id]),
+          cliReasoning:
+            selectedReasoning !== undefined
+              ? selectedReasoning ?? undefined
+              : resolveCliReasoning(cliForSpawn, specialistModelDefaults[specialist.id]),
           cliPermissionPreset: resolveModelPermissionPreset(cliForSpawn, specialistChatModel, agentSpawnPermissionPreset),
           debugMode: agentSpawnDebugMode,
           kind: 'specialist',
@@ -2957,9 +2964,20 @@ export default function WorkspaceManager() {
     skills?: WorkspaceSkill[],
     startupPrompt?: string,
     worktree?: WorkspaceWorktree,
+    selectedModel?: string | null,
+    selectedReasoning?: string | null,
   ) => {
     setLastNewChatAgent({ kind: 'specialist', specialistId })
-    openSpecialistInNewChat(specialistId, cli, folderPath, skills, startupPrompt, worktree)
+    openSpecialistInNewChat(
+      specialistId,
+      cli,
+      folderPath,
+      skills,
+      startupPrompt,
+      worktree,
+      selectedModel,
+      selectedReasoning,
+    )
   }
 
   // The worktree the New chat door asked for under ⋯ (found at the seam of
@@ -3613,13 +3631,18 @@ export default function WorkspaceManager() {
       // starts in the workspace and finds them there. The isolated connector
       // worktree runtime is no longer a New chat path.
       case 'specialist':
-        pickNewChatSpecialist(confirm.specialistId, confirm.cli, folderPath, confirm.skills, startupPrompt, worktree)
+        pickNewChatSpecialist(
+          confirm.specialistId,
+          confirm.cli,
+          folderPath,
+          confirm.skills,
+          startupPrompt,
+          worktree,
+          confirm.model,
+          confirm.reasoning,
+        )
         break
       case 'general':
-        // `model`/`reasoning` are on the confirm only when the composer was
-        // standing on a row nothing had stored — a card's pick, parked in the
-        // draft (item 2473). Every other launch leaves them undefined and the
-        // remembered defaults answer.
         pickNewChatGeneral(
           confirm.cli,
           folderPath,
@@ -4217,9 +4240,19 @@ export default function WorkspaceManager() {
     skills?: WorkspaceSkill[],
     worktree?: { name: string },
     selectedModel?: string | null,
+    selectedReasoning?: string | null,
     placement?: AgentSpawnPlacement,
   ) => {
-    void addNewSpecialist(specialistId, '', selectedCli, skills, worktree, selectedModel, placement)
+    void addNewSpecialist(
+      specialistId,
+      '',
+      selectedCli,
+      skills,
+      worktree,
+      selectedModel,
+      selectedReasoning,
+      placement,
+    )
   }
 
   // New chat opens roleless. It used to preselect the remembered specialist —
@@ -4239,8 +4272,11 @@ export default function WorkspaceManager() {
         break
       case 'general':
         // MCP picks were synced into the workspace's CLI config on pick; the
-        // spawn carries only the skills to prefill.
-        void addNewCliAgent(confirm.cli, confirm.skills, confirm.worktree, confirm.model, placement)
+        // spawn carries only the skills to prefill. Model and effort ride the
+        // confirm so the terminal starts on the chip, not a later defaults read.
+        void addNewCliAgent(confirm.cli, confirm.skills, confirm.worktree, confirm.model, placement, {
+          reasoning: confirm.reasoning,
+        })
         break
       case 'conversation':
         spawnConversationAgent(confirm.skills, confirm.provider, placement)
@@ -4252,6 +4288,7 @@ export default function WorkspaceManager() {
           confirm.skills,
           confirm.worktree,
           confirm.model,
+          confirm.reasoning,
           placement,
         )
         break
