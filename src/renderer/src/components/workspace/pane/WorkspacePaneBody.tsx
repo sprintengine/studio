@@ -9,6 +9,7 @@ import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import { useChangelists } from '../../../hooks/useChangelists'
 import { defaultDiffChangelistId } from '../../../utils/diffChangelistDefault'
 import { paneKindRetainsPanel } from './paneKinds'
+import { FLOATING_PAGE_INSET, FloatingPlayerChrome, useFloatRect } from './FloatingPlayer'
 
 // The pane's content region: one layer per tab that needs to stay mounted
 // (terminal, later browser) plus the active tab. Inactive retained layers are
@@ -206,11 +207,14 @@ export function WorkspacePaneBody({
   onStartFuturePlan,
   onDiffCountChange,
 }: WorkspacePaneBodyProps) {
+  const floatingTab = tabs.find((tab) => tab.floating && tab.kind === 'browser') ?? null
+  const floatRect = useFloatRect(workspaceId, floatingTab)
   return (
     <>
       {tabs.map((tab) => {
-        const selected = tab.id === selectedTabId
-        const active = selected && tab.id === activeTabId
+        const floating = tab.id === floatingTab?.id && floatRect !== null
+        const selected = tab.id === selectedTabId || floating
+        const active = floating || (selected && tab.id === activeTabId)
         if (!selected && !paneKindRetainsPanel(tab.kind)) return null
         const offscreen = !selected && tab.kind === 'browser'
         return (
@@ -222,13 +226,38 @@ export function WorkspacePaneBody({
             aria-hidden={!selected}
             // No stacking tier: an unselected panel is offscreen (browser) or
             // invisible (terminal), so the selected one is the only paint.
-            className={`absolute inset-0 ${selected ? 'visible' : offscreen ? '' : 'invisible'}`}
-            style={offscreen ? OFFSCREEN_LAYER_STYLE : { pointerEvents: selected ? 'auto' : 'none' }}
+            //
+            // FLOATING is the one case that leaves the pane's box: the SAME
+            // element is restyled to `position: fixed`, never moved in the
+            // tree. Re-parenting a <webview> unmounts and remounts it, and the
+            // page reloads — losing exactly the state the float exists to keep
+            // in view. No ancestor between here and the viewport carries a
+            // transform, so `fixed` resolves against the viewport.
+            className={
+              floating
+                ? 'fixed z-[var(--z-pane)] overflow-hidden rounded-[var(--shell-card-radius)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-lg'
+                : `absolute inset-0 ${selected ? 'visible' : offscreen ? '' : 'invisible'}`
+            }
+            style={
+              floating
+                ? {
+                    ...floatRect,
+                    // The page starts below the drag bar. `height: 100%` on the
+                    // child resolves against this content box, so the guest is
+                    // sized correctly without knowing the bar exists.
+                    paddingTop: FLOATING_PAGE_INSET,
+                    pointerEvents: 'auto',
+                  }
+                : offscreen
+                  ? OFFSCREEN_LAYER_STYLE
+                  : { pointerEvents: selected ? 'auto' : 'none' }
+            }
             // An offscreen layer is still in the DOM: `inert` keeps its address
             // field and buttons out of the tab order (the invisible ones are
             // unfocusable already).
             {...(offscreen ? ({ inert: '' } as Record<string, string>) : {})}
           >
+            {floating ? <FloatingPlayerChrome workspaceId={workspaceId} tab={tab} rect={floatRect} /> : null}
             <React.Suspense fallback={<SuspenseFallback label="Loading pane" />}>
               <PaneTabPanel
                 workspaceId={workspaceId}

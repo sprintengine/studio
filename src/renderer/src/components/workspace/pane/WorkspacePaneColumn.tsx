@@ -33,6 +33,12 @@ export function WorkspacePaneColumn({
   const activeOpen = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === activeWorkspaceId)?.paneState?.open ?? false,
   )
+  // A floating player paints outside the column, so a collapsed column must
+  // stay interactive for it (WorkspaceAsideColumn.keepInteractive); the pane
+  // marks its own clipped chrome inert instead.
+  const activeFloating = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === activeWorkspaceId)?.paneState?.tabs.some((tab) => tab.floating) ?? false,
+  )
   // Ids with something to keep alive: a workspace with no tabs has nothing to
   // retain and mounts only while it is the active one.
   const mountedIds = useWorkspaceStore((s) =>
@@ -53,7 +59,12 @@ export function WorkspacePaneColumn({
         if (workspaceId !== activeWorkspaceId) return
         const store = useWorkspaceStore.getState()
         const pane = store.workspaces.find((w) => w.id === workspaceId)?.paneState
+        // A floating tab is already in view. Re-opening the pane on top of it
+        // would put the same page on screen twice and take back the width the
+        // person floated it to reclaim.
+        const floatingTabId = pane?.tabs.find((tab) => tab.floating)?.id ?? null
         if (tabId) {
+          if (tabId === floatingTabId) return
           // The agent navigated an existing tab: bring it to the front.
           if (pane?.tabs.some((tab) => tab.id === tabId)) store.setActivePaneTab(workspaceId, tabId)
         } else if (url) {
@@ -72,6 +83,7 @@ export function WorkspacePaneColumn({
       width={width}
       onWidthChange={setWidth}
       collapsed={!activeOpen}
+      keepInteractive={activeFloating}
       fill={activeOpen && maximised}
     >
       {ids.map((workspaceId) => {

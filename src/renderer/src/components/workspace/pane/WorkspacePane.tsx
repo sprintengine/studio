@@ -75,6 +75,7 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
 
   const tabs = paneState?.tabs ?? []
   const activeTabId = paneState?.activeTabId ?? null
+  const collapsedWithFloatingPlayer = !(paneState?.open ?? false) && tabs.some((tab) => tab.floating)
   // What the agent tools act on when they name no tab: the browser tab the
   // person is looking at, or none when the active tab is not a browser.
   const activeBrowserTabId = tabs.find((tab) => tab.id === activeTabId && tab.kind === 'browser')?.id ?? null
@@ -179,7 +180,14 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
           the bar) — the rounded card below is the edge. The active tab's
           underline still sits on the strip's bottom edge; it now draws on the
           gap between the strip and the card rather than on a rule. */}
-      <div className="chrome-bar app-drag flex h-[36px] shrink-0 items-end pl-1.5 pr-1">
+      {/* The strip is clipped to nothing by a collapsed column, but a collapsed
+          column stays INTERACTIVE while a tab is floating (the player paints
+          outside it), so the strip has to take itself out of the tab order —
+          otherwise focus lands in chrome nobody can see. */}
+      <div
+        className="chrome-bar app-drag flex h-[36px] shrink-0 items-end pl-1.5 pr-1"
+        {...(collapsedWithFloatingPlayer ? ({ inert: '' } as Record<string, string>) : {})}
+      >
         {/* Scrolls sideways with no scrollbar and a fade at each overflowing
             edge (TabsScroller): a 10px bar under a 36px strip is a second line
             in a band that already has one, and a plain vertical wheel is the
@@ -252,7 +260,16 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
             // A tab is "active" for its panel only while someone can see it:
             // this workspace on screen and the pane open. A collapsed pane's
             // browser tab must not keep polling for dev servers.
-            activeTabId={active && (paneState?.open ?? false) ? activeTabId : null}
+            // A floating tab is on screen even though the pane is closed, so it
+            // stays active; without this it would stop polling and stop
+            // reporting itself as the tab the person is looking at.
+            activeTabId={
+              active
+                ? (paneState?.open ?? false)
+                  ? activeTabId
+                  : (tabs.find((tab) => tab.floating)?.id ?? null)
+                : null
+            }
             selectedTabId={activeTabId}
             onStartFuturePlan={onStartFuturePlan}
             onDiffCountChange={setDiffCount}

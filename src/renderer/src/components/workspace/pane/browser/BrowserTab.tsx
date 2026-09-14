@@ -133,6 +133,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   const initialSrcRef = useRef(tab.url && tab.url !== 'about:blank' ? tab.url : 'about:blank')
   const registeredRef = useRef(false)
   const updatePaneTab = useWorkspaceStore((s) => s.updatePaneTab)
+  const setPaneTabFloating = useWorkspaceStore((s) => s.setPaneTabFloating)
   const notePaneRecentUrl = useWorkspaceStore((s) => s.notePaneRecentUrl)
   const workspaceRoot = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
   // A stable empty list: a selector minting `[]` per call is a new snapshot
@@ -507,6 +508,14 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
               onToggleDeviceToolbar={() =>
                 setViewport(viewport.mode === 'fill' ? presetViewport(DEFAULT_BROWSER_DEVICE_PRESET_ID) : FILL)
               }
+              floating={tab.floating === true}
+              onToggleFloating={() => {
+                // The device frame is off while floating: a 360px player cannot
+                // honour a 390x844 viewport, and showing a cropped one would be
+                // a lie about what is being previewed.
+                if (tab.floating !== true && viewport.mode !== 'fill') setViewport(FILL)
+                setPaneTabFloating(workspaceId, tab.id, tab.floating !== true)
+              }}
               onColorScheme={(scheme) => void window.api.browserSetColorScheme(tab.id, scheme)}
               onZoom={(direction) => void window.api.browserZoomStep(tab.id, direction)}
               onClearCookies={() => {

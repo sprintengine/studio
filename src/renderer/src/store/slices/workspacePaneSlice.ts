@@ -35,6 +35,16 @@ const SINGLETON_PANE_TAB_KINDS: ReadonlySet<WorkspacePaneTabKind> = new Set([
 const MAX_PANE_TABS = 24
 const MAX_TITLE_LENGTH = 200
 const MAX_URL_LENGTH = 2048
+
+// The floating player's bounds. The default is the spec's 360x240; the floor is
+// small enough to park out of the way and still read a page, the ceiling keeps
+// a "float" from quietly becoming a second full-size pane.
+export const FLOAT_DEFAULT_WIDTH = 360
+export const FLOAT_DEFAULT_HEIGHT = 240
+export const FLOAT_MIN_WIDTH = 240
+export const FLOAT_MIN_HEIGHT = 160
+export const FLOAT_MAX_WIDTH = 1200
+export const FLOAT_MAX_HEIGHT = 900
 // A favicon data URL past this is not a favicon; the main process caps what it
 // sends at the same size.
 const MAX_FAVICON_LENGTH = 12_000
@@ -60,6 +70,9 @@ function normalizeTab(input: unknown): WorkspacePaneTab | null {
     }
     const viewport = normalizeBrowserViewport(raw.viewport)
     if (viewport && viewport.mode !== 'fill') tab.viewport = viewport
+    const float = normalizeFloatRect(raw.float)
+    if (float) tab.float = float
+    if (raw.floating === true) tab.floating = true
     if (
       typeof raw.faviconUrl === 'string'
       && raw.faviconUrl.startsWith('data:image/')
@@ -118,6 +131,27 @@ export function normalizeWorkspacePaneState(input: unknown): WorkspacePaneState 
   }
 }
 
+/**
+ * A stored float rect, or undefined.
+ *
+ * Sizes are clamped to the player's own bounds; the POSITION is not clamped
+ * here because the window it must fit in is not known at this layer — a rect
+ * saved on a wide monitor must survive being read on a laptop, and the pane
+ * clamps it against the live card on render.
+ */
+function normalizeFloatRect(input: unknown): { x: number; y: number; width: number; height: number } | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const raw = input as Partial<{ x: number; y: number; width: number; height: number }>
+  const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+  if (!finite(raw.x) || !finite(raw.y) || !finite(raw.width) || !finite(raw.height)) return undefined
+  return {
+    x: Math.round(raw.x),
+    y: Math.round(raw.y),
+    width: Math.round(Math.min(Math.max(raw.width, FLOAT_MIN_WIDTH), FLOAT_MAX_WIDTH)),
+    height: Math.round(Math.min(Math.max(raw.height, FLOAT_MIN_HEIGHT), FLOAT_MAX_HEIGHT)),
+  }
+}
+
 function normalizeRecentUrls(input: unknown): string[] {
   if (!Array.isArray(input)) return []
   const out: string[] = []
@@ -137,8 +171,10 @@ export function partializeWorkspacePaneState(input: unknown): WorkspacePaneState
   return {
     ...normalized,
     tabs: normalized.tabs.map((tab) => {
-      if (!tab.faviconUrl) return tab
-      const { faviconUrl: _faviconUrl, ...rest } = tab
+      // `floating` is session-only alongside the favicon: the rect persists,
+      // the "is it floating right now" does not.
+      if (!tab.faviconUrl && !tab.floating) return tab
+      const { faviconUrl: _faviconUrl, floating: _floating, ...rest } = tab
       return rest
     }),
   }
@@ -266,6 +302,18 @@ export interface WorkspacePaneSliceActions {
   togglePaneKind: (id: WorkspaceId, kind: WorkspacePaneTabKind) => boolean
   /** A browser tab finished loading `url`: remember it, newest first, deduped, capped. */
   notePaneRecentUrl: (id: WorkspaceId, url: string) => void
+  /**
+   * Float a browser tab over the workspace, or dock it back.
+   *
+   * One action rather than two calls because it is one gesture: floating
+   * collapses the pane and docking re-opens it on that tab. Splitting it left a
+   * frame where the pane was open AND the player was floating, which reads as
+   * two copies of the same page.
+   *
+   * The guest is never re-parented — the panel keeps its place in the tree and
+   * is restyled — so neither direction reloads the page.
+   */
+  setPaneTabFloating: (id: WorkspaceId, tabId: string, floating: boolean) => void
 }
 
 type PaneSliceCarrier = { workspaces: Workspace[] }
@@ -287,6 +335,30 @@ function nextActiveAfterClose(tabs: WorkspacePaneTab[], closedIndex: number): st
 
 export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceActions {
   return {
+    setPaneTabFloating: (id, tabId, floating) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        const pane = paneOf(ws)
+        const tab = pane.tabs.find((candidate) => candidate.id === tabId)
+        if (!tab || tab.kind !== 'browser') return
+        if (floating) {
+          tab.floating = true
+          // No rect is fabricated here: the window's size is not known at this
+          // layer, and an absent rect means "the default corner", which the
+          // player resolves against the live viewport.
+          // Only one tab floats at a time: a second player would be a second
+          // window with no way to tell them apart in the pane strip.
+          for (const other of pane.tabs) if (other.id !== tabId) delete other.floating
+          pane.open = false
+        } else {
+          delete tab.floating
+          pane.open = true
+          pane.activeTabId = tabId
+        }
+        ws.paneState = normalizeWorkspacePaneState(pane)
+      }),
+
     openPaneTab: (id, input) => {
       let opened: string | null = null
       set((state) => {
@@ -361,6 +433,18 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
         if (!ws) return
         const pane = paneOf(ws)
         if (pane.open !== open) pane.open = open
+        // Docked and floating are the same state seen from two sides, so
+        // re-opening the pane docks whatever was floating. Without this the
+        // floating panel is still `position: fixed` and the pane it belongs to
+        // renders blank behind its own player.
+        if (open) {
+          for (const tab of pane.tabs) {
+            if (tab.floating) {
+              delete tab.floating
+              pane.activeTabId = tab.id
+            }
+          }
+        }
       }),
 
     notePaneRecentUrl: (id, url) =>

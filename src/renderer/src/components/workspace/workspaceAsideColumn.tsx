@@ -30,6 +30,14 @@ type WorkspaceAsideColumnProps = {
   onWidthChange: (width: number) => void
   /** Mounted but zero-width: hidden from the accessibility tree, no handle. */
   collapsed?: boolean
+  /**
+   * Keep a COLLAPSED column interactive, because a tenant is painting outside
+   * it — the pane's floating browser player, which is `position: fixed` and so
+   * escapes the zero width. `inert` on the column would reach it through the
+   * DOM and kill its drag, resize and buttons. The tenant is then responsible
+   * for marking its own still-clipped chrome inert.
+   */
+  keepInteractive?: boolean
   /** Take the whole row (the caller hides the neighbour); no inner hairline. */
   fill?: boolean
   children: React.ReactNode
@@ -41,6 +49,7 @@ export function WorkspaceAsideColumn({
   onWidthChange,
   collapsed = false,
   fill = false,
+  keepInteractive = false,
   children,
 }: WorkspaceAsideColumnProps) {
   const asideRef = useRef<HTMLElement>(null)
@@ -116,10 +125,10 @@ export function WorkspaceAsideColumn({
     <aside
       ref={asideRef}
       aria-label={label}
-      aria-hidden={collapsed || undefined}
+      aria-hidden={(collapsed && !keepInteractive) || undefined}
       // A zero-width column is out of the accessibility tree AND out of the
       // tab order: focus stranded in hidden chrome types into a hidden terminal.
-      {...(collapsed ? ({ inert: '' } as Record<string, string>) : {})}
+      {...(collapsed && !keepInteractive ? ({ inert: '' } as Record<string, string>) : {})}
       className={[
         'flex shrink-0 flex-col overflow-hidden',
         // Docked, the column is a gutter beside the card and sits on the app
