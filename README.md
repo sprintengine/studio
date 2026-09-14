@@ -15,14 +15,12 @@ process, and a set of Python services for the sprint runtime.
 
 _Screenshot to follow._
 
-## Download
+## Running it
 
-Prebuilt installers for macOS, Windows and Linux:
+Build it from source — see [CONTRIBUTING.md](CONTRIBUTING.md) for the toolchain
+and `npm run dev`. No account is needed to run it.
 
-- <https://sprintengine.ai/download>
-- <https://github.com/sprintengine/studio-releases/releases>
-
-No account is needed to run it.
+Prebuilt installers for macOS, Windows and Linux are not published yet.
 
 ## The agent CLIs it drives
 
