@@ -14,7 +14,9 @@ import type {
   BacklogItemRecordInput,
   BacklogModuleMetadataInput,
   BacklogMutationResult,
+  BacklogLocationResult,
   BacklogReadResult,
+  BacklogSetRootInput,
   BacklogRemoveLinkInput,
   BacklogRemoveRecordInput,
   BacklogStatusInput,
@@ -28,6 +30,8 @@ import {
   ensureBacklogObjectRecords,
   moveBacklogObjectSource,
   readBacklogObjectStore,
+  resolveBacklogLocation,
+  setBacklogRoot,
   removeBacklogLink,
   removeBacklogObjectRecord,
   updateBacklogDependencies,
@@ -43,6 +47,14 @@ import {
 export function registerBacklogIpc(ipcMain: IpcMain): void {
   ipcMain.handle('backlog:read-object-store', (_event, workspaceRoot: string): Promise<BacklogReadResult> => {
     return readBacklogObjectStore(workspaceRoot)
+  })
+
+  ipcMain.handle('backlog:resolve-location', (_event, workspaceRoot: string): Promise<BacklogLocationResult> => {
+    return resolveBacklogLocation(workspaceRoot)
+  })
+
+  ipcMain.handle('backlog:set-root', (_event, input: BacklogSetRootInput): Promise<BacklogLocationResult> => {
+    return setBacklogRoot(input)
   })
 
   ipcMain.handle(

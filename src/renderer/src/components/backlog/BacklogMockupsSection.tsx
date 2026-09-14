@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { backlogOrWorkspacePath } from '../../hooks/backlogLocation'
 
 import {
   GhostButton,
@@ -81,7 +82,7 @@ export function BacklogMockupsSection({
       const next = new Map<string, ResolvedMockup | null>()
       for (const entry of entries) {
         const found = await resolveFirstMockupCandidate(entry.path, async (relativePath) => {
-          const absolutePath = joinFilePath(folderPath, relativePath)
+          const absolutePath = await backlogOrWorkspacePath(folderPath, relativePath)
           return (await window.api.pathExists(absolutePath)) ? { relativePath, absolutePath } : null
         })
         next.set(entry.path, found)

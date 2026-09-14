@@ -3306,6 +3306,32 @@ export type BacklogWorkspaceKeyResult =
   | { ok: true; key: string }
   | { ok: false; message: string }
 
+/**
+ * Where a workspace's backlog items live. `root` is `<workspaceRoot>/backlog`
+ * unless the workspace has pointed its backlog elsewhere.
+ *
+ * `exists` is reported separately from `isDefault` because a configured root can
+ * be legitimately absent — an unplugged drive, a folder that has not been cloned
+ * yet — and that is worth saying out loud rather than rendering as an empty
+ * backlog that looks like lost work.
+ */
+export type BacklogLocationInfo = {
+  workspaceRoot: string
+  root: string
+  isDefault: boolean
+  exists: boolean
+}
+
+export type BacklogLocationResult =
+  | { ok: true; location: BacklogLocationInfo }
+  | { ok: false; message: string }
+
+/** `root: null` resets the workspace to the default `<workspaceRoot>/backlog`. */
+export type BacklogSetRootInput = {
+  workspaceRoot: string
+  root: string | null
+}
+
 export type BacklogMutationResult =
   | { ok: true; store: BacklogObjectStorePayload }
   | { ok: false; message: string }
@@ -4280,6 +4306,8 @@ export type ElectronApi = {
   // renderer to send an event, only this one to stop main sending them.
   setTelemetryEnabled: (enabled: boolean) => Promise<void>
   readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>
+  resolveBacklogLocation: (workspaceRoot: string) => Promise<BacklogLocationResult>
+  setBacklogRoot: (input: BacklogSetRootInput) => Promise<BacklogLocationResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>
   ensureBacklogItemIds: (input: BacklogEnsureIdsInput) => Promise<BacklogEnsureIdsResult>
   updateBacklogStatus: (input: BacklogStatusInput) => Promise<BacklogMutationResult>

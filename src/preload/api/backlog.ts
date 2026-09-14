@@ -13,7 +13,9 @@ import type {
   BacklogMockupsInput,
   BacklogModuleMetadataInput,
   BacklogMutationResult,
+  BacklogLocationResult,
   BacklogReadResult,
+  BacklogSetRootInput,
   BacklogRemoveLinkInput,
   BacklogRemoveRecordInput,
   BacklogStatusInput,
@@ -24,6 +26,8 @@ import type {
 
 type BacklogIpcRenderer = {
   invoke(channel: 'backlog:read-object-store', workspaceRoot: string): Promise<BacklogReadResult>
+  invoke(channel: 'backlog:resolve-location', workspaceRoot: string): Promise<BacklogLocationResult>
+  invoke(channel: 'backlog:set-root', input: BacklogSetRootInput): Promise<BacklogLocationResult>
   invoke(channel: 'backlog:ensure-object-records', workspaceRoot: string, items: BacklogItemRecordInput[]): Promise<BacklogReadResult>
   invoke(channel: 'backlog:ensure-item-ids', input: BacklogEnsureIdsInput): Promise<BacklogEnsureIdsResult>
   invoke(channel: 'backlog:update-status', input: BacklogStatusInput): Promise<BacklogMutationResult>
@@ -45,6 +49,10 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
   return {
     readBacklogObjectStore: (workspaceRoot: string): Promise<BacklogReadResult> =>
       renderer.invoke('backlog:read-object-store', workspaceRoot),
+    resolveBacklogLocation: (workspaceRoot: string): Promise<BacklogLocationResult> =>
+      renderer.invoke('backlog:resolve-location', workspaceRoot),
+    setBacklogRoot: (input: BacklogSetRootInput): Promise<BacklogLocationResult> =>
+      renderer.invoke('backlog:set-root', input),
     ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]): Promise<BacklogReadResult> =>
       renderer.invoke('backlog:ensure-object-records', workspaceRoot, items),
     ensureBacklogItemIds: (input: BacklogEnsureIdsInput): Promise<BacklogEnsureIdsResult> =>
@@ -78,6 +86,8 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
   } satisfies Pick<
     ElectronApi,
     | 'readBacklogObjectStore'
+    | 'resolveBacklogLocation'
+    | 'setBacklogRoot'
     | 'ensureBacklogObjectRecords'
     | 'ensureBacklogItemIds'
     | 'updateBacklogStatus'

@@ -26,6 +26,12 @@ import type {
   MobileControlBacklogWorkspaceSnapshot,
 } from '../../../shared/mobile-control/protocol'
 import { MobileSprintEngineCommandError } from './command-error'
+import {
+  backlogAbsolutePath,
+  backlogLocationFor,
+  defaultBacklogLocation,
+  type BacklogLocation,
+} from '../../../shared/backlog/scan'
 
 const BACKLOG_FOLDER = 'backlog'
 const ARCHIVED_PREFIX = 'backlog/archived/'
@@ -63,6 +69,20 @@ const EPICS_FOLDER = join('backlog', 'epics')
 // Read the workspace's backlog display key (`.multi-code/backlog/config.json`),
 // read-only — unlike the desktop resolver, this never persists a derived default,
 // because a snapshot read must not write to the workspace.
+// Where this workspace keeps its items. Read-only, like the key resolver above:
+// a snapshot read must not write to the workspace, and a workspace with no
+// configured root reads as the default `<root>/backlog`.
+async function readBacklogLocation(root: string): Promise<BacklogLocation> {
+  try {
+    const raw = await readFile(join(root, '.multi-code', 'backlog', 'config.json'), 'utf-8')
+    const parsed = JSON.parse(raw) as { root?: unknown }
+    if (typeof parsed.root === 'string' && parsed.root.trim()) return backlogLocationFor(root, parsed.root)
+  } catch {
+    // Missing/unreadable config: the default, same as the desktop resolver.
+  }
+  return defaultBacklogLocation(root)
+}
+
 async function readBacklogWorkspaceKey(root: string): Promise<string> {
   try {
     const raw = await readFile(join(root, '.multi-code', 'backlog', 'config.json'), 'utf-8')
@@ -229,7 +249,15 @@ export async function resolveBacklogStartContext(
 ): Promise<BacklogStartContext> {
   const normalized = assertBacklogRelativePath(relativePath)
   const root = resolve(workspaceRoot)
-  const absolutePath = join(root, normalized)
+  const location = await readBacklogLocation(root)
+  const absolutePath = backlogAbsolutePath(location, normalized)
+  if (absolutePath === null) {
+    throw new MobileSprintEngineCommandError(
+      'path_not_allowed',
+      'Backlog item paths must be relative markdown paths under backlog/.',
+      false,
+    )
+  }
   let raw: string
   try {
     raw = await readFile(absolutePath, 'utf-8')
@@ -261,7 +289,7 @@ export async function resolveBacklogStartContext(
     isEpic,
     children: children.map((child) => ({
       relativePath: child.relativePath,
-      absolutePath: join(root, child.relativePath),
+      absolutePath: backlogAbsolutePath(location, child.relativePath) ?? join(root, child.relativePath),
       status: child.status,
     })),
   }
@@ -293,7 +321,9 @@ export function assertBacklogRelativePath(value: string): string {
 // scan, so all three agree on what exists.
 async function scanBacklogMarkdownPaths(root: string): Promise<string[]> {
   const paths: string[] = []
-  await walk(join(root, BACKLOG_FOLDER), BACKLOG_FOLDER)
+  // The prefix stays `backlog` whatever the folder is called on disk: the phone
+  // addresses items by the same logical path the desktop does.
+  await walk((await readBacklogLocation(root)).root, BACKLOG_FOLDER)
   return paths.sort((left, right) => left.localeCompare(right))
 
   async function walk(directory: string, prefix: string): Promise<void> {
@@ -321,7 +351,8 @@ async function toBacklogItemSnapshot(
 ): Promise<MobileControlBacklogItemSnapshot> {
   let raw: string | null = null
   try {
-    raw = await readFile(join(root, record.source.relativePath), 'utf-8')
+    const source = backlogAbsolutePath(await readBacklogLocation(root), record.source.relativePath)
+    raw = source === null ? null : await readFile(source, 'utf-8')
   } catch {
     raw = null
   }

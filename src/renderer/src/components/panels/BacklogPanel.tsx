@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { backlogOrWorkspacePath, backlogRootOf, ensureBacklogRoot } from '../../hooks/backlogLocation'
 
 import {
   EmptyState,
@@ -31,7 +32,7 @@ import { useSharedBacklogScan } from '../../hooks/useSharedBacklogScan'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { renderMarkdown } from '../../utils/markdown'
-import { basename, joinFilePath, parentPath } from '../../utils/paths'
+import { basename, parentPath } from '../../utils/paths'
 import { resolveFirstMockupCandidate } from '../../utils/backlogMockups'
 import { HtmlArtifactFrame } from '../htmlArtifact/HtmlArtifactFrame'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
@@ -43,7 +44,6 @@ import { findDuplicateBacklogIds } from '../../../../shared/backlog/item-id'
 import {
   backlogItemSlugFromPath,
   backlogPreviewMarkdown,
-  backlogRootPath,
   nextArchiveRelativePath,
   normalizeRelativePath,
   stableBacklogObjectId,
@@ -932,7 +932,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       void runAction(async () => {
         if (!folderPath) return
         const found = await resolveFirstMockupCandidate(target.path, async (relativePath) => {
-          const absolutePath = joinFilePath(folderPath, relativePath)
+          const absolutePath = await backlogOrWorkspacePath(folderPath, relativePath)
           if (!(await window.api.pathExists(absolutePath))) return null
           return { relativePath, absolutePath, content: await window.api.readfile(absolutePath) }
         })
@@ -945,7 +945,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     () =>
       runAction(async () => {
         if (!folderPath) return
-        await window.api.ensureDir(folderPath, 'backlog')
+        await ensureBacklogRoot(folderPath)
         await runScan()
       }),
     [folderPath, runAction, runScan],
@@ -970,7 +970,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         new Set((scan?.items ?? []).map((item) => item.relativePath.toLowerCase())),
       )
       // ensureDir is idempotent; it also covers a missing backlog/ folder.
-      const backlogDir = await window.api.ensureDir(folderPath, 'backlog')
+      const backlogDir = await ensureBacklogRoot(folderPath)
       const newPath = await window.api.createFile(backlogDir, fileName)
       const description = draft.description.trim()
       await window.api.writefile(newPath, description ? `# ${title}\n\n${description}\n` : `# ${title}\n`)
@@ -1073,7 +1073,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       if (!folderPath) return
       const archivedName = archivedRel.slice(archivedRel.lastIndexOf('/') + 1)
       const content = await window.api.readfile(item.path)
-      const archivedDir = await window.api.ensureDir(backlogRootPath(folderPath), 'archived')
+      const archivedDir = await window.api.ensureDir(await backlogRootOf(folderPath), 'archived')
       const newPath = await window.api.createFile(archivedDir, archivedName)
       try {
         await window.api.writefile(newPath, content)

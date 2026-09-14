@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
-  backlogRootPath,
+  backlogAbsolutePath,
   scanBacklog,
   type BacklogFilesystemAdapter,
   type BacklogItem,
   type BacklogScanResult,
 } from '../utils/backlog'
+import { backlogLocationOf } from './backlogLocation'
 import { hydrateBacklogScanResult } from '../utils/backlogObjects'
 import { collectDanglingMockups } from '../utils/backlogMockups'
 import { formatBacklogDisplayId } from '../../../shared/backlog/item-id'
-import { joinFilePath } from '../utils/paths'
 import { normalizeProjectRootKey } from '../utils/projectKnowledge'
 import type { BacklogItemRecordInput } from '../../../shared/electron-api'
 
@@ -87,7 +87,7 @@ function subscriptionKey(folderPath: string): string {
 type BacklogScanRunner = (folderPath: string) => Promise<BacklogScanResult>
 
 async function defaultBacklogScanRunner(folderPath: string): Promise<BacklogScanResult> {
-  const scanned = await scanBacklog(folderPath, adapter)
+  const scanned = await scanBacklog(await backlogLocationOf(folderPath), adapter)
   let metadataError: string | null = null
   const ensured = await window.api
     .ensureBacklogObjectRecords(folderPath, scanned.items.map(backlogRecordInput))
@@ -120,9 +120,11 @@ async function annotateBacklogDanglingMockups(
   const items = await Promise.all(
     result.items.map(async (item) => {
       try {
-        const dangling = await collectDanglingMockups(item, (relativePath) =>
-          adapter.pathExists(joinFilePath(folderPath, relativePath)),
-        )
+        const location = await backlogLocationOf(folderPath)
+        const dangling = await collectDanglingMockups(item, (relativePath) => {
+          const candidate = backlogAbsolutePath(location, relativePath)
+          return candidate ? adapter.pathExists(candidate) : Promise.resolve(false)
+        })
         return dangling.length > 0 ? { ...item, danglingMockups: dangling } : item
       } catch {
         return item
@@ -232,14 +234,19 @@ function startBacklogWatch(subscription: BacklogScanSubscription): void {
 
   const key = subscriptionKey(subscription.folderPath)
   subscription.watchStarting = true
-  window.api
-    .watchPath(backlogRootPath(subscription.folderPath), () => {
-      if (subscription.watchTimer !== null) window.clearTimeout(subscription.watchTimer)
-      subscription.watchTimer = window.setTimeout(() => {
-        subscription.watchTimer = null
-        if (backlogScanSubscriptions.get(key) === subscription) void refreshSubscription(subscription)
-      }, BACKLOG_WATCH_DEBOUNCE_MS)
-    })
+  // Resolve the root before watching: a workspace pointing its backlog at
+  // another folder has to watch THAT folder, not an empty `backlog/` inside the
+  // checkout that nothing will ever write to.
+  backlogLocationOf(subscription.folderPath)
+    .then((location) =>
+      window.api.watchPath(location.root, () => {
+        if (subscription.watchTimer !== null) window.clearTimeout(subscription.watchTimer)
+        subscription.watchTimer = window.setTimeout(() => {
+          subscription.watchTimer = null
+          if (backlogScanSubscriptions.get(key) === subscription) void refreshSubscription(subscription)
+        }, BACKLOG_WATCH_DEBOUNCE_MS)
+      }),
+    )
     .then((cleanup) => {
       subscription.watchStarting = false
       // Subscription torn down while the watch was starting: drop the watcher.

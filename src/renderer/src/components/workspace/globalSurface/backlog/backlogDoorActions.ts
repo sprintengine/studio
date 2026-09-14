@@ -1,5 +1,5 @@
+import { backlogRootOf } from '../../../../hooks/backlogLocation'
 import {
-  backlogRootPath,
   nextArchiveRelativePath,
   normalizeRelativePath,
   type BacklogCriticality,
@@ -119,7 +119,7 @@ export function createBacklogDoorActions(deps: BacklogDoorActionDeps): BacklogAc
   async function moveItemToArchive(root: string, item: BacklogItem, archivedRel: string): Promise<void> {
     const archivedName = archivedRel.slice(archivedRel.lastIndexOf('/') + 1)
     const content = await api.readfile(item.path)
-    const archivedDir = await api.ensureDir(backlogRootPath(root), 'archived')
+    const archivedDir = await api.ensureDir(await backlogRootOf(root), 'archived')
     const newPath = await api.createFile(archivedDir, archivedName)
     try {
       await api.writefile(newPath, content)

@@ -18,6 +18,7 @@
 // second door mounting it is an import, not a copy.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { backlogOrWorkspacePath } from '../../hooks/backlogLocation'
 
 import { BacklogDetail } from '../panels/BacklogPanel'
 import { FilePreviewPane } from '../ui/FilePreviewPane'
@@ -26,7 +27,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { deriveBacklogDependencies } from '../../utils/backlogDependencies'
 import { resolveFirstMockupCandidate } from '../../utils/backlogMockups'
 import { epicSlug } from '../../utils/backlogEpics'
-import { basename, joinFilePath, parentPath } from '../../utils/paths'
+import { basename, parentPath } from '../../utils/paths'
 import type { BacklogItem } from '../../utils/backlog'
 import type { BacklogLinkProvider } from '../../modules/renderer-host'
 import type { BacklogRunGlyph } from './BacklogRow'
@@ -99,7 +100,7 @@ export function BacklogItemDetailPane({
     (target: { path: string }) => {
       void (async () => {
         const found = await resolveFirstMockupCandidate(target.path, async (relativePath) => {
-          const absolutePath = joinFilePath(project.root, relativePath)
+          const absolutePath = await backlogOrWorkspacePath(project.root, relativePath)
           if (!(await window.api.pathExists(absolutePath))) return null
           return { relativePath, absolutePath, content: await window.api.readfile(absolutePath) }
         })

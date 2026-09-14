@@ -22,6 +22,7 @@ import React, {
   useRef,
   useState,
 } from 'react'
+import { ensureBacklogRoot } from '../../../hooks/backlogLocation'
 
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useBacklogScan } from '../newWorkspace/useBacklogScan'
@@ -661,7 +662,7 @@ export default function NewSprintDialog({
       if (!folderPath || !title) return
       const existing = new Set(items.map((item) => item.relativePath.toLowerCase()))
       const fileName = uniqueItemFileName(`${todayPrefix()}-${slugifyItemTitle(title)}`, existing)
-      const backlogDir = await window.api.ensureDir(folderPath, 'backlog')
+      const backlogDir = await ensureBacklogRoot(folderPath)
       const newPath = await window.api.createFile(backlogDir, fileName)
       const description = draft.description.trim()
       await window.api.writefile(

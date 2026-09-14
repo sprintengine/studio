@@ -22,7 +22,14 @@ import {
 } from '../shared/backlog/item-id'
 import { isRoadmapContent } from '../shared/backlog/roadmap'
 import { reconcileBacklogObjectRecordIds, stableBacklogObjectId } from '../shared/backlog/object-id'
-import { backlogAbsolutePath, backlogLocationFor, backlogLogicalPath, type BacklogLocation } from '../shared/backlog/scan'
+import {
+  backlogAbsolutePath,
+  backlogLocationFor,
+  backlogLogicalPath,
+  defaultBacklogLocation,
+  isDefaultBacklogLocation,
+  type BacklogLocation,
+} from '../shared/backlog/scan'
 import {
   backlogHighlightFields,
   durableBacklogLinkFields,
@@ -48,7 +55,10 @@ import type {
   BacklogMutationResult,
   BacklogObjectRecordPayload,
   BacklogObjectStorePayload,
+  BacklogLocationInfo,
+  BacklogLocationResult,
   BacklogReadResult,
+  BacklogSetRootInput,
   BacklogRemoveLinkInput,
   BacklogRemoveRecordInput,
   BacklogStatusInput,
@@ -593,6 +603,68 @@ export async function listBacklogItems(workspaceRoot: string): Promise<BacklogLi
 export type BacklogReadItemResult =
   | { ok: true; item: BacklogListedItem; body: string }
   | { ok: false; message: string }
+
+/**
+ * Where this workspace's backlog lives, and whether it is actually there.
+ *
+ * A configured root that has gone missing is reported rather than papered over:
+ * an unplugged drive or an uncloned backlog repo should read as "the folder is
+ * not there", not as a backlog that lost all its items.
+ */
+export async function resolveBacklogLocation(workspaceRoot: string): Promise<BacklogLocationResult> {
+  try {
+    const workspace = await validateWorkspaceRoot(workspaceRoot)
+    return { ok: true, location: await describeLocation(workspace.location) }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
+async function describeLocation(location: BacklogLocation): Promise<BacklogLocationInfo> {
+  let exists = false
+  try {
+    exists = (await stat(location.root)).isDirectory()
+  } catch {
+    exists = false
+  }
+  return {
+    workspaceRoot: location.workspaceRoot,
+    root: location.root,
+    isDefault: isDefaultBacklogLocation(location),
+    exists,
+  }
+}
+
+/**
+ * Point this workspace's backlog at a folder, or reset it to the default with
+ * `root: null`. The folder must already exist — this never creates one, because
+ * a typo that silently mkdir's an empty backlog is worse than a refusal.
+ */
+export async function setBacklogRoot(input: BacklogSetRootInput): Promise<BacklogLocationResult> {
+  try {
+    const workspace = await validateWorkspaceRoot(input.workspaceRoot)
+    const requested = typeof input.root === 'string' ? input.root.trim() : ''
+    if (!requested) {
+      await writeBacklogConfigFields(workspace.root, { root: undefined })
+      return { ok: true, location: await describeLocation(defaultBacklogLocation(workspace.root)) }
+    }
+    if (!isAbsolute(requested)) throw new Error('A backlog folder must be an absolute path.')
+    const resolved = await realpath(requested).catch(() => {
+      throw new Error('That backlog folder does not exist.')
+    })
+    if (!(await stat(resolved)).isDirectory()) throw new Error('A backlog folder must be a folder.')
+    // Pointing a backlog at the workspace root itself would make every file in
+    // the checkout a backlog item; `<root>/backlog` is the default and is fine.
+    if (resolved === workspace.root) throw new Error('A backlog folder cannot be the workspace root itself.')
+    const location = backlogLocationFor(workspace.root, resolved)
+    await writeBacklogConfigFields(workspace.root, {
+      root: isDefaultBacklogLocation(location) ? undefined : location.root,
+    })
+    return { ok: true, location: await describeLocation(location) }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
 
 export async function readBacklogItem(workspaceRoot: string, relativePath: string): Promise<BacklogReadItemResult> {
   try {
