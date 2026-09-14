@@ -107,6 +107,14 @@ export function toggleDependencySlug(current: readonly string[] | undefined, slu
 
 export type BacklogActions = {
   createFolder: () => void
+  // Where a workspace keeps its backlog is a per-workspace setting, so these are
+  // offered by the panel and absent from the global door, which spans projects
+  // and has no single workspace to point. A surface that cannot answer "which
+  // workspace" does not offer the choice.
+  /** Point this workspace's backlog at a folder anywhere on this machine. */
+  chooseFolder?: () => void
+  /** Put it back to `<workspace>/backlog`. */
+  useDefaultFolder?: () => void
   createPlan: () => void
   openInEditor: (item: BacklogItem) => void
   revealInFiles: (item: BacklogItem) => void

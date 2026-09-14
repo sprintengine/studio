@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { backlogOrWorkspacePath, backlogRootOf, ensureBacklogRoot } from '../../hooks/backlogLocation'
+import {
+  backlogOrWorkspacePath,
+  backlogRootOf,
+  ensureBacklogRoot,
+  forgetBacklogLocation,
+} from '../../hooks/backlogLocation'
 
 import {
   EmptyState,
@@ -25,6 +30,7 @@ import {
 } from '../ui'
 import { useShallow } from 'zustand/react/shallow'
 import type { AgentState } from '../../types/workspace'
+import type { BacklogLocationInfo } from '../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectBacklogProjectView, useBacklogViewStore } from '../../store/backlogViewStore'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
@@ -340,6 +346,23 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // per workspace (see the restore + persist effects below), and search is
   // ephemeral, so a reload/restart returns to the same item under the shared lens.
   const { scan, loading, refresh: runScan } = useSharedBacklogScan(folderPath)
+
+  // Where this workspace's backlog lives, for the empty state to speak
+  // accurately: "there is no folder yet" and "the folder you chose is not there"
+  // are different problems with different fixes, and showing the second as the
+  // first reads as lost work.
+  const [backlogLocation, setBacklogLocationInfo] = useState<BacklogLocationInfo | null>(null)
+  const refreshBacklogLocation = useCallback(async () => {
+    if (!folderPath) {
+      setBacklogLocationInfo(null)
+      return
+    }
+    const resolved = await window.api.resolveBacklogLocation(folderPath).catch(() => null)
+    setBacklogLocationInfo(resolved?.ok ? resolved.location : null)
+  }, [folderPath])
+  useEffect(() => {
+    void refreshBacklogLocation()
+  }, [refreshBacklogLocation, scan])
 
   // The shared store returns scan=null for a missing folder; mirror the old
   // behavior of clearing the local selection/detail view in that case.
@@ -951,6 +974,33 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, runAction, runScan],
   )
 
+  // Point this workspace's backlog at a folder anywhere on this machine, or put
+  // it back to `<workspace>/backlog`. Both drop the renderer's cached location
+  // before rescanning — without that the next scan would read the old root, and
+  // the change would appear to have done nothing until the window reloaded.
+  const applyBacklogRoot = useCallback(
+    (nextRoot: string | null) =>
+      runAction(async () => {
+        if (!folderPath) return
+        const result = await window.api.setBacklogRoot({ workspaceRoot: folderPath, root: nextRoot })
+        if (!result.ok) throw new Error(result.message)
+        forgetBacklogLocation(folderPath)
+        await refreshBacklogLocation()
+        await runScan()
+      }),
+    [folderPath, refreshBacklogLocation, runAction, runScan],
+  )
+
+  const chooseBacklogFolder = useCallback(
+    () =>
+      void (async () => {
+        const picked = await window.api.openDir()
+        if (!picked) return
+        await applyBacklogRoot(picked)
+      })(),
+    [applyBacklogRoot],
+  )
+
   // Opening the capture dialog is the create entry point; the actual file +
   // metadata write happens on submit so a cancelled draft never touches disk.
   const openCreate = useCallback(() => {
@@ -1437,6 +1487,8 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
 
   const actions: BacklogActions = {
     createFolder: () => void createBacklogFolder(),
+    chooseFolder: chooseBacklogFolder,
+    useDefaultFolder: () => void applyBacklogRoot(null),
     createPlan: openCreate,
     openInEditor: (item) => void openInEditor(item),
     revealInFiles: (item) => void revealInFiles(item),
@@ -1688,6 +1740,23 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     if (rowMenu && !menuItem) setRowMenu(null)
   }, [rowMenu, menuItem])
 
+  // A backlog that is not in the checkout says so, quietly and permanently.
+  // Without this the only place the redirect is visible is the missing-folder
+  // state, so a working redirect would be invisible and unchangeable — you
+  // could point it somewhere and then have no way back but the config file.
+  const backlogRootNote =
+    backlogLocation && !backlogLocation.isDefault ? (
+      <div className="flex items-center gap-2 border-t border-[color:var(--border-subtle)] px-3 py-1.5 text-micro text-[color:var(--text-subtle)]">
+        <TruncatedText as="span" text={`Backlog folder: ${backlogLocation.root}`} className="min-w-0 flex-1 font-mono" />
+        <GhostButton size="sm" onClick={chooseBacklogFolder}>
+          Change
+        </GhostButton>
+        <GhostButton size="sm" onClick={() => void applyBacklogRoot(null)}>
+          Use default
+        </GhostButton>
+      </div>
+    ) : null
+
   const listPane = (
     <BacklogList
       items={filtered}
@@ -1716,6 +1785,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
 
   const detailPane = (
     <BacklogDetail
+      backlogLocation={backlogLocation}
       scan={scan}
       loading={loading}
       folderPath={folderPath}
@@ -1862,12 +1932,20 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         <div className="flex min-h-0 flex-1">
           <div className="flex min-h-0 w-[44%] max-w-[420px] flex-col border-r border-[color:var(--border-default)]">
             {listPane}
+            {backlogRootNote}
           </div>
           <div className="min-h-0 flex-1">{detailPane}</div>
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          {showDetailInSingle && detailItem ? detailPane : listPane}
+          {showDetailInSingle && detailItem ? (
+            detailPane
+          ) : (
+            <>
+              {listPane}
+              {backlogRootNote}
+            </>
+          )}
         </div>
       )}
 
@@ -2344,6 +2422,7 @@ export function BacklogDetail({
   onCloseMockupPreview,
   onPopOutMockup,
   headerExtra,
+  backlogLocation = null,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -2401,6 +2480,12 @@ export function BacklogDetail({
   onPopOutMockup: () => void
   /** Host-supplied band rendered directly under the title (MC-1923). */
   headerExtra?: React.ReactNode
+  /**
+   * Where this workspace's backlog lives, for the missing-folder state. Null
+   * while it is still being resolved, which reads as the default — the right
+   * guess for every workspace that has not configured a root.
+   */
+  backlogLocation?: BacklogLocationInfo | null
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -2414,12 +2499,33 @@ export function BacklogDetail({
     return <BacklogDetailSkeleton />
   }
   if (scan?.state === 'missing-folder') {
+    // A configured folder that is not there is a different problem from never
+    // having had one — an unplugged drive, a backlog repo not cloned on this
+    // machine — and the fix is different too. Saying "no backlog folder yet"
+    // over a folder someone chose reads as lost work.
+    const redirected = backlogLocation !== null && !backlogLocation.isDefault
     return (
       <DetailState
-        heading="No backlog folder"
-        body="This workspace has no backlog/ folder yet. Create one to start capturing items."
+        heading={redirected ? 'Backlog folder not found' : 'No backlog folder'}
+        body={
+          redirected
+            ? `This workspace's backlog is set to ${backlogLocation.root}, which isn't there right now. Nothing has been lost — reconnect the folder, pick a different one, or go back to the default.`
+            : 'This workspace has no backlog folder yet. Create one to start capturing items, or point it at a folder you already keep them in.'
+        }
         cta={
-          <PrimaryButton onClick={actions.createFolder}>Create backlog folder</PrimaryButton>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {redirected ? null : (
+              <PrimaryButton onClick={actions.createFolder}>Create backlog folder</PrimaryButton>
+            )}
+            {actions.chooseFolder ? (
+              <GhostButton onClick={actions.chooseFolder}>
+                {redirected ? 'Choose a different folder' : 'Choose a folder…'}
+              </GhostButton>
+            ) : null}
+            {redirected && actions.useDefaultFolder ? (
+              <GhostButton onClick={actions.useDefaultFolder}>Use the default</GhostButton>
+            ) : null}
+          </div>
         }
       />
     )
