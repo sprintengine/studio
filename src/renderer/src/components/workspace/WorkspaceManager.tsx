@@ -78,7 +78,7 @@ import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
 import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, removeAgentTab, removeNewAgentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
-import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
+import { DISABLE_SPRINTENGINE_AUTORUN, DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import {
@@ -550,7 +550,7 @@ export default function WorkspaceManager() {
   // scheduler from spawning (it only schedules registered runs) — the same
   // recovery lever the retired renderer supervisor honoured.
   useEffect(
-    () => (MULTICODE_DISABLE_SPRINTENGINE_AUTORUN ? undefined : initSprintEngineRuntimeBridge()),
+    () => (DISABLE_SPRINTENGINE_AUTORUN ? undefined : initSprintEngineRuntimeBridge()),
     [],
   )
   const workspaces = useWorkspaceStore(useShallow((s) => selectWorkspaceManagerWorkspaces(s.workspaces)))
@@ -3500,7 +3500,7 @@ export default function WorkspaceManager() {
   }, [handBacklogItemToAgent])
 
   // The panel's project chip: distinct folders across this window's open
-  // workspaces, in rail order. Browse admits a folder Multicode doesn't know.
+  // workspaces, in rail order. Browse admits a folder the studio doesn't know.
   const newChatProjectOptions = useMemo(() => {
     const seen = new Set<string>()
     const options: Array<{ path: string; label: string }> = []
@@ -4479,7 +4479,7 @@ export default function WorkspaceManager() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-canvas)] text-[color:var(--text-strong)]">
-      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC ? (
+      {sprintEngineEnabled && !DISABLE_SPRINTENGINE_SYNC ? (
         // Projection sync consumes active-window/workspace identity from the shell,
         // so it remains the known propful exception to zero-prop supervisor contributions.
         <SprintEngineProjectionSupervisor
@@ -4487,7 +4487,7 @@ export default function WorkspaceManager() {
           workspaceIds={workspaces.map((workspace) => workspace.id)}
         />
       ) : null}
-      {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC ? (
+      {sprintEngineEnabled && !DISABLE_SPRINTENGINE_SYNC ? (
         // Merge-state polling itself is MAIN's (MC-2155): it spawns a `gh`
         // subprocess, must run with no window open, and having one owner in main
         // is what keeps a second window from doubling the probes. What is left

@@ -186,7 +186,7 @@ export type ScannedPluginOrigin =
    * the plugin is opened and that repository is read.
    */
   | { kind: 'linked'; repo: string; ref: string; sha: string; path: string; url: string }
-  /** A marketplace-registry entry (the Multicode source). */
+  /** A marketplace-registry entry (the studio source). */
   | { kind: 'registry'; entryId: string; sourceUrl: string }
 
 export type ScannedPluginHook = {

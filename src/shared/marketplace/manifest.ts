@@ -1,6 +1,6 @@
 // Extension marketplace bundle + registry contracts.
 //
-// A marketplace plugin is a thin bundle over primitives Multicode already owns:
+// A marketplace plugin is a thin bundle over primitives the studio already owns:
 // MCP configs, skill packs, capability modules, and agent CLI plugins. The
 // bundle manifest validator lives in the published SDK so authoring tools and
 // the app cannot drift on the signing-critical plugin.json shape, including
@@ -130,7 +130,7 @@ export type MarketplaceIndex = {
 
 // Machine tag the generated catalogue stamps on Claude Code plugin entries
 // (content in Claude's plugin format — `.claude-plugin/plugin.json` + skills
-// dirs — not a Multicode bundle). Both the storefront affordance and the
+// dirs — not a studio bundle). Both the storefront affordance and the
 // install pipeline branch on it, so the check lives here, once.
 const CLAUDE_PLUGIN_TAG = 'claude-plugin'
 

@@ -86,7 +86,7 @@ const TEXT_EXTENSIONS = new Set([
   '.yml',
 ])
 const MARKDOWN_LINK_RE = /!?\[[^\]]*]\(([^)]+)\)/g
-// [[note]] | [[note|alias]] | [[note#section]] | [[brand/multicode-assets]]
+// [[note]] | [[note|alias]] | [[note#section]] | [[brand/logo-assets]]
 // Negative lookbehind on `!` so image embeds (`![[…]]`) are still skipped.
 const WIKILINK_RE = /(?<!!)\[\[([^\]\n]+?)\]\]/g
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/

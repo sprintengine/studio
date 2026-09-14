@@ -504,7 +504,7 @@ function bundledClaudeContentRef(contentDigests: readonly string[]): string {
  * listing before it is offered for install; an entry whose content did not
  * ship in the snapshot gets an honest "not installable offline yet" failure.
  * Commands/agents/hooks in the plugin are NOT staged or installed; skills are
- * the one component Multicode can honestly deliver today.
+ * the one component the studio can honestly deliver today.
  */
 export async function downloadClaudeCodePluginSource(
   options: ClaudeCodePluginDownloadOptions

@@ -219,7 +219,7 @@ async function discoverExistingAgentConfig(
  * adapters (the imports above), so it and the capability query can never
  * disagree about what a config file says. Its *sources* are still this literal
  * pair, because it answers a different question: what an existing user-scope
- * install of Codex or Claude Code holds that Multicode could adopt on first run.
+ * install of Codex or Claude Code holds that the studio could adopt on first run.
  * `AgentConfigImportSource` is the two-value union the onboarding surface
  * renders, so widening this list is a product change, not a refactor.
  *

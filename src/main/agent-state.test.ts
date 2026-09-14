@@ -91,7 +91,7 @@ async function runReporter(event: string): Promise<Record<string, unknown> | nul
   try {
     const child = spawn(process.execPath, [reporterPath, '--socket', socketPath], {
       // MULTICODE_AGENT_STATE_SOCKET is pinned, not just --socket: the reporter
-      // reads env FIRST, so when this suite runs inside a Multicode agent
+      // reads env FIRST, so when this suite runs inside a studio agent
       // terminal the inherited value would send the frame to the live app.
       env: {
         ...process.env,
@@ -922,7 +922,7 @@ async function run(): Promise<void> {
         // it by command shape and migrate it away, not strand it.
         { matcher: '*', hooks: [{ type: 'command', command: 'node "/old/root/.multicode/hooks/agent-state.mjs" --socket "/old/agent.sock"' }] },
       ],
-      // A stale Multicode-tagged hook from a prior release that registered the
+      // A stale studio-tagged hook from a prior release that registered the
       // now-dropped PreToolUse event. Install must migrate it away (and uninstall
       // must also clean it), not strand it.
       PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'old reporter', _multicode: AGENT_STATE_HOOK_TAG }] }],

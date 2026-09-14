@@ -34,7 +34,7 @@ def load_soul_prompt(
     knowledge_root_configured: Optional[bool] = None,
 ) -> Optional[str]:
     # Role manifests carry only the portable role identity. A Sprint Engine dispatch
-    # layers the Multicode product skills (gated per run) and the Sprint Engine
+    # layers the studio's product skills (gated per run) and the Sprint Engine
     # quality norms on top, so the rendered brief carries the full quality bar
     # without any of it being baked into the manifest.
     # `knowledge_root_configured=None` resolves from this process's env — correct
@@ -77,7 +77,7 @@ def load_roleless_soul_prompt(
     """Render a roleless agent's quality + orchestration layer.
 
     An agent with no role carries no role-personality Soul. It still receives the
-    full Sprint Engine quality bar — the same universal norm + Multicode product
+    full Sprint Engine quality bar — the same universal norm + studio product
     skills every dispatched agent gets (product skills gated per run, like a
     specialist render) — plus the orchestration skill that describes the shape of
     a roleless run and drives one agent through build -> self-review -> publish.
@@ -243,8 +243,11 @@ def project_relative_path_guidance() -> str:
         ),
         (
             "All file and directory references must be relative to the project root, using forward "
-            "slashes where practical, for example `src/renderer/src/App.tsx`, "
-            "`resources/sprintengine/skills/developer/SKILL.md`, or `.multi-code/sprintengine/<team>/reviews/code-review-1.md`."
+            "slashes where practical, for example `src/renderer/src/App.tsx` or "
+            "`resources/sprintengine/skills/developer/SKILL.md`. Run-store paths are written the same "
+            "way, but start them from the run-store folder your directive names rather than composing "
+            "one from a remembered directory name — the app-owned folder is called `.sprintengine` in "
+            "newer workspaces and `.multi-code` in older ones, and a workspace has only the one it has."
         ),
         (
             "For Sprint Engine MCP payload fields that carry paths — `path` on `sprintengine.plan.add_task`, "

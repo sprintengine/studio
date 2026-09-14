@@ -3,7 +3,7 @@ import type { SprintRunRuntimeState, SprintRunSummary } from '../../../../../../
 import type { StatusTone } from '../../../ui/tokens'
 
 // The Sprints door rail's read model (item 1763, mockup §2): every run in this
-// Multicode as one dot + title + plain-language state line, filtered by project
+// studio as one dot + title + plain-language state line, filtered by project
 // and ordered by what needs a person. Pure over the run-index summaries (T1) —
 // no store, no IPC, no clock — so the rail never fans out a per-row call and the
 // grouping/filter/ordering rules are unit-testable on their own.

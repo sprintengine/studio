@@ -45,7 +45,7 @@ async function verifyMarketplacePlugin(
     }
   }
 
-  // Claude Code plugins are unsigned by nature (no Multicode manifest to
+  // Claude Code plugins are unsigned by nature (no studio manifest to
   // verify); the pre-trust staging exists to disclose the REAL skill file
   // listing at the trust prompt — never a fabricated one. Content resolves
   // from the bundled catalogue payload and is digest-checked, so this is

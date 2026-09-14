@@ -219,7 +219,7 @@ function loadElectron(): typeof import('electron') {
   return require('electron')
 }
 
-// Multicode's single shared credential store. Both the conversation runtime and
+// The studio's single shared credential store. Both the conversation runtime and
 // the agent-CLI launch path resolve secrets through this one instance, so a key
 // set in one surface (and its in-memory/session cache) is visible to the other.
 let sharedCredentialStore: ProviderSecretStore | null = null

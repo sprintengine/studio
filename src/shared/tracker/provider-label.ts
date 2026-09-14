@@ -2,7 +2,7 @@
 // two unrelated surfaces still name a provider — the automations repo-event
 // detail and the run board's provenance line.
 //
-// Multicode no longer integrates with ticket trackers; agents do, through the
+// The studio no longer integrates with ticket trackers; agents do, through the
 // MCPs those companies ship. Everything else that lived here went with that
 // decision. This file is a naming table, not an integration.
 

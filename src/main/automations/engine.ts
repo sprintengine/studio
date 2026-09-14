@@ -122,7 +122,7 @@ export type AutomationsEngineOptions = {
   removeRunWorktree?: AutomationRunWorktreeRemover
   disposeRunAgent?: AutomationRunAgentDisposer
   // Live agent-session executionIds, used by the startup reconcile to tell an
-  // orphaned pending run (agent gone while Multicode was down) from one whose
+  // orphaned pending run (agent gone while the studio was down) from one whose
   // agent is still live. Absent in tests that do not exercise reconcile.
   getLiveAgentExecutionIds?: () => string[]
   // How long a turn-end must stand before it finalizes the run (see
@@ -810,7 +810,7 @@ export class AutomationsEngine {
     // drop the tab, delete the record. This is what prevents the dead-cwd relaunch
     // loop — with no surviving agent there is nothing to relaunch into the removed
     // worktree. Best-effort, and reached by the startup reconcile too (it re-runs
-    // finalize for runs orphaned while Multicode was down), so a crash mid-run is
+    // finalize for runs orphaned while the studio was down), so a crash mid-run is
     // also covered.
     if (run.workspaceId && run.agentId && this.disposeRunAgent) {
       try {
@@ -859,7 +859,7 @@ export class AutomationsEngine {
     // dispatched before an app restart are still finalized when their signal lands.
     if (mode === 'startup') {
       await this.seedPendingAgentRuns(projectFolders)
-      // Force-fail runs orphaned while Multicode was down before the scan below
+      // Force-fail runs orphaned while the studio was down before the scan below
       // gets a chance to leave them pending forever (their agent is gone).
       await this.reconcileOrphanedAgentRuns()
     }
@@ -904,7 +904,7 @@ export class AutomationsEngine {
 
   // Startup reconciliation: an agent-backed run recorded `running` whose
   // executionId is NOT among the live agent executions had its agent end while
-  // Multicode was down — force-fail it. A run whose executionId is still live
+  // the studio was down — force-fail it. A run whose executionId is still live
   // stays pending for its frames; a run with no recorded executionId is never
   // force-failed here (nothing proves its agent is gone) and is covered by the
   // max-duration sweep instead.

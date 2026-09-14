@@ -139,7 +139,7 @@ DEFAULT_RUNNER_POLICY = {
     # era (MC-1827); nothing in the engine polls any more. `cliWatchPolling`
     # survives as the run.yaml hint the app writes when the automation mode
     # changes, and the mobile snapshot reads it back to derive that mode.
-    # Multicode's supervisor ignores it and decides spawning from local
+    # The studio's supervisor ignores it and decides spawning from local
     # renderer autoState. Legacy `mode: auto|off` is read as a fallback by
     # `normalize_runner_policy`.
     "cliWatchPolling": "disabled",

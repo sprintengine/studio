@@ -1,16 +1,16 @@
 # @sprintengine/module-sdk
 
-Published contract types for building **Multicode capability modules** — the
-manifest and permission shapes, the main-process `MainHost` registration
-contract, the renderer `RendererHost` contribution types (panels, workspace
-types, Backlog item actions, Backlog link providers, commands, settings
-sections, sidebar nav entries), Automations provider registration, and the
-module notification payloads.
+Published contract types for building **SprintEngine Studio capability
+modules** — the manifest and permission shapes, the main-process `MainHost`
+registration contract, the renderer `RendererHost` contribution types (panels,
+workspace types, Backlog item actions, Backlog link providers, commands,
+settings sections, sidebar nav entries), Automations provider registration, and
+the module notification payloads.
 
 The package is types-first: it ships type declarations plus a handful of small
 mirrored values (`BUNDLED_MODULE_IDS`, `KNOWN_CAPABILITY_PERMISSIONS`,
-`createServiceToken`). It has no runtime dependency on Electron or on Multicode
-application code, so an external project can compile a module against the
+`createServiceToken`). It has no runtime dependency on Electron or on the
+application's own code, so an external project can compile a module against the
 tarball alone.
 
 ## Renamed in 0.6.0
@@ -25,7 +25,7 @@ answers both names.
 
 ## Versioning
 
-Semver, starting at `0.1.0`. See `CHANGELOG.md`. Inside the Multicode
+Semver, starting at `0.1.0`. See `CHANGELOG.md`. Inside the studio
 repository a drift guard (`drift/sdk-drift-guard.ts`, run in the verify
 pipeline) fails the build whenever these declarations diverge from the in-app
 contracts, so a published version always matches the app version it ships with.
@@ -185,7 +185,7 @@ contracts, so a published version always matches the app version it ships with.
 - **Module storage**: `getModuleStorage(host)` → scoped
   `get`/`set`/`delete`/`list`, keyed per module and (optionally) per
   workspace. The host owns file placement — workspace-scoped keys under the
-  workspace's `.multi-code/modules/<moduleId>/`, global keys under per-user
+  workspace's `.sprintengine/modules/<moduleId>/`, global keys under per-user
   app data — so modules stop hand-rolling home-dir files or raw
   localStorage. JSON values (1 MB cap), locked-down keys, atomic writes.
   Declare the `storage` permission and `dependsOn: ['agent-runtime']` (or a
@@ -588,7 +588,7 @@ can edit or delete module-created automations from the panel.
 
 A trusted module's `entry.main` can contribute an Automations trigger or action
 provider. Provider ids are namespaced by the registering module id inside
-Multicode, while `providers:list` still exposes the provider's declared `kind`
+the studio, while `providers:list` still exposes the provider's declared `kind`
 to the editor form.
 
 ```ts
@@ -625,14 +625,14 @@ export const registerMain: RegisterMain = (host) => {
 
 Automations provider code only runs from trusted modules, under the same
 third-party module trust gate as other `entry.main` code. `run-command` remains
-unavailable in the app-active executor until Multicode ships that capability.
+unavailable in the app-active executor until the studio ships that capability.
 The lower-level registry service token is intentionally not exported; use the
 helper functions so provider ownership is always stamped from the host.
 
 ## BYO-CLI plugins (adding an agent CLI)
 
 A **CLI plugin** is a different artifact from a capability module: a folder
-containing a `plugin.json` that teaches Multicode how to launch, resume, drive,
+containing a `plugin.json` that teaches the studio how to launch, resume, drive,
 and detect completion for a new agent CLI (claude-code, codex, opencode, and
 your own). Drop it into `~/.multicode/plugins/<id>/`, or install it from
 **Settings → Agents → "Install CLI from folder"**. The plugin id must equal the
@@ -648,8 +648,8 @@ if (!result.ok) console.error(result.issues) // [{ path, message }, …]
 ```
 
 `validateCliPluginManifest` is pure (no Node/DOM) and is **the same validator the
-Multicode app runs** when it loads a `plugin.json` (the app imports it from this
-package), so a manifest it accepts is loadable by Multicode — the authoring
+studio runs** when it loads a `plugin.json` (the app imports it from this
+package), so a manifest it accepts is loadable by the studio — the authoring
 contract and the loader cannot drift. The bundled manifests under
 `resources/plugins/` in the app repository are worked `plugin.json` examples.
 
@@ -673,7 +673,7 @@ npx multicode-module keygen --out ~/keys/module-signing.key
 #    the bytes on disk are exactly what the app verifies.
 npx multicode-module sign path/to/my-module --key ~/keys/module-signing.key
 
-# 3. Check the module the way the Multicode app will.
+# 3. Check the module the way the studio will.
 #    Exit 0 + signer fingerprint when valid; exit 1 when unsigned or tampered.
 npx multicode-module verify path/to/my-module
 
@@ -695,9 +695,10 @@ key fingerprint — the user still grants trust explicitly before any code runs.
 
 MIT — see [`LICENSE`](./LICENSE). You are free to build modules against this
 SDK and to distribute or sell those modules, including closed-source. The MIT
-license covers this SDK package only; it does not grant rights to the Multicode
-application itself, and it does not by itself govern distribution through any
-Multicode marketplace (that is covered by separate marketplace terms).
+license covers this SDK package only; it does not grant rights to the
+SprintEngine Studio application itself, and it does not by itself govern
+distribution through the SprintEngine Studio marketplace (that is covered by
+separate marketplace terms).
 
 ### Packaged web runtimes and WebAssembly
 

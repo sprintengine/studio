@@ -31,7 +31,7 @@ import { useSprintRunIndex } from './useSprintRunIndex'
 // A run has always been able to span projects — it just lived as a workspace row
 // nested under one of them, so the UI claimed it belonged there, and a run whose
 // workspace was closed vanished. This is where runs live now: a rail of every run
-// in this Multicode, live and historical, filterable by project, over a canvas.
+// in this studio, live and historical, filterable by project, over a canvas.
 //
 // The canvas is the selected run in full (item 1764): the repositories it
 // declares, its rollup, and its board — mounted by run identity, so a run whose
@@ -74,7 +74,7 @@ export function RunDoorSurface({ door }: { door: RunDoorDefinition }): JSX.Eleme
   const { runs: everyRun, loadState, error, reload } = useSprintRunIndex()
 
   // The door's own runs. One read of the index, partitioned — every run in this
-  // Multicode belongs to exactly one door, so no run appears in both and none
+  // studio belongs to exactly one door, so no run appears in both and none
   // appears in neither (see `runDoors.ts` for what an unclassifiable run does).
   const runs = useMemo(() => runsForDoor(everyRun, door.id), [everyRun, door.id])
 

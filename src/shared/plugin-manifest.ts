@@ -475,7 +475,7 @@ export type ConversationProviderModel = {
 
 // A credential descriptor any manifest kind can declare — a CLI plugin that
 // proxies an authenticated endpoint (e.g. the Z.AI runtime) or a conversation
-// provider. Resolved by Multicode's single shared credential store
+// provider. Resolved by the studio's single shared credential store
 // (src/main/secret-store.ts), which stores the value encrypted and exposes only
 // redacted status. `env` names an environment variable consulted as a fallback
 // source for the secret.

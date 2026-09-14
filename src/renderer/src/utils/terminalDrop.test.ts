@@ -273,7 +273,7 @@ assert.equal(
   'Use $backlog to work backlog/item.md.'
 )
 
-// Custom CLI plugins get their invocation from the manifest, not Multicode source.
+// Custom CLI plugins get their invocation from the manifest, not from app source.
 assert.equal(
   backlogSkillInvocationForDrop(
     backlogPayload('/repo/backlog/item.md'),

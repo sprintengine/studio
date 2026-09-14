@@ -1,8 +1,13 @@
 # Sprint Engine Schema
 
-Sprint Engine is Multicode's local execution authority for specialist runs.
-Current runs use a folder-backed store under `.multi-code/sprintengine/<team>/`.
+Sprint Engine is the studio's local execution authority for specialist runs.
+Current runs use a folder-backed store under `<sidecar>/sprintengine/<team>/`.
 The folder store and normalized projection are the durable read contract.
+
+`<sidecar>` is the workspace's app-owned directory: `.sprintengine`, or
+`.multi-code` in a workspace made before the 2026-09-08 rename. A workspace has
+exactly one of them and nothing migrates between them, so a path written by
+hand has to use the one that is already there.
 
 Agents and app code must not hand-edit Sprint Engine store files. Mutations go
 through the Sprint Engine CLI/tool boundary so locking, ready queue refresh,
@@ -13,7 +18,7 @@ activity, artifacts, events, metrics, and projections stay coherent.
 Each team folder contains these store files and directories:
 
 ```text
-.multi-code/sprintengine/<team>/
+<sidecar>/sprintengine/<team>/
   run.yaml
   plan.md
   projection.json
@@ -43,7 +48,7 @@ Each team folder contains these store files and directories:
 Folder-store files are not safe manual editing surfaces. Human/debug/headless
 operators can use commands such as `sprintengine join`,
 `sprintengine task next`, `sprintengine task log`, `sprintengine task status`,
-`sprintengine artifact add`, and `sprintengine runner set`. Multicode-launched
+`sprintengine artifact add`, and `sprintengine runner set`. Studio-launched
 autonomous agents use the managed Sprint Engine MCP server instead of CLI
 commands.
 
@@ -134,7 +139,7 @@ so the app can reject a stale `projection.json` without invoking Python —
 `SPRINT_ENGINE_RUN_SCHEMA_VERSION = 5` and
 `SPRINT_ENGINE_MIN_READABLE_RUN_SCHEMA_VERSION = 4`, guards every surface that
 reads one. The remedy for a store below the readable floor is deleting
-`.multi-code/sprintengine/<team>/` and re-running the sprint.
+`<sidecar>/sprintengine/<team>/` and re-running the sprint.
 
 ## Role Registry Boundary
 
@@ -309,7 +314,7 @@ The `run.subscribe` run-event stream is unaffected — it is the run-level histo
 feed, not a per-agent dispatch cursor.
 
 Dispatch is durable telemetry, not a guarantee that a model session woke up.
-Multicode remains responsible for spawning, focusing, or injecting terminal
+The studio remains responsible for spawning, focusing, or injecting terminal
 input for current CLIs. Correctness comes from reconciling task leases and
 dispatch ids, not from a notification arriving.
 
@@ -499,7 +504,7 @@ Compatibility names:
   behavior, used by the one-shot `sprintengine join` operator command. It must
   keep the current CLI response shape while sharing lifecycle state with
   `sprintengine.agent.join`. It is operator-only under the capability policy:
-  autonomous agents never see it. Managed Multicode prompt flows use
+  autonomous agents never see it. The studio's managed prompt flows use
   `sprintengine.agent.join` followed by the direct claim tool named in the
   runtime prompt. `sprintengine.agent.next_directive` and the `--watch` polling
   loop it adapted were deleted (MC-1827).
@@ -966,7 +971,7 @@ Standalone/headless CLI agents can start and continue with:
 sprintengine join --id <agent-id>      # --role too, on a role-tagged run
 ```
 
-Multicode-launched autonomous agents instead register with
+Studio-launched autonomous agents instead register with
 `sprintengine.agent.join`, then call the direct claim tool named by the
 renderer prompt (`sprintengine.task.next` or `sprintengine.triage.needs_input`)
 exactly once. The managed server resolves `statePath` and `workspaceRoot` from run
@@ -1036,7 +1041,7 @@ artifact folders, metrics files, or comments from folder internals.
 
 Runner policy is stored in `run.yaml` and projected under `run.runner`. The CLI
 watch loop these fields configured was deleted in MC-1827 — nothing in the
-engine polls. `cliWatchPolling` survives as the run.yaml hint Multicode writes
+engine polls. `cliWatchPolling` survives as the run.yaml hint the studio writes
 when a run's automation mode changes and the mobile snapshot reads back to
 derive that mode; the remaining timing fields are inert. The runtime owns
 terminal dispatch/continuation and restarts missing capacity instead of asking

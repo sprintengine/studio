@@ -1558,7 +1558,7 @@ function testStartupPromptIsMcpNative(): void {
   assert.ok(!prompt.includes('nextMcpToolName') && !prompt.includes('nextMcpArguments'), 'startup prompt does not teach the directive routing fields')
   assert.ok(!prompt.includes('retryAfterMs'), 'startup prompt does not instruct Multicode agents to use retryAfterMs')
   assert.doesNotMatch(prompt, /poll|backoff|sleep/iu, 'startup prompt does not define idle polling behavior')
-  assert.ok(prompt.includes('stop — Multicode re-engages this terminal'), 'startup prompt carries the no-work stop contract')
+  assert.ok(prompt.includes('stop — Studio re-engages this terminal'), 'startup prompt carries the no-work stop contract')
   assert.ok(!prompt.includes('sprintengine.triage.needs_input'), 'startup prompt does not inline MCP triage workflow details')
   assert.ok(!prompt.includes('sprintengine.task.publish'), 'startup prompt does not inline MCP publish workflow details')
   assert.ok(!prompt.includes('sprintengine.gate.verdict'), 'startup prompt does not inline MCP gate verdict workflow details')
@@ -1685,7 +1685,7 @@ function testPromptBuildersIncludeAgentIdAndCommand(): void {
   assert.ok(continuation.includes('sprintengine.task.next'), 'continuation prompt names the MCP task-next tool to invoke')
   assert.ok(continuation.includes('T3 - Build feature'))
   assert.ok(continuation.includes('wake candidate'))
-  assert.ok(continuation.includes('stop — Multicode re-engages this terminal'), 'continuation prompt carries the no-work stop contract')
+  assert.ok(continuation.includes('stop — Studio re-engages this terminal'), 'continuation prompt carries the no-work stop contract')
   assert.ok(!continuation.includes('retryAfterMs'), 'continuation prompt does not reference retryAfterMs')
   assert.doesNotMatch(continuation, /poll|backoff|sleep/iu, 'continuation prompt does not define idle polling behavior')
   assert.ok(

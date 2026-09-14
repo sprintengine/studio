@@ -1,6 +1,6 @@
 ---
 name: backlog
-description: Work, create, or triage Multicode Backlog items and epics. Use when the user invokes this skill, drags a backlog/ file into an agent terminal, or asks to pick up, add, or triage backlog work.
+description: Work, create, or triage Studio Backlog items and epics. Use when the user invokes this skill, drags a backlog/ file into an agent terminal, or asks to pick up, add, or triage backlog work.
 ---
 
 # Backlog
@@ -8,8 +8,9 @@ description: Work, create, or triage Multicode Backlog items and epics. Use when
 Items are markdown files filed under the epic they belong to —
 `backlog/<epic-slug>/<item>.md` — or `backlog/unfiled/` when they have no epic.
 Epic definitions stay at `backlog/epics/<epic-slug>.md`. Each
-file's frontmatter is the source of truth for its lifecycle; `.multi-code/` is
-app-owned, never edited by hand. Field names and their valid values come from the
+file's frontmatter is the source of truth for its lifecycle; the app-owned
+workspace directory (`.sprintengine/`, or `.multi-code/` in an older workspace) is
+never edited by hand. Field names and their valid values come from the
 `backlog.*` MCP tool schemas — read them there rather than from this skill, and
 use those tools for mutations so timestamps and links stay app-owned. Without
 them, edit frontmatter directly and drop the `updated:` line. Three actions:

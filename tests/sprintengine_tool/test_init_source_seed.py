@@ -1,6 +1,6 @@
 """App-created runs seed the sprint source into run.yaml at init (Slice 2).
 
-Multicode resolves the source at workspace creation and passes it to `init` via
+The studio resolves the source at workspace creation and passes it to `init` via
 `--source-json`/`--source-bundle-json`, so the "Started from" seed exists at t=0
 regardless of whether an agent ever runs `handover`. The Python init command
 persists it into state; `write_run` round-trips it to run.yaml via

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Vendors the self-contained runtimes Multicode ships so its own features work
+// Vendors the self-contained runtimes the studio ships so its own features work
 // with no user-installed Python or Node:
 //
 //   resources/runtime/python  — CPython from astral-sh/python-build-standalone,

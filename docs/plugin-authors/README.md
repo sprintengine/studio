@@ -1,6 +1,6 @@
-# Multicode Marketplace Plugin Author Guide
+# SprintEngine Studio Marketplace Plugin Author Guide
 
-Marketplace plugins are signed bundles over extension primitives Multicode
+Marketplace plugins are signed bundles over extension primitives the studio
 already supports. The five component kinds (`MARKETPLACE_COMPONENT_KINDS`) are
 `mcp`, `skills`, `module`, `cli` and `automation`. A marketplace submission is accepted only when the registry entry,
 `plugin.json`, declared component files, and ed25519 signature all validate
@@ -19,7 +19,7 @@ plugins/<plugin-id>/<component files>
 
 ## Prerequisites
 
-From the Multicode repo root:
+From the studio repo root:
 
 ```bash
 npm ci
@@ -151,7 +151,7 @@ Add the icon at `icons/acme-doc-search.svg`. A registry `source` must be an
 `raw.githubusercontent.com`); the canonical
 `https://github.com/sprintengine/studio-releases/tree/main/plugins/<id>` layout
 is the convention, not a validated pin. Community submissions should use
-`publisher.verified: false`; Multicode will install them only after the user
+`publisher.verified: false`; the studio will install them only after the user
 grants trust in the marketplace trust gate.
 
 Only first-party publishers with a fingerprint listed in
@@ -163,7 +163,7 @@ its publisher name is listed as verified.
 ## 7. Run The Registry Validator
 
 The registry repo carries `.github/workflows/marketplace-registry.yml`, run on
-`workflow_dispatch`. That workflow checks out the Multicode app validation
+`workflow_dispatch`. That workflow checks out the studio's validation
 tooling and runs the verifier. Locally you can point it at a registry checkout
 with `--root`:
 
@@ -171,7 +171,7 @@ with `--root`:
 npm run verify:marketplace-registry -- --root "$GITHUB_WORKSPACE/registry"
 ```
 
-To run the same validator locally from a Multicode repo checkout:
+To run the same validator locally from a checkout of the studio repository:
 
 ```bash
 npm run verify:marketplace-registry

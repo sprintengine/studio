@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Multicode knowledge activity hook for Claude Code.
+// SprintEngine Studio knowledge activity hook for Claude Code.
 //
 // Invoked as a PostToolUse hook. Reads Claude's JSON payload from stdin,
 // extracts the touched file path, and appends a single JSON line to the
@@ -52,7 +52,7 @@ function parseArgs(argv) {
 }
 
 // Translate WSL paths to native form when the script runs on Windows.
-// Hook + Multicode always run on the same OS, but a Claude session inside
+// The hook and the studio always run on the same OS, but a Claude session inside
 // WSL may emit POSIX paths that point at the same files. We normalize so
 // the knowledge-root containment check works either way.
 function translatePath(input) {

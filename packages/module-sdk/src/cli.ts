@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// multicode-module — packaging and signing CLI for Multicode capability
-// module authors. Runs without repo access: everything it needs ships in the
-// @sprintengine/module-sdk tarball.
+// multicode-module — packaging and signing CLI for SprintEngine Studio
+// capability module authors. Runs without repo access: everything it needs
+// ships in the @sprintengine/module-sdk tarball.
 //
 //   keygen           generate an ed25519 signing keypair (private key PEM)
 //   pack             validate a module directory and assemble an installable copy
 //   sign             write a detached ed25519 signature into manifest.json
-//   verify           check a module directory the way the Multicode app will
+//   verify           check a module directory the way the studio will
 //   plugin scaffold  create a plugin bundle skeleton
 //   plugin pack      validate and assemble an installable plugin bundle
 //   plugin sign      write a detached ed25519 signature into plugin.json
-//   plugin verify    check a plugin bundle the way the Multicode app will
+//   plugin verify    check a plugin bundle the way the studio will
 //
 // sign/verify operate on the VALIDATED manifest shape (the same shape the app
 // verifies), and sign writes that normalized manifest back to disk so the
@@ -43,7 +43,7 @@ import {
 } from './plugin-component-digests.js'
 import { generateModuleSigningKeyPair, signManifest, verifyModuleSignature } from './signing.js'
 
-const USAGE = `multicode-module — pack, sign, and verify Multicode capability modules
+const USAGE = `multicode-module — pack, sign, and verify SprintEngine Studio capability modules
 
 Usage:
   multicode-module keygen [--out <file>] [--force]
@@ -66,8 +66,8 @@ and key files (*.key, *.pem) are never copied.
 sign validates manifest.json, signs the normalized manifest with --key, and
 writes the normalized manifest including the signature back to manifest.json.
 
-verify validates manifest.json and checks its signature exactly like the
-Multicode app: exit 0 with the signer fingerprint when valid, exit 1 when
+verify validates manifest.json and checks its signature exactly like
+SprintEngine Studio: exit 0 with the signer fingerprint when valid, exit 1 when
 unsigned, tampered, or invalid.
 
 plugin scaffold creates plugin.json plus component placeholders for mcp, skills,

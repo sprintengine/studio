@@ -244,7 +244,7 @@ const ROW_FIELD = 'w-60 max-w-full font-mono'
 // success notice in this system.
 type SettingsActionMessage = ActionResult | null
 
-// Per-plugin custom model ids. Multicode does not persist an app-level default
+// Per-plugin custom model ids. The studio does not persist an app-level default
 // model (the CLI's own default is used when no per-surface override is set), so
 // this is purely the user-extended id list. Rendered only when the plugin
 // declares modelSelection with `allowCustomId` — without declared launch args a

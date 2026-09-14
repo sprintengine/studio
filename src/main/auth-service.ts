@@ -44,7 +44,7 @@ import { getErrorMessage } from './error-message'
 import { DEFAULT_MULTIAUTH_BASE_URL } from './service-endpoints'
 import { readStudioEnv } from '../shared/studio-env'
 
-// `MULTIAUTH_BASE_URL` names the Multicode ACCOUNT SERVICE: where entitlement
+// `MULTIAUTH_BASE_URL` names the studio's ACCOUNT SERVICE: where entitlement
 // snapshots come from and where the mobile relay lives. It is no longer, by
 // definition, the identity provider (MC-2183): the service publishes which
 // issuer a sign-in should go to at `/api/auth/identity` — itself on a
@@ -54,10 +54,10 @@ import { readStudioEnv } from '../shared/studio-env'
 // The default it falls back to is set in `./service-endpoints`, where a build
 // can bake in a different deployment via the same `MULTIAUTH_BASE_URL` name.
 const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || DEFAULT_MULTIAUTH_BASE_URL).replace(/\/+$/u, '')
-const MULTICODE_CLIENT_ID = 'multicode-desktop' as const
-const MULTICODE_LOOPBACK_HOST = '127.0.0.1' as const
-const MULTICODE_LOOPBACK_PORT = 43110
-const MULTICODE_LOOPBACK_REDIRECT_URI = `http://${MULTICODE_LOOPBACK_HOST}:${MULTICODE_LOOPBACK_PORT}/callback` as const
+const DESKTOP_CLIENT_ID = 'multicode-desktop' as const
+const LOOPBACK_HOST = '127.0.0.1' as const
+const LOOPBACK_PORT = 43110
+const LOOPBACK_REDIRECT_URI = `http://${LOOPBACK_HOST}:${LOOPBACK_PORT}/callback` as const
 // What a custom-scheme sign-in asks the issuer to redirect to. Unlike the rest
 // of the rename this half is not ours alone: a redirect_uri has to be on the
 // issuer's registered list for the client or the authorization request is
@@ -77,15 +77,15 @@ const LEGACY_CUSTOM_SCHEME_REDIRECT_URI = `${LEGACY_DEEP_LINK_SCHEME}://auth/cal
 // app — while RFC 8252 loopback has no such ambiguity. The custom scheme stays
 // registered and reachable with `SPRINTENGINE_AUTH_REDIRECT_MODE=custom` for the
 // one case loopback loses: the port being occupied.
-const DEFAULT_MULTICODE_AUTH_REDIRECT_MODE = 'loopback'
+const DEFAULT_AUTH_REDIRECT_MODE = 'loopback'
 const CONFIGURED_AUTH_REDIRECT_MODE = readStudioEnv('SPRINTENGINE_AUTH_REDIRECT_MODE')
-const MULTICODE_AUTH_REDIRECT_MODE =
+const AUTH_REDIRECT_MODE =
   CONFIGURED_AUTH_REDIRECT_MODE === 'custom' || CONFIGURED_AUTH_REDIRECT_MODE === 'loopback'
     ? CONFIGURED_AUTH_REDIRECT_MODE
-    : DEFAULT_MULTICODE_AUTH_REDIRECT_MODE
-const MULTICODE_REDIRECT_URI: typeof CUSTOM_SCHEME_REDIRECT_URI | typeof MULTICODE_LOOPBACK_REDIRECT_URI =
-  MULTICODE_AUTH_REDIRECT_MODE === 'loopback' ? MULTICODE_LOOPBACK_REDIRECT_URI : CUSTOM_SCHEME_REDIRECT_URI
-const MULTICODE_PRODUCT = 'multicode' as const
+    : DEFAULT_AUTH_REDIRECT_MODE
+const REDIRECT_URI: typeof CUSTOM_SCHEME_REDIRECT_URI | typeof LOOPBACK_REDIRECT_URI =
+  AUTH_REDIRECT_MODE === 'loopback' ? LOOPBACK_REDIRECT_URI : CUSTOM_SCHEME_REDIRECT_URI
+const PRODUCT_KEY = 'multicode' as const
 const MULTIAUTH_DESKTOP_SCOPE = 'openid profile entitlements:read relay:desktop'
 const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
 const ACCOUNT_SERVICE_LABEL = 'The Multicode account service'
@@ -184,8 +184,8 @@ class ElectronIdentityMarkerStore implements IdentityMarkerStore {
 export class MulticodeAuthBridge {
   private readonly client = new MulticodeAccountClient({
     baseUrl: MULTIAUTH_BASE_URL,
-    clientId: MULTICODE_CLIENT_ID,
-    product: MULTICODE_PRODUCT,
+    clientId: DESKTOP_CLIENT_ID,
+    product: PRODUCT_KEY,
     refreshTokenStores: {
       multiauth: new ElectronSafeRefreshTokenStore(REFRESH_TOKEN_FILE_NAMES.multiauth),
       clerk: new ElectronSafeRefreshTokenStore(REFRESH_TOKEN_FILE_NAMES.clerk),
@@ -230,7 +230,7 @@ export class MulticodeAuthBridge {
       },
     },
     {
-      product: MULTICODE_PRODUCT,
+      product: PRODUCT_KEY,
       graceMs: ENTITLEMENT_GRACE_MS,
       maxCacheAgeMs: ENTITLEMENT_MAX_CACHE_AGE_MS,
     }
@@ -285,7 +285,7 @@ export class MulticodeAuthBridge {
     const codeChallenge = pkceChallenge(codeVerifier)
     const selectedOrganizationId = organizationId?.trim() || this.state.selectedOrganization?.id
     const request = {
-      redirectUri: MULTICODE_REDIRECT_URI,
+      redirectUri: REDIRECT_URI,
       codeChallenge,
       state,
       nonce,
@@ -295,12 +295,12 @@ export class MulticodeAuthBridge {
       ? buildClerkAuthorizationUrl(request, identity)
       : buildMultiauthAuthorizationUrl(request, {
           baseUrl: MULTIAUTH_BASE_URL,
-          clientId: MULTICODE_CLIENT_ID,
-          product: MULTICODE_PRODUCT,
+          clientId: DESKTOP_CLIENT_ID,
+          product: PRODUCT_KEY,
           scope: MULTIAUTH_DESKTOP_SCOPE,
         })
 
-    if (MULTICODE_REDIRECT_URI === MULTICODE_LOOPBACK_REDIRECT_URI) {
+    if (REDIRECT_URI === LOOPBACK_REDIRECT_URI) {
       try {
         this.callbackServer = await startDesktopCallbackServer(async (callbackUrl) => {
           await this.handleCallback(callbackUrl)
@@ -375,7 +375,7 @@ export class MulticodeAuthBridge {
 
     await this.client.exchangeCode({
       identity: pending.identity,
-      redirectUri: customSchemeRedirectUriFor(url) ?? MULTICODE_LOOPBACK_REDIRECT_URI,
+      redirectUri: customSchemeRedirectUriFor(url) ?? LOOPBACK_REDIRECT_URI,
       code,
       codeVerifier: pending.codeVerifier,
     })
@@ -499,7 +499,7 @@ export class MulticodeAuthBridge {
   async openUpgrade(reason?: string): Promise<{ opened: true; url: string }> {
     const search = new URLSearchParams({
       returnTo: 'checkout',
-      product: MULTICODE_PRODUCT,
+      product: PRODUCT_KEY,
     })
 
     if (reason?.trim()) search.set('reason', reason.trim())
@@ -702,7 +702,7 @@ export class MulticodeAuthBridge {
     try {
       const payload = JSON.parse(await readFile(this.cachePath, 'utf8')) as Partial<CachedEntitlementSnapshot>
       if (!payload.snapshot || typeof payload.lastRefreshAt !== 'string') return null
-      if (!isEntitlementSnapshot(payload.snapshot, MULTICODE_PRODUCT)) return null
+      if (!isEntitlementSnapshot(payload.snapshot, PRODUCT_KEY)) return null
       return {
         snapshot: payload.snapshot,
         lastRefreshAt: payload.lastRefreshAt,
@@ -731,7 +731,7 @@ async function startDesktopCallbackServer(onCallback: (callbackUrl: string) => P
   let closed = false
   const server = createServer((request, response) => {
     void (async () => {
-      const callbackUrl = new URL(request.url ?? '/', MULTICODE_LOOPBACK_REDIRECT_URI)
+      const callbackUrl = new URL(request.url ?? '/', LOOPBACK_REDIRECT_URI)
 
       if (request.method !== 'GET' || callbackUrl.pathname !== '/callback') {
         response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
@@ -759,12 +759,12 @@ async function startDesktopCallbackServer(onCallback: (callbackUrl: string) => P
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
-    server.listen(MULTICODE_LOOPBACK_PORT, MULTICODE_LOOPBACK_HOST, () => {
+    server.listen(LOOPBACK_PORT, LOOPBACK_HOST, () => {
       server.off('error', reject)
       resolve()
     })
   }).catch((error) => {
-    throw new Error(`Could not start Multicode auth callback listener on ${MULTICODE_LOOPBACK_REDIRECT_URI}: ${getErrorMessage(error)}`)
+    throw new Error(`Could not start the sign-in callback listener on ${LOOPBACK_REDIRECT_URI}: ${getErrorMessage(error)}`)
   })
 
   return {
@@ -793,7 +793,7 @@ function customSchemeRedirectUriFor(
 }
 
 function isSupportedAuthCallbackUrl(url: URL): boolean {
-  return (url.protocol === 'http:' && url.hostname === MULTICODE_LOOPBACK_HOST && url.port === String(MULTICODE_LOOPBACK_PORT) && url.pathname === '/callback')
+  return (url.protocol === 'http:' && url.hostname === LOOPBACK_HOST && url.port === String(LOOPBACK_PORT) && url.pathname === '/callback')
     || (customSchemeRedirectUriFor(url) !== null && url.hostname === 'auth' && url.pathname === '/callback')
 }
 
@@ -850,7 +850,7 @@ function pkceChallenge(codeVerifier: string): string {
 function isAuthCallbackArg(arg: string): boolean {
   const lowered = arg.toLowerCase()
   return DEEP_LINK_SCHEMES.some((scheme) => lowered.startsWith(`${scheme}://auth/callback`))
-    || lowered.startsWith(MULTICODE_LOOPBACK_REDIRECT_URI)
+    || lowered.startsWith(LOOPBACK_REDIRECT_URI)
 }
 
 export async function parseAuthCallbackFromArgv(auth: MulticodeAuthBridge, argv: string[]): Promise<void> {

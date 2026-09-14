@@ -1,10 +1,10 @@
 // Marketplace plugin bundle manifest: validator + authoring helpers.
 //
-// A marketplace plugin is a thin bundle over existing Multicode primitives. It
-// reuses the capability module manifest validator and canonical signing payload
-// so the app and authoring CLI sign/verify the same normalized plugin.json
-// shape, including the bundle `components` declaration and signed component
-// file digests.
+// A marketplace plugin is a thin bundle over primitives the studio already
+// owns. It reuses the capability module manifest validator and canonical
+// signing payload so the app and authoring CLI sign/verify the same normalized
+// plugin.json shape, including the bundle `components` declaration and signed
+// component file digests.
 
 import type { CapabilityManifest, CapabilityPermission, ModuleSignature } from './index.js'
 import {

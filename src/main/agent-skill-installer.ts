@@ -1,6 +1,6 @@
 // Attaching a skill: making one skill exist in every workspace directory an
 // installed, skill-capable CLI reads — and removing it only from the copies
-// Multicode wrote.
+// the studio wrote.
 //
 // The fan-out is derived, never listed. The harness map turns the plugin
 // manifests into the distinct directories they declare, which today is four
@@ -52,12 +52,12 @@ import { isPathStrictlyInside } from './path-containment'
 /**
  * Marker source for a copy this installer made of a skill that carried no
  * provenance of its own — a directory the user hand-authored in one harness and
- * then attached to the rest. Its own copies are Multicode's to remove; the
+ * then attached to the rest. Its own copies are the studio's to remove; the
  * hand-authored original is not, and stays unmarked.
  *
  * Third shape of `.multicode-skill.json`, alongside the built-in manifest
  * (src/main/builtin-skills.ts) and the source-install marker
- * (src/main/skills/install.ts). One filename for "Multicode put this here";
+ * (src/main/skills/install.ts). One filename for "the studio put this here";
  * each reader recognises only its own shape.
  */
 const ATTACHED_MARKER_SOURCE = 'multicode-attach'
@@ -67,14 +67,14 @@ const NO_TARGET_MESSAGE = 'No agent CLI on this machine reads workspace skills.'
 export type AgentSkillInstaller = {
   /** Write the skill into every installed, skill-capable harness directory. */
   attach(input: AgentSkillWriteInput): Promise<AgentSkillWriteResult>
-  /** Delete it from the harness directories Multicode wrote it into. */
+  /** Delete it from the harness directories the studio wrote it into. */
   remove(input: AgentSkillWriteInput): Promise<AgentSkillWriteResult>
 }
 
 /** What is at one harness's copy of a skill right now. */
 type InstalledSkillCopy = {
   exists: boolean
-  /** Carries a Multicode provenance marker: ours to replace or delete. */
+  /** Carries a studio provenance marker: ours to replace or delete. */
   managed: boolean
   /** Content identity ignoring the marker; '' when the directory is absent. */
   contentHash: string
@@ -219,7 +219,7 @@ export function createAgentSkillInstaller(options: AgentSkillInstallerOptions = 
       if (!request.ok) return request
 
       // Every declared harness, not only the installed ones: a copy written
-      // before the user uninstalled that CLI is still Multicode's to clean up,
+      // before the user uninstalled that CLI is still the studio's to clean up,
       // and the provenance check below is what makes reaching wider safe.
       const targets = harnessTargets(listPlugins(), request.root, skillId)
       if (targets.length === 0) return { ok: false, message: NO_TARGET_MESSAGE }
@@ -265,7 +265,7 @@ type SkillOrigin = {
   dir: string
   path: string
   contentHash: string
-  /** Set when the bytes are the ones Multicode ships for this skill. */
+  /** Set when the bytes are the ones the studio ships for this skill. */
   builtin: BuiltinSkill | null
   /** The origin already carries a provenance marker the copies inherit. */
   managed: boolean
@@ -321,7 +321,7 @@ function allowsHarness(builtin: BuiltinSkill | null, harnessId: string): boolean
 }
 
 /**
- * The bytes to copy: what Multicode ships for a built-in, otherwise the first
+ * The bytes to copy: what the studio ships for a built-in, otherwise the first
  * harness that already holds the skill — which is how a skill installed from a
  * source, or written by hand in one CLI, reaches the others.
  */
@@ -417,7 +417,7 @@ async function isManagedCopy(dir: string): Promise<boolean> {
   try {
     parsed = JSON.parse(await readFile(join(dir, MANAGED_SKILL_MANIFEST_FILE), 'utf-8'))
   } catch {
-    // No marker, or one that does not parse: not something Multicode wrote.
+    // No marker, or one that does not parse: not something the studio wrote.
     return false
   }
   if (typeof parsed !== 'object' || parsed === null) return false

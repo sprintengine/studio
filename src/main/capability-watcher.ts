@@ -60,7 +60,7 @@ export type CapabilityWatcher = {
    */
   diagnosticsFor(workspaceRoot: string, pluginId: string): CapabilityDiagnostic[]
   /**
-   * Say a harness changed because Multicode just changed it. Writes made in
+   * Say a harness changed because the studio just changed it. Writes made in
    * process do not wait on `fs.watch` to notice them — and on a mount where
    * watching failed, nothing would notice at all. Goes through the same
    * debounce as a filesystem event, so a write and the events it causes are one
@@ -386,7 +386,7 @@ type WatchTarget = {
 function watchTargets(group: CapabilityWatchGroup): WatchTarget[] {
   const targets: WatchTarget[] = []
   if (group.skillsDir) {
-    // The directory, not each skill: a skill created outside Multicode is a new
+    // The directory, not each skill: a skill created outside the studio is a new
     // entry in it. Recursive so an edit to an existing SKILL.md counts too.
     targets.push(target(group.skillsDir, { recursive: true }))
   }

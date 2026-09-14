@@ -51,7 +51,7 @@ import {
 
 // The Automations tenant of the door-routed full-page surface (global-surfaces
 // epic 1704 / item 1707, mockup §3). The rail lists every automation across
-// every project in this Multicode with its live state; the canvas is the
+// every project in this studio with its live state; the canvas is the
 // selected automation's runs + setup. Automations stop being workspaces in the
 // Projects list — this is where they live now. The engine, executor, and report
 // paths underneath are unchanged; this relocates the surface and reads the

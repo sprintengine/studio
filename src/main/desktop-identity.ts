@@ -259,7 +259,7 @@ export function buildMultiauthAuthorizationUrl(
 }
 
 // Standard RFC 6749 authorization request against Clerk's `/oauth/authorize`.
-// No `organization_id`: organisation choice is a Multicode concept answered by
+// No `organization_id`: organisation choice is a studio concept answered by
 // the account service, not a Clerk one.
 export function buildClerkAuthorizationUrl(request: AuthorizationRequest, config: ClerkIdentityConfig): string {
   const search = new URLSearchParams({

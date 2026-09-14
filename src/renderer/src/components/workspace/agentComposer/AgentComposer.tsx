@@ -29,7 +29,7 @@ type ComposerProjectOption = { path: string; label: string }
 type AgentComposerProps = {
   // Where the chat will be created — shown in the panel header as a scoping
   // chip that doubles as a project picker: the open projects plus Browse for a
-  // folder Multicode doesn't know yet. The host owns the folder state.
+  // folder the studio doesn't know yet. The host owns the folder state.
   folderPath: string | null
   folderLabel: string | null
   projectOptions: ComposerProjectOption[]
@@ -428,8 +428,8 @@ function normalizeProjectPath(value: string): string {
 }
 
 // The header's project scope: a chip naming the folder the chat will land in,
-// opening a picker over the projects already open in Multicode plus Browse…
-// for a folder Multicode doesn't know yet. Selection reports up — the host
+// opening a picker over the projects already open in the studio plus Browse…
+// for a folder the studio doesn't know yet. Selection reports up — the host
 // owns the folder state the confirm reads.
 function ProjectScopeChip({
   folderPath,

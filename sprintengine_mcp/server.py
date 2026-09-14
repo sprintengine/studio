@@ -352,10 +352,10 @@ class SprintEngineMcpServer:
             "agent_workflow": [
                 f"After this help call, call sprintengine.agent.join, then claim work with sprintengine.task.next using {claim_payload}.",
                 "Work what the claim returns; it resumes your active task or claims the next ready one.",
-                "If the claim returns no work, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.",
+                "If the claim returns no work, reply that no work was claimed and stop — Studio re-engages this terminal when work is ready.",
                 "You own your task from claim to done. Implement, then sprintengine.task.publish. In worktree-mode runs that also commits your task-scoped changes in your task's project worktree, under that project's commit lock.",
                 "If your task produced a diff, publish routes it into its review phase and returns your review directive INLINE in the publish response (`nextDirective`). Follow it, fix what you find, then close the phase with sprintengine.task.advance. If it produced no diff, publish lands the task in done.",
-                "After the task is done, stop. Multicode owns dispatch and continuation.",
+                "After the task is done, stop. Studio owns dispatch and continuation.",
                 "If Auto Mode is off, you are blocked, need user input, or are near context limit, stop after recording the appropriate note or status.",
             ],
             # The triage line is filtered by the CAPABILITY TABLE, not by a role
@@ -851,7 +851,7 @@ class SprintEngineMcpServer:
             return context.workspace_root
         # Resolution chain so autonomous agents don't need to pass workspaceRoot in payloads:
         #   1. explicit `workspaceRoot` in payload (debug / CLI overrides)
-        #   2. `SPRINTENGINE_WORKSPACE_ROOT` env var (set by Multicode at MCP server launch)
+        #   2. `SPRINTENGINE_WORKSPACE_ROOT` env var (set by the studio at MCP server launch)
         #   3. derive from `statePath` (payload → `SPRINTENGINE_STATE_PATH` env → default_state_path)
         if not raw:
             raw = os.environ.get("SPRINTENGINE_WORKSPACE_ROOT")
@@ -1248,7 +1248,7 @@ def _compose_registry_prompt(
         # A roleless agent has no manifest to render, so it would otherwise fall
         # through the render_soul fallback below and silently lose the universal
         # norms. Compose its layer deliberately: no role personality, but the full
-        # norm + Multicode product layer plus the orchestration skill. Reuse the
+        # norm + studio product layer plus the orchestration skill. Reuse the
         # workspace-scoped registry so skill overrides apply as for a soul.
         soul_prompt = load_roleless_soul_prompt(
             registry,

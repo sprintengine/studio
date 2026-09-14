@@ -133,7 +133,7 @@ async function installOrUpdateMarketplacePlugin(
     return installInlineMcpEntry(entry.entry, input, services, store, previous)
   }
 
-  // Claude Code plugins are not Multicode bundles: their content is Claude's
+  // Claude Code plugins are not studio bundles: their content is Claude's
   // plugin format, so they route through the claude-plugin adapter (skills
   // copied into workspace harness dirs) behind the same unsigned trust gate.
   if (isClaudeCodePluginEntry(entry.entry)) {
@@ -502,7 +502,7 @@ async function installInlineMcpEntry(
 // with native skill support); input.skillHarnesses overrides, and this
 // Claude-only constant is the last-resort fallback when no resolver is wired.
 // Commands/agents in the plugin are not installed — skills are the one
-// component Multicode delivers.
+// component the studio delivers.
 const DEFAULT_CLAUDE_PLUGIN_HARNESSES: SkillHarness[] = ['claude']
 
 function previousHarnesses(previous: MarketplacePluginInstallReceipt | undefined): SkillHarness[] {

@@ -136,7 +136,7 @@ async function run(): Promise<void> {
           const child = spawn(process.execPath, [driverPath, specPath], {
             env: {
               ...process.env,
-              // Always overridden: when this test runs inside a Multicode agent
+              // Always overridden: when this test runs inside a studio agent
               // session the launch env carries the LIVE app's socket, and
               // inheriting it would send these frames to the real app.
               MULTICODE_AGENT_STATE_SOCKET: socketPath,

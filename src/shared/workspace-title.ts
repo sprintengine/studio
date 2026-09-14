@@ -165,7 +165,7 @@ export const INJECTED_FRAGMENT_PATTERNS = {
 
 /**
  * Strip the fragments the APP pastes into a terminal, so a title is never
- * derived from Multicode's own injection instead of the person's request.
+ * derived from the studio's own injection instead of the person's request.
  *
  * A drop onto a terminal writes a skill invocation, an @-mention, a file path,
  * or a commit hash via bracketed paste (see `src/renderer/src/utils/terminalDrop.ts`);

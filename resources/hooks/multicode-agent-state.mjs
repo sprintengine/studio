@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Multicode authoritative-agent-state reporter — the shared stdin filter for
-// every command-hook CLI (Claude Code, Codex, Grok Build, and any CLI whose
-// plugin manifest declares a command-hook agentStateSpec registration).
+// SprintEngine Studio authoritative-agent-state reporter — the shared stdin
+// filter for every command-hook CLI (Claude Code, Codex, Grok Build, and any
+// CLI whose plugin manifest declares a command-hook agentStateSpec registration).
 //
 // This script is a DUMB FORWARDER: it reads the CLI's hook JSON from stdin —
 // Claude Code and Codex name the fields snake_case (`hook_event_name`,
@@ -10,7 +10,7 @@
 // and writes newline-delimited JSON frames (one, except that one file-editing
 // call can change several files and each rides its own frame) carrying the RAW event name
 // (plus the payload discriminator fields the manifests consult, e.g. Claude's
-// `notification_type`) to the Multicode agent-state socket. The event→phase
+// `notification_type`) to the studio's agent-state socket. The event→phase
 // mapping happens in the main process from the resolving plugin manifest's
 // `agentStateSpec.events` table — no CLI vocabulary lives in this script, so
 // it never needs to change when a CLI's mapping does. Which events fire at all

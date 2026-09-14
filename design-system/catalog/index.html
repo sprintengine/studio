@@ -7,7 +7,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>multicode — design system catalog</title>
+<title>sprintengine-studio — design system catalog</title>
 <style>
 /* foundations/tokens.css (inlined verbatim) */
 /* GENERATED FILE — do not edit by hand.
@@ -11096,10 +11096,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-selection" />
 <div class="ds-catalog">
 <header class="catalog-header">
-<h1>multicode</h1>
+<h1>sprintengine-studio</h1>
 <span class="catalog-version">v0.2.0</span>
 <label class="catalog-mode-toggle" for="ds-mode-dark"><span class="catalog-mode-when-light">Light mode — switch to dark</span><span class="catalog-mode-when-dark">Dark mode — switch to light</span></label>
-<p class="catalog-summary">Multicode design system: neutral two-tier selection, one accent reserved for the primary action, a 2px-grid spacing scale, and progressive disclosure of row actions.</p>
+<p class="catalog-summary">SprintEngine Studio design system: neutral two-tier selection, one accent reserved for the primary action, a 2px-grid spacing scale, and progressive disclosure of row actions.</p>
 </header>
 <div class="catalog-layout">
 <nav class="catalog-nav" aria-label="Catalog">
@@ -11509,7 +11509,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <div id="foundations-doc-principles" class="catalog-view catalog-doc-card">
 <h3>Principles</h3>
 <p>The rules this system enforces that tokens alone cannot. Tokens decide what a value is; these decide when you are allowed to reach for it.</p>
-<p>This file is the authority on how Multicode looks. Where it and your instincts disagree, it wins. Where it is silent, decide, and add the rule here.</p>
+<p>This file is the authority on how SprintEngine Studio looks. Where it and your instincts disagree, it wins. Where it is silent, decide, and add the rule here.</p>
 <h4>Restraint</h4>
 <p>Restraint is the whole craft. The default failure of a generated interface is not ugliness — it is genericness: many accents, decorative chrome, a happy-path-only screen. Density is bought by removing elements, words, and chrome, never by shrinking type or crushing rhythm.</p>
 <p><strong>The accent budget.</strong> Solid, saturated color is the strongest signal the system has, so it is spent on almost nothing:</p>
@@ -11561,7 +11561,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>The UI does not explain the UI.</strong> If a control needs a sentence beside it to say why it exists or what will happen, the control is wrong — redesign it. The generated-interface tell is a screen where every element has a caption. Delete, in this order:</p>
 <ul><li>A subtitle that restates the title. &quot;Add a skill source&quot; / &quot;A public GitHub repository. We walk it and find the skills&quot; says the same thing twice.</li><li>A field label that restates the dialog title. One field under &quot;New automation&quot; does not need an &quot;Automation name&quot; label above it — pass the name to the control as its accessible name and let the placeholder do the visible work.</li><li>Helper text that restates the placeholder. A field showing <code>owner/repo</code> does not need &quot;a github.com address, or owner/repo&quot; beneath it.</li><li>A closing paragraph reassuring the user about what just happened. &quot;X is now one of your sources. Nothing is installed yet — take skills from it when you want them&quot; is three sentences replacing a state the screen already shows.</li></ul>
 <p>A line of copy earns its place only by carrying something the screen cannot: a consequence the user cannot see (where a file will be written), or a fact they cannot infer (which project this adopted as its home).</p>
-<p><strong>The product does not name itself.</strong> UI copy never says the application's name. &quot;Multicode will run this command&quot;, &quot;cannot be undone from Multicode&quot;, &quot;while Multicode is open&quot; — every one of these is the app narrating itself in the third person, and no serious product does it. Write the sentence without the name: &quot;Will run:&quot;, &quot;cannot be undone from here&quot;, &quot;while the app is open&quot;. The name belongs in exactly four places: the window title, the About/version line, the sign-in and account surfaces, and first-run onboarding.</p>
+<p><strong>The product does not name itself.</strong> UI copy never says the application's name. &quot;SprintEngine Studio will run this command&quot;, &quot;cannot be undone from SprintEngine Studio&quot;, &quot;while SprintEngine Studio is open&quot; — every one of these is the app narrating itself in the third person, and no serious product does it. Write the sentence without the name: &quot;Will run:&quot;, &quot;cannot be undone from here&quot;, &quot;while the app is open&quot;. The name belongs in exactly four places: the window title, the About/version line, the sign-in and account surfaces, and first-run onboarding.</p>
 <p>The one carve-out is the brand <strong>wordmark</strong>, which may appear exactly once, as window chrome at the top of the left column. A mark is not a sentence: it identifies the window the way a title bar does, and it does not narrate. The rule above is unchanged for copy — no label, message, tooltip, or empty state gains the name because the wordmark exists — and &quot;exactly once&quot; is literal, so a second placement retires the first rather than joining it.</p>
 <p><strong>Report the result, not the inventory.</strong> When an operation finishes, show the one fact that answers &quot;did it work?&quot; — a count, a name, a state. Everything else the operation happens to know (file counts, commit hashes, byte sizes, which internal layout was chosen) is stored, not displayed. Metadata dumped into a success message reads as a machine reporting to itself.</p>
 <p><strong>Empty is not invalid.</strong> A required field nobody has filled in yet is not an error. Do not mark it with a red &quot;Required&quot; or an asterisk on open — the disabled confirm button already says &quot;not yet&quot;. Validation messages appear after the first keystroke, never before.</p>
@@ -17915,7 +17915,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       <dl class="ds-definition-list ds-definition-list--stack">
         <div class="ds-definition-pair">
           <dt class="ds-definition-term">Workspace</dt>
-          <dd class="ds-definition-detail">Multicode</dd>
+          <dd class="ds-definition-detail">Studio</dd>
         </div>
         <div class="ds-definition-pair">
           <dt class="ds-definition-term">Home project</dt>
@@ -18195,7 +18195,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
       &lt;dl class=&quot;ds-definition-list ds-definition-list--stack&quot;&gt;
         &lt;div class=&quot;ds-definition-pair&quot;&gt;
           &lt;dt class=&quot;ds-definition-term&quot;&gt;Workspace&lt;/dt&gt;
-          &lt;dd class=&quot;ds-definition-detail&quot;&gt;Multicode&lt;/dd&gt;
+          &lt;dd class=&quot;ds-definition-detail&quot;&gt;Studio&lt;/dd&gt;
         &lt;/div&gt;
         &lt;div class=&quot;ds-definition-pair&quot;&gt;
           &lt;dt class=&quot;ds-definition-term&quot;&gt;Home project&lt;/dt&gt;

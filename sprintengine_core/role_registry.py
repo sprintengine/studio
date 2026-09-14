@@ -21,7 +21,7 @@ BUNDLED_REGISTRY_ROOT = Path(__file__).resolve().parents[1] / "resources" / "spr
 # installed — so they must be passed in rather than discovered statically.
 SESSION_REGISTRY_ROOTS_ENV = "SPRINTENGINE_REGISTRY_ROOTS"
 
-# Canonical Multicode user-level registry root, where the app installs the
+# The studio's canonical user-level registry root, where the app installs the
 # specialist pack and user-added roles. MUST stay in sync with
 # defaultUserRoleRegistryRoot() in src/main/sprintengine-role-registry.ts.
 # Discovered NATIVELY by every bare `discover_role_registry()` (role
@@ -224,7 +224,7 @@ class RegistryDiscovery:
 
         The manifest's ``directives.implement`` skills are the role's working
         identity, composed first. ``extra_skills`` are host-supplied layer skills
-        (Multicode product skills, Sprint Engine quality norms) appended after
+        (studio product skills, Sprint Engine quality norms) appended after
         them so a pack author never has to reference them. A missing manifest
         skill is a hard render error (the brief is broken); a missing
         ``extra_skills`` entry is a warning and is skipped, since host layers must

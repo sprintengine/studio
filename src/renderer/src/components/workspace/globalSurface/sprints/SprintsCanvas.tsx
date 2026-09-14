@@ -100,7 +100,7 @@ export type SprintRunCanvasModel = {
   /** Why the projection could not be read. Shown behind "Show details". */
   error: string | null
   retry: () => void
-  /** The run's own workspace, when it is still open in this Multicode. */
+  /** The run's own workspace, when it is still open in this studio. */
   residentWorkspaceId: string | null
   repos: SprintEngineVcsRepo[]
   blockers: RepoMergeBlockers
@@ -240,7 +240,7 @@ export function SprintsCanvas({ model }: { model: SprintRunCanvasModel }): JSX.E
     return <SurfaceCanvasState kind="loading" label={`Loading ${model.run.teamName}…`} />
   }
   if (model.status === 'error' || !model.handle) {
-    // A store from an older Multicode fails permanently and says so, with its
+    // A store from an older build fails permanently and says so, with its
     // delete path in the details — the one place that remedy is spelled out
     // (MC-2063). Everything else keeps the transient-read copy.
     const copy = sprintRunOpenFailureCopy(model.run)

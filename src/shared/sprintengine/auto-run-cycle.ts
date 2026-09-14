@@ -478,10 +478,10 @@ async function refreshAutoWorkspaceState(
 }
 
 // Note: `ensureDurableAutoMode` was removed. It bridged local autoState into the
-// run.yaml CLI-watch polling flag, but that bridge tied Multicode's UI state to
+// run.yaml CLI-watch polling flag, but that bridge tied the studio's UI state to
 // CLI-headless polling state — two unrelated concerns. The click handler in
 // SprintEngineBoardPanel writes the CLI flag directly when the user toggles
-// automation. Multicode's supervisor decides whether to spawn agents from local
+// automation. The studio's supervisor decides whether to spawn agents from local
 // autoState alone; CLI-headless polling is the CLI's own concern.
 
 function normalizeComparablePath(path: string): string {

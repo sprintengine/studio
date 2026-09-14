@@ -5,10 +5,15 @@ the supported mutation boundary for task claiming, task status changes, evidence
 logging, artifact lifecycle, roster updates, ready queue refresh, runner policy, and
 projection reads.
 
-Do not edit `.multi-code/sprintengine/<team>/run.yaml`, task JSON files,
+Do not edit `<sidecar>/sprintengine/<team>/run.yaml`, task JSON files,
 artifact JSON files, `events.jsonl`, metrics files, `projection.json`, runner
 files, or lock files by hand. Use the CLI so locks, folder moves, activity,
 events, metrics, and projections stay synchronized.
+
+`<sidecar>` is the workspace's app-owned directory: `.sprintengine`, or
+`.multi-code` in a workspace made before the 2026-09-08 rename. A workspace has
+exactly one of them and nothing migrates between them, so a path written by
+hand has to use the one that is already there.
 
 ## Command Portability
 
@@ -78,7 +83,7 @@ Two commands drive the whole lifecycle after the claim:
 
 ## Standalone CLI Worker Flow
 
-Workers operating outside Multicode's managed MCP runtime can join the active
+Workers operating outside the studio's managed MCP runtime can join the active
 run, read the plan returned by the directive, claim one ready task for their
 exact role, log evidence, then publish and walk the task's phases:
 
@@ -339,7 +344,7 @@ Current command groups:
 
 ## Folder Store And Projection
 
-The folder store lives under `.multi-code/sprintengine/<team>/` and contains
+The folder store lives under `<sidecar>/sprintengine/<team>/` and contains
 `run.yaml`, `events.jsonl`, `projection.json`, status folders under `tasks/`,
 status folders under `artifacts/`, `metrics/agent-feedback.jsonl`, and support
 folders such as `runner/`, `reviews/`, and `validation/`.
@@ -366,7 +371,7 @@ raises `RunStoreVersionError` for anything older. The projection re-emits
 calling Python (`describeUnsupportedSprintEngineStore` and
 `SPRINT_ENGINE_RUN_SCHEMA_VERSION` in `src/shared/sprintengine/store-schema.ts`,
 re-exported by `src/main/sprintengine-artifacts.ts`). The remedy for a store
-below the migratable floor is to delete `.multi-code/sprintengine/<team>/` and
+below the migratable floor is to delete `<sidecar>/sprintengine/<team>/` and
 re-run the sprint.
 
 Renderer and mobile code should consume projection data or `projection.json`;
@@ -539,7 +544,7 @@ publish/done commands.
 Artifacts are durable outputs tied to producing tasks:
 
 ```bash
-sprintengine artifact add --task-id T1 --kind architect_plan --title "Architect plan" --path .multi-code/sprintengine/team/plan.md --created-by architect
+sprintengine artifact add --task-id T1 --kind architect_plan --title "Architect plan" --path .sprintengine/sprintengine/team/plan.md --created-by architect
 sprintengine artifact ready --artifact-id A1 --id architect
 sprintengine artifact list --task-id T1
 sprintengine artifact approve --artifact-id A1 --id user
@@ -560,7 +565,7 @@ agents must not edit artifact JSON, task folders, events, or projection files.
 Auto-approval follows the same boundary after its policy checks pass. It should
 call the Sprint Engine artifact approval command and apply the returned
 projection data; it should not send approval request text to the producing
-agent terminal. Multicode may wake or focus terminals after Sprint Engine
+agent terminal. The studio may wake or focus terminals after Sprint Engine
 records notification, dispatch, or rework state, but direct MCP notifications
 are not assumed to wake Codex or Claude sessions by themselves.
 
@@ -579,9 +584,9 @@ role right now and returns. The polling `--watch` loop and its completion
 machinery were retired with the CLI-runner era (MC-1827); the managed runtime
 is the product.
 
-Multicode-launched autonomous agents never use the CLI. Their startup and wake
+Studio-launched autonomous agents never use the CLI. Their startup and wake
 prompts call `sprintengine.agent.join`, then claim with `sprintengine.task.next`.
-Multicode owns later continuation, terminal wake/resume, and replacement
+The studio owns later continuation, terminal wake/resume, and replacement
 spawning for ready work, owner re-engagement after human feedback, and
 `needs_input` recovery.
 
@@ -652,7 +657,7 @@ review files, docs, and handoffs:
 ```text
 docs/sprintengine-cli.md
 sprintengine_core/store.py
-.multi-code/sprintengine/team/reviews/code-review.md
+.sprintengine/sprintengine/team/reviews/code-review.md
 ```
 
 Do not write absolute paths, home-directory paths, drive-letter paths, UNC

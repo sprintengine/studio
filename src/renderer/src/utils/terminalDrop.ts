@@ -449,7 +449,7 @@ function backlogRelativePath(rootPath: string, filePath: string): string | null 
 
 function parseFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | null {
   const raw = dataTransfer.getData(MULTICODE_FILE_DROP_MIME)
-  // Only fall back to native Files when the Multicode MIME entry is entirely
+  // Only fall back to native Files when the studio's MIME entry is entirely
   // absent — a present-but-malformed entry stays a rejection.
   if (!raw) return parseNativeFileDropPayload(dataTransfer)
   return parseFileDropJson(raw)
@@ -457,7 +457,7 @@ function parseFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | nul
 
 /**
  * The published module-facing parse (mirrored verbatim by @sprintengine/module-sdk
- * and parity-tested against it): strictly the Multicode MIME entry — no
+ * and parity-tested against it): strictly the studio's MIME entry — no
  * native-Files fallback — returning null on a missing entry, unparseable JSON,
  * an unknown version, or an invalid shape. Never throws.
  */

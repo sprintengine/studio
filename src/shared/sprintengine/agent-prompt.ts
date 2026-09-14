@@ -125,10 +125,10 @@ export function buildSprintEngineStartupPrompt(
     ].join('\n')
 
   const noClaimFallback = commandMode === 'init'
-    ? 'If it returns no claim, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.'
+    ? 'If it returns no claim, reply that no work was claimed and stop — Studio re-engages this terminal when work is ready.'
     : isRoleless
-      ? 'If it returns no claim and the run has no task graph yet, you are the planner: create the tasks, self-approve the plan artifact, then claim your first task. If a plan already exists and nothing is claimable, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.'
-      : 'If it returns no claim, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.'
+      ? 'If it returns no claim and the run has no task graph yet, you are the planner: create the tasks, self-approve the plan artifact, then claim your first task. If a plan already exists and nothing is claimable, reply that no work was claimed and stop — Studio re-engages this terminal when work is ready.'
+      : 'If it returns no claim, reply that no work was claimed and stop — Studio re-engages this terminal when work is ready.'
 
   const claimContract = [
     '## Claim Contract',
@@ -147,7 +147,7 @@ export function buildSprintEngineStartupPrompt(
       '## Orchestration',
       'You are an agent with no role, working a task graph shared with the other agents on this sprint. With no architect and no specialists, the sprint plans the work, implements it, reviews it, tests it, and publishes it. You take work by claiming tasks — no central coordinator assigns anything, and when several agents run, the same loop runs in parallel over the shared graph.',
       'Drive every piece of work through the same loop, in order: plan → build → publish → self-review → advance. You own a task from claim to done: carry each one through to done before claiming new ready work.',
-      'When the run has no task graph yet, you are the planner: author the tasks, plan validation where testing is actually meaningful (one whole-flow task at the end, or one per milestone), self-approve the plan artifact, then implement. Multicode owns run initialization — you never initialize the run yourself.',
+      'When the run has no task graph yet, you are the planner: author the tasks, plan validation where testing is actually meaningful (one whole-flow task at the end, or one per milestone), self-approve the plan artifact, then implement. Studio owns run initialization — you never initialize the run yourself.',
       'The run\'s roles are user config: if work seems to need a role the run does not have, raise it with `needs_input` and let the user decide — never invent or enable roles yourself. Read your full role rules from the `sprintengine.agent.join` response.',
     ].join('\n')
     : null
@@ -155,7 +155,7 @@ export function buildSprintEngineStartupPrompt(
   const autoModeBlock = [
     '## Completion Handling',
     'After a task reaches `done`, stop. `sprintengine.help` describes the publish → review → advance lifecycle.',
-    'Multicode owns dispatch and continuation: it re-engages this terminal when more work is ready. Do not keep checking for work.',
+    'Studio owns dispatch and continuation: it re-engages this terminal when more work is ready. Do not keep checking for work.',
   ].join('\n')
 
   const mcpBoundaryLine = `Sprint Engine work runs through the managed \`${STUDIO_MCP_SERVER_ID}\` MCP server in this terminal. If the managed MCP server cannot be reached, stop and surface the failure.`

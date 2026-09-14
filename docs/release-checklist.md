@@ -1,4 +1,4 @@
-# Multicode Release Checklist
+# SprintEngine Studio Release Checklist
 
 Use this checklist for every preview or stable desktop release.
 

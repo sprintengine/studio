@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "name": "multicode",
+  "name": "sprintengine-studio",
   "version": "0.2.0",
-  "summary": "Multicode design system: neutral two-tier selection, one accent reserved for the primary action, a 2px-grid spacing scale, and progressive disclosure of row actions.",
+  "summary": "SprintEngine Studio design system: neutral two-tier selection, one accent reserved for the primary action, a 2px-grid spacing scale, and progressive disclosure of row actions.",
   "modes": [
     "light",
     "dark"

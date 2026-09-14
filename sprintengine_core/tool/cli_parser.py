@@ -37,7 +37,7 @@ from sprintengine_core.tool.phase_prompts import *  # noqa: F403,F401
 TOP_LEVEL_HELP = """\
 Sprint Engine - all run-store mutations go through here. Never edit run-store files directly.
 
-Entry points (CLI/human/headless compatibility; autonomous Multicode agents use MCP):
+Entry points (CLI/human/headless compatibility; autonomous studio agents use MCP):
   sprintengine handover --name my-team --goal "..." --handover handover.md
   sprintengine init [--name "..."] [--goal "..."]                 # bootstraps the board; agents claim ready tasks separately
   sprintengine recover
@@ -83,11 +83,13 @@ Plan commands (architect only):
   sprintengine plan delete-task --task-id T3 --unlink-dependents
   sprintengine plan list
 
-Artifact commands:
-  sprintengine artifact add --task-id T1 --kind product_strategy --title "Strategy" --path .multi-code/sprintengine/team/documents/strategy.md --created-by product
-  sprintengine artifact add --task-id T4 --kind code_review --title "Code review" --path .multi-code/sprintengine/team/reviews/review.md --created-by code-reviewer --recommended-task "Fix missing validation"
-  sprintengine artifact add --task-id T4 --kind spec_review --title "Spec review" --path .multi-code/sprintengine/team/reviews/spec-review.md --created-by spec-reviewer --recommended-task "Implement missing acceptance path"
-  sprintengine artifact add --task-id T5 --kind performance_review --title "Performance review" --path .multi-code/sprintengine/team/reviews/performance-review.md --created-by performance --recommended-task "Fix unbounded render work"
+Artifact commands (`<sidecar>` is the workspace's app-owned directory: `.sprintengine`,
+or `.multi-code` in a workspace made before the 2026-09-08 rename — use the one that
+is already there, because a workspace has exactly one and nothing migrates between them):
+  sprintengine artifact add --task-id T1 --kind product_strategy --title "Strategy" --path <sidecar>/sprintengine/team/documents/strategy.md --created-by product
+  sprintengine artifact add --task-id T4 --kind code_review --title "Code review" --path <sidecar>/sprintengine/team/reviews/review.md --created-by code-reviewer --recommended-task "Fix missing validation"
+  sprintengine artifact add --task-id T4 --kind spec_review --title "Spec review" --path <sidecar>/sprintengine/team/reviews/spec-review.md --created-by spec-reviewer --recommended-task "Implement missing acceptance path"
+  sprintengine artifact add --task-id T5 --kind performance_review --title "Performance review" --path <sidecar>/sprintengine/team/reviews/performance-review.md --created-by performance --recommended-task "Fix unbounded render work"
   sprintengine artifact list --task-id T1
   sprintengine artifact ready --artifact-id A1 --id product
   sprintengine artifact ready --artifact-id A1 --id product --confidence-pct 85 --hallucination-risk-pct 10
@@ -101,8 +103,8 @@ Run summary:
 MCP lifecycle compatibility:
   The local MCP server is the preferred agent operation boundary. The CLI remains
   a human/script/headless compatibility wrapper over the same core state
-  mutations. Multicode-launched autonomous roster agents use the managed
-  Sprint Engine MCP server and runtime dispatch, not the CLI; Multicode owns
+  mutations. Studio-launched autonomous roster agents use the managed
+  Sprint Engine MCP server and runtime dispatch, not the CLI; the studio owns
   terminal wake/resume and restarts missing same-role capacity. `sprintengine
   join` remains a one-shot human/debug read of what a role would be handed
   next; it does not poll. Run the stdio server with
@@ -388,7 +390,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=run_commands.runner_status)
 
     p = runner_sub.add_parser("set", help="Update the durable runner policy.")
-    p.add_argument("--cli-watch-polling", dest="cli_watch_polling", choices=["enabled", "disabled"], help="Automation-mode hint recorded on the run. The CLI watch loop it once configured is gone (MC-1827); Multicode reads this back to derive the run's automation mode.")
+    p.add_argument("--cli-watch-polling", dest="cli_watch_polling", choices=["enabled", "disabled"], help="Automation-mode hint recorded on the run. The CLI watch loop it once configured is gone (MC-1827); the studio reads this back to derive the run's automation mode.")
     p.add_argument("--poll-interval-seconds", type=int, help="Retained runner-policy field; no engine behaviour reads it since the watch loop was retired.")
     p.add_argument("--idle-backoff-seconds", type=int, help="Retained runner-policy field; no engine behaviour reads it since the watch loop was retired.")
     p.add_argument("--max-backoff-seconds", type=int, help="Retained runner-policy field; no engine behaviour reads it since the watch loop was retired.")
@@ -489,7 +491,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["agent", "human"],
         default="agent",
         help=(
-            "Who initiated this transition. `human` is set only by the Multicode supervisor "
+            "Who initiated this transition. `human` is set only by the studio supervisor "
             "for the Inbox send-back (reopening a done task to in_progress under its "
             "implementer); agent surfaces never set it — done is terminal for agents."
         ),

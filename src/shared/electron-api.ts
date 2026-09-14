@@ -1839,7 +1839,7 @@ export type TerminalSessionSnapshot = {
   terminalId?: string
   // The agent's session id within its own CLI/harness (the id used to resume the
   // conversation), captured from lifecycle hooks. Distinct from `sessionId`,
-  // which is our Multicode terminal-tracking id. Equal to it for Claude (we mint
+  // which is the studio's own terminal-tracking id. Equal to it for Claude (we mint
   // and pass the id); minted by the harness and learned post-launch for Codex etc.
   cliSessionId?: string
   cli?: AgentCli
@@ -2876,7 +2876,7 @@ export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'
 export type SprintEngineRunnerSetInput = {
   statePath: string
   // Automation-mode hint recorded on the run. The CLI watch loop it once
-  // configured is gone (MC-1827); Multicode reads it back to derive the run's
+  // configured is gone (MC-1827); the studio reads it back to derive the run's
   // automation mode.
   cliWatchPolling: SprintEngineCliWatchPolling
 }

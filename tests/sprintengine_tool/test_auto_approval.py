@@ -388,11 +388,11 @@ def test_sprintengine_agent_prompts_do_not_continue_polling_after_claim() -> Non
 
     assert "Keep polling for ready" not in combined_source
     assert "then poll again" not in combined_source
-    # Claim-first dispatch: agents never run their own polling loop. Multicode
+    # Claim-first dispatch: agents never run their own polling loop. The studio
     # owns dispatch and continuation; the agent calls the claim tool named in
     # its prompt once and stops when no claim is returned — no client-side
     # sleep/backoff, no directive hop.
-    assert "Multicode owns dispatch and continuation" in combined_source
+    assert "Studio owns dispatch and continuation" in combined_source
     assert "sprintengine.task.next" in combined_source
     assert "sprintengine.agent.next_directive" not in combined_source
     assert "sprintengine join --role" not in combined_source, (
@@ -476,7 +476,7 @@ def test_electron_roster_runner_uses_local_automation_mode_only() -> None:
     )
     assert "sprintEngineState.runner?.mode" not in cycle_source, (
         "The cycle must not read the legacy runner.mode field. The new field is "
-        "runner.cliWatchPolling, and Multicode's reconciler reads neither — local "
+        "runner.cliWatchPolling, and the studio's reconciler reads neither — local "
         "autoState alone gates spawning."
     )
 

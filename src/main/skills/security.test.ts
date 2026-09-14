@@ -742,7 +742,7 @@ async function reinstallDoesNotLeaveRemovedFilesBehind(): Promise<void> {
 
 // A skill cannot forge its own provenance: a repository shipping a file named
 // like the marker gets that file staged and then overwritten by the real one,
-// so what lands on disk is what Multicode wrote.
+// so what lands on disk is what the studio wrote.
 async function aSourceCannotForgeItsOwnProvenance(): Promise<void> {
   const workspace = await mkdtemp(join(tmpdir(), 'multicode-sec-forge-'))
   const forged = JSON.stringify({ sourceId: TRUSTED_SOURCE, skillId: 'skills/backlog', commitSha: COMMIT })

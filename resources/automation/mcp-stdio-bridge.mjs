@@ -36,7 +36,7 @@
 // legacy filename fallback):
 //   1. --info-path <file>          explicit override (tests, extra profiles)
 //   2. $SPRINTENGINE_USER_DATA_DIR the same override the dev app honors
-//   3. the default Multicode userData dir for this platform
+//   3. the default studio userData dir for this platform
 //
 // Dev instances launched with SPRINTENGINE_USER_DATA_DIR must pass the same env
 // var (or --info-path) to the bridge; the default dir is the packaged app's.

@@ -169,8 +169,9 @@ def declared_sibling_entries(
     Each sibling's worktree lives under the PRIMARY run directory as
     `worktree-<id>`, beside the primary's `worktree`, so run discovery and teardown
     keep one anchor no matter how many projects a run spans. That directory is
-    inside the primary repo's tree, which ignores `.multi-code/sprintengine/*`, so
-    the sibling checkout is never visible to the primary repo's own status.
+    inside the primary repo's tree, which ignores the run directory under the
+    app-owned sidecar folder (under either of that folder's names), so the sibling
+    checkout is never visible to the primary repo's own status.
     """
     entries: List[Dict[str, Any]] = []
     roots: Dict[str, str] = {}

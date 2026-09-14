@@ -6,7 +6,7 @@ import { SettingsPageHeader } from './SettingsAtoms'
 // Settings → Ticket trackers (MC-2363).
 //
 // The whole tab is now one thing: find your tracker and install its MCP, so
-// your agents can work its tickets. Multicode itself no longer talks to
+// your agents can work its tickets. The studio itself no longer talks to
 // trackers — the credential form, the connections list, the write-back settings
 // and the in-app issue picker all went with the native layer, because browsing
 // tickets here competes with the tracker's own UI and loses.

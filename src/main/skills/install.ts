@@ -38,7 +38,7 @@ export const DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES = 50 * 1024 * 1024
  * reader renders.
  *
  * Same filename as the manifest src/main/builtin-skills.ts writes for the
- * skills the app ships, deliberately: one convention for "Multicode put this
+ * skills the app ships, deliberately: one convention for "the studio put this
  * here", not two. The shapes differ and each reader recognises only its own —
  * a bundled skill's manifest names no `sourceId`, so no sync claims it, and a
  * source's marker fails the built-in reader's `source: 'multicode-builtin'`

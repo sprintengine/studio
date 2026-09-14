@@ -415,7 +415,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
         // variable NAMES are contract, never resolved values or hex literals.
         style: { background: 'var(--bg-surface)', color: 'var(--text-muted)' },
         // getData is blanked during dragover (DnD protected mode), so gating
-        // uses the types-based check; only Multicode/file drags are accepted.
+        // uses the types-based check; only studio and native-file drags are accepted.
         onDragOver: (event: { preventDefault(): void; dataTransfer: DataTransfer }) => {
           if (hasFileDropData(event.dataTransfer)) event.preventDefault()
         },

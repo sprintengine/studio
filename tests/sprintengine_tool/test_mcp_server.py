@@ -1202,7 +1202,7 @@ def test_mcp_agent_join_prompt_does_not_leak_state_path_or_workspace_root(tmp_pa
 def test_mcp_agent_join_succeeds_with_minimal_payload_from_env(tmp_path, monkeypatch) -> None:
     """Regression: agents can call join with just {role, agentId} when env vars are set.
 
-    Multicode launches the managed Sprint Engine MCP server with
+    The studio launches the managed Sprint Engine MCP server with
     SPRINTENGINE_STATE_PATH (and optionally SPRINTENGINE_WORKSPACE_ROOT) in its
     process env. Tool calls from autonomous agents must succeed without
     payload-supplied paths.

@@ -24,8 +24,8 @@
 //   worktree lists), backlog reads, Sprint Engine reads
 //   and projections, knowledge/memory reads, terminal session lists
 //   (`terminalList`, `terminalStatus`), workspace backup reads.
-// - `ipc:workspace-write` — changing workspace and project state through
-//   Multicode: `workspaceSyncDispatch`, filesystem mutation routes (`writefile`,
+// - `ipc:workspace-write` — changing workspace and project state through the
+//   studio: `workspaceSyncDispatch`, filesystem mutation routes (`writefile`,
 //   create/rename/copy/delete), git mutations (stage/commit/push/branch/
 //   worktrees), backlog mutations, Sprint Engine task
 //   mutations, workspace backup writes.
@@ -33,7 +33,7 @@
 //   `terminalSpawn`/`terminalWrite`/`terminalKill` and terminal event streams,
 //   conversation provider sessions, Sprint Engine runner/roster controls,
 //   soul prompts.
-// - `ipc:settings` — reading and changing Multicode settings and integrations:
+// - `ipc:settings` — reading and changing studio settings and integrations:
 //   module enablement, third-party module install/trust, MCP catalog/sync,
 //   skill packs, plugin and role/template registries, GitHub token, app
 //   updates, mobile bridge settings, voice transcription settings.
@@ -115,14 +115,14 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
 const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'filesystem:read-workspace': 'Read files in the open workspace',
   'filesystem:write-workspace': 'Create and modify files in the open workspace',
-  'filesystem:read-home': 'Read your Multicode configuration and home folder',
+  'filesystem:read-home': 'Read your app configuration and home folder',
   'process:spawn': 'Run external programs on your machine',
   network: 'Make network requests',
-  'ipc:workspace-read': 'See workspace, window, git, and task state through Multicode APIs',
-  'ipc:workspace-write': 'Create and change workspaces, files, and tasks through Multicode APIs',
+  'ipc:workspace-read': "See workspace, window, git, and task state through the app's APIs",
+  'ipc:workspace-write': "Create and change workspaces, files, and tasks through the app's APIs",
   'ipc:agents': 'Launch and control agents and terminals',
-  'ipc:settings': 'Read and change Multicode settings and integrations',
-  'ipc:invoke': "Call any of Multicode's internal APIs, including its own background code (broad scope)",
+  'ipc:settings': 'Read and change app settings and integrations',
+  'ipc:invoke': "Call any of the app's internal APIs, including its own background code (broad scope)",
   'backlog.read': 'Read Backlog item details and source content',
   'backlog.write': 'Change Backlog item status, links, and metadata',
   'backlog.link.open': 'Open links and targets attached to Backlog items',

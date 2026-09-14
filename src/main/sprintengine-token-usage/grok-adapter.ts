@@ -7,7 +7,7 @@ import { tokenCount, type ModelTokenUsage } from './types'
 
 // Grok Build writes JSON-RPC session updates under
 // <GROK_HOME>/sessions/<urlencoded-workspace>/<sessionId>/updates.jsonl, with a
-// sibling signals.json rollup. Multicode mints Grok's session id and passes it
+// sibling signals.json rollup. The studio mints Grok's session id and passes it
 // via --session-id (sessionIdFromCaller:true in the manifest), so the session
 // directory name is the cliSessionId and lookup is a scan of the workspace
 // folders for a matching directory.
@@ -26,7 +26,7 @@ import { tokenCount, type ModelTokenUsage } from './types'
 // Reads are memoized like the other file adapters: session-dir location memo
 // plus a parse memo keyed on updates.jsonl + signals.json mtime+size.
 
-// Grok session ids are minted by Multicode (uuid-shaped); restrict the charset
+// Grok session ids are minted by the studio (uuid-shaped); restrict the charset
 // so a malformed id can never be interpolated into path.join.
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/
 

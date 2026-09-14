@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Multicode status-line forwarder — the stdin filter Claude Code's `statusLine`
-// setting runs, and the only way the app learns how much of a session's context
-// window is gone.
+// SprintEngine Studio status-line forwarder — the stdin filter Claude Code's
+// `statusLine` setting runs, and the only way the app learns how much of a
+// session's context window is gone.
 //
 // Claude Code refreshes the status line after each assistant message, after a
 // /compact, on a permission-mode change and on a rate-limit reset, piping a JSON
