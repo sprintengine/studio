@@ -503,6 +503,29 @@ async function testCursorBundledRenderMatchesExpected(): Promise<void> {
   assert.deepEqual(presets.auto?.args, ['--auto-review'])
   assert.deepEqual(presets.bypass?.args, ['--force'], '--yolo is only an alias; one flag is sent')
   assert.deepEqual(presets.manual?.args, [], 'Cursor prompts on its own, so manual adds nothing')
+
+  // `--model` is already on the launch argv; the empty seed is what left the
+  // picker blank. A selected id has to ride the same renderer every spawn uses.
+  const withModel = renderPluginLaunch(plugin!.manifest, {
+    sessionId: 'sid_cursor',
+    prompt: 'fix the tests',
+    model: 'composer-2.5',
+  })
+  assert.deepEqual(withModel.argv, [
+    'cursor-agent',
+    '--model',
+    'composer-2.5',
+    'fix the tests',
+  ])
+  const withoutModel = renderPluginLaunch(plugin!.manifest, {
+    sessionId: 'sid_cursor',
+    prompt: 'fix the tests',
+  })
+  assert.deepEqual(
+    withoutModel.argv,
+    ['cursor-agent', 'fix the tests'],
+    'an unset model still launches with no --model, so the CLI default (auto) wins',
+  )
 }
 
 async function testFixtureManifestsValidate(): Promise<void> {

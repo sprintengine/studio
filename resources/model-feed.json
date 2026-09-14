@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-05T20:36:10Z",
+  "updatedAt": "2026-09-14T21:30:00Z",
   "clis": {
     "claude-code": {
       "models": [
@@ -118,7 +118,62 @@
       "models": []
     },
     "cursor": {
-      "models": []
+      "models": [
+        {
+          "id": "auto",
+          "label": "Auto",
+          "alias": true,
+          "retired": false
+        },
+        {
+          "id": "claude-fable-5-1-thinking-high",
+          "label": "Claude Fable 5.1 Thinking",
+          "releasedAt": "2026-09-01",
+          "retired": false
+        },
+        {
+          "id": "cursor-grok-4.6-high",
+          "label": "Cursor Grok 4.6",
+          "releasedAt": "2026-08-12",
+          "retired": false
+        },
+        {
+          "id": "cursor-grok-4.6-high-fast",
+          "label": "Cursor Grok 4.6 Fast",
+          "releasedAt": "2026-08-12",
+          "retired": false
+        },
+        {
+          "id": "claude-opus-5-thinking-high",
+          "label": "Claude Opus 5 Thinking",
+          "releasedAt": "2026-07-24",
+          "retired": false
+        },
+        {
+          "id": "gpt-5.6-sol-medium",
+          "label": "GPT-5.6 Sol",
+          "releasedAt": "2026-07-09",
+          "retired": false
+        },
+        {
+          "id": "composer-2.5",
+          "label": "Composer 2.5",
+          "releasedAt": "2026-05-18",
+          "retired": false
+        },
+        {
+          "id": "composer-2.5-fast",
+          "label": "Composer 2.5 Fast",
+          "releasedAt": "2026-05-18",
+          "retired": false
+        },
+        {
+          "id": "gpt-5.3-codex",
+          "label": "Codex 5.3",
+          "releasedAt": "2026-02-09",
+          "retired": false
+        }
+      ]
     }
   }
 }
