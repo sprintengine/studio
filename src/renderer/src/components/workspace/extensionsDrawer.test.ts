@@ -74,7 +74,11 @@ assert.equal(
   false,
   'Automations is not a drawer surface, so opening it leaves the section alone',
 )
-assert.equal(isExtensionsDrawerSurface('acme.compass'), false, 'nor is a third party’s door')
+assert.equal(
+  isExtensionsDrawerSurface('acme.compass'),
+  false,
+  'runtime module doors enter the section through the registry resolver, not the built-in leaf',
+)
 
 // ── The drawer stays put ─────────────────────────────────────────────────────
 // A door that IS a drawer row must not take the sidebar column: the drawer is

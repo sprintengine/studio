@@ -2,7 +2,7 @@ import type { RegisteredGlobalSurface } from '../../modules/renderer-host'
 
 // What the Extensions drawer IS, as data (Extensions drawer ruling, 2026-09-05).
 //
-// SIX rows, in a fixed order the owner ruled:
+// SIX built-in rows, in a fixed order the owner ruled:
 //
 //   Workflows · Sprints · Design · Plugins · Skills · Agent CLIs
 //
@@ -11,7 +11,10 @@ import type { RegisteredGlobalSurface } from '../../modules/renderer-host'
 // each other, so Workflows and Sprints are separate rows leading to separate
 // lists. Workflows leads because it is where a goal starts.
 //
-// Registry `order` does not decide it. The earlier cut sorted doors and modal
+// Installed module doors follow these six in stable registry order; the
+// renderer-side resolver owns those because this file is deliberately a pure
+// leaf with no live registry. Registry `order` does not reorder the built-ins.
+// The earlier cut sorted doors and modal
 // surfaces together by their declared `order`, which meant the column a person
 // reads top to bottom was arranged by whichever numbers modules happened to
 // claim, and any module registered later could push Sprints down it. The order

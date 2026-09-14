@@ -589,13 +589,11 @@ export default function ExtensionsHomeSurface(): JSX.Element {
             breakpoint is the region and never the viewport.
 
             `auto-fit` was here until 2026-09-06 and cannot be told to stop at a
-            count. With five tiles it happened to resolve to five; item 2470 made
-            it six, and five-across left Agent CLIs alone on a second row against
-            four columns of whitespace. The tile's own note asks the row to read
-            "as one control repeated rather than five cards that happen to be
-            adjacent", and an orphan is exactly what that forbids. 1 / 2 / 3 / 6
-            all divide six, and none of them squeezes a tile below its 176px
-            copy width. */}
+            count. With five built-in tiles it happened to resolve to five; item
+            2470 made it six, and five-across left Agent CLIs alone on a second
+            row against four columns of whitespace. 1 / 2 / 3 / 6 all divide
+            the built-in set, and installed module doors wrap at the same stable
+            tile width instead of stretching every built-in when one arrives. */}
           {/* The container is the WRAPPER and the query variants are on the
             child, which is the one way round that works: `@container` makes an
             element a query context for its DESCENDANTS, so an `@[400px]:`

@@ -4062,9 +4062,9 @@ export default function WorkspaceSidebar({
        * emptying the column for it would trade a problem it does not have for a
        * blank rail. */}
       {contextRail}
-      {/* The Extensions drawer (app shell, 2026-09-05): the five ruled
-          rows — Sprints, Design, Plugins, Skills, Agent CLIs — that the top-nav
-          band above the tree used to hold. The app rail's Extensions glyph
+      {/* The Extensions drawer (app shell, 2026-09-05): the ruled
+          product rows — Workflows, Sprints, Design, Plugins, Skills, Agent CLIs —
+          followed by installed module doors. The app rail's Extensions glyph
           shows it in place of the tree, and it STAYS while the card region
           swaps: a door that is one of its rows renders its own rail beside its
           canvas rather than taking this column (`railPlacement: 'inline'`).

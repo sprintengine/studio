@@ -53,7 +53,7 @@ export function useExtensionsRowBadges(): ExtensionsRowBadges {
   const unread = useMemo(() => unreadByExtensionsRow(notifications), [notifications])
   const labels = useMemo(() => {
     const byRow: Partial<Record<ExtensionsDrawerRowId, string>> = {}
-    for (const row of rows) if (row.label) byRow[row.rowId] = row.label
+    for (const row of rows) if (row.rowId && row.label) byRow[row.rowId] = row.label
     return byRow
   }, [rows])
   const waitingByDoor = useMemo(() => {

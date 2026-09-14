@@ -1,7 +1,7 @@
 import React from 'react'
 
 import { Badge } from '../ui/Badge'
-import { RowButton } from '../ui/RowButton'
+import { RowButton, type RowButtonVariant } from '../ui/RowButton'
 import type { Tone } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
 
@@ -46,6 +46,8 @@ export function SidebarNavButton({
   tooltipWhenExpanded,
   indicator,
   badge,
+  variant,
+  disabled,
   onClick,
   onDragOver,
   onDragLeave,
@@ -68,6 +70,9 @@ export function SidebarNavButton({
   indicator?: React.ReactNode
   // The row's unread count, drawn in place of `indicator` while it is above 0.
   badge?: RowBadge | null
+  /** Dashed marks the one add/create affordance at the head of a rail. */
+  variant?: RowButtonVariant
+  disabled?: boolean
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
   onDragOver?: (event: React.DragEvent<HTMLButtonElement>) => void
   onDragLeave?: (event: React.DragEvent<HTMLButtonElement>) => void
@@ -87,7 +92,9 @@ export function SidebarNavButton({
     // The type stays here because `RowButton` deliberately spells none.
     <RowButton
       density="nav"
+      variant={variant}
       selected={highlighted}
+      disabled={disabled}
       onClick={onClick}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}

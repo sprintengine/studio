@@ -531,24 +531,31 @@ walks. Its anatomy:
    rail because it is what the product DOES, not something added to it; it is
    the module's own registered surface, gated on the module's enablement, so a
    turned-off module's glyph is simply absent. Plugins does not: it is one of
-   the five things under Extensions, and a glyph of its own said it stood
+   the six product things under Extensions, and a glyph of its own said it stood
    beside them.
 4. **Extensions opens its home, and the sidebar becomes the drawer.** The
-   drawer is five rows in a fixed order — Sprints, Design, Plugins, Skills,
-   Agent CLIs — with the same `SidebarNavButton` chrome for all five. The order
-   is the ruling's, not the registry's `order`; a module contributes a row's
-   name, glyph and behaviour, never its place. The drawer STAYS PUT while the
-   card region swaps, which is what makes it the navigation rather than a menu:
+   drawer starts with six product rows in a fixed order — Workflows, Sprints,
+   Design, Plugins, Skills, Agent CLIs — and installed module doors follow in
+   stable registry order, all with the same `SidebarNavButton` chrome. Registry
+   `order` never moves the six product rows; an installed door contributes its
+   name, glyph and behaviour, then takes the next available place. The drawer
+   STAYS PUT while the card region swaps, which is what makes it the navigation
+   rather than a menu:
    a door that is one of its rows renders its own rail beside its canvas
    instead of taking the column. Only Sprints, which has its own list of runs,
    replaces it for the length of its visit — and Automations, which is not a
    drawer row at all, because the automations it lists ARE the navigation while
    it is open.
+   **Add extension leads the drawer.** It is the dashed add-row used by the
+   other door rails, opening the native folder chooser for an installable module
+   directory. Selection runs through the same validation, copying, signature,
+   and trust workflow as Settings → Modules, then opens that settings page for
+   access review; choosing a folder never silently grants trust.
    A drawer row reads `aria-current` while its page is showing (it is
    navigation, exactly like a workspace row); the rail's square reads
    `aria-pressed`. Two honest readings of one state — what would be wrong is
    one row of the drawer disagreeing with the row above it.
-   **The home is those same five rows, said again as tiles** — glyph, name, a
+   **The home is those same rows, said again as tiles** — glyph, name, a
    one-line summary, a live count, a chevron — resolved from the one function
    the drawer's rows are resolved by, so a tile cannot open something its row
    does not, and a module that is off takes both away together. A count on a
@@ -584,14 +591,16 @@ walks. Its anatomy:
    waiting on the person stays counted. Never a toast: a glass card for every
    chat that finished would be over the top, and the count is what says "come
    back here" without interrupting.
-9. **Each drawer row wears its own count, and the square is their sum**
+9. **Each product drawer row wears its own count, and the square is their sum**
    (2026-09-08). The Extensions square used to read everything under it the
    moment the section opened, and the drawer that appeared said nothing about
    which row the news belonged to — a count that vanished on the click it
    asked for. Now the news goes on the row it came from: a source drift notice
    on Plugins, a CLI update on Agent CLIs, a run waiting on an answer on the
    door that lists it, entries arrived since the bundle was last shown on
-   Design. The row draws the same corner counter — trailing when the column is
+   Design. Installed module rows carry no inferred count: a module owns its
+   status inside its door until it contributes a notification contract. A
+   counted row draws the same corner counter — trailing when the column is
    expanded, docked on the icon when collapsed — in place of any status dot it
    would otherwise wear (one status idiom per surface), with the row's name in
    its accessible name. Opening a ROW reads its news; opening the section reads

@@ -23,6 +23,7 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 import type { Tone } from '../ui/tokens'
 import { type ActionResult, ActionResultMessage, Badge, EmptyState, IconButton, InlineNotice, OutlineButton, Spinner, StatusDot, Switch, Tooltip } from '../ui'
 import { FolderPlusIcon } from '../AppIcons'
+import { addThirdPartyModuleFromFolder } from './addThirdPartyModuleFromFolder'
 import { SettingsSectionTitle } from './SettingsAtoms'
 
 // Settings → Modules: the third-party (installed-from-disk) module group. It
@@ -314,24 +315,21 @@ export function ThirdPartyModuleList({
   useEffect(() => onThirdPartyRendererModulesLoaded(() => { void load() }), [load])
 
   const installFromFolder = useCallback(async () => {
-    if (typeof window.api.installThirdPartyModuleFolder !== 'function') return
     setInstalling(true)
     setMessage(null)
     try {
-      const folder = await window.api.openDir()
-      if (!folder) return
-      const result = await window.api.installThirdPartyModuleFolder(folder)
-      if (!result.ok) {
-        setMessage({ tone: 'error', text: result.message ?? 'Could not install the module.' })
-      } else {
+      const result = await addThirdPartyModuleFromFolder(window.api)
+      if (result.status === 'failed') {
+        setMessage({ tone: 'error', text: result.message })
+      } else if (result.status === 'installed') {
         setMessage({
           tone: result.trust === 'invalid' ? 'error' : 'info',
-          text: `Installed "${result.id}". Review its access and trust it when you're ready.`,
+          text: result.id
+            ? `Installed "${result.id}". Review its access and trust it when you're ready.`
+            : 'Installed the module. Review its access and trust it when you’re ready.',
         })
+        await load()
       }
-      await load()
-    } catch (error) {
-      setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Install failed.' })
     } finally {
       setInstalling(false)
     }

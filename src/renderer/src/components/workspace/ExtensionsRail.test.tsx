@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
-// The Extensions drawer (Extensions drawer ruling, 2026-09-05): SIX rows in a
-// fixed order — Workflows · Sprints · Design · Plugins · Skills · Agent CLIs —
+// The Extensions drawer (Extensions drawer ruling, 2026-09-05): SIX built-in
+// rows in a fixed order — Workflows · Sprints · Design · Plugins · Skills · Agent CLIs —
 // six since item 2470 split the one run door in two, and where the last three
 // are three views of the ONE `extensions` surface. This renders the
 // real drawer against the real module registry because the contract is the
@@ -165,10 +165,14 @@ act(() => {
   }))
 })
 render()
+assert.ok(
+  [...dom.window.document.querySelectorAll('button')].some((button) => button.textContent?.includes('Add extension')),
+  'the Extensions drawer leads with the folder-install affordance',
+)
 assert.equal(
   dom.window.document.querySelectorAll('[role="listitem"]').length,
   6,
-  'the drawer is exactly the ruling’s six rows — an order-1 door that is not one of them does not appear',
+  'the drawer starts with the ruling’s six rows — a nav entry without a surface is not a destination',
 )
 // Four labels, not six: the Workflows and Sprints slots render the
 // sprint-engine module's OWN row component (item 2470 gave both doors the same

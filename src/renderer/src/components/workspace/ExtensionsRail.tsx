@@ -1,5 +1,10 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 
+import { addThirdPartyModuleFromFolder } from '../settings/addThirdPartyModuleFromFolder'
+import { FolderPlusIcon } from '../AppIcons'
+import { ActionResultMessage, Spinner } from '../ui'
+import type { ActionResult } from '../ui'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { SidebarNavButton } from './SidebarNavButton'
 import { useExtensionsRowBadges } from './useExtensionsRowBadges'
@@ -9,11 +14,12 @@ import { useExtensionsRowBadges } from './useExtensionsRowBadges'
 // that is not a chat and is not one of the product's own standing tools — the
 // things ADDED to the product — in one column with one row chrome.
 //
-// The rows and their order are the ruling, held as data next door
-// (`extensionsDrawer.ts`), and resolving them against the live registry —
-// what each row is called, what it looks like and what clicking it does — is
-// `extensionsDrawerRows.ts`, shared with the Extensions home's tiles so the two
-// cannot route differently (Stage 3). This file is only the column's chrome.
+// The product rows and their order are the ruling, held as data next door
+// (`extensionsDrawer.ts`); installed module doors follow them. Resolving both
+// shapes against the live registry — what each row is called, what it looks
+// like and what clicking it does — is `extensionsDrawerRows.ts`, shared with
+// the Extensions home's tiles so the two cannot route differently (Stage 3).
+// This file is only the column's chrome.
 //
 // A row whose module is disabled simply is not there: every lookup goes through
 // the host's enablement filter, and a miss renders nothing rather than a dead
@@ -50,11 +56,33 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
   // registers late, which put a row on the Extensions home and not here.
   const drawerRows = useExtensionsDrawerRows()
   const badges = useExtensionsRowBadges()
+  const openSettingsOverlay = useWorkspaceStore((state) => state.openSettingsOverlay)
+  const [installing, setInstalling] = useState(false)
+  const [installMessage, setInstallMessage] = useState<ActionResult | null>(null)
+
+  const addExtension = useCallback(async () => {
+    if (installing) return
+    setInstalling(true)
+    setInstallMessage(null)
+    try {
+      const result = await addThirdPartyModuleFromFolder(window.api)
+      if (result.status === 'failed') {
+        setInstallMessage({ tone: 'error', text: result.message })
+      } else if (result.status === 'installed') {
+        // Installation never grants trust. Land on the existing review surface,
+        // where requested access, signature state, trust, and enablement are all
+        // shown together instead of reimplementing that security decision here.
+        openSettingsOverlay({ initialTab: 'modules' })
+      }
+    } finally {
+      setInstalling(false)
+    }
+  }, [installing, openSettingsOverlay])
 
   const rows = useMemo(
     () =>
       drawerRows.flatMap((row) => {
-        const badge = badges[row.rowId]
+        const badge = row.rowId ? badges[row.rowId] : undefined
         // A module's own row component owns its full chrome — a status dot, its
         // own wider reading of "selected" — so it renders instead of a generic
         // row, not beside one.
@@ -105,12 +133,31 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
     // a person walks, and its square stays PRESSED while the tool it holds is up
     // (principles, "The app rail"). Same state, two honest readings; what would
     // be wrong is one row of this column disagreeing with the row above it.
-    <div role="list" aria-label="Extensions" className="mx-2 mt-1 flex flex-col gap-1.5">
-      {rows.map((row) => (
-        <div key={row.key} role="listitem" className="flex flex-col">
-          {row.node}
-        </div>
-      ))}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-2 pb-2 pt-2">
+        <SidebarNavButton
+          collapsed={collapsed}
+          variant="dashed"
+          icon={
+            installing
+              ? <Spinner className="icon-sm shrink-0" />
+              : <FolderPlusIcon className="icon-sm pointer-events-none shrink-0" />
+          }
+          label={installing ? 'Adding extension…' : 'Add extension'}
+          ariaLabel={installing ? 'Adding extension from a folder' : 'Add extension from a folder'}
+          tooltip={installMessage?.text ?? (installing ? 'Adding extension from a folder' : 'Add extension from a folder')}
+          disabled={installing}
+          onClick={() => void addExtension()}
+        />
+        {!collapsed ? <ActionResultMessage message={installMessage} className="mt-2" /> : null}
+      </div>
+      <div role="list" aria-label="Extensions" className="mx-2 mt-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
+        {rows.map((row) => (
+          <div key={row.key} role="listitem" className="flex flex-col">
+            {row.node}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

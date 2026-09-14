@@ -9,15 +9,17 @@ import type {
 } from '../../modules/renderer-host'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { DRAWER_ROWS, type ExtensionsDrawerRowId } from './extensionsDrawer'
+import { extensionContributionRows } from './extensionContributionRows'
 import { useSurfaceView } from './surfaceView'
 
-// The drawer's five rows, RESOLVED (Extensions drawer ruling, 2026-09-05,
-// Stage 3). `extensionsDrawer.ts` says which rows exist and in what order;
-// this says what each one currently IS against the live registry — its name,
-// its glyph, whether the card region is showing it, and what clicking it does.
+// The drawer's six fixed rows plus installed door contributions, RESOLVED
+// (Extensions drawer ruling, 2026-09-05, Stage 3; module-door completion,
+// 2026-09-13). `extensionsDrawer.ts` says which product rows exist and in what
+// order; installed surfaces follow them. This says what every row currently IS
+// against the live registry — its name, glyph, selection, and open behaviour.
 //
 // It exists because the rows are now offered in two places. The drawer column
-// lists them, and the Extensions home lists the same five as tiles, and the
+// lists them, and the Extensions home lists the same set as tiles, and the
 // ruling is explicit that a tile "opens the same surface the drawer row does".
 // Two resolvers would be two routings: the day a view row's deep-link latch
 // changed, the tile would keep opening the old way and only one of the two
@@ -30,8 +32,8 @@ import { useSurfaceView } from './surfaceView'
 export type ExtensionsDrawerRowView = {
   /** Stable across renders and unique in the list; a React key. */
   key: string
-  /** The row's own name in the ruling — what its unread count is keyed by. */
-  rowId: ExtensionsDrawerRowId
+  /** Fixed rows carry their notification key. Installed contributions do not. */
+  rowId: ExtensionsDrawerRowId | null
   /** The surface the row leads to. */
   surfaceId: string
   /** The view within it, when the row is one of a multi-row surface's views. */
@@ -72,6 +74,7 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
   const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
+  const setSidebarSection = useWorkspaceStore((s) => s.setSidebarSection)
   // Which view the OPEN surface is standing on, so exactly one of a
   // multi-view surface's rows reads selected — including when the person moved
   // with the surface's own rail rather than by clicking a row. Only the open
@@ -104,7 +107,7 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
     const entryById = new Map<string, RegisteredSidebarNavEntry>(
       hostNavEntries.map((entry) => [entry.id, entry]),
     )
-    return DRAWER_ROWS.flatMap((row): ExtensionsDrawerRowView[] => {
+    const fixedRows = DRAWER_ROWS.flatMap((row): ExtensionsDrawerRowView[] => {
       if (row.kind === 'nav') {
         const entry = entryById.get(row.entryId)
         if (!entry) return []
@@ -173,5 +176,15 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
         },
       ]
     })
-  }, [activeGlobalSurface, activeView, hostNavEntries, globalSurfaces, openGlobalSurface])
+    return [
+      ...fixedRows,
+      ...extensionContributionRows({
+        surfaces: globalSurfaces,
+        activeGlobalSurface,
+        activeView,
+        enterExtensions: () => setSidebarSection('extensions'),
+        openGlobalSurface,
+      }),
+    ]
+  }, [activeGlobalSurface, activeView, hostNavEntries, globalSurfaces, openGlobalSurface, setSidebarSection])
 }
