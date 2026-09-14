@@ -5,7 +5,8 @@
 //   resolve                 decide what this run builds: channel, version, commit
 //   notes <out-file>        write the release body
 //   merge-mac <dir> <ch>    fold the two macOS manifests into one
-//   verify                  prove the published release is installable and updatable
+//   verify                  prove the published release is installable, and
+//                           reachable by an updater holding no credentials
 //
 // Inputs arrive as environment variables set by the workflow, outputs go to
 // $GITHUB_OUTPUT. The pure logic is in release-lib.mjs.
@@ -16,6 +17,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 import {
+  anonymousGet,
   buildReleaseNotes,
   channelForVersion,
   checkManifest,
@@ -28,7 +30,9 @@ import {
   previewVersion,
   resolvePreviewBase,
   sourceShaFromBody,
+  updaterUrls,
   utcDateStamp,
+  verifyPublicRelease,
 } from './release-lib.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -222,6 +226,10 @@ function mergeMac(dir, channel) {
 // nothing anyone could read: build.publish still named the PRIVATE source repo.
 // A release that publishes to the wrong place, publishes half its files, or
 // ships a manifest the updater cannot use must not report success.
+//
+// Two passes, and the second is the one that class of bug fails: the API pass
+// proves the release is complete, the unauthenticated pass proves a user can
+// get at it. A private releases repository passes the first perfectly.
 async function verify() {
   const token = env('RELEASES_TOKEN')
   const tag = env('TAG')
@@ -250,6 +258,25 @@ async function verify() {
 
   if (problems.length > 0) throw new Error(`Release ${tag} is not installable:\n  - ${problems.join('\n  - ')}`)
   console.log(`Release ${tag} is complete on ${RELEASES_REPO}.`)
+
+  // Everything above answered while holding RELEASES_TOKEN, which is exactly
+  // the credential no user has. Ask again with none, at the URLs the shipped
+  // updater reads, so a releases repository that is private or misnamed fails
+  // here rather than in the silence of an app that never finds an update.
+  const urls = updaterUrls({ repo: RELEASES_REPO, tag, channel })
+  console.log(`Checking without credentials:\n  ${[urls.feed, urls.latestPointer, ...Object.values(urls.manifests)].join('\n  ')}`)
+  const unreachable = await verifyPublicRelease({
+    repo: RELEASES_REPO,
+    tag,
+    channel,
+    version,
+    assetNames,
+    get: anonymousGet(),
+  })
+  if (unreachable.length > 0) {
+    throw new Error(`Release ${tag} is published but installed builds cannot reach it:\n  - ${unreachable.join('\n  - ')}`)
+  }
+  console.log(`Release ${tag} is readable on ${RELEASES_REPO} without credentials.`)
 }
 
 const [command, ...args] = process.argv.slice(2)
