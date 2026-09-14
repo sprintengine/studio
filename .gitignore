@@ -82,27 +82,14 @@ electron.vite.config.*.mjs
 # rewrites it as it runs and a clone gets its own on first run — tracking it
 # published one machine's live state, which is the same mistake
 # `backlog/items.json` made before it.
-.sprintengine/*
-.multi-code/*
-
-# Sprint Engine runtime state, minus the three things under it that ARE sources:
-# the README, and the fixtures and evidence the tests read. The directory has to
-# be re-included first — git cannot re-include a path whose parent directory is
-# excluded, and the lines above exclude it.
-!.sprintengine/sprintengine/
-.sprintengine/sprintengine/*
-!.sprintengine/sprintengine/README.md
-!.sprintengine/sprintengine/fixtures/
-!.sprintengine/sprintengine/fixtures/**
-!.sprintengine/sprintengine/evidence/
-!.sprintengine/sprintengine/evidence/**
-!.multi-code/sprintengine/
-.multi-code/sprintengine/*
-!.multi-code/sprintengine/README.md
-!.multi-code/sprintengine/fixtures/
-!.multi-code/sprintengine/fixtures/**
-!.multi-code/sprintengine/evidence/
-!.multi-code/sprintengine/evidence/**
+# No exceptions under either name. There used to be re-includes here for a
+# README and for `fixtures/` and `evidence/` beneath the Sprint Engine subtree,
+# on the grounds that the tests read them. Nothing has ever been tracked at
+# those paths except one README, long gone, and no test resolves them — so all
+# they did was hold a door open for a workspace's live run state to be committed
+# by someone who added a file and saw git offer it.
+.sprintengine/
+.multi-code/
 
 # Editor directories and files
 .idea
