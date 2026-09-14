@@ -79,6 +79,7 @@ async function main(): Promise<void> {
     testPromptFallbackCliRendersNoContextFlag()
     testLaunchPreviewNeverShowsHostContext()
     testLaunchPluginDirsReachLaunchAndResume()
+    testLaunchSettingsReachLaunchAndResume()
   })
 
   console.log('agent-launch-render tests passed')
@@ -143,6 +144,68 @@ function testLaunchPluginDirsReachLaunchAndResume(): void {
   assert.deepEqual(
     renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1' }).argv,
     renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', pluginDirs: [] }).argv
+  )
+}
+
+// The `--settings` document a launch asked for actually arrives.
+//
+// This is the regression the render boundary was silently eating: the launch
+// path resolved a status line, handed it to `buildAgentShellCommand` in an
+// object literal, and `renderAgentLaunchArgv` never copied it onto the render
+// context — so every Claude session launched with `--settings {"theme":"…"}`
+// and nothing else, and the app stopped learning how full any context window
+// was. Nothing failed and nothing in the terminal changed, which is exactly why
+// it went unnoticed. TypeScript could not catch it either: a spread in an
+// object literal is exempt from excess-property checking.
+function settingsDocument(argv: string[]): Record<string, unknown> | null {
+  const at = argv.indexOf('--settings')
+  if (at < 0) return null
+  return JSON.parse(argv[at + 1] ?? 'null') as Record<string, unknown>
+}
+
+function testLaunchSettingsReachLaunchAndResume(): void {
+  const statusLine = { type: 'command', command: 'node "/data/hooks/status-line.mjs" --socket "/tmp/a.sock"' }
+
+  const launch = renderAgentLaunchArgv({
+    cli: 'claude-code',
+    sessionId: 's1',
+    colorScheme: 'dark',
+    launchSettings: { statusLine },
+  })
+  assert.deepEqual(
+    settingsDocument(launch.argv),
+    { theme: 'dark', statusLine },
+    'the status line rides the same --settings document as the theme'
+  )
+  assert.equal(
+    launch.argv.filter((token) => token === '--settings').length,
+    1,
+    'one --settings, never two: repeating the flag is undocumented'
+  )
+
+  const resumed = renderAgentLaunchArgv({
+    cli: 'claude-code',
+    sessionId: 's1',
+    resume: true,
+    colorScheme: 'dark',
+    launchSettings: { statusLine },
+  })
+  assert.deepEqual(
+    settingsDocument(resumed.argv),
+    { theme: 'dark', statusLine },
+    'a resumed session reports its context usage too'
+  )
+
+  // The other CLIs running the same `claude` binary declare the same slot.
+  for (const cli of ['kimi-claude', 'zai'] as const) {
+    const out = renderAgentLaunchArgv({ cli, sessionId: 's1', launchSettings: { statusLine } })
+    assert.deepEqual(settingsDocument(out.argv), { statusLine }, cli)
+  }
+
+  // And a launch that resolved none renders exactly the argv it always did.
+  assert.deepEqual(
+    renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', colorScheme: 'dark', launchSettings: {} }).argv,
+    renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', colorScheme: 'dark' }).argv
   )
 }
 

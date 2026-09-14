@@ -106,6 +106,14 @@ export type AgentLaunchRenderInput = {
   // whose plugin has not been materialised yet, or a CLI that takes no plugin
   // directory, gets.
   pluginDirs?: string[]
+  // Settings this launch sends in the manifest's `launchSettings` document
+  // (Claude Code's `--settings`), merged with the theme by `renderPluginLaunch`.
+  // Today that is the status line the app reads a session's context-window
+  // usage, cost and lines-changed from — the ONLY channel for it once the
+  // workspace install is skipped, so a launch that drops it is a context ring
+  // that never fills and nothing in the terminal to say so. Absent renders the
+  // document the theme alone would have.
+  launchSettings?: Record<string, unknown>
 }
 
 export type RenderedAgentLaunch = {
@@ -164,6 +172,12 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
     // materialised its copy renders the argv it always did rather than an
     // empty flag.
     ...(input.pluginDirs && input.pluginDirs.length > 0 ? { pluginDirs: input.pluginDirs } : {}),
+    // Same rule as the directories above: only when there is something to send,
+    // so a launch with no settings of its own renders the theme-only document
+    // the manifest always rendered.
+    ...(input.launchSettings && Object.keys(input.launchSettings).length > 0
+      ? { launchSettings: input.launchSettings }
+      : {}),
   }
 
   const rendered = input.resume
