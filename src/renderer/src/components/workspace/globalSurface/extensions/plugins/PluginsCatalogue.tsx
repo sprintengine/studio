@@ -13,8 +13,9 @@
 //     catalogue, and it hid everything else behind a tab nobody chose.
 //
 // What did not change: the install flows. A registry entry still goes through
-// the storefront's verify/trust/install panel, a source's plugin still goes
-// through PluginDetailPane, and a catalogue MCP server is still added to MCP
+// the storefront's verify/trust/install panel, a source's plugin still opens
+// PluginDetailPane as a catalogue of skills and servers, and a catalogue MCP
+// server that does not need the plugin's own files is still added to MCP
 // settings in place.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
@@ -33,6 +34,7 @@ import {
   linkedPluginShortfall,
   pluginNeedsRead,
   scanShape,
+  skillDirName,
   summariseLinkedPlugins,
   type ScanResult,
   type ScannedMcpServer,
@@ -170,8 +172,7 @@ export function PluginsCatalogue({
   const [openRow, setOpenRow] = useState<OpenRow | null>(null)
   const [reading, setReading] = useState<string | null>(null)
   const [readError, setReadError] = useState<{ pluginId: string; message: string } | null>(null)
-  const [installing, setInstalling] = useState(false)
-  const [hooksAcknowledged, setHooksAcknowledged] = useState(false)
+  const [busyItem, setBusyItem] = useState<string | null>(null)
   const [report, setReport] = useState<{ sourceId: string; outcome: string | null; error: string | null } | null>(null)
   // A deep link that could not be honoured in full, said once where the
   // person landed instead.
@@ -338,7 +339,6 @@ export function PluginsCatalogue({
   const openPluginRow = useCallback(
     (sourceId: string, pluginId: string) => {
       setOpenRow({ kind: 'plugin', sourceId, id: pluginId })
-      setHooksAcknowledged(false)
       setReadError(null)
       const source = sourceById.get(sourceId)
       const sourceScan = readyScan(sourceId)
@@ -385,47 +385,51 @@ export function PluginsCatalogue({
     onLanded?.()
   }, [landing, onLanded, onSelectTab, openPluginRow, sources.scans, sources.sources, sources.sourcesLoad, tabId])
 
-  const installPlugin = useCallback(
-    async (source: SkillSource, plugin: ScannedPlugin): Promise<void> => {
-      if (!workspaceRoot) return
+  const installPluginItems = useCallback(
+    async (
+      source: SkillSource,
+      plugin: ScannedPlugin,
+      selection: { skillIds?: string[]; mcpServerIds?: string[] },
+      busyKey: string,
+    ): Promise<boolean> => {
+      if (!workspaceRoot) return false
       if (typeof window.api.skillsInstallPlugin !== 'function') {
         setReport({ sourceId: source.id, outcome: null, error: MISSING_API_MESSAGE })
-        return
+        return false
       }
-      setInstalling(true)
+      setBusyItem(busyKey)
       setReport(null)
       try {
         const result = await window.api.skillsInstallPlugin({
           sourceId: source.id,
           pluginId: plugin.id,
           workspaceRoot,
-          acknowledgedHooks: hooksAcknowledged,
+          skillIds: selection.skillIds,
+          mcpServerIds: selection.mcpServerIds,
         })
         if (!result.ok) {
           setReport({ sourceId: source.id, outcome: null, error: result.message })
-          // Main read the plugin to find those hooks and wrote the read back to
-          // the store; without pulling it in, the pane keeps showing the plugin
-          // that had no hooks to acknowledge and the refusal reads as a glitch
-          // (linked-plugins review, 2026-09-06).
           if (result.needsHookAcknowledgement === true) await readLinked(source, plugin)
-          return
+          return false
         }
         if (result.mcpServers.length > 0) onAddMcpServers(result.mcpServers)
         setReport({ sourceId: source.id, outcome: summarizePluginInstall(result), error: null })
         sources.refreshInstalled()
+        return true
       } catch (error) {
         setReport({ sourceId: source.id, outcome: null, error: describe(error) })
+        return false
       } finally {
-        setInstalling(false)
+        setBusyItem(null)
       }
     },
-    [workspaceRoot, hooksAcknowledged, onAddMcpServers, sources, readLinked],
+    [workspaceRoot, onAddMcpServers, sources, readLinked],
   )
 
   const uninstallPlugin = useCallback(
     async (source: SkillSource, record: InstalledPluginRecord): Promise<void> => {
       if (!workspaceRoot || typeof window.api.skillsUninstallPlugin !== 'function') return
-      setInstalling(true)
+      setBusyItem('plugin')
       setReport(null)
       try {
         const result = await window.api.skillsUninstallPlugin({
@@ -452,7 +456,61 @@ export function PluginsCatalogue({
       } catch (error) {
         setReport({ sourceId: source.id, outcome: null, error: describe(error) })
       } finally {
-        setInstalling(false)
+        setBusyItem(null)
+      }
+    },
+    [workspaceRoot, onRemoveMcpServers, sources],
+  )
+
+  const removePluginSkill = useCallback(
+    async (source: SkillSource, skillId: string): Promise<void> => {
+      if (!workspaceRoot || typeof window.api.skillsUninstall !== 'function') return
+      setBusyItem(`skill:${skillId}`)
+      setReport(null)
+      try {
+        const result = await window.api.skillsUninstall({ workspaceRoot, dirName: skillDirName(skillId) })
+        setReport({
+          sourceId: source.id,
+          outcome: result.ok ? `${skillDirName(skillId)} removed.` : null,
+          error: result.ok ? null : result.message,
+        })
+        if (result.ok) sources.refreshInstalled()
+      } catch (error) {
+        setReport({ sourceId: source.id, outcome: null, error: describe(error) })
+      } finally {
+        setBusyItem(null)
+      }
+    },
+    [workspaceRoot, sources],
+  )
+
+  const removePluginMcp = useCallback(
+    async (source: SkillSource, record: InstalledPluginRecord | null, serverId: string): Promise<void> => {
+      if (!workspaceRoot) return
+      setBusyItem(`mcp:${serverId}`)
+      setReport(null)
+      try {
+        if (record && typeof window.api.skillsUninstallPlugin === 'function') {
+          const result = await window.api.skillsUninstallPlugin({
+            sourceId: record.sourceId,
+            pluginId: record.pluginId,
+            workspaceRoot,
+            mcpServerId: serverId,
+          })
+          if (!result.ok) {
+            setReport({ sourceId: source.id, outcome: null, error: result.message })
+            return
+          }
+          if (result.mcpServerIds.length > 0) onRemoveMcpServers(result.mcpServerIds)
+        } else {
+          onRemoveMcpServers([serverId])
+        }
+        setReport({ sourceId: source.id, outcome: `${serverId} removed.`, error: null })
+        sources.refreshInstalled()
+      } catch (error) {
+        setReport({ sourceId: source.id, outcome: null, error: describe(error) })
+      } finally {
+        setBusyItem(null)
       }
     },
     [workspaceRoot, onRemoveMcpServers, sources],
@@ -774,7 +832,7 @@ export function PluginsCatalogue({
           name={server.name}
           summary={
             needsPlugin
-              ? `Runs from the ${server.declaredBy || 'plugin'}'s own directory, so it is installed with the plugin.`
+              ? `Runs from the ${server.declaredBy || 'plugin'}'s own directory — open the plugin to install this server.`
               : server.description || server.declaredIn
           }
           chips={needsPlugin ? ['MCP server', 'Part of a plugin'] : ['MCP server']}
@@ -987,6 +1045,17 @@ export function PluginsCatalogue({
   const openScan = openRow?.kind === 'plugin' ? readyScan(openRow.sourceId) : null
   const openPlugin = openScan && openRow?.kind === 'plugin' ? findPlugin(openScan, openRow.id) : null
   const marketplaceName = openScan?.marketplaceName ?? ''
+  const openInstall =
+    openSource && openPlugin
+      ? derivePluginInstallState(
+          sources.installedPlugins,
+          openSource.id,
+          openPlugin,
+          marketplaceName,
+          pluginCommit(openPlugin, openSource),
+        )
+      : { kind: 'not-installed' as const }
+  const openInstallRecord = openInstall.kind === 'not-installed' ? null : openInstall.record
 
   const detail = openConnector ? (
     openConnector.plugin ? (
@@ -1012,18 +1081,26 @@ export function PluginsCatalogue({
       onRetryRead={() => void readLinked(openSource, openPlugin)}
       harnesses={harnesses}
       workspaceRoot={workspaceRoot}
-      install={derivePluginInstallState(
-        sources.installedPlugins,
-        openSource.id,
-        openPlugin,
-        marketplaceName,
-        pluginCommit(openPlugin, openSource),
-      )}
-      availability={derivePluginInstallAvailability(workspaceRoot, openPlugin, harnesses, hooksAcknowledged)}
-      installing={installing}
-      hooksAcknowledged={hooksAcknowledged}
-      onHooksAcknowledgedChange={setHooksAcknowledged}
-      onInstall={() => void installPlugin(openSource, openPlugin)}
+      install={openInstall}
+      availability={derivePluginInstallAvailability(workspaceRoot, openPlugin, harnesses)}
+      installedDirNames={sources.installedDirNames}
+      installedMcpIds={connectors.installedServerIds}
+      busyItem={busyItem}
+      onInstallSkill={(skillId) => void installPluginItems(openSource, openPlugin, { skillIds: [skillId] }, `skill:${skillId}`)}
+      onRemoveSkill={(skillId) => void removePluginSkill(openSource, skillId)}
+      onInstallMcp={(serverId) => void installPluginItems(openSource, openPlugin, { mcpServerIds: [serverId] }, `mcp:${serverId}`)}
+      onRemoveMcp={(serverId) => void removePluginMcp(openSource, openInstallRecord, serverId)}
+      onUpdateInstalled={() => {
+        if (!openInstallRecord) return
+        const skillIds = openPlugin.components.skills
+          .filter((skill) => openInstallRecord.skillDirNames.includes(skillDirName(skill.id)))
+          .map((skill) => skill.id)
+        const mcpServerIds = openPlugin.components.mcpServers
+          .filter((server) => openInstallRecord.mcpServerIds.includes(server.id))
+          .map((server) => server.id)
+        if (skillIds.length === 0 && mcpServerIds.length === 0) return
+        void installPluginItems(openSource, openPlugin, { skillIds, mcpServerIds }, 'update')
+      }}
       onUninstall={(record) => void uninstallPlugin(openSource, record)}
       onClose={() => setOpenRow(null)}
     />

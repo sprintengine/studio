@@ -210,6 +210,7 @@ run('installing is not the end of the page: the accent moves to using the skill'
         workspaceRoot="/ws"
         onInstall={() => {}}
         onInstallForUse={withInstallForUse ? async () => true : undefined}
+        onRemove={installed ? () => {} : undefined}
         onClose={() => {}}
       />,
     )
@@ -222,6 +223,7 @@ run('installing is not the end of the page: the accent moves to using the skill'
     'it is a menu button: several agents is a question, answered by a menu',
   )
   assert.ok(installed.includes('>Reinstall<'), 'and Install becomes a refresh')
+  assert.ok(installed.includes('>Remove<'), 'and the copy can be taken back')
   assert.equal(installed.includes('>Install skill<'), false)
   assert.equal(installed.includes('>Install and use<'), false)
 

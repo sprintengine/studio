@@ -1,28 +1,28 @@
-// One plugin, opened: what it is, what it ships, what will land where, and —
-// when it runs commands on this machine — exactly which.
+// One plugin, opened: a catalogue of the skills and MCP servers it ships.
 //
-// A dialog over the list, at the kit's `wide` step. It was a side pane docked
-// beside the rows, which left the rows a column and the plugin a letterbox
-// (extensions review, 2026-09-08). The dialog's footer holds the plugin's
-// actions, so its Install is the one accent fill on screen; the list behind
-// the scrim carries no primary action.
+// Installing the plugin as a unit copied every skill it declared — a
+// marketplace plugin can ship a hundred-plus — into every agent CLI's
+// skills directory. The pane is now the place you pick items from, and
+// Remove on the plugin takes back everything this install wrote.
 
-import React from 'react'
+import React, { useMemo, useState } from 'react'
 
 import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
 import {
   SOURCE_SHAPE_LABEL,
   describeUnreadPlugin,
   skillDirName,
+  type ScannedMcpServer,
   type ScannedPlugin,
+  type ScannedSkill,
   type SkillHarness,
   type SkillSource,
   type SourceShape,
 } from '../../../../../../../shared/skills'
 import {
-  Checkbox,
   DefinitionList,
   GhostButton,
+  InboxSearchInput,
   InlineNotice,
   OutlineButton,
   PrimaryButton,
@@ -35,6 +35,7 @@ import { extensionIconProps, pluginArtwork } from '../catalogue/pluginArtwork'
 import {
   describeInstallPlan,
   describePluginFilesPlan,
+  pluginComponentMatchesQuery,
   pluginExternalUrl,
   type PluginInstallAvailability,
   type PluginInstallState,
@@ -56,16 +57,25 @@ export type PluginDetailPaneProps = {
   workspaceRoot?: string | null
   install: PluginInstallState
   availability: PluginInstallAvailability
-  installing: boolean
-  hooksAcknowledged: boolean
-  onHooksAcknowledgedChange: (next: boolean) => void
-  onInstall: () => void
+  /** Skill directory names this workspace already holds. */
+  installedDirNames: ReadonlySet<string>
+  /** MCP server ids configured on this machine. */
+  installedMcpIds: ReadonlySet<string>
+  /** The item currently installing or removing; null when the pane is idle. */
+  busyItem: string | null
+  onInstallSkill: (skillId: string) => void
+  onRemoveSkill: (skillId: string) => void
+  onInstallMcp: (serverId: string) => void
+  onRemoveMcp: (serverId: string) => void
+  onUpdateInstalled: () => void
   onUninstall: (record: InstalledPluginRecord) => void
   onClose: () => void
 }
 
 /** The header's icon slot, in one place: the artwork ladder asks for its size. */
 const HEADER_ICON_SIZE = 40
+
+const SKILLS_FILTER_LIST_ID = 'plugin-detail-skills'
 
 export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
   const { plugin } = props
@@ -81,6 +91,19 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
   const filesPlan = describePluginFilesPlan(plugin)
   const origin = plugin.origin
   const installed = props.install.kind !== 'not-installed'
+  const busy = props.busyItem !== null
+  const [query, setQuery] = useState('')
+  const skills = plugin.components.skills
+  const servers = plugin.components.mcpServers
+  const visibleSkills = useMemo(
+    () => skills.filter((skill) => pluginComponentMatchesQuery(skill.name, skill.description, query)),
+    [query, skills],
+  )
+  const visibleServers = useMemo(
+    () => servers.filter((server) => pluginComponentMatchesQuery(server.name, server.description, query)),
+    [query, servers],
+  )
+  const showFilter = skills.length + servers.length > 8
   // Who published it and what version, in one line under the name. The About
   // list below carries the rest — where it comes from and at what commit.
   const subtitle = [plugin.author, plugin.version ? `v${plugin.version}` : '', plugin.category]
@@ -141,102 +164,106 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
           />
         </Section>
 
-        <Section level={4} title="Components" count={plugin.componentsKnown ? componentCount(plugin) : undefined}>
-          {plugin.componentsKnown ? (
-            <dl className="flex flex-col gap-2 text-meta">
-              <ComponentRow label="Skills" values={plugin.components.skills.map((skill) => skill.name)} />
-              {plugin.components.missingSkills.length > 0 ? (
-                <ComponentRow label="Listed, not found" values={plugin.components.missingSkills} muted />
-              ) : null}
-              <ComponentRow label="Commands" values={plugin.components.commands.map((name) => `/${name}`)} mono />
-              <ComponentRow label="Agents" values={plugin.components.agents} />
-              <ComponentRow
-                label="MCP servers"
-                values={plugin.components.mcpServers.map((server) =>
-                  [
-                    server.id,
-                    server.transport === 'stdio' ? `${server.command} ${server.args.join(' ')}`.trim() : server.url,
-                    server.envVarNames.length > 0 ? `needs ${server.envVarNames.join(', ')}` : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' · '),
-                )}
-                mono
-              />
-              <ComponentRow
-                label="LSP servers"
-                // A language server is named by what it starts and what it
-                // covers: the twelve `*-lsp` plugins in the official
-                // marketplace are this declaration and nothing else, and
-                // without the extensions the row would not say which language
-                // the plugin is for.
-                values={plugin.components.lspServers.map((server) =>
-                  [
-                    server.id,
-                    `${server.command} ${server.args.join(' ')}`.trim(),
-                    Object.keys(server.extensionToLanguage).join(' '),
-                  ]
-                    .filter(Boolean)
-                    .join(' · '),
-                )}
-                mono
-              />
-              <ComponentRow
-                label="Hooks"
-                values={hooks.map((hook) => `${hook.event}${hook.matcher ? ` on ${hook.matcher}` : ''}: ${hook.command}`)}
-                mono
-              />
-            </dl>
-          ) : (
+        {plugin.componentsKnown && showFilter ? (
+          <div className="px-3 pt-3">
+            <InboxSearchInput
+              value={query}
+              onChange={setQuery}
+              ariaLabel={`Filter ${plugin.name}`}
+              placeholder="Filter skills and servers"
+              controlsId={SKILLS_FILTER_LIST_ID}
+            />
+          </div>
+        ) : null}
+
+        {plugin.componentsKnown ? (
+          <div id={SKILLS_FILTER_LIST_ID}>
+            <Section level={4} title="Skills" count={skills.length}>
+              {skills.length === 0 ? (
+                <p className="text-meta text-[color:var(--text-subtle)]">None</p>
+              ) : visibleSkills.length === 0 ? (
+                <p className="text-meta text-[color:var(--text-subtle)]">No skills match.</p>
+              ) : (
+                <ul role="list" className="flex flex-col gap-1.5">
+                  {visibleSkills.map((skill) => (
+                    <SkillItemRow
+                      key={skill.id}
+                      skill={skill}
+                      installed={props.installedDirNames.has(skillDirName(skill.id))}
+                      availability={props.availability}
+                      workspaceRoot={props.workspaceRoot ?? null}
+                      busy={busy}
+                      busyThis={props.busyItem === `skill:${skill.id}`}
+                      onInstall={() => props.onInstallSkill(skill.id)}
+                      onRemove={() => props.onRemoveSkill(skill.id)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </Section>
+
+            <Section level={4} title="MCP servers" count={servers.length}>
+              {servers.length === 0 ? (
+                <p className="text-meta text-[color:var(--text-subtle)]">None</p>
+              ) : visibleServers.length === 0 ? (
+                <p className="text-meta text-[color:var(--text-subtle)]">No servers match.</p>
+              ) : (
+                <ul role="list" className="flex flex-col gap-1.5">
+                  {visibleServers.map((server) => (
+                    <McpItemRow
+                      key={server.id}
+                      server={server}
+                      installed={props.installedMcpIds.has(server.id)}
+                      availability={props.availability}
+                      busy={busy}
+                      busyThis={props.busyItem === `mcp:${server.id}`}
+                      onInstall={() => props.onInstallMcp(server.id)}
+                      onRemove={() => props.onRemoveMcp(server.id)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </Section>
+
+            <Section level={4} title="Also ships">
+              <dl className="flex flex-col gap-2 text-meta">
+                {plugin.components.missingSkills.length > 0 ? (
+                  <ComponentRow label="Listed, not found" values={plugin.components.missingSkills} muted />
+                ) : null}
+                <ComponentRow label="Commands" values={plugin.components.commands.map((name) => `/${name}`)} mono />
+                <ComponentRow label="Agents" values={plugin.components.agents} />
+                <ComponentRow
+                  label="LSP servers"
+                  values={plugin.components.lspServers.map((server) =>
+                    [
+                      server.id,
+                      `${server.command} ${server.args.join(' ')}`.trim(),
+                      Object.keys(server.extensionToLanguage).join(' '),
+                    ]
+                      .filter(Boolean)
+                      .join(' · '),
+                  )}
+                  mono
+                />
+                <ComponentRow
+                  label="Hooks"
+                  values={hooks.map((hook) => `${hook.event}${hook.matcher ? ` on ${hook.matcher}` : ''}: ${hook.command}`)}
+                  mono
+                />
+              </dl>
+            </Section>
+          </div>
+        ) : (
+          <Section level={4} title="Components">
             <p className="text-meta text-[color:var(--text-muted)]">
               {props.reading ? 'Reading…' : describeUnreadPlugin(plugin)}
             </p>
-          )}
-        </Section>
-
-        {/*
-          A plugin is a bag of skills, and until now installing one ended at a
-          list of their names. A plugin can carry several, so each gets its own
-          action rather than the page guessing which one was meant. Only after
-          the install: the acknowledgement gate above is the only way in, and a
-          "use" that quietly installed would walk straight past it.
-        */}
-        {installed && plugin.componentsKnown && plugin.components.skills.length > 0 ? (
-          <Section level={4} title="Use a skill">
-            <ul role="list" className="flex flex-col gap-1.5">
-              {plugin.components.skills.map((skill) => (
-                <li
-                  key={skill.id}
-                  className="flex items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-1.5 last:border-b-0 last:pb-0"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-meta text-[color:var(--text-default)]">{skill.name}</span>
-                    {skill.description ? (
-                      <span className="block truncate text-micro text-[color:var(--text-subtle)]">
-                        {skill.description}
-                      </span>
-                    ) : null}
-                  </span>
-                  <UseSkillInAgentAction
-                    skillId={skillDirName(skill.id)}
-                    skillName={skill.name}
-                    workspaceRoot={props.workspaceRoot ?? null}
-                    disabled={props.installing}
-                  />
-                </li>
-              ))}
-            </ul>
           </Section>
-        ) : null}
+        )}
 
         {props.harnesses.length > 0 ? (
           <Section level={4} title="What installs where">
             <dl className="flex flex-col gap-2 text-meta">
-              {/*
-                Above the per-harness lines because it is not per-harness: one
-                copy of the plugin's directory serves every CLI's MCP config
-                (backlog/2026-09-06-a-plugins-own-files-must-land-before-its-server-can-start.md).
-              */}
               {filesPlan ? (
                 <div className="grid grid-cols-[112px_minmax(0,1fr)] gap-3">
                   <dt className="font-medium text-[color:var(--text-strong)]">Plugin files</dt>
@@ -253,41 +280,24 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
           </Section>
         ) : null}
 
-        {/*
-          Not "this plugin runs a command on your machine": no harness this app
-          writes for loads a plugin's hooks, so an install here runs nothing.
-          The disclosure stays — and the acknowledgement gate with it — because
-          the workspace's .claude/settings.json names the plugin, and a
-          `claude plugin install` would make exactly these commands run
-          (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
-        */}
         {plugin.componentsKnown && hooks.length > 0 ? (
           <div className="px-3 pb-3">
             <InlineNotice
               tone="warn"
               title={`This plugin declares ${hooks.length === 1 ? 'a hook command' : `${hooks.length} hook commands`}.`}
-              hint="Hooks run on your machine when the agent works. Installing here copies no hooks; the commands listed above are exactly what would run, at the commit shown, if you loaded this plugin in Claude Code yourself. Unsigned; not reviewed by Multicode."
-            >
-              <div className="mt-2">
-                <Checkbox
-                  checked={props.hooksAcknowledged}
-                  onChange={props.onHooksAcknowledgedChange}
-                  label="I have read the commands and they may run"
-                  size="body"
-                />
-              </div>
-            </InlineNotice>
+              hint="Hooks run on your machine when the agent works. Installing a skill or server here copies no hooks; the commands listed above are exactly what would run if you loaded this plugin in Claude Code yourself. Unsigned; not reviewed by SprintEngine Studio."
+            />
           </div>
         ) : null}
 
-        {!props.availability.enabled && props.availability.reason && !installed ? (
+        {!props.availability.enabled && props.availability.reason ? (
           <p className="px-3 pb-3 text-meta text-[color:var(--text-muted)]">{props.availability.reason}</p>
         ) : null}
         {props.install.kind === 'update-available' ? (
           <p className="px-3 pb-3 text-meta text-[color:var(--text-muted)]">
             {`Installed from this source at ${shortCommit(props.install.record.commitSha)}; the source now reads ${
               commitLine(plugin, props.source).sha || 'a newer commit'
-            }. Install again to refresh.`}
+            }. Update refreshes the items already installed.`}
           </p>
         ) : null}
       </div>
@@ -297,32 +307,131 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
             <GhostButton size="md" className="mr-auto" onClick={() => void window.api.openExternal(external)}>
               Open on GitHub
             </GhostButton>
-          ) : null}
+          ) : (
+            <span className="mr-auto" />
+          )}
           {installed && props.install.kind !== 'not-installed' ? (
             <OutlineButton
               size="md"
-              disabled={props.installing || props.install.record.sourceId === ''}
+              disabled={busy || props.install.record.sourceId === ''}
               onClick={() => props.install.kind !== 'not-installed' && props.onUninstall(props.install.record)}
             >
-              Remove
+              {props.busyItem === 'plugin' ? 'Removing…' : 'Remove plugin'}
             </OutlineButton>
           ) : null}
-          <PrimaryButton
-            size="md"
-            disabled={!props.availability.enabled || props.installing || props.reading}
-            onClick={props.onInstall}
-          >
-            {props.installing
-              ? 'Installing…'
-              : props.install.kind === 'update-available'
-                ? 'Update in this workspace'
-                : installed
-                  ? 'Install again'
-                  : 'Install to this workspace'}
-          </PrimaryButton>
+          {props.install.kind === 'update-available' ? (
+            <PrimaryButton
+              size="md"
+              disabled={!props.availability.enabled || busy || props.reading}
+              onClick={props.onUpdateInstalled}
+            >
+              {props.busyItem === 'update' ? 'Updating…' : 'Update installed'}
+            </PrimaryButton>
+          ) : null}
         </ModalFooter>
       </div>
     </Modal>
+  )
+}
+
+function SkillItemRow({
+  skill,
+  installed,
+  availability,
+  workspaceRoot,
+  busy,
+  busyThis,
+  onInstall,
+  onRemove,
+}: {
+  skill: ScannedSkill
+  installed: boolean
+  availability: PluginInstallAvailability
+  workspaceRoot: string | null
+  busy: boolean
+  busyThis: boolean
+  onInstall: () => void
+  onRemove: () => void
+}): JSX.Element {
+  const dirName = skillDirName(skill.id)
+  return (
+    <li className="flex items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-1.5 last:border-b-0 last:pb-0">
+      <span className="min-w-0">
+        <span className="block truncate text-meta text-[color:var(--text-default)]">{skill.name}</span>
+        {skill.description ? (
+          <span className="block truncate text-micro text-[color:var(--text-subtle)]">{skill.description}</span>
+        ) : null}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5">
+        {installed ? (
+          <>
+            <GhostButton size="sm" disabled={busy} onClick={onRemove} aria-label={`Remove ${skill.name}`}>
+              {busyThis ? 'Removing…' : 'Remove'}
+            </GhostButton>
+            <UseSkillInAgentAction
+              skillId={dirName}
+              skillName={skill.name}
+              workspaceRoot={workspaceRoot}
+              disabled={busy}
+            />
+          </>
+        ) : (
+          <OutlineButton
+            size="sm"
+            disabled={!availability.enabled || busy}
+            onClick={onInstall}
+            aria-label={`Install ${skill.name}`}
+          >
+            {busyThis ? 'Installing…' : 'Install'}
+          </OutlineButton>
+        )}
+      </span>
+    </li>
+  )
+}
+
+function McpItemRow({
+  server,
+  installed,
+  availability,
+  busy,
+  busyThis,
+  onInstall,
+  onRemove,
+}: {
+  server: ScannedMcpServer
+  installed: boolean
+  availability: PluginInstallAvailability
+  busy: boolean
+  busyThis: boolean
+  onInstall: () => void
+  onRemove: () => void
+}): JSX.Element {
+  const summary =
+    server.transport === 'stdio' ? `${server.command} ${server.args.join(' ')}`.trim() : server.url
+  return (
+    <li className="flex items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-1.5 last:border-b-0 last:pb-0">
+      <span className="min-w-0">
+        <span className="block truncate text-meta text-[color:var(--text-default)]">{server.name || server.id}</span>
+        {summary ? <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">{summary}</span> : null}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5">
+        {installed ? (
+          <GhostButton size="sm" disabled={busy} onClick={onRemove} aria-label={`Remove ${server.name || server.id}`}>
+            {busyThis ? 'Removing…' : 'Remove'}
+          </GhostButton>
+        ) : (
+          <OutlineButton
+            size="sm"
+            disabled={!availability.enabled || busy}
+            onClick={onInstall}
+            aria-label={`Install ${server.name || server.id}`}
+          >
+            {busyThis ? 'Installing…' : 'Install'}
+          </OutlineButton>
+        )}
+      </span>
+    </li>
   )
 }
 
@@ -354,18 +463,6 @@ function ComponentRow({
         )}
       </dd>
     </div>
-  )
-}
-
-function componentCount(plugin: ScannedPlugin): number {
-  const c = plugin.components
-  return (
-    c.skills.length
-    + c.commands.length
-    + c.agents.length
-    + c.mcpServers.length
-    + c.lspServers.length
-    + c.hooks.length
   )
 }
 

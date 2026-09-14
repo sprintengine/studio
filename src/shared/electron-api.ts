@@ -1566,6 +1566,15 @@ export type SkillPluginInstallInput = {
   workspaceRoot: string
   /** Required true when the plugin declares hooks — they run shell commands. */
   acknowledgedHooks?: boolean
+  /**
+   * Install only these skills. Omit both this and `mcpServerIds` to install
+   * everything the plugin ships (the palette's single-skill shortcut). Passing
+   * either field means the other kind is not installed — a plugin is a
+   * catalogue, and one press takes one item.
+   */
+  skillIds?: string[]
+  /** Install only these MCP servers. Same rule as `skillIds`. */
+  mcpServerIds?: string[]
 }
 
 export type SkillPluginInstallHarness = {
@@ -1597,7 +1606,17 @@ export type SkillPluginInstallOutcome =
     }
   | { ok: false; message: string; needsHookAcknowledgement?: boolean }
 
-export type SkillPluginUninstallInput = { sourceId: string; pluginId: string; workspaceRoot: string }
+export type SkillPluginUninstallInput = {
+  sourceId: string
+  pluginId: string
+  workspaceRoot: string
+  /**
+   * Drop only this MCP server from the plugin's receipt. Skills stay. Omit it
+   * to take the whole plugin back — every copied skill, every server it added,
+   * and the plugin's own files.
+   */
+  mcpServerId?: string
+}
 
 export type SkillPluginUninstallOutcome =
   | {

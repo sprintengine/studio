@@ -105,3 +105,29 @@ function isRecord(value: unknown): value is InstalledPluginRecord {
     && Array.isArray(record.skillDirNames)
   )
 }
+
+/**
+ * Fold a new install into an existing receipt. Installing a second skill from
+ * the same plugin must not forget the first, and a later MCP add must not
+ * drop the plugin directory a previous server needed.
+ */
+export function mergeInstalledPluginRecord(
+  existing: InstalledPluginRecord | null,
+  next: InstalledPluginRecord,
+): InstalledPluginRecord {
+  if (!existing) return next
+  return {
+    ...existing,
+    ...next,
+    skillDirNames: uniqueStrings([...existing.skillDirNames, ...next.skillDirNames]),
+    mcpServerIds: uniqueStrings([...existing.mcpServerIds, ...next.mcpServerIds]),
+    pluginDirName: next.pluginDirName || existing.pluginDirName,
+    claudePluginKey: next.claudePluginKey || existing.claudePluginKey,
+    commitSha: next.commitSha || existing.commitSha,
+    installedAt: existing.installedAt || next.installedAt,
+  }
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)]
+}

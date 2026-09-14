@@ -557,6 +557,11 @@ export function SkillsCatalogue({
         workspaceRoot={workspaceRoot}
         onInstall={() => void installSkill(openSource, opened.id)}
         onInstallForUse={() => installSkill(openSource, opened.id)}
+        onRemove={
+          sources.installedDirNames.has(skillDirName(opened.id))
+            ? () => void removeSkill(skillDirName(opened.id))
+            : undefined
+        }
         onClose={() => setOpenSkill(null)}
       />
     ) : null

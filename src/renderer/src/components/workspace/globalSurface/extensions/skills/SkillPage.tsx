@@ -46,6 +46,7 @@ export function SkillPage({
   workspaceRoot = null,
   onInstall,
   onInstallForUse,
+  onRemove,
   onClose,
 }: {
   source: SkillSource
@@ -62,6 +63,8 @@ export function SkillPage({
    * that promised an install it could not perform would be a lie.
    */
   onInstallForUse?: () => Promise<boolean>
+  /** Take the installed copy back out of every agent CLI's skills directory. */
+  onRemove?: () => void
   onClose: () => void
 }): JSX.Element {
   const fileCount = skill.files.length
@@ -103,6 +106,11 @@ export function SkillPage({
           </p>
           {installed ? (
             <span className="text-meta font-medium text-[color:var(--accent-primary)]">Installed</span>
+          ) : null}
+          {installed && onRemove ? (
+            <OutlineButton size="md" onClick={onRemove} disabled={installing}>
+              {installing ? 'Removing…' : 'Remove'}
+            </OutlineButton>
           ) : null}
           {/* Installing is no longer the end of the page. Once the skill is in
               the workspace the accent moves to what a person came here to do

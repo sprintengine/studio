@@ -44,7 +44,13 @@ import { dirname, join } from 'node:path'
 import type { McpServerConfig, SkillHarness } from '../../shared/electron-api'
 import { pluginNeedsOwnFiles, referencesPluginRoot, resolvePluginRoot } from '../../shared/mcp/plugin-root'
 import { mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned'
-import { describeUnreadPlugin, type ScannedPlugin, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
+import {
+  describeUnreadPlugin,
+  type ScannedMcpServer,
+  type ScannedPlugin,
+  type ScannedSkill,
+  type SkillFileRef,
+} from '../../shared/skills'
 import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
 import { commandOnPath } from '../command-on-path'
 import { installSkill, uninstallSkill, type SkillInstallProvenance } from './install'
@@ -83,6 +89,13 @@ export type PluginInstallOptions = {
   /** `owner/name` of the source repository, '' for a non-GitHub source. */
   marketplaceRepo: string
   plugin: ScannedPlugin
+  /**
+   * Install only these skills. Omit both this and `mcpServerIds` to install
+   * everything the plugin ships. Passing either field means the other kind is
+   * not installed — a plugin is a catalogue, and one press takes one item.
+   */
+  skillIds?: readonly string[]
+  mcpServerIds?: readonly string[]
   harnesses: readonly SkillHarness[]
   /** The commit the plugin's bytes are read at — the source's, or a linked plugin's own. */
   commitSha: string
@@ -135,8 +148,60 @@ export type PluginInstallResult =
     }
   | { ok: false; message: string }
 
+/**
+ * Pick the skills and MCP servers an install should copy. A plugin is a
+ * catalogue: one press takes one item, and omitting both lists is the one
+ * remaining all-in path (a single-skill plugin with nothing else to choose).
+ */
+export function selectPluginItems(
+  plugin: ScannedPlugin,
+  selection: { skillIds?: readonly string[]; mcpServerIds?: readonly string[] },
+): { ok: true; plugin: ScannedPlugin; filtered: boolean } | { ok: false; message: string } {
+  const skillIds = selection.skillIds
+  const mcpServerIds = selection.mcpServerIds
+  const filtered = skillIds !== undefined || mcpServerIds !== undefined
+  if (!filtered) return { ok: true, plugin, filtered: false }
+
+  const selectedSkills: ScannedSkill[] = []
+  if (skillIds) {
+    for (const id of skillIds) {
+      const skill = plugin.components.skills.find((candidate) => candidate.id === id)
+      if (!skill) return { ok: false, message: `${id} is not a skill in ${plugin.name}.` }
+      selectedSkills.push(skill)
+    }
+  }
+  const selectedServers: ScannedMcpServer[] = []
+  if (mcpServerIds) {
+    for (const id of mcpServerIds) {
+      const server = plugin.components.mcpServers.find((candidate) => candidate.id === id)
+      if (!server) return { ok: false, message: `${id} is not an MCP server in ${plugin.name}.` }
+      selectedServers.push(server)
+    }
+  }
+  if (selectedSkills.length === 0 && selectedServers.length === 0) {
+    return { ok: false, message: `Select a skill or MCP server in ${plugin.name} to install.` }
+  }
+  return {
+    ok: true,
+    filtered: true,
+    plugin: {
+      ...plugin,
+      components: {
+        ...plugin.components,
+        skills: selectedSkills,
+        mcpServers: selectedServers,
+      },
+    },
+  }
+}
+
 export async function installPlugin(options: PluginInstallOptions): Promise<PluginInstallResult> {
-  const { plugin } = options
+  const selected = selectPluginItems(options.plugin, {
+    skillIds: options.skillIds,
+    mcpServerIds: options.mcpServerIds,
+  })
+  if (!selected.ok) return selected
+  const { plugin, filtered } = selected
   if (!plugin.componentsKnown) {
     // The last gate before anything is written, and it stays where it is: a
     // plugin nobody has seen whole may be hiding a hooks file that failed to
@@ -273,9 +338,17 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
   // machine and the plugin came from a marketplace Claude Code could fetch for
   // itself — a name and a GitHub repository. A plugin-only repository has
   // neither, and there is nothing to name.
+  //
+  // A filtered install does not write them. Naming the plugin in
+  // enabledPlugins is an invitation to `claude plugin install`, which loads
+  // every skill the plugin ships — the opposite of taking one item from a
+  // catalogue.
   let nativeKey = ''
   const nativeEligible =
-    options.marketplaceName !== '' && options.marketplaceRepo !== '' && plugin.origin.kind !== 'registry'
+    !filtered
+    && options.marketplaceName !== ''
+    && options.marketplaceRepo !== ''
+    && plugin.origin.kind !== 'registry'
   if (nativeEligible && options.harnesses.includes('claude')) {
     const key = claudePluginKey(plugin.id, options.marketplaceName)
     const enabled = await enableClaudePlugin({

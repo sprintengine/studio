@@ -228,21 +228,26 @@ export function pluginExternalUrl(plugin: ScannedPlugin, source: SkillSource): s
   return null
 }
 
+/** Whether a plugin-pane row survives the in-pane filter. */
+export function pluginComponentMatchesQuery(name: string, description: string, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (needle === '') return true
+  return `${name} ${description}`.toLowerCase().includes(needle)
+}
+
 // ── What installs where ──────────────────────────────────────────────────────
 
 export type HarnessPlanLine = { harness: SkillHarness; label: string; line: string }
 
 /**
- * The per-harness sentence the pane shows BEFORE install, from the same rule
- * the installer applies: every harness gets the skills and the MCP servers,
- * and a harness with nothing to receive is told so rather than shown a blank.
+ * The per-harness sentence the pane shows BEFORE anyone installs an item, from
+ * the same rule the installer applies: each skill you pick is copied into
+ * every harness, each MCP server you pick is added to MCP settings, and a
+ * harness with nothing to receive is told so rather than shown a blank.
  *
- * Claude Code's row says the same thing as the others, plus the two things
- * only it has: the components this app does not write for it, and the settings
- * keys it does. It used to claim a native load — "Claude Code loads its
- * commands, agents, hooks, MCP servers and language servers itself" — which
- * measurement showed to be false, and which was the visible half of
- * backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md.
+ * Claude Code's row says the same thing as the others, plus the components
+ * this app does not write for it. It does not claim a settings key will be
+ * written — a one-item install does not enable the whole plugin.
  */
 export function describeInstallPlan(input: {
   plugin: ScannedPlugin
@@ -258,43 +263,33 @@ export function describeInstallPlan(input: {
       line: 'Known once the plugin has been read.',
     }))
   }
-  const keyWritten = input.marketplaceName !== '' && input.marketplaceRepo !== '' && plugin.origin.kind !== 'registry'
   const skills = plugin.components.skills.length
   const claudeOnly = claudeOnlyComponents(plugin)
   return input.harnesses.map((harness) => {
     const claude = harness === 'claude'
     const parts: string[] = []
-    if (skills > 0) parts.push(`${skills} ${skills === 1 ? 'skill' : 'skills'} copied into ${harnessDir(harness)}/skills`)
-    if (plugin.components.mcpServers.length > 0) {
-      parts.push(`${plugin.components.mcpServers.length} MCP ${plugin.components.mcpServers.length === 1 ? 'server' : 'servers'} added to MCP settings`)
+    if (skills > 0) {
+      parts.push(
+        `Skills you install are copied into ${harnessDir(harness)}/skills`,
+      )
     }
-    // What is NOT written, in the words each harness deserves: no equivalent
-    // exists elsewhere, whereas Claude Code has all four and this app simply
-    // does not write them for it.
+    if (plugin.components.mcpServers.length > 0) {
+      parts.push('MCP servers you add are written to MCP settings')
+    }
     const unsupported = claudeOnly
       ? claude
         ? ` Its ${claudeOnly} are not installed — Claude Code loads those only from a plugin \`claude plugin install\` put in its own cache.`
         : ` Its ${claudeOnly} have no equivalent here.`
       : ''
-    // Self-contained: a plugin with no commands, agents or hooks has no
-    // preceding clause for "that command" to refer back to, so the sentence
-    // names the command itself.
-    const key =
-      claude && keyWritten
-        ? ` .claude/settings.json also names ${plugin.id}@${input.marketplaceName}, for a \`claude plugin install\` you run yourself.`
-        : ''
     if (parts.length === 0) {
-      // "Nothing is copied" rather than "Nothing to install" for Claude Code:
-      // the settings key IS written, so a flat "nothing" would be the third
-      // false claim on this row.
       const nothing = claude
         ? `Nothing is copied.${unsupported}`
         : claudeOnly
           ? `Nothing to install. Its ${claudeOnly} are Claude Code-format and have no equivalent here.`
           : 'Nothing to install.'
-      return { harness, label: HARNESS_LABEL[harness], line: `${nothing}${key}` }
+      return { harness, label: HARNESS_LABEL[harness], line: nothing }
     }
-    return { harness, label: HARNESS_LABEL[harness], line: `${parts.join('; ')}.${unsupported}${key}` }
+    return { harness, label: HARNESS_LABEL[harness], line: `${parts.join('; ')}.${unsupported}` }
   })
 }
 
@@ -341,15 +336,14 @@ export function derivePluginInstallAvailability(
   workspaceRoot: string | null,
   plugin: ScannedPlugin | null,
   harnesses: readonly SkillHarness[],
-  hooksAcknowledged: boolean,
 ): PluginInstallAvailability {
   if (!workspaceRoot) {
     return { enabled: false, reason: 'Open a workspace to install a plugin — a plugin installs into a workspace, not into the app.' }
   }
   if (!plugin) return { enabled: false, reason: null }
   if (harnesses.length === 0) return { enabled: false, reason: 'No agent CLI on this machine reads plugins or skills.' }
-  if (plugin.componentsKnown && plugin.components.hooks.length > 0 && !hooksAcknowledged) {
-    return { enabled: false, reason: 'Review the hook commands above, then confirm they may run.' }
+  if (!plugin.componentsKnown) {
+    return { enabled: false, reason: 'Read this plugin before installing from it.' }
   }
   return { enabled: true, reason: null }
 }

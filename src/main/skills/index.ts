@@ -75,10 +75,10 @@ import {
   type SkillRepoRef,
 } from './github-tree'
 import { installSkill, uninstallSkill } from './install'
-import { installPlugin, readEnabledClaudePlugins, uninstallPlugin } from './install-plugin'
+import { installPlugin, readEnabledClaudePlugins, selectPluginItems, uninstallPlugin } from './install-plugin'
 import { listLocalTree, scanLocalSkillSource } from './local-source'
 import type { PluginDirectoryFile } from './plugin-directory'
-import { createPluginInstallStore, type PluginInstallStore } from './plugin-install-store'
+import { createPluginInstallStore, mergeInstalledPluginRecord, type PluginInstallStore } from './plugin-install-store'
 import type { SkillRepoReader, SkillRepoTransport } from './repo-reader'
 import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH } from './scan'
 import {
@@ -511,6 +511,7 @@ export function createSkillsService(
       if (result.ok && result.removedPaths.length === 0) {
         return { ok: false, message: `${result.dirName} is not installed in this workspace.` }
       }
+      if (result.ok) await pruneSkillFromPluginReceipts(installs, workspaceRoot, result.dirName)
       return result
     },
 
@@ -777,13 +778,23 @@ export function createSkillsService(
     if (!plugin.componentsKnown) {
       return { ok: false, message: describeUnreadPlugin(plugin) }
     }
-    if (plugin.components.hooks.length > 0 && input.acknowledgedHooks !== true) {
+    const selected = selectPluginItems(plugin, {
+      skillIds: input.skillIds,
+      mcpServerIds: input.mcpServerIds,
+    })
+    if (!selected.ok) return selected
+    // A filtered install copies only the chosen skills and servers — hooks
+    // never land — so the acknowledgement that gates a full install does not
+    // apply. The full path still refuses: that is the one that writes
+    // enabledPlugins, which `claude plugin install` would then load whole.
+    if (!selected.filtered && plugin.components.hooks.length > 0 && input.acknowledgedHooks !== true) {
       return {
         ok: false,
         needsHookAcknowledgement: true,
         message: `${plugin.name} runs ${plugin.components.hooks.length} hook command${plugin.components.hooks.length === 1 ? '' : 's'} on your machine. Review them, then install.`,
       }
     }
+    const toInstall = selected.plugin
     const origin = plugin.origin
     // `readCommit` for a linked plugin: the commit the read above resolved,
     // which for a pinned entry IS `origin.sha` and for an unpinned one is the
@@ -801,7 +812,7 @@ export function createSkillsService(
     // (backlog/2026-09-06-a-plugins-own-files-must-land-before-its-server-can-start.md).
     let pluginFiles: PluginDirectoryFile[] = []
     let readPluginFile: ((file: PluginDirectoryFile) => Promise<Buffer>) | undefined
-    if (pluginNeedsOwnFiles(plugin)) {
+    if (pluginNeedsOwnFiles(toInstall)) {
       const listed = await listPluginDirectory(source, plugin, commitSha, bytesRepo)
       if (!listed.ok) return listed
       pluginFiles = listed.files
@@ -813,6 +824,8 @@ export function createSkillsService(
       marketplaceName: scan.marketplaceName ?? '',
       marketplaceRepo: source.kind === 'github' ? source.repo : '',
       plugin,
+      skillIds: input.skillIds,
+      mcpServerIds: input.mcpServerIds,
       harnesses,
       commitSha,
       readSkillFile: async (skill, file) => {
@@ -831,19 +844,22 @@ export function createSkillsService(
       mcpClients: await mcpClients(),
     })
     if (!result.ok) return result
-    await installs.put({
-      workspaceRoot,
-      sourceId: source.id,
-      pluginId: plugin.id,
-      pluginName: plugin.name,
-      marketplaceName: scan.marketplaceName ?? '',
-      claudePluginKey: result.claudePluginKey,
-      skillDirNames: [...new Set(result.harnesses.flatMap((harness) => harness.skillDirNames))],
-      ...(result.pluginDirName ? { pluginDirName: result.pluginDirName } : {}),
-      mcpServerIds: result.mcpServers.map((server) => server.id),
-      commitSha,
-      installedAt: new Date().toISOString(),
-    })
+    const existing = await installs.get(workspaceRoot, source.id, plugin.id)
+    await installs.put(
+      mergeInstalledPluginRecord(existing, {
+        workspaceRoot,
+        sourceId: source.id,
+        pluginId: plugin.id,
+        pluginName: plugin.name,
+        marketplaceName: scan.marketplaceName ?? '',
+        claudePluginKey: result.claudePluginKey,
+        skillDirNames: [...new Set(result.harnesses.flatMap((harness) => harness.skillDirNames))],
+        ...(result.pluginDirName ? { pluginDirName: result.pluginDirName } : {}),
+        mcpServerIds: result.mcpServers.map((server) => server.id),
+        commitSha,
+        installedAt: new Date().toISOString(),
+      }),
+    )
     // The receipt just written names the plugin as the marketplace lists it
     // NOW. A receipt under a name it was renamed from is the same install, and
     // leaving it beside the new one lists the plugin twice under Installed and
@@ -947,6 +963,34 @@ export function createSkillsService(
     }
     const record = await installs.get(workspaceRoot, input.sourceId ?? '', input.pluginId ?? '')
     if (!record) return { ok: false, message: 'That plugin is not installed in this workspace.' }
+    const mcpServerId = input.mcpServerId?.trim() ?? ''
+    if (mcpServerId !== '') {
+      if (!record.mcpServerIds.includes(mcpServerId)) {
+        return { ok: false, message: `${mcpServerId} is not installed from this plugin.` }
+      }
+      const mcpServerIds = record.mcpServerIds.filter((id) => id !== mcpServerId)
+      if (mcpServerIds.length === 0 && record.skillDirNames.length === 0) {
+        const result = await uninstallPlugin({
+          workspaceRoot,
+          pluginId: record.pluginId,
+          marketplaceName: record.marketplaceName,
+          skillDirNames: [],
+          pluginDirName: record.pluginDirName ?? '',
+          allHarnesses: SKILL_PACK_HARNESSES,
+        })
+        if (!result.ok) return result
+        await installs.remove(workspaceRoot, record.sourceId, record.pluginId)
+        return { ...result, mcpServerIds: [mcpServerId] }
+      }
+      await installs.put({ ...record, mcpServerIds })
+      return {
+        ok: true,
+        removedPaths: [],
+        disabledClaudePluginKey: '',
+        mcpServerIds: [mcpServerId],
+        warnings: [],
+      }
+    }
     const result = await uninstallPlugin({
       workspaceRoot,
       pluginId: record.pluginId,
@@ -1350,6 +1394,37 @@ function defaultStudioMarketplaceSeedRoot(): string | null {
 function isUtf8Text(bytes: Buffer): boolean {
   if (bytes.includes(0)) return false
   return Buffer.compare(Buffer.from(bytes.toString('utf8'), 'utf8'), bytes) === 0
+}
+
+/**
+ * A skill removed from the workspace is also dropped from every plugin receipt
+ * that named it, so Remove on the plugin still knows what is left — and a
+ * receipt that holds nothing is taken back, including the plugin directory
+ * and any Claude settings key.
+ */
+async function pruneSkillFromPluginReceipts(
+  installs: PluginInstallStore,
+  workspaceRoot: string,
+  dirName: string,
+): Promise<void> {
+  const records = await installs.list(workspaceRoot)
+  for (const record of records) {
+    if (!record.skillDirNames.includes(dirName)) continue
+    const skillDirNames = record.skillDirNames.filter((name) => name !== dirName)
+    if (skillDirNames.length === 0 && record.mcpServerIds.length === 0) {
+      await uninstallPlugin({
+        workspaceRoot,
+        pluginId: record.pluginId,
+        marketplaceName: record.marketplaceName,
+        skillDirNames: [],
+        pluginDirName: record.pluginDirName ?? '',
+        allHarnesses: SKILL_PACK_HARNESSES,
+      })
+      await installs.remove(workspaceRoot, record.sourceId, record.pluginId)
+      continue
+    }
+    await installs.put({ ...record, skillDirNames })
+  }
 }
 
 /**

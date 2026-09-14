@@ -4,14 +4,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { emptyPluginComponents, type ScannedPlugin, type SkillSource } from '../../../../../../../shared/skills'
 import { PluginDetailPane, type PluginDetailPaneProps } from './PluginDetailPane'
 
-// What the plugin DETAIL PANE owes: every hook command verbatim, Install
-// withheld until they are acknowledged, and a linked plugin that says it has
-// not been read rather than showing an empty component list.
-//
-// The rows and the source page left this file with the source-tabs ruling
-// (2026-09-05): a plugin renders on the shared connector row now — icon chip,
-// name and kind badge, one-line summary, one control — and the page around it
-// is the catalogue frame, covered in catalogue/extensionsCatalogue.test.tsx.
+// What the plugin DETAIL PANE owes: a catalogue of skills and MCP servers
+// with per-item Install, hooks disclosed verbatim, and Remove on the plugin
+// taking back everything it wrote. There is no bulk install — that is how
+// one marketplace plugin used to copy every skill it shipped into every agent.
 
 function run(name: string, body: () => void): void {
   try {
@@ -70,11 +66,15 @@ function pane(over: Partial<PluginDetailPaneProps> = {}): string {
       onRetryRead={() => {}}
       harnesses={['claude', 'codex', 'agents']}
       install={{ kind: 'not-installed' }}
-      availability={{ enabled: false, reason: 'Review the hook commands above, then confirm they may run.' }}
-      installing={false}
-      hooksAcknowledged={false}
-      onHooksAcknowledgedChange={() => {}}
-      onInstall={() => {}}
+      availability={{ enabled: true, reason: null }}
+      installedDirNames={new Set()}
+      installedMcpIds={new Set()}
+      busyItem={null}
+      onInstallSkill={() => {}}
+      onRemoveSkill={() => {}}
+      onInstallMcp={() => {}}
+      onRemoveMcp={() => {}}
+      onUpdateInstalled={() => {}}
       onUninstall={() => {}}
       onClose={() => {}}
       {...over}
@@ -82,22 +82,16 @@ function pane(over: Partial<PluginDetailPaneProps> = {}): string {
   )
 }
 
-run('the pane discloses hook commands verbatim and withholds Install until acknowledged', () => {
+run('the pane discloses hook commands verbatim and does not gate item install on them', () => {
   const markup = pane()
   assert.ok(markup.includes('PreToolUse on Edit|Write: node &quot;${CLAUDE_PLUGIN_ROOT}/hooks/check.js&quot;'), 'the command, verbatim')
   assert.ok(markup.includes('declares a hook command'), 'the warning names what the plugin carries')
-  assert.ok(markup.includes('Installing here copies no hooks'), 'and what an install here does with it')
-  assert.ok(markup.includes('type="checkbox"'), 'acknowledgement is a real checkbox')
-  assert.ok(/<button[^>]*disabled=""[^>]*>Install to this workspace<\/button>/.test(markup), 'Install is disabled')
-  // The Claude Code row: no native-load claim, the settings key named as the
-  // extra it is, and the hooks stated as not installed rather than implied
-  // (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
+  assert.ok(markup.includes('Installing a skill or server here copies no hooks'), 'and what an install here does with it')
+  assert.equal(markup.includes('type="checkbox"'), false, 'no acknowledgement gate — hooks are not copied')
+  assert.equal(markup.includes('Install to this workspace'), false, 'there is no all-in install')
   assert.equal(markup.includes('Enabled as security-guidance@claude-plugins-official'), false)
   assert.ok(markup.includes('Its hooks are not installed'), 'Claude Code is told what does not land')
-  assert.ok(
-    markup.includes('also names security-guidance@claude-plugins-official'),
-    'and that the settings key is written for `claude plugin install`',
-  )
+  assert.equal(markup.includes('also names security-guidance@claude-plugins-official'), false)
   assert.ok(markup.includes('Its hooks are Claude Code-format'), 'Codex is told nothing lands')
   assert.ok(markup.includes('Open on GitHub'))
 })
@@ -109,14 +103,13 @@ run('an unread linked plugin says its components are unknown, not empty', () => 
       componentsKnown: false,
     }),
     reading: true,
-    availability: { enabled: true, reason: null },
   })
   assert.ok(markup.includes('Reading 42Crunch-AI/claude-plugins…'))
   assert.equal(markup.includes('>None<'), false, 'no component row claims emptiness')
   assert.ok(markup.includes('Known once the plugin has been read'))
 })
 
-run('an installed plugin lists each of its skills with its own Use in agent', () => {
+run('each skill is its own install, and Use in agent appears only once it is in the workspace', () => {
   const withSkills = plugin('code-review', {
     components: {
       ...emptyPluginComponents(),
@@ -126,42 +119,48 @@ run('an installed plugin lists each of its skills with its own Use in agent', ()
       ],
     },
   })
-  const record = {
+
+  const available = pane({
+    plugin: withSkills,
     workspaceRoot: '/ws',
-    sourceId: SOURCE.id,
-    pluginId: 'code-review',
-    pluginName: 'code-review',
-    marketplaceName: 'claude-plugins-official',
-    claudePluginKey: 'code-review@claude-plugins-official',
-    skillDirNames: ['review', 'triage'],
-    mcpServerIds: [],
-    commitSha: '1111111',
-    installedAt: '',
-  }
+    availability: { enabled: true, reason: null },
+  })
+  assert.ok(available.includes('>review<') && available.includes('>triage<'), 'each skill by name')
+  assert.ok(available.includes('aria-label="Install review"') && available.includes('aria-label="Install triage"'), 'each skill installs itself')
+  assert.equal(available.includes('>Use in agent<'), false, 'nothing to use until it is copied')
+  assert.ok(available.includes('Review a diff'), 'the description the agent matches on rides along')
 
   const installed = pane({
     plugin: withSkills,
     workspaceRoot: '/ws',
-    install: { kind: 'installed', record },
     availability: { enabled: true, reason: null },
+    installedDirNames: new Set(['review', 'triage']),
+    install: {
+      kind: 'installed',
+      record: {
+        workspaceRoot: '/ws',
+        sourceId: SOURCE.id,
+        pluginId: 'code-review',
+        pluginName: 'code-review',
+        marketplaceName: 'claude-plugins-official',
+        claudePluginKey: '',
+        skillDirNames: ['review', 'triage'],
+        mcpServerIds: [],
+        commitSha: '1111111',
+        installedAt: '',
+      },
+    },
   })
-  assert.ok(installed.includes('>Use a skill<'), 'the section exists once the plugin is in the workspace')
-  assert.ok(installed.includes('>review<') && installed.includes('>triage<'), 'each skill by name')
   assert.equal(
     (installed.match(/<button[^>]*aria-haspopup="menu"[^>]*>Use in agent<\/button>/g) ?? []).length,
     2,
     'two skills, two menu buttons — the page does not guess which was meant',
   )
-  assert.ok(installed.includes('Review a diff'), 'the description the agent matches on rides along')
-
-  // Not installed: nothing to use yet, and no "use" that would quietly install
-  // past the hook acknowledgement above it.
-  const notInstalled = pane({ plugin: withSkills, workspaceRoot: '/ws', availability: { enabled: true, reason: null } })
-  assert.equal(notInstalled.includes('>Use a skill<'), false)
-  assert.equal(notInstalled.includes('>Use in agent<'), false)
+  assert.ok(installed.includes('aria-label="Remove review"'), 'and each can be taken back')
+  assert.ok(installed.includes('>Remove plugin<'), 'the plugin itself can still be wiped')
 })
 
-run('an installed plugin offers Remove and says which key it enabled', () => {
+run('an installed plugin offers Remove plugin and Update installed when the source has moved', () => {
   const markup = pane({
     plugin: plugin('code-review'),
     install: {
@@ -181,8 +180,8 @@ run('an installed plugin offers Remove and says which key it enabled', () => {
     },
     availability: { enabled: true, reason: null },
   })
-  assert.ok(markup.includes('>Remove<'))
-  assert.ok(markup.includes('Update in this workspace'))
+  assert.ok(markup.includes('>Remove plugin<'))
+  assert.ok(markup.includes('Update installed'))
   assert.ok(markup.includes('Installed from this source at 1111111'))
 })
 

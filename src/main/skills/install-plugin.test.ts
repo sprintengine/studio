@@ -19,8 +19,10 @@ import {
   installPlugin,
   mcpServerConfigFromScanned,
   readEnabledClaudePlugins,
+  selectPluginItems,
   uninstallPlugin,
 } from './install-plugin'
+import { mergeInstalledPluginRecord } from './plugin-install-store'
 
 function skill(id: string): ScannedSkill {
   return {
@@ -375,6 +377,108 @@ async function installedServersCarryTheirSource(): Promise<void> {
   })
 }
 
+function aPluginIsACatalogueOfItems(): void {
+  const pack = plugin({
+    components: {
+      ...emptyPluginComponents(),
+      skills: [skill('plugins/x/skills/review'), skill('plugins/x/skills/audit')],
+      mcpServers: plugin().components.mcpServers,
+    },
+  })
+  const one = selectPluginItems(pack, { skillIds: ['plugins/x/skills/review'] })
+  assert.equal(one.ok, true)
+  if (!one.ok) return
+  assert.equal(one.filtered, true)
+  assert.deepEqual(
+    one.plugin.components.skills.map((item) => item.id),
+    ['plugins/x/skills/review'],
+  )
+  assert.deepEqual(one.plugin.components.mcpServers, [])
+
+  const server = selectPluginItems(pack, { mcpServerIds: ['context7'] })
+  assert.equal(server.ok, true)
+  if (!server.ok) return
+  assert.equal(server.plugin.components.skills.length, 0)
+  assert.deepEqual(
+    server.plugin.components.mcpServers.map((item) => item.id),
+    ['context7'],
+  )
+
+  const missing = selectPluginItems(pack, { skillIds: ['plugins/x/skills/nope'] })
+  assert.equal(missing.ok, false)
+  const empty = selectPluginItems(pack, { skillIds: [] })
+  assert.equal(empty.ok, false)
+  const all = selectPluginItems(pack, {})
+  assert.equal(all.ok, true)
+  if (!all.ok) return
+  assert.equal(all.filtered, false)
+  assert.equal(all.plugin.components.skills.length, 2)
+}
+
+async function aFilteredInstallCopiesOnlyTheChosenSkill(): Promise<void> {
+  const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-item-'))
+  await mkdir(join(workspace, '.claude'), { recursive: true })
+  await writeFile(
+    join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH),
+    JSON.stringify({ enabledPlugins: { 'other@elsewhere': true } }, null, 2),
+  )
+  const pack = plugin({
+    components: {
+      ...emptyPluginComponents(),
+      skills: [skill('plugins/security-guidance/skills/review'), skill('plugins/security-guidance/skills/audit')],
+      mcpServers: plugin().components.mcpServers,
+    },
+  })
+  const result = await installPlugin({
+    workspaceRoot: workspace,
+    sourceId: 'github:anthropics/claude-plugins-official',
+    marketplaceName: 'claude-plugins-official',
+    marketplaceRepo: 'anthropics/claude-plugins-official',
+    plugin: pack,
+    skillIds: ['plugins/security-guidance/skills/review'],
+    harnesses: ['claude', 'codex', 'agents'],
+    commitSha: '85cce03',
+    readSkillFile: READ,
+    mcpClients: ['claude-code', 'codex'],
+  })
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.equal(result.claudePluginKey, '', 'a one-item install does not enable the whole plugin for Claude Code')
+  assert.deepEqual(result.mcpServers, [])
+  for (const dir of ['.claude', '.codex', '.agents']) {
+    assert.equal(existsSync(join(workspace, dir, 'skills', 'review', 'SKILL.md')), true)
+    assert.equal(existsSync(join(workspace, dir, 'skills', 'audit')), false)
+  }
+  const settings = JSON.parse(await readFile(join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH), 'utf8'))
+  assert.deepEqual(Object.keys(settings.enabledPlugins ?? {}), ['other@elsewhere'])
+}
+
+function receiptsAccumulateItems(): void {
+  const first = {
+    workspaceRoot: '/ws',
+    sourceId: 'github:acme/skills',
+    pluginId: 'code-review',
+    pluginName: 'code-review',
+    marketplaceName: 'acme-plugins',
+    claudePluginKey: '',
+    skillDirNames: ['review'],
+    mcpServerIds: [] as string[],
+    commitSha: 'aaa',
+    installedAt: '2026-09-12T00:00:00.000Z',
+  }
+  const merged = mergeInstalledPluginRecord(first, {
+    ...first,
+    skillDirNames: ['triage'],
+    mcpServerIds: ['linear'],
+    commitSha: 'bbb',
+    installedAt: '2026-09-12T00:05:00.000Z',
+  })
+  assert.deepEqual(merged.skillDirNames, ['review', 'triage'])
+  assert.deepEqual(merged.mcpServerIds, ['linear'])
+  assert.equal(merged.commitSha, 'bbb')
+  assert.equal(merged.installedAt, first.installedAt)
+}
+
 async function main(): Promise<void> {
   await claudeIsCopiedForLikeEveryOtherHarness()
   await theSettingsKeysAreAnExtraNothingDependsOn()
@@ -382,6 +486,9 @@ async function main(): Promise<void> {
   await pluginOnlyRepositoryCopiesSkillsToClaudeToo()
   await nothingToInstallIsSaidNotHidden()
   await installedServersCarryTheirSource()
+  aPluginIsACatalogueOfItems()
+  await aFilteredInstallCopiesOnlyTheChosenSkill()
+  receiptsAccumulateItems()
   shapes()
   console.log('skills plugin install tests passed')
 }

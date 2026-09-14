@@ -258,28 +258,23 @@ run('the install plan says per harness what will land, before it does', () => {
     harnesses: ['claude', 'codex', 'agents'],
   })
   assert.equal(plan.length, 3)
-  // Claude Code is copied for like every other harness, and the row says the
-  // two things only it has: what is NOT written for it, and the settings key
-  // that is. It used to claim a native load that measurement disproved
-  // (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
-  assert.match(plan[0].line, /1 skill copied into \.claude\/skills/)
+  // Claude Code is copied for like every other harness. A one-item install
+  // does not write enabledPlugins, so the row no longer names a settings key.
+  assert.match(plan[0].line, /Skills you install are copied into \.claude\/skills/)
   assert.match(plan[0].line, /Its hooks are not installed/)
-  assert.match(
-    plan[0].line,
-    /\.claude\/settings\.json also names security-guidance@claude-plugins-official, for a `claude plugin install` you run yourself\./,
-  )
+  assert.equal(/settings\.json/.test(plan[0].line), false, 'a catalogue install does not enable the whole plugin')
   assert.equal(/Enabled as/.test(plan[0].line), false, 'nothing claims Claude Code loads it itself')
-  assert.match(plan[1].line, /1 skill copied into \.codex\/skills/)
+  assert.match(plan[1].line, /Skills you install are copied into \.codex\/skills/)
   assert.match(plan[1].line, /hooks have no equivalent here/)
   assert.equal(/settings\.json/.test(plan[1].line), false, 'the key is Claude Code\u2019s row alone')
   assert.equal(plan[2].label, 'Shared agents directory')
 
-  // No marketplace: the copy is the same, and there is no key to name.
+  // No marketplace: the copy is the same.
   const noMarket = describeInstallPlan({ plugin: p, marketplaceName: '', marketplaceRepo: SOURCE.repo, harnesses: ['claude'] })
   assert.match(noMarket[0].line, /copied into \.claude\/skills/)
   assert.equal(/settings\.json/.test(noMarket[0].line), false)
 
-  // Claude Code with nothing to copy says so, and still names the key.
+  // Claude Code with nothing to copy says so.
   const claudeNothing = describeInstallPlan({
     plugin: plugin('h', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } }),
     marketplaceName: 'claude-plugins-official',
@@ -287,7 +282,7 @@ run('the install plan says per harness what will land, before it does', () => {
     harnesses: ['claude'],
   })
   assert.match(claudeNothing[0].line, /Nothing is copied\. Its hooks are not installed/)
-  assert.match(claudeNothing[0].line, /also names h@claude-plugins-official/)
+  assert.equal(/settings\.json/.test(claudeNothing[0].line), false)
   const hooksOnly = describeInstallPlan({
     plugin: plugin('h', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } }),
     marketplaceName: '',
@@ -325,11 +320,11 @@ run('the install plan says per harness what will land, before it does', () => {
 
 run('install availability states its reason instead of doing nothing', () => {
   const hooked = plugin('h', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } })
-  assert.match(derivePluginInstallAvailability(null, hooked, ['claude'], false).reason ?? '', /Open a workspace/)
-  assert.match(derivePluginInstallAvailability('/ws', hooked, [], false).reason ?? '', /No agent CLI/)
-  assert.match(derivePluginInstallAvailability('/ws', hooked, ['claude'], false).reason ?? '', /Review the hook commands/)
-  assert.equal(derivePluginInstallAvailability('/ws', hooked, ['claude'], true).enabled, true)
-  assert.equal(derivePluginInstallAvailability('/ws', plugin('p'), ['claude'], false).enabled, true)
+  assert.match(derivePluginInstallAvailability(null, hooked, ['claude']).reason ?? '', /Open a workspace/)
+  assert.match(derivePluginInstallAvailability('/ws', hooked, []).reason ?? '', /No agent CLI/)
+  assert.equal(derivePluginInstallAvailability('/ws', hooked, ['claude']).enabled, true)
+  assert.equal(derivePluginInstallAvailability('/ws', plugin('p'), ['claude']).enabled, true)
+  assert.equal(derivePluginInstallAvailability('/ws', plugin('u', { componentsKnown: false }), ['claude']).enabled, false)
 })
 
 run('what an install did is one line in the installer’s words', () => {
