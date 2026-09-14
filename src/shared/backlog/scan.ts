@@ -254,11 +254,90 @@ export function backlogRootPath(workspaceRoot: string): string {
   return joinPath(workspaceRoot, BACKLOG_FOLDER)
 }
 
+/**
+ * Where a workspace's backlog items physically live, and which workspace they
+ * belong to. The two are the same folder by default (`<workspaceRoot>/backlog`)
+ * and diverge when a workspace points its backlog at a folder outside the
+ * checkout — a directory on this machine, or a clone of a backlog repo.
+ *
+ * `root` moves; identity does not. Every item is still addressed by the LOGICAL
+ * path `backlog/<...>` that the object store, the durable links, the sprint
+ * links and the mobile snapshot all key on, so redirecting a backlog rewrites
+ * no ids and migrates no links. `backlogLogicalPath` and `backlogAbsolutePath`
+ * are the only two places that know the difference.
+ */
+export type BacklogLocation = {
+  workspaceRoot: string
+  root: string
+}
+
+/** The location a workspace has until it configures one: `<root>/backlog`. */
+export function defaultBacklogLocation(workspaceRoot: string): BacklogLocation {
+  return { workspaceRoot, root: backlogRootPath(workspaceRoot) }
+}
+
+/**
+ * Resolve a location from a configured root. An empty or absent `configuredRoot`
+ * means "the default", so a config that has never been written and one that has
+ * been reset to the default behave identically.
+ */
+export function backlogLocationFor(workspaceRoot: string, configuredRoot?: string | null): BacklogLocation {
+  const trimmed = typeof configuredRoot === 'string' ? configuredRoot.trim() : ''
+  if (!trimmed) return defaultBacklogLocation(workspaceRoot)
+  return { workspaceRoot, root: trimmed.replace(/[\\/]+$/, '') }
+}
+
+/** A location is the default one when nothing was configured away from it. */
+export function isDefaultBacklogLocation(location: BacklogLocation): boolean {
+  const expected = backlogRootPath(location.workspaceRoot).replace(/\\/g, '/').toLowerCase()
+  return location.root.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() === expected
+}
+
+/**
+ * An absolute file path under the backlog root, as the LOGICAL `backlog/<...>`
+ * path that identifies the item. Returns null for anything outside the root.
+ *
+ * With a default location this is exactly what
+ * `workspaceRelativePath(workspaceRoot, filePath)` returned before the root
+ * became configurable, byte for byte — which is what lets an existing workspace
+ * keep every id and link it already has.
+ */
+export function backlogLogicalPath(location: BacklogLocation, absolutePath: string): string | null {
+  const within = workspaceRelativePath(location.root, absolutePath)
+  if (within === null) return null
+  return within ? `${BACKLOG_FOLDER}/${within}` : BACKLOG_FOLDER
+}
+
+/**
+ * The inverse: where a logical `backlog/<...>` path sits on disk.
+ *
+ * This is also the containment check. It used to be done by joining onto the
+ * workspace root and asking `isPathInsideOrEqual(workspace.root, target)`, which
+ * admitted any path inside the checkout; asking it against the backlog root is
+ * strictly tighter, and it is the only check that still means something once the
+ * root can sit outside the workspace entirely. Returns null rather than throwing
+ * so callers keep whatever refusal they already had.
+ */
+export function backlogAbsolutePath(location: BacklogLocation, relativePath: string): string | null {
+  const normalized = normalizeRelativePath(relativePath)
+  if (!isBacklogRelativePath(normalized)) return null
+  // Reject traversal before joining: `backlog/../../etc/passwd` normalizes to a
+  // path that still starts with `backlog/` and would otherwise climb out.
+  if (normalized.split('/').some((segment) => segment === '..')) return null
+  const within = normalized === BACKLOG_FOLDER ? '' : normalized.slice(BACKLOG_FOLDER.length + 1)
+  return within ? joinPath(location.root, within) : location.root
+}
+
+// Accepts a bare workspace root for the default location, or a resolved
+// `BacklogLocation` for a workspace that points its backlog elsewhere. The
+// string form is what every caller passed before the root became configurable
+// and keeps meaning exactly what it meant.
 export async function scanBacklog(
-  workspaceRoot: string,
+  where: string | BacklogLocation,
   fs: BacklogFilesystemAdapter,
 ): Promise<BacklogScanResult> {
-  const rootPath = backlogRootPath(workspaceRoot)
+  const location = typeof where === 'string' ? defaultBacklogLocation(where) : where
+  const rootPath = location.root
   const exists = await fs.pathExists(rootPath)
   if (!exists) return { state: 'missing-folder', items: [], errors: [] }
 
@@ -293,7 +372,7 @@ export async function scanBacklog(
       if (index >= sortedFiles.length) return
 
       const filePath = sortedFiles[index]
-      const relativePath = workspaceRelativePath(workspaceRoot, filePath)
+      const relativePath = backlogLogicalPath(location, filePath)
       if (!relativePath || !isBacklogRelativePath(relativePath)) continue
 
       try {
