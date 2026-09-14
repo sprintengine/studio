@@ -736,8 +736,7 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
     // What the conversation peek reads off the session, left there by these same
     // frames: the transcript the turn end named, and every prompt seen since
     // launch. The prompt list is the peek's LIVE fallback — the only source for
-    // a runtime that reports prompts but hands us no transcript — and it exists
-    // nowhere else, because no prompt is ever written to disk.
+    // a runtime that reports prompts but hands us no transcript.
     runtime.ingestAgentStateFrame(frame({
       phase: 'thinking',
       event: 'UserPromptSubmit',
@@ -1978,10 +1977,29 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
   }
 
   // ── "Run 1": suspend one agent, leave the other live, then quit. ──
+  // When the frozen chat was prompted. Named out here because run 2 asserts the
+  // same stamp came back off the disk; stamped at ingest, since a frame older
+  // than the session's own start is rejected as stale.
+  let promptAt = 0
   const runtime = runtimeModule.createTerminalRuntime(runtimeOptions)
   try {
     const frozenProcess = await spawnAgent(runtime, 'session-frozen', 'ws-frozen')
     frozenProcess.emitData('frozen painted output\r\n')
+    // Codex's `UserPromptSubmit` hook, which is the only account of this chat's
+    // messages the app will ever have: nothing here writes a Claude-shaped
+    // transcript, and Codex's own rollout file is a format this app cannot read.
+    promptAt = Date.now()
+    runtime.ingestAgentStateFrame({
+      type: 'agent_state',
+      agentId: 'session-frozen',
+      workspaceId: 'ws-frozen',
+      // Codex mints its own session id and reports it on every hook frame.
+      sessionId: '01a09735-0f86-7441-99fa-1af8310d6733',
+      event: 'UserPromptSubmit',
+      ts: promptAt,
+      cwd: workspaceRoot,
+      prompt: 'Port voice dictation to Studio',
+    })
     const liveProcess = await spawnAgent(runtime, 'session-live', 'ws-live')
     liveProcess.emitData('live painted output\r\n')
     await delay(20)
@@ -2013,18 +2031,21 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
     // rehydrated it — `terminals` is empty here, exactly as after a relaunch,
     // and this is the case the card is most wanted for. The facts come from the
     // sidecar: which CLI, its session id, and the directory it was launched in.
-    // No prompts: nothing writes a prompt to disk, so a parked chat answers from
-    // its transcript or not at all.
+    // Including the prompts. THE DEFECT: they used to be dropped at the app's
+    // door — held in memory and written nowhere — so a parked Codex chat came
+    // back claiming to have no messages, about a chat whose own title was its
+    // first prompt.
     const parked = runtime2.readConversationPeekSessionState('session-frozen')
     assert.deepEqual(
       parked,
       {
+        cliSessionId: '01a09735-0f86-7441-99fa-1af8310d6733',
         launchCwd: workspaceRoot,
         claudeHarness: false,
         // codex's manifest declares UserPromptSubmit, so the card must not say
         // this runtime cannot report its messages.
         reportsMessages: true,
-        prompts: [],
+        prompts: [{ text: 'Port voice dictation to Studio', at: promptAt }],
       },
       'a parked session must still answer from its snapshot sidecar'
     )

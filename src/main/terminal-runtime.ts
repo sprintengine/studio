@@ -69,6 +69,7 @@ import {
   materializeTerminalReplay,
   parseSessionContextUsage,
   parseSessionFileChanges,
+  parseSessionPrompts,
   noteFoldedFileChange,
   recordSessionFileChange,
   recordSessionStatusLine,
@@ -1218,6 +1219,11 @@ function writeTerminalSnapshotSidecar(
     // The context reading rides the same sidecar and for the same reason: a
     // parked chat that says nothing about how full it is looks like a fresh one.
     ...(session.contextUsage ? { contextUsage: session.contextUsage } : {}),
+    // The prompts, for the same reason again, and most of all for a runtime
+    // this app keeps no readable transcript of: a parked Codex chat with no
+    // prompts here has nothing whatsoever to show, and its card says so about a
+    // chat named after its own first message.
+    ...(session.peekPrompts?.length ? { prompts: session.peekPrompts } : {}),
     lastTurnEndedAt: session.lastTurnEndedAt ?? undefined,
     snapshot: payload.snapshot,
     rawReplay: payload.rawReplay,
@@ -1264,6 +1270,7 @@ async function rehydrateSuspendedTerminalFromSidecar(
     observedCheckout: parseObservedCheckout(sidecar.observedCheckout) ?? undefined,
     fileChanges: parseSessionFileChanges(sidecar.fileChanges),
     contextUsage: parseSessionContextUsage(sidecar.contextUsage),
+    peekPrompts: parseSessionPrompts(sidecar.prompts),
     lastTurnEndedAt: typeof sidecar.lastTurnEndedAt === 'number' ? sidecar.lastTurnEndedAt : null,
     replaySnapshot: snapshot,
     rawReplay: snapshot ? undefined : sidecar.rawReplay,
@@ -2322,10 +2329,9 @@ function readConversationPeekSessionState(sessionId: string): ConversationPeekSe
   const session = terminals.get(sessionId)
   if (session && !session.isDisposed) return peekStateForSession(session)
   // No live session. A chat parked across an app restart still has a snapshot
-  // sidecar carrying the facts the peek needs — the CLI, its session id, and the
-  // directory it was launched in — so the card it is most wanted for is exactly
-  // the one we can still answer. The sidecar holds no prompts (nothing writes a
-  // prompt to disk), so a parked chat answers from its transcript or not at all.
+  // sidecar carrying the facts the peek needs — the CLI, its session id, the
+  // directory it was launched in, and the prompts it was sent — so the card it
+  // is most wanted for is exactly the one we can still answer.
   return peekStateForSidecar(sessionId)
 }
 
@@ -2367,7 +2373,10 @@ function peekStateForSidecar(sessionId: string): ConversationPeekSessionState | 
     ...(launchCwd === undefined ? {} : { launchCwd }),
     claudeHarness: isClaudeHarnessCli(sidecar.cli),
     reportsMessages: cliReportsMessages(sidecar.cli),
-    prompts: [],
+    // The prompts the sidecar kept. This is the whole answer for a parked chat
+    // on a runtime whose transcript this app cannot read — and the reason they
+    // are written at all.
+    prompts: parseSessionPrompts(sidecar.prompts) ?? [],
   }
 }
 
@@ -2577,8 +2586,9 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
     session.lastPrompt = { text: frame.prompt, at: frame.ts }
     // The same prompt also joins the session's bounded live list, which is the
     // conversation peek's only source for a runtime that reports no transcript.
-    // Appended here rather than derived from `lastPrompt` later because there is
-    // nowhere else it survives: nothing writes a prompt to disk.
+    // Appended here rather than derived from `lastPrompt` later, which keeps only
+    // the newest: the card shows the whole thread. The list rides the snapshot
+    // sidecar from here, so it survives a restart along with the painted screen.
     rememberSessionPrompt(session, frame.prompt, frame.ts)
   }
 

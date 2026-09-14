@@ -35,6 +35,9 @@ function sampleSidecar(overrides: Partial<TerminalSnapshotSidecar> = {}): Termin
     cliSessionId: 'session-abc',
     // The turn end rides the sidecar so rehydration idles from the finish.
     lastTurnEndedAt: 1_699_999_000_000,
+    // As do the prompts, so a parked chat on a runtime with no readable
+    // transcript still knows what it was asked.
+    prompts: [{ text: 'Port voice dictation to Studio', at: 1_699_998_000_000 }],
     snapshot: 'painted screen content',
     ...overrides,
   }

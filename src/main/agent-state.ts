@@ -396,7 +396,7 @@ export const MAX_STATUS_LINE_COUNT = MAX_FILE_CHANGE_COUNT
 // broadcast to every renderer, and an unbounded string would ride into both.
 // Sized well above a title (~42 chars) because the same field feeds the tab
 // hover preview, which shows several lines.
-const MAX_AGENT_PROMPT_LENGTH = 2000
+export const MAX_AGENT_PROMPT_LENGTH = 2000
 
 export type AgentStateFrame = {
   type: 'agent_state'

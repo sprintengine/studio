@@ -750,7 +750,7 @@ async function testSourceSelection(): Promise<void> {
 
   const { service, opened, revealed } = harness(
     {
-      'with-transcript': { transcriptPath, prompts: [{ text: 'live text', at: 3 }] },
+      'with-transcript': { transcriptPath, claudeHarness: true, prompts: [{ text: 'live text', at: 3 }] },
       'live-only': {
         prompts: [
           { text: 'Have a look at the reasoning picker', at: 1 },
@@ -758,7 +758,7 @@ async function testSourceSelection(): Promise<void> {
           { text: 'Now do the other one', at: 3 },
         ],
       },
-      'stale-transcript': { transcriptPath: '/tmp/gone.jsonl', prompts: [{ text: 'still said this', at: 9 }] },
+      'stale-transcript': { transcriptPath: '/tmp/gone.jsonl', claudeHarness: true, prompts: [{ text: 'still said this', at: 9 }] },
       silent: { prompts: [] },
     },
     { [transcriptPath]: transcript },
@@ -850,6 +850,72 @@ async function testEmptyButCapableSource(): Promise<void> {
   assert.equal(opencode.source, 'none', 'only a runtime that cannot report at all is `none`')
 }
 
+/**
+ * A Codex chat with a full history said "no messages yet".
+ *
+ * Codex's Stop hook forwards `transcript_path` exactly as Claude's does — the
+ * same field name, the same hook contract — but it names a Codex rollout JSONL,
+ * whose rows this reader understands none of. The file read cleanly and yielded
+ * no person-message, which the service took for "the transcript is real and the
+ * chat is empty" and returned, ahead of the live prompts it already held. The
+ * card then denied the existence of the very prompts that had named the chat.
+ */
+async function testForeignTranscriptPathIsNotOurs(): Promise<void> {
+  const rollout = await writeTranscript([humanRow('Not that this reader can see it.')])
+  const rolloutPeek = await readTranscriptPeek(rollout)
+  assert.ok(rolloutPeek)
+
+  const { service, transcriptReads } = harness(
+    {
+      codex: {
+        // What the Codex hook reported. Standing in for the rollout file: what
+        // matters is that it is NOT a Claude transcript, and the service cannot
+        // tell that by reading it.
+        transcriptPath: rollout,
+        cliSessionId: 'cli-codex-1',
+        launchCwd: '/home/dev/projects/multicode',
+        claudeHarness: false,
+        reportsMessages: true,
+        prompts: [{ text: 'Port voice dictation to Studio', at: 4 }],
+      },
+    },
+    { [rollout]: rolloutPeek },
+  )
+
+  const codex = await service.readConversationPeek('codex')
+  assert.deepEqual(transcriptReads, [], 'a path from a runtime we cannot parse is never read')
+  assert.equal(codex.source, 'live', 'the prompts this app watched go by are the answer')
+  assert.equal(codex.first?.text, 'Port voice dictation to Studio')
+}
+
+/**
+ * A Claude transcript that reads clean and holds nothing must not bury the
+ * prompts we watched go by — the first turn of a resumed chat has exactly this
+ * shape, since the file is written at the turn's END.
+ */
+async function testEmptyTranscriptYieldsToLivePrompts(): Promise<void> {
+  // Rows, but none of them a person's: a turn in flight writes exactly this.
+  const emptyTranscript = await writeTranscript([{ type: 'assistant', message: { content: [] } }])
+  const emptyPeek = await readTranscriptPeek(emptyTranscript)
+  assert.ok(emptyPeek, 'readable and empty, not unreadable — the distinction under test')
+
+  const { service } = harness(
+    {
+      mid: {
+        transcriptPath: emptyTranscript,
+        claudeHarness: true,
+        reportsMessages: true,
+        prompts: [{ text: 'Halfway through the first turn', at: 2 }],
+      },
+    },
+    { [emptyTranscript]: emptyPeek },
+  )
+
+  const mid = await service.readConversationPeek('mid')
+  assert.equal(mid.source, 'live', 'an empty file is not a better answer than a prompt we saw')
+  assert.equal(mid.first?.text, 'Halfway through the first turn')
+}
+
 function testLivePromptWindow(): void {
   let prompts = appendLivePeekPrompt(undefined, 'first', 1)
   for (let index = 1; index < MAX_LIVE_PEEK_PROMPTS + 20; index += 1) {
@@ -890,7 +956,7 @@ async function testImageStripAcrossMessages(): Promise<void> {
   assert.ok(transcript)
 
   const { service, opened } = harness(
-    { chat: { transcriptPath, prompts: [] } },
+    { chat: { transcriptPath, claudeHarness: true, prompts: [] } },
     { [transcriptPath]: transcript },
   )
   const peek = await service.readConversationPeek('chat')
@@ -952,7 +1018,7 @@ async function testImageStripPastTheWindow(): Promise<void> {
   assert.ok(transcript)
 
   const { service, opened } = harness(
-    { chat: { transcriptPath, prompts: [] } },
+    { chat: { transcriptPath, claudeHarness: true, prompts: [] } },
     { [transcriptPath]: transcript },
   )
   const peek = await service.readConversationPeek('chat')
@@ -994,7 +1060,7 @@ async function testUnretainedImageStaysOffTheStrip(): Promise<void> {
   const transcript = await readTranscriptPeek(transcriptPath)
   assert.ok(transcript)
   const { service } = harness(
-    { chat: { transcriptPath, prompts: [] } },
+    { chat: { transcriptPath, claudeHarness: true, prompts: [] } },
     { [transcriptPath]: transcript },
   )
   const peek = await service.readConversationPeek('chat')
@@ -1095,6 +1161,8 @@ async function run(): Promise<void> {
   await testSourceSelection()
   await testDerivedTranscriptSelection()
   await testEmptyButCapableSource()
+  await testForeignTranscriptPathIsNotOurs()
+  await testEmptyTranscriptYieldsToLivePrompts()
   testLivePromptWindow()
   await testIpc()
   console.log('conversation-peek.test.ts: all assertions passed')

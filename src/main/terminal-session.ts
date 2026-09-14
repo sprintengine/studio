@@ -17,7 +17,8 @@ import type {
 } from '../shared/electron-api'
 import type { AgentLaunchRecord } from '../shared/agent-launch'
 import type { AgentStateFrameStatusLine } from './agent-state'
-import { isValidFileChangePath, MAX_FILE_CHANGE_COUNT } from './agent-state'
+import { isValidFileChangePath, MAX_AGENT_PROMPT_LENGTH, MAX_FILE_CHANGE_COUNT } from './agent-state'
+import { MAX_LIVE_PEEK_PROMPTS } from './conversation-peek/service'
 import {
   getTerminalHistoryTier,
   getTerminalReplayLimitBytes,
@@ -97,11 +98,23 @@ export type TerminalSession = {
   // transcript, so without this the card for one of them could only ever show
   // the single most recent thing said.
   //
-  // In memory only, and deliberately so. It is never written to the snapshot,
-  // never to the sidecar, never to the workspace registry: the app that does not
-  // write a person's prompts down cannot leak them, and the transcript route
-  // already covers "what did I say yesterday" for the runtimes that keep one.
+  // Persisted with the snapshot sidecar, and nowhere else — never the workspace
+  // registry, never a log. That reverses the original decision to keep prompts
+  // out of every file the app writes (the app that writes none cannot leak
+  // any), and the reason is that the alternative was worse: a Codex chat is a
+  // runtime with no transcript we can read, so on the far side of a restart the
+  // card for one could only say it had no messages — about a chat whose own
+  // title was its first prompt. The sidecar is the narrowest home for them: one
+  // file per parked chat under userData, mode 0600, deleted on dispose and
+  // swept at 30 days, holding a painted screen that already shows this text.
   peekPrompts?: SessionPrompt[]
+  // Whether the retained replay has ever had its head cut off — a chunk evicted
+  // past the byte budget, or an oversized chunk trimmed. Sticky, because
+  // compaction renumbers the chunk list and `outputChunkStart` goes back to 0
+  // while the cut stays made. It is what licenses the resync in
+  // {@link materializeTerminalReplay}: an untouched buffer starts where the CLI
+  // started and must be replayed byte for byte.
+  replayTruncated?: boolean
   // The CLI's own transcript, as its turn-end hook last reported it. Retained so
   // the conversation peek can read the whole history on a hover instead of only
   // what this app happened to watch go by. UNTRUSTED — a path chosen by the hook
@@ -443,6 +456,9 @@ type SuspendedPlaceholderSessionInput = {
   // The context reading the sidecar persisted, so a parked chat still says how
   // full it was.
   contextUsage?: SessionContextUsage
+  // The prompts the sidecar persisted, oldest first, so the conversation peek
+  // for a transcript-less runtime survives the restart along with the screen.
+  peekPrompts?: SessionPrompt[]
   replaySnapshot?: string
   // Raw retained pty stream, used only when no serialized snapshot could be
   // built — seeds the replay buffer so reveal still paints something.
@@ -500,6 +516,9 @@ export function createSuspendedPlaceholderSession(
     observedCheckout: input.observedCheckout,
     fileChanges: input.fileChanges,
     contextUsage: input.contextUsage,
+    ...(input.peekPrompts?.length
+      ? { peekPrompts: input.peekPrompts, lastPrompt: input.peekPrompts[input.peekPrompts.length - 1] }
+      : {}),
     agentSession: undefined,
     visible: false,
     // The rehydration moment, NOT savedAt: getTerminalLastSeenAt feeds the 24h
@@ -536,6 +555,8 @@ export function appendTerminalOutput(
   session.outputLength += chunk.data.length
   if (markAsRealOutput) session.lastOutputAt = at
 
+  if (chunk.bytes !== Buffer.byteLength(data)) session.replayTruncated = true
+
   while (
     session.outputBytes > replayLimitBytes
     && session.outputChunkStart < session.outputChunks.length
@@ -545,6 +566,7 @@ export function appendTerminalOutput(
     session.outputChunkStart += 1
     session.outputBytes -= removedBytes
     session.outputLength -= removed?.length ?? 0
+    session.replayTruncated = true
   }
 
   if (
@@ -557,9 +579,55 @@ export function appendTerminalOutput(
   }
 }
 
+/**
+ * How far into a cut replay to look for somewhere safe to start. A terminal
+ * line is tens of bytes and an alt-screen paint opens with an escape sequence
+ * almost immediately, so the resync point is always within a few hundred; the
+ * window exists so that a buffer holding one pathological line — a `cat` of a
+ * minified file, a progress bar drawn with carriage returns alone — loses a
+ * scrap of garbage at worst instead of its entire scrollback.
+ */
+const REPLAY_RESYNC_WINDOW_BYTES = 8 * 1024
+
+/**
+ * `text` from the first point a terminal can safely start reading it.
+ *
+ * Only ever called on a replay whose head was CUT (see `replayTruncated`), and
+ * that cut is the whole problem: chunks are pty read boundaries, not escape
+ * sequence boundaries, so dropping the oldest ones routinely leaves the window
+ * starting in the middle of one. xterm has no introducer to match, so it prints
+ * the remainder as text, and a chat reopened after a busy run greets its owner
+ * with `38;2;139;139;140;48;2;34;34;37m` across the top of an otherwise black
+ * screen (observed 2026-09-12, a Codex chat switched away from and back).
+ *
+ * Two resync points, whichever comes first:
+ *   - an ESC, which BEGINS a sequence, so everything from there parses;
+ *   - the byte after a newline, which no CSI sequence can span.
+ * What sits before it is the tail of a sequence nobody can interpret, plus at
+ * most a line of text that was already losing its colour with it.
+ */
+export function resyncTerminalReplayHead(text: string): string {
+  // Already at a sequence boundary — the common case for a cut that happened to
+  // land on one, and nothing to do.
+  if (text.charCodeAt(0) === 0x1b) return text
+  const window = Math.min(text.length, REPLAY_RESYNC_WINDOW_BYTES)
+  for (let index = 0; index < window; index += 1) {
+    const code = text.charCodeAt(index)
+    if (code === 0x1b) return text.slice(index)
+    if (code === 0x0a) return text.slice(index + 1)
+  }
+  // Nothing to resync to within the window. Whatever is at the head is plain
+  // enough to print, and gutting the scrollback to be sure would cost more than
+  // the garbage it saves.
+  return text
+}
+
 export function materializeTerminalReplay(session: TerminalSession): string {
   compactTerminalReplayToLimit(session)
-  return session.outputChunks.slice(session.outputChunkStart).join('')
+  const replay = session.outputChunks.slice(session.outputChunkStart).join('')
+  // A buffer that has never been cut is replayed byte for byte: its head is
+  // where the CLI itself started, and resyncing would eat the banner.
+  return session.replayTruncated ? resyncTerminalReplayHead(replay) : replay
 }
 
 // What one session's ledger is allowed to cost. It rides every snapshot
@@ -782,6 +850,33 @@ export function parseSessionFileChanges(raw: unknown): Map<string, SessionFileCh
 }
 
 /**
+ * Prompts read back from a snapshot sidecar — a file on disk, and therefore
+ * untrusted input, however this app wrote it. Shape and bounds are re-applied
+ * here rather than assumed: the caps are the live path's own
+ * ({@link MAX_LIVE_PEEK_PROMPTS} entries, MAX_AGENT_PROMPT_LENGTH each), so a
+ * hand-edited or corrupt file can put nothing on a card that the hook itself
+ * could not have.
+ */
+export function parseSessionPrompts(raw: unknown): SessionPrompt[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const prompts: SessionPrompt[] = []
+  // The head, not the whole list: a file naming a million prompts must not buy
+  // itself a million iterations on the main thread during rehydration. The list
+  // is oldest-first and the first entry is the one the card quotes in full, so
+  // the head is also the half worth keeping.
+  for (const entry of raw.slice(0, MAX_LIVE_PEEK_PROMPTS)) {
+    if (!entry || typeof entry !== 'object') continue
+    const candidate = entry as Partial<SessionPrompt>
+    if (typeof candidate.text !== 'string') continue
+    const text = candidate.text.slice(0, MAX_AGENT_PROMPT_LENGTH)
+    if (!text.trim()) continue
+    if (typeof candidate.at !== 'number' || !Number.isFinite(candidate.at) || candidate.at < 0) continue
+    prompts.push({ text, at: Math.floor(candidate.at) })
+  }
+  return prompts.length > 0 ? prompts : undefined
+}
+
+/**
  * The session's own status line, as its last reading left it. Everything except
  * `at` is optional for the same reason the frame's fields are: the CLI reports
  * what it knows.
@@ -926,6 +1021,7 @@ function compactTerminalReplayToLimit(session: TerminalSession, now = Date.now()
     session.outputChunkStart += 1
     session.outputBytes -= removedBytes
     session.outputLength -= removed?.length ?? 0
+    session.replayTruncated = true
   }
 
   if (
@@ -939,6 +1035,7 @@ function compactTerminalReplayToLimit(session: TerminalSession, now = Date.now()
     session.outputChunkBytes[index] = trimmed.bytes
     session.outputBytes = trimmed.bytes
     session.outputLength = trimmed.data.length
+    session.replayTruncated = true
   }
 
   if (
@@ -955,9 +1052,13 @@ function trimTerminalChunkToReplayLimit(data: string, replayLimitBytes = TERMINA
   const bytes = Buffer.byteLength(data)
   if (bytes <= replayLimitBytes) return { data, bytes }
 
-  const trimmed = Buffer.from(data)
-    .subarray(bytes - replayLimitBytes)
-    .toString('utf8')
+  const buffer = Buffer.from(data)
+  // Past any continuation byte the cut landed on: `toString('utf8')` renders a
+  // half-eaten codepoint as U+FFFD, and the head of a replay is the one place
+  // that shows. Bounded by 3 — the longest UTF-8 tail there is.
+  let offset = bytes - replayLimitBytes
+  while (offset < bytes && (buffer[offset] & 0xc0) === 0x80) offset += 1
+  const trimmed = buffer.subarray(offset).toString('utf8')
 
   return {
     data: trimmed,

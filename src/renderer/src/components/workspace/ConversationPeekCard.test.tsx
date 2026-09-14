@@ -510,10 +510,13 @@ run('a chat we hold no record of blames our records, not the runtime', () => {
   assert.match(markup, /claude-opus-5/, 'the identity still stands')
 })
 
-run('a chat nobody has spoken in says so plainly', () => {
+run('a chat nobody has spoken in says nothing at all', () => {
+  // No prose for an empty chat: the composer under the card is the whole
+  // story, and a line explaining that a chat with no messages has no messages
+  // only adds furniture.
   const markup = card({ peek: peek({ first: null }) })
-  assert.match(markup, /No messages yet/, 'the never-prompted state')
-  assert.match(markup, /becomes its title/, 'and what will happen when you do')
+  assert.equal(markup.includes('No messages yet'), false, 'the never-prompted state stays quiet')
+  assert.match(markup, /claude-opus-5/, 'the identity still stands')
 })
 
 run('an empty chat on a capable runtime is never told its runtime is broken', () => {

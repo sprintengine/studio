@@ -12,10 +12,12 @@ import {
   markTerminalFailed,
   listSessionFileChanges,
   materializeTerminalReplay,
+  resyncTerminalReplayHead,
   MAX_SESSION_FILE_CHANGE_PATH_CHARS,
   MAX_SESSION_FILE_CHANGES,
   parseSessionContextUsage,
   parseSessionFileChanges,
+  parseSessionPrompts,
   recordSessionFileChange,
   recordSessionStatusLine,
   setSessionPullRequestReader,
@@ -25,6 +27,8 @@ import {
   STALE_TERMINAL_MAX_UNSEEN_MS,
   type TerminalSession,
 } from './terminal-session'
+import { MAX_AGENT_PROMPT_LENGTH } from './agent-state'
+import { MAX_LIVE_PEEK_PROMPTS } from './conversation-peek/service'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import {
   TERMINAL_RECENT_HISTORY_WINDOW_MS,
@@ -46,6 +50,8 @@ function main(): void {
   assertColdSessionsCompactToStandardReplay()
   assertRecentInputKeepsSessionInExtendedReplayTier()
   assertColdSingleLargeChunkIsTrimmedNotDropped()
+  assertCutReplayNeverStartsMidEscapeSequence()
+  assertUncutReplayIsHandedBackByteForByte()
   assertColdSessionNewOutputUsesRecentReplayTier()
   assertVisibilityRecordingUpdatesRecency()
   assertStaleRuleExemptsVisibleSessionsWithLiveSender()
@@ -54,6 +60,8 @@ function main(): void {
   assertPlaceholderIdlesSinceTheTurnEnd()
   assertFileLedgerAccumulatesAndStaysBounded()
   assertPersistedLedgerIsReadBackAsUntrustedInput()
+  assertPersistedPromptsAreReadBackAsUntrustedInput()
+  assertRehydratedPlaceholderKeepsItsPrompts()
   assertStatusLineReadingsMergeAndGateTheBroadcast()
   assertPersistedContextUsageIsReadBackAsUntrustedInput()
   assertSnapshotCarriesThePullRequestRecordsAnswer()
@@ -206,6 +214,80 @@ function assertPersistedLedgerIsReadBackAsUntrustedInput(): void {
   const capped = parseSessionFileChanges(oversized)
   assert.equal(capped?.size, MAX_SESSION_FILE_CHANGES, 'a sidecar cannot grow the ledger past its cap')
   assert.ok(capped?.has('/repo/file-0.ts'), 'and what it keeps is the head of the newest-first list')
+}
+
+// Prompts ride the sidecar so a parked Codex chat still knows what it was asked
+// — and a sidecar is a file on disk, read back under the live path's own rules.
+function assertPersistedPromptsAreReadBackAsUntrustedInput(): void {
+  assert.equal(parseSessionPrompts(undefined), undefined)
+  assert.equal(parseSessionPrompts('not an array'), undefined)
+  assert.equal(parseSessionPrompts([]), undefined, 'no prompts is no list')
+
+  const good = { text: 'Port voice dictation to Studio', at: 300 }
+  const rejected = [
+    null,
+    'string',
+    { ...good, text: 42 },
+    { ...good, text: '   ' },
+    { ...good, at: '300' },
+    { ...good, at: Number.NaN },
+    { ...good, at: -1 },
+    { text: good.text },
+  ]
+  for (const entry of rejected) {
+    assert.deepEqual(
+      parseSessionPrompts([entry, good]),
+      [good],
+      `a malformed entry is dropped without taking the list with it: ${JSON.stringify(entry)}`
+    )
+  }
+
+  assert.deepEqual(
+    parseSessionPrompts([{ text: 'first', at: 10.9 }, good]),
+    [{ text: 'first', at: 10 }, good],
+    'the persisted order survives the round trip, and a fractional stamp floors'
+  )
+
+  const oversized = Array.from({ length: MAX_LIVE_PEEK_PROMPTS + 40 }, (_unused, index) => ({
+    text: `prompt ${index}`,
+    at: index,
+  }))
+  const capped = parseSessionPrompts(oversized)
+  assert.equal(capped?.length, MAX_LIVE_PEEK_PROMPTS, 'a sidecar cannot grow the list past the live cap')
+  assert.equal(capped?.[0]?.text, 'prompt 0', 'and the first message — the one the card quotes — is kept')
+
+  const long = parseSessionPrompts([{ text: 'x'.repeat(50_000), at: 1 }])
+  assert.equal(long?.[0]?.text.length, MAX_AGENT_PROMPT_LENGTH, 'a novel in the file is still truncated')
+}
+
+// The restart path: the placeholder a sidecar rehydrates into is what the
+// conversation peek reads, so prompts that reached disk must reach the session.
+function assertRehydratedPlaceholderKeepsItsPrompts(): void {
+  const prompts = [
+    { text: 'Port voice dictation to Studio', at: 10 },
+    { text: 'Now wire up the settings pane', at: 20 },
+  ]
+  const session = createSuspendedPlaceholderSession({
+    sessionId: 'session_parked',
+    savedAt: 1_000,
+    cli: 'codex',
+    peekPrompts: prompts,
+    replaySnapshot: 'painted',
+  })
+  assert.deepEqual(session.peekPrompts, prompts, 'the peek has its history back')
+  assert.deepEqual(
+    session.lastPrompt,
+    prompts[1],
+    'and the tab hover names the newest, not the one that started the chat'
+  )
+
+  const empty = createSuspendedPlaceholderSession({
+    sessionId: 'session_quiet',
+    savedAt: 1_000,
+    replaySnapshot: 'painted',
+  })
+  assert.equal(empty.peekPrompts, undefined, 'a sidecar with no prompts invents none')
+  assert.equal(empty.lastPrompt, undefined)
 }
 
 // A status-line reading MERGES into the session and only a moved whole percent
@@ -511,6 +593,75 @@ function assertColdSingleLargeChunkIsTrimmedNotDropped(): void {
   assert.equal(replay.length, TERMINAL_STANDARD_REPLAY_BYTES)
   assert.equal(session.outputBytes, TERMINAL_STANDARD_REPLAY_BYTES)
   assert.equal(replay, 'x'.repeat(TERMINAL_STANDARD_REPLAY_BYTES))
+}
+
+// A replay whose head was cut must not start inside an escape sequence.
+//
+// THE DEFECT: chunks are pty read boundaries, so evicting the oldest ones to
+// stay inside the byte budget routinely leaves the window starting mid-sequence.
+// xterm has no introducer to match and prints the rest as text, so switching
+// back to a busy chat painted `38;2;139;139;140;48;2;34;34;37m` across the top
+// of an otherwise black screen (observed 2026-09-12, a Codex chat).
+function assertCutReplayNeverStartsMidEscapeSequence(): void {
+  const esc = String.fromCharCode(0x1b)
+
+  // The unit: a dangling SGR tail, resynced to the sequence that follows it.
+  assert.equal(
+    resyncTerminalReplayHead(`8;2;34;34;37m painted${esc}[0m\r\nnext`),
+    `${esc}[0m\r\nnext`,
+    'the head starts at an ESC, which is where a terminal can start parsing'
+  )
+  assert.equal(
+    resyncTerminalReplayHead('half a line\nwhole one\n'),
+    'whole one\n',
+    'a newline resyncs too — no CSI sequence spans one'
+  )
+  assert.equal(
+    resyncTerminalReplayHead(`${esc}[0m already clean`),
+    `${esc}[0m already clean`,
+    'a head already at a sequence boundary is untouched'
+  )
+  assert.equal(
+    resyncTerminalReplayHead('y'.repeat(9_000)),
+    'y'.repeat(9_000),
+    'no resync point inside the window: keep the scrollback rather than gut it'
+  )
+
+  // And end to end, through the eviction that causes it.
+  const session = createSession({ startedAt: Date.now() })
+  const paint = (line: number) =>
+    `${esc}[38;2;139;139;140;48;2;34;34;37m line ${line} of painted output${esc}[0m\r\n`
+  let pending = ''
+  for (let line = 0; line < 40_000; line += 1) {
+    pending += paint(line)
+    // 1361 bytes at a time: a pty read boundary, which falls wherever it falls.
+    while (pending.length >= 1_361) {
+      appendTerminalOutput(session, pending.slice(0, 1_361), Date.now())
+      pending = pending.slice(1_361)
+    }
+  }
+
+  assert.equal(session.replayTruncated, true, 'the buffer really did evict')
+  const replay = materializeTerminalReplay(session)
+  assert.equal(replay.charCodeAt(0), 0x1b, 'the replay opens on an escape sequence, not the tail of one')
+  assert.equal(
+    /^[0-9;:]/.test(replay),
+    false,
+    'and never on the parameters of a sequence whose introducer was evicted'
+  )
+}
+
+// The other half: a buffer nobody cut is the CLI's own first byte onwards, and
+// resyncing it would eat the banner every agent opens with.
+function assertUncutReplayIsHandedBackByteForByte(): void {
+  const session = createSession({ startedAt: Date.now() })
+  appendTerminalOutput(session, 'Welcome to the agent\nReady\n', Date.now())
+  assert.equal(session.replayTruncated, undefined, 'nothing was cut')
+  assert.equal(
+    materializeTerminalReplay(session),
+    'Welcome to the agent\nReady\n',
+    'an untouched buffer replays verbatim, first line included'
+  )
 }
 
 function assertColdSessionNewOutputUsesRecentReplayTier(): void {

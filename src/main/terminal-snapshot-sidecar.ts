@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, rmSync, statSync } from 'fs'
 import { mkdir, rename, rm, writeFile } from 'fs/promises'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { join } from 'path'
-import type { AgentCli, AgentExecutionMode, SessionContextUsage, SessionFileChange, TerminalKind } from '../shared/electron-api'
+import type { AgentCli, AgentExecutionMode, SessionContextUsage, SessionFileChange, SessionPrompt, TerminalKind } from '../shared/electron-api'
 
 // Durable freeze-the-view: per-terminal snapshot sidecars under
 // `<userData>/terminal-snapshots/<sessionId>.json`.
@@ -63,6 +63,18 @@ export type TerminalSnapshotSidecar = {
   // MAX_SESSION_FILE_CHANGES on the way in; read back through
   // parseSessionFileChanges, since this file is untrusted input too.
   fileChanges?: SessionFileChange[]
+  // What the person typed into this chat, oldest first, from the CLI's
+  // `UserPromptSubmit` hook. The conversation peek's only source for a runtime
+  // whose transcript this app cannot read (Codex, Grok, Kimi Code), and without
+  // it a parked one of those comes back claiming to have no messages. Bounded
+  // by MAX_LIVE_PEEK_PROMPTS on the way in; read back through
+  // parseSessionPrompts, untrusted like everything else here.
+  //
+  // This is a person's verbatim typing, in plaintext under userData — which is
+  // the same trust boundary the painted screen beside it already sits on, and
+  // that screen is a picture of these very words. It leaves with the sidecar on
+  // dispose and at the TTL sweep.
+  prompts?: SessionPrompt[]
   // How full the parked session's context window was, so a chat frozen across
   // an app restart still says so. Read back through parseSessionContextUsage —
   // untrusted input like the rest of this file.

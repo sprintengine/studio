@@ -803,12 +803,16 @@ export function ConversationPeekCard({
       ) : peek ? (
         // A runtime that CAN report and simply has not yet. `source` is
         // `transcript` or `live` here, so this is an empty chat, not a
-        // limited one.
-        <BodyNote>
-          {peek.source === 'live'
-            ? 'Nothing sent since this app launched. This runtime hands us no transcript, so anything said before that is not ours to show.'
-            : 'No messages yet. This chat opens on the composer — the first thing you send becomes its title.'}
-        </BodyNote>
+        // limited one. A live peek still owes an explanation — its silence
+        // may be ours, not the chat's. A transcript peek owes none: the chat
+        // really is empty, and the composer below says so better than a line
+        // of prose would.
+        peek.source === 'live' ? (
+          <BodyNote>
+            Nothing sent since this app launched. This runtime hands us no transcript, so anything said
+            before that is not ours to show.
+          </BodyNote>
+        ) : null
       ) : (
         // No answer and not loading: the preload has no reader (an older
         // main, a window that never got the API). Identity still stands.

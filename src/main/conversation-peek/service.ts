@@ -75,6 +75,10 @@ export type ConversationPeekSessionState = {
    * The CLI's transcript, as its turn-end hook last reported it. Absent until
    * the first turn ends, and for every runtime that reports no transcript.
    * A hook-reported path ALWAYS wins over a derived one: the CLI named it.
+   *
+   * Read only when {@link claudeHarness} — this module parses one transcript
+   * shape, and the hook contract carries a path, not a format. Codex reports
+   * one too, for a rollout file nothing here can read.
    */
   transcriptPath?: string
   /** The CLI's own session id, which is also its transcript's file name. */
@@ -175,16 +179,34 @@ export function createConversationPeekService(
       // runtime cannot report them.
       if (!state) return { sessionId, source: 'unknown', first: null, since: [], images: [] }
 
-      // The hook's own path first; only then the derived one, and only for a
-      // runtime that actually writes Claude-shaped transcripts.
-      const transcriptPath = state.transcriptPath
-        ?? (state.claudeHarness && state.cliSessionId
-          ? await deps.locateTranscript({ cliSessionId: state.cliSessionId, launchCwd: state.launchCwd ?? null })
-          : null)
+      // The hook's own path first; only then the derived one — and BOTH only for
+      // a runtime that actually writes Claude-shaped transcripts, because this
+      // reader only understands that shape.
+      //
+      // The harness gate covers the hook-reported path too, which it did not
+      // used to: a hook naming a file is not a promise about its format. Codex
+      // forwards `transcript_path` on its Stop hook exactly as Claude does, and
+      // it points at its own rollout JSONL — a readable file, hundreds of rows,
+      // not one of them a Claude person-message. Reading it answered
+      // "transcript, and it is empty" for a chat with a full history, and, worse,
+      // returned before the live prompts below, which we HAD watched go by. A
+      // Codex chat therefore claimed to have no messages while its own title was
+      // its first one.
+      const transcriptPath = state.claudeHarness
+        ? state.transcriptPath
+          ?? (state.cliSessionId
+            ? await deps.locateTranscript({ cliSessionId: state.cliSessionId, launchCwd: state.launchCwd ?? null })
+            : null)
+        : null
 
       if (transcriptPath) {
         const transcript = await deps.readTranscript(transcriptPath)
-        if (transcript) {
+        // Something IN it, not merely a readable file: an empty transcript is
+        // not an answer worth preferring over prompts this app saw itself (a
+        // resumed chat whose first turn has not ended, a file the CLI has yet
+        // to flush). With no prompts either, the `claudeHarness` arm at the
+        // bottom returns the same empty `transcript` peek this one would have.
+        if (transcript && (transcript.first || transcript.since.length > 0)) {
           const entries = new Map<string, Openable>()
           const first = transcript.first
             ? withThumbnails(transcript.first, transcript.images, entries, deps.renderThumbnail)
@@ -193,8 +215,6 @@ export function createConversationPeekService(
             withThumbnails(message, transcript.images, entries, deps.renderThumbnail),
           )
           arm(sessionId, entries)
-          // A readable transcript with nothing in it yet still answers
-          // `transcript`: the source is real, it is simply empty.
           return {
             sessionId,
             source: 'transcript',
