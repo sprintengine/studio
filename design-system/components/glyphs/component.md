@@ -271,8 +271,8 @@ discipline: 1.7 frame, 1.9 letterform.
 *Which kind of file is this row about*, answered by shape first. One drawing
 per kind in the 16 px leading slot every tree and list row reserves — the File
 Explorer and the Git changes list wear the same mark for the same file, so a
-`.ts` reads as a `.ts` on both (owner 2026-09-05, the IDE Project-view
-idiom). `fileTypeKind(name)` is the pure resolver and `FILE_TYPE_LABEL` names each
+`.ts` reads as a `.ts` on both (owner 2026-09-05). `fileTypeKind(name)` is the
+pure resolver and `FILE_TYPE_LABEL` names each
 kind for a tooltip or `aria-label`; the identity hue a kind wears when coloured
 is private to the component, applied through its `tone` prop.
 
@@ -339,8 +339,8 @@ let the folder read the same either way. `glyphs/folder.svg`.
 ### Git views (16-grid — `panels/GitPanel.tsx`)
 
 The Git panel's glyph-only view strip. Three of the five were redrawn on
-2026-09-05 to the shapes IDEs have taught a decade of developers to read;
-the first set had to be learned from the tooltip.
+2026-09-05 to shapes that name the view without a tooltip; the first set had
+to be learned from the tooltip.
 
 | View | Shape | Asset |
 |---|---|---|

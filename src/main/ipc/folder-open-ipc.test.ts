@@ -123,7 +123,7 @@ function assertProbeResolvesEachTarget(): void {
 // The conventional folders are where the scan looks first, not the only place
 // an editor can be: JetBrains Toolbox has folders of its own, the vendors ship
 // several bundle names, and an app on another volume is still an installed app
-// — Spotlight knows it by bundle id. (The IntelliJ that prompted this lived at
+// — Spotlight knows it by bundle id. (The case that prompted this lived at
 // `/Volumes/Extra/IntelliJ IDEA.app` with no `idea` shim on PATH, and the
 // menu said it was not installed.)
 function assertProbeFindsEditorsOutsideTheConventionalFolders(): void {
@@ -187,7 +187,7 @@ function assertProbeFindsEditorsOutsideTheConventionalFolders(): void {
   // the scan — the optional hook is optional.
   assert.equal(resolveFolderOpenLauncher('intellij', probe({ platform: 'darwin', installed: [] })), null)
 
-  // Windows: the Toolbox scripts folder and VS Code's default install folder
+  // Windows: the Toolbox scripts folder and the vscode target's default install folder
   // are searched after PATH, so an unticked "add to PATH" box is not "absent".
   const windowsDefaults = probe({
     platform: 'win32',

@@ -135,7 +135,7 @@ different target*. Two unrelated actions welded together are two buttons.
   test. With a single target there is one real `<button>` and no menu half at
   all — nothing announces a menu that does not exist.
 - The primary half carries an `aria-label` naming its resolved target ("Open in
-  VS Code") when the visible label is only the verb.
+  {editor}") when the visible label is only the verb.
 - The menu half carries `aria-haspopup="menu"` and a live `aria-expanded`, and
   it owns the popover's `aria-controls`.
 - The surface is `role="menu"`; each row is `role="menuitemcheckbox"` with

@@ -421,7 +421,7 @@ result = predicateDispatcher.resolve(
 assert.equal(result.kind, 'matched', 'legacy-id override still binds')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'voice-dictation.toggle')
 
-// --- Double Shift: the IDE "Search Everywhere" gesture ----------------
+// --- Double Shift: the Search Everywhere gesture ----------------------------
 // A lone Shift TAP is press-then-release with nothing in between, so the
 // gesture completes on keyup. Every case below is about the one rule that
 // matters: it must never fire while a person is typing capitals.

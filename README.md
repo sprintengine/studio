@@ -1,5 +1,7 @@
 # SprintEngine Studio
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 SprintEngine Studio is a desktop application for working with coding agents. It
 runs the agent CLIs you already have — Claude Code, Codex, Cursor, OpenCode and
 others — as terminals inside workspaces, keeps their sessions and history when
@@ -121,14 +123,13 @@ Both kinds of extension are built against
 
 ## Licence
 
-The application is licensed under the **Functional Source License,
-FSL-1.1-Apache-2.0** — you may use, modify and redistribute it for any purpose
-except building a competing product, and each version converts to Apache 2.0 two
-years after it is released. The full text is in [LICENSE](LICENSE).
+The repository is licensed under the **MIT License**. You may use, modify and
+redistribute it, including in commercial products. The full text is in
+[LICENSE](LICENSE).
 
-Everything under `packages/` — the module SDK — is **MIT** instead, under its
-own licence file, so you can build and ship extensions on any terms you like.
-See [packages/module-sdk/LICENSE](packages/module-sdk/LICENSE).
+`packages/module-sdk` and `packages/mobile-control-protocol` carry their own
+MIT licence files as well, so an SDK consumer does not have to take the whole
+application tree.
 
 ## Contributing
 

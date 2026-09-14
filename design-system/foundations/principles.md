@@ -46,7 +46,7 @@ ruling for two families). Two kinds of glyph carry a colour of their own, and
 the accent budget does not count them, because the colour is not ours: it
 names something.
 
-- **A vendor's mark wears the vendor's colour.** The VS Code and IntelliJ marks
+- **A vendor's mark wears the vendor's colour.** The editor marks
   on the open-in-editor control, the CLI badges, the product mark. A
   monochrome logo is a drawing of a logo; every other app on the machine shows
   the real one, and the neutral version read as a placeholder. These are brand

@@ -3,7 +3,7 @@
   "version": "0.4.0",
   "description": "Agent-first desktop IDE and sprint command centre that runs coding agent CLIs across parallel workspaces.",
   "author": "Conal Smith",
-  "license": "FSL-1.1-Apache-2.0",
+  "license": "MIT",
   "private": true,
   "main": "./out/main/index.js",
   "homepage": "https://sprintengine.ai",

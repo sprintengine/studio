@@ -67,8 +67,8 @@
 }
 
 /* ── Menu items ──────────────────────────────────────────────────────────
- * An item that opens a menu rather than acting, marked the way IDEs mark
- * it: a small filled corner in the bottom-right of the glyph's box. Not a
+ * An item that opens a menu rather than acting, marked with a small filled
+ * corner in the bottom-right of the glyph's box. Not a
  * chevron beside the glyph — that is a second mark on a 26px square, and it
  * pushes the glyph off centre.
  *

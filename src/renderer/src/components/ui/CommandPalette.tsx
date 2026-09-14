@@ -92,8 +92,8 @@ const PALETTE_GROUP_LABELS: Record<CommandGroup, string> = {
 
 /**
  * The tab strip across the top of the shell: the launcher, then the four
- * questions it can be narrowed to (owner ruling 2026-09-10, after the IDE
- * Search Everywhere). The order is `PALETTE_SCOPE_ORDER`'s; the words are
+ * questions it can be narrowed to (owner ruling 2026-09-10). The order is
+ * `PALETTE_SCOPE_ORDER`'s; the words are
  * here because they are display copy.
  */
 const PALETTE_SCOPE_LABELS: Record<PaletteScope, string> = {

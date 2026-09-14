@@ -145,7 +145,7 @@ export function WorkspaceAsideColumn({
         // and the terminals underneath keep their size — nothing reflows on
         // maximise.
         fill ? 'absolute inset-x-0 bottom-0 top-[36px] z-[var(--z-pane)]' : 'relative h-full',
-        // Inset-card layout (the IDE convention): no hairline on the inner edge.
+        // Inset-card layout: no hairline on the inner edge.
         // The gap IS the separator and it is the CARD's margin, not this
         // column's padding (WorkspacePane) — padding here would inset the
         // pane's 36px tab strip too, and that strip belongs to the window's

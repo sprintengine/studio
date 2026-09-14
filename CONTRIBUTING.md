@@ -198,14 +198,12 @@ was made and anything a reviewer would otherwise have to reconstruct.
 
 ## Licence and contribution terms
 
-The app is licensed under the Functional Source License, FSL-1.1-Apache-2.0,
-which converts to Apache 2.0 two years after each version is released. See
-[LICENSE](LICENSE). Everything under `packages/` — the module SDK and the mobile
-control protocol — is MIT instead, each under its own LICENSE file.
+The repository is licensed under the MIT License. See [LICENSE](LICENSE).
+`packages/module-sdk` and `packages/mobile-control-protocol` each carry their
+own MIT licence file as well.
 
-When you contribute, you licence your contribution under the licence that
-already covers the file you are changing: FSL-1.1-Apache-2.0 for the app, MIT
-for anything under `packages/`. You keep the copyright in what you wrote.
+When you contribute, you licence your contribution under MIT. You keep the
+copyright in what you wrote.
 
 **There is no CLA.** You are not asked to sign anything, and opening a pull
 request is not an assignment of copyright. If that ever changes it will be

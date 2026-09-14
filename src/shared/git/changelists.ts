@@ -2,9 +2,9 @@
 // `git-commit-window`, T6; mockup 2522 panel 2), and since agent changelists,
 // of a file's individual HUNKS.
 //
-// A CHANGELIST IS OURS, NOT GIT'S. Git has an index and nothing else; an IDE
-// has changelists, and a decade of developers reach for them to keep two pieces
-// of work apart in one working tree. So this is a named set of repo-relative
+// A CHANGELIST IS OURS, NOT GIT'S. Git has an index and nothing else. A named
+// set of paths is how a person keeps two pieces of work apart in one working
+// tree. So this is a named set of repo-relative
 // paths, stored by the app per repository, and the index is NEVER consulted to
 // build one. The checkbox on a row still means "staged"; which list a row sits
 // in says nothing about whether it will be committed.
@@ -548,8 +548,8 @@ export function createOwnedChangelist(
   return options?.activate ? setActiveChangelist(next, id) : normalizeChangelists(next)
 }
 
-/** Rename and re-comment, the default included: an IDE lets a person rename
- *  Default, and the id — not the name — is what the paths are keyed to. */
+/** Rename and re-comment, the default included: the id — not the name — is
+ *  what the paths are keyed to, so renaming Default is allowed. */
 export function renameChangelist(
   lists: Changelist[],
   id: string,

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// VSCode (and any Electron host) sets ELECTRON_RUN_AS_NODE=1, which disables Electron's
-// browser process initialization when spawned as a child. Clear it before starting.
+// Electron hosts that spawn this script often set ELECTRON_RUN_AS_NODE=1,
+// which disables Electron's browser process initialization. Clear it before
+// starting.
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
 

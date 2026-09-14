@@ -264,7 +264,7 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
 // (ruled 2026-09-02); the wrapper declares no ink of its own, because a
 // `text-*` here would pin the glyph to one tier and the row's three-tier ink
 // would never reach it. The chevron carries expanded state, so the folder reads
-// the same open or closed, the way IDEs draw it.
+// the same open or closed: expanded state lives on the chevron, not the folder.
 //
 // A folder carrying a declared ROLE is the one case where the mark leaves the
 // row's ink: blue, teal and orange distinguish the roles the person declared. Only the folder
@@ -2569,9 +2569,9 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
        *
        * It used to be a PanelHeader titled with the folder name, the actions
        * in its overflow slot, and the search band on a second row below it.
-       * The name now lives where IDEs put it — as the ROOT ROW of the
-       * tree, with its path beside it — so the header was a band of chrome
-       * restating the first row of the surface. Same ruling, same geometry as
+       * The name now lives as the ROOT ROW of the tree, with its path beside
+       * it — so the header was a band of chrome restating the first row of the
+       * surface. Same ruling, same geometry as
        * the Git and Backlog panes' bands, so the three pane tabs start their
        * content level. With no folder ready there is nothing to search or act
        * on, and the empty state below carries the path.

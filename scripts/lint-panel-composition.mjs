@@ -41,8 +41,7 @@ const CANONICAL_TOP_BAR_GROUPS = new Set([
   // `agent-spawn` retired (MC-2222): the specialist split-button is deleted;
   // spawning is New chat's and the tab strip's job.
   // `account-and-settings` retired: account + Settings relocated to the sidebar
-  // bottom (SidebarAccountBar) in the Cursor-parity re-layout. The set above
-  // is the whole TopBar inventory.
+  // bottom (SidebarAccountBar). The set above is the whole TopBar inventory.
 ])
 
 // Files exempt from the rule with reasons. Keep this list small and
@@ -55,7 +54,7 @@ const ALLOW_LIST = new Map([
   ['TerminalView.tsx', 'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.'],
   ['PlainTerminalPanel.tsx', 'Hosts xterm with tokenised drag/drop and folder-blocked chrome; xterm owns the canvas palette, not PanelHeader.'],
   ['FleetTerminalPanel.tsx', 'Hosts xterm attached to ANOTHER machine (MC-2167). Like the local terminal panes, xterm owns the canvas; the chrome above it is a provenance strip (machine name, link state, watch-only label), which is identity a PanelHeader title cannot carry.'],
-  ['FileExplorer.tsx', 'Owns its chrome row deliberately (owner, 2026-09-05): the search field AND the four tree actions share ONE band, in place of a PanelHeader titled with the folder name. The name is the tree\'s own root row (the IDE Project-view idiom), so the header restated the first row of the surface. Same band geometry as GitPanel.'],
+  ['FileExplorer.tsx', 'Owns its chrome row deliberately (owner, 2026-09-05): the search field AND the four tree actions share ONE band, in place of a PanelHeader titled with the folder name. The name is the tree\'s own root row, so the header restated the first row of the surface. Same band geometry as GitPanel.'],
   ['BacklogPanel.tsx', 'Owns its chrome row deliberately (owner, 2026-09-05): the search field, the count, the filter glyph and the actions share ONE band, in place of a PanelHeader reading "Backlog · N". The word was already on screen — the pane tab this panel lives in is labelled "Backlog" — so the header cost 36px of a narrow pane to say nothing new. Same band geometry as GitPanel.'],
   ['GitPanel.tsx', 'Owns its chrome row deliberately (owner, 2026-09-04): the icon-only view Tabs strip AND the sync affordances share ONE band, in place of a PanelHeader identity row above them. Both halves of that title were already on screen — the pane tab this panel lives in is labelled "Git", and "Up to date" is what the absence of the Pull/Push buttons means — so the header cost 36px of a narrow pane to say nothing new. Mirrors SprintEngineBoardPanel: the surface owns richer chrome than PanelHeader allows.'],
   ['GitGraphView.tsx', 'Graph sub-view rendered inside GitPanel; the parent panel owns the operational chrome.'],

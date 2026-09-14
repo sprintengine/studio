@@ -38,8 +38,8 @@ function parseStatusEntry(repoRoot: string, code: GitStatusCode, relativePath: s
 
 // Marker paths that flag a multi-step operation parked in the repo, in
 // precedence order: a conflicted rebase can leave merge-ish files around, so
-// the rebase directories are checked first. Editors' git integrations classify
-// the same way (stat the markers, don't parse porcelain). `rebase-apply` is
+// the rebase directories are checked first. Classify by statting the markers,
+// not by parsing porcelain. `rebase-apply` is
 // also created by a parked `git am` — git distinguishes the two by the
 // `applying` file inside it, and an am session is not ours to continue/abort,
 // so it must report no operation.

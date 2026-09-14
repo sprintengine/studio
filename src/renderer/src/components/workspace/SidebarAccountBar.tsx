@@ -4,8 +4,8 @@ import type { MulticodeAuthState } from '../../../../shared/electron-api'
 import { AccountAvatar, AccountUserGlyph } from './AccountAvatar'
 import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './accountEntitlements'
 
-// The account + Settings cluster lives at the sidebar bottom (Cursor-parity
-// layout), relocated from WorkspaceTopBar. The account menu, its trigger, and
+// The account + Settings cluster lives at the sidebar bottom, relocated from
+// WorkspaceTopBar. The account menu, its trigger, and
 // the Settings gear keep their original handlers — only the mount point moved.
 //
 // TWO controls, and no more. For four days it also hosted a trigger glyph per

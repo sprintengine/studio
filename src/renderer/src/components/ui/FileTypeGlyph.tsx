@@ -7,14 +7,13 @@
 // / RS / GO letter tiles, the React atom for `.tsx` / `.jsx`, `{}` for JSON,
 // the M-with-arrow for Markdown, `<>` for HTML, `#` for stylesheets, the prompt
 // for shell. A `*.test.*` file wears its tile with the corner notched for a
-// tick, the way IDEs badge a test source.
+// tick, so a test source is the same tile with a corner cut.
 //
 // Colour is an axis, `tone`, and the caller picks it (owner, 2026-09-06,
 // amended 2026-09-09, principles.md → "Identity colour"). `ink`, the default,
 // inherits the row's ink. `kind` inks the glyph in its kind's identity hue —
 // the `--sem-color-mark-*` tokens, blue for TypeScript, yellow for JavaScript
-// — the way IDEs colour their project views, so a
-// tree of forty files can be scanned by colour before it is read. The hue
+// — so a tree of forty files can be scanned by colour before it is read. The hue
 // identifies; it never grades. The drawing is the same in both tones.
 //
 // The 2026-09-06 ruling admitted `kind` "only where nothing else in the row is

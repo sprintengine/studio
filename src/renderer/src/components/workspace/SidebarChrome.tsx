@@ -1,5 +1,5 @@
 // The sidebar's own top chrome — the left half of the split top chrome. It runs
-// to the very top of the window (the full-height sidebar desktop editors use), so the
+// to the very top of the window, so the
 // window's leftmost controls live here rather than in a full-width title bar.
 //
 // ONE 36px row (owner, 2026-07-30: one chrome row per content region). Window

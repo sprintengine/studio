@@ -779,8 +779,8 @@ export function WorkspaceActions({
           </React.Suspense>
         ))}
 
-        {/* Account + Settings relocated to the sidebar bottom (SidebarAccountBar,
-            Cursor-parity). The former `account-and-settings` top-bar group is
+        {/* Account + Settings relocated to the sidebar bottom (SidebarAccountBar).
+            The former `account-and-settings` top-bar group is
             retired; see CANONICAL_TOP_BAR_GROUPS in
             scripts/lint-panel-composition.mjs for the TopBar inventory. */}
       </div>

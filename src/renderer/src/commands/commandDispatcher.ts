@@ -88,9 +88,9 @@ const DEFAULT_CHORD_TIMEOUT_MS = 1_000
  * Deliberately much shorter than the 1s two-stroke chord window: a chord is a
  * deliberate sequence a person can pause inside, a double tap is one gesture,
  * and every millisecond of this window is a millisecond in which an ordinary
- * Shift release could be mistaken for the first half of one. 400ms is the
- * interval IDE search-everywhere gestures use and comfortably above a fast
- * double tap (~150-250ms).
+ * Shift release could be mistaken for the first half of one. 400ms is
+ * comfortably above a fast double tap (~150-250ms) and short enough that an
+ * ordinary Shift release is not held as the first half of the gesture.
  */
 export const MODIFIER_DOUBLE_TAP_MS = 400
 

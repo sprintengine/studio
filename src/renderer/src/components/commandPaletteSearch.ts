@@ -79,7 +79,7 @@ export function paletteGroupRank(group: PaletteCommandGroup): number {
 
 /**
  * Which groups the palette is filtered to — the tab strip across the top of
- * the shell (owner ruling 2026-09-10, after the IDE Search Everywhere).
+ * the shell (owner ruling 2026-09-10).
  *
  * `all` is the global launcher (⌘K and Shift Shift). The other five are the
  * same list narrowed to one question each: `actions` is what the product can

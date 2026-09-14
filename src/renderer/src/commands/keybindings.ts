@@ -38,9 +38,9 @@ const MODIFIER_ALIASES: Record<string, KeybindingModifier> = {
 
 const MODIFIER_ORDER: readonly KeybindingModifier[] = ['primary', 'ctrl', 'alt', 'shift', 'meta']
 
-// The modifiers that can stand as a stroke's KEY rather than decorate it — the
-// The IDE "Search Everywhere" gesture `Shift Shift` is two strokes whose key
-// is the Shift key itself. `primary` is deliberately absent: it is the abstract
+// The modifiers that can stand as a stroke's KEY rather than decorate it —
+// Search Everywhere's `Shift Shift` is two strokes whose key is the Shift key
+// itself. `primary` is deliberately absent: it is the abstract
 // "Cmd here, Ctrl there" modifier, not a physical key anyone can tap.
 const MODIFIER_KEYS: readonly KeybindingModifier[] = ['ctrl', 'alt', 'shift', 'meta']
 

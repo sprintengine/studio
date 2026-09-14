@@ -255,7 +255,7 @@ export function resolveFolderOpenLauncher(target: FolderOpenTargetId, probe: Lau
 /**
  * Directories the editor CLIs live in when they are installed but not on PATH:
  * JetBrains Toolbox writes its `idea` shim to a scripts folder it asks the user
- * to add to PATH (and most never do), and the VS Code installer on Windows
+ * to add to PATH (and most never do), and the vscode target's Windows installer
  * offers PATH as an unticked box. A GUI app's PATH is the login shell's, which
  * is what makes these worth knowing by name.
  */

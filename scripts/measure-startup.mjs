@@ -257,8 +257,7 @@ function printSummary(summary) {
 // --- V8 code cache -----------------------------------------------------------
 // What a code cache buys is COMPILE time, not fetch and not execution. This
 // compiles the real eager chunk twice — cold, then with V8's cached data — so
-// the "should we adopt a V8 code cache" question has a number attached instead
-// of an argument from an editor's homepage.
+// the "should we adopt a V8 code cache" question has a number attached.
 //
 // The chunk is an ES module (it carries `import.meta`), so it is compiled
 // through `vm.SourceTextModule`, which needs a flag. Run it under Electron's own

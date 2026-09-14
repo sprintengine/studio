@@ -38,7 +38,7 @@ assert.equal(renderKeybinding('g i', 'linux'), 'G then I')
 assert.deepEqual(keybindingToKbdKeys('Primary+Shift+P then Enter', 'darwin'), [['Cmd', 'Shift', 'P'], ['Enter']])
 assert.deepEqual(keybindingToKbdKeys('Primary++', 'windows'), [['Ctrl', '+']])
 
-// --- Lone-modifier tap chords (the IDE "Search Everywhere") ---------------
+// --- Lone-modifier tap chords (Search Everywhere) ---------------------------
 // A modifier standing alone as a whole stroke is the key of that stroke, so
 // `Shift Shift` is a two-stroke chord of two bare Shift taps and round-trips
 // through the canonical form.

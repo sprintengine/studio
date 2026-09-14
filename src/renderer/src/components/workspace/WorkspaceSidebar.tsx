@@ -3865,7 +3865,7 @@ export default function WorkspaceSidebar({
             aria-controls={folderBodyId}
             className="min-w-0 flex-1 pl-4"
           >
-            {/* One icon slot, Cursor-style: the folder's identity at
+            {/* One icon slot: the folder's identity at
                 rest — the project's own logo when its repo has one, the
                 folder glyph when it does not (MC-2135, re-sited here by
                 the owner on 2026-09-02) — and the collapse chevron
@@ -4123,7 +4123,7 @@ export default function WorkspaceSidebar({
 
 
       {/* Tree: Starred first, then folder groups directly — no "Projects"
-          umbrella header; the folder headers are the top level (Cursor-parity).
+          umbrella header; the folder headers are the top level.
           Projects and human workspaces only: a sprint run is not a row here
           (item 1767, mockup §1) — the Sprints door lists every run across every
           project, and jumps into a run's terminals from its canvas.
@@ -4170,7 +4170,7 @@ export default function WorkspaceSidebar({
               aria-controls="ws-starred-body"
               className="group/folder relative select-none pl-4 pr-2"
             >
-              {/* One icon slot, Cursor-style: the star at rest, the collapse
+              {/* One icon slot: the star at rest, the collapse
                   chevron swapped in on hover — no dedicated chevron column, so
                   child rows don't have to indent past it. */}
               <span className="relative flex size-icon-sm shrink-0 items-center justify-center">

@@ -911,7 +911,8 @@ export function DiffViewer({
   // platform's command modifier held, which steps a whole FILE (⌘↑ / ⌘↓ on
   // macOS, Ctrl elsewhere). The modifier is tested first: a plain ArrowDown
   // must never also fire while ⌘ is down, or one press would move twice.
-  // F7 / Shift+F7 mirror the usual IDE/Monaco idiom for hunks. Returns whether
+  // F7 / Shift+F7 step hunks the same way the in-pane Monaco viewer does.
+  // Returns whether
   // the key was taken.
   const handleNavigationKey = useCallback(
     (event: {

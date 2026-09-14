@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { normalizePathKey } from './useGitStatus'
 
 // Which rows in the tree git would ignore, so the explorer can drop them to a
-// lower contrast — the conventional ignored-file foreground, and the
-// same reasoning: a build output tree is not something you are looking for, and
+// lower contrast. A build output tree is not something you are looking for, and
 // dimming it is cheaper to read past than a colour that has to be decoded.
 //
 // The answer comes from `git check-ignore` in main rather than from parsing

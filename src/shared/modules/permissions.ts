@@ -1,8 +1,8 @@
 // Tier 2 third-party capability modules: the permission vocabulary.
 //
 // A third-party module declares, in its manifest, the capabilities it needs. In
-// the v1 security model (signing + trusted publisher, in-process execution — the
-// IDE-plugin model), this list is install-time DISCLOSURE shown before you trust a
+// the v1 security model (signing + trusted publisher, in-process execution),
+// this list is install-time DISCLOSURE shown before you trust a
 // module, not a runtime-enforced cage. Runtime enforcement (a permission broker)
 // is only needed in a future open-ecosystem phase that runs non-trusted authors'
 // code. No consent string, doc, or UI copy may imply enforcement. This is

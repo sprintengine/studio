@@ -740,7 +740,7 @@
   --terminal-fg: #f4e8c8;
 }
 
-/* Tokyo Night — Folke's iconic VS Code theme. Cool muted purple-blue base
+/* Tokyo Night — Folke's iconic theme. Cool muted purple-blue base
    with crisp cyan accents. Premium "night coding" aesthetic. Anti-dither
    baseline. */
 :root[data-theme="tokyo-night"] {

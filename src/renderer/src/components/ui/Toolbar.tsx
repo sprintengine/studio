@@ -202,7 +202,7 @@ export type ToolbarButtonProps = {
    *  thing this shape can get wrong. */
   ariaLabel: string
   /** The item opens a menu rather than acting: `aria-haspopup` says so, and a
-   *  small filled corner draws it the way IDEs do. Not a chevron beside
+   *  small filled corner draws it as a menu. Not a chevron beside
    *  the glyph — that is a second mark on a 26px square, and it pushes the
    *  glyph off centre. */
   menu?: boolean

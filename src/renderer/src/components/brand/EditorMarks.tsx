@@ -6,8 +6,8 @@
 // PATH_EXEMPTIONS, category (c)).
 //
 // Ruled 2026-09-06 (principles.md → "Identity colour"): a mark that names
-// another product wears that product's colour, because a monochrome VS Code
-// fish or IntelliJ square is a drawing of a logo rather than the logo — every
+// another product wears that product's colour, because a monochrome vendor
+// mark is a drawing of a logo rather than the logo — every
 // other app shows the real one, and the neutral version read as a placeholder.
 // The file manager's folder is ours and stays in `currentColor`; the vendor
 // marks ignore the surrounding ink on purpose.
@@ -17,7 +17,7 @@
 
 import React from 'react'
 
-// Visual Studio Code: the vendor's single-path mark in its blue.
+// vscode target: the vendor's single-path mark in its blue.
 export function VsCodeMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className={className} fill="#0078D4">
@@ -26,7 +26,7 @@ export function VsCodeMark({ className }: { className?: string }) {
   )
 }
 
-// IntelliJ IDEA: the vendor's square, in its three-stop brand sweep, carrying
+// intellij target: the vendor's square, in its three-stop brand sweep, carrying
 // the white "IJ" and the white bar. The gradient id is scoped per mount so two
 // marks on one page (the split button and its open menu) do not share a def.
 export function IntelliJMark({ className }: { className?: string }) {

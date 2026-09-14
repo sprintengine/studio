@@ -1,7 +1,7 @@
 import React from 'react'
 import { DiffViewer } from './DiffViewer'
 
-// The standalone diff window (the IDE idiom): the viewer with its own title
+// The standalone diff window: the viewer with its own title
 // bar, opened by "Open in separate window" from the pane's Diff tab. The
 // viewer itself lives in DiffViewer.tsx so the workspace pane hosts the same
 // component (browser-pane epic).

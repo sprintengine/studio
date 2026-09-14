@@ -61,7 +61,7 @@ export function folderRoleWash(role: FolderRole): RowWash {
   }
 }
 
-// The folder mark's ink. Teal — not the usual IDE green — carries the test
+// The folder mark's ink. Teal — not another green — carries the test
 // roles here, because this product's accent IS green (`accent.primary`, the
 // signature forest green) and `status.good` is the emerald beside it. A third
 // green on a folder would read as "selected" or "passing" rather than "test".

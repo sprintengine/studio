@@ -100,8 +100,8 @@ const PATH_EXEMPTIONS = [
     max: { 'no-inline-hex': 1 },
   },
   {
-    // (c) Brand SVG asset: the external editors' marks (VS Code, IntelliJ) in
-    // the colours their vendors publish, for the open-in-editor control.
+    // (c) Brand SVG asset: the external editors' marks, in the colours
+    // their vendors publish, for the open-in-editor control.
     path: 'src/renderer/src/components/brand/EditorMarks.tsx',
     rules: ['no-inline-hex'],
     max: { 'no-inline-hex': 5 },

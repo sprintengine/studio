@@ -34,8 +34,8 @@ export const COMMAND_REGISTRY = [
     defaultKeybindings: ['Primary+K', 'Primary+Shift+P'],
     handlerPath: { kind: 'workspace-manager', handler: 'setCommandPaletteOpen(true)' },
   }),
-  // Search Everywhere. `Shift Shift` is the familiar IDE gesture and it is here for
-  // the reason a person reaches for it: their hands are in a terminal and they
+  // Search Everywhere. `Shift Shift` is here for the reason a person reaches
+  // for it: their hands are in a terminal and they
   // want the palette NOW. The dispatcher fires a lone-modifier double tap
   // regardless of target suppression, so it works inside xterm and Monaco where
   // ⌘K deliberately does not.

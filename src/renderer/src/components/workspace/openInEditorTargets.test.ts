@@ -51,7 +51,7 @@ run('an unprobed control offers nothing, so it does not render', () => {
   assert.equal(resolveFolderOpenPrimary([], null), null)
 })
 
-run('first run with only VS Code installed defaults to VS Code', () => {
+run('first run with only the vscode target installed defaults to vscode', () => {
   const available = availableFolderOpenTargets(
     probe({ vscode: true, intellij: false, finder: true }),
   )

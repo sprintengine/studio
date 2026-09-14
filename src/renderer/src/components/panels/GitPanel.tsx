@@ -112,10 +112,10 @@ function SyncArrowIcon({ direction }: { direction: 'up' | 'down' }) {
 // sharing a band. Each answers "which view is this" and nothing else; the name
 // and the count ride the tooltip.
 //
-// Three of the five were redrawn on 2026-09-05 (owner) to the shapes IDEs
-// has taught a decade of developers to read — the first set (a plus-and-slash
-// for Changes, a wiring diagram for Worktrees, two bullet lines for Log) had to
-// be learned from the tooltip. Changes uses a commit node on a
+// Three of the five were redrawn on 2026-09-05 (owner) to shapes that name the
+// view without a tooltip — the first set (a plus-and-slash for Changes, a
+// wiring diagram for Worktrees, two bullet lines for Log) had to be learned
+// from the tooltip. Changes uses a commit node on a
 // line; Worktrees is a folder holding that node — a checkout in its own
 // directory; Log is the history clock. Stashes (the drawer) and Terminal were
 // already legible and stay. Mirrored framework-neutral in design-system/glyphs
@@ -1809,7 +1809,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     if (!result || result.ok) return
 
     // Git refuses branches that aren't fully merged; escalate explicitly rather
-    // than defaulting to -D (matches the usual editor delete-branch flow). Matching
+    // than defaulting to -D. Matching
     // git's English text is safe: the main process pins LC_ALL=C on every git
     // invocation (git-utils.ts).
     if (!/not fully merged/i.test(`${result.message ?? ''}\n${result.stderr}`)) return

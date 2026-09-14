@@ -31,7 +31,7 @@ assert.equal(paletteDefault.overrides, null)
 assert.equal(paletteDefault.disabled, false)
 assert.equal(paletteDefault.customized, false)
 
-// Double Shift (the IDE Search Everywhere gesture) is a row of its own
+// Double Shift (Search Everywhere) is a row of its own
 // rather than a third default on the palette (skills-everywhere, 2026-09-10):
 // disable and reset are per row, so while it rode `commandPalette.open` there
 // was no way to turn the gesture off without turning ⌘K off with it. The

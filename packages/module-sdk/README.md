@@ -694,11 +694,9 @@ key fingerprint — the user still grants trust explicitly before any code runs.
 ## License
 
 MIT — see [`LICENSE`](./LICENSE). You are free to build modules against this
-SDK and to distribute or sell those modules, including closed-source. The MIT
-license covers this SDK package only; it does not grant rights to the
-SprintEngine Studio application itself, and it does not by itself govern
-distribution through the SprintEngine Studio marketplace (that is covered by
-separate marketplace terms).
+SDK and to distribute or sell those modules, including closed-source. The
+SprintEngine Studio application is MIT as well; marketplace distribution is
+still covered by separate marketplace terms.
 
 ### Packaged web runtimes and WebAssembly
 

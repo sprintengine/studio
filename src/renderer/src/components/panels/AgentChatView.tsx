@@ -2781,7 +2781,7 @@ function ModelPickerPill({
   onAddKey: (providerId: string) => void
 }) {
   const [query, setQuery] = useState('')
-  // Provider filter chips (Cursor-style): pick one provider to browse, or All.
+  // Provider filter chips: pick one provider to browse, or All.
   // `null` means "not chosen yet" — resolved to the subscription provider when
   // one exists, so opening the picker never starts in a metered catalog.
   const [providerFilter, setProviderFilter] = useState<string | null>(null)

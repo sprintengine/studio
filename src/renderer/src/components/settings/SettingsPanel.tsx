@@ -155,7 +155,8 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
 ]
 
 // Rail groups. Labels are internal keys only — the rail separates groups by
-// whitespace rather than printing a header (Cursor-parity). Module-contributed
+// whitespace rather than printing a header — a printed group label would
+// restate the rail's own grouping. Module-contributed
 // sections render after these under the trailing 'extensions' group.
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
@@ -1352,7 +1353,7 @@ export default function SettingsPanel({
   ]
 
   // Groups carry no printed header — they read as one list separated by a
-  // whitespace gap (Cursor-parity). `label` stays as the React key only.
+  // whitespace gap. `label` stays as the React key only.
   //
   // The column is a rail, so it takes the rail's scrollport inset
   // (`--sem-space-2xs`, 4px — design-system/patterns/context-rail.html) rather

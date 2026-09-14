@@ -771,7 +771,7 @@ async function main(): Promise<void> {
   }
 
   await check('an editor the probe cannot resolve is absent from the menu, not disabled', async () => {
-    // VS Code on PATH, IntelliJ nowhere: one editor installed, one not.
+    // One editor on PATH, the other nowhere: one editor installed, one not.
     installedPaths = new Set(['/usr/local/bin/code'])
     useWorkspaceStore.setState((state) => ({
       appSettings: { ...state.appSettings, lastFolderOpenTarget: null },
@@ -838,7 +838,7 @@ async function main(): Promise<void> {
   })
 
   await check('a remembered target that no longer resolves falls back rather than arming a failure', async () => {
-    // IntelliJ was the remembered choice and has since been uninstalled.
+    // The remembered editor has since been uninstalled.
     installedPaths = new Set(['/usr/local/bin/code'])
     useWorkspaceStore.setState((state) => ({
       appSettings: { ...state.appSettings, lastFolderOpenTarget: 'intellij' },

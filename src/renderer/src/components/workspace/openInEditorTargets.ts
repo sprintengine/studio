@@ -11,7 +11,7 @@ import {
 
 /**
  * The targets to offer, in the shared id order (which is also the preference
- * order: VS Code, IntelliJ, file manager).
+ * order: vscode, intellij, file manager).
  *
  * Probe-hide, not probe-disable: a target the probe reports unavailable is
  * absent, the same rule the agent pickers follow for uninstalled CLIs. A
@@ -30,8 +30,7 @@ export function availableFolderOpenTargets(
 
 /**
  * The target the primary half runs: the remembered one while it still resolves,
- * else the first that does — VS Code when it is installed, the file manager
- * otherwise, since {@link FOLDER_OPEN_TARGET_IDS} is in preference order.
+ * else the first that does — `FOLDER_OPEN_TARGET_IDS` is in preference order.
  *
  * A remembered target that has since been uninstalled falls back rather than
  * arming a click that can only fail. Null when nothing resolves, which is the

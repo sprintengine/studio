@@ -2,7 +2,7 @@
 
 A capability module declares the access it needs in the `permissions` array of
 its `manifest.json`. In the studio's v1 security model (ed25519 signing +
-explicit user trust, in-process execution — the IDE-plugin model), permissions
+explicit user trust, in-process execution), permissions
 are **install-time disclosure**: they are shown to the user before they trust
 your module, and they describe what your module does. They are **not a runtime
 sandbox** — a trusted module's code runs in the app's process with the app's

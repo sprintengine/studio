@@ -5,8 +5,8 @@
 // of whether the next change should land in it. Three fields is a form, and
 // that dialog holds a single line.
 //
-// The comment is the load-bearing second field. An IDE offers the active
-// list's comment as the commit message's placeholder, which is why a person
+// The comment is the load-bearing second field. The active list's comment
+// is the commit message's placeholder, which is why a person
 // writes one at all: the list is the sentence they will commit later, typed
 // once, at the moment they knew what the work was.
 
