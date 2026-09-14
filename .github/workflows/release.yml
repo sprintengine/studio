@@ -387,7 +387,13 @@ jobs:
             release-assets/*
           gh release edit "$TAG" --repo "$REPO" --draft=false "$latest"
 
-      - name: Verify the published release
+      # Twice over: once through the API with RELEASES_TOKEN, which says the
+      # release is complete, and once with no credential at all against the URLs
+      # electron-updater reads, which says a user can actually get at it. Only
+      # the second catches a releases repository that is private or misnamed --
+      # the job's own token reads one of those perfectly well, which is how
+      # builds up to 0.1.7 shipped pointing at a feed nobody could fetch.
+      - name: Verify the published release, authenticated and not
         run: node scripts/release/release.mjs verify
 
       # A promoted stable has no tag in the source repo yet; a pushed one does.

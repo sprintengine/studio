@@ -1,7 +1,9 @@
 // The pure half of the release workflow: version arithmetic, the macOS
-// updater-manifest merge, the manifest checks and the release body. Everything
-// that talks to GitHub lives in release.mjs; everything here is tested by
-// release-lib.test.mjs without a network.
+// updater-manifest merge, the manifest checks, the release body, and the
+// unauthenticated reachability checks at the end of the file. Authentication and
+// the API client live in release.mjs; nothing here reaches the network on its
+// own -- the reachability checks take the fetch they use as an argument, so
+// release-lib.test.mjs covers all of it offline.
 
 import { createRequire } from 'node:module'
 
@@ -181,4 +183,190 @@ export function buildReleaseNotes({ version, channel, sourceRepo, sha, sourcePri
   }
   lines.push('', sourceShaMarker(sha))
   return `${lines.join('\n')}\n`
+}
+
+// ---------------------------------------------------------------------------
+// What an installed build can actually reach.
+//
+// Every other check in the release job runs with RELEASES_TOKEN, which reads a
+// private or misnamed releases repository perfectly happily -- builds up to
+// 0.1.7 followed a private repo and never saw an update, and the job that
+// published them was green. The questions below are asked the way the shipped
+// updater asks them: with no credential at all, and against github.com rather
+// than api.github.com -- the provider stays off the API deliberately, because
+// an anonymous API budget is per address and shared with everything else on the
+// runner.
+
+const ANONYMOUS_USER_AGENT = 'sprintengine-release'
+
+// fetch is a parameter so the tests can read back exactly what was sent: the
+// point of this function is the headers it does NOT carry, and an ambient
+// GH_TOKEN picked up by a helper somewhere is the failure it exists to rule
+// out. Nothing a caller passes is merged into these headers.
+export function anonymousGet(fetchImpl = fetch) {
+  return async (url, { accept = 'application/json' } = {}) => {
+    let response
+    try {
+      response = await fetchImpl(url, {
+        headers: { accept, 'user-agent': ANONYMOUS_USER_AGENT },
+        redirect: 'follow',
+      })
+    } catch (error) {
+      // A DNS blip at the end of a long matrix should be retried, not reported
+      // as "the repository is private".
+      return { ok: false, status: 0, text: '', error: error.message }
+    }
+    return { ok: response.ok, status: response.status, text: response.ok ? await response.text() : '' }
+  }
+}
+
+// The three URLs GitHubProvider hits, in order: the feed it finds a version in,
+// the redirect a non-prerelease build resolves the newest stable through, and
+// the channel manifest it downloads from the release itself.
+export function updaterUrls({ repo, tag, channel }) {
+  const releases = `https://github.com/${repo}/releases`
+  const manifests = {}
+  for (const [platform, name] of Object.entries(manifestNames(channel))) {
+    manifests[platform] = `${releases}/download/${encodeURIComponent(tag)}/${name}`
+  }
+  return { feed: `${releases}.atom`, latestPointer: `${releases}/latest`, manifests }
+}
+
+// Feed entries newest first, as tags. The updater reads each entry's link and
+// takes the last path segment, so this parses what it parses -- percent-encoded
+// there (a tag carrying an `@` arrives as `%40`), plain everywhere else.
+const FEED_TAG_RE = /\/releases\/tag\/([^"/<]+)/g
+
+export function feedTags(atomXml) {
+  return [...String(atomXml).matchAll(FEED_TAG_RE)].map(([, raw]) => {
+    try {
+      return decodeURIComponent(raw)
+    } catch {
+      return raw
+    }
+  })
+}
+
+// The channel of a tag that may be neither of ours: the feed carries whatever
+// anyone has ever published to the repository.
+function tagChannel(tag) {
+  try {
+    return channelForVersion(tag)
+  } catch {
+    return null
+  }
+}
+
+const describeResponse = (response) => (response.error ? `failed: ${response.error}` : `HTTP ${response.status}`)
+
+// One unauthenticated pass over a published release. Returns the problems and
+// whether waiting could still fix them: GitHub serves the feed and the release
+// downloads through a cache that can lag a publish by seconds, while a private
+// repository or a preview stacked behind a newer preview answers the same way
+// forever and polling those only delays the failure.
+export async function checkPublicRelease({ repo, tag, channel, version, assetNames = [], get }) {
+  const urls = updaterUrls({ repo, tag, channel })
+  // Which channel a user's updater puts this release in is decided by the tag
+  // and nothing else, so the two checks that turn on it read the tag rather
+  // than the caller's channel. A tag that parses as neither falls through to
+  // the stable checks, which are the stricter pair.
+  const isPreview = tagChannel(tag) === 'preview'
+  const pending = []
+  const settled = []
+  const result = () => ({ problems: [...pending, ...settled], retryable: settled.length === 0 && pending.length > 0 })
+
+  const feed = await get(urls.feed, { accept: 'application/xml' })
+  if (!feed.ok) {
+    settled.push(
+      `${urls.feed} answered ${describeResponse(feed)} without credentials. That is the first request ` +
+        `every installed build makes, so no build can see any release at all. Check ${repo} is public, ` +
+        `and that build.publish in package.json names the repository the release was published to.`,
+    )
+    return result()
+  }
+
+  const tags = feedTags(feed.text)
+  if (!tags.includes(tag)) {
+    pending.push(
+      `${tag} is not in ${urls.feed}, which lists ${tags.slice(0, 5).join(', ') || 'no releases at all'}. ` +
+        `A release still in draft, or published to a different repository, is invisible in exactly this way.`,
+    )
+  } else if (isPreview) {
+    // An installed preview build takes the FIRST preview entry in the feed, not
+    // the highest version, so a preview published behind a newer one reaches
+    // nobody however correct its own assets are.
+    const newestPreview = tags.find((candidate) => tagChannel(candidate) === 'preview')
+    if (newestPreview !== tag) {
+      settled.push(
+        `${urls.feed} lists ${newestPreview} above ${tag}. Installed preview builds follow the first ` +
+          `preview entry in the feed, so they would be offered ${newestPreview} instead of this release.`,
+      )
+    }
+  }
+
+  // Only a stable build reads this, but both channels have something to prove
+  // about it: that a stable release is what it resolves to, and that a preview
+  // is not.
+  const pointer = await get(urls.latestPointer, { accept: 'application/json' })
+  const pointerTag = pointer.ok ? parseTagName(pointer.text) : null
+  if (isPreview) {
+    if (pointerTag === tag) {
+      settled.push(
+        `${urls.latestPointer} resolves to ${tag}, a preview. Every installed stable build resolves its ` +
+          `next version through that URL, so all of them would be offered a preview. Publish previews ` +
+          `with --latest=false.`,
+      )
+    }
+  } else if (pointerTag !== tag) {
+    pending.push(
+      `${urls.latestPointer} answered ${describeResponse(pointer)} and resolves to ${pointerTag ?? 'nothing'}, ` +
+        `not ${tag}. Installed stable builds read their next version from there and would not be offered ` +
+        `this release; re-run \`gh release edit ${tag} --latest\`.`,
+    )
+  }
+
+  for (const [platform, url] of Object.entries(urls.manifests)) {
+    const manifest = await get(url, { accept: 'text/yaml, application/octet-stream, */*' })
+    if (!manifest.ok) {
+      pending.push(
+        `${url} answered ${describeResponse(manifest)} without credentials. The updater downloads that ` +
+          `exact URL once it has found the release, and fails with ERR_UPDATER_CHANNEL_FILE_NOT_FOUND without it.`,
+      )
+      continue
+    }
+    // The authenticated pass read these through the assets API; this one reads
+    // the bytes the CDN hands a user, which is where a half-finished upload or
+    // a stale cached object shows up.
+    for (const problem of checkManifest(manifest.text, platform, { version, assetNames })) {
+      settled.push(`${url} ${problem}`)
+    }
+  }
+
+  return result()
+}
+
+// github.com answers /releases/latest with the release as JSON when asked for
+// it, and the updater reads the tag straight back out of that.
+function parseTagName(text) {
+  try {
+    return JSON.parse(text)?.tag_name ?? null
+  } catch {
+    return null
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// The publish step and this check are seconds apart, so poll before giving up --
+// but only while every problem is one that propagation could still resolve.
+export async function verifyPublicRelease(options) {
+  const { attempts = 6, delayMs = 10_000, wait = sleep } = options
+  let problems = []
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const outcome = await checkPublicRelease(options)
+    problems = outcome.problems
+    if (problems.length === 0 || !outcome.retryable) return problems
+    if (attempt < attempts) await wait(delayMs)
+  }
+  return problems
 }

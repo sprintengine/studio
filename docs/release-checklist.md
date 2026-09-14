@@ -142,14 +142,24 @@ draft, and the release becomes visible only once every file is there.
   editing a body.
 - Set `publish` to false on a dispatch to build without releasing; the packages
   stay on the run as workflow artifacts for 14 days.
-- Wait for the workflow. Its last step, `Verify the published release`, checks
-  the release is on the PUBLIC `sprintengine/studio-releases` (v0.3.0 shipped
-  to the private repo and reported success because nothing checked), that it
-  carries both macOS DMGs, the `.exe` and the `.AppImage`, and that each updater
-  manifest (`latest*.yml` or `preview*.yml`) names this version, lists only
-  files that are on the release, and -- for macOS -- lists a `.zip` for BOTH
-  arches. Without the zip MacUpdater fails with `ERR_UPDATER_ZIP_FILE_NOT_FOUND`;
-  with only one arch the other arch never updates.
+- Wait for the workflow. Its last step, `Verify the published release,
+  authenticated and not`, checks the release is on the PUBLIC
+  `sprintengine/studio-releases` (v0.3.0 shipped to the private repo and
+  reported success because nothing checked), that it carries both macOS DMGs,
+  the `.exe` and the `.AppImage`, and that each updater manifest (`latest*.yml`
+  or `preview*.yml`) names this version, lists only files that are on the
+  release, and -- for macOS -- lists a `.zip` for BOTH arches. Without the zip
+  MacUpdater fails with `ERR_UPDATER_ZIP_FILE_NOT_FOUND`; with only one arch the
+  other arch never updates.
+- It then asks the same questions again with NO credential, at the three URLs
+  electron-updater reads: `releases.atom` (which is where it finds a version at
+  all), `releases/latest` (which is how a stable build resolves the newest one,
+  and which must not resolve to a preview), and
+  `releases/download/<tag>/<channel>*.yml`. The authenticated half passes
+  against a repository no user can read, so it is this half that fails when the
+  releases repo is private, is named wrong in `build.publish`, or has the
+  release still in draft. The step polls for a short while first: the publish is
+  seconds old and GitHub's cache can lag it.
 - The release body is written by the workflow. While this repository is
   private it says only the version: commit subjects would leak private
   messages to the public releases repo. Once public it links the commit and
