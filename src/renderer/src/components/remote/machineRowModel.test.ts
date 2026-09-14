@@ -82,7 +82,7 @@ assert.equal(since(NOW - 5 * 60_000, NOW), '5 min')
 assert.equal(since(NOW - 26 * 3_600_000, NOW), '1 day')
 
 assert.equal(shortMachineName('sam-macbook-air.tailabc.ts.net'), 'sam-macbook-air')
-assert.equal(shortMachineName('100.106.119.1'), '100.106.119.1')
+assert.equal(shortMachineName('100.64.0.101'), '100.64.0.101')
 
 // The platform word: every spelling the four sources use, and null for the
 // ones that say nothing a person would recognise.

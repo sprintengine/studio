@@ -39,7 +39,7 @@ export type DeviceGlyphInput = {
    * it their own way and none of them is authoritative.
    */
   os?: string | null
-  /** The Tailscale host name (`Dev-MacBook-Air`, `desktop-a1b2c3d`). */
+  /** The Tailscale host name (`Dev-MacBook-Air`, `DESKTOP-A1B2C3D`). */
   hostName?: string | null
 }
 

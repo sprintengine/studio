@@ -50,8 +50,8 @@ async function main(): Promise<void> {
   })
 
   run('windows and linux take the monitor, and "darwin" does not fall into "win"', () => {
-    assert.equal(deviceGlyphFor({ os: 'win32', hostName: 'desktop-a1b2c3d' }), DeviceDesktopGlyph)
-    assert.equal(deviceGlyphFor({ os: 'Windows', hostName: 'desktop-e4f5g6h' }), DeviceDesktopGlyph)
+    assert.equal(deviceGlyphFor({ os: 'win32', hostName: 'DESKTOP-A1B2C3D' }), DeviceDesktopGlyph)
+    assert.equal(deviceGlyphFor({ os: 'Windows', hostName: 'DESKTOP-E4F5G6H' }), DeviceDesktopGlyph)
     assert.equal(deviceGlyphFor({ os: 'linux', hostName: 'build-box' }), DeviceDesktopGlyph)
     assert.notEqual(
       deviceGlyphFor({ os: 'darwin', hostName: 'Office-Mac-mini' }),

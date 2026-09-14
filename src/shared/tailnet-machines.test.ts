@@ -91,7 +91,7 @@ const byKey = (rows: TailnetMachine[], key: string): TailnetMachine => {
 // ── The join ─────────────────────────────────────────────────────────────────
 
 check('case and a trailing dot are not two machines', () => {
-  assert.equal(normalizeNodeName('desktop-a1b2c3d.Tail1234.TS.net.'), 'desktop-a1b2c3d.tail1234.ts.net')
+  assert.equal(normalizeNodeName('Desktop-A1B2C3D.Tail1234.TS.net.'), 'desktop-a1b2c3d.tail1234.ts.net')
   assert.equal(normalizeNodeName('  mini.tail1234.ts.net  '), 'mini.tail1234.ts.net')
   assert.equal(normalizeNodeName(''), null)
   assert.equal(normalizeNodeName(null), null)

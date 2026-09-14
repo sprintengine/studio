@@ -102,7 +102,7 @@ export function shortMachineName(name: string): string {
   const trimmed = name.trim()
   // Only a hostname is shortened, and only when the whole string is one:
   // "Sam's MacBook Air. Studio" is a typed name with a full stop in it, and
-  // "100.106.119.1" is an address — a first label from either would be a lie.
+  // "100.64.0.101" is an address — a first label from either would be a lie.
   if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/u.test(trimmed)) return trimmed
   if (/^\d+(?:\.\d+)+$/u.test(trimmed)) return trimmed
   return trimmed.split('.')[0] ?? trimmed

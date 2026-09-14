@@ -108,9 +108,9 @@ function status(overrides: Partial<TailnetRemoteStatus> = {}): TailnetRemoteStat
   return {
     enabled: true,
     running: true,
-    endpoint: '100.91.70.66:8471',
+    endpoint: '100.64.0.66:8471',
     port: 8471,
-    tailnetAddress: '100.91.70.66',
+    tailnetAddress: '100.64.0.66',
     lastError: null,
     notifications: true,
     devices: [],
@@ -124,7 +124,7 @@ function connection(overrides: Partial<FleetConnection> = {}): FleetConnection {
   return {
     id: 'conn-1',
     machineName: 'Sam’s MacBook Air',
-    endpoint: '100.106.119.1:8471',
+    endpoint: '100.64.0.101:8471',
     deviceId: 'tnd_x',
     deviceName: 'mini',
     scopes: ['workspace:read'],
@@ -158,7 +158,7 @@ function device(overrides: Partial<TailnetLiveDevice> = {}): TailnetLiveDevice {
     connectedSince: Date.now() - 12 * 60_000,
     lastActivityAt: Date.now() - 3 * 60_000,
     peerNode: null,
-    peerAddress: '100.106.119.1',
+    peerAddress: '100.64.0.101',
     ...overrides,
   }
 }
@@ -395,7 +395,7 @@ run('a machine is named by its first label: the tailnet tail is the same on ever
   assert.equal(shortMachineName('android-phone'), 'android-phone')
   assert.equal(shortMachineName('Sam’s MacBook Air'), 'Sam’s MacBook Air', 'a typed name is left alone')
   assert.equal(shortMachineName('Air. Studio'), 'Air. Studio', 'a full stop in a name is not a domain')
-  assert.equal(shortMachineName('100.106.119.1'), '100.106.119.1', 'an address is not shortened into a lie')
+  assert.equal(shortMachineName('100.64.0.101'), '100.64.0.101', 'an address is not shortened into a lie')
 })
 
 // ── the surface ──────────────────────────────────────────────────────────
@@ -410,7 +410,7 @@ run('the popover lists the driving device and the machines — no addresses anyw
               id: 'req1',
               deviceName: 'macbook-air',
               peerNode: 'sam-macbook-air',
-              peerAddress: '100.106.119.1',
+              peerAddress: '100.64.0.101',
               comparisonCode: '481972',
               createdAt: new Date().toISOString(),
               expiresAt: new Date(Date.now() + 4 * 60_000).toISOString(),
