@@ -2,16 +2,19 @@
 // "What install means, per kind and per harness"), corrected by
 // backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md.
 //
-// Every harness is served the same way now: what this app can copy, it copies.
+// A plugin is a catalogue. `skillIds` / `mcpServerIds` pick the items this
+// call copies; omitting both is the remaining all-in path (a single-skill
+// plugin with nothing else to choose). Every harness is served the same way:
+// what this app can copy, it copies.
 //
-//  1. **The skills are copied.** Through the existing skill installer, into
+//  1. **The chosen skills are copied.** Through the existing skill installer, into
 //     every harness's skill directory, each copy carrying a provenance marker
 //     so Sync owns it afterwards. Claude Code included — see below.
-//  2. **The MCP servers are handed back.** MCP settings live in the renderer
+//  2. **The chosen MCP servers are handed back.** MCP settings live in the renderer
 //     store and sync into each CLI's own config from there (the workspace's
 //     `.mcp.json` for Claude Code); the install returns the configs and the
 //     surface adds them.
-//  3. **The plugin's own directory is copied when its server needs it.** A
+//  3. **The plugin's own directory is copied when a chosen server needs it.** A
 //     server declared as `bun run --cwd ${CLAUDE_PLUGIN_ROOT} … start` cannot
 //     start unless those files are on disk and that variable means something,
 //     and only Claude Code's own loader sets it. So the plugin root lands under
@@ -30,10 +33,12 @@
 // `claude plugin marketplace add` AND `claude plugin install` — two writes to
 // another product's user-global state, which this app will not make behind a
 // person's back. So the keys stopped being the install (owner ruling,
-// 2026-09-06) and became an extra: still written where they are harmless, so a
-// person who runs `claude plugin install` themselves gets the native load too,
-// and nothing here depends on them. A settings file that cannot be written is
-// a warning beside a completed install, never a failed one.
+// 2026-09-06) and became an extra: still written on an all-in install where
+// they are harmless, so a person who runs `claude plugin install` themselves
+// gets the native load too, and nothing here depends on them. A one-item
+// install does not write them — naming the plugin would invite a native load
+// of every skill it ships. A settings file that cannot be written is a warning
+// beside a completed all-in install, never a failed one.
 //
 // The settings file is merged, never replaced: only the two keys are touched,
 // only the entries this install adds, and uninstall removes only those.
