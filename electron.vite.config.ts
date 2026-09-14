@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
@@ -90,6 +91,34 @@ function serviceEndpointDefines(): Record<string, string> {
   if (relay) defines['__MOBILE_RELAY_URL__'] = JSON.stringify(relay)
   return defines
 }
+
+// `build.publish` in package.json is what electron-builder turns into
+// app-update.yml, and app-update.yml is what electron-updater follows. The app
+// also shows a "releases" link, which has to point at the same repository or it
+// sends people somewhere the updater is not looking — a wrong value there is
+// invisible at runtime, which is how builds up to 0.1.7 shipped pointing at a
+// private repo and silently never updated. So the constant the app links to is
+// checked against the manifest here, and a disagreement fails the build.
+function assertReleasesRepoMatchesManifest(): void {
+  const manifest = JSON.parse(readFileSync(resolve('package.json'), 'utf-8')) as {
+    build?: { publish?: { owner?: string; repo?: string } }
+  }
+  const publish = manifest.build?.publish
+  if (!publish?.owner || !publish?.repo) {
+    throw new Error('package.json build.publish must name an owner and a repo.')
+  }
+  const fromManifest = `${publish.owner}/${publish.repo}`
+  const source = readFileSync(resolve('src/shared/releases-repo.ts'), 'utf-8')
+  const declared = /export const RELEASES_REPO = '([^']+)'/u.exec(source)?.[1]
+  if (declared !== fromManifest) {
+    throw new Error(
+      `RELEASES_REPO is '${declared}' but package.json build.publish names '${fromManifest}'. `
+        + 'Update src/shared/releases-repo.ts so the in-app link and the updater follow the same repository.',
+    )
+  }
+}
+
+assertReleasesRepoMatchesManifest()
 
 export default defineConfig({
   main: {

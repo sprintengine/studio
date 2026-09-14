@@ -28,12 +28,9 @@ type DownloadProgressLike = {
   bytesPerSecond?: number
 }
 
-// The public releases repo. The source repo is private and electron-updater's
-// GitHub provider reads github.com/<owner>/<repo>/releases.atom and the
-// latest*.yml assets unauthenticated, which a private repo answers with 404;
-// builds up to 0.1.7 pointed there and never saw an update. build.publish in
-// package.json names the same repo, so app-update.yml and this link agree.
-const RELEASES_URL = 'https://github.com/sprintengine/studio-releases/releases'
+// The public releases repo, named once in package.json `build.publish` and
+// checked against it at build time. See src/shared/releases-repo.ts.
+import { RELEASES_URL } from '../shared/releases-repo'
 
 function getAppVersion(): string {
   return typeof app.getVersion === 'function' ? app.getVersion() : '0.0.0'
