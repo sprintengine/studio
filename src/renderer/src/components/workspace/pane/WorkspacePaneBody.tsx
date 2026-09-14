@@ -233,9 +233,14 @@ export function WorkspacePaneBody({
             // page reloads — losing exactly the state the float exists to keep
             // in view. No ancestor between here and the viewport carries a
             // transform, so `fixed` resolves against the viewport.
+            //
+            // Floating, it is an overlay and takes the overlay pair: the modal
+            // shadow and `--radius-lg`, the shell step. Docked it wears the
+            // pane's own card radius, which is a step above what the shape ramp
+            // allows anything casting an overlay shadow.
             className={
               floating
-                ? 'fixed z-[var(--z-pane)] overflow-hidden rounded-[var(--shell-card-radius)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-lg'
+                ? 'fixed z-[var(--z-pane)] overflow-hidden rounded-[var(--radius-lg)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)]'
                 : `absolute inset-0 ${selected ? 'visible' : offscreen ? '' : 'invisible'}`
             }
             style={

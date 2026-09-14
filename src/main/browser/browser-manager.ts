@@ -309,7 +309,8 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
    * so two agents in one workspace drove the same page and stole it from each
    * other mid-interaction — and from the person.
    *
-   * An assignment stays with one browser tab because a multi-step interaction (open, type, click, wait) is
+   * An assignment is sticky for the same reason a provider session is pinned
+   * to one runtime: a multi-step interaction (open, type, click, wait) is
    * stateful in the page's cookies and DOM, and moving it between tabs halfway
    * through produces a failure nobody can read. It is dropped only when the tab
    * it names goes away.

@@ -114,7 +114,11 @@ export function BrowserStartPage({ workspaceId, active, recentUrls, onOpen }: Br
               // per the list-row spec's action-host rule.
               <div key={server.url} className="group/server relative">
                 {/* The kit's row at the navigation rhythm — the shape the local
-                    `ROW_CLASS` constant spelled, now the primitive's. */}
+                    `ROW_CLASS` constant spelled, now the primitive's. The
+                    trailing padding is a reserved slot, not rhythm: the action
+                    host below is positioned over it and holds two `3xs` icon
+                    buttons plus their gap.
+                    design-tokens-allow: reserved action slot, not a rhythm step */}
                 <RowButton density="nav" className="pr-16" onClick={() => onOpen(server.url)}>
                   <span className="font-mono text-meta text-[color:var(--text-strong)]">localhost:{server.port}</span>
                   <span className="min-w-0 truncate text-meta text-[color:var(--text-muted)]">{server.command}</span>
