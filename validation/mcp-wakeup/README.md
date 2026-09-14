@@ -79,7 +79,7 @@ Record the Claude Code version, the configuration path or command used, protocol
 
 ## BYO-CLI Target
 
-Current Multicode plugin fixtures identify `opencode` and `pi` as BYO-CLI targets with MCP server support. `aider` is present as a fixture but declares `mcpServers: false`, so classify it `unsupported` for this harness unless a newer real local Aider configuration proves otherwise.
+Current studio plugin fixtures identify `opencode` and `pi` as BYO-CLI targets with MCP server support. `aider` is present as a fixture but declares `mcpServers: false`, so classify it `unsupported` for this harness unless a newer real local Aider configuration proves otherwise.
 
 Check availability first:
 
@@ -103,7 +103,7 @@ For `opencode`, use its configured MCP path from the fixture, `~/.config/opencod
 }
 ```
 
-For `pi`, use its configured MCP path from the fixture, `~/.config/pi/mcp.json`, and add the same generic `mcpServers` entry. Then launch the target CLI from the repository root with its normal Multicode/plugin command and ask it to connect to `mcp-wakeup-harness` and wait silently for the delayed server notification.
+For `pi`, use its configured MCP path from the fixture, `~/.config/pi/mcp.json`, and add the same generic `mcpServers` entry. Then launch the target CLI from the repository root with its normal studio/plugin command and ask it to connect to `mcp-wakeup-harness` and wait silently for the delayed server notification.
 
 If the target binary is unavailable or cannot connect to a local stdio MCP server, record the failure as `inconclusive` with the install, configuration, or protocol blocker. Do not classify wake-up support from mocked CLI behavior.
 

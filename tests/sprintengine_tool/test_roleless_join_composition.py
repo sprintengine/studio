@@ -7,7 +7,7 @@ dropped-universal-norms bug — a manifest-less agent used to fall through the
 no-soul fallback and silently lose half the norms — and confirm the
 architect/specialist composition is untouched.
 
-The Multicode product layer (`multicode_backlog`, `workspace_knowledge`) is
+The studio product layer (`multicode_backlog`, `workspace_knowledge`) is
 gated at compose time per run (backlog-sourced / knowledge root configured);
 its gate behavior is covered here and in test_layer_skill_gating.py.
 """

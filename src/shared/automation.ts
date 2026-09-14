@@ -1,5 +1,5 @@
-// Multicode app-automation surface: shared contracts between the main-process
-// MCP server and the preload bridge.
+// SprintEngine Studio app-automation surface: shared contracts between the
+// main-process MCP server and the preload bridge.
 //
 // The automation server (src/main/automation/) is a local-only MCP endpoint
 // owned by the app's main process. Reads answer from main's authoritative

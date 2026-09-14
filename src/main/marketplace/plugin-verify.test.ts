@@ -307,7 +307,7 @@ async function testClaudePluginPreviewDisclosesSkillListing(): Promise<void> {
         },
       ],
     })
-    // Claude plugins verify as unsigned (they carry no Multicode manifest) and
+    // Claude plugins verify as unsigned (they carry no studio manifest) and
     // disclose the REAL skill listing the trust grant would install.
     assert.equal(result.classification, 'unsigned')
     assert.deepEqual(result.permissions, [])

@@ -1,6 +1,6 @@
 # Backlog Plugin API
 
-Backlog is Multicode's local intake surface for candidate work under
+Backlog is the studio's local intake surface for candidate work under
 `backlog/`. Capability modules can extend it from the renderer through two host
 registries:
 
@@ -24,11 +24,14 @@ A Backlog item is split across two stores (see
   star (`starred`, `highlight`) and declared links (`sprints`, `pr`). The shared
   writer `serializeBacklogFrontmatterFields` (`src/shared/backlog/frontmatter.ts`)
   rewrites it while preserving the document body byte-for-byte.
-- **The link cache** `.multi-code/backlog/cache/links.json` holds only what is
+- **The link cache** `<sidecar>/backlog/cache/links.json` holds only what is
   volatile — resolved link status, the agent terminal holding an item,
   module-scoped metadata, and its own timestamps. It is gitignored (the folder
   carries its own `.gitignore`, so it stays invisible in any project) and
-  re-derivable: deleting it costs a lookup, never data.
+  re-derivable: deleting it costs a lookup, never data. `<sidecar>` is the
+  workspace's app-owned directory — `.sprintengine`, or `.multi-code` in a
+  workspace made before the 2026-09-08 rename; the app resolves which one a
+  workspace has and never creates the second beside the first.
 
 Both are mutated only through the named Electron API; the channel determines
 which store it writes.
@@ -48,7 +51,7 @@ There is no `updateBacklogType` on the bridge. Setting an item's `type` exists
 only in-process (`backlogService.updateBacklogType`, reachable from the MCP and
 mobile surfaces); the renderer has no channel for it.
 
-Cache writers (`.multi-code/backlog/cache/links.json`) — `updateBacklogHighlight`
+Cache writers (`<sidecar>/backlog/cache/links.json`) — `updateBacklogHighlight`
 and `addOrUpdateBacklogLink` also write the durable half into the item's
 frontmatter:
 
@@ -62,9 +65,9 @@ frontmatter:
 - `removeBacklogObjectRecord(input)`
 
 Renderer modules should use the action context helpers or `window.api` service
-methods. They must not read or write `.multi-code/backlog/cache/` or item
+methods. They must not read or write `<sidecar>/backlog/cache/` or item
 frontmatter directly. Stored link target paths must stay project-root-relative,
-for example `.multi-code/sprintengine/<team>/run.yaml`.
+for example `<sidecar>/sprintengine/<team>/run.yaml`.
 
 ## Item Actions
 
@@ -186,12 +189,13 @@ folders, locks, events, or other run-store internals.
 The provider accepts only safe project-root-relative targets shaped like:
 
 ```text
-.multi-code/sprintengine/<team>/run.yaml
+<sidecar>/sprintengine/<team>/run.yaml
 ```
 
-Absolute paths, drive-letter paths, UNC paths, traversal paths, `run.yml`, and
-non-run-store paths are unavailable before any projection read or workspace
-focus.
+Either sidecar name is accepted, so a link stored by an older build still
+resolves. Absolute paths, drive-letter paths, UNC paths, traversal paths,
+`run.yml`, and non-run-store paths are unavailable before any projection read or
+workspace focus.
 
 A readable run with at least one task and every task `done` resolves to
 `completed`; a canceled run resolves to `canceled`, which outranks completeness;

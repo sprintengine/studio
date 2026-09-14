@@ -172,7 +172,7 @@ export async function hashSkillDirectory(root: string, ignoredNames = new Set<st
  * two skill install paths — this manager's policy fan-out and the pane's attach
  * (src/main/agent-skill-installer.ts) — share it so a skill copy is made one
  * way. Whether the destination may be replaced at all is the caller's decision:
- * both refuse to overwrite a directory Multicode did not write.
+ * both refuse to overwrite a directory the studio did not write.
  */
 export async function copySkillDirectory(sourceDir: string, destinationDir: string): Promise<void> {
   await rm(destinationDir, { recursive: true, force: true })

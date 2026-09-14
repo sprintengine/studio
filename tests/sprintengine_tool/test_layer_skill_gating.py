@@ -1,4 +1,4 @@
-"""Compose-time gating of the Multicode product layer skills (backlog item 1566).
+"""Compose-time gating of the studio product layer skills (backlog item 1566).
 
 `multicode_backlog` is injected only into backlog-sourced runs and
 `workspace_knowledge` only when the workspace has a Knowledge Graph root, so

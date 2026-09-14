@@ -176,7 +176,7 @@ function testWatchedPathsAreDerived(temp: string): void {
   release()
 }
 
-// 2. A skill directory created outside Multicode moves the pane, and an install
+// 2. A skill directory created outside the studio moves the pane, and an install
 //    that writes ten files moves it once.
 async function testSkillCreationInvalidatesOnce(temp: string): Promise<void> {
   const workspaceRoot = await makeWorkspace(temp, 'created')
@@ -464,7 +464,7 @@ async function testNoPollingLoop(): Promise<void> {
   )
 }
 
-// 11. A write Multicode made itself says so, without waiting on the OS — and
+// 11. A write the studio made itself says so, without waiting on the OS — and
 //     the filesystem events that same write causes do not double it.
 async function testInProcessWriteInvalidates(temp: string): Promise<void> {
   const workspaceRoot = await makeWorkspace(temp, 'attached')

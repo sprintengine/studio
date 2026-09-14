@@ -1,14 +1,14 @@
 """Host-owned skill layers composed on top of a portable agent soul.
 
-A pack ships only the agent *soul* (role identity). Multicode and Sprint Engine
+A pack ships only the agent *soul* (role identity). The studio and Sprint Engine
 each own a layer that the host composes on top at spawn time, so a soul author
-never has to couple their prompt to Multicode features or Sprint Engine
+never has to couple their prompt to the studio's features or Sprint Engine
 mechanics:
 
-- ``MULTICODE_LAYER_SKILLS`` — product skills shipped with Multicode and tied to
-  a Multicode feature (Backlog, Knowledge Graph). They self-gate at runtime, so
+- ``MULTICODE_LAYER_SKILLS`` — product skills shipped with the studio and tied to
+  a studio feature (Backlog, Knowledge Graph). They self-gate at runtime, so
   including them is safe even when the feature is inactive. Applied to
-  Multicode-managed spawns (standalone dropdown agents and Sprint Engine).
+  studio-managed spawns (standalone dropdown agents and Sprint Engine).
 - ``SPRINTENGINE_NORM_SKILLS`` — the engineering quality bar Sprint Engine
   enforces. Owned by Sprint Engine and layered on only inside a Sprint Engine
   run; a raw standalone soul does not carry them.
@@ -23,8 +23,9 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional
 from sprintengine_core.studio_env import read_studio_env
 
-# Multicode product skills (Backlog, Knowledge Graph). Not soul-related; layered
-# by the host onto Multicode-managed agents when the matching feature is active.
+# The studio's product skills (Backlog, Knowledge Graph). Not soul-related;
+# layered by the host onto studio-managed agents when the matching feature is
+# active.
 # Sprint Engine dispatches gate them at COMPOSE time (backlog-sourced run /
 # configured knowledge root) so inactive features cost zero prompt tokens; the
 # skills also self-gate at runtime for compositions without gate context.
@@ -44,7 +45,7 @@ SPRINTENGINE_NORM_SKILLS: tuple[str, ...] = (
 )
 
 # Extra skills composed into the soul render for a Sprint Engine dispatch: the
-# Multicode product layer plus Sprint Engine's quality norms. Coordination
+# studio's product layer plus Sprint Engine's quality norms. Coordination
 # skills (sprintengine_workflow and friends) are selected separately per role.
 SPRINTENGINE_SOUL_EXTRA_SKILLS: tuple[str, ...] = (
     *MULTICODE_LAYER_SKILLS,
@@ -69,7 +70,7 @@ def knowledge_root_is_configured(env: Optional[Mapping[str, str]] = None) -> boo
 
 
 def run_is_backlog_sourced(state: Mapping[str, Any]) -> bool:
-    """Whether the run was launched from Multicode Backlog content.
+    """Whether the run was launched from Studio Backlog content.
 
     Backlog launches record their originals on `state.source` / `state.sourceBundle`
     (paths under `backlog/`). Only such runs need the `multicode_backlog` lifecycle
@@ -97,7 +98,7 @@ def multicode_layer_skills_for_run(
     backlog_sourced: bool = True,
     knowledge_root_configured: bool = True,
 ) -> tuple[str, ...]:
-    """The Multicode product layer, gated by which features the run can use.
+    """The studio's product layer, gated by which features the run can use.
 
     Defaults are fail-open (inject) so callers without gate context keep the
     runtime self-gating behavior instead of silently dropping a needed rule.
@@ -117,7 +118,7 @@ def sprintengine_soul_extra_skills(
 ) -> tuple[str, ...]:
     """Host layer skills for a dispatched agent's startup brief.
 
-    Every dispatched agent gets the same layer: the Multicode product skills
+    Every dispatched agent gets the same layer: the studio's product skills
     (gated per run) + the Sprint Engine quality norms. It does not vary by role —
     the role's own identity comes from its manifest directives.
     """

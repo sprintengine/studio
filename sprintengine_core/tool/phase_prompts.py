@@ -34,7 +34,7 @@ def _execution_workspace_discipline_block(location_lines: List[str], trailing_li
     return "\n".join([
         "## Execution Workspace Discipline",
         "- Read only the active team's approved `architect_plan` artifact from the Sprint Engine run store before claiming work.",
-        "- The canonical plan is normally `.multi-code/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
+        "- The canonical plan is normally the `plan.md` beside this run's `run.yaml` in the Sprint Engine run store; do not use any other `plan.md` found by search.",
         *location_lines,
         "- Treat task-owned paths as the primary edit surface and collision boundary.",
         "- Prefer owned paths, but you may make small directly required companion edits for correctness, integration, type safety, tests, or cleaner structure.",

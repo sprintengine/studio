@@ -1,9 +1,9 @@
 # Drop-in extensions: modules and CLI plugins
 
-Multicode picks up two kinds of third-party extension from per-user folders,
-discovered on launch. Both folders are created (and seeded with a README) the
-first time Multicode runs — including on a packaged install — so there is always
-a discoverable place to drop things.
+SprintEngine Studio picks up two kinds of third-party extension from per-user
+folders, discovered on launch. Both folders are created (and seeded with a
+README) the first time the app runs — including on a packaged install — so there
+is always a discoverable place to drop things.
 
 | Kind | Folder | Manifest | Surfaced in |
 | --- | --- | --- | --- |

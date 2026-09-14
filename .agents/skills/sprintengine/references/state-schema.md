@@ -2,18 +2,20 @@
 
 The shared Sprint Engine coordination files are:
 
-- `.multi-code/sprintengine/<team-slug>/run.yaml`
+- `<sidecar>/sprintengine/<team-slug>/run.yaml`
   - run metadata, creation metadata, roster, task graph, and policy
-- `.multi-code/sprintengine/<team-slug>/projection.json`
+- `<sidecar>/sprintengine/<team-slug>/projection.json`
   - read-only normalized app/mobile projection
-- `.multi-code/sprintengine/<team-slug>/tasks/<status>/*.json`
+- `<sidecar>/sprintengine/<team-slug>/tasks/<status>/*.json`
   - materialized task cards by board column
-- `.multi-code/sprintengine/<team-slug>/artifacts/<status>/*.json`
+- `<sidecar>/sprintengine/<team-slug>/artifacts/<status>/*.json`
   - materialized artifact cards by review status
-- `.multi-code/sprintengine/<team-slug>/handover.md`
+- `<sidecar>/sprintengine/<team-slug>/handover.md`
   - optional incoming planning context created before the sprintengine architect starts
-- `.multi-code/sprintengine/<team-slug>/plan.md`
+- `<sidecar>/sprintengine/<team-slug>/plan.md`
   - architect-authored final execution plan for that named team
+
+`<sidecar>` is the workspace's app-owned directory, which holds the run store: `.sprintengine` in a workspace made since the 2026-09-08 rename, `.multi-code` in an older one. Use whichever is already there — never create the other beside it, because the app reads only one of them.
 
 The Python tool is the only write path for Sprint Engine run-store files.
 
@@ -22,7 +24,7 @@ Agents should use the active team's `architect_plan` artifact path from the proj
 Use `sprintengine handover --name <team> --goal "..." --handover <path>` to create a named team bootstrap and canonical `handover.md`.
 Use `sprintengine handover --name <team> --goal "..." --handover-stdin` when an active planning agent should stream its full handover through the Python tool.
 Use `sprintengine summary` to print a read-only completion summary from task evidence.
-Use `sprintengine join --role <role> --id <agent-id> --watch` for standalone/headless CLI agent startup and continuation. Multicode-launched MCP-native agents use the managed MCP server and runtime dispatch instead. The join/directive response tells agents when to run `task next`, `task gate next`, or `triage needs-input`.
+Use `sprintengine join --role <role> --id <agent-id> --watch` for standalone/headless CLI agent startup and continuation. Studio-launched MCP-native agents use the managed MCP server and runtime dispatch instead. The join/directive response tells agents when to run `task next`, `task gate next`, or `triage needs-input`.
 Use `sprintengine task next --role <role> --id <agent-id>` for normal worker task claiming when the join directive tells the agent to claim or resume implementation work.
 Use `sprintengine task claim --task-id <id> --id <agent-id>` when a specific ready task must be claimed.
 Use `sprintengine task status` to update task status, `sprintengine task note` to append a runtime comment to the task (architect actors route to `architect_feedback`, all others to `user_note`; the body appears in `task.comments[]` and the activity feed), and `sprintengine task log` to update evidence. `task.notes[]` itself is reserved for plan-time design intent set through `plan add-task --task-note` and `plan update-task --task-note`.
@@ -143,7 +145,7 @@ The app uses narrow IPC to request artifact review mutations through the Python 
 - `startedAt`
 - `completedAt`
 
-When feedback is supplied, the tool also appends a normalized record to `.multi-code/sprintengine/<team-slug>/metrics/agent-feedback.jsonl`. This JSONL file is append-only benchmark/analytics history; `task.feedback` is only the latest compact task-linked value for UI and summaries.
+When feedback is supplied, the tool also appends a normalized record to `<sidecar>/sprintengine/<team-slug>/metrics/agent-feedback.jsonl`. This JSONL file is append-only benchmark/analytics history; `task.feedback` is only the latest compact task-linked value for UI and summaries.
 
 ## Artifact Fields
 
@@ -164,7 +166,7 @@ When feedback is supplied, the tool also appends a normalized record to `.multi-
 - `title`
 - `path`
   - Stored as a repository-relative path when possible.
-  - Must resolve under the active `.multi-code/sprintengine/<team-slug>/` folder.
+  - Must resolve under the active `<sidecar>/sprintengine/<team-slug>/` folder.
 - `status`
   - `draft`
   - `ready_for_review`
@@ -193,7 +195,7 @@ When feedback is supplied, the tool also appends a normalized record to `.multi-
 - New sprintengine runs start with a product intake task and a `requirements` or `product_strategy` artifact. If no meaningful product discovery is needed, the artifact should say so and still record goal, non-goals, constraints, and acceptance expectations.
 - Architect planning starts after the product intake artifact is approved.
 - When a run starts from an imported implementation plan, the architect plan task owns review of that imported plan. The architect must index the current codebase areas the plan touches, record that index in `plan.md`, update stale or missing plan details against current source and tests, and only then create task cards.
-- The active team's `architect_plan` artifact path is the canonical plan path, normally `.multi-code/sprintengine/<team-slug>/plan.md`.
+- The active team's `architect_plan` artifact path is the canonical plan path, normally `<sidecar>/sprintengine/<team-slug>/plan.md`.
 - `plan.md` is architect-owned final execution context for workers and reviewers only when it is under the active team folder. Agents must not find or choose plans by filename search.
 - Task cards should contain the relevant distilled plan context. Workers should not need to search `plan.md` to understand the concrete change assigned to them.
 - Board `Ready` is derived, not stored as a separate task status.

@@ -714,7 +714,7 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     '/research',
   )
   // FINDING T9-F1, re-checked after provenance landed and still open: a source
-  // skill whose directory name collides with one Multicode ships is reported as
+  // skill whose directory name collides with one the studio ships is reported as
   // `source: 'builtin'`, because the inventory keys provenance on the directory
   // name alone. `prototype` is such a name, and the bytes on disk are
   // mattpocock's. Install now writes a marker that says so — the disagreement
@@ -786,13 +786,13 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
 // --- T13/T14: what a sync may overwrite is what that source installed --------
 
 /**
- * Two sources shipping a directory of the same name is ordinary — Multicode's
+ * Two sources shipping a directory of the same name is ordinary — the studio's
  * own `prototype` and mattpocock's are the pair that broke this — and before
  * install recorded provenance, syncing either one replaced the other's bytes on
  * disk. This walks that collision through the same real IPC the chain above
  * uses, in a workspace of its own so the state is the one being described:
  *
- *  1. a workspace holding Multicode's `prototype`, and nothing from mattpocock;
+ *  1. a workspace holding the studio's `prototype`, and nothing from mattpocock;
  *  2. mattpocock moves and is synced — its own `prototype` changed upstream,
  *     and the bytes on disk must not move, because that copy is not its;
  *  3. the user installs a mattpocock skill, mattpocock moves again, and that
@@ -847,17 +847,17 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
     return result
   }
 
-  // ── 1. The workspace holds Multicode's own `prototype` ────────────────────
+  // ── 1. The workspace holds the studio's own `prototype` ───────────────────
 
   const studioScan = await scanOf(STUDIO_SKILL_SOURCE_ID)
   await install(STUDIO_SKILL_SOURCE_ID, idOfSkillNamed(studioScan, 'prototype'))
 
   const shippedRoot = join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR, 'studio-skills', 'skills', 'prototype')
   /**
-   * Every file of the installed copy, against the directory Multicode ships —
+   * Every file of the installed copy, against the directory the studio ships —
    * the marker aside, which install writes and the source never had. Compares
    * the whole directory rather than the entry document alone: mattpocock's
-   * prototype ships files Multicode's does not, so a partial overwrite shows up
+   * prototype ships files the studio's does not, so a partial overwrite shows up
    * as an extra file even when SKILL.md happens to match.
    */
   const shippedFiles = filesUnder(shippedRoot)

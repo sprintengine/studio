@@ -8,7 +8,7 @@ import { deriveSprintRunSummary, type SprintRunSummary } from '../shared/sprinte
 import type { SprintEngineVcs } from '../shared/sprintengine/run-types'
 import { workspaceSidecarPath } from './workspace-sidecar'
 
-// The main-process index answering "what sprint runs exist in this Multicode —
+// The main-process index answering "what sprint runs exist in this studio —
 // live AND historical — across every known project root", without a resident
 // workspace object per run. Data source for the Sprints door rail (T3) and
 // canvas (T4). The disk scan is promoted from mobile discovery (D1): mobile is

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "example",
   "version": "0.1.0",
-  "summary": "Reference example bundle for the Multicode design-system schema: warm-neutral surfaces, a single green accent, light + dark modes.",
+  "summary": "Reference example bundle for the SprintEngine Studio design-system schema: warm-neutral surfaces, a single green accent, light + dark modes.",
   "modes": ["light", "dark"],
   "namingGrammar": {
     "tokens": "<tier>.<group...>.<name> — tier is 'ref' or 'sem'; every segment is lowercase kebab-case; nesting follows DTCG groups; aliases reference the full dotted path as {tier.group.name}",

@@ -285,7 +285,7 @@ async function run(): Promise<void> {
             ...process.env,
             MULTICODE_AGENT_ID: 'prec-agent',
             MULTICODE_WORKSPACE_ID: 'prec-ws',
-            // Always override: when this test itself runs inside a Multicode
+            // Always override: when this test itself runs inside a studio
             // agent session, the launch env carries the LIVE app's socket —
             // inheriting it would silently redirect the "fallback" run to the
             // real app. Empty string is falsy, so the reporter falls to --socket.
@@ -1523,7 +1523,7 @@ async function run(): Promise<void> {
           env: {
             ...process.env,
             // Always overridden: this suite can itself be running inside a
-            // Multicode agent terminal, whose launch env names the LIVE app's
+            // studio agent terminal, whose launch env names the LIVE app's
             // socket and agent.
             MULTICODE_AGENT_STATE_SOCKET: options.envSocket ?? '',
             MULTICODE_AGENT_ID: options.agentId ?? '',

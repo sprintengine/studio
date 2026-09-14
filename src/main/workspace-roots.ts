@@ -12,7 +12,7 @@ import type { WorkspaceSyncSnapshot } from '../shared/workspace-sync'
  * wait for a window: boot-time sprint run discovery
  * (`sprintengine-boot-discovery.ts`) and the mobile relay's run snapshot.
  *
- * Bounded by construction: only workspaces this Multicode has open contribute a
+ * Bounded by construction: only workspaces this studio has open contribute a
  * root, so a scan over them is never a walk of the user's home directory.
  */
 export function listKnownWorkspaceRoots(snapshot: WorkspaceSyncSnapshot): string[] {

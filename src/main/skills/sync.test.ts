@@ -154,7 +154,7 @@ async function reportsAFailedCopyWithoutStoppingTheRest(): Promise<void> {
   console.log('ok - a failed copy is reported and the rest still update')
 }
 
-// The reproduction filed as T10-F1: `prototype` is a skill Multicode ships and
+// The reproduction filed as T10-F1: `prototype` is a skill the studio ships and
 // a skill mattpocock/skills ships, and before install recorded provenance the
 // second silently replaced the first on a sync the user never asked for.
 async function leavesABundledSkillOfTheSameNameAlone(): Promise<void> {

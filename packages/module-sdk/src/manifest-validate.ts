@@ -1,7 +1,7 @@
 // Third-party capability module manifest: validator + canonical signing payload.
 //
 // This is the single source of truth for what a valid third-party manifest is
-// and for the exact bytes a module signature covers. The Multicode app imports
+// and for the exact bytes a module signature covers. The studio imports
 // this module (via src/shared/modules/third-party-manifest.ts and
 // src/shared/modules/permissions.ts) and the `multicode-module` CLI ships it in
 // the published tarball, so the app and external authors can never disagree.

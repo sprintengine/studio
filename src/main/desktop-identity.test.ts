@@ -143,7 +143,7 @@ function authorizationUrlsFollowTheIssuer(): void {
   assert.equal(clerkUrl.searchParams.get('code_challenge_method'), 'S256')
   assert.equal(clerkUrl.searchParams.get('code_challenge'), 'challenge')
   assert.equal(clerkUrl.searchParams.get('state'), 'st')
-  // Organisation is a Multicode concept, never sent to Clerk.
+  // Organisation is a studio concept, never sent to Clerk.
   assert.equal(clerkUrl.searchParams.get('organization_id'), null)
 
   const multiauthUrl = new URL(buildMultiauthAuthorizationUrl(request, {

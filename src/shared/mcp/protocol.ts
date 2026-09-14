@@ -2,7 +2,7 @@
 //
 // One table, imported by the socket gateway (`src/main/automation/mcp-socket-server.ts`)
 // and by main's HTTP client of the Python engine (`src/main/sprintengine-mcp-hub.ts`),
-// because the previous inline constants are exactly how the two Multicode MCP
+// because the previous inline constants are exactly how the two studio MCP
 // servers drifted apart — this gateway fell back to `2025-03-26` while the
 // engine defaulted to `2024-11-05`.
 //

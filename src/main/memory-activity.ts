@@ -64,8 +64,8 @@ const states = new Map<string, WorkspaceState>()
 // Path helpers
 // =============================================================================
 
-const MULTICODE_HOOK_TAG = 'multicode-knowledge-activity'
-const LEGACY_MULTICODE_HOOK_TAG = 'multicode-memory-activity'
+const HOOK_TAG = 'multicode-knowledge-activity'
+const LEGACY_HOOK_TAG = 'multicode-memory-activity'
 const HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'knowledge-activity.mjs')
 const TRACE_DIR_REL = join('.multicode', 'knowledge-trace')
 const INSTALLED_RECORD_REL = join('.multicode', 'hooks', 'installed.json')
@@ -143,7 +143,7 @@ function ensureMatcherBlock(
 }
 
 function isMulticodeEntry(entry: ClaudeHookEntry): boolean {
-  return entry?._multicode === MULTICODE_HOOK_TAG || entry?._multicode === LEGACY_MULTICODE_HOOK_TAG
+  return entry?._multicode === HOOK_TAG || entry?._multicode === LEGACY_HOOK_TAG
 }
 
 async function mergeMulticodeHook(
@@ -163,7 +163,7 @@ async function mergeMulticodeHook(
   const ours: ClaudeHookEntry = {
     type: 'command',
     command: hookCommand,
-    _multicode: MULTICODE_HOOK_TAG,
+    _multicode: HOOK_TAG,
   }
   const filtered = (block.hooks ?? []).filter((entry) => !isMulticodeEntry(entry))
   filtered.push(ours)
@@ -226,7 +226,7 @@ export async function installMemoryActivityHook(
       hookScript: HOOK_SCRIPT_REL.split(sep).join('/'),
       claudeSettings: CLAUDE_LOCAL_SETTINGS_REL.split(sep).join('/'),
       command,
-      tag: MULTICODE_HOOK_TAG,
+      tag: HOOK_TAG,
     }
     await writeFile(
       resolve(workspaceRoot, INSTALLED_RECORD_REL),

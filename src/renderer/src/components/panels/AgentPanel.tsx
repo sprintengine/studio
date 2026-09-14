@@ -13,7 +13,7 @@ import type {
 } from '../../types/workspace'
 import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { MULTICODE_DISABLE_SPRINTENGINE_TERMINALS, MULTICODE_SAFE_MODE } from '../../utils/runtimeFlags'
+import { DISABLE_SPRINTENGINE_TERMINALS, SAFE_MODE } from '../../utils/runtimeFlags'
 import {
   isAgentCliMissing,
   selectAgentCliCatalog,
@@ -94,7 +94,7 @@ export default function AgentPanel({
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const label = agent?.name ?? agentId
   const isSprintEngineAgent = workspaceMode === 'sprintengine' && Boolean(sprintEngineRuntimeRole)
-  const sprintEngineTerminalBlocked = MULTICODE_DISABLE_SPRINTENGINE_TERMINALS && isSprintEngineAgent
+  const sprintEngineTerminalBlocked = DISABLE_SPRINTENGINE_TERMINALS && isSprintEngineAgent
   const runtimeKind = resolveAgentRuntimeKind(agent, {
     isSprintEngineAgent,
     workspaceMode,
@@ -413,7 +413,7 @@ export default function AgentPanel({
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center">
               {sprintEngineTerminalBlocked ? (
                 <div className="max-w-sm text-meta leading-5 text-[color:var(--text-muted)]">
-                  {MULTICODE_SAFE_MODE
+                  {SAFE_MODE
                     ? 'Safe mode is active. Sprint agent terminals are not auto-mounted.'
                     : 'Sprint agent terminals are disabled for this diagnostic run.'}
                 </div>

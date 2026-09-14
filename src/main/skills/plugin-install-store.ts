@@ -4,7 +4,7 @@
 // enabled — and what a later sync compares commits against.
 //
 // The workspace's own files stay the truth for what an agent reads (skill
-// directories, the settings key); this store only says what Multicode wrote,
+// directories, the settings key); this store only says what the studio wrote,
 // so it can take it back and can tell an update from a first install.
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'

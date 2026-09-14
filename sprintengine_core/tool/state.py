@@ -23,7 +23,7 @@ def apply_role_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
     """Record the roster's per-role execution runtime (model/cli/reasoning) at init.
 
     `raw_json` is a JSON object `{role: {"model": str, "cli": str, "reasoning": str}}`
-    supplied by Multicode from the workspace roster's per-role selection. Entries
+    supplied by the studio from the workspace roster's per-role selection. Entries
     with no usable model AND no usable cli are dropped (a role left on the CLI's
     default model records nothing, so no model flag is fabricated). Merges into
     any existing map so a re-init preserves roles it does not mention.
@@ -73,7 +73,7 @@ def apply_role_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
 def apply_configured_roles(state: Dict[str, Any], raw_json: Optional[str]) -> None:
     """Persist the run's explicit enabled-role set at init.
 
-    `raw_json` is a JSON array of role ids supplied by Multicode from the
+    `raw_json` is a JSON array of role ids supplied by the studio from the
     workspace roster's enabled roles. Post-MC-1542 this is the run's LEGAL ROLE SET:
     the roles a task may be tagged with (`plan.add_task` enforces membership). The
     role need only be enabled here, not currently seated in `agents`, so a lazy
@@ -136,7 +136,7 @@ def apply_init_source(
 ) -> None:
     """Seed the sprint source at creation time (app-created runs).
 
-    Multicode passes the already-resolved source metadata so the seed lands in
+    The studio passes the already-resolved source metadata so the seed lands in
     run.yaml at t=0 — the Sprint Inbox has an honest "Started from" the moment the
     run exists, independent of any agent later running `handover`. Both carry the
     same shapes the handover command writes: `source` a single dict (kind/origin/
@@ -996,7 +996,7 @@ def role_runtime(state: Dict[str, Any], role: Optional[str]) -> Dict[str, Any]:
 
     Written once at run init from the workspace roster's per-role model/CLI
     selection (see cmd_init). This is the source of truth for stamping a task's
-    execution model on the normal Multicode path, where claims arrive over the
+    execution model on the normal studio path, where claims arrive over the
     shared HTTP MCP hub with no per-agent context to carry the model.
     """
     role_key = str(role or "").strip()

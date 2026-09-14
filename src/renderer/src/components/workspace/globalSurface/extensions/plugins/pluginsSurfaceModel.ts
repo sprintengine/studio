@@ -51,13 +51,13 @@ export function derivePluginsKindStateLine(
   sourcesLoad: SkillSourcesLoad,
   sources: readonly SkillSource[],
   scans: Readonly<Record<string, SkillScanLoad>>,
-  /** The Multicode marketplace's count once it answered; null while it has not. */
+  /** The studio marketplace's count once it answered; null while it has not. */
   registryCount: number | null = null,
 ): string {
   if (sourcesLoad.status === 'loading') return 'Loading…'
   if (sourcesLoad.status === 'error') return 'Sources unavailable'
   const sourceLine = `${sources.length} source${sources.length === 1 ? '' : 's'}`
-  // The Multicode source's plugins are the registry's, not its scan's.
+  // The studio source's plugins are the registry's, not its scan's.
   const scanned = sources.filter((source) => source.id !== STUDIO_SKILL_SOURCE_ID)
   const loads = scanned.map((source) => scans[source.id])
   if (loads.some((load) => !load || load.status !== 'ready')) return sourceLine

@@ -137,7 +137,7 @@ def _resolve_execution_identity(args: argparse.Namespace) -> Tuple[Optional[str]
     """Explicit CLI model/CLI override to stamp onto a claimed task.
 
     Only the `--model`/`--cli` flags are read here — an explicit override for
-    headless / non-Multicode CLI callers. When absent (the normal Multicode
+    headless / non-studio CLI callers. When absent (the normal studio
     path, where claims arrive over the shared HTTP MCP hub with no per-agent
     context), assign_task falls back to the run's per-role runtime map. We do
     NOT read process env: the hub is a single app-process server, so an env var

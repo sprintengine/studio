@@ -122,7 +122,7 @@ def test_bare_soul_excludes_host_and_sprintengine_layers() -> None:
 
 
 def test_layered_soul_includes_each_shared_section_once() -> None:
-    # A Sprint Engine dispatch layers the Multicode product skills and quality
+    # A Sprint Engine dispatch layers the studio's product skills and quality
     # norms on top of the soul; each appears exactly once.
     rendered = render_soul("developer", extra_skills=SPRINTENGINE_SOUL_EXTRA_SKILLS)
 
@@ -139,7 +139,7 @@ def test_layered_soul_includes_each_shared_section_once() -> None:
 
 
 def test_standalone_soul_layers_multicode_skills_only() -> None:
-    # The standalone (dropdown) spawn layers Multicode product skills but not
+    # The standalone (dropdown) spawn layers studio product skills but not
     # the Sprint Engine quality norms.
     rendered = render_soul("developer", extra_skills=MULTICODE_LAYER_SKILLS)
 

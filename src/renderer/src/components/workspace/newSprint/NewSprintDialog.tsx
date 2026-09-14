@@ -201,7 +201,7 @@ export default function NewSprintDialog({
   /** A preloaded source (`initialFuturePlan` seam): the backlog context action
    *  and every other plan-sourced entry arrive with the selection made. */
   initialSource: FuturePlanWorkspaceSource | null
-  /** The projects open in Multicode, for the header chip. */
+  /** The projects open in the studio, for the header chip. */
   projectOptions: NewSprintDialogProject[]
   workspaceWindowId: WorkspaceWindowId
   onClose: () => void

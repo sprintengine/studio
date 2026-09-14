@@ -815,7 +815,7 @@ export function migratePersistedWorkspaceState(
   }
   if (version < 57) {
     // Sprint Engine roster membership is durable, but app-owned terminal
-    // processes are not. Clear stale launch intent so reopening Multicode or
+    // processes are not. Clear stale launch intent so reopening the studio or
     // restoring an agent tab does not spawn autonomous agents.
     mapMigrationWorkspaces(migrationState, clearSprintEngineAgentLaunchState)
   }

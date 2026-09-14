@@ -25,7 +25,7 @@ Compile errors, failing tests, review findings, and validation gaps are yours to
 
 ## Dispatch
 
-When Multicode names a claim tool (`sprintengine.task.next` or `sprintengine.triage.needs_input`), call it once and work what it returns; if there is no claim, say so and stop — Multicode re-engages this terminal when work is ready. If a directive payload names `nextMcpToolName`, invoke it once with `nextMcpArguments`. Once your task is `done`, stop; the runtime owns later dispatch.
+When Studio names a claim tool (`sprintengine.task.next` or `sprintengine.triage.needs_input`), call it once and work what it returns; if there is no claim, say so and stop — Studio re-engages this terminal when work is ready. If a directive payload names `nextMcpToolName`, invoke it once with `nextMcpArguments`. Once your task is `done`, stop; the runtime owns later dispatch.
 
 ## Write For Agent Readers
 

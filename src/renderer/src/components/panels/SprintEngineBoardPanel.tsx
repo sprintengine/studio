@@ -110,7 +110,7 @@ import {
  publishSprintEngineAutomationModeNotification,
 } from '../../utils/sprintengineNotifications'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
-import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
+import { DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { findFirstUncoveredSprintEngineRole } from '../../utils/sprintengineRoleOptions'
 import { buildSprintEnginePlanRevisionForNewMemberPrompt } from '../../utils/sprintengineAgentPrompts'
 import {
@@ -983,7 +983,7 @@ export function SprintRunBoard({
  if (!savedFolderPath) {
  setSyncState({
  status: 'idle',
- message: MULTICODE_DISABLE_SPRINTENGINE_SYNC
+ message: DISABLE_SPRINTENGINE_SYNC
  ? 'Auto-sync off (debug). Choose a workspace folder, then refresh the board.'
  : 'Choose a workspace folder to watch agent-managed sprint state.',
  })
@@ -1009,7 +1009,7 @@ export function SprintRunBoard({
  // Debug escape: projection polling is disabled, so the board is not watching
  // live agent-managed state. It only updates on manual refresh or agent
  // mutations, and the operator signal must say so rather than claim "live".
- if (MULTICODE_DISABLE_SPRINTENGINE_SYNC) {
+ if (DISABLE_SPRINTENGINE_SYNC) {
  setSyncState({
  status: 'idle',
  message: 'Auto-sync off (debug). Refresh board to read the latest projection.',
@@ -2731,7 +2731,7 @@ export function SprintRunBoard({
  const boardFreshnessBanner = (() => {
  const isSyncing = syncState.status === 'syncing'
  const isError = syncState.status === 'error'
- if (!isSyncing && !isError && !MULTICODE_DISABLE_SPRINTENGINE_SYNC) return null
+ if (!isSyncing && !isError && !DISABLE_SPRINTENGINE_SYNC) return null
  const tone: Tone = isError ? 'error' : isSyncing ? 'accent' : 'warn'
  const heading = isError ? 'Refresh failed' : isSyncing ? 'Refreshing board' : 'Auto-sync off · debug'
  const detail = isError

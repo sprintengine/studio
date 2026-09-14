@@ -135,7 +135,7 @@ def test_worktree_discipline_emitted_from_single_template_site() -> None:
     shared_lines = (
         "## Execution Workspace Discipline",
         "- Treat task-owned paths as the primary edit surface and collision boundary.",
-        "- The canonical plan is normally `.sprintengine/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
+        "- The canonical plan is normally the `plan.md` beside this run's `run.yaml` in the Sprint Engine run store; do not use any other `plan.md` found by search.",
     )
     for line in shared_lines:
         assert plan_block.count(line) == 1, f"plan block must emit {line!r} exactly once"

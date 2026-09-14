@@ -2,7 +2,7 @@
 //
 // Spawns the user's own installed Claude Code CLI headlessly (subscription
 // auth — whatever `claude auth login` already holds; no API key touches this
-// path) and maps the SDK's message stream onto Multicode's canonical
+// path) and maps the SDK's message stream onto the studio's canonical
 // ConversationEvents. One long-lived child process per session, kept across
 // turns via the SDK's streaming-input mode; the CLI session id is surfaced as
 // `session_updated` events so the runtime can resume natively after the

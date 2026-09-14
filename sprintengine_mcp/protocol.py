@@ -2,7 +2,7 @@
 
 One table, imported by every transport (`server.py` stdio dispatch,
 `http_server.py`), because the previous inline constants are exactly how the two
-Multicode MCP servers drifted apart — the socket gateway defaulted to
+studio MCP servers drifted apart — the socket gateway defaulted to
 `2025-03-26` while this engine defaulted to `2024-11-05`.
 
 A version belongs here only once the semantics behind it exist: answering

@@ -10,7 +10,7 @@
 // does not re-fire module callbacks.
 
 export type ModuleAgentSessionView = {
-  /** Multicode's terminal-tracking id (stable per session). */
+  /** The studio's terminal-tracking id (stable per session). */
   sessionId: string
   agentId: string | null
   /** Display name from spawn metadata, when known. */

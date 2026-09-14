@@ -1,6 +1,6 @@
 // @sprintengine/module-sdk — BYO-CLI plugin authoring contract.
 //
-// A CLI plugin is a folder containing a `plugin.json` that tells Multicode how
+// A CLI plugin is a folder containing a `plugin.json` that tells the studio how
 // to launch, resume, drive and complete an agent CLI (e.g. claude-code, codex,
 // opencode). Drop it into `~/.multicode/plugins/<id>/` or install it from
 // Settings → Agents → "Install CLI from folder". The plugin id must equal the
@@ -8,7 +8,7 @@
 // overrides the bundled one.
 //
 // This is the SINGLE SOURCE OF TRUTH for CLI manifest validation: the running
-// Multicode app validates a plugin.json by delegating to validateCliPluginManifest
+// studio validates a plugin.json by delegating to validateCliPluginManifest
 // here (src/main/plugin-manifest-validate.ts imports it directly from the SDK
 // source, the same way the third-party module manifest validator is shared), so
 // the published authoring contract and the app's loader cannot drift. It is pure
@@ -213,7 +213,7 @@ export type CliSoulsSpec = {
 
 /**
  * Authoritative agent-state integration: how the CLI's lifecycle hooks are
- * registered and how its native event names map to Multicode's shared agent
+ * registered and how its native event names map to the studio's shared agent
  * phase vocabulary. A manifest without this spec declares that the CLI cannot
  * report authoritative agent state. Mirrors the app's `PluginAgentStateSpec`.
  */
@@ -278,14 +278,14 @@ type CliAgentStateSpec = {
    * Opt in to the status-line forwarder: this CLI supports Claude Code's
    * `statusLine` setting, so the install also writes one into the same settings
    * file, wrapping whatever status line the person already configured. It is
-   * how Multicode learns a session's context-window usage; no hook event
+   * how the studio learns a session's context-window usage; no hook event
    * carries that number. Only meaningful for a `settings-json` registration.
    */
   statusLine?: boolean
 }
 
 /**
- * A credential the CLI needs to reach an authenticated endpoint. Multicode
+ * A credential the CLI needs to reach an authenticated endpoint. The studio
  * stores the value in its shared, encrypted credential store and exposes it to
  * `launch.env` as `{{secret}}` at spawn time — the token never appears in argv
  * or the manifest. `env` optionally names an environment variable consulted as a
@@ -384,7 +384,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /**
  * Validate an untrusted value as a CLI plugin manifest. Pure structural check
  * mirroring the app's required-field rules: a manifest that passes here is
- * accepted by Multicode's loader (which re-validates and additionally checks
+ * accepted by the studio's loader (which re-validates and additionally checks
  * deep skill/template details). Provider manifests (`kind: 'provider'`) are not
  * handled here.
  */

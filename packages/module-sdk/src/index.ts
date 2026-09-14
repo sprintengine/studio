@@ -1,7 +1,7 @@
 // @sprintengine/module-sdk — the published contract surface external authors
-// compile against when building Multicode capability modules.
+// compile against when building SprintEngine Studio capability modules.
 //
-// The repository is the consumer-of-record: a drift guard inside the Multicode
+// The repository is the consumer-of-record: a drift guard inside the studio
 // repo (packages/module-sdk/drift/sdk-drift-guard.ts) type-checks that these
 // declarations stay equivalent to (or sound narrowings of) the in-app
 // contracts, and that mirrored value exports stay identical. The SDK never
@@ -120,7 +120,8 @@ export type CapabilityPermission =
   // started and named, never another module's and never the user's.
   | 'agents:session'
   // Persist the module's own data through the SDK's scoped storage service
-  // (host-placed: workspace `.multi-code/modules/<id>/` or per-user app data).
+  // (host-placed: the workspace's app-owned `.sprintengine/modules/<id>/`, or
+  // per-user app data).
   | 'storage'
   | (string & {})
 
@@ -1133,7 +1134,7 @@ export type ModuleStorageResult<T> =
 /**
  * Per-module, per-workspace JSON storage, scoped to your module by
  * `getModuleStorage(host)`. The host owns file placement — workspace-scoped
- * keys live in the workspace folder (`.multi-code/modules/<moduleId>/`),
+ * keys live in the workspace's app-owned folder (`.sprintengine/modules/<moduleId>/`),
  * global keys under the app's per-user data — so modules stop inventing
  * locations (home-dir files, raw localStorage). Keys match
  * `^[a-z0-9][a-z0-9._-]{0,63}$`; values must be JSON-serializable and at most
@@ -1915,7 +1916,7 @@ export type ModuleColorScheme = 'light' | 'dark'
 
 /** Read-only view of one live agent session (enum-ish fields widened to string). */
 export type ModuleAgentSessionView = {
-  /** Multicode's terminal-tracking id (stable per session). */
+  /** The studio's terminal-tracking id (stable per session). */
   sessionId: string
   agentId: string | null
   /** Display name from spawn metadata, when known. */
@@ -2288,7 +2289,7 @@ export function setFileDropData(dataTransfer: DataTransfer, payload: FileDropPay
 }
 
 /**
- * Whether a drag carries the Multicode file-drop payload (or native OS files).
+ * Whether a drag carries the studio's file-drop payload (or native OS files).
  * Use this during `dragover` — the HTML DnD protected mode blanks `getData`
  * there, so `readFileDropPayload` only works inside the `drop` handler.
  */
@@ -2298,7 +2299,7 @@ export function hasFileDropData(dataTransfer: DataTransfer): boolean {
 }
 
 /**
- * Read a Multicode file-drop payload off a drop event's dataTransfer. Returns
+ * Read the studio's file-drop payload off a drop event's dataTransfer. Returns
  * null — never throws — when the MIME entry is absent, the JSON is
  * unparseable, the version is unknown (future versions ⇒ null; handle it), or
  * the shape is invalid. A Backlog-item drag carries the item's markdown file
@@ -2421,7 +2422,7 @@ export {
 
 // ── BYO-CLI plugin authoring (kind: 'cli') ───────────────────────────────────
 // A CLI plugin is a separate artifact from a capability module: a `plugin.json`
-// dropped into ~/.multicode/plugins/<id>/ that teaches Multicode a new agent
+// dropped into ~/.multicode/plugins/<id>/ that teaches the studio a new agent
 // CLI. Pure validator + types, safe in any runtime.
 
 export {
@@ -2462,7 +2463,7 @@ export {
 // A marketplace plugin is a signed bundle manifest (`plugin.json`) that points
 // at existing primitives: MCP configs, skill directories, capability modules,
 // and BYO-CLI plugin folders. The app re-exports these helpers from its shared
-// marketplace module, so SDK authors and Multicode verify the same shape.
+// marketplace module, so SDK authors and the studio verify the same shape.
 
 export {
   MARKETPLACE_COMPONENT_KINDS,

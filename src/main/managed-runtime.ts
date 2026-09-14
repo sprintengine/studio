@@ -1,4 +1,4 @@
-// Single source of truth for resolving the runtimes Multicode's own features
+// Single source of truth for resolving the runtimes the studio's own features
 // run on:
 //
 //   * Python  — used by Sprint Engine and souls. We

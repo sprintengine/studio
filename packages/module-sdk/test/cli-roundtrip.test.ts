@@ -23,7 +23,7 @@ import { join } from 'node:path'
 import { buildSync } from 'esbuild'
 
 import { BUNDLED_MODULE_IDS } from '../src/index.js'
-// App-side trust flow: the exact modules the Multicode app uses on install.
+// App-side trust flow: the exact modules the studio uses on install.
 import { parseThirdPartyModuleManifest } from '../../../src/shared/modules/third-party-manifest'
 import { parseMarketplacePluginManifest } from '../../../src/shared/marketplace'
 import { classifySignedManifestTrust, verifyModuleSignature } from '../../../src/main/modules/module-signature'

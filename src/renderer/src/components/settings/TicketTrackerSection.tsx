@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 //
 // "Connect my ticket tracker to my agents" is answered by installing that
 // tracker's MCP, so an agent can read and update tickets during a run. That is
-// the whole integration: Multicode itself does not talk to trackers, because
+// the whole integration: the studio itself does not talk to trackers, because
 // browsing tickets in an IDE competes with the tracker's own UI and loses.
 //
 // This pane used to list the trackers itself, from rows in the bundled MCP

@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { freemem, totalmem } from 'node:os'
 import type { SystemMemorySample } from '../shared/electron-api'
 
-// OS-wide memory is what actually predicts system exhaustion across Multicode,
+// OS-wide memory is what actually predicts system exhaustion across the studio,
 // other apps, and the OS. getAppMetrics only sees Electron's own processes, so
 // the panel needs this separate availability estimate. Sampled on a throttle off
 // the hot path, mirroring thread-counts / child-process-metrics.

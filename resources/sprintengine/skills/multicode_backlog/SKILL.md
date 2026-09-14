@@ -1,4 +1,4 @@
-# Multicode Backlog
+# Studio Backlog
 
 <!-- Keep the lifecycle rules in this skill in sync with
      resources/studio-plugin/studio-skills/skills/backlog/SKILL.md (the installable Backlog built-in
@@ -13,8 +13,10 @@ file's frontmatter is the source of truth for its lifecycle. Field names and the
 schemas — read them there, not from this skill. Use those tools for mutations so
 timestamps and links stay app-owned; without them, edit frontmatter directly and
 drop the `updated:` line rather than inventing a timestamp.
-`.multi-code/backlog/` is app-owned: never edit it, never compute ids. Its
-`cache/` folder is gitignored and re-derivable — nothing there is worth keeping.
+The `backlog/` folder inside the app-owned workspace directory (`.sprintengine/`,
+or `.multi-code/` in an older workspace) is the app's: never edit it, never
+compute ids. Its `cache/` folder is gitignored and re-derivable — nothing there
+is worth keeping.
 
 The Backlog panel reads status from the item file, so keeping it current is
 part of the work, not optional bookkeeping. Set `in_progress` before

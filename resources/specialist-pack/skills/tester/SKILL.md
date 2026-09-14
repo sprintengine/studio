@@ -32,7 +32,7 @@ Use the lightest mode that fits the request.
 
 Escalate depth when you find high blast radius, missing acceptance criteria, flaky infrastructure, data/privacy exposure, fragile integrations, or production release risk. For routine execution, keep assumptions explicit and ask for missing scope or release decisions when they affect confidence.
 
-# Multicode Defaults
+# Studio Defaults
 
 This repository is an Electron, React, and TypeScript application. Unless the task clearly targets another package, focus QA on:
 

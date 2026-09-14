@@ -26,7 +26,7 @@ type PlanFileSprintEngineHandoffPromptArgs = {
   // backlog-sourced sprints so the canonical design docs stay authoritative and
   // are reviewed/updated in place.
   reference?: boolean
-  // When true, the Multicode app already seeded the source into run.yaml and ran
+  // When true, the studio already seeded the source into run.yaml and ran
   // init at workspace creation, so the architect prompt drops the handover step:
   // a second handover errors ("Team already has bootstrap files") and confuses
   // the agent. CLI/headless starts (which build their own prompt in Python) and

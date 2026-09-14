@@ -374,10 +374,10 @@ def test_every_pack_role_manifest_has_expected_shared_skill_boundary() -> None:
     """Regression: specialist-pack role manifests carry only the portable identity.
 
     Roles are pluggable: a pack ships the role's own directive packs and nothing
-    else. The Multicode product layer (Backlog, Knowledge Graph) and the Sprint
+    else. The studio product layer (Backlog, Knowledge Graph) and the Sprint
     Engine layer (quality norms + coordination skills) are composed on top at spawn
     time via render_soul(extra_skills=...), never referenced by the manifest. A
-    manifest that bakes in a layer skill re-couples the role to Multicode or
+    manifest that bakes in a layer skill re-couples the role to the studio or
     Sprint Engine, which this test exists to prevent.
     """
     from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS

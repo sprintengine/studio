@@ -366,7 +366,7 @@ function buildSprintEngineClaimInstructionBlock(
     '```json',
     JSON.stringify(payload, null, 2),
     '```',
-    'Work what it returns. If it returns no claim, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.',
+    'Work what it returns. If it returns no claim, reply that no work was claimed and stop — Studio re-engages this terminal when work is ready.',
   ].join('\n')
 }
 
@@ -1143,7 +1143,7 @@ function planSprintEngineClaimedWorkRespawns(
       role: claim.role,
       taskId: claim.taskId,
     }
-    // Only Multicode-managed roster agents can be respawned; headless CLI
+    // Only studio-managed roster agents can be respawned; headless CLI
     // claimants have no renderer-owned terminal to recover.
     if (!workspace.agents[claim.agentId]) {
       plan.skips.push({ event: 'respawn-skipped-unmanaged-claimant', data: respawnData })

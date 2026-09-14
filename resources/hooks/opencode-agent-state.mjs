@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Multicode authoritative-agent-state reporter for OpenCode.
+// SprintEngine Studio authoritative-agent-state reporter for OpenCode.
 //
 // Unlike Claude Code / Codex — which run an external command per lifecycle event
 // and pipe a JSON payload to its stdin — OpenCode has no command-hook mechanism.
 // It auto-loads in-process JS plugins from .opencode/plugin/ and lets them
 // subscribe to a typed event stream. So this reporter is an OpenCode *plugin*,
 // not a stdin filter: it maps OpenCode events to the same agent-state phases and
-// writes the same newline-delimited JSON frame to the Multicode agent-state
+// writes the same newline-delimited JSON frame to the studio's agent-state
 // socket that the .claude/.codex reporter writes, so the runtime ingestion is
 // unchanged.
 //

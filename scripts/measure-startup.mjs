@@ -109,7 +109,7 @@ async function reportStartup() {
 }
 
 // A launch is measured under an ALLOWLISTED environment, not this process's.
-// The harness is usually run from an agent terminal inside a running Multicode
+// The harness is usually run from an agent terminal inside a running studio
 // dev host, whose environment carries `ELECTRON_RENDERER_URL`,
 // `NODE_ENV=development` and friends — inherit those and the app under
 // measurement quietly loads the host's vite dev server instead of the build you

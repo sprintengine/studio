@@ -44,7 +44,7 @@ export const SPRINT_ENGINE_MIN_READABLE_RUN_SCHEMA_VERSION = 4
  * and is therefore version 1. A payload with no `run` object at all is not a
  * projection; that is malformed input, judged downstream by
  * `normalizeSprintEngineProjection`, and this guard stays silent rather than
- * blaming it on an old Multicode.
+ * blaming it on an old build.
  */
 export function describeUnsupportedSprintEngineStore(projection: unknown, teamDirectory: string): string | null {
   if (!projection || typeof projection !== 'object') return null

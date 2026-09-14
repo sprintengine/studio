@@ -1,7 +1,7 @@
 {
   "name": "@sprintengine/module-sdk",
   "version": "0.6.0",
-  "description": "Published contract types and authoring CLI for building Multicode capability modules and BYO-CLI plugins: manifest, permissions, MainHost/RendererHost contributions, workspace creation, Automations providers, notifications, CLI plugin manifests, and signing.",
+  "description": "Published contract types and authoring CLI for building SprintEngine Studio capability modules and BYO-CLI plugins: manifest, permissions, MainHost/RendererHost contributions, workspace creation, Automations providers, notifications, CLI plugin manifests, and signing.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

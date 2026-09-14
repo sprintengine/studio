@@ -3,8 +3,8 @@
 The rules this system enforces that tokens alone cannot. Tokens decide what a
 value is; these decide when you are allowed to reach for it.
 
-This file is the authority on how Multicode looks. Where it and your instincts
-disagree, it wins. Where it is silent, decide, and add the rule here.
+This file is the authority on how SprintEngine Studio looks. Where it and your
+instincts disagree, it wins. Where it is silent, decide, and add the rule here.
 
 ## Restraint
 
@@ -384,12 +384,13 @@ a consequence the user cannot see (where a file will be written), or a fact
 they cannot infer (which project this adopted as its home).
 
 **The product does not name itself.** UI copy never says the application's
-name. "Multicode will run this command", "cannot be undone from Multicode",
-"while Multicode is open" — every one of these is the app narrating itself in
-the third person, and no serious product does it. Write the sentence without
-the name: "Will run:", "cannot be undone from here", "while the app is open".
-The name belongs in exactly four places: the window title, the About/version
-line, the sign-in and account surfaces, and first-run onboarding.
+name. "SprintEngine Studio will run this command", "cannot be undone from
+SprintEngine Studio", "while SprintEngine Studio is open" — every one of these
+is the app narrating itself in the third person, and no serious product does
+it. Write the sentence without the name: "Will run:", "cannot be undone from
+here", "while the app is open". The name belongs in exactly four places: the
+window title, the About/version line, the sign-in and account surfaces, and
+first-run onboarding.
 
 The one carve-out is the brand **wordmark**, which may appear exactly once, as
 window chrome at the top of the left column. A mark is not a sentence: it

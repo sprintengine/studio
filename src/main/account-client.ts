@@ -20,7 +20,7 @@ import {
 import { getErrorMessage } from './error-message'
 import { isEntitlementSnapshotFresh } from './entitlement-service'
 
-// The desktop's client for the Multicode ACCOUNT SERVICE (`MULTIAUTH_BASE_URL`):
+// The desktop's client for the studio's ACCOUNT SERVICE (`MULTIAUTH_BASE_URL`):
 // entitlements, the account profile, and — through whichever identity
 // provider the service names — sign-in, refresh and sign-out (MC-2183).
 // Everything Electron (safeStorage files, the marker file, the browser
@@ -81,7 +81,7 @@ export type AccountClientOptions = {
   discoveryTimeoutMs?: number
 }
 
-// A Clerk token carries no Multicode organisation; the account service reads
+// A Clerk token carries no studio organisation; the account service reads
 // the selected one from this header (MC-2185). Ignored for Multiauth tokens.
 export const ORGANIZATION_HEADER = 'x-multiauth-organization'
 const IDENTITY_DISCOVERY_PATH = '/api/auth/identity'

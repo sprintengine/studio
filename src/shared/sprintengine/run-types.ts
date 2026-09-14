@@ -20,7 +20,7 @@ export type AgentId = string
 // `resources/specialist-pack/roles/` (MC-1587), not the bundled root, but the
 // union is retained because it still types first-party config shapes such as
 // default skill maps, default role counts, and CLI defaults — those are
-// Multicode-owned settings, not pluggable role manifests.
+// studio-owned settings, not pluggable role manifests.
 //
 // Pluggable/projection-facing surfaces (task.role, gate.role, agent.role,
 // comment.authorRole, feedback.role, quality-policy gate.role, runtime agent
@@ -116,7 +116,7 @@ export type SprintEngineRunnerPolicy = {
   // The CLI watch loop these fields configured was retired with the CLI-runner
   // era (MC-1827); nothing polls any more. `cliWatchPolling` survives as the
   // run.yaml hint main writes when the automation mode changes, which the
-  // mobile snapshot reads back to derive that mode. Multicode's supervisor
+  // mobile snapshot reads back to derive that mode. The studio's supervisor
   // ignores it and decides spawning from local renderer autoState alone.
   cliWatchPolling: SprintEngineCliWatchPolling
   pollIntervalSeconds: number

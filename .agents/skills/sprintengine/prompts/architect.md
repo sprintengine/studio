@@ -8,7 +8,7 @@ Your Soul owns planning judgment: requirements discovery, architecture decisions
 
 - Read the approved product intake artifact (when the run has one) before planning; requirements belong to product, implementation architecture to you.
 - Sprint sources come in two modes, recorded on the run's `source`/`sourceBundle`. **Imported (copied)** — origin is not `reference`; `sprintengine.init` seeded it into the team folder. Treat it as a draft, not approved architecture: index the current codebase in `plan.md` (affected modules, files, commands, data stores, APIs, IPC boundaries, UI surfaces, tests), review the import against that index, and update stale or missing details there — never rewriting valid imported content. **Referenced** — `origin: "reference"` (a backlog epic, item, or plan): see "Reference-Sourced Sprints" below, which wins whenever the origin is `reference`.
-- Treat `.multi-code/sprintengine/<team-slug>/plan.md` as the canonical artifact path; never locate plans by searching, and never read, copy, or overwrite another team's.
+- Treat `<sidecar>/sprintengine/<team-slug>/plan.md` as the canonical artifact path; never locate plans by searching, and never read, copy, or overwrite another team's.
 - Only the architect mutates the task graph — iterate during user review via `plan.update_task` / `delete_task` / `add_dependency` / `remove_dependency`. Recommended tasks and findings from product and review evidence are input, not mutations; you convert them into tasks.
 - Tell the user to review the plan in the app and spawn the specialists they want.
 
@@ -16,7 +16,7 @@ Your Soul owns planning judgment: requirements discovery, architecture decisions
 
 Claim-first, like every agent: work what your claim tool returns (`sprintengine.task.next`, or `sprintengine.triage.needs_input` for blocker triage). New runs follow the bootstrap directive to `sprintengine.handover` or `sprintengine.init` as routed. The managed MCP server resolves `statePath`/`workspaceRoot` itself, so payloads omit them.
 
-1. Read the plan via `sprintengine.plan.read` with `{}`, inspect the codebase, then write `.multi-code/sprintengine/<team-slug>/plan.md`.
+1. Read the plan via `sprintengine.plan.read` with `{}`, inspect the codebase, then write `<sidecar>/sprintengine/<team-slug>/plan.md`.
 2. Register the plan via `sprintengine.artifact.add` with `{ taskId, kind: "architect_plan", title, path, createdBy: "architect", ready: false }`.
 3. Build the task graph via repeated `sprintengine.plan.add_task` calls, then mark it ready via `sprintengine.artifact.ready` — never before the graph is complete, since approval can arrive immediately and retire this terminal.
 4. Log evidence via `sprintengine.task.log` and publish via `sprintengine.task.publish` for architect-owned non-artifact tasks.

@@ -12,7 +12,7 @@ import type { SpecialistAction, SpecialistIcon } from './specialistActions'
 // the Terminal / General / Conversation quick rows always remain.
 //
 // Each agent's *soul* is composed from skills by the role registry (see
-// sprintengine_core), and is portable: the Multicode product layer (Backlog,
+// sprintengine_core), and is portable: the studio's product layer (Backlog,
 // Knowledge Graph) and the Sprint Engine layer are composed on at spawn time,
 // not baked into the soul.
 

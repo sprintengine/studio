@@ -219,7 +219,7 @@ async function resolveServers(
   workspaceRoot: string,
 ): Promise<ResolvedMcpServers> {
   const spec = options.lookupManifest(pluginId)?.mcpConfig
-  // No `mcpConfig` block: this CLI reads no MCP config Multicode knows of, which
+  // No `mcpConfig` block: this CLI reads no MCP config the studio knows of, which
   // is an answer rather than a fault.
   if (!spec) return { servers: [], diagnostics: [] }
   const resolved = await options.mcpResolver.resolve({

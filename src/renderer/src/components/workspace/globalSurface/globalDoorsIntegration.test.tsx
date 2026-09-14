@@ -98,7 +98,7 @@ function summary(over: Record<string, unknown>): Record<string, unknown> {
 }
 
 // Two runs in the index: one whose sprint workspace is still open in this
-// Multicode, one whose workspace is long gone.
+// studio, one whose workspace is long gone.
 const runs = [
   summary({
     statePath: residentStatePath,

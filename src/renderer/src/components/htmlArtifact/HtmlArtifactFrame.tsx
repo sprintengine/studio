@@ -172,7 +172,7 @@ function htmlPreviewTitle(relativePath: string, content: string | null): string 
  * Sandboxed HTML preview for a single real file on disk. Reads the file through
  * the existing IPC, re-reads on fs-watch changes and explicit reload, and runs
  * it in an iframe with scripts off by default behind an explicit allow-scripts
- * toggle. Shared by the mockup review tab and the Multicode Design preview pane
+ * toggle. Shared by the mockup review tab and the studio's Design preview pane
  * so the sandbox behavior is defined once. No `webview`; generated HTML never
  * receives same-origin privileges, and the interactive toggle only adds scripts.
  */

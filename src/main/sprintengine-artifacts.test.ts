@@ -267,7 +267,7 @@ async function testReadProjectionRejectsPreMc1542Store(): Promise<void> {
 
 function testDescribeUnsupportedStoreOnlyJudgesRealProjections(): void {
   // No `run` object => not a projection at all. Malformed input is judged
-  // downstream; blaming it on an old Multicode would be a lie.
+  // downstream; blaming it on an old build would be a lie.
   assert.equal(describeUnsupportedSprintEngineStore(null, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ tasks: [] }, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ run: [] }, '/team'), null)

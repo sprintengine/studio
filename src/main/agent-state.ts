@@ -893,7 +893,7 @@ function ensureMatcherBlock(blocks: ClaudeMatcherBlock[], matcher: string | unde
   return next
 }
 
-// Remove every Multicode-tagged reporter entry from ALL event keys, pruning
+// Remove every studio-tagged reporter entry from ALL event keys, pruning
 // emptied matcher-blocks and then emptied event keys. Sweeping all keys — rather
 // than only the currently-registered event set — self-heals an
 // entry left behind by a prior release that registered an event we have since

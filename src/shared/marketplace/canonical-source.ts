@@ -1,4 +1,4 @@
-// Single source of truth for the first-party Multicode marketplace registry
+// Single source of truth for the first-party studio marketplace registry
 // location: the public `sprintengine/studio-releases` repository, which also
 // carries the app's releases and the hosted model feed. The registry client's
 // raw.githubusercontent.com URL, the plugin downloader's GitHub contents API

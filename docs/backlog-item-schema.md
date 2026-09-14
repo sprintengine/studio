@@ -10,9 +10,11 @@ writing the file; existing items are preferably mutated through the validated
 Durable app-written facts live in that same frontmatter: the star (`starred`,
 `highlight`) and the links an item declares (`sprints`, `pr`). What is left is
 volatile — resolved link status, the agent terminal holding an item — and lives
-in `.multi-code/backlog/cache/links.json`, which is gitignored, re-derivable, and
-merged over the file at scan time. It replaced the tracked `items.json`, which
-held both halves and rewrote itself on every resolve tick.
+in `backlog/cache/links.json` inside the app-owned workspace directory
+(`.sprintengine/`, or `.multi-code/` in a workspace made before the 2026-09-08
+rename), which is gitignored, re-derivable, and merged over the file at scan
+time. It replaced the tracked `items.json`, which held both halves and rewrote
+itself on every resolve tick.
 
 This split follows Google Cloud's **Open Knowledge Format (OKF) v0.1**: `backlog/`
 is a bundle of markdown concept files, each with one required `type` field;
@@ -112,7 +114,7 @@ updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently 
 - **updated**: the full ISO-8601 UTC instant of the latest real content or
   frontmatter mutation, including hours, minutes, and seconds (the canonical
   writer emits milliseconds). App/API writers own this field and stamp it
-  automatically. Agents should use `backlog.update` when the Multicode
+  automatically. Agents should use `backlog.update` when the studio's
   automation MCP is available and must not supply the timestamp. Direct-file
   writers (including agent-authored new files) omit the field or delete the
   stale line instead of estimating one; `YYYY-MM-DD` is not a precise timestamp.
@@ -164,11 +166,12 @@ sizes and prioritizes it.
 
 The human-facing id is `<KEY>-<id>` — `MC-240` — composed at render time from the
 frontmatter `id` integer and a per-workspace **display key**. The key lives in a
-small committed config file `.multi-code/backlog/config.json`
-(`{ "schemaVersion": 1, "key": "MC" }`), so the id reads identically on every
-machine; when absent it is derived from the workspace folder name and persisted.
-Changing the key only changes the displayed prefix — the stored `id` integer is
-the identity and never moves, so a key rename never rewrites item files.
+small committed config file `backlog/config.json` in that same app-owned
+directory (`{ "schemaVersion": 1, "key": "MC" }`), so the id reads identically
+on every machine; when absent it is derived from the workspace folder name and
+persisted. Changing the key only changes the displayed prefix — the stored `id`
+integer is the identity and never moves, so a key rename never rewrites item
+files.
 
 Allocation is **max + 1** over committed frontmatter: no counter file or remote
 daemon. All main-owned id writers (the scan-time backfill, mobile intake, and

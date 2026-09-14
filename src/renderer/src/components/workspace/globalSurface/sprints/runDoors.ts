@@ -42,7 +42,7 @@ import {
 // A run whose projection could not be read carries `coordinatorSeat: null`, and
 // a summary produced by a build older than this field carries none at all. Both
 // mean "this run does not state its kind". Such a run goes to SPRINTS: that is
-// the door every run in this Multicode has always been listed in, so a run we
+// the door every run in this studio has always been listed in, so a run we
 // cannot classify stays where its operator last saw it instead of disappearing,
 // and it is never claimed by Workflows — a door may only claim a run that
 // positively declares a named seat. Cancelled runs, completed runs and runs that

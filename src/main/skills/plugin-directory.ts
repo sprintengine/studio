@@ -23,7 +23,7 @@
 // the agent-state reporter already lives in — a plugin's directory is
 // per-workspace because installs are, and it must be writable because
 // `bun install` writes `node_modules` into it. NOT `.multicode/plugins`:
-// `plugin-registry.ts` uses `~/.multicode/plugins` for Multicode's own modules,
+// `plugin-registry.ts` uses `~/.multicode/plugins` for the studio's own modules,
 // and a person who opens their home directory as a workspace would have the two
 // meet.
 //

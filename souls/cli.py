@@ -46,8 +46,8 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_get(args: argparse.Namespace) -> int:
-    # The portable soul is the role identity only. Multicode-managed spawns layer
-    # the Multicode product skills (Backlog, Knowledge Graph) on top by default;
+    # The portable soul is the role identity only. Studio-managed spawns layer
+    # the studio's product skills (Backlog, Knowledge Graph) on top by default;
     # `--bare` renders the pack-portable soul without any host layer.
     extra_skills = () if args.bare else MULTICODE_LAYER_SKILLS
     try:
@@ -122,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--bare",
         action="store_true",
-        help="Render only the portable soul identity, without the Multicode product skill layer.",
+        help="Render only the portable soul identity, without the studio's product skill layer.",
     )
     p.set_defaults(handler=cmd_get)
 

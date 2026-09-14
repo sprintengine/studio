@@ -338,7 +338,7 @@ async function runVersionProbe(input: {
 }
 
 // PATH augmentation matching what terminal launches get (managed runtime shims
-// + the Multicode CLI bin dir), so a managed install is never invisible to a
+// + the studio's CLI bin dir), so a managed install is never invisible to a
 // probe.
 export function defaultProbeEnv(): NodeJS.ProcessEnv {
   return withMulticodeCliPath(managedInstallEnv() ?? stringProcessEnv())

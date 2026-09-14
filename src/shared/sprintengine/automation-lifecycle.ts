@@ -251,7 +251,7 @@ export function transitionSprintEngineAutomation(
 /**
  * Bridge from the three-state automation mode to the two-state headless-CLI
  * polling flag. Manual = headless `join --watch` exits when idle; any
- * automation mode = headless `join --watch` keeps polling. The Multicode
+ * automation mode = headless `join --watch` keeps polling. The studio
  * supervisor itself does not consult this value, but the one authoritative
  * set-mode path writes it so a headless CLI agent opened against the same run
  * respects the user's intent.

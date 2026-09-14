@@ -89,7 +89,7 @@ is no longer the *only* source the app will consume:
 
 ## Verification
 
-Run this from the Multicode app repo root to validate the local seed registry:
+Run this from the studio repo root to validate the local seed registry:
 
 ```bash
 npm run verify:marketplace-registry
@@ -118,7 +118,7 @@ entry regardless of shape — an entry with no signature may not set
 `publisher.verified`, and every committed `plugins/<id>/` payload must be
 claimed by an entry the verifier actually checked.
 
-The published registry workflow checks out the Multicode app validation tooling
+The published registry workflow checks out the studio's validation tooling
 and runs:
 
 ```bash
