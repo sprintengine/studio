@@ -10,7 +10,7 @@ import {
   automationsPerProjectMax,
   validateMobileControlSnapshot,
   mobileControlProtocolVersion,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 import { AutomationsStore } from '../../automations/store'
 import { readMobileAutomationSnapshots } from './automations'
 import { deriveWorkspaceId } from './workspace-id'

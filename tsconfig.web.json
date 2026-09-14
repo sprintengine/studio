@@ -6,7 +6,8 @@
     "packages/module-sdk/src/index.ts",
     "packages/module-sdk/src/manifest-validate.ts",
     "packages/module-sdk/src/plugin-manifest.ts",
-    "packages/module-sdk/src/cli-manifest.ts"
+    "packages/module-sdk/src/cli-manifest.ts",
+    "packages/mobile-control-protocol/src/index.ts"
   ],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
   "compilerOptions": {

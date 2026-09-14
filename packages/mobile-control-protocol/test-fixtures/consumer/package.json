@@ -1,0 +1,7 @@
+{
+  "name": "mobile-control-protocol-consumer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stands in for the phone app: no \"type\" field, so TypeScript's node16 emit produces CommonJS that reaches the package through require(), which is how the phone's regression suite loads it.",
+  "license": "MIT"
+}

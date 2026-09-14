@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import { readBacklogEpicChildren, readMobileBacklogWorkspaceSnapshot, resolveBacklogStartContext } from './backlog'
-import type { MobileControlBacklogItemSnapshot } from '../../../shared/mobile-control/protocol'
+import type { MobileControlBacklogItemSnapshot } from '../../../../packages/mobile-control-protocol/src/index'
 
 const generatedAt = '2026-06-27T00:00:00.000Z'
 

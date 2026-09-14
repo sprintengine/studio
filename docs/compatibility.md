@@ -13,7 +13,7 @@ a private data structure, and changing one is not a local edit.**
 | Wire | Version | Window | Declared in |
 |---|---|---|---|
 | Tailnet transport — Studio driving another Studio | `TAILNET_TRANSPORT_VERSION` (integer) | `TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION` .. current | `src/main/automation/tailnet/tailnet-routes.ts` |
-| Mobile control — the phone driving a desktop | `mobileControlProtocolVersion` (integer) | `mobileControlSupportedProtocolVersions` | `src/shared/mobile-control/protocol.ts` |
+| Mobile control — the phone driving a desktop | `mobileControlProtocolVersion` (integer) | `mobileControlSupportedProtocolVersions` | `packages/mobile-control-protocol/src/index.ts` |
 | MCP | dated strings, newest first | every entry in the list | `src/shared/mcp/protocol.ts` |
 
 Two more version numbers are near these and are **not** wire windows.
@@ -71,6 +71,41 @@ meaning or type, a field that is removed, a response whose shape a peer is
 already parsing. Nothing a capability flag can describe should bump the version,
 and nothing a capability flag cannot describe should ship without one.
 
+## The wire version and the npm version
+
+The mobile protocol is the one wire that ships as a package —
+`@sprintengine/mobile-control-protocol`, built from
+`packages/mobile-control-protocol` — so it has two numbers where the others have
+one: `mobileControlProtocolVersion`, the integer on the wire, and the package's
+npm semver.
+
+**The npm major is the wire version.** `mobileControlProtocolVersion` is 2, so
+the package is `2.x.y`. Bumping the wire to 3 means publishing `3.0.0`.
+
+This is not a naming convention dressed up as policy. A wire bump changes which
+peers are refused at the handshake — the one thing every consumer of this package
+depends on — so semver's major is already the correct number for it, and pinning
+the two together means a dependency line states the wire version a build speaks
+without anyone opening the file. `scripts/verify-mobile-protocol-pack.mjs` fails
+the build if they disagree.
+
+| Change | What moves |
+|---|---|
+| A wire version bump — step 1 below says you need one | major, in lockstep with `mobileControlProtocolVersion` |
+| Additive: a new capability, command, event or optional field | minor |
+| A validator fix, or a comment, that changes nothing crossing the wire | patch |
+
+The cost of the rule is that a source-only breaking change — renaming an exported
+type — has no number left to signal itself. Ship it as a minor with the old name
+kept as a deprecated alias. A protocol's consumers cannot absorb two independent
+axes of breakage, and between "the bytes changed" and "an identifier was tidied",
+the bytes are the one a version number owes them.
+
+Note what this does **not** do: it does not put the package's version on the
+wire. Nothing negotiates over semver. The integer is still the only thing a peer
+sees, and the window in `mobileControlSupportedProtocolVersions` is still the only
+thing that decides whether it is accepted.
+
 ## Changing a wire format
 
 If your change alters anything that crosses either wire, do all of this:
@@ -84,8 +119,11 @@ If your change alters anything that crosses either wire, do all of this:
    to prevent.
 3. **Check every enforcement site.** They must agree, or a peer is accepted by
    one and refused by another. Today:
-   `git grep -n 'protocolVersion' -- src | grep -v test` and
-   `git grep -n 'transportVersion' -- src`. Note that this includes the
+   `git grep -n 'protocolVersion' -- src packages | grep -v test` and
+   `git grep -n 'transportVersion' -- src`. The mobile protocol's own
+   declaration moved out of `src` when it became a package, so leave `packages`
+   in that first command — a sweep of `src` alone now silently skips the file
+   the version is declared in. Note that the sites include the
    validators for records read back off **this machine's own disk** — a check
    pinned to the current version alone unpairs every device paired before the
    bump, silently, on the first restart after it.
@@ -94,15 +132,18 @@ If your change alters anything that crosses either wire, do all of this:
    examples are in `src/main/automation/tailnet-peers.test.ts`,
    `src/main/automation/tailnet-fleet-reachability.test.ts` and
    `src/main/mobile/bridge/validation.test.ts`.
-5. **Mirror the mobile protocol module.** `src/shared/mobile-control/protocol.ts`
-   is a byte-identical copy of the phone app's own file, in a repository that is
-   not this one. Both repositories pin its sha256 — here in
-   `src/main/mobile/sprintengine/snapshot.test.ts`, there in
-   `mobileControlProtocol.regression.test.js` — and the guard fails the moment
-   they diverge. Editing that file means making the same edit in the phone's
-   copy and setting both pins to the new shared hash. A desktop-only bump is
-   half a change; the window is the grace period it needs, not permission to
-   skip it.
+5. **Mirror the mobile protocol module, and publish it.** The module now lives
+   in `packages/mobile-control-protocol` and is published as
+   `@sprintengine/mobile-control-protocol`. Until a released phone build depends
+   on that package it still carries its own copy, so
+   `src/main/mobile/sprintengine/snapshot.test.ts` and the phone's
+   `mobileControlProtocol.regression.test.js` still pin the same sha256 of the
+   source and fail the moment the two diverge. Editing the module means making
+   the same edit in the phone's copy, setting both pins to the new shared hash,
+   and publishing a version whose major matches the new wire version. A
+   desktop-only bump is half a change; the window is the grace period it needs,
+   not permission to skip it. `docs/mobile-protocol-package.md` has the
+   migration and the order of operations.
 6. **Update this file**, if what you changed is the policy rather than an
    instance of it.
 

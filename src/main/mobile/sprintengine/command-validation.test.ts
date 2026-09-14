@@ -5,16 +5,17 @@ import {
   mobileControlMinSupportedProtocolVersion,
   mobileControlProtocolVersion,
   mobileControlSupportedProtocolVersions,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 
 // The desktop-side gate on a command that arrived from a phone.
 //
-// It is a second implementation of the check in src/shared/mobile-control/
-// protocol.ts, deliberately — the shared one validates a payload, this one
-// guards a dispatch — so the thing worth pinning is that the two agree about
-// which phones exist. A command accepted by one and refused by the other is a
-// phone that pairs and then cannot do anything, which is the failure the
-// window was widened to avoid rather than one to introduce on the other side.
+// It is a second implementation of the check in the protocol package
+// (packages/mobile-control-protocol), deliberately — the shared one validates a
+// payload, this one guards a dispatch — so the thing worth pinning is that the
+// two agree about which phones exist. A command accepted by one and refused by
+// the other is a phone that pairs and then cannot do anything, which is the
+// failure the window was widened to avoid rather than one to introduce on the
+// other side.
 
 function command(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

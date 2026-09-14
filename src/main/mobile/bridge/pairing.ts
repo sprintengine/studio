@@ -2,7 +2,7 @@ import { CURRENT_DEEP_LINK_SCHEME } from '../../deep-link-scheme'
 import {
   isSupportedMobileControlProtocolVersion,
   type MobileControlProtocolVersion,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 
 type PairingPayload = {
   mobileControlProtocolVersion: MobileControlProtocolVersion

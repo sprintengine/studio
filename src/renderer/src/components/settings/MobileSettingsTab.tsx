@@ -9,7 +9,7 @@ import {
   SettingToggle,
   formatNullableDate,
 } from './SettingsAtoms'
-import type { MobileControlProtocolVersion } from '../../../../shared/mobile-control/protocol'
+import type { MobileControlProtocolVersion } from '../../../../../packages/mobile-control-protocol/src/index'
 
 type MobileControlCommandType =
   | 'snapshot.request'

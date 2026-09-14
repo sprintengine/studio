@@ -15,7 +15,7 @@ import {
   mobileControlProtocolVersion,
   unsupportedMobileControlProtocolVersion,
   type MobileControlProtocolVersion,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 
 // Canonical relay command whitelist: parseRelayCommandEnvelope accepts these
 // inbound and MobileRelayBridge advertises the same list on connect (imported

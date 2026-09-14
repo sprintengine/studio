@@ -12,7 +12,7 @@ import {
   validateMobileControlSnapshot,
   type MobileControlCommand,
   type MobileControlSnapshot,
-} from "./protocol";
+} from "../src/index";
 
 const now = "2026-04-28T19:00:00.000Z";
 

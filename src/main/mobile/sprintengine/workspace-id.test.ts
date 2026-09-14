@@ -11,7 +11,7 @@ import {
 import { sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from './snapshot'
 import { validateMobileWorkspacePath } from './workspace'
 import { dispatchSnapshotRequest } from '../bridge/snapshot-request'
-import { validateMobileControlSnapshot } from '../../../shared/mobile-control/protocol'
+import { validateMobileControlSnapshot } from '../../../../packages/mobile-control-protocol/src/index'
 
 // Mirrors the relay's containsLocalPath guard (multiauth src/relay/result-summary.ts):
 // the sanitized snapshot must contain none of these.

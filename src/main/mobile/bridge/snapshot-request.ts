@@ -7,7 +7,7 @@ import {
   resolveWorkspaceIdToRoot,
   workspaceRootFromStatePath,
 } from '../sprintengine/workspace-id'
-import { mobileSnapshotCollections, type MobileSnapshotCollection } from '../../../shared/mobile-control/protocol'
+import { mobileSnapshotCollections, type MobileSnapshotCollection } from '../../../../packages/mobile-control-protocol/src/index'
 import {
   acceptedBridgeCommand,
   relayResultSummaryMaxBytes,

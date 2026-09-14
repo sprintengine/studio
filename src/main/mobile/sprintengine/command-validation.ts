@@ -4,7 +4,7 @@ import {
   isSupportedMobileControlProtocolVersion,
   mobileControlProtocolVersion,
   unsupportedMobileControlProtocolVersion,
-} from '../../../shared/mobile-control/protocol'
+} from '../../../../packages/mobile-control-protocol/src/index'
 import type {
   MobileControlCommand,
   MobileControlCommandType,
@@ -92,7 +92,7 @@ export function buildError(code: MobileControlError['code'], message: string, re
 }
 
 // Mirrors validateSprintEngineCreateConfig in the shared protocol
-// (src/shared/mobile-control/protocol.ts) — same bounds, desktop-side gate.
+// (packages/mobile-control-protocol/src/index.ts) — same bounds, desktop-side gate.
 const sprintEngineTeamNameMaxChars = 64
 const sprintEngineRoleCountMax = 10
 const sprintEngineRosterMaxRoles = 12

@@ -1,0 +1,4 @@
+dist/
+test-fixtures/*.tgz
+test-fixtures/consumer/node_modules/
+test-fixtures/consumer/out/
