@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { closeSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +15,7 @@ import {
   buildShellIntegrationZshShim,
   replaceFileAtomically,
   applyHostContextToPrompt,
+  cleanupHostContextFile,
   hostContextRenderInputs,
   mergeProviderLaunchEnv,
   type HostContextDelivery,
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
   testPromptModeWritesNoFileAndWrapsTheRequest()
   testPromptModeLeavesAnEmptyComposerAlone()
   testWslAndWindowsNormalizeTheContextPaths()
+  await testCleanupRemovesAFileOrAPluginDirectory()
   testWindowsPowerShellHandsTheExeEveryArgumentIntact()
   testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning()
   testTheZshShimHandsEveryStageBackToTheUsersOwnFiles()
@@ -284,6 +286,26 @@ function testWslAndWindowsNormalizeTheContextPaths(): void {
   // the initial prompt has always done here (and what Windows accepts).
   assert.ok(windows.contextText?.includes('C:\\repo/design-system'), windows.contextText)
   assert.ok(!windows.contextText?.includes('/mnt/c/'), 'no WSL path survives into a native-Windows document')
+}
+
+async function testCleanupRemovesAFileOrAPluginDirectory(): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'se-host-context-'))
+  try {
+    const filePath = join(dir, 's1.md')
+    writeFileSync(filePath, 'host context\n', 'utf8')
+    await cleanupHostContextFile(filePath)
+    assert.equal(existsSync(filePath), false, 'a markdown document is unlinked')
+
+    const pluginRoot = join(dir, 'sid')
+    mkdirSync(join(pluginRoot, '.cursor-plugin'), { recursive: true })
+    mkdirSync(join(pluginRoot, 'rules'), { recursive: true })
+    writeFileSync(join(pluginRoot, '.cursor-plugin', 'plugin.json'), '{}\n', 'utf8')
+    writeFileSync(join(pluginRoot, 'rules', 'host-context.mdc'), 'rule\n', 'utf8')
+    await cleanupHostContextFile(pluginRoot)
+    assert.equal(existsSync(pluginRoot), false, 'a plugin directory is removed recursively')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 main().catch((err) => {

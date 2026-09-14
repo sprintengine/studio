@@ -81,6 +81,7 @@ async function main(): Promise<void> {
     testGrokTakesTheContextTextOnLaunchAndResume()
     testOpenCodeTakesTheContextThroughItsConfigEnv()
     testPromptFallbackCliRendersNoContextFlag()
+    testCursorTakesTheContextAsAPluginDirOnLaunchAndResume()
     testLaunchPreviewNeverShowsHostContext()
     testLaunchPluginDirsReachLaunchAndResume()
     testLaunchSettingsReachLaunchAndResume()
@@ -1188,6 +1189,7 @@ function testNoHostContextRendersNothingAnywhere(): void {
     const out = renderAgentLaunchArgv({ cli, sessionId: 'sid_none' })
     assert.ok(!out.argv.includes('--append-system-prompt-file'), cli)
     assert.ok(!out.argv.includes('--append-system-prompt'), cli)
+    assert.ok(!out.argv.includes('--plugin-dir'), cli)
     assert.ok(!out.argv.some((arg) => arg.startsWith('developer_instructions=')), cli)
     assert.equal('OPENCODE_CONFIG_CONTENT' in out.env, false, cli)
   }
@@ -1309,7 +1311,7 @@ function testOpenCodeTakesTheContextThroughItsConfigEnv(): void {
 // A CLI with no out-of-band channel declares `prompt`: main wraps the document
 // into the prompt instead, and the manifest renders no flag and no env.
 function testPromptFallbackCliRendersNoContextFlag(): void {
-  for (const cli of ['cursor', 'kimi-code', 'muse'] as const) {
+  for (const cli of ['kimi-code', 'muse'] as const) {
     const out = renderAgentLaunchArgv({
       cli,
       sessionId: 'sid_ctx',
@@ -1320,6 +1322,37 @@ function testPromptFallbackCliRendersNoContextFlag(): void {
     assert.ok(!out.argv.includes(HOST_CONTEXT_TEXT), cli)
     assert.deepEqual(out.env, {}, cli)
   }
+}
+
+// Cursor has no system-prompt flag. The document is packed as a plugin
+// directory and handed over --plugin-dir, on launch AND resume, so a resumed
+// session is still told — the same reason Claude's file flag rides resume.
+function testCursorTakesTheContextAsAPluginDirOnLaunchAndResume(): void {
+  const pluginDir = '/ctx/sid-plugin'
+  const launch = renderAgentLaunchArgv({
+    cli: 'cursor',
+    sessionId: 'sid_ctx',
+    initialPrompt: 'fix the tests',
+    contextFile: pluginDir,
+    contextText: HOST_CONTEXT_TEXT,
+  })
+  assert.deepEqual(launch.argv, ['cursor-agent', '--plugin-dir', pluginDir, 'fix the tests'])
+  assert.ok(!launch.argv.includes(HOST_CONTEXT_TEXT), 'the document itself does not ride argv or the prompt')
+  const resume = renderAgentLaunchArgv({
+    cli: 'cursor',
+    sessionId: 'sid_ctx',
+    resume: true,
+    contextFile: pluginDir,
+    contextText: HOST_CONTEXT_TEXT,
+  })
+  assert.deepEqual(resume.argv, [
+    'cursor-agent',
+    '--plugin-dir',
+    pluginDir,
+    '--continue',
+    '--resume',
+    'sid_ctx',
+  ])
 }
 
 // The receipt line previews the flags a launch would carry. Host context is not

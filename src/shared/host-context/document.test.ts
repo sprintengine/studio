@@ -6,6 +6,9 @@ import {
   HOST_CONTEXT_BOUNDARY_LINE,
   HOST_CONTEXT_CLOSE_TAG,
   HOST_CONTEXT_OPEN_TAG,
+  CURSOR_HOST_CONTEXT_PLUGIN_NAME,
+  buildCursorHostContextPluginManifest,
+  buildCursorHostContextRuleFile,
   buildHostContextDocument,
   toTomlBasicString,
   wrapHostContextForPrompt,
@@ -98,6 +101,17 @@ run('the TOML literal survives quotes, backslashes and newlines', () => {
   const literal = toTomlBasicString('line one\nsays "hi" \\ ok')
   assert.equal(literal, '"line one\\nsays \\"hi\\" \\\\ ok"')
   assert.ok(!literal.slice(1, -1).includes('\n'), 'no raw newline inside a basic string')
+})
+
+run('the Cursor plugin rule is always-apply and carries the same document', () => {
+  const doc = buildHostContextDocument({ designSystem: { bundlePath: '/repo/design-system' } }) as string
+  const rule = buildCursorHostContextRuleFile(doc)
+  assert.ok(rule.startsWith('---\n'))
+  assert.match(rule, /^alwaysApply: true$/m)
+  assert.ok(rule.includes(doc), 'the body is the host-context document, not a restatement of it')
+  assert.ok(!rule.includes('<host-context>'), 'prompt tags belong on the prompt fallback, not the rule')
+  const manifest = JSON.parse(buildCursorHostContextPluginManifest()) as { name: string }
+  assert.equal(manifest.name, CURSOR_HOST_CONTEXT_PLUGIN_NAME)
 })
 
 console.log('host-context document tests passed')

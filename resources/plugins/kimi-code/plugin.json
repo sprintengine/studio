@@ -58,7 +58,7 @@
     }
   },
   "contextInjection": {
-    "$comment": "Kimi Code documents no system-prompt flag and no instructions env var; its rules live in files inside the user's repo, which the host must not write into. Prompt fallback, same as cursor.",
+    "$comment": "Kimi Code documents no system-prompt flag and no instructions env var; its rules live in files inside the user's repo, which the host must not write into. Prompt fallback.",
     "mode": "prompt"
   },
   "completion": {

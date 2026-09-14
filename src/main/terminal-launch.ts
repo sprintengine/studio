@@ -1,14 +1,21 @@
 import { app } from 'electron'
 import { createHash, randomUUID } from 'crypto'
 import { chmodSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
-import { unlink } from 'fs/promises'
+import { rm, stat, unlink } from 'fs/promises'
 import { homedir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 import type { PluginContextInjectionMode } from '../shared/plugin-manifest'
 import { applyDebugDirective } from '../shared/debug-directive'
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../shared/design-system/bundle-scaffold'
-import { buildHostContextDocument, wrapHostContextForPrompt } from '../shared/host-context/document'
+import {
+  buildCursorHostContextPluginManifest,
+  buildCursorHostContextRuleFile,
+  buildHostContextDocument,
+  CURSOR_HOST_CONTEXT_PLUGIN_MANIFEST_REL,
+  CURSOR_HOST_CONTEXT_PLUGIN_RULE_REL,
+  wrapHostContextForPrompt,
+} from '../shared/host-context/document'
 import { buildAgentShellCommand, cliTakesLaunchPlugins, pluginIdForCli, renderAgentLaunchArgv, renderCliLaunchEnv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
 import { buildLaunchStatusLineSetting } from './agent-state'
 import { resolveAgentStateSocketPath } from './agent-state-service'
@@ -1305,7 +1312,7 @@ export type HostContextDelivery = {
   mode: PluginContextInjectionMode
   /** The document, or null when the host has nothing to say about this launch. */
   document: string | null
-  /** Where it was written, for the file/env channels. Null in `prompt` mode. */
+  /** Where it was written (markdown file, or a Cursor plugin directory). Null in `prompt` mode. */
   filePath: string | null
 }
 
@@ -1326,7 +1333,8 @@ function resolveHostContextDelivery(input: {
   memoryRootPath?: string
   memoryRelativeRoot?: string
 }): HostContextDelivery {
-  const mode = getPluginManifest(input.cli)?.contextInjection?.mode ?? 'prompt'
+  const injection = getPluginManifest(input.cli)?.contextInjection
+  const mode = injection?.mode ?? 'prompt'
   const bundlePath = join(input.cwd, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)
   const attached = designSystemAttached(bundlePath)
   const document = buildHostContextDocument({
@@ -1345,7 +1353,21 @@ function resolveHostContextDelivery(input: {
       : {}),
   })
   if (!document || mode === 'prompt') return { mode, document, filePath: null }
-  return { mode, document, filePath: writeHostContextFile(input.sessionId, input.cwd, document) }
+  const filePath = contextInjectionWritesPluginDir(injection)
+    ? writeHostContextCursorPlugin(input.sessionId, input.cwd, document)
+    : writeHostContextFile(input.sessionId, input.cwd, document)
+  return { mode, document, filePath }
+}
+
+/**
+ * True when this manifest's argv channel is `--plugin-dir {{contextFile}}`.
+ * Cursor has no system-prompt flag; the document is packed as a one-session
+ * plugin directory and that path is what `{{contextFile}}` names.
+ */
+function contextInjectionWritesPluginDir(
+  injection: { mode?: PluginContextInjectionMode; args?: string[] } | undefined,
+): boolean {
+  return injection?.mode === 'argv' && Boolean(injection.args?.includes('--plugin-dir'))
 }
 
 /** Never let a probe failure (a permission error on the root) fail a launch. */
@@ -1355,6 +1377,13 @@ function designSystemAttached(bundlePath: string): boolean {
   } catch {
     return false
   }
+}
+
+function hostContextSessionKey(sessionId: string, cwd: string): string {
+  return (
+    sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
+    || `cwd-${createHash('sha1').update(cwd).digest('hex').slice(0, 12)}`
+  )
 }
 
 /**
@@ -1370,10 +1399,7 @@ function designSystemAttached(bundlePath: string): boolean {
 function writeHostContextFile(sessionId: string, cwd: string, document: string): string | null {
   try {
     const directory = join(app.getPath('userData'), HOST_CONTEXT_DIRECTORY)
-    const safeSessionId =
-      sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
-      || `cwd-${createHash('sha1').update(cwd).digest('hex').slice(0, 12)}`
-    const filePath = join(directory, `${safeSessionId}.md`)
+    const filePath = join(directory, `${hostContextSessionKey(sessionId, cwd)}.md`)
     mkdirSync(directory, { recursive: true })
     writeFileSync(filePath, `${document}\n`, { encoding: 'utf8', mode: 0o600 })
     return filePath
@@ -1382,10 +1408,33 @@ function writeHostContextFile(sessionId: string, cwd: string, document: string):
   }
 }
 
-/** Reap a session's host-context document, mirroring the startup-script reap. */
-export function cleanupHostContextFile(contextPath: string | undefined): void {
-  if (!contextPath) return
-  void unlink(contextPath).catch(() => {})
+/**
+ * Pack the document as a Cursor plugin directory and return that directory.
+ * `--plugin-dir` requires a directory (CLI 2026.09.10 exits if the path is a
+ * file); a markdown file cannot be passed. The rule is always-apply so resume
+ * still sees it — `sessionStart` does not re-fire on `--continue`.
+ */
+function writeHostContextCursorPlugin(sessionId: string, cwd: string, document: string): string | null {
+  try {
+    const pluginRoot = join(app.getPath('userData'), HOST_CONTEXT_DIRECTORY, hostContextSessionKey(sessionId, cwd))
+    const manifestPath = join(pluginRoot, CURSOR_HOST_CONTEXT_PLUGIN_MANIFEST_REL)
+    const rulePath = join(pluginRoot, CURSOR_HOST_CONTEXT_PLUGIN_RULE_REL)
+    mkdirSync(dirname(manifestPath), { recursive: true })
+    mkdirSync(dirname(rulePath), { recursive: true })
+    writeFileSync(manifestPath, buildCursorHostContextPluginManifest(), { encoding: 'utf8', mode: 0o600 })
+    writeFileSync(rulePath, buildCursorHostContextRuleFile(document), { encoding: 'utf8', mode: 0o600 })
+    return pluginRoot
+  } catch {
+    return null
+  }
+}
+
+/** Reap a session's host-context document or plugin directory. */
+export function cleanupHostContextFile(contextPath: string | undefined): Promise<void> {
+  if (!contextPath) return Promise.resolve()
+  return stat(contextPath)
+    .then((info) => (info.isDirectory() ? rm(contextPath, { recursive: true, force: true }) : unlink(contextPath)))
+    .catch(() => {})
 }
 
 /**

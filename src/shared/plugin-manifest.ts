@@ -64,10 +64,12 @@ type PluginPromptInjection = {
 // this answers "how does everything the HOST wants to say get in, without
 // pretending to be the user".
 //
-// - `argv`  — the CLI takes a system-prompt flag. `args` are substituted
+// - `argv`  — the CLI takes an out-of-band flag. `args` are substituted
 //   templates spread into launch AND resume argv as `contextArgs`, so a resumed
 //   session is re-told (e.g. Claude Code:
-//   ["--append-system-prompt-file", "{{contextFile}}"]).
+//   ["--append-system-prompt-file", "{{contextFile}}"]; Cursor:
+//   ["--plugin-dir", "{{contextFile}}"], where that path is a one-session
+//   plugin directory packing the document as an always-apply rule).
 // - `env`   — the CLI reads its instructions out of an environment variable
 //   (e.g. OpenCode's OPENCODE_CONFIG_CONTENT). `env` is merged into the
 //   launch env.

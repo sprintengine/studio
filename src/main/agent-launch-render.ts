@@ -97,8 +97,9 @@ export type AgentLaunchRenderInput = {
   // the bare name below.
   resolvedBinaryPath?: string
   // This launch's host-context document, in the two shapes a manifest's
-  // `contextInjection` templates can spend it: the absolute path main wrote it
-  // to (already in the launched shell's path style), and the document itself.
+  // `contextInjection` templates can spend it: the absolute path main wrote
+  // (a markdown file, or for Cursor a plugin directory — already in the
+  // launched shell's path style), and the document itself.
   // Both absent — the ordinary case, a project with no design system and no
   // knowledge graph — render no context args and no context env, so the launch
   // is byte-identical to what it was.

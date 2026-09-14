@@ -22,6 +22,8 @@
  * in `<host-context>` tags and placed BEFORE the prompt, so the request is the
  * last thing the model reads.
  */
+import { join } from 'path'
+
 import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../design-system/attach'
 import { STUDIO_PRODUCT_NAME } from '../product-identity'
 import { knowledgeLaunchContext } from '../project-knowledge'
@@ -94,8 +96,10 @@ export function buildHostContextDocument(input: HostContextInput): string | null
 }
 
 /**
- * The prompt fallback, for CLIs with no out-of-band channel at all (Cursor,
- * Kimi Code, Muse).
+ * The prompt fallback, for CLIs with no out-of-band channel at all (Kimi Code,
+ * Muse). Cursor is not in this set: it has no system-prompt flag, but it does
+ * take `--plugin-dir`, so the document is packed as a one-session plugin with
+ * an always-apply rule instead of being pasted into the user's request.
  *
  * The block goes BEFORE the prompt so the user's request is the last thing the
  * model reads, and the tags are what make "host said this" recoverable from a
@@ -110,6 +114,47 @@ export function wrapHostContextForPrompt(
   const block = [HOST_CONTEXT_OPEN_TAG, document, HOST_CONTEXT_CLOSE_TAG].join('\n')
   if (!userPrompt) return block
   return `${block}\n\n${userPrompt}`
+}
+
+/**
+ * Relative paths inside the per-session Cursor plugin `--plugin-dir` points at.
+ * `.cursor-plugin/plugin.json` is required: a root `plugin.json` is an Agent
+ * Plugin (skills/MCP only) and does not load `rules/`. Cursor Plugin discovery
+ * in CLI 2026.09.10 looks for `.cursor-plugin/plugin.json` first.
+ */
+export const CURSOR_HOST_CONTEXT_PLUGIN_MANIFEST_REL = join('.cursor-plugin', 'plugin.json')
+export const CURSOR_HOST_CONTEXT_PLUGIN_RULE_REL = join('rules', 'host-context.mdc')
+export const CURSOR_HOST_CONTEXT_PLUGIN_NAME = 'sprintengine-host-context'
+
+/**
+ * The always-apply rule file that carries the host-context document inside a
+ * Cursor plugin directory. Frontmatter is required; `alwaysApply: true` is what
+ * loads it on every turn (including resume, which does not re-fire
+ * `sessionStart`). The body is the same document every other channel sends.
+ */
+export function buildCursorHostContextRuleFile(document: string): string {
+  return [
+    '---',
+    'description: Standing instructions from SprintEngine Studio about this machine and project.',
+    'alwaysApply: true',
+    '---',
+    '',
+    document.replace(/\s+$/, ''),
+    '',
+  ].join('\n')
+}
+
+/** The Cursor plugin manifest that makes `rules/` discoverable. */
+export function buildCursorHostContextPluginManifest(): string {
+  return `${JSON.stringify(
+    {
+      name: CURSOR_HOST_CONTEXT_PLUGIN_NAME,
+      description: 'Per-session host context from SprintEngine Studio. Not part of the user request.',
+      version: '1.0.0',
+    },
+    null,
+    2,
+  )}\n`
 }
 
 /**

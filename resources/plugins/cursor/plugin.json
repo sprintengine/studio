@@ -45,6 +45,7 @@
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
+      { "spreadIf": "contextArgs" },
       { "valueIf": "prompt", "value": "{{prompt}}" }
     ]
   },
@@ -55,6 +56,7 @@
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
+      { "spreadIf": "contextArgs" },
       "--continue",
       { "valueIf": "sessionId", "value": "--resume" },
       { "valueIf": "sessionId", "value": "{{sessionId}}" }
@@ -64,8 +66,9 @@
     "mode": "positional-arg"
   },
   "contextInjection": {
-    "$comment": "cursor-agent documents no system-prompt flag, no rules flag and no instructions env var (verified against the installed CLI: --help lists --model / --mode / --add-dir / --plugin-dir and nothing that sets a system prompt). Its only out-of-band channel is a rules FILE inside the user's repo, which the host must not write into. So the document is wrapped in <host-context> tags and placed BEFORE the user's prompt.",
-    "mode": "prompt"
+    "$comment": "cursor-agent 2026.09.10 documents no --append-system-prompt flag (verified against --help). The hidden --system-prompt REPLACES the stock prompt and is team-gated, so it is not this channel. --plugin-dir is the public out-of-band path: the host packs the document as a one-session Cursor plugin (always-apply rule under .cursor-plugin/) and that directory is what {{contextFile}} names. Writing .cursor/rules into the person's repo is deliberately not the channel. Spread into launch AND resume argv, so a resumed session is re-told — plugin rules load per invocation, and sessionStart does not re-fire on --continue.",
+    "mode": "argv",
+    "args": ["--plugin-dir", "{{contextFile}}"]
   },
   "completion": {
     "mode": "process-exit"

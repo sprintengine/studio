@@ -31,7 +31,7 @@
     }
   },
   "contextInjection": {
-    "$comment": "Muse documents no system-prompt flag and no instructions env var. Prompt fallback, same as cursor.",
+    "$comment": "Muse documents no system-prompt flag and no instructions env var. Prompt fallback.",
     "mode": "prompt"
   },
   "completion": {

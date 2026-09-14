@@ -149,9 +149,11 @@ type CliThemeSelectionSpec = {
  * everything the HOST wants the agent to know gets in without pretending to be
  * the user (an attached design system, the project's knowledge graph).
  *
- * - `argv` — the CLI takes a system-prompt flag. `args` are substituted
+ * - `argv` — the CLI takes an out-of-band flag. `args` are substituted
  *   templates spread into LAUNCH and RESUME argv as `contextArgs`, so a resumed
- *   session is re-told (e.g. ["--append-system-prompt-file", "{{contextFile}}"]).
+ *   session is re-told (e.g. ["--append-system-prompt-file", "{{contextFile}}"],
+ *   or Cursor's ["--plugin-dir", "{{contextFile}}"] pointing at a one-session
+ *   plugin directory).
  * - `env` — the CLI reads instructions out of an environment variable; `env` is
  *   merged into the launch env.
  * - `prompt` — the CLI has no out-of-band channel, so the host wraps the
