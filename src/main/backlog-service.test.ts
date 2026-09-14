@@ -1265,6 +1265,71 @@ async function testListingWalksNestedEpicFolders(): Promise<void> {
   }
 }
 
+// A workspace can point its backlog at a folder outside the checkout. The items
+// land there, and their identity — the `backlog/<...>` relative path every id,
+// durable link and sprint link keys on — is exactly what it would have been
+// inside the checkout. That equivalence is the whole reason a backlog can move
+// without rewriting anything that points at it.
+async function testABacklogCanLiveOutsideTheCheckout(): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-redirect-ws-'))
+  const elsewhere = await mkdtemp(join(tmpdir(), 'multicode-backlog-redirect-store-'))
+  try {
+    await mkdir(join(root, '.multi-code', 'backlog'), { recursive: true })
+    await writeFile(
+      join(root, '.multi-code', 'backlog', 'config.json'),
+      JSON.stringify({ schemaVersion: 2, key: 'MC', root: elsewhere }, null, 2),
+      'utf-8',
+    )
+
+    const created = await createBacklogItem({ workspaceRoot: root, title: 'Token rotation', epic: 'auth-revamp' })
+    assert.equal(created.ok, true, 'creating an item in a redirected backlog must succeed')
+    const relativePath = created.ok ? created.relativePath : ''
+    assert.ok(
+      relativePath.startsWith('backlog/auth-revamp/'),
+      `identity stays backlog/-prefixed wherever the root is, got ${relativePath}`,
+    )
+
+    // The file is in the external folder, under the path the logical one implies,
+    // and nothing was written into the checkout's own backlog/ folder.
+    const within = relativePath.slice('backlog/'.length)
+    await stat(join(elsewhere, within))
+    await assert.rejects(stat(join(root, relativePath)), 'nothing may be written inside the checkout')
+
+    // Reads, writes and listings all resolve through the configured root.
+    const read = await readBacklogItem(root, relativePath)
+    assert.equal(read.ok, true, 'an item in a redirected backlog must be readable')
+
+    const status = await updateBacklogStatus({ workspaceRoot: root, relativePath, status: 'ready' })
+    assert.equal(status.ok, true, 'an item in a redirected backlog must be writable')
+    const onDisk = parseBacklogFrontmatter(await readFile(join(elsewhere, within), 'utf-8'))
+    assert.equal(onDisk.fields.status, 'ready', 'the write must land in the external folder')
+
+    const listed = await listBacklogItems(root)
+    assert.equal(listed.ok, true)
+    assert.deepEqual(
+      listed.ok ? listed.items.map((item) => item.relativePath) : [],
+      [relativePath],
+      'the listing reports logical paths, not paths relative to the checkout',
+    )
+
+    // The sidecar stays in the workspace: it is app state about this checkout,
+    // not backlog content, and a shared backlog folder must not collect it.
+    const store = JSON.parse(
+      await readFile(join(root, '.multi-code', 'backlog', 'cache', 'links.json'), 'utf-8'),
+    ) as { items: Array<{ source: { relativePath: string } }> }
+    assert.equal(store.items[0]?.source.relativePath, relativePath)
+
+    // And the display key survives a config rewrite rather than being clobbered
+    // by a whole-object write from the key path.
+    const config = JSON.parse(await readFile(join(root, '.multi-code', 'backlog', 'config.json'), 'utf-8')) as Record<string, unknown>
+    assert.equal(config['root'], elsewhere, 'persisting the key must not drop the configured root')
+    assert.equal(config['key'], 'MC')
+  } finally {
+    await rm(root, { force: true, recursive: true })
+    await rm(elsewhere, { force: true, recursive: true })
+  }
+}
+
 main()
   .then(() => testBacklogIntegrityRepairsAreNarrowAndIdempotent())
   .then(() => testListAndReadBacklogItemsAreReadOnly())
@@ -1272,6 +1337,7 @@ main()
   .then(() => testLegacySidecarMigration())
   .then(() => testNewItemsAreFiledUnderTheirEpic())
   .then(() => testListingWalksNestedEpicFolders())
+  .then(() => testABacklogCanLiveOutsideTheCheckout())
   .catch((error) => {
     console.error(error)
     process.exit(1)

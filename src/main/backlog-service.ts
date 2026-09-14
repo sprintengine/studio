@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import {
   BACKLOG_DEPENDENCIES_PLANNED_KEY,
@@ -22,6 +22,7 @@ import {
 } from '../shared/backlog/item-id'
 import { isRoadmapContent } from '../shared/backlog/roadmap'
 import { reconcileBacklogObjectRecordIds, stableBacklogObjectId } from '../shared/backlog/object-id'
+import { backlogAbsolutePath, backlogLocationFor, backlogLogicalPath, type BacklogLocation } from '../shared/backlog/scan'
 import {
   backlogHighlightFields,
   durableBacklogLinkFields,
@@ -77,6 +78,9 @@ const LEGACY_STORE_PATH = ['.multi-code', 'backlog', 'items.json'] as const
 // render identically on every machine. Separate from the cache, whose store
 // shape is normalized down to `{schemaVersion, items}` and would drop a key.
 const CONFIG_PATH = ['.multi-code', 'backlog', 'config.json'] as const
+// v1 carried the display key alone; v2 adds `root`. A v1 file reads correctly as
+// a workspace with no configured root, so there is no migration to run.
+const BACKLOG_CONFIG_SCHEMA_VERSION = 2
 const BACKLOG_PREFIX = 'backlog/'
 // Items are filed under the epic they belong to, so a folder under `backlog/`
 // IS an epic and its children are the items in it. An item with no epic still
@@ -96,6 +100,12 @@ export function isBacklogEpicRelativePath(relativePath: string): boolean {
 type ValidWorkspace = {
   root: string
   storePath: string
+  /**
+   * Where this workspace's item files actually live. `<root>/backlog` unless the
+   * workspace has configured a root, in which case it can be anywhere on this
+   * machine. Item identity is unaffected — see BacklogLocation.
+   */
+  location: BacklogLocation
 }
 
 type BacklogObjectStore = BacklogObjectStorePayload
@@ -167,15 +177,48 @@ async function resolveBacklogWorkspaceKey(workspace: ValidWorkspace): Promise<st
   return key
 }
 
-async function persistBacklogWorkspaceKey(workspace: ValidWorkspace, key: string): Promise<void> {
-  const target = resolve(join(workspace.root, ...CONFIG_PATH))
-  if (!isPathInsideOrEqual(workspace.root, target)) return
+// The whole config, or an empty object. Every reader here is tolerant: a
+// workspace with an unreadable or malformed config falls back to defaults rather
+// than failing to show a backlog at all.
+async function readBacklogConfigFile(workspaceRoot: string): Promise<Record<string, unknown>> {
+  try {
+    const raw = await readFile(join(workspaceRoot, ...CONFIG_PATH), 'utf-8')
+    const parsed = JSON.parse(raw) as unknown
+    return isPlainRecord(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * The root this workspace has pointed its backlog at, or null for the default.
+ * A blank string is the default too, so clearing the field in the config reads
+ * the same as never having set it.
+ */
+async function readConfiguredBacklogRoot(workspaceRoot: string): Promise<string | null> {
+  const config = await readBacklogConfigFile(workspaceRoot)
+  const configured = config['root']
+  return typeof configured === 'string' && configured.trim() ? configured : null
+}
+
+// Merge rather than overwrite. This file carries the display key AND the backlog
+// root, and each is written by a different path — a whole-object write from
+// either one silently drops the other.
+async function writeBacklogConfigFields(workspaceRoot: string, fields: Record<string, unknown>): Promise<void> {
+  const target = resolve(join(workspaceRoot, ...CONFIG_PATH))
+  if (!isPathInsideOrEqual(workspaceRoot, target)) return
+  const existing = await readBacklogConfigFile(workspaceRoot)
+  const next = { ...existing, ...fields, schemaVersion: BACKLOG_CONFIG_SCHEMA_VERSION }
   try {
     await mkdir(dirname(target), { recursive: true })
-    await writeFile(target, `${JSON.stringify({ schemaVersion: 1, key }, null, 2)}\n`, 'utf-8')
+    await writeFile(target, `${JSON.stringify(next, null, 2)}\n`, 'utf-8')
   } catch {
     // Best effort: a failed write just means we re-derive the same default next time.
   }
+}
+
+async function persistBacklogWorkspaceKey(workspace: ValidWorkspace, key: string): Promise<void> {
+  await writeBacklogConfigFields(workspace.root, { key })
 }
 
 // Scan-time id backfill for legacy or hand-authored files. Main-owned creation
@@ -211,8 +254,8 @@ export async function ensureBacklogItemIds(input: BacklogEnsureIdsInput): Promis
 
       const assignments = planBacklogIdAllocation(allocationItems)
       for (const [relativePath, numericId] of Object.entries(assignments)) {
-        const target = resolve(join(workspace.root, relativePath))
-        if (!isPathInsideOrEqual(workspace.root, target)) continue
+        const target = backlogAbsolutePath(workspace.location, relativePath)
+        if (!target) continue
         let content: string
         try {
           content = await readFile(target, 'utf-8')
@@ -338,8 +381,8 @@ async function migrateLegacyBacklogSidecar(workspace: ValidWorkspace): Promise<v
   const cacheRecords: BacklogObjectRecord[] = []
   for (const record of legacy.items) {
     const relativePath = record.source.relativePath
-    const target = resolve(join(workspace.root, relativePath))
-    if (!isPathInsideOrEqual(workspace.root, target)) continue
+    const target = backlogAbsolutePath(workspace.location, relativePath)
+    if (!target) continue
     let content: string
     try {
       content = await readFile(target, 'utf-8')
@@ -399,8 +442,8 @@ async function loadMigratedStore(workspace: ValidWorkspace): Promise<BacklogObje
   // wins, body byte-preserved). A record whose file is gone is skipped here and
   // pruned by the orphan GC below.
   for (const migration of plan.migrations) {
-    const target = resolve(join(workspace.root, migration.relativePath))
-    if (!isPathInsideOrEqual(workspace.root, target)) continue
+    const target = backlogAbsolutePath(workspace.location, migration.relativePath)
+    if (!target) continue
     let content: string
     try {
       content = await readFile(target, 'utf-8')
@@ -512,7 +555,9 @@ export async function listBacklogItems(workspaceRoot: string): Promise<BacklogLi
     for (const relativePath of paths) {
       let raw: string
       try {
-        raw = await readFile(join(workspace.root, relativePath), 'utf-8')
+        const sourcePath = backlogAbsolutePath(workspace.location, relativePath)
+        if (!sourcePath) continue
+        raw = await readFile(sourcePath, 'utf-8')
       } catch {
         continue
       }
@@ -553,8 +598,8 @@ export async function readBacklogItem(workspaceRoot: string, relativePath: strin
   try {
     const workspace = await validateWorkspaceRoot(workspaceRoot)
     const normalized = validateBacklogRelativePath(relativePath)
-    const target = resolve(join(workspace.root, normalized))
-    if (!isPathInsideOrEqual(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+    const target = backlogAbsolutePath(workspace.location, normalized)
+    if (!target) throw new Error('Backlog item path escaped the backlog root.')
     let raw: string
     try {
       raw = await readFile(target, 'utf-8')
@@ -590,7 +635,7 @@ export async function readBacklogItem(workspaceRoot: string, relativePath: strin
 
 async function listAllBacklogSourcePaths(workspace: ValidWorkspace): Promise<string[]> {
   const paths: string[] = []
-  await walk(join(workspace.root, 'backlog'))
+  await walk(workspace.location.root)
   return paths.sort((left, right) => left.localeCompare(right))
 
   async function walk(directory: string): Promise<void> {
@@ -608,7 +653,8 @@ async function listAllBacklogSourcePaths(workspace: ValidWorkspace): Promise<str
         continue
       }
       if (!entry.isFile() || !/\.(md|html?)$/i.test(entry.name)) continue
-      paths.push(relative(workspace.root, join(directory, entry.name)).replace(/\\/g, '/'))
+      const logical = backlogLogicalPath(workspace.location, join(directory, entry.name))
+      if (logical) paths.push(logical)
     }
   }
 }
@@ -618,7 +664,9 @@ async function nextBacklogNumericId(workspace: ValidWorkspace): Promise<number> 
   for (const relativePath of await listAllBacklogSourcePaths(workspace)) {
     let content: string
     try {
-      content = await readFile(join(workspace.root, relativePath), 'utf-8')
+      const sourcePath = backlogAbsolutePath(workspace.location, relativePath)
+      if (!sourcePath) continue
+      content = await readFile(sourcePath, 'utf-8')
     } catch {
       continue
     }
@@ -695,8 +743,8 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
       // siblings instead of at the top level among the epic folders themselves.
       const folder = isValidEpicSlug(input.epic) ? input.epic : UNFILED_DIR
       const relativePath = await uniqueBacklogFilePath(workspace, title, existingLower, folder)
-      const target = resolve(join(workspace.root, relativePath))
-      if (!isPathInsideOrEqual(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+      const target = backlogAbsolutePath(workspace.location, relativePath)
+      if (!target) throw new Error('Backlog item path escaped the backlog root.')
 
       const numericId = await nextBacklogNumericId(workspace)
       const now = new Date().toISOString()
@@ -751,8 +799,8 @@ export async function repairBacklogIntegrity(
     if (input.issue !== 'embedded_nul' && input.issue !== 'duplicate_id') {
       return { ok: false, message: 'Unknown Backlog integrity repair operation.' }
     }
-    const target = resolve(join(workspace.root, relativePath))
-    if (!isPathInsideOrEqual(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+    const target = backlogAbsolutePath(workspace.location, relativePath)
+    if (!target) throw new Error('Backlog item path escaped the backlog root.')
     return await withBacklogMutationLock(workspace, async () => {
       let content: string
       try {
@@ -782,7 +830,9 @@ export async function repairBacklogIntegrity(
       for (const candidatePath of paths) {
         let candidate: string
         try {
-          candidate = await readFile(join(workspace.root, candidatePath), 'utf-8')
+          const candidateSource = backlogAbsolutePath(workspace.location, candidatePath)
+          if (!candidateSource) continue
+          candidate = await readFile(candidateSource, 'utf-8')
         } catch {
           continue
         }
@@ -815,8 +865,8 @@ export async function createBacklogEpic(input: BacklogCreateEpicInput): Promise<
     const store = await loadStore(workspace)
     const existingLower = new Set(store.items.map((record) => record.source.relativePath.toLowerCase()))
     const relativePath = await uniqueEpicFilePath(workspace, slugifyBacklogTitle(title), existingLower)
-    const target = resolve(join(workspace.root, relativePath))
-    if (!isPathInsideOrEqual(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+    const target = backlogAbsolutePath(workspace.location, relativePath)
+    if (!target) throw new Error('Backlog item path escaped the backlog root.')
 
     const content = `---\ntype: epic\nupdated: ${new Date().toISOString()}\n---\n# ${title}\n`
     await mkdir(dirname(target), { recursive: true })
@@ -1112,8 +1162,8 @@ async function readDurableBacklogLinks(
   try {
     const workspace = await validateWorkspaceRoot(workspaceRoot)
     const normalizedPath = validateBacklogRelativePath(relativePath)
-    const target = resolve(join(workspace.root, normalizedPath))
-    if (!isPathInsideOrEqual(workspace.root, target)) return []
+    const target = backlogAbsolutePath(workspace.location, normalizedPath)
+    if (!target) return []
     const { fields } = parseBacklogFrontmatter(await readFile(target, 'utf-8'))
     return durableBacklogLinksFromFrontmatter(fields) as BacklogItemLinkPayload[]
   } catch {
@@ -1210,8 +1260,8 @@ async function writeBacklogFrontmatter(
   }
   try {
     const workspace = await validateWorkspaceRoot(workspaceRoot)
-    const target = resolve(join(workspace.root, normalizedPath))
-    if (!isPathInsideOrEqual(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+    const target = backlogAbsolutePath(workspace.location, normalizedPath)
+    if (!target) throw new Error('Backlog item path escaped the backlog root.')
 
     let content: string
     try {
@@ -1312,7 +1362,11 @@ async function validateWorkspaceRoot(workspaceRoot: string): Promise<ValidWorksp
     throw new Error(`Backlog workspace root is not accessible: ${errorMessage(error)}`)
   })
   if (!rootStat.isDirectory()) throw new Error('Backlog workspace root must be an existing folder.')
-  return { root, storePath: join(root, ...STORE_PATH) }
+  return {
+    root,
+    storePath: join(root, ...STORE_PATH),
+    location: backlogLocationFor(root, await readConfiguredBacklogRoot(root)),
+  }
 }
 
 async function loadStore(workspace: ValidWorkspace): Promise<BacklogObjectStore> {
@@ -1463,8 +1517,10 @@ async function uniqueEpicFilePath(
 }
 
 async function backlogFileExists(workspace: ValidWorkspace, relativePath: string): Promise<boolean> {
+  const target = backlogAbsolutePath(workspace.location, relativePath)
+  if (!target) return false
   try {
-    await stat(join(workspace.root, relativePath))
+    await stat(target)
     return true
   } catch (error) {
     if (isMissingFileError(error)) return false
