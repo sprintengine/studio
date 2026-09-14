@@ -62,10 +62,11 @@ interface Props {
   workspaceId: string
   onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
   // The tab strip's "+" (MC-2147): opens the tab an agent will run in, holding
-  // the launch surface until something spawns. Absent → no plus, which is how a
-  // Sprint Engine workspace stays free of a hand-spawn affordance its run would
-  // not know about.
-  onNewAgentTab?: () => void
+  // the launch surface until something spawns. The strip's own tabset id is
+  // passed so the tab lands in that panel rather than tiling a new one.
+  // Absent → no plus, which is how a Sprint Engine workspace stays free of a
+  // hand-spawn affordance its run would not know about.
+  onNewAgentTab?: (hostTabsetId?: string) => void
   // Renders the launch surface inside that tab. `tabId` is the node the spawn
   // retypes in place, so the terminal appears where the surface was.
   renderNewAgentPanel?: (tabId: string, agentName?: string) => React.ReactNode
@@ -1563,7 +1564,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
               // The strip's own click handler would select whatever tab sits
               // under the button; this is a control, not a tab.
               event.stopPropagation()
-              onNewAgentTab()
+              onNewAgentTab(tabSetNode.getId())
             }}
           >
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="icon-xs">

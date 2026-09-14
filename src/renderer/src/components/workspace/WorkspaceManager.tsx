@@ -4303,12 +4303,13 @@ export default function WorkspaceManager() {
     Boolean(windowActiveWorkspaceId)
     && activeWorkspace?.mode === 'standard'
 
-  const openNewAgentTab = () => {
+  const openNewAgentTab = (hostTabsetId?: string) => {
     if (!canOpenNewAgentTab || !windowActiveWorkspaceId) return
     // Named now, not at spawn: the tab is a terminal-in-waiting and carries the
-    // name the agent will take.
+    // name the agent will take. The strip whose "+" was clicked is the host —
+    // a new tab in that panel, not a split beside it.
     const taken = Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name)
-    addNewAgentTab(windowActiveWorkspaceId, pickRandomAgentName(taken))
+    addNewAgentTab(windowActiveWorkspaceId, pickRandomAgentName(taken), hostTabsetId)
   }
 
   // The launch surface, rendered inside that tab. It creates nothing: a confirm

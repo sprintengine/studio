@@ -73,7 +73,7 @@ function freshModel(): Model {
   return Model.fromJson(json)
 }
 
-type TabsetJson = { type?: string; component?: string; enableTabStrip?: boolean; minWidth?: number; children?: TabsetJson[] }
+type TabsetJson = { type?: string; id?: string; component?: string; enableTabStrip?: boolean; minWidth?: number; children?: TabsetJson[] }
 type TabJson = TabsetJson & { name?: string; enableClose?: boolean; className?: string; contentClassName?: string; config?: { agentId?: string; filePath?: string } }
 
 function tabsets(model: Model): TabsetJson[] {
@@ -716,6 +716,16 @@ function tabsetWeight(model: Model, component: string): number {
     allComponents(model).includes(NEW_AGENT_TAB_COMPONENT),
     'the tab holds the launch surface, not an agent panel',
   )
+  assert.equal(
+    tabsets(model).length,
+    1,
+    'the + adds a tab in the existing pane, not a split beside it',
+  )
+  assert.deepEqual(
+    componentsOf(tabsets(model)[0]!),
+    ['agent', NEW_AGENT_TAB_COMPONENT],
+    'the launch surface sits beside the agent that was already in that strip',
+  )
 
   const placed = allTabs(model).find((tab) => tab.component === NEW_AGENT_TAB_COMPONENT)
   assert.equal(
@@ -784,6 +794,51 @@ function tabsetWeight(model: Model, component: string): number {
   const hosting = tabsets(model).find((tabset) => componentsOf(tabset).includes(NEW_AGENT_TAB_COMPONENT))
   assert.ok(hosting, 'the surface is somewhere')
   assert.notEqual(hosting?.enableTabStrip, false, 'and never inside the strip-less nav pane')
+  unregisterModel(WS)
+}
+
+// Two terminal panes: the + on one strip adds a tab there, and does not split
+// a third pane beside or below the other. This is the click the sticky button
+// actually makes — it knows which tabset it sits on.
+{
+  const json: IJsonModel = {
+    global: { tabSetEnableDrop: true, tabEnableClose: true },
+    borders: [],
+    layout: {
+      type: 'row',
+      children: [
+        {
+          type: 'tabset',
+          id: 'pane-a',
+          weight: 50,
+          children: [
+            { type: 'tab', name: 'Term A', component: 'terminal', config: { terminalId: 't-1' } },
+          ],
+        },
+        {
+          type: 'tabset',
+          id: 'pane-b',
+          weight: 50,
+          children: [
+            { type: 'tab', name: 'Term B', component: 'terminal', config: { terminalId: 't-2' } },
+          ],
+        },
+      ],
+    },
+  }
+  const model = Model.fromJson(json)
+  registerModel(WS, model)
+  const tabId = addNewAgentTab(WS, 'Nico', 'pane-b')
+  assert.ok(tabId, 'the + on the second pane opens a tab')
+  assert.equal(tabsets(model).length, 2, 'no third pane — the + does not tile')
+  const paneA = tabsets(model).find((tabset) => tabset.id === 'pane-a')
+  const paneB = tabsets(model).find((tabset) => tabset.id === 'pane-b')
+  assert.deepEqual(componentsOf(paneA!), ['terminal'], 'the first pane is untouched')
+  assert.deepEqual(
+    componentsOf(paneB!),
+    ['terminal', NEW_AGENT_TAB_COMPONENT],
+    'the launch surface is a tab in the pane whose + was clicked',
+  )
   unregisterModel(WS)
 }
 

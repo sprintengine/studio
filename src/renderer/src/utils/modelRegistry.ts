@@ -668,9 +668,12 @@ function terminalTabJson(terminalId: string, name: string) {
 export const NEW_AGENT_TAB_COMPONENT = 'new-agent'
 
 /**
- * Open a new-agent tab, docked exactly where a spawned agent tab would dock
- * (agentTileLocation on the active content tabset, a fresh right-hand column
- * when only rails exist) — so the surface appears where its terminal will be.
+ * Open a new-agent tab as a sibling in the strip whose "+" was clicked
+ * (`hostTabsetId`). CENTER, not tiled: the "+" sits on a panel and means a
+ * new tab in that panel, not a split beside or below it. Without a host (empty
+ * workspace floor, or a caller that does not know the strip), the active
+ * content tabset is used; a fresh right-hand column is only created when the
+ * only tabsets are rails.
  *
  * The tab is named for the agent that will run in it, decided here rather than
  * at spawn: a tab called "New agent" that becomes "Atlas" changes identity
@@ -680,7 +683,11 @@ export const NEW_AGENT_TAB_COMPONENT = 'new-agent'
  *
  * Returns the new tab's id, which the caller holds to retype it on spawn.
  */
-export function addNewAgentTab(workspaceId: string, agentName: string): string | null {
+export function addNewAgentTab(
+  workspaceId: string,
+  agentName: string,
+  hostTabsetId?: string,
+): string | null {
   const model = models.get(workspaceId)
   if (!model) return null
 
@@ -706,13 +713,24 @@ export function addNewAgentTab(workspaceId: string, agentName: string): string |
     return tabId
   }
 
-  const targetTabset = activeContentTabset(model)
+  const targetTabset = resolveNewAgentHostTabset(model, hostTabsetId)
   model.doAction(
     targetTabset
-      ? Actions.addNode(tabJson, targetTabset.getId(), agentTileLocation(targetTabset), -1, true)
+      ? Actions.addNode(tabJson, targetTabset.getId(), DockLocation.CENTER, -1, true)
       : Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true),
   )
   return tabId
+}
+
+// The strip the "+" sits on, when that id still names a content tabset; otherwise
+// the active content tabset. Never a rail — docking there buries the surface
+// under the open Files/Git/Backlog panel.
+function resolveNewAgentHostTabset(model: Model, hostTabsetId?: string): TabSetNode | null {
+  if (hostTabsetId) {
+    const node = model.getNodeById(hostTabsetId)
+    if (node instanceof TabSetNode && !isRailTabset(node)) return node
+  }
+  return activeContentTabset(model)
 }
 
 /**
