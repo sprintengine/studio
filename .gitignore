@@ -62,30 +62,27 @@ electron.vite.config.*.mjs
 # a source file, not a generated workspace config.
 !resources/studio-plugin/**/.mcp.json
 
-# Backlog link cache: resolved link statuses, the agent terminal holding an item,
-# module metadata bound to a live session. Every value is re-derived from the
-# world, so deleting it costs a lookup and never data. It replaced
-# `.multi-code/backlog/items.json`, which held the same volatile state in a
-# TRACKED file and churned it on every resolve tick; the durable half now lives in
-# each item's own markdown frontmatter.
-.multi-code/backlog/cache/
+# Everything the app writes into a workspace's own `.multi-code/` — this
+# checkout's included, because the app is developed in the app. All of it is
+# runtime state: the backlog link cache (resolved link statuses, the agent
+# terminal holding an item, module metadata bound to a live session — every
+# value re-derived from the world, so deleting it costs a lookup and never
+# data); Debug Mode's scratch file per agent terminal; browser tab screenshots
+# and element crops; captured conversation transcripts and review state;
+# automation runtime state.
+#
+# `backlog/config.json` is in here too, and is NOT an exception. It carries the
+# `MC` item-key prefix, so it reads like project configuration, but the app
+# rewrites it as it runs and a clone gets its own on first run — tracking it
+# published one machine's live state, which is the same mistake
+# `.multi-code/backlog/items.json` made before it.
+.multi-code/*
 
-# Debug Mode ephemeral state (one scratch file per agent terminal)
-.multi-code/debug/
-# Browser tab screenshots and element crops (browser-pane epic).
-.multi-code/browser/
-
-# Captured conversation transcripts and review state: the app writes these as it
-# runs, in whatever workspace it has open — including this one. `backlog/config.json`
-# next to them IS project configuration (it carries the `MC` item-key prefix) and
-# stays tracked.
-.multi-code/conversations/
-.multi-code/review/
-
-# Automations runtime state
-.multi-code/automations/
-
-# Sprint Engine runtime state
+# Sprint Engine runtime state, minus the three things under it that ARE sources:
+# the README, and the fixtures and evidence the tests read. The directory has to
+# be re-included first — git cannot re-include a path whose parent directory is
+# excluded, and the line above excludes it.
+!.multi-code/sprintengine/
 .multi-code/sprintengine/*
 !.multi-code/sprintengine/README.md
 !.multi-code/sprintengine/fixtures/

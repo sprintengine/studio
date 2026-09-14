@@ -88,7 +88,7 @@ const PEERS = [
   },
   {
     id: 'n2',
-    hostName: 'android-phone',
+    hostName: 'Android-Phone',
     dnsName: 'android-phone.example.ts.net',
     address: '100.91.70.80',
     os: 'android',

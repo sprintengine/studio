@@ -108,6 +108,52 @@ itself, `node design-system/scripts/lint.mjs` must also exit 0, and the
 generated files (`foundations/tokens.css`, `catalog/index.html`) are rebuilt
 by their build scripts rather than edited by hand.
 
+## Names that do not go in the tree
+
+This repository was private for most of its life, and two habits from then have
+to stay dead. Both are about names, and both are cheap to get right while you
+are writing the line.
+
+**No competitor product names.** Not in comments, not in test names, not in
+assertion messages, not in a `component.md`. A comment exists to explain why the
+code is shaped the way it is, and that reason always survives without the name:
+"⌘⇧M toggles the model picker (X's `modelPicker.toggle`, adopted)" is a sentence
+about why the chord sits on that key, and should be written as one. Citing
+another product's internal identifiers is worse than naming it, because it reads
+as having had its source open alongside ours.
+
+The rewrite is never a deletion. Dropping the sentence and leaving an
+unexplained constant behind loses the only thing that was worth keeping. If a
+ruling has a date, keep the date — `(owner ruling 2026-09-10)` is useful; the
+clause naming whose launcher prompted it is not.
+
+The agent CLIs the app drives — Claude Code, Codex, Cursor, OpenCode, Gemini,
+Grok — are runtimes it integrates with, not competitors. Name them freely; they
+are part of what the app is.
+
+**No real identities in fixtures.** A test fixture needs a plausible value, not
+a true one, and the tree already has the placeholders:
+
+| Instead of | Use |
+|---|---|
+| A real home directory | `/Users/dev/…`, `/Users/me/…` |
+| A real tailnet id | `tail1234.ts.net`, `example.ts.net` |
+| A real machine name | `mac-mini`, `dev-macbook-air`, `android-phone`, `build-box` |
+| A real email or account handle | `dev@example.com`, `acme` |
+| A real repository or private package | `github.com/acme/app` |
+
+The same goes for absolute paths in doc comments that use a machine as a worked
+example: the example is the point, the machine is not.
+
+**Generated files are not edited.** `design-system/catalog/index.html` and
+`design-system/foundations/tokens.css` are built from their sources. Fix the
+`component.md` or the token source and rebuild
+(`node design-system/scripts/build-catalog.mjs`) — a hand-edit is reverted by
+the next build and passes review looking correct.
+
+None of this is enforced by a lint. It is checked when the change is reviewed,
+so the cost of getting it wrong is a round trip.
+
 ## Commit messages
 
 Commit subjects in this repository are plain English sentences that say what

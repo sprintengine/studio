@@ -20,7 +20,7 @@ const MARKETPLACE_REGISTRY_SEED_FILENAME = 'marketplace.json'
 const DEFAULT_MARKETPLACE_REGISTRY_TIMEOUT_MS = 15_000
 
 // MULTICODE_MARKETPLACE_REGISTRY_URL points the registry read at an alternate
-// index endpoint (e.g. the HotStack catalogue GET /v1/registry). GitHub-raw
+// index endpoint (e.g. a hosted catalogue's GET /v1/registry). GitHub-raw
 // stays the shipped default; the override changes only where the index is
 // fetched from — schema validation, ETag/304 handling, cache invalidation, and
 // the packaged-seed fallback apply to the configured URL exactly as they do to
@@ -33,7 +33,7 @@ export function configuredMarketplaceRegistryUrl(env: NodeJS.ProcessEnv = proces
 
 /**
  * With no override configured the registry is served bundled-first: the
- * packaged marketplace.json is generated from the HotStack catalogue snapshot
+ * packaged marketplace.json is generated from the catalogue snapshot
  * (scripts/generate-connector-catalogue.mjs) and committed, so the normal
  * case needs no network and must not render as a degraded/offline notice.
  */

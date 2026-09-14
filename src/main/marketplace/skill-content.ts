@@ -14,8 +14,10 @@ import { join } from 'node:path'
 import type { MarketplacePluginSkillFile } from '../../shared/marketplace'
 
 /**
- * Folder digest formula shared with @hotstack/catalogue-snapshot: sha256 over
- * the sorted `<path>\0<sha256>` lines of the file listing, joined with `\n`.
+ * Folder digest formula, shared with the publishing tool that builds the
+ * catalogue snapshot: sha256 over the sorted `<path>\0<sha256>` lines of the
+ * file listing, joined with `\n`. Both sides must compute it the same way or
+ * every bundled skill folder fails the integrity check on install.
  */
 export function skillContentDigest(files: readonly MarketplacePluginSkillFile[]): string {
   const canonical = files

@@ -34,13 +34,13 @@ const chat = (id: string, name: string, folderPath: string | null, repository = 
 
 check('chats in one folder are one project, named after the folder', () => {
   const projects = remoteProjectsOf([
-    chat('w3', 'Yeah, that’s a good spot', '/home/dev/projects/multicode'),
-    chat('w1', 'Improve Search Glass Effect', '/home/dev/projects/multicode'),
-    chat('w2', 'Fix Reaped Terminal Brightness', '/home/dev/projects/multicode'),
+    chat('w3', 'Yeah, that’s a good spot', '/Users/dev/multicode'),
+    chat('w1', 'Improve Search Glass Effect', '/Users/dev/multicode'),
+    chat('w2', 'Fix Reaped Terminal Brightness', '/Users/dev/multicode'),
   ])
   assert.equal(projects.length, 1, 'three chats in one checkout are one row')
   assert.equal(projects[0]!.name, 'multicode', 'named after the folder, not after a chat')
-  assert.equal(projects[0]!.folderPath, '/home/dev/projects/multicode')
+  assert.equal(projects[0]!.folderPath, '/Users/dev/multicode')
   assert.equal(projects[0]!.conversationCount, 3)
 })
 

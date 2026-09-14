@@ -53,7 +53,7 @@ Their marks are committed at `icons/<id>.svg` for review and inlined into
 remote registry.
 
 Every entry in `marketplace.json` is now hand-authored. The generator that used
-to project most of it from `@hotstack/catalogue-snapshot`
+to project most of it from a private catalogue-snapshot package
 (`scripts/generate-connector-catalogue.mjs`) went with the 256 snapshotted
 plugin entries it produced, and `scripts/sync-catalogue.mjs`, which pulled this
 seed back from `sprintengine/studio-releases`, went with the MCP catalogue it
@@ -84,7 +84,7 @@ is no longer the *only* source the app will consume:
   trusted-publisher fingerprint; the automation starters do not, and say so by
   declaring `publisher.verified: false`.
 - **Registry read is config-swappable**: `MULTICODE_MARKETPLACE_REGISTRY_URL`
-  can point the read at the HotStack catalogue `GET /v1/registry`; this seed
+  can point the read at a hosted catalogue's `GET /v1/registry`; this seed
   stays the offline/packaged fallback either way.
 
 ## Verification

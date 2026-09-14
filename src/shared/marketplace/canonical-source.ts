@@ -12,8 +12,8 @@ export type MarketplaceCanonicalSource = {
   ref: string
 }
 
-// Repointed 2026-09-05 (backlog/2026-09-05-plugin-sources.md, "Hosting") from
-// `hotstacklabs/sprintengine-marketplace`, which redirects to an EMPTY public
+// Repointed 2026-09-05 (backlog/2026-09-05-plugin-sources.md, "Hosting") from a
+// private-org marketplace repository that redirects to an EMPTY public
 // repository — the registry read is bundled-first, so nobody noticed. The
 // releases repo is already public, already fetched hourly for the model feed,
 // and already edited by pull request; one catalogue lives there now.

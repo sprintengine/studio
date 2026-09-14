@@ -523,7 +523,7 @@ async function testConfiguredUrlOverrideReadsIndexWithEtagRoundTrip(): Promise<v
 }
 
 async function testCatalogueAndGithubRawYieldEquivalentEntries(): Promise<void> {
-  // Registry parity: the HotStack catalogue endpoint (/v1/registry) and the
+  // Registry parity: a hosted catalogue endpoint (/v1/registry) and the
   // GitHub-raw default must be interchangeable transports — the SAME index bytes
   // read through either URL parse to identical entries, and each does the ETag
   // capture + 304-round-trip. Proves the client is transport-agnostic (a payload
