@@ -48,6 +48,7 @@ import { installMulticodeCliTools } from './cli-install'
 import { MulticodeAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
+import { createTailnetShareService, readTailnetWebTargets } from './automation/tailnet/tailnet-share-service'
 import { MobileSprintEngineSnapshotService, sanitizeMobileSnapshotForRelay } from './mobile/sprintengine/snapshot'
 import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import { validateSprintEngineStatePath } from './mobile/sprintengine/state-path'
@@ -1144,7 +1145,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         // serve one behaviour. Both services are stateless enough to own here;
         // the relay bridge keeps its own instances (it also publishes pushes).
         mobileControl: (() => {
-          const snapshotService = new MobileSprintEngineSnapshotService()
+          // Dev servers this machine publishes on the tailnet ride the snapshot
+          // so the phone has a door to them. Stateless; the daemon is the truth.
+          const shareService = createTailnetShareService()
+          const snapshotService = new MobileSprintEngineSnapshotService({
+            readWebTargets: () => readTailnetWebTargets(shareService),
+          })
           const commandService = new MobileSprintEngineCommandService()
           // Stable for the app's lifetime; the phone treats it as an opaque id.
           const desktopSessionId = `tailnet:${hostname()}`

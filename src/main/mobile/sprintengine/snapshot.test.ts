@@ -83,7 +83,7 @@ async function main(): Promise<void> {
 // mobileControlProtocol.regression.test.js. If you change the wire schema in
 // either copy, mirror the edit into the other repo and set both pins to the new
 // shared hash.
-const mobileProtocolSourceSha256 = '58c7c28180d8b3dec963f3ec9ec4f914ae685afcb42342ffdc07b4eb24f729c7'
+const mobileProtocolSourceSha256 = 'b4691a7021a1a993e40756ef8b9c0c9ced065b528c8043f6116a9692c3f6ef55'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'src/shared/mobile-control/protocol.ts'))

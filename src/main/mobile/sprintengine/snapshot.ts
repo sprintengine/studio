@@ -26,6 +26,7 @@ import type {
   MobileControlTaskSnapshot as MobileSprintEngineTaskSnapshot,
   MobileControlArtifactSnapshot as MobileSprintEngineArtifactSnapshot,
   MobileControlWorkspaceSnapshot as MobileWorkspaceSnapshot,
+  MobileControlWebTargetSnapshot,
   MobileControlTaskCommentSummary as MobileSprintEngineCommentSummary,
   MobileControlRecordedArtifactSummary as MobileSprintEngineRecordedArtifactSummary,
   MobileControlTaskBacklogRef,
@@ -196,6 +197,13 @@ type MobileSprintEngineSnapshotServiceOptions = {
   publishThrottleMs?: number
   supportedCommands?: readonly MobileControlCommandType[]
   stateReaders?: Partial<DesktopWorkspaceStateReaders>
+  /**
+   * Dev servers this desktop publishes on the tailnet, for the phone's web
+   * screen (Track 1b). Injected rather than imported so the snapshot service
+   * keeps no dependency on Tailscale, and so a test can describe a machine that
+   * shares nothing without stubbing a daemon.
+   */
+  readWebTargets?: () => Promise<MobileControlWebTargetSnapshot[]>
 }
 
 type RawSprintEngineState = {
@@ -246,11 +254,13 @@ export class MobileSprintEngineSnapshotService {
   private publishTimer: NodeJS.Timeout | null = null
   private readonly stateReaders: DesktopWorkspaceStateReaders
   private readonly supportedCommands: MobileControlCommandType[]
+  private readonly readWebTargets: () => Promise<MobileControlWebTargetSnapshot[]>
 
   constructor(options: MobileSprintEngineSnapshotServiceOptions = {}) {
     this.publishThrottleMs = Math.max(0, options.publishThrottleMs ?? defaultPublishThrottleMs)
     this.stateReaders = { ...defaultStateReaders, ...options.stateReaders }
     this.supportedCommands = normalizeMobileControlCommands(options.supportedCommands ?? defaultMobileSnapshotCommands)
+    this.readWebTargets = options.readWebTargets ?? (async () => [])
   }
 
   subscribe(listener: MobileSprintEngineSnapshotListener): () => void {
@@ -283,6 +293,10 @@ export class MobileSprintEngineSnapshotService {
     const automations = collections.has('automations')
       ? (await Promise.all(workspaceRoots.map((workspaceRoot) => readMobileAutomationSnapshots(workspaceRoot, generatedAt)))).flat()
       : []
+    // A share is machine state that can change without any workspace changing,
+    // so it is read on every snapshot and folded into the version below —
+    // otherwise the phone's If-None-Match would hold a stale web screen.
+    const webTargets = await this.readWebTargets().catch(() => [] as MobileControlWebTargetSnapshot[])
     return {
       protocolVersion: mobileControlProtocolVersion,
       generatedAt,
@@ -301,12 +315,14 @@ export class MobileSprintEngineSnapshotService {
         workspaces: workspaces.map(withoutReadTimeStamp),
         backlog: backlog.map(withoutReadTimeStamp),
         automations,
+        webTargets,
       }),
       commands: normalizeMobileControlCommands(request.commands ?? this.supportedCommands),
       sprintEngines,
       workspaces,
       ...(backlog.length > 0 ? { backlog } : {}),
       ...(automations.length > 0 ? { automations } : {}),
+      ...(webTargets.length > 0 ? { webTargets } : {}),
     }
   }
 

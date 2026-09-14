@@ -1,3 +1,4 @@
+import type { MobileControlWebTargetSnapshot } from '../../../shared/mobile-control/protocol'
 import {
   EMPTY_TAILNET_SHARE_STATUS,
   type TailnetShareResult,
@@ -87,5 +88,33 @@ export function createTailnetShareService(deps: TailscaleServeDeps = {}): Tailne
       if (!result.ok) return refuse(result.message)
       return { ok: true, share: null, status: await readStatus() }
     },
+  }
+}
+
+/**
+ * The shares, as the web targets a phone's snapshot carries.
+ *
+ * The label is the loopback port rather than the process name: the command that
+ * owns a port is a per-workspace scan the browser pane runs while someone is
+ * looking at it, and a snapshot read must not depend on a window being open.
+ * `localhost:5173` on a named machine is already unambiguous.
+ *
+ * Never throws. A snapshot that cannot reach Tailscale is a snapshot with no
+ * web targets, not a failed snapshot.
+ */
+export async function readTailnetWebTargets(service: TailnetShareService): Promise<MobileControlWebTargetSnapshot[]> {
+  try {
+    const status = await service.readStatus()
+    if (!status.available || !status.dnsName) return []
+    const machine = status.dnsName
+    return status.shares.map((share) => ({
+      id: `serve:${share.servePort}`,
+      label: `localhost:${share.localPort}`,
+      url: share.url,
+      localPort: share.localPort,
+      machine,
+    }))
+  } catch {
+    return []
   }
 }

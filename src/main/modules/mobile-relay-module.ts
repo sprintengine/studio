@@ -41,6 +41,11 @@ export const mobileRelayModule: CapabilityModule = {
     // whether or not a window has ever opened it this session.
     const resolveWorkspaceRoots = (): string[] =>
       uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSync.getSnapshot()))
+    // No `readWebTargets` here, deliberately. A tailnet share is only openable
+    // by a device ON the tailnet, and this transport's phone may not be — while
+    // the snapshot itself travels through a hosted relay, where a MagicDNS
+    // hostname would be network topology handed to a third party for a URL that
+    // device probably cannot use. Web targets ride the tailnet gateway only.
     const snapshotService = new MobileSprintEngineSnapshotService()
     const bridge = new MobileBridge(() => multicodeAuth.getSession(), {
       accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),

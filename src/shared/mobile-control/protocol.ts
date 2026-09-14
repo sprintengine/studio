@@ -1052,6 +1052,30 @@ export interface MobileControlRoadmapRider {
   lanes: MobileControlRoadmapLaneRider[];
 }
 
+/**
+ * A web page on this desktop that a phone can actually open.
+ *
+ * The pane's browser tab is not one of these: it holds a `localhost` URL, and
+ * localhost on a phone is the phone. What a phone can open is a dev server the
+ * desktop has published on the tailnet (`tailscale serve`), which is a real
+ * HTTPS origin reachable from any device on the tailnet.
+ *
+ * Additive and optional, so a phone that predates it simply does not draw the
+ * screen — the same contract `roadmaps` ships under.
+ */
+export interface MobileControlWebTargetSnapshot {
+  /** Stable within a desktop session: the HTTPS port publishing it. */
+  id: string;
+  /** What a person recognises — the local port and the process serving it. */
+  label: string;
+  /** `https://<node>.<tailnet>.ts.net[:port]/` — opened as-is, never rewritten. */
+  url: string;
+  /** The loopback port on the desktop, for the label and for matching. */
+  localPort: number;
+  /** The desktop publishing it, by MagicDNS name. */
+  machine: string;
+}
+
 export interface MobileControlSnapshot {
   protocolVersion: MobileControlProtocolVersion;
   generatedAt: string;
@@ -1073,6 +1097,9 @@ export interface MobileControlSnapshot {
   // Read-only roadmap progress riders (MC-1620), one per active roadmap. Additive
   // and omitted when there are none, so a phone that predates roadmaps is untouched.
   roadmaps?: MobileControlRoadmapRider[];
+  // Dev servers this desktop publishes on the tailnet, so the phone has a door
+  // to them (Track 1b). Additive and omitted when there are none.
+  webTargets?: MobileControlWebTargetSnapshot[];
   snapshotLimits?: {
     sprintEngines?: {
       included: number;
