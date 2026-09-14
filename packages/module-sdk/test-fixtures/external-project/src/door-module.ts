@@ -12,7 +12,7 @@ import type {
   RegisterRenderer,
   SidebarNavEntryDefinition,
   SidebarNavEntryRenderProps,
-} from '@multicode/module-sdk'
+} from '@sprintengine/module-sdk'
 
 export const manifest: CapabilityManifest = {
   id: 'tide-tables',

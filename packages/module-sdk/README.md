@@ -1,4 +1,4 @@
-# @multicode/module-sdk
+# @sprintengine/module-sdk
 
 Published contract types for building **Multicode capability modules** — the
 manifest and permission shapes, the main-process `MainHost` registration
@@ -12,6 +12,16 @@ mirrored values (`BUNDLED_MODULE_IDS`, `KNOWN_CAPABILITY_PERMISSIONS`,
 `createServiceToken`). It has no runtime dependency on Electron or on Multicode
 application code, so an external project can compile a module against the
 tarball alone.
+
+## Renamed in 0.6.0
+
+This package was `@multicode/module-sdk` up to and including `0.5.0`. Change
+every import to `@sprintengine/module-sdk` — root, `/ui`, `/surface` and
+`/signing` — and the matching `--external:` flags in your bundler. Nothing else
+moved: the types, the export names and the runtime contract are identical, so
+the rename is a find-and-replace and not a migration. A bundle you already
+built against the old specifiers still loads, because the host's import map
+answers both names.
 
 ## Versioning
 
@@ -212,7 +222,7 @@ valid for the app):
 ## Building a module
 
 ```ts
-import type { CapabilityManifest, RegisterMain, RegisterRenderer } from '@multicode/module-sdk'
+import type { CapabilityManifest, RegisterMain, RegisterRenderer } from '@sprintengine/module-sdk'
 ```
 
 Author `manifest.json` matching `CapabilityManifest`, bundle `entry.main` as
@@ -266,7 +276,7 @@ originates a drag the app's own drop targets (agent terminals) accept, and
 mode blanks `getData` until the drop, so gate `preventDefault` on it).
 
 ```ts
-import { readFileDropPayload, setFileDropData } from '@multicode/module-sdk'
+import { readFileDropPayload, setFileDropData } from '@sprintengine/module-sdk'
 
 onDrop={(event) => {
   const payload = readFileDropPayload(event.dataTransfer)
@@ -354,13 +364,13 @@ shade off:
 
 | Specifier | What it is |
 |---|---|
-| `@multicode/module-sdk/ui` | A curated slice of the app's component kit |
-| `@multicode/module-sdk/surface` | The door shell and its rail/canvas substrate |
+| `@sprintengine/module-sdk/ui` | A curated slice of the app's component kit |
+| `@sprintengine/module-sdk/surface` | The door shell and its rail/canvas substrate |
 | `@monaco-editor/react` | The Monaco React wrapper the app already ships |
 
 **They are host-provided.** This package ships only their TYPES; the `.js`
 behind `./ui` and `./surface` is a stub that throws
-`"@multicode/module-sdk/ui is provided by the host at runtime; mark it external
+`"@sprintengine/module-sdk/ui is provided by the host at runtime; mark it external
 in your bundler"` the moment it is evaluated. The app installs an import map
 before it evaluates your `entry.renderer` bundle and answers all three
 specifiers (plus `react`, `react-dom`, `react-dom/client`,
@@ -374,15 +384,15 @@ esbuild src/renderer.tsx --bundle --format=esm --outfile=dist/renderer.mjs \
   --external:react --external:react-dom --external:react-dom/client \
   --external:react/jsx-runtime \
   --external:@monaco-editor/react \
-  --external:@multicode/module-sdk/ui \
-  --external:@multicode/module-sdk/surface
+  --external:@sprintengine/module-sdk/ui \
+  --external:@sprintengine/module-sdk/surface
 ```
 
 Keep `moduleResolution: "bundler"` (or `node16`) in your tsconfig so the
 subpath `exports` are honoured. Bundling one of these in by mistake fails
 loudly at load with the message above, never silently with a second React.
 
-### `@multicode/module-sdk/ui`
+### `@sprintengine/module-sdk/ui`
 
 `GhostButton`, `OutlineButton`, `PrimaryButton`, `Banner`, `PanelHeader`, `Drawer`,
 `EmptyState`, `Field`, `Input`, `Textarea`, `InlineNotice`, `KbdChord`,
@@ -398,7 +408,7 @@ contract, pinned against the app's own components by a drift guard in both
 directions. A component you want that is not here is cheaper copied into your
 module than frozen here forever.
 
-### `@multicode/module-sdk/surface`
+### `@sprintengine/module-sdk/surface`
 
 `GlobalSurfaceShell` — the door frame: title bar, actions slot, back
 affordance, rail gutter, attention strip. `useSurfaceBackNav()` wires its back
@@ -451,7 +461,7 @@ A module's `entry.main` can create a workspace through the always-on app core,
 the same operation the UI performs:
 
 ```ts
-import { WorkspaceServiceToken, type RegisterMain } from '@multicode/module-sdk'
+import { WorkspaceServiceToken, type RegisterMain } from '@sprintengine/module-sdk'
 
 export const registerMain: RegisterMain = (host) => {
   host.registerIpc('my-module:new-scratch', async () => {
@@ -472,7 +482,7 @@ per-workspace persistence paths, scoped Automations `workspaceRoot`s — use the
 read-only workspace context (also always-on; declare `ipc:workspace-read`):
 
 ```ts
-import { WorkspaceContextToken } from '@multicode/module-sdk'
+import { WorkspaceContextToken } from '@sprintengine/module-sdk'
 
 const workspaces = host.requireService(WorkspaceContextToken)
 const view = await workspaces.get(workspaceId)
@@ -494,7 +504,7 @@ with a skill attached at spawn. Declare `agents:session` (checked on every call)
 and `dependsOn: ['agent-runtime']`.
 
 ```ts
-import { getAgentSessionService, type RegisterMain } from '@multicode/module-sdk'
+import { getAgentSessionService, type RegisterMain } from '@sprintengine/module-sdk'
 
 export const registerMain: RegisterMain = (host) => {
   const agents = getAgentSessionService(host)
@@ -542,7 +552,7 @@ scoped Automations service. Declare the `automations.manage` permission
 (install-time disclosure) and `dependsOn: ['automations']`:
 
 ```ts
-import { getAutomationsService, type RegisterMain } from '@multicode/module-sdk'
+import { getAutomationsService, type RegisterMain } from '@sprintengine/module-sdk'
 
 export const registerMain: RegisterMain = (host) => {
   host.registerIpc('my-module:schedule-digest', async (_event, workspaceRoot: unknown) => {
@@ -587,7 +597,7 @@ import {
   type AutomationActionProvider,
   type CapabilityManifest,
   type RegisterMain,
-} from '@multicode/module-sdk'
+} from '@sprintengine/module-sdk'
 
 export const manifest: CapabilityManifest = {
   id: 'weather-deck',
@@ -631,7 +641,7 @@ folder name; a user plugin with a bundled CLI's id overrides the bundled one.
 Author and pre-flight validate against the published contract:
 
 ```ts
-import { validateCliPluginManifest, type CliPluginManifest } from '@multicode/module-sdk'
+import { validateCliPluginManifest, type CliPluginManifest } from '@sprintengine/module-sdk'
 
 const result = validateCliPluginManifest(JSON.parse(pluginJson))
 if (!result.ok) console.error(result.issues) // [{ path, message }, …]

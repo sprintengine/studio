@@ -255,6 +255,7 @@
       {
         "name": "SprintEngine Studio",
         "schemes": [
+          "sprintengine",
           "multicode"
         ],
         "role": "Viewer"

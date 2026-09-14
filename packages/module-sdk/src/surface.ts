@@ -1,11 +1,11 @@
-// `@multicode/module-sdk/surface` — the host-provided door shell.
+// `@sprintengine/module-sdk/surface` — the host-provided door shell.
 //
 // TYPES ONLY AT RUNTIME, exactly like `./ui`: the host resolves this specifier
 // through the import map it installs before evaluating a third-party renderer
 // bundle. Evaluating this module throws.
 //
 // esbuild:
-//   --external:@multicode/module-sdk/surface
+//   --external:@sprintengine/module-sdk/surface
 //
 // Render a module's modal or global surface inside `GlobalSurfaceShell` and it
 // gets the app's own door chrome — title bar, back navigation, rail gutter,
@@ -17,7 +17,7 @@ import type * as React from 'react'
 import type { FilterMenuGroup, SelectItem } from './ui'
 
 const HOST_PROVIDED_MESSAGE =
-  '@multicode/module-sdk/surface is provided by the host at runtime; mark it external in your bundler'
+  '@sprintengine/module-sdk/surface is provided by the host at runtime; mark it external in your bundler'
 
 function hostProvided(): never {
   throw new Error(HOST_PROVIDED_MESSAGE)

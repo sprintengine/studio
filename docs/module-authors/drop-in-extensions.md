@@ -28,7 +28,7 @@ showing, optionally with a `launcher` row in the workspace pane's kind list)
 contracts. Modules are trust-gated: only modules the user has trusted execute
 code.
 
-- Author against [`@multicode/module-sdk`](../../packages/module-sdk/README.md).
+- Author against [`@sprintengine/module-sdk`](../../packages/module-sdk/README.md).
 - Validate, pack, and sign with the bundled `multicode-module` CLI.
 - Install by dropping the folder into `~/.multicode/modules/<id>/`, or from
   **Settings → Modules → "Install a module from a folder"**, then grant trust.
@@ -40,7 +40,7 @@ A module's `entry.main` can create workspaces programmatically through the
 always-on core, the same flow the UI uses:
 
 ```ts
-import { WorkspaceServiceToken } from '@multicode/module-sdk'
+import { WorkspaceServiceToken } from '@sprintengine/module-sdk'
 
 const workspaces = host.requireService(WorkspaceServiceToken)
 const result = await workspaces.create({ name: 'Scratch', folderPath: '/abs/path' })
@@ -178,7 +178,7 @@ A CLI plugin adds a new agent CLI (claude-code, codex, opencode, your own). It
 is **not** a capability module — it is a declarative `plugin.json` describing
 how to launch, resume, inject prompts into, and detect completion for a CLI.
 
-- The authoring contract is `CliPluginManifest` in `@multicode/module-sdk`;
+- The authoring contract is `CliPluginManifest` in `@sprintengine/module-sdk`;
   `validateCliPluginManifest` is the **same validator the app runs** on load
   (the app imports it from the SDK), so a manifest it accepts will load. The
   SDK type is the launch/resume/detect core; the bundled manifests also carry

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Acceptance check for @multicode/module-sdk:
+// Acceptance check for @sprintengine/module-sdk:
 // 1. The package builds standalone and `npm pack` produces a tarball.
 // 2. The packed d.ts public surface contains no `any`.
 // 3. The committed external fixture project compiles against the tarball
@@ -48,16 +48,16 @@ run(`npm install --no-save --no-package-lock --no-audit --no-fund ../${tarball}`
 
 // The bridged subpaths must be reachable the way a module author reaches them:
 // through the INSTALLED package's `exports` map, with declarations behind it.
-const installedDir = join(fixtureDir, 'node_modules', '@multicode', 'module-sdk')
+const installedDir = join(fixtureDir, 'node_modules', '@sprintengine', 'module-sdk')
 const installedManifest = JSON.parse(readFileSync(join(installedDir, 'package.json'), 'utf8'))
 for (const subpath of ['./ui', './surface']) {
   const entry = installedManifest.exports?.[subpath]
   if (!entry?.types || !entry?.default) {
-    throw new Error(`packed @multicode/module-sdk does not export "${subpath}".`)
+    throw new Error(`packed @sprintengine/module-sdk does not export "${subpath}".`)
   }
   for (const relative of [entry.types, entry.default]) {
     if (!existsSync(join(installedDir, relative))) {
-      throw new Error(`packed @multicode/module-sdk exports "${subpath}" → ${relative}, which the tarball does not ship.`)
+      throw new Error(`packed @sprintengine/module-sdk exports "${subpath}" → ${relative}, which the tarball does not ship.`)
     }
   }
 }
@@ -78,8 +78,8 @@ const HOST_EXTERNALS = [
   'react-dom/client',
   'react/jsx-runtime',
   '@monaco-editor/react',
-  '@multicode/module-sdk/ui',
-  '@multicode/module-sdk/surface',
+  '@sprintengine/module-sdk/ui',
+  '@sprintengine/module-sdk/surface',
 ]
 const bundlePath = join(fixtureDir, 'ui-bridge.bundle.mjs')
 run(
@@ -90,7 +90,7 @@ run(
 )
 const bundle = readFileSync(bundlePath, 'utf8')
 rmSync(bundlePath, { force: true })
-for (const specifier of ['@multicode/module-sdk/ui', '@multicode/module-sdk/surface', '@monaco-editor/react']) {
+for (const specifier of ['@sprintengine/module-sdk/ui', '@sprintengine/module-sdk/surface', '@monaco-editor/react']) {
   if (!new RegExp(`from ?["']${specifier.replace(/[/@]/g, '\\$&')}["']`).test(bundle)) {
     throw new Error(`bundling the fixture did not leave "${specifier}" as a bare import.`)
   }

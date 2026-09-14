@@ -1,4 +1,4 @@
-// @multicode/module-sdk — BYO-CLI plugin authoring contract.
+// @sprintengine/module-sdk — BYO-CLI plugin authoring contract.
 //
 // A CLI plugin is a folder containing a `plugin.json` that tells Multicode how
 // to launch, resume, drive and complete an agent CLI (e.g. claude-code, codex,

@@ -32,7 +32,9 @@ app.whenReady().then(async () => {
         window.__root=createRoot(document.getElementById('root'));
         window.__root.render(React.createElement(Panel,{workspaceId:'electron-wrapper-smoke'}));`,resolveDir:root,loader:'tsx'},
       bundle:true,platform:'browser',format:'iife',outfile:path.join(temp,'wrapper.js'), jsx:'automatic',loader:{'.css':'text'},
-      alias:{'@multicode/module-sdk/ui':path.join(root,'src/renderer/src/modules/sdk-ui.ts'),'react':path.join(root,'node_modules/react'),'react-dom':path.join(root,'node_modules/react-dom')},
+      // Both SDK scopes, matching the renderer's import map: the workspace this
+      // bundles lives in its own repo and may still import the pre-rename name.
+      alias:{'@sprintengine/module-sdk/ui':path.join(root,'src/renderer/src/modules/sdk-ui.ts'),'@multicode/module-sdk/ui':path.join(root,'src/renderer/src/modules/sdk-ui.ts'),'react':path.join(root,'node_modules/react'),'react-dom':path.join(root,'node_modules/react-dom')},
       define:{'process.env.NODE_ENV':'"production"','import.meta.env':'{}'},logLevel:'error',
     })
     const css = await fs.readFile(path.join(root,'design-system/foundations/tokens.css'),'utf8')

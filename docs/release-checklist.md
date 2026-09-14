@@ -56,7 +56,7 @@ of the first release that ships it, then delete the line.
   to give. An agent still cannot grant itself bypass through the MCP tools.
 - Automation autonomy field on the module SDK (item 2032): `autonomyDefault` is
   removed from `AutomationDefinition`, `AutomationDefinitionDraft` and the patch
-  type in `@multicode/module-sdk`. This is a **breaking type change** for a
+  type in `@sprintengine/module-sdk`. This is a **breaking type change** for a
   module that sets the field — the property no longer exists, so the compile
   fails rather than the value being ignored. Delete the assignment; there is no
   replacement, and reviewer-versus-fixer intent belongs in the prompt.
@@ -201,7 +201,9 @@ done that day.
 - Confirm terminal sessions launch.
 - Confirm Git panel reads status in a real repository.
 - Confirm Sprint Engine boards can load existing state.
-- Confirm protocol registration for `multicode://` auth callbacks still works.
+- Confirm protocol registration for `sprintengine://` auth callbacks still works,
+  and that `multicode://` — still registered for links minted before the rename —
+  reaches the same handler.
 
 ## Update Validation
 

@@ -104,7 +104,7 @@ export const SprintEngineAutomationFrontDoorsToken = createServiceToken<SprintEn
 )
 // Programmatic workspace creation for capability modules. The key MUST equal the
 // SDK's WorkspaceServiceToken ('core.workspace') so a module that imports the
-// token from @multicode/module-sdk resolves the instance the app provides here.
+// token from @sprintengine/module-sdk resolves the instance the app provides here.
 export const WorkspaceServiceToken = createServiceToken<ModuleWorkspaceService>('core.workspace')
 // Read-only workspace context (id → root/name/mode). The key MUST equal the
 // SDK's WorkspaceContextToken ('core.workspace-context') for the same reason.

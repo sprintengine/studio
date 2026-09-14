@@ -32,7 +32,7 @@ Drop a capability module here to have Multicode pick it up on next launch.
 Author modules against the published SDK:
 
 \`\`\`
-npm install --save-dev @multicode/module-sdk
+npm install --save-dev @sprintengine/module-sdk
 \`\`\`
 
 A \`manifest.json\` describes the module; \`entry.main\` / \`entry.renderer\`
@@ -70,7 +70,7 @@ A \`plugin.json\` tells Multicode how to launch and resume an agent CLI: its
 \`binary\`, the \`launch\` / \`resume\` argv templates, prompt injection, completion
 detection, MCP config format, model selection and capabilities. See the
 \`CliPluginManifest\` type and \`validateCliPluginManifest\` validator published by
-\`@multicode/module-sdk\` for the authoring contract.
+\`@sprintengine/module-sdk\` for the authoring contract.
 
 A plugin id must match its containing folder name. A user plugin with the same
 id as a bundled CLI overrides the bundled one.

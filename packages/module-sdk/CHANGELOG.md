@@ -2,13 +2,25 @@
 
 ## Unreleased
 
+- **The package is now `@sprintengine/module-sdk`** (was `@multicode/module-sdk`),
+  matching the app's name since 2026-09-08. **A module author must change every
+  import**, including the `--external:` flags for the host-bridged subpaths:
+  `@sprintengine/module-sdk`, `@sprintengine/module-sdk/ui`,
+  `@sprintengine/module-sdk/surface`, `@sprintengine/module-sdk/signing`. The
+  types, the exports and the runtime contract are unchanged — only the name is.
+  A module bundle built against the old specifiers keeps working: the host's
+  import map answers both scopes, so an installed module does not have to be
+  rebuilt to keep rendering. Every reference in this file was rewritten to the
+  new name, earlier entries included, because nothing was ever published under
+  the old one. The `multicode-module` CLI binary keeps its name for now.
+
 - **Packaged web runtimes have stable module origins.** `RendererHost.getAssetUrl`
   resolves an installed asset to a `studio-module:` URL. Packaged HTML supports
   relative scripts, WebAssembly, workers and IndexedDB. Private per-installation
   origins prevent unrelated pages from guessing asset URLs, with current trust and
   enablement checks and containment inside the module directory.
 - **Panel headers are available through the shared UI kit.** `PanelHeader` and
-  `PanelHeaderProps` are exported from `@multicode/module-sdk/ui` so contributed
+  `PanelHeaderProps` are exported from `@sprintengine/module-sdk/ui` so contributed
   panels can use Studio's existing header component.
 
 - **Folderless workspaces can open themselves after installation.** Set
@@ -40,12 +52,12 @@
   the app had two options, both bad: re-implement the chrome a shade off, or
   bundle a second copy of React-dependent components and break hooks. Two new
   subpath entry points now publish the app's own pieces —
-  `@multicode/module-sdk/ui` (`GhostButton`, `OutlineButton`, `PrimaryButton`,
+  `@sprintengine/module-sdk/ui` (`GhostButton`, `OutlineButton`, `PrimaryButton`,
   `Banner`, `Drawer`, `EmptyState`, `Field`, `Input`, `Textarea`,
   `InlineNotice`, `KbdChord`, `LifecycleGlyph`, `LinkButton`, `RowButton`,
   `Section`, `SegmentedControl`, `Select`, `Spinner`, `StatusDot`,
   `TruncatedText`, `CliModelPickerButton`, `FOCUS_RING_CLASS`) and
-  `@multicode/module-sdk/surface` (`GlobalSurfaceShell`, `useSurfaceBackNav`,
+  `@sprintengine/module-sdk/surface` (`GlobalSurfaceShell`, `useSurfaceBackNav`,
   `SurfaceRail`, `SurfaceCanvasState`) — alongside `@monaco-editor/react`,
   which the host has always shipped and now answers for modules too. All three
   join `react` and friends in the import map the host installs before it
@@ -53,11 +65,11 @@
   one kit in the process.
 
   Both subpaths ship TYPES ONLY: their runtime is a stub that throws
-  `"@multicode/module-sdk/ui is provided by the host at runtime; mark it
+  `"@sprintengine/module-sdk/ui is provided by the host at runtime; mark it
   external in your bundler"`, so forgetting the external is a loud failure at
   load rather than a silent second React. Add
-  `--external:@monaco-editor/react --external:@multicode/module-sdk/ui
-  --external:@multicode/module-sdk/surface` to your bundle.
+  `--external:@monaco-editor/react --external:@sprintengine/module-sdk/ui
+  --external:@sprintengine/module-sdk/surface` to your bundle.
 
   Two things this does NOT give you. Tailwind utility classes written inside a
   module compile to nothing — the app's Tailwind build scans app source only —
@@ -534,7 +546,7 @@ Signing toolchain for module authors.
   node_modules, .git, and key material), `sign` (detached ed25519 signature
   over the canonical manifest, normalized manifest written back to disk),
   `verify` (checks a module directory exactly like the Multicode app).
-- New `@multicode/module-sdk/signing` subpath export:
+- New `@sprintengine/module-sdk/signing` subpath export:
   `generateModuleSigningKeyPair`, `signManifest`, `verifyModuleSignature`,
   `manifestFingerprint`, `publicKeyFingerprint`. The Multicode app's verifier
   imports these same functions, so signer and verifier cannot drift.

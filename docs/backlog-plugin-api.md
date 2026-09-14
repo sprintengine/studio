@@ -100,7 +100,7 @@ actions by module enablement before rendering them. Action ids must be unique.
   multi-selection surface (MC-2060). An action offered on a multi-selection must
   handle `selection` in both `isVisible` and `run`.
 - optional `startSourcePlan(source)` — renderer-internal only; it is **not** on
-  the `BacklogItemActionContext` published by `@multicode/module-sdk`, so a
+  the `BacklogItemActionContext` published by `@sprintengine/module-sdk`, so a
   third-party module cannot type-reference it.
 
 `category` is a closed union: `execute`, `analyze`, `transform`, `publish`,
