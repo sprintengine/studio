@@ -11,6 +11,7 @@ import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { createXtermOutputQueue, createXtermReplayGate } from '../../utils/xtermOutputQueue'
 import { StatusDot } from '../ui'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
+import { TerminalMount } from '../terminal/TerminalMount'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
@@ -59,6 +60,8 @@ interface Props {
 
 export default function FleetTerminalPanel({ attachId, connectionId, sessionId, workspaceId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // The padding-free box xterm is opened into; see TerminalMount.
+  const terminalMountRef = useRef<HTMLDivElement>(null)
   // The live terminal, for anything outside the mount effect that needs it —
   // today `useTerminalFind`, which loads the search addon on the first find.
   const studioTerminalRef = useRef<StudioTerminal | null>(null)
@@ -79,7 +82,8 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
 
   useEffect(() => {
     const container = containerRef.current
-    if (!container) return
+    const mount = terminalMountRef.current
+    if (!container || !mount) return
 
     // `kind: 'fleet'` carries no roots, and that is the point: this pane is
     // attached to a terminal on another machine, so a path printed in it names
@@ -118,13 +122,13 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
     studioTerminalRef.current = studioTerminal
     const term = studioTerminal.terminal
     const fitAddon = studioTerminal.fitAddon
-    term.open(container)
+    term.open(mount)
     // Immediately after `open()`: the WebGL addon reads `term.element`, and a
     // GPU failure loaded before that point escapes through `open()` itself.
     studioTerminal.loadWebglRenderer()
 
     const fitTerminal = () => {
-      if (container.clientWidth === 0 || container.clientHeight === 0) return
+      if (mount.clientWidth === 0 || mount.clientHeight === 0) return
       fitAddon.fit()
       if (term.cols > 0 && term.rows > 0) window.api.fleetTerminalResize(attachId, term.cols, term.rows)
     }
@@ -227,9 +231,9 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
       window.api.fleetTerminalResize(attachId, cols, rows)
     })
 
-    const fitScheduler = createTerminalFitScheduler(fitTerminal, container)
+    const fitScheduler = createTerminalFitScheduler(fitTerminal, mount)
     const resizeObserver = new ResizeObserver(() => fitScheduler.requestFit())
-    resizeObserver.observe(container)
+    resizeObserver.observe(mount)
     // A pointer landing on the pane's own chrome (the find bar) is not a click
     // on the terminal: focusing here would take the keyboard straight back out
     // of the find field.
@@ -297,11 +301,12 @@ export default function FleetTerminalPanel({ attachId, connectionId, sessionId, 
         <div
           ref={containerRef}
           tabIndex={0}
-          className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 cursor-text overflow-hidden p-2 pb-4`}
+          className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 cursor-text overflow-hidden p-2`}
           // Marks this as a terminal surface, so a ⌘F pressed anywhere in it —
           // including in the find bar — activates the `terminal` command scope.
           {...{ [TERMINAL_SURFACE_ATTRIBUTE]: '' }}
         >
+          <TerminalMount ref={terminalMountRef} />
           <TerminalFindBar find={find} />
         </div>
         {linkError ? (

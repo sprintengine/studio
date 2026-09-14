@@ -58,6 +58,7 @@ import {
 } from '../../utils/terminalColdLoad'
 import type { McpSettings } from '../../types/workspace'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
+import { TerminalMount } from '../terminal/TerminalMount'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
@@ -142,6 +143,8 @@ function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
 
 export default function TerminalView({ workspaceId, agentId, sessionId: attachedSessionId, shouldKillOnUnmount }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // The padding-free box xterm is opened into; see TerminalMount.
+  const terminalMountRef = useRef<HTMLDivElement>(null)
   const focusTerminalRef = useRef<() => void>(() => {
     containerRef.current?.focus()
   })
@@ -355,7 +358,8 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const currentContext = () => launchContextRef.current
     const initialContext = currentContext()
     const container = containerRef.current
-    if (!container) return
+    const mount = terminalMountRef.current
+    if (!container || !mount) return
     if (initialContext.savedFolderPath && !folderReadyPath) return
     if (!initialContext.agent) return
     if (!initialContext.cli) {
@@ -510,7 +514,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     })
 
     const fitTerminal = () => {
-      if (container.clientWidth === 0 || container.clientHeight === 0) return
+      if (mount.clientWidth === 0 || mount.clientHeight === 0) return
       fitAddon.fit()
       if (term.cols > 0 && term.rows > 0) {
         void window.api.terminalResize(sessionId, term.cols, term.rows)
@@ -568,7 +572,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       }
       return true
     })
-    term.open(container)
+    term.open(mount)
     // Immediately after `open()`: the WebGL addon reads `term.element`, and a
     // GPU failure loaded before that point escapes through `open()` itself.
     studioTerminal.loadWebglRenderer()
@@ -860,11 +864,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       void window.api.terminalResize(sessionId, cols, rows)
     })
 
-    const fitScheduler = createTerminalFitScheduler(fitTerminal, container)
+    const fitScheduler = createTerminalFitScheduler(fitTerminal, mount)
     const resizeObserver = new ResizeObserver(() => {
       fitScheduler.requestFit()
     })
-    resizeObserver.observe(container)
+    resizeObserver.observe(mount)
     // A pointer landing on the pane's own chrome (the find bar) is not a click
     // on the terminal: focusing here would take the keyboard back out of the
     // find field on the mouseup of the click that just entered it.
@@ -1533,11 +1537,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={(event) => void handleDrop(event)}
-      className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 overflow-hidden bg-[color:var(--terminal-bg)] p-2 pb-4 cursor-text`}
+      className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 overflow-hidden bg-[color:var(--terminal-bg)] p-2 cursor-text`}
       // Marks this as a terminal surface, so a ⌘F pressed anywhere in it —
       // including in the find bar — activates the `terminal` command scope.
       {...{ [TERMINAL_SURFACE_ATTRIBUTE]: '' }}
     >
+      <TerminalMount ref={terminalMountRef} />
       <TerminalFindBar find={find} />
       {/* No replay skeleton on terminals: an xterm renders its own content
           progressively (and a revealed cold terminal resyncs in place), so a
@@ -1570,7 +1575,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         />
       ) : null}
       {folderBlocked && folderMissing ? (
-        <div className="flex h-full items-center justify-center px-4 text-center text-meta text-[color:var(--text-muted)]">
+        <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-meta text-[color:var(--text-muted)]">
           {folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'}
         </div>
       ) : null}

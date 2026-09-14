@@ -32,6 +32,7 @@ import {
 } from '../../utils/terminalDrop'
 import { waitForMonoFontReady } from '../../utils/fonts'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
+import { TerminalMount } from '../terminal/TerminalMount'
 import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalFindBar } from '../terminal/TerminalFindBar'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
@@ -53,6 +54,8 @@ export default function PlainTerminalPanel({
   shouldKillOnUnmount,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // The padding-free box xterm is opened into; see TerminalMount.
+  const terminalMountRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(`terminal-${terminalId}`)
   // The live terminal, for anything outside the mount effect that needs it —
   // today `useTerminalFind`, which loads the search addon on the first find.
@@ -94,7 +97,8 @@ export default function PlainTerminalPanel({
 
   useEffect(() => {
     const container = containerRef.current
-    if (!container) return
+    const mount = terminalMountRef.current
+    if (!container || !mount) return
     if (!cwdOverride && savedFolderPath && !folderReadyPath) return
 
     const sessionId = sessionIdRef.current
@@ -252,7 +256,7 @@ export default function PlainTerminalPanel({
     })
 
     const fitTerminal = () => {
-      if (container.clientWidth === 0 || container.clientHeight === 0) return
+      if (mount.clientWidth === 0 || mount.clientHeight === 0) return
       fitAddon.fit()
       if (term.cols > 0 && term.rows > 0) {
         void window.api.terminalResize(sessionId, term.cols, term.rows)
@@ -270,7 +274,7 @@ export default function PlainTerminalPanel({
       }
       return true
     })
-    term.open(container)
+    term.open(mount)
     // Immediately after `open()`: the WebGL addon reads `term.element`, and a
     // GPU failure loaded before that point escapes through `open()` itself.
     studioTerminal.loadWebglRenderer()
@@ -380,11 +384,11 @@ export default function PlainTerminalPanel({
       void window.api.terminalResize(sessionId, cols, rows)
     })
 
-    const fitScheduler = createTerminalFitScheduler(fitTerminal, container)
+    const fitScheduler = createTerminalFitScheduler(fitTerminal, mount)
     const resizeObserver = new ResizeObserver(() => {
       fitScheduler.requestFit()
     })
-    resizeObserver.observe(container)
+    resizeObserver.observe(mount)
     // A pointer landing on the pane's own chrome (the find bar) is not a click
     // on the terminal: focusing here would take the keyboard back out of the
     // find field on the mouseup of the click that just entered it.
@@ -620,11 +624,12 @@ export default function PlainTerminalPanel({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={(event) => void handleDrop(event)}
-        className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 cursor-text overflow-hidden p-2 pb-4`}
+        className={`${FOCUS_RING_TERMINAL_CLASS} absolute inset-0 cursor-text overflow-hidden p-2`}
         // Marks this as a terminal surface, so a ⌘F pressed anywhere in it —
         // including in the find bar — activates the `terminal` command scope.
         {...{ [TERMINAL_SURFACE_ATTRIBUTE]: '' }}
       >
+        <TerminalMount ref={terminalMountRef} />
         <TerminalFindBar find={find} />
         {/* No replay skeleton on terminals (see TerminalView): xterm renders
             its own content; keep the skeleton only for the folder check. */}
@@ -655,7 +660,7 @@ export default function PlainTerminalPanel({
           />
         ) : null}
         {folderBlocked && folderMissing ? (
-          <div className="flex h-full items-center justify-center px-4 text-center text-meta text-[color:var(--text-muted)]">
+          <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-meta text-[color:var(--text-muted)]">
             {folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'}
           </div>
         ) : null}
