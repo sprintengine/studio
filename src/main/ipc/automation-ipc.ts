@@ -16,7 +16,13 @@ import {
 } from '../../shared/tailnet'
 import { TAILNET_FORGET_MACHINE_CHANNEL } from '../../shared/tailnet-fleet'
 import { TAILNET_LIST_PEERS_CHANNEL } from '../../shared/tailnet-peers'
+import {
+  TAILNET_SHARE_PORT_CHANNEL,
+  TAILNET_SHARE_STATUS_CHANNEL,
+  TAILNET_UNSHARE_PORT_CHANNEL,
+} from '../../shared/tailnet-share'
 import type { AutomationService } from '../automation/automation-service'
+import { createTailnetShareService } from '../automation/tailnet/tailnet-share-service'
 import { asRecord } from '../../shared/records'
 
 // Status only: a window reads whether the gateway is up and may turn it off.
@@ -76,4 +82,18 @@ export function registerAutomationIpc(ipcMain: IpcMain, service: AutomationServi
   // listener off. It is still IPC-only for the same reason as the rest: a
   // remote device must not be able to make this machine enumerate the tailnet.
   ipcMain.handle(TAILNET_LIST_PEERS_CHANNEL, () => service.listTailnetPeers())
+
+  // Publishing a dev server on the tailnet (Track 1). IPC-only for the same
+  // reason as everything above it: sharing a port widens what this machine
+  // exposes, so it is a decision the person at the keyboard makes. No agent —
+  // local or remote — can reach these, and `unshare` refuses any port outside
+  // the ladder so a hand-written serve mapping is never taken down by Studio.
+  const shareService = createTailnetShareService()
+  ipcMain.handle(TAILNET_SHARE_STATUS_CHANNEL, () => shareService.readStatus())
+  ipcMain.handle(TAILNET_SHARE_PORT_CHANNEL, (_event, input: unknown) =>
+    shareService.share(Number(asRecord(input)?.localPort))
+  )
+  ipcMain.handle(TAILNET_UNSHARE_PORT_CHANNEL, (_event, input: unknown) =>
+    shareService.unshare(Number(asRecord(input)?.servePort))
+  )
 }

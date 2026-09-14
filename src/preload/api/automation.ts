@@ -24,6 +24,13 @@ import {
   type TailnetScope,
 } from '../../shared/tailnet'
 import { TAILNET_LIST_PEERS_CHANNEL, type TailnetPeerScan } from '../../shared/tailnet-peers'
+import {
+  TAILNET_SHARE_PORT_CHANNEL,
+  TAILNET_SHARE_STATUS_CHANNEL,
+  TAILNET_UNSHARE_PORT_CHANNEL,
+  type TailnetShareResult,
+  type TailnetShareStatus,
+} from '../../shared/tailnet-share'
 import { TAILNET_FORGET_MACHINE_CHANNEL, type TailnetForgetMachineResult } from '../../shared/tailnet-fleet'
 import type { ElectronApi } from '../../shared/electron-api'
 
@@ -70,6 +77,12 @@ export const automationApi = {
     ipcRenderer.invoke(TAILNET_LIST_PEERS_CHANNEL) as Promise<TailnetPeerScan>,
   tailnetGetLiveState: (): Promise<TailnetLiveState> =>
     ipcRenderer.invoke(TAILNET_GET_LIVE_STATE_CHANNEL) as Promise<TailnetLiveState>,
+  tailnetShareStatus: (): Promise<TailnetShareStatus> =>
+    ipcRenderer.invoke(TAILNET_SHARE_STATUS_CHANNEL) as Promise<TailnetShareStatus>,
+  tailnetSharePort: (localPort: number): Promise<TailnetShareResult> =>
+    ipcRenderer.invoke(TAILNET_SHARE_PORT_CHANNEL, { localPort }) as Promise<TailnetShareResult>,
+  tailnetUnsharePort: (servePort: number): Promise<TailnetShareResult> =>
+    ipcRenderer.invoke(TAILNET_UNSHARE_PORT_CHANNEL, { servePort }) as Promise<TailnetShareResult>,
   // The push half (remote-sessions-ux): main broadcasts every tailnet change;
   // each payload carries fresh status + live state, so a subscriber stores the
   // latest and never re-fetches.
@@ -95,4 +108,7 @@ export const automationApi = {
   | 'tailnetListPeers'
   | 'tailnetGetLiveState'
   | 'onTailnetEvent'
+  | 'tailnetShareStatus'
+  | 'tailnetSharePort'
+  | 'tailnetUnsharePort'
 >

@@ -101,6 +101,7 @@ import type {
   TailnetScope,
 } from './tailnet'
 import type { TailnetPeerScan } from './tailnet-peers'
+import type { TailnetShareResult, TailnetShareStatus } from './tailnet-share'
 import type { RepositoryIdentityRead } from './repository-identity'
 import type {
   FleetAttachResult,
@@ -3577,6 +3578,15 @@ export type ElectronApi = {
    * begin/end. Returns the unsubscribe.
    */
   onTailnetEvent: (cb: (payload: TailnetPushPayload) => void) => () => void
+  /**
+   * Dev servers this machine publishes on the tailnet (`tailscale serve`), so a
+   * phone or another desktop can open one. Read on demand: serve config lives
+   * in tailscaled and outlives this process, so these never return a
+   * remembered list.
+   */
+  tailnetShareStatus: () => Promise<TailnetShareStatus>
+  tailnetSharePort: (localPort: number) => Promise<TailnetShareResult>
+  tailnetUnsharePort: (servePort: number) => Promise<TailnetShareResult>
   // The Fleet (MC-2167): the machines this Studio is paired WITH, and the panes
   // it mounts from them. Main owns the device tokens and every outbound socket —
   // the listener refuses any request carrying an `Origin`, which a renderer

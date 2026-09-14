@@ -41,3 +41,39 @@ export function runTailscale(args: readonly string[], timeoutMs: number, maxBuff
     )
   })
 }
+
+/**
+ * A run whose failure the caller must explain rather than swallow.
+ *
+ * `runTailscale` collapses every failure to null, which is the right answer for
+ * a read (no tailnet is no tailnet). A WRITE — `serve` turning a local port
+ * into a tailnet URL — fails for reasons a person can act on: HTTPS is off for
+ * the tailnet, the node is logged out, the daemon wants elevation. Those need
+ * to reach the UI, so this variant keeps the exit code and stderr.
+ *
+ * CALLERS MUST NOT SURFACE OR LOG `stderr` VERBATIM. Tailscale writes auth keys
+ * (`tskey-…`) and node names into it; `tailscale-serve.ts` classifies it into a
+ * fixed label and drops the text. The field is here so that classification can
+ * happen, not so the text can be shown.
+ */
+export type TailscaleRun = { ok: true; stdout: string } | { ok: false; stdout: string; stderr: string; timedOut: boolean }
+
+export function runTailscaleResult(args: readonly string[], timeoutMs: number, maxBuffer?: number): Promise<TailscaleRun> {
+  return new Promise((resolve) => {
+    execFile(
+      resolveTailscaleBinary(),
+      [...args],
+      { timeout: timeoutMs, windowsHide: true, ...(maxBuffer ? { maxBuffer } : {}) },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve({ ok: true, stdout })
+          return
+        }
+        // execFile reports a timeout by killing the child; `killed` is the only
+        // signal that separates "took too long" from "exited non-zero".
+        const timedOut = (error as NodeJS.ErrnoException & { killed?: boolean }).killed === true
+        resolve({ ok: false, stdout: stdout ?? '', stderr: stderr ?? '', timedOut })
+      }
+    )
+  })
+}
