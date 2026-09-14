@@ -9,9 +9,13 @@ import type {
 } from '../../../../../shared/tailnet-fleet'
 import type { Workspace } from '../../../types/workspace'
 import {
+  attachedConversations,
   attachedWorkspaceFor,
   buildRemoteBand,
   conversationsOf,
+  remoteConversationTitle,
+  remoteLinkStateOf,
+  remoteWorkspaceName,
   shouldBrowse,
   unattachedConversations,
 } from './remoteSessionsModel'
@@ -277,5 +281,91 @@ assert.deepEqual(
   'with no window holding it, the conversation is a row',
 )
 assert.deepEqual(unattachedConversations(band, false, [local]), [], 'off the tailnet, nothing read from over there is drawn')
+
+
+// ── attachedConversations ────────────────────────────────────────────────
+// The complement: the conversation each OPEN remote row is, so that row can
+// draw a line per agent instead of the one pane its own layout knows about.
+const openHere = attachedConversations(band, [local, stamped])
+assert.deepEqual([...openHere.keys()], ['w1'], 'the conversation w1 holds is keyed by w1')
+assert.deepEqual(
+  openHere.get('w1')!.agents.map((agent) => agent.title),
+  ['Ada', 'Bea'],
+  'and carries every agent standing in it — w1 holds a pane onto one, the row draws both',
+)
+assert.equal(attachedConversations([], [local, stamped]).size, 0)
+// A LOCAL chat that happens to hold a pane onto the other machine is not a
+// remote conversation: it is a local chat with a visitor in it, and its own
+// agents' lines are not the other machine's to replace.
+const visiting = workspace('w9', { folderPath: '/proj', layoutModel: fleetLayout('c1', 's1') })
+assert.equal(
+  buildRemoteBand({ connections: [air], browses: new Map([['c1', { browse: answered, loading: false, error: null, at: 1 }]]), attachments, reachability, workspaces: [visiting] })
+    .flatMap((group) => conversationsOf(group))
+    .some((entry) => entry.attachedWorkspaceId === 'w9'),
+  true,
+  'the band still recognises the window showing that session',
+)
+assert.equal(
+  attachedConversations(
+    buildRemoteBand({ connections: [air], browses: new Map([['c1', { browse: answered, loading: false, error: null, at: 1 }]]), attachments, reachability, workspaces: [visiting] }),
+    [visiting],
+  ).size,
+  0,
+  '…but it is not handed the lines, because it is not a remote-born row',
+)
+// A machine running three agents in one chat: the row that opened ONE of them
+// still draws all three — the bug the owner reported on 2026-09-13, where
+// opening a remote chat made it say less than it did unopened.
+const crowd = buildRemoteBand({
+  connections: [air],
+  browses: new Map([
+    [
+      'c1',
+      {
+        browse: browse({
+          terminals: [
+            terminal({ sessionId: 's1', agentName: 'Ada' }),
+            terminal({ sessionId: 's2', agentName: 'Grace', phase: 'awaiting_input' }),
+            terminal({ sessionId: 's3', agentName: 'Alan', phase: null }),
+          ],
+        }),
+        loading: false,
+        error: null,
+        at: 1,
+      },
+    ],
+  ]),
+  attachments,
+  reachability,
+  workspaces: [stamped],
+})
+assert.deepEqual(
+  attachedConversations(crowd, [stamped]).get('w1')!.agents.map((agent) => agent.title),
+  ['Ada', 'Grace', 'Alan'],
+  'one pane onto one agent, but the row knows all three — in activity order',
+)
+
+// ── remoteLinkStateOf ────────────────────────────────────────────────────
+// Three answers, not two: "we have not been told" must never read as
+// "disconnected", or a host without the tailnet bridge empties the sidebar.
+assert.equal(remoteLinkStateOf(null), 'unknown')
+assert.equal(remoteLinkStateOf(undefined), 'unknown')
+assert.equal(remoteLinkStateOf({ tailnetAddress: null }), 'down', 'Tailscale is not up on this machine')
+assert.equal(remoteLinkStateOf({ tailnetAddress: '100.64.0.5' }), 'up')
+
+// ── remoteWorkspaceName / remoteConversationTitle ────────────────────────
+// The CHAT's name, never the agent's (owner, 2026-09-13).
+assert.equal(remoteWorkspaceName('Tara Boyle', 'multicode'), 'multicode')
+assert.equal(remoteWorkspaceName('Tara Boyle', '  '), 'Tara Boyle', 'a remote with no name to give falls back to the agent')
+assert.equal(remoteWorkspaceName('Tara Boyle', null), 'Tara Boyle')
+
+const titled = (name: string, workspaceName: string | undefined) =>
+  remoteConversationTitle({ name, remoteOrigin: workspaceName === undefined ? null : ({ workspaceName } as never) })
+assert.equal(titled('Tara Boyle · multicode', 'multicode'), 'multicode', 'a row stored under the old rule is rescued')
+assert.equal(titled('multicode', 'multicode'), 'multicode', 'a row already named for its chat is left alone')
+assert.equal(titled('Ship the release', 'multicode'), 'Ship the release', 'a name a person chose is theirs')
+assert.equal(titled(' · multicode', 'multicode'), ' · multicode', 'no agent in front of it: not the old rule, not rewritten')
+assert.equal(titled('Tara Boyle · multicode', undefined), 'Tara Boyle · multicode', 'a local row is never touched')
+assert.equal(titled('Tara Boyle', ''), 'Tara Boyle', 'a remote that never named its chat leaves the name as it is')
 
 console.log('remote sessions model tests passed')

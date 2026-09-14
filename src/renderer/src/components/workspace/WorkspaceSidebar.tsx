@@ -87,8 +87,10 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { useRemoteSessions } from './remoteBand/useRemoteSessions'
 import {
+  attachedConversations,
   buildRemoteBand,
   openSpecOfConversation,
+  remoteConversationTitle,
   unattachedConversations,
   type RemoteConversation,
   type RemoteSessionOpenSpec,
@@ -418,7 +420,7 @@ function remoteGroupOf(workspace: Workspace): FolderGroup['remote'] {
  * A remote-only project's header: the FOLDER's name on that machine, and
  * nothing else (owner, 2026-09-11).
  *
- * It used to read "mac-mini.tail1234.ts.net · multicode" — the machine
+ * It used to read "mac-mini.example.ts.net · multicode" — the machine
  * first, the project second, so the same repository on two machines read as two
  * different projects and neither header lined up with the local one. The
  * machine is a glyph on each row now, with the device's name on hover, which is
@@ -1036,7 +1038,7 @@ export function RowTooltip({ children, ...props }: React.ComponentProps<typeof T
  * green in the app (the top bar's Remote glyph, a machine that answers).
  *
  * The NAME stays in the tooltip and the accessible name, never in the row's
- * own width: `mac-mini.tail1234.ts.net` would take the row.
+ * own width: `mac-mini.example.ts.net` would take the row.
  */
 function RemoteRowGlyph({ machineName }: { machineName: string }) {
   const short = shortMachineName(machineName)
@@ -1879,6 +1881,28 @@ export default function WorkspaceSidebar({
     [workspaces]
   )
 
+  // Each paired machine's sessions, read while this rail is the one showing; a
+  // machine that is asleep is drawn from its last read. No longer gated on a
+  // band being open — there is no band, and the rows these feed are spread
+  // through the projects.
+  //
+  // Read HERE, above the grouping, because the grouping depends on it: whether
+  // this device is on the tailnet decides which rows exist at all (below), and
+  // the browse decides how many lines each open remote row draws.
+  const remoteSessions = useRemoteSessions({ enabled: !contextRailActive })
+  const { presence: remotePresence, browses: remoteBrowses, listening: remoteListening, link: remoteLink } = remoteSessions
+  const remoteGroups = useMemo(
+    () =>
+      buildRemoteBand({
+        connections: remotePresence.fleet,
+        browses: remoteBrowses,
+        attachments: remotePresence.fleetAttachments,
+        reachability: remotePresence.fleetReachability,
+        workspaces: railWorkspaces,
+      }),
+    [remotePresence.fleet, remoteBrowses, remotePresence.fleetAttachments, remotePresence.fleetReachability, railWorkspaces]
+  )
+
   // Rows born on a paired machine (`workspace.remoteOrigin`) file under a
   // project header like every other chat (owner, 2026-09-11). They used to be
   // held out of the groups entirely and listed in a "Remote" band above them —
@@ -1889,7 +1913,20 @@ export default function WorkspaceSidebar({
   // `resolveGroups` already knows how to file one: a remote row whose
   // repository has a local clone open here joins that clone's header, and one
   // with no twin founds a header of its own named after its folder over there.
-  const localRailWorkspaces = railWorkspaces
+  //
+  // …and off the tailnet they file nowhere, because they are not there (owner,
+  // 2026-09-13: "when studio has disconnected from the tailnet, it should no
+  // longer show the remote conversations in the side panel"). `unattached
+  // Conversations` already withheld the rows read from a browse; these are the
+  // other half — real `Workspace`s here, stamped with `remoteOrigin`, whose
+  // entire content is a pane onto a machine this device can no longer reach.
+  // Nothing is forgotten and nothing is closed: the workspaces stay in the
+  // store, stay in `railWorkspaces` so the band can still recognise what is
+  // attached to what, and their rows come back with the link.
+  const localRailWorkspaces = useMemo(
+    () => (remoteLink === 'down' ? railWorkspaces.filter((workspace) => !workspace.remoteOrigin) : railWorkspaces),
+    [railWorkspaces, remoteLink]
+  )
 
   // Repository identity per open local folder (one-project-across-machines),
   // read once per folder. This is what lets a chat running on the Mini sit
@@ -1932,29 +1969,23 @@ export default function WorkspaceSidebar({
     return map
   }, [localGroups, folderIdentities])
 
-  // Each paired machine's sessions, read while this rail is the one showing; a
-  // machine that is asleep is drawn from its last read. No longer gated on a
-  // band being open — there is no band, and the rows these feed are spread
-  // through the projects.
-  const remoteSessions = useRemoteSessions({ enabled: !contextRailActive })
-  const { presence: remotePresence, browses: remoteBrowses, listening: remoteListening } = remoteSessions
-  const remoteGroups = useMemo(
-    () =>
-      buildRemoteBand({
-        connections: remotePresence.fleet,
-        browses: remoteBrowses,
-        attachments: remotePresence.fleetAttachments,
-        reachability: remotePresence.fleetReachability,
-        workspaces: railWorkspaces,
-      }),
-    [remotePresence.fleet, remoteBrowses, remotePresence.fleetAttachments, remotePresence.fleetReachability, railWorkspaces]
-  )
   // The conversations on paired machines that no window here holds. The ones
   // that DO have a window are already `Workspace`s in `railWorkspaces` and
   // group themselves; listing them here too would be the same chat twice.
   const unattachedRemote = useMemo(
     () => unattachedConversations(remoteGroups, remoteListening, railWorkspaces),
     [remoteGroups, remoteListening, railWorkspaces]
+  )
+  // …and the complement: the conversation each OPEN remote row IS, so that row
+  // can draw a line per agent standing in it instead of the single inert line
+  // its own layout knows about (owner, 2026-09-13). Empty off the tailnet,
+  // where those rows are not drawn at all.
+  const remoteConversationByWorkspace = useMemo(
+    () =>
+      remoteLink === 'down'
+        ? new Map<string, RemoteConversation>()
+        : attachedConversations(remoteGroups, railWorkspaces),
+    [remoteGroups, remoteLink, railWorkspaces]
   )
   // Which project header a remote conversation files under. The same rule the
   // remote-born WORKSPACES follow (`groupKeyOf` + `resolveGroups`): this disk's
@@ -2286,11 +2317,14 @@ export default function WorkspaceSidebar({
   const starredWorkspaces = useMemo(
     () =>
       sortWorkspacesByUserMessage(
-        railWorkspaces.filter(
+        // `localRailWorkspaces`, so a STARRED remote chat goes with the tailnet
+        // too: a row withheld from its project and left standing up here would
+        // be the same chat saying two different things about whether it exists.
+        localRailWorkspaces.filter(
           (workspace) => isStarred(workspace.highlight) && !isSettledWorkspace(workspace) && !isAsleep(workspace)
         )
       ),
-    [railWorkspaces, isAsleep]
+    [localRailWorkspaces, isAsleep]
   )
 
   const workspaceById = useMemo(() => {
@@ -2311,7 +2345,7 @@ export default function WorkspaceSidebar({
   }, [
     getTreeRows,
     rovingKey,
-    railWorkspaces,
+    localRailWorkspaces,
     groups,
     starredWorkspaces,
     collapsedFolders,
@@ -2787,16 +2821,39 @@ export default function WorkspaceSidebar({
     // lines, and everything on them, are gated on liveness: no terminal, no
     // line. (The poll above already asks about live rows only; the gate here
     // keeps the render honest even mid-transition.)
-    const rowIsLive = rowHasOpenTerminals(workspace, sessionsByWorkspaceId)
+    // A remote-born row is titled with the CHAT, never with an agent standing
+    // in it (owner, 2026-09-13). `remoteConversationTitle` also rescues the
+    // rows already stored under the old `${agentName} · ${chatName}` rule, so
+    // the fix reaches chats that exist rather than only the next one opened.
+    const rowTitle = remoteConversationTitle(workspace)
+    // The conversation this row is, over on its machine — present only for a
+    // remote-born row whose machine has answered a browse.
+    const rowConversation = remoteConversationByWorkspace.get(workspace.id) ?? null
+    // A remote chat with agents standing in it is live whatever this window is
+    // holding: `rowHasOpenTerminals` asks about panes HERE, and a person who
+    // closed the pane did not stop the chat. The browse saying the agents are
+    // there is the better answer, and without this the row went silent the
+    // moment its pane closed even though the machine was still working.
+    const rowIsLive = rowHasOpenTerminals(workspace, sessionsByWorkspaceId) || rowConversation !== null
     // A settled row is the one-liner by construction: rest is the point, and
     // a checkout's branch and ±lines are not facts about a chat at rest.
     const rowLines = rowIsLive && !options?.settled && !options?.snoozed
-      ? terminalLinesOf({
-          workspace,
-          sessions: sessionsByWorkspaceId.get(workspace.id) ?? [],
-          fleetPanes: fleetPanesOf(workspace),
-          summaries: gitSummaries,
-        })
+      ? rowConversation
+        // A remote chat draws the agents standing in IT, not the one pane this
+        // window happens to hold (owner, 2026-09-13). `fleetPanesOf` can only
+        // see the session this workspace attached, so a chat running three
+        // agents over there drew one nameless, activity-free line here while
+        // the very same chat, unopened, drew three live ones in the band
+        // beside it — opening a chat made it say less. The browse already read
+        // all three; these are the band's own lines, which is what makes an
+        // open remote row and a local multi-agent row read alike.
+        ? { lines: rowConversation.agents.map(lineOfRemoteRow), overflow: 0 }
+        : terminalLinesOf({
+            workspace,
+            sessions: sessionsByWorkspaceId.get(workspace.id) ?? [],
+            fleetPanes: fleetPanesOf(workspace),
+            summaries: gitSummaries,
+          })
       : { lines: [], overflow: 0 }
     // A band row names its machine on the title glyph, so its lines do not
     // say it again; a local row that holds a remote pane still marks it there.
@@ -3127,9 +3184,9 @@ export default function WorkspaceSidebar({
           <SprintEngineMarkIcon className="icon-xs shrink-0 text-[color:var(--tool-sprintengine-ink)]" />
         ) : null}
         {hasPeek ? (
-          <span className={`${titleClass} truncate`}>{workspace.name}</span>
+          <span className={`${titleClass} truncate`}>{rowTitle}</span>
         ) : (
-          <TruncatedText as="span" text={workspace.name} className={titleClass} />
+          <TruncatedText as="span" text={rowTitle} className={titleClass} />
         )}
         {resident ? <span className="sr-only"> (agents resident)</span> : null}
         {/* The gold surface is the visible mark; this is the same meaning
@@ -4481,7 +4538,8 @@ type ContextMenuAction =
   | 'toggle-star'
   | 'toggle-settle'
   // Snooze presets dispatch as `snooze:<presetId>` so the union stays closed
-  // while the list of wake times remains data shared by the menu and dispatcher.
+  // while the list of wake times remains data: a new wake time is a row in the
+  // preset table, not a new member of this union.
   | `snooze:${SnoozePresetId}`
   | 'wake'
   | 'clear-color'

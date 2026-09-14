@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useTailnetPresence, type TailnetPresence } from '../topbar/useTailnetPresence'
-import { shouldBrowse, type RemoteBrowseEntry } from './remoteSessionsModel'
+import { remoteLinkStateOf, shouldBrowse, type RemoteBrowseEntry, type RemoteLinkState } from './remoteSessionsModel'
 
 // The reads behind the sidebar's Remote band (remote-sessions-in-the-sidebar,
 // epic decision 2): an expanded band IS the ask, and the asking is bounded —
@@ -26,8 +26,15 @@ const REMOTE_CHANGE_SETTLE_MS = 250
 export type RemoteSessions = {
   presence: TailnetPresence
   browses: ReadonlyMap<string, RemoteBrowseEntry>
-  /** This device is on the tailnet: the band may draw what it read from over there. */
+  /** This device's listener is up: the band may draw what it read from over there. */
   listening: boolean
+  /**
+   * Whether this device is on the tailnet at all — up, down, or not yet known.
+   * What the rows that are WINDOWS here are gated on: a chat on another machine
+   * is not openable, typable, or readable from a device with no tailnet, so its
+   * row goes with the link and comes back with it (owner, 2026-09-13).
+   */
+  link: RemoteLinkState
   /** Read one machine now, or every machine that may be asked. */
   refresh: (connectionId?: string) => void
 }
@@ -50,6 +57,7 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
   // (owner ruling 2026-09-05): the band draws only what is open here until
   // the listener is back, and the first read after that is the mount read.
   const listening = presence.status?.running === true
+  const link = remoteLinkStateOf(presence.status)
   const enabled = wanted && listening
   const [browses, setBrowses] = useState<ReadonlyMap<string, RemoteBrowseEntry>>(() => new Map())
   const browsesRef = useRef(browses)
@@ -206,5 +214,5 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
     [fleet, fleetReachability, browse]
   )
 
-  return { presence, browses, listening, refresh }
+  return { presence, browses, listening, link, refresh }
 }

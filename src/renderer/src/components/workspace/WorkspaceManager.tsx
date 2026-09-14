@@ -114,7 +114,7 @@ import {
 } from '../../utils/terminalFocusRequest'
 import { SidebarChrome } from './SidebarChrome'
 import { fleetTerminalTabName } from '../panels/fleet/fleetModel'
-import type { RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
+import { remoteWorkspaceName, type RemoteSessionOpenSpec } from './remoteBand/remoteSessionsModel'
 import { useSurfaceView } from './surfaceView'
 import type { RemoteNewChatLaunch } from './agentComposer/NewAgentPanel'
 import { clearNewChatDraft, newChatDraftHasContent, readNewChatDraft, rescopeNewChatDraft, writeNewChatDraft } from './agentComposer/newChatDraft'
@@ -3658,7 +3658,12 @@ export default function WorkspaceManager() {
       return
     }
     addWorkspace(SOLO_CHAT_TEMPLATE, {
-      name: spec.workspaceName ? `${spec.title} · ${spec.workspaceName}` : spec.title,
+      // The CHAT's name over there, not the agent's (owner, 2026-09-13). This
+      // used to read `${spec.title} · ${spec.workspaceName}` — an agent's name
+      // in front of every remote row, so a sidebar of chats read as a sidebar
+      // of strangers. The agent's name survives where it belongs: the tab, and
+      // its line's mark on the row.
+      name: remoteWorkspaceName(spec.title, spec.workspaceName),
       folderPath: null,
       remoteOrigin: {
         connectionId: spec.connectionId,
@@ -3721,7 +3726,8 @@ export default function WorkspaceManager() {
       return
     }
     addWorkspace(SOLO_CHAT_TEMPLATE, {
-      name: `${created.title} · ${launch.remoteWorkspaceName}`,
+      // The chat's name over there, same rule as `openRemoteSession`.
+      name: remoteWorkspaceName(created.title, launch.remoteWorkspaceName),
       // No local checkout: the code lives on the other machine, and a local
       // folder here would claim otherwise. Where it DOES live is the
       // workspace's provenance, stamped once so the sidebar can group and

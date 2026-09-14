@@ -439,3 +439,94 @@ export function unattachedConversations(
 export function openSpecOfConversation(conversation: RemoteConversation): RemoteSessionOpenSpec {
   return openSpecOf(conversation.agents[0]!)
 }
+
+/**
+ * What a chat opened from — or started on — a paired machine is CALLED here.
+ *
+ * The remote chat's own name, and the lone agent's only when the remote had no
+ * name to give (owner, 2026-09-13: "we shouldn't show 'Tara Boyle · xxx' — the
+ * agent name shouldn't be there, it is not relevant"). It used to be
+ * `${agentName} · ${chatName}`, which put a stranger's name in front of every
+ * remote row and made a list of chats read as a list of people — the same
+ * mistake the band's own rows made until `conversationsOf` stopped titling a
+ * conversation with its loudest agent. One rule, both paths.
+ */
+export function remoteWorkspaceName(agentTitle: string, remoteChatName: string | null | undefined): string {
+  return remoteChatName?.trim() || agentTitle
+}
+
+/**
+ * A remote-born row's title, for rows that already exist.
+ *
+ * `workspace.name` is the answer, except for the rows minted under the old
+ * `${agentName} · ${chatName}` rule: those are already in people's stores and
+ * would keep reading as strangers forever. A name that ends in exactly its own
+ * provenance's chat name, with something in front of it, IS one of those, and
+ * the chat name is what it should have been called. A person who renamed the
+ * row themselves keeps their name — unless they happened to type that exact
+ * shape, in which case they get the chat's name, which is not a bad one.
+ */
+export function remoteConversationTitle(workspace: Pick<Workspace, 'name' | 'remoteOrigin'>): string {
+  const chatName = workspace.remoteOrigin?.workspaceName?.trim()
+  if (!chatName) return workspace.name
+  const suffix = ` · ${chatName}`
+  if (workspace.name.length > suffix.length && workspace.name.endsWith(suffix)) return chatName
+  return workspace.name
+}
+
+/**
+ * Whether THIS device is on the tailnet, as the sidebar must answer it.
+ *
+ * Three answers rather than two, because "we have not been told" is a real
+ * state and must not read as "disconnected": a host without the tailnet bridge
+ * (a narrower preload, a partial test harness) and the moment before the first
+ * status read both have `status === null`, and hiding every remote row on
+ * those would empty the sidebar of chats that are perfectly fine.
+ *
+ * `tailnetAddress` is the signal rather than `running`, which is the INBOUND
+ * listener's state: a person can drive paired machines with Remote turned off
+ * here — the listener is what lets other machines drive THIS one — so a
+ * listener that is down says nothing about whether the fleet can be reached.
+ * An address out of Tailscale's own ranges sits on an interface only while
+ * Tailscale is up (`resolveTailnetInterface`), which is exactly the question.
+ */
+export type RemoteLinkState = 'unknown' | 'up' | 'down'
+
+export function remoteLinkStateOf(status: { tailnetAddress: string | null } | null | undefined): RemoteLinkState {
+  if (!status) return 'unknown'
+  return status.tailnetAddress === null ? 'down' : 'up'
+}
+
+/**
+ * The conversation each OPEN remote row is, keyed by the workspace here that
+ * holds it (owner, 2026-09-13).
+ *
+ * The complement of {@link unattachedConversations}: that one lists the
+ * conversations no window here holds, this one names the ones that ARE windows
+ * here. A remote-born workspace's own layout knows about exactly one session —
+ * the pane it attached — so left to itself its row draws one inert line for a
+ * chat that may have nine agents standing in it. The browse already read all
+ * nine; this is how the row gets to draw them, the way a local chat running
+ * three terminals draws three lines.
+ */
+export function attachedConversations(
+  groups: readonly RemoteMachineGroup[],
+  workspaces: readonly Workspace[]
+): ReadonlyMap<string, RemoteConversation> {
+  // Remote-BORN rows only. A local project's workspace can hold a fleet pane
+  // too — someone opened a terminal from another machine inside the chat they
+  // were working in — and `attachedWorkspaceFor` matches it, because for the
+  // band's purposes it genuinely is the window showing that session. It is not
+  // a remote conversation, though: it is a local chat with a visitor in it, and
+  // handing this map its id would replace its own agents' lines with the other
+  // machine's.
+  const remoteBorn = new Set(workspaces.filter((workspace) => workspace.remoteOrigin).map((workspace) => workspace.id))
+  const byWorkspace = new Map<string, RemoteConversation>()
+  for (const group of groups) {
+    for (const conversation of conversationsOf(group)) {
+      const id = conversation.attachedWorkspaceId
+      if (id && remoteBorn.has(id)) byWorkspace.set(id, conversation)
+    }
+  }
+  return byWorkspace
+}
