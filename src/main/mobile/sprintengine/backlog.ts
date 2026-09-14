@@ -48,11 +48,12 @@ export async function readMobileBacklogWorkspaceSnapshot(
   generatedAt: string,
 ): Promise<MobileControlBacklogWorkspaceSnapshot | null> {
   const root = resolve(workspaceRoot)
-  const { items, present } = await readActiveBacklogItems(root)
+  const backlogLocation = await readBacklogLocation(root)
+  const { items, present } = await readActiveBacklogItems(root, backlogLocation)
   if (!present) return null
   if (items.length === 0) return emptyBacklogWorkspaceSnapshot(root, generatedAt)
 
-  const epics = await buildBacklogEpics(root, items)
+  const epics = await buildBacklogEpics(root, backlogLocation, items)
 
   return {
     workspaceId: `backlog:${root}`,
@@ -64,7 +65,7 @@ export async function readMobileBacklogWorkspaceSnapshot(
   }
 }
 
-const EPICS_FOLDER = join('backlog', 'epics')
+const EPICS_RELATIVE_PATH = 'backlog/epics'
 
 // Read the workspace's backlog display key (`.multi-code/backlog/config.json`),
 // read-only — unlike the desktop resolver, this never persists a derived default,
@@ -100,11 +101,14 @@ async function readBacklogWorkspaceKey(root: string): Promise<string> {
 // epic chips/color bands without denormalizing color onto every item.
 async function buildBacklogEpics(
   root: string,
+  backlogLocation: BacklogLocation,
   items: MobileControlBacklogItemSnapshot[],
 ): Promise<MobileControlBacklogEpicSnapshot[]> {
+  const epicsDir = backlogAbsolutePath(backlogLocation, EPICS_RELATIVE_PATH)
   let epicFiles: string[]
   try {
-    epicFiles = (await readdir(join(root, EPICS_FOLDER))).filter((name) => /\.mdx?$/i.test(name))
+    if (epicsDir === null) return []
+    epicFiles = (await readdir(epicsDir)).filter((name) => /\.mdx?$/i.test(name))
   } catch {
     return []
   }
@@ -125,7 +129,7 @@ async function buildBacklogEpics(
     const slug = file.replace(/\.mdx?$/i, '')
     let raw: string | null = null
     try {
-      raw = await readFile(join(root, EPICS_FOLDER, file), 'utf-8')
+      raw = await readFile(join(epicsDir, file), 'utf-8')
     } catch {
       raw = null
     }
@@ -156,7 +160,8 @@ export async function readBacklogEpicChildren(
   slug: string | readonly string[],
 ): Promise<MobileControlBacklogItemSnapshot[]> {
   const slugs = new Set(typeof slug === 'string' ? [slug] : slug)
-  const { items } = await readActiveBacklogItems(resolve(workspaceRoot))
+  const root = resolve(workspaceRoot)
+  const { items } = await readActiveBacklogItems(root, await readBacklogLocation(root))
   // Leaves only, mirroring the renderer's childrenOfEpic: an epic container may
   // carry its own slug in `epic:`, so without the type guard it would come back
   // as a child of itself.
@@ -186,8 +191,9 @@ function epicSlugsForContainer(relativePath: string, epicField: string | undefin
 // backlog folder nor any sidecar record (a calm absence, not an error).
 async function readActiveBacklogItems(
   root: string,
+  backlogLocation: BacklogLocation,
 ): Promise<{ items: MobileControlBacklogItemSnapshot[]; present: boolean }> {
-  const scannedPaths = await scanBacklogMarkdownPaths(root)
+  const scannedPaths = await scanBacklogMarkdownPaths(backlogLocation)
   const storeResult = await readBacklogObjectStore(root)
   let records: BacklogObjectRecordPayload[] = storeResult.ok ? storeResult.store.items : []
 
@@ -207,7 +213,7 @@ async function readActiveBacklogItems(
   // Build every record into a frontmatter-sourced snapshot first, then drop
   // archived ones by their *frontmatter* status (the sidecar status is stale
   // after the v2 migration) and by the archived/ path convention.
-  const snapshots = await Promise.all(records.map((record) => toBacklogItemSnapshot(root, record)))
+  const snapshots = await Promise.all(records.map((record) => toBacklogItemSnapshot(backlogLocation, record)))
   const items = snapshots
     .filter((item) => item.status !== 'archived' && !item.relativePath.toLowerCase().startsWith(ARCHIVED_PREFIX))
     .sort(compareBacklogItems)
@@ -319,11 +325,11 @@ export function assertBacklogRelativePath(value: string): string {
 // `unfiled/` — so listing only the files directly under `backlog/` showed the
 // phone an empty backlog. Same skip rules as the desktop walk and the renderer's
 // scan, so all three agree on what exists.
-async function scanBacklogMarkdownPaths(root: string): Promise<string[]> {
+async function scanBacklogMarkdownPaths(backlogLocation: BacklogLocation): Promise<string[]> {
   const paths: string[] = []
   // The prefix stays `backlog` whatever the folder is called on disk: the phone
   // addresses items by the same logical path the desktop does.
-  await walk((await readBacklogLocation(root)).root, BACKLOG_FOLDER)
+  await walk(backlogLocation.root, BACKLOG_FOLDER)
   return paths.sort((left, right) => left.localeCompare(right))
 
   async function walk(directory: string, prefix: string): Promise<void> {
@@ -346,12 +352,12 @@ async function scanBacklogMarkdownPaths(root: string): Promise<string[]> {
 }
 
 async function toBacklogItemSnapshot(
-  root: string,
+  backlogLocation: BacklogLocation,
   record: BacklogObjectRecordPayload,
 ): Promise<MobileControlBacklogItemSnapshot> {
   let raw: string | null = null
   try {
-    const source = backlogAbsolutePath(await readBacklogLocation(root), record.source.relativePath)
+    const source = backlogAbsolutePath(backlogLocation, record.source.relativePath)
     raw = source === null ? null : await readFile(source, 'utf-8')
   } catch {
     raw = null

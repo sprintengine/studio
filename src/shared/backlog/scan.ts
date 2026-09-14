@@ -8,6 +8,7 @@ import { deriveDefaultBacklogKey, isValidBacklogKey, parseBacklogNumericId } fro
 // Canonical object-store id, re-exported so existing importers of this module
 // keep working. See src/shared/backlog/object-id.ts for the FNV-1a contract.
 import { stableBacklogObjectId } from './object-id'
+import { isAbsoluteFilePath } from '../paths'
 import {
   backlogHighlightFromFrontmatter,
   durableBacklogLinksFromFrontmatter,
@@ -284,6 +285,13 @@ export function defaultBacklogLocation(workspaceRoot: string): BacklogLocation {
 export function backlogLocationFor(workspaceRoot: string, configuredRoot?: string | null): BacklogLocation {
   const trimmed = typeof configuredRoot === 'string' ? configuredRoot.trim() : ''
   if (!trimmed) return defaultBacklogLocation(workspaceRoot)
+  // A relative root is not honoured. `setBacklogRoot` refuses to write one, so
+  // this only guards a hand-edited config, where "relative to what" has no good
+  // answer — the same file is read by the main process, the renderer and the
+  // mobile bridge, none of which share a working directory. Falling back to the
+  // default is the recoverable reading; joining a half-understood path onto the
+  // workspace and writing items into it is not.
+  if (!isAbsoluteFilePath(trimmed)) return defaultBacklogLocation(workspaceRoot)
   return { workspaceRoot, root: trimmed.replace(/[\\/]+$/, '') }
 }
 

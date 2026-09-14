@@ -110,6 +110,16 @@ run('a configured root is taken as given, trailing separators and all', () => {
   }
 })
 
+// `setBacklogRoot` refuses to write a relative root, so this only guards a
+// hand-edited config — where "relative to what" has no answer the main process,
+// the renderer and the mobile bridge would all agree on.
+run('a relative configured root is ignored rather than half-understood', () => {
+  for (const configured of ['backlog', './backlog', '../shared/backlog', 'a/b']) {
+    const location = backlogLocationFor(WORKSPACE, configured)
+    assert.ok(isDefaultBacklogLocation(location), `${configured} must fall back to the default`)
+  }
+})
+
 run('a configured root that happens to be the default reads as the default', () => {
   const location = backlogLocationFor(WORKSPACE, backlogRootPath(WORKSPACE))
   assert.ok(isDefaultBacklogLocation(location), 'a reset-to-default config is not a redirect')

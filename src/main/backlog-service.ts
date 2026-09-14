@@ -653,9 +653,13 @@ export async function setBacklogRoot(input: BacklogSetRootInput): Promise<Backlo
       throw new Error('That backlog folder does not exist.')
     })
     if (!(await stat(resolved)).isDirectory()) throw new Error('A backlog folder must be a folder.')
-    // Pointing a backlog at the workspace root itself would make every file in
-    // the checkout a backlog item; `<root>/backlog` is the default and is fine.
-    if (resolved === workspace.root) throw new Error('A backlog folder cannot be the workspace root itself.')
+    // Pointing a backlog at the workspace root, or at anything containing it,
+    // would make every file in the checkout a backlog item and set the watcher
+    // on a tree the size of the repository. `<root>/backlog` is the default and
+    // is fine; a folder inside the checkout that is not the checkout is fine too.
+    if (isPathInsideOrEqual(resolved, workspace.root)) {
+      throw new Error('A backlog folder cannot be the workspace itself, or a folder containing it.')
+    }
     const location = backlogLocationFor(workspace.root, resolved)
     await writeBacklogConfigFields(workspace.root, {
       root: isDefaultBacklogLocation(location) ? undefined : location.root,

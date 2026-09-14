@@ -35,6 +35,11 @@ export async function backlogLocationOf(folderPath: string): Promise<BacklogLoca
     } catch {
       // Fall through to the default below.
     }
+    // Only a resolved answer is worth keeping. A failure here is usually
+    // transient — the main process still starting, a workspace mid-open — and
+    // caching the fallback would pin this workspace to the wrong folder for the
+    // life of the window, with no event to correct it.
+    locations.delete(key)
     return defaultBacklogLocation(folderPath)
   })()
 

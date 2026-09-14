@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 
@@ -16,6 +16,8 @@ import {
   readBacklogFrontmatterFields,
   readBacklogObjectStore,
   removeBacklogLink,
+  resolveBacklogLocation,
+  setBacklogRoot,
   updateBacklogDependencies,
   updateBacklogDependenciesPlanned,
   updateBacklogMockups,
@@ -1330,6 +1332,56 @@ async function testABacklogCanLiveOutsideTheCheckout(): Promise<void> {
   }
 }
 
+// The surface that points a backlog somewhere. Its refusals matter more than its
+// successes: a backlog root that swallows the checkout would make every file in
+// the repository a backlog item and put the watcher on a tree that size.
+async function testSettingABacklogRootValidatesWhatItIsGiven(): Promise<void> {
+  // realpath because the service stores resolved paths, the same way it resolves
+  // the workspace root — on macOS `/var` is a symlink to `/private/var`, and a
+  // root that changes meaning when a symlink moves is not one worth storing.
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'multicode-backlog-setroot-ws-')))
+  const elsewhere = await realpath(await mkdtemp(join(tmpdir(), 'multicode-backlog-setroot-store-')))
+  try {
+    const before = await resolveBacklogLocation(root)
+    assert.equal(before.ok, true)
+    assert.equal(before.ok && before.location.isDefault, true, 'a fresh workspace is on the default root')
+    assert.equal(before.ok && before.location.exists, false, 'and its backlog folder does not exist yet')
+
+    const set = await setBacklogRoot({ workspaceRoot: root, root: elsewhere })
+    assert.equal(set.ok, true, set.ok ? '' : set.message)
+    assert.equal(set.ok && set.location.isDefault, false)
+    assert.equal(set.ok && set.location.exists, true)
+
+    const after = await resolveBacklogLocation(root)
+    assert.equal(after.ok && after.location.root, elsewhere, 'the root survives a reload')
+
+    // Refusals.
+    for (const [candidate, why] of [
+      [join(elsewhere, 'nope'), 'a folder that does not exist'],
+      ['relative/path', 'a relative path'],
+      [root, 'the workspace itself'],
+      [dirname(root), 'a folder containing the workspace'],
+    ] as Array<[string, string]>) {
+      const refused = await setBacklogRoot({ workspaceRoot: root, root: candidate })
+      assert.equal(refused.ok, false, `${why} must be refused`)
+    }
+
+    // A refusal leaves the previous root in place rather than clearing it.
+    const unchanged = await resolveBacklogLocation(root)
+    assert.equal(unchanged.ok && unchanged.location.root, elsewhere, 'a refused change must not drop the current root')
+
+    // Resetting returns to the default and drops the field from the config.
+    const reset = await setBacklogRoot({ workspaceRoot: root, root: null })
+    assert.equal(reset.ok, true)
+    assert.equal(reset.ok && reset.location.isDefault, true)
+    const config = JSON.parse(await readFile(join(root, '.multi-code', 'backlog', 'config.json'), 'utf-8')) as Record<string, unknown>
+    assert.equal('root' in config, false, 'resetting removes the field rather than writing an empty one')
+  } finally {
+    await rm(root, { force: true, recursive: true })
+    await rm(elsewhere, { force: true, recursive: true })
+  }
+}
+
 main()
   .then(() => testBacklogIntegrityRepairsAreNarrowAndIdempotent())
   .then(() => testListAndReadBacklogItemsAreReadOnly())
@@ -1338,6 +1390,7 @@ main()
   .then(() => testNewItemsAreFiledUnderTheirEpic())
   .then(() => testListingWalksNestedEpicFolders())
   .then(() => testABacklogCanLiveOutsideTheCheckout())
+  .then(() => testSettingABacklogRootValidatesWhatItIsGiven())
   .catch((error) => {
     console.error(error)
     process.exit(1)
