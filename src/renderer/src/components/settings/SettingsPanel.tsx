@@ -716,7 +716,7 @@ export function VersionControlSections({
   return (
     <div className="space-y-6">
       {sections.map((section, index) => (
-        <section key={section.id} aria-labelledby={`version-control-${section.id}`} className="space-y-1">
+        <section key={section.id} aria-labelledby={`version-control-${section.id}`} className="space-y-2">
           <SettingsSectionTitle
             id={`version-control-${section.id}`}
             // One chrome row for the whole page: both sections read from the same
@@ -752,28 +752,35 @@ export function VersionControlSections({
             />
           ) : null}
 
-          {section.providers.map((spec) => {
-            const view = resolveVersionControlRow(spec, probes[spec.id], probeStatus, platform)
-            // Only GitHub has per-instance configuration to reveal (the app's own
-            // access token). ProviderRow draws no chevron for a row with nothing
-            // behind it, so git renders as a plain row rather than an empty
-            // disclosure.
-            const detail = spec.id === 'gh' ? githubToken : null
-            return (
-              <ProviderRow
-                key={spec.id}
-                icon={<VersionControlMark monogram={spec.monogram} />}
-                health={view.tone}
-                name={spec.label}
-                version={view.version}
-                stateLine={<VersionControlStateLine view={view} />}
-                expanded={expandedId === spec.id}
-                onExpandedChange={(next) => setExpandedId(next ? spec.id : null)}
-              >
-                {detail}
-              </ProviderRow>
-            )
-          })}
+          {/* The list card (setting-row → The list card, 2026-09-15): the band
+              above names the group, the card is its one edge, and the rows sit
+              full-bleed inside it — as the Remote tab's machines do. */}
+          <SettingCard as="ul" ariaLabel={section.title}>
+            {section.providers.map((spec) => {
+              const view = resolveVersionControlRow(spec, probes[spec.id], probeStatus, platform)
+              // Only GitHub has per-instance configuration to reveal (the app's own
+              // access token). ProviderRow draws no chevron for a row with nothing
+              // behind it, so git renders as a plain row rather than an empty
+              // disclosure.
+              const detail = spec.id === 'gh' ? githubToken : null
+              return (
+                <ProviderRow
+                  key={spec.id}
+                  as="li"
+                  surface="card"
+                  icon={<VersionControlMark monogram={spec.monogram} />}
+                  health={view.tone}
+                  name={spec.label}
+                  version={view.version}
+                  stateLine={<VersionControlStateLine view={view} />}
+                  expanded={expandedId === spec.id}
+                  onExpandedChange={(next) => setExpandedId(next ? spec.id : null)}
+                >
+                  {detail}
+                </ProviderRow>
+              )
+            })}
+          </SettingCard>
         </section>
       ))}
     </div>
