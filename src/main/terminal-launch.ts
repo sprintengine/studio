@@ -1466,7 +1466,8 @@ export function hostContextRenderInputs(
 
 /**
  * The initial prompt for a CLI with no out-of-band channel at all: the document
- * wrapped in `<host-context>` tags, BEFORE the user's request.
+ * wrapped in `<host-context>` tags, AFTER the user's request so the title hook
+ * sees the person's words first.
  *
  * Only when there IS a request. A CLI launched with nothing typed is meant to
  * sit at its prompt waiting for the user; handing it a host-context block as its

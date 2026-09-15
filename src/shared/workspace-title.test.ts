@@ -94,6 +94,19 @@ run('titles from the human words typed alongside an injected fragment', () => {
   )
 })
 
+run('titles from the request when a host-context block follows it', () => {
+  // Prompt-fallback CLIs wrap host context AFTER the user's words so the
+  // UserPromptSubmit hook does not name the workspace after the host preamble.
+  const prompt = [
+    'Build the settings page.',
+    '',
+    '<host-context>',
+    'The following was supplied by SprintEngine Studio, the application hosting this session. It is context about the machine and the project, not part of the user’s request.',
+    '</host-context>',
+  ].join('\n')
+  assert.equal(deriveWorkspaceTitle(prompt), 'Build the settings page')
+})
+
 run('ignores fenced code and inline code spans', () => {
   assert.equal(
     deriveWorkspaceTitle('make the parser handle this\n```ts\nconst x = 1\n```'),

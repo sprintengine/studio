@@ -19,8 +19,9 @@
  * document opens with {@link HOST_CONTEXT_BOUNDARY_LINE}, because a system
  * prompt the model cannot tell apart from the user's words is the same defect in
  * a quieter place. In the prompt fallback the document is additionally wrapped
- * in `<host-context>` tags and placed BEFORE the prompt, so the request is the
- * last thing the model reads.
+ * in `<host-context>` tags and placed AFTER the prompt: the UserPromptSubmit
+ * hook titles the workspace from the first words it sees, and those have to be
+ * the person's request, not the host's.
  */
 import { join } from 'path'
 
@@ -101,10 +102,11 @@ export function buildHostContextDocument(input: HostContextInput): string | null
  * take `--plugin-dir`, so the document is packed as a one-session plugin with
  * an always-apply rule instead of being pasted into the user's request.
  *
- * The block goes BEFORE the prompt so the user's request is the last thing the
- * model reads, and the tags are what make "host said this" recoverable from a
- * single flat string. Returns the prompt unchanged when there is no document,
- * so a plain repo's launch is untouched.
+ * The block goes AFTER the prompt so the UserPromptSubmit hook — which titles
+ * the workspace from the first words of the combined string — sees the person's
+ * request, not the host's. The tags are what make "host said this" recoverable
+ * from a single flat string. Returns the prompt unchanged when there is no
+ * document, so a plain repo's launch is untouched.
  */
 export function wrapHostContextForPrompt(
   document: string | null,
@@ -113,7 +115,7 @@ export function wrapHostContextForPrompt(
   if (!document) return userPrompt
   const block = [HOST_CONTEXT_OPEN_TAG, document, HOST_CONTEXT_CLOSE_TAG].join('\n')
   if (!userPrompt) return block
-  return `${block}\n\n${userPrompt}`
+  return `${userPrompt}\n\n${block}`
 }
 
 /**

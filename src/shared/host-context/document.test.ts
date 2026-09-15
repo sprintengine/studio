@@ -77,15 +77,16 @@ run('both sections appear, design system first', () => {
   assert.ok(doc.indexOf('## Design system') < doc.indexOf('## Knowledge graph'))
 })
 
-run('the prompt fallback puts the block BEFORE the request', () => {
+run('the prompt fallback puts the block AFTER the request', () => {
   const doc = buildHostContextDocument({ designSystem: { bundlePath: '/repo/design-system' } })
   const wrapped = wrapHostContextForPrompt(doc, 'Build the settings page.')
   assert.ok(wrapped)
-  assert.ok(wrapped.startsWith(HOST_CONTEXT_OPEN_TAG), 'tagged, so host words are recoverable')
+  assert.ok(wrapped.startsWith('Build the settings page.'), 'the request is first so the title hook sees it')
+  assert.ok(wrapped.includes(HOST_CONTEXT_OPEN_TAG), 'tagged, so host words are recoverable')
   assert.ok(wrapped.includes(HOST_CONTEXT_CLOSE_TAG))
   assert.ok(
-    wrapped.indexOf(HOST_CONTEXT_CLOSE_TAG) < wrapped.indexOf('Build the settings page.'),
-    'the user’s request is the last thing the model reads',
+    wrapped.indexOf('Build the settings page.') < wrapped.indexOf(HOST_CONTEXT_OPEN_TAG),
+    'host context sits below the request',
   )
 })
 

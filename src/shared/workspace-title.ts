@@ -174,9 +174,10 @@ export const INJECTED_FRAGMENT_PATTERNS = {
  * they typed nothing, leaves an empty string, which `deriveWorkspaceTitle`
  * rejects so the next prompt gets the chance instead.
  *
- * Note this does NOT need to handle knowledge-graph or design-system context:
- * that reaches the agent through CLAUDE.md and system context, never through the
- * `UserPromptSubmit` prompt field, so it cannot reach this function at all.
+ * Prompt-fallback CLIs wrap the host-context document AFTER the request
+ * (`wrapHostContextForPrompt`), so the first sentence this function reads is
+ * still the person's words. Argv/env CLIs never put that document in the prompt
+ * field at all.
  */
 export function stripInjectedFragments(prompt: string): string {
   const patterns = INJECTED_FRAGMENT_PATTERNS

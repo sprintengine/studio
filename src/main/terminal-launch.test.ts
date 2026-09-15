@@ -251,10 +251,10 @@ function testPromptModeWritesNoFileAndWrapsTheRequest(): void {
   const prompt = delivery({ mode: 'prompt', filePath: null })
   assert.deepEqual(hostContextRenderInputs(prompt, null, []), {}, 'no flag, no env')
   const wrapped = applyHostContextToPrompt(prompt, 'Build the settings page.')
-  assert.ok(wrapped?.startsWith('<host-context>'))
+  assert.ok(wrapped?.startsWith('Build the settings page.'), 'the request is first so the title hook sees it')
   assert.ok(
-    (wrapped ?? '').indexOf('</host-context>') < (wrapped ?? '').indexOf('Build the settings page.'),
-    'the request is the last thing the model reads',
+    (wrapped ?? '').indexOf('Build the settings page.') < (wrapped ?? '').indexOf('<host-context>'),
+    'host context sits below the request',
   )
 }
 

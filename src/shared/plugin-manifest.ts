@@ -74,7 +74,8 @@ type PluginPromptInjection = {
 //   (e.g. OpenCode's OPENCODE_CONFIG_CONTENT). `env` is merged into the
 //   launch env.
 // - `prompt` — the CLI has no out-of-band channel at all, so the document is
-//   wrapped in `<host-context>` tags and placed BEFORE the user's prompt.
+//   wrapped in `<host-context>` tags and placed AFTER the user's prompt (the
+//   title hook reads the first words of that combined string).
 //
 // Absent ⇒ `prompt`. Templates may reference `{{contextFile}}` (absolute path of
 // the written document), `{{contextFileJson}}` (that path as a JSON string

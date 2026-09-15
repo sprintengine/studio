@@ -157,7 +157,8 @@ type CliThemeSelectionSpec = {
  * - `env` — the CLI reads instructions out of an environment variable; `env` is
  *   merged into the launch env.
  * - `prompt` — the CLI has no out-of-band channel, so the host wraps the
- *   document in `<host-context>` tags and places it BEFORE the user's prompt.
+ *   document in `<host-context>` tags and places it AFTER the user's prompt
+ *   (the title hook reads the first words of that combined string).
  *
  * Omitted ⇒ `prompt`. Templates may reference `{{contextFile}}` (absolute path
  * of the document the host wrote), `{{contextFileJson}}` (that path as a JSON
