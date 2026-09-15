@@ -33,6 +33,7 @@
     "test:all": "node scripts/testing/run-tests.mjs --all",
     "test:sdk:drift": "tsc -p packages/module-sdk/tsconfig.json && tsc -p packages/module-sdk/tsconfig.drift.json && esbuild packages/module-sdk/drift/sdk-drift-guard.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/sdk-drift-guard.cjs && node node_modules/.cache/multicode/sdk-drift-guard.cjs",
     "test:sdk:pack": "node scripts/verify-module-sdk-pack.mjs",
+    "test:sdk:launch-contributions": "node scripts/testing/run-tests.mjs src/main/module-host/launch-contributions.test.ts src/main/modules/sprint-engine-launch-contribution.test.ts",
     "test:mobile-protocol:pack": "node scripts/verify-mobile-protocol-pack.mjs",
     "test:model-feed": "node scripts/check-model-feed-seed.mjs",
     "test:card-feed": "node scripts/check-card-feed-seed.mjs",

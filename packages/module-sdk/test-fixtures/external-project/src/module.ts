@@ -268,6 +268,11 @@ export const registerMain: RegisterMain = (host) => {
     args: ['--version'],
     timeoutMs: 5_000,
   })
+  host.registerLaunchContribution((launch) => ({
+    env: { WEATHER_DECK_ROOT: launch.workspaceRoot },
+    pathEntries: ['/Users/dev/weather-deck/bin'],
+    hostContext: [{ heading: 'Weather Deck', body: 'Forecasts are available via weather_deck_forecast.' }],
+  }))
   host.onStartup(() => {
     host.notify({ severity: 'info', title: 'Weather Deck ready' })
   })

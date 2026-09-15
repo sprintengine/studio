@@ -11,6 +11,7 @@ import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-tok
 import { findSprintEngineRuntimeRoot } from '../mcp-config-service'
 import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintPullRequestMergePollerToken, SprintRuntimeToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
+import { createSprintEngineLaunchContribution } from './sprint-engine-launch-contribution'
 
 // Sprint Engine as a capability module (main side).
 //
@@ -44,6 +45,8 @@ export const sprintEngineModule: CapabilityModule = {
     const sprintRuntime = host.requireService(SprintRuntimeToken)
     const workspaceSync = host.requireService(WorkspaceSyncServiceToken)
     const prMergePoller = host.requireService(SprintPullRequestMergePollerToken)
+
+    host.registerLaunchContribution(createSprintEngineLaunchContribution())
 
     host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
       setRunnerMode: artifacts.setRunnerMode,

@@ -76,6 +76,12 @@ export type TerminalSession = {
   // dispose sweeps skip this session entirely. Session-scoped; set over IPC from
   // the terminal's lock control.
   reapExempt?: boolean
+  /**
+   * A module owns this session's lifetime (launch contribution `session.managed`).
+   * The idle reaper excludes it from the recency floor that protects the user's
+   * own agents. Distinct from `reapExempt`, which is the user's lock control.
+   */
+  managed?: boolean
   idleTimer?: ReturnType<typeof setTimeout>
   // Watches a hook-reported working phase for a stall: a `tool_use`/`thinking`
   // agent that goes silent (no follow-up frame and no output) past the threshold

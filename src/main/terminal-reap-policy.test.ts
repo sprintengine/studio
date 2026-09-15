@@ -34,7 +34,7 @@ function reapable(overrides: Partial<ReapCandidate> = {}): ReapCandidate {
     lastInteractionAt: STALE,
     idleSince: STALE,
     inActiveRun: false,
-    sprintManaged: false,
+    managed: false,
     reapExempt: false,
     pendingWakeupAt: null,
     ...overrides,
@@ -276,8 +276,8 @@ run('recency floor neither protects nor is occupied by sprint-managed agents', (
   // toward the user's keep-alive budget: with only one live user agent (≤ 2),
   // the user agent is spared.
   const candidates: ReapCandidate[] = [
-    reapable({ sessionId: 'sprint-a', workspaceId: 'ws-a', sprintManaged: true }),
-    reapable({ sessionId: 'sprint-b', workspaceId: 'ws-b', sprintManaged: true }),
+    reapable({ sessionId: 'sprint-a', workspaceId: 'ws-a', managed: true }),
+    reapable({ sessionId: 'sprint-b', workspaceId: 'ws-b', managed: true }),
     reapable({ sessionId: 'user-idle', workspaceId: 'ws-c', lastInteractionAt: STALE - 60_000, idleSince: STALE - 60_000 }),
   ]
   const decision = selectReapableSessions(candidates, { now: NOW, keepRecentAliveCount: 2 })

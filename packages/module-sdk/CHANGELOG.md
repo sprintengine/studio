@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **A module can contribute to every agent launch**
+  (`host.registerLaunchContribution`). The function receives `{ cli,
+  workspaceRoot, sessionId, agentId, agentKind, resume, statePath,
+  knowledgeRoot, pathStyle }` and returns `{ env, pathEntries, shellFunctions,
+  mcpServers, hostContext, session, identityKeys }`. Contributions run in
+  module registration order and a throw is recorded as a module diagnostic
+  without failing the spawn. Declare `ipc:agents`. New types:
+  `LaunchContribution`, `LaunchContributionRequest`,
+  `LaunchContributionResult`, `LaunchContributionMcpServer`,
+  `LaunchContributionHostContextSection`, `LaunchContributionSessionTag`,
+  `LaunchContributionPathStyle`.
+
 - **A module can ship Python the host runs on the managed interpreter**
   (`MainHost.registerSidecar` `kind: 'python'`, `MainHost.runPython`). Sidecar
   registration used to be a label: `kind` was free-form and nothing honoured

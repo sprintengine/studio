@@ -128,6 +128,9 @@ moduleWithLoad._load = function loadWithMainProcessMocks(
 async function main(): Promise<void> {
   try {
     const runtimeModule = require('./terminal-runtime') as RuntimeModule
+    const { addLaunchContribution } = require('./module-host/launch-contributions') as typeof import('./module-host/launch-contributions')
+    const { createSprintEngineLaunchContribution } = require('./modules/sprint-engine-launch-contribution') as typeof import('./modules/sprint-engine-launch-contribution')
+    addLaunchContribution('sprint-engine', createSprintEngineLaunchContribution())
     // The gate-behavior sweeps below spawn only a handful of agents, which the
     // default recency floor (keep the N most recent alive) would spare wholesale.
     // Disable the floor so each per-session gate is exercised in isolation; the
@@ -4608,9 +4611,15 @@ async function assertSprintEngineSpawnKeepsEnabledConnectorMcpSettings(runtimeMo
     assert.equal(syncInputs[0]?.managedSprintEngine?.agentId, 'reviewer-1')
     assert.equal(syncInputs[0]?.managedSprintEngine?.cli, 'claude-code')
     assert.equal(mockPty.spawnCalls.length, 1)
+    const spawnedEnv = mockPty.spawnCalls[0]?.options.env as Record<string, string> | undefined
     assert.equal(
-      (mockPty.spawnCalls[0]?.options.env as Record<string, string> | undefined)?.[MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR],
+      spawnedEnv?.[MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR],
       'filtered-run-token'
+    )
+    assert.equal(spawnedEnv?.SPRINTENGINE_STATE_PATH, sprintEngineStatePath)
+    assert.ok(
+      (spawnedEnv?.PATH ?? '').includes('tool-bin'),
+      `sprintengine shim directory is on PATH: ${spawnedEnv?.PATH}`
     )
   } finally {
     await runtime.shutdown()

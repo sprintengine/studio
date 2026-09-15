@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { createHash, randomUUID } from 'crypto'
-import { chmodSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { rm, stat, unlink } from 'fs/promises'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
@@ -23,12 +23,16 @@ import { renderReasoningArgs, resolvePermissionArgs } from './plugin-render'
 import {
   getPluginById,
   getPluginManifest,
-  getPluginSprintEngineRegistryRoots,
 } from './plugin-registry-instance'
 import { withMulticodeCliPath } from './cli-install'
 import { getColorScheme } from './color-scheme-store'
-import { ensureManagedRuntimeShims, getManagedPython, withManagedRuntimePath } from './managed-runtime'
+import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 import { compatStudioEnvEntry, studioEnvNames, withoutStudioEnv } from '../shared/studio-env'
+import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
+import {
+  collectLaunchContributions,
+  type MergedLaunchContribution,
+} from './module-host/launch-contributions'
 
 export type ShellLaunchConfig = {
   command: string
@@ -44,6 +48,14 @@ export type ShellLaunchConfig = {
    * the startup script; see `cleanupHostContextFile`.
    */
   hostContextPath?: string
+  /**
+   * A module owns this session's lifetime. The idle reaper excludes it from the
+   * recency floor that protects the user's own agents. Set from launch
+   * contributions; absent means unmanaged.
+   */
+  managed?: boolean
+  /** A module asked the idle reaper to skip this session entirely. */
+  reapExempt?: boolean
 }
 
 export function getTerminalEnv(): Record<string, string> {
@@ -82,8 +94,8 @@ export function getTerminalEnv(): Record<string, string> {
 // drag-drop path writes. The durable key is workspaceId + agentId (never the
 // PTY/CLI session id, which is reaped or changes across relaunch); the name is
 // for the link label. Only non-empty values are emitted, so a plain terminal or
-// an identity-less launch adds nothing. Mirrors how `withSprintEngineEnv` places
-// SPRINTENGINE_* values directly on the session env record.
+// an identity-less launch adds nothing. Identity env is a core concern, written
+// onto the session record the same way a module contribution writes its own.
 //
 // Agent launches also carry THIS instance's agent-state socket address. The
 // reporter hook prefers the env address over the `--socket` arg baked into the
@@ -342,205 +354,95 @@ function parseJsonObject(value: string): Record<string, unknown> | null {
   }
 }
 
-// JSON for the dynamic plugin registry roots the souls CLI should also search
-// (consumed by souls/registry.py via SPRINTENGINE_REGISTRY_ROOTS).
-// Mirrors the plugin roots the spawn menu discovers through
-// sprintEngineRegistryRootsForRead(), so `souls get` resolves the same
-// plugin-contributed specialists the menu offered. The canonical user-install
-// root is discovered natively by the souls CLI, so it is intentionally omitted
-// here. Returns null when no plugin roots are present.
-function sprintEngineRegistryRootsEnvValue(): string | null {
-  const roots = getPluginSprintEngineRegistryRoots()
-  return roots.length ? JSON.stringify(roots) : null
+function collectLaunchContributionMerge(input: {
+  cwd: string
+  sessionId: string
+  resume?: boolean
+  statePath?: string
+  cli?: AgentCli
+  knowledgeRoot?: string
+  pathStyle: LaunchContributionPathStyle
+  agentId?: string
+  agentKind?: string
+}): MergedLaunchContribution {
+  return collectLaunchContributions(
+    {
+      cli: input.cli ?? '',
+      workspaceRoot: input.cwd,
+      sessionId: input.sessionId,
+      resume: input.resume,
+      pathStyle: input.pathStyle,
+      ...(input.statePath ? { statePath: input.statePath } : {}),
+      ...(input.knowledgeRoot ? { knowledgeRoot: input.knowledgeRoot } : {}),
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.agentKind ? { agentKind: input.agentKind } : {}),
+    },
+    (failure) => {
+      console.warn(`[modules] launch contribution from "${failure.moduleId}" failed: ${failure.message}`)
+    }
+  )
 }
 
-function withSprintEngineEnv(
+/**
+ * Merge a collected launch contribution onto a base session env: strip the
+ * contribution's identity keys from inherited env, apply `env` (protected keys
+ * cannot be overwritten), then prepend `pathEntries` to PATH.
+ */
+export function applyMergedLaunchContribution(
   env: Record<string, string>,
-  cwd: string,
-  sprintEngineStatePath?: string,
-  memoryRootPath?: string,
-  managedMcpEnv?: Record<string, string>
+  merged: MergedLaunchContribution,
+  pathStyle: 'posix' | 'windows'
 ): Record<string, string> {
-  const bundledToolPath = getBundledSprintEngineToolPath()
-  const soulsRoot = getBundledSoulsRoot()
-  const registryRootsEnv = sprintEngineRegistryRootsEnvValue()
-  // Expose the bundled CPython to the tool shims, but only when we actually have
-  // a managed interpreter (bundled runtime or operator override). When we'd fall
-  // back to a repo `.venv` or system Python, leave SPRINTENGINE_PYTHON unset so the
-  // shims keep their existing dev-friendly `$PWD/.venv → python3` behavior.
-  const managedPython = getManagedPython(cwd)
-  const managedPythonEnv: Record<string, string> =
-    managedPython.source === 'bundled' || managedPython.source === 'override'
-      ? { SPRINTENGINE_PYTHON: managedPython.command }
-      : {}
-  // Annotated rather than inferred: spreading `env` into a literal drops its
-  // index signature, and the PATH lookup below indexes by a key computed at
-  // runtime (the variable's case differs by platform).
-  const nextEnv: Record<string, string> = {
-    ...env,
-    SPRINTENGINE_REPO_TOOL_PATH: join(cwd, '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
-    SPRINTENGINE_REPO_WRAPPER_PATH: join(cwd, 'scripts', 'sprintengine_tool.py'),
-    ...managedPythonEnv,
-    ...(bundledToolPath ? { SPRINTENGINE_TOOL_PATH: bundledToolPath } : {}),
-    ...(soulsRoot ? { SPRINTENGINE_SOULS_ROOT: soulsRoot } : {}),
-    ...(registryRootsEnv ? { SPRINTENGINE_REGISTRY_ROOTS: registryRootsEnv } : {}),
-    ...(sprintEngineStatePath ? { SPRINTENGINE_STATE_PATH: sprintEngineStatePath } : {}),
-    ...(managedMcpEnv ?? {}),
-    ...(memoryRootPath ? { SPRINTENGINE_KNOWLEDGE_ROOT: memoryRootPath, SPRINTENGINE_MEMORY_ROOT: memoryRootPath } : {}),
+  const next: Record<string, string> = { ...env }
+  for (const key of merged.identityKeys) {
+    for (const name of studioEnvNames(key)) delete next[name]
   }
-
-  // Never let a stale registry-roots value inherited from the base env (e.g. the
-  // app launched from inside an agent shell that had it set) leak into a spawn
-  // that resolved none of its own — otherwise `souls get` would search another
-  // session's plugin roots. Mirrors the AGENT_IDENTITY_ENV_KEYS stripping above.
-  if (!registryRootsEnv) {
-    for (const key of studioEnvNames('SPRINTENGINE_REGISTRY_ROOTS')) delete nextEnv[key]
+  for (const [key, value] of Object.entries(merged.env)) {
+    if (PROTECTED_LAUNCH_ENV_KEYS.has(key)) continue
+    next[key] = value
   }
+  if (merged.pathEntries.length === 0) return next
+  const delimiter = pathStyle === 'windows' ? ';' : ':'
+  const pathKey =
+    Object.keys(next).find((key) => key.toLowerCase() === 'path')
+    ?? (pathStyle === 'windows' ? 'Path' : 'PATH')
+  return {
+    ...next,
+    [pathKey]: `${merged.pathEntries.join(delimiter)}${delimiter}${next[pathKey] ?? ''}`,
+  }
+}
 
-  if (process.platform !== 'win32') {
-    const shimDirectory = ensurePosixToolShimDirectory()
-    if (!shimDirectory) return nextEnv
-
-    const pathKey = Object.keys(nextEnv).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
-    return {
-      ...nextEnv,
-      [pathKey]: `${shimDirectory}:${nextEnv[pathKey] ?? ''}`,
+/**
+ * POSIX bootstrap fragment: module shell functions, then managed-MCP env, then
+ * the CLI manifest's `launch.env`. Empty when nothing has anything to say.
+ */
+export function buildLaunchShellBootstrap(
+  merged: MergedLaunchContribution,
+  managedMcpEnv?: Record<string, string>,
+  providerLaunchEnv?: Record<string, string>
+): string {
+  const lines: string[] = [...merged.shellFunctions]
+  for (const [key, value] of Object.entries(managedMcpEnv ?? {})) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      lines.push(`export ${key}=${quotePosix(value)}`)
     }
   }
+  if (providerLaunchEnv && redirectsAnthropicEndpoint(providerLaunchEnv)) {
+    lines.push('unset ANTHROPIC_API_KEY')
+  }
+  for (const [key, value] of Object.entries(providerLaunchEnv ?? {})) {
+    if (PROTECTED_LAUNCH_ENV_KEYS.has(key)) continue
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      lines.push(`export ${key}=${quotePosix(value)}`)
+    }
+  }
+  return lines.join('; ')
+}
 
-  const shimDirectory = ensureWindowsSprintEngineShimDirectory()
-  if (!shimDirectory) return nextEnv
-
-  const pathKey = Object.keys(nextEnv).find((key) => key.toLowerCase() === 'path') ?? 'Path'
+function launchSessionTags(merged: MergedLaunchContribution): { managed?: boolean; reapExempt?: boolean } {
   return {
-    ...nextEnv,
-    [pathKey]: `${shimDirectory};${nextEnv[pathKey] ?? ''}`,
-  }
-}
-
-function ensurePosixToolShimDirectory(): string | null {
-  try {
-    const shimDirectory = join(app.getPath('userData'), 'tool-bin')
-    const sprintEngineShimPath = join(shimDirectory, 'sprintengine')
-    const soulsShimPath = join(shimDirectory, 'souls')
-    mkdirSync(shimDirectory, { recursive: true })
-    writeFileSync(
-      sprintEngineShimPath,
-      [
-        '#!/usr/bin/env bash',
-        'set -euo pipefail',
-        'tool_path=""',
-        'if [[ -n "${SPRINTENGINE_REPO_WRAPPER_PATH:-}" && -f "$SPRINTENGINE_REPO_WRAPPER_PATH" ]]; then tool_path="$SPRINTENGINE_REPO_WRAPPER_PATH";',
-        'elif [[ -n "${SPRINTENGINE_REPO_TOOL_PATH:-}" && -f "$SPRINTENGINE_REPO_TOOL_PATH" ]]; then tool_path="$SPRINTENGINE_REPO_TOOL_PATH";',
-        'elif [[ -n "${SPRINTENGINE_TOOL_PATH:-}" && -f "$SPRINTENGINE_TOOL_PATH" ]]; then tool_path="$SPRINTENGINE_TOOL_PATH";',
-        'elif [[ -n "${MULTICODE_SPRINTENGINE_TOOL_PATH:-}" && -f "$MULTICODE_SPRINTENGINE_TOOL_PATH" ]]; then tool_path="$MULTICODE_SPRINTENGINE_TOOL_PATH";',
-        'else echo "Sprint Engine tool not found" >&2; exit 127; fi',
-        'python_exe="python3"',
-        'if [[ -n "${SPRINTENGINE_PYTHON:-}" && -x "$SPRINTENGINE_PYTHON" ]]; then python_exe="$SPRINTENGINE_PYTHON";',
-        'elif [[ -n "${MULTICODE_PYTHON:-}" && -x "$MULTICODE_PYTHON" ]]; then python_exe="$MULTICODE_PYTHON";',
-        'elif [[ -x "$PWD/.venv/bin/python" ]]; then python_exe="$PWD/.venv/bin/python";',
-        'elif [[ -x "$PWD/.venv/Scripts/python.exe" ]]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi',
-        'exec "$python_exe" "$tool_path" "$@"',
-        '',
-      ].join('\n'),
-      { encoding: 'utf8', mode: 0o755 }
-    )
-    chmodSync(sprintEngineShimPath, 0o755)
-    writeFileSync(
-      soulsShimPath,
-      [
-        '#!/usr/bin/env bash',
-        'set -euo pipefail',
-        'python_exe="python3"',
-        'if [[ -n "${SPRINTENGINE_PYTHON:-}" && -x "$SPRINTENGINE_PYTHON" ]]; then python_exe="$SPRINTENGINE_PYTHON";',
-        'elif [[ -n "${MULTICODE_PYTHON:-}" && -x "$MULTICODE_PYTHON" ]]; then python_exe="$MULTICODE_PYTHON";',
-        'elif [[ -x "$PWD/.venv/bin/python" ]]; then python_exe="$PWD/.venv/bin/python";',
-        'elif [[ -x "$PWD/.venv/Scripts/python.exe" ]]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi',
-        'if [[ -n "${SPRINTENGINE_SOULS_ROOT:-}" ]]; then',
-        '  export PYTHONPATH="$SPRINTENGINE_SOULS_ROOT:${PYTHONPATH:-}"',
-        'fi',
-        'exec "$python_exe" -m souls "$@"',
-        '',
-      ].join('\n'),
-      { encoding: 'utf8', mode: 0o755 }
-    )
-    chmodSync(soulsShimPath, 0o755)
-    return shimDirectory
-  } catch {
-    return null
-  }
-}
-
-function ensureWindowsSprintEngineShimDirectory(): string | null {
-  if (process.platform !== 'win32') return null
-
-  try {
-    const shimDirectory = join(app.getPath('userData'), 'sprintengine-bin')
-    const shimPath = join(shimDirectory, 'sprintengine.cmd')
-    const soulsShimPath = join(shimDirectory, 'souls.cmd')
-    mkdirSync(shimDirectory, { recursive: true })
-    writeFileSync(
-      shimPath,
-      [
-        '@echo off',
-        'setlocal',
-        'set "TOOL=%SPRINTENGINE_REPO_WRAPPER_PATH%"',
-        'if exist "%TOOL%" goto run',
-        'set "TOOL=%SPRINTENGINE_REPO_TOOL_PATH%"',
-        'if exist "%TOOL%" goto run',
-        'set "TOOL=%SPRINTENGINE_TOOL_PATH%"',
-        'if exist "%TOOL%" goto run',
-        'echo Sprint Engine tool not found 1>&2',
-        'exit /b 127',
-        ':run',
-        'set "PYTHON_EXE="',
-        'if defined SPRINTENGINE_PYTHON if exist "%SPRINTENGINE_PYTHON%" set "PYTHON_EXE=%SPRINTENGINE_PYTHON%"',
-        'if not defined SPRINTENGINE_PYTHON if defined MULTICODE_PYTHON if exist "%MULTICODE_PYTHON%" set "PYTHON_EXE=%MULTICODE_PYTHON%"',
-        'if defined PYTHON_EXE goto run_python',
-        'if exist ".venv\\Scripts\\python.exe" set "PYTHON_EXE=.venv\\Scripts\\python.exe"',
-        'if defined PYTHON_EXE goto run_python',
-        'if "%SPRINTENGINE_REPO_WRAPPER_PATH%"=="" goto global_python',
-        'for %%I in ("%SPRINTENGINE_REPO_WRAPPER_PATH%") do set "WRAPPER_DIR=%%~dpI"',
-        'if exist "%WRAPPER_DIR%..\\.venv\\Scripts\\python.exe" set "PYTHON_EXE=%WRAPPER_DIR%..\\.venv\\Scripts\\python.exe"',
-        'if defined PYTHON_EXE goto run_python',
-        ':global_python',
-        'for /f "delims=" %%P in (\'where python 2^>nul\') do if not defined PYTHON_EXE if /I not "%%~dpP"=="%LOCALAPPDATA%\\Microsoft\\WindowsApps\\" set "PYTHON_EXE=%%P"',
-        'if defined PYTHON_EXE goto run_python',
-        'echo python not found; expected repo venv at .venv\\Scripts\\python.exe 1>&2',
-        'exit /b 127',
-        ':run_python',
-        '"%PYTHON_EXE%" "%TOOL%" %*',
-        'exit /b %errorlevel%',
-        '',
-      ].join('\r\n'),
-      'utf8'
-    )
-    writeFileSync(
-      soulsShimPath,
-      [
-        '@echo off',
-        'setlocal',
-        'set "PYTHON_EXE="',
-        'if defined SPRINTENGINE_PYTHON if exist "%SPRINTENGINE_PYTHON%" set "PYTHON_EXE=%SPRINTENGINE_PYTHON%"',
-        'if not defined SPRINTENGINE_PYTHON if defined MULTICODE_PYTHON if exist "%MULTICODE_PYTHON%" set "PYTHON_EXE=%MULTICODE_PYTHON%"',
-        'if defined PYTHON_EXE goto run_python',
-        'if exist ".venv\\Scripts\\python.exe" set "PYTHON_EXE=.venv\\Scripts\\python.exe"',
-        'if defined PYTHON_EXE goto run_python',
-        'for /f "delims=" %%P in (\'where python 2^>nul\') do if not defined PYTHON_EXE if /I not "%%~dpP"=="%LOCALAPPDATA%\\Microsoft\\WindowsApps\\" set "PYTHON_EXE=%%P"',
-        'if defined PYTHON_EXE goto run_python',
-        'echo python not found; expected repo venv at .venv\\Scripts\\python.exe 1>&2',
-        'exit /b 127',
-        ':run_python',
-        'if not "%SPRINTENGINE_SOULS_ROOT%"=="" set "PYTHONPATH=%SPRINTENGINE_SOULS_ROOT%;%PYTHONPATH%"',
-        '"%PYTHON_EXE%" -m souls %*',
-        'exit /b %errorlevel%',
-        '',
-      ].join('\r\n'),
-      'utf8'
-    )
-    return shimDirectory
-  } catch {
-    return null
+    ...(merged.session.managed ? { managed: true } : {}),
+    ...(merged.session.reapExempt ? { reapExempt: true } : {}),
   }
 }
 
@@ -695,145 +597,6 @@ function getCliRuntimeSettings(
   return resolveCliRuntimeSettings(cli, cliRuntimes)
 }
 
-function getBundledSprintEngineToolPath(): string | null {
-  if (app.isPackaged) {
-    const packagedToolPath = join(process.resourcesPath, 'scripts', 'sprintengine_tool.py')
-    return existsSync(packagedToolPath) ? packagedToolPath : null
-  }
-
-  const candidates = [
-    join(process.cwd(), 'scripts', 'sprintengine_tool.py'),
-    join(process.cwd(), '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
-    join(app.getAppPath(), 'scripts', 'sprintengine_tool.py'),
-    join(app.getAppPath(), '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
-    join(__dirname, '..', '..', 'scripts', 'sprintengine_tool.py'),
-    join(__dirname, '..', '..', '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
-    join(__dirname, '..', '..', '..', 'scripts', 'sprintengine_tool.py'),
-    join(__dirname, '..', '..', '..', '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
-  ]
-
-  return candidates.find((candidate) => existsSync(candidate)) ?? null
-}
-
-function getBundledSoulsRoot(): string | null {
-  const candidates = app.isPackaged
-    ? [process.resourcesPath, app.getAppPath()]
-    : [
-        process.cwd(),
-        app.getAppPath(),
-        join(__dirname, '..', '..'),
-        join(__dirname, '..', '..', '..'),
-      ]
-
-  return candidates.find((candidate) => existsSync(join(candidate, 'souls', '__main__.py'))) ?? null
-}
-
-function buildSprintEngineShellBootstrap(
-  sprintEngineStatePath?: string,
-  memoryRootPath?: string,
-  managedMcpEnv?: Record<string, string>,
-  providerLaunchEnv?: Record<string, string>
-): string {
-  const shellStatePath =
-    sprintEngineStatePath && process.platform === 'win32' ? toWslPath(sprintEngineStatePath) : sprintEngineStatePath
-  const shellMemoryRootPath =
-    memoryRootPath && process.platform === 'win32' ? toWslPath(memoryRootPath) : memoryRootPath
-  const bundledToolPath = getBundledSprintEngineToolPath()
-  const soulsRoot = getBundledSoulsRoot()
-  const posixShimDirectory = ensurePosixToolShimDirectory()
-  const shellBundledToolPath =
-    bundledToolPath && process.platform === 'win32' ? toWslPath(bundledToolPath) : bundledToolPath
-  const shellSoulsRoot =
-    soulsRoot && process.platform === 'win32' ? toWslPath(soulsRoot) : soulsRoot
-  const shellPosixShimDirectory =
-    posixShimDirectory && process.platform === 'win32' ? toWslPath(posixShimDirectory) : posixShimDirectory
-  const lines = [
-    'export SPRINTENGINE_REPO_TOOL_PATH="$PWD/.agents/skills/sprintengine/scripts/sprintengine_tool.py"',
-    'export SPRINTENGINE_REPO_WRAPPER_PATH="$PWD/scripts/sprintengine_tool.py"',
-  ]
-
-  if (shellPosixShimDirectory) {
-    lines.push(`export PATH=${quotePosix(shellPosixShimDirectory)}":$PATH"`)
-  }
-
-  if (shellStatePath) {
-    lines.push(`export SPRINTENGINE_STATE_PATH=${quotePosix(shellStatePath)}`)
-  }
-
-  for (const [key, value] of Object.entries(managedMcpEnv ?? {})) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-      lines.push(`export ${key}=${quotePosix(value)}`)
-    }
-  }
-
-  // CLI manifest `launch.env` (e.g. the Z.AI runtime's ANTHROPIC_* redirect).
-  // Emitted as exports so the value is authoritative inside the login shell and
-  // crosses the WSL boundary, where the Windows process env is not inherited.
-  // ANTHROPIC_API_KEY is unset first on any Anthropic-endpoint redirect, matching
-  // the PTY-env precedence in `mergeProviderLaunchEnv` — so an inherited real
-  // Anthropic key is never sent to the redirect target.
-  if (providerLaunchEnv && redirectsAnthropicEndpoint(providerLaunchEnv)) {
-    lines.push('unset ANTHROPIC_API_KEY')
-  }
-  for (const [key, value] of Object.entries(providerLaunchEnv ?? {})) {
-    if (PROTECTED_LAUNCH_ENV_KEYS.has(key)) continue
-    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-      lines.push(`export ${key}=${quotePosix(value)}`)
-    }
-  }
-
-  if (shellMemoryRootPath) {
-    lines.push(`export SPRINTENGINE_KNOWLEDGE_ROOT=${quotePosix(shellMemoryRootPath)}`)
-    lines.push(`export SPRINTENGINE_MEMORY_ROOT=${quotePosix(shellMemoryRootPath)}`)
-  }
-
-  if (shellBundledToolPath) {
-    lines.push(`export SPRINTENGINE_TOOL_PATH=${quotePosix(shellBundledToolPath)}`)
-  }
-
-  if (shellSoulsRoot) {
-    lines.push(`export SPRINTENGINE_SOULS_ROOT=${quotePosix(shellSoulsRoot)}`)
-  }
-
-  const shellRegistryRootsEnv = sprintEngineRegistryRootsEnvValue()
-  if (shellRegistryRootsEnv) {
-    lines.push(`export SPRINTENGINE_REGISTRY_ROOTS=${quotePosix(shellRegistryRootsEnv)}`)
-  }
-
-  lines.push(
-    [
-      'sprintengine() {',
-      'local tool_path="";',
-      'if [ -f "$SPRINTENGINE_REPO_WRAPPER_PATH" ]; then tool_path="$SPRINTENGINE_REPO_WRAPPER_PATH";',
-      'elif [ -f "$SPRINTENGINE_REPO_TOOL_PATH" ]; then tool_path="$SPRINTENGINE_REPO_TOOL_PATH";',
-      'elif [ -n "${SPRINTENGINE_TOOL_PATH:-}" ] && [ -f "$SPRINTENGINE_TOOL_PATH" ]; then tool_path="$SPRINTENGINE_TOOL_PATH";',
-      'elif [ -n "${MULTICODE_SPRINTENGINE_TOOL_PATH:-}" ] && [ -f "$MULTICODE_SPRINTENGINE_TOOL_PATH" ]; then tool_path="$MULTICODE_SPRINTENGINE_TOOL_PATH";',
-      'else echo "Sprint Engine tool not found" >&2; return 127; fi;',
-      'local python_exe="python3";',
-      'if [ -n "${SPRINTENGINE_PYTHON:-}" ] && [ -x "$SPRINTENGINE_PYTHON" ]; then python_exe="$SPRINTENGINE_PYTHON";',
-      'elif [ -n "${MULTICODE_PYTHON:-}" ] && [ -x "$MULTICODE_PYTHON" ]; then python_exe="$MULTICODE_PYTHON";',
-      'elif [ -x "$PWD/.venv/bin/python" ]; then python_exe="$PWD/.venv/bin/python";',
-      'elif [ -x "$PWD/.venv/Scripts/python.exe" ]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi;',
-      '"$python_exe" "$tool_path" "$@";',
-      '}',
-    ].join(' '),
-    'export -f sprintengine >/dev/null 2>&1 || true',
-    [
-      'souls() {',
-      'local python_exe="python3";',
-      'if [ -n "${SPRINTENGINE_PYTHON:-}" ] && [ -x "$SPRINTENGINE_PYTHON" ]; then python_exe="$SPRINTENGINE_PYTHON";',
-      'elif [ -n "${MULTICODE_PYTHON:-}" ] && [ -x "$MULTICODE_PYTHON" ]; then python_exe="$MULTICODE_PYTHON";',
-      'elif [ -x "$PWD/.venv/bin/python" ]; then python_exe="$PWD/.venv/bin/python";',
-      'elif [ -x "$PWD/.venv/Scripts/python.exe" ]; then python_exe="$PWD/.venv/Scripts/python.exe"; fi;',
-      'if [ -n "${SPRINTENGINE_SOULS_ROOT:-}" ]; then PYTHONPATH="$SPRINTENGINE_SOULS_ROOT:${PYTHONPATH:-}" "$python_exe" -m souls "$@";',
-      'else "$python_exe" -m souls "$@"; fi;',
-      '}',
-    ].join(' '),
-    'export -f souls >/dev/null 2>&1 || true',
-  )
-
-  return lines.join('; ')
-}
 
 function buildUserShellStartup(): string {
   return [
@@ -1332,6 +1095,7 @@ function resolveHostContextDelivery(input: {
   cli: AgentCli
   memoryRootPath?: string
   memoryRelativeRoot?: string
+  moduleSections?: Array<{ heading: string; body: string }>
 }): HostContextDelivery {
   const injection = getPluginManifest(input.cli)?.contextInjection
   const mode = injection?.mode ?? 'prompt'
@@ -1350,6 +1114,9 @@ function resolveHostContextDelivery(input: {
             ...(input.memoryRelativeRoot ? { relativeRoot: input.memoryRelativeRoot } : {}),
           },
         }
+      : {}),
+    ...(input.moduleSections && input.moduleSections.length > 0
+      ? { moduleSections: input.moduleSections }
       : {}),
   })
   if (!document || mode === 'prompt') return { mode, document, filePath: null }
@@ -1499,13 +1266,22 @@ function buildWslShellScript(
   hostContext: HostContextRenderInputs = {}
 ): string {
   const shellInitialPrompt = normalizeTextPaths(initialPrompt, 'wsl', [cwd, sprintEngineStatePath, memoryRootPath])
+  const merged = collectLaunchContributionMerge({
+    cwd,
+    sessionId,
+    resume,
+    statePath: sprintEngineStatePath,
+    cli,
+    knowledgeRoot: memoryRootPath,
+    pathStyle: 'wsl',
+  })
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
-    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, managedMcpEnv, providerLaunchEnv),
+    buildLaunchShellBootstrap(merged, managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning, undefined, hostContext, pluginDirsForLaunch(cli, 'wsl'), launchSettingsForLaunch(cli, cwd, 'wsl')),
     'exec bash -li',
-  ].join('; ')
+  ].filter(Boolean).join('; ')
 }
 
 export function getShellLaunchConfig(
@@ -1532,19 +1308,35 @@ export function getShellLaunchConfig(
   assertExistingDirectory(cwd)
 
   const cliRuntime = getCliRuntimeSettings(cli, cliRuntimes)
+  const contributionPathStyle: LaunchContributionPathStyle =
+    process.platform === 'win32' ? (cliRuntime.useWsl ? 'wsl' : 'windows') : 'posix'
+  const merged = collectLaunchContributionMerge({
+    cwd: contributionPathStyle === 'windows' ? toWindowsPath(cwd) : cwd,
+    sessionId,
+    resume,
+    statePath:
+      contributionPathStyle === 'windows' && sprintEngineStatePath
+        ? toWindowsPath(sprintEngineStatePath)
+        : sprintEngineStatePath,
+    cli,
+    knowledgeRoot:
+      contributionPathStyle === 'windows' && memoryRootPath ? toWindowsPath(memoryRootPath) : memoryRootPath,
+    pathStyle: contributionPathStyle,
+  })
 
   // The host's own context for this launch (an attached design system, the
-  // project's Knowledge Graph), built here so EVERY launcher gets the same
-  // document — interactive, mobile, and the headless AgentLaunchService all
-  // arrive at this function. The manifest's `contextInjection` decides the
-  // channel; only the prompt fallback touches the user's message, and then only
-  // by putting the block in front of it.
+  // project's Knowledge Graph, plus any module sections), built here so EVERY
+  // launcher gets the same document — interactive, mobile, and the headless
+  // AgentLaunchService all arrive at this function. The manifest's
+  // `contextInjection` decides the channel; only the prompt fallback touches
+  // the user's message, and then only by putting the block after it.
   const hostContext = resolveHostContextDelivery({
     cwd,
     sessionId,
     cli,
     ...(memoryRootPath ? { memoryRootPath } : {}),
     ...(memoryRelativeRoot ? { memoryRelativeRoot } : {}),
+    ...(merged.hostContext.length > 0 ? { moduleSections: merged.hostContext } : {}),
   })
   const launchPrompt = applyHostContextToPrompt(hostContext, initialPrompt)
   const hostContextPath = hostContext.filePath ?? undefined
@@ -1572,8 +1364,6 @@ export function getShellLaunchConfig(
 
   if (process.platform === 'win32' && !cliRuntime.useWsl) {
     const windowsCwd = toWindowsPath(cwd)
-    const windowsStatePath = sprintEngineStatePath ? toWindowsPath(sprintEngineStatePath) : undefined
-    const windowsMemoryRootPath = memoryRootPath ? toWindowsPath(memoryRootPath) : undefined
     const windowsHostContext = hostContextRenderInputs(hostContext, 'windows', [cwd, sprintEngineStatePath, memoryRootPath])
     const shellInitialPrompt = normalizeTextPaths(launchPrompt, 'windows', [cwd, sprintEngineStatePath, memoryRootPath, hostContext.filePath ?? undefined])
     if (!isNativeWindowsPath(windowsCwd)) {
@@ -1605,13 +1395,17 @@ export function getShellLaunchConfig(
       command: 'powershell.exe',
       args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', startupScriptPath],
       env: mergeProviderLaunchEnv(
-        withSprintEngineEnv(getTerminalEnv(), windowsCwd, windowsStatePath, windowsMemoryRootPath, managedMcpEnv),
+        {
+          ...applyMergedLaunchContribution(getTerminalEnv(), merged, 'windows'),
+          ...(managedMcpEnv ?? {}),
+        },
         providerLaunchEnv
       ),
       cwd: windowsCwd,
       pathStyle: 'windows',
       startupScriptPath,
       ...(hostContextPath ? { hostContextPath } : {}),
+      ...launchSessionTags(merged),
     }
   }
 
@@ -1648,13 +1442,14 @@ export function getShellLaunchConfig(
       pathStyle: 'wsl',
       startupScriptPath,
       ...(hostContextPath ? { hostContextPath } : {}),
+      ...launchSessionTags(merged),
     }
   }
 
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
-    buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, managedMcpEnv, providerLaunchEnv),
+    buildLaunchShellBootstrap(merged, managedMcpEnv, providerLaunchEnv),
     buildAgentLaunchCommand(
       cli,
       sessionId,
@@ -1671,7 +1466,7 @@ export function getShellLaunchConfig(
       launchSettingsForLaunch(cli, cwd, 'posix')
     ),
     buildInteractiveShellExec(shellPath, shellName),
-  ].join('; ')
+  ].filter(Boolean).join('; ')
   const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)
 
   return {
@@ -1679,12 +1474,16 @@ export function getShellLaunchConfig(
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
     cwd,
     env: mergeProviderLaunchEnv(
-      withSprintEngineEnv(getTerminalEnv(), cwd, sprintEngineStatePath, memoryRootPath, managedMcpEnv),
+      {
+        ...applyMergedLaunchContribution(getTerminalEnv(), merged, 'posix'),
+        ...(managedMcpEnv ?? {}),
+      },
       providerLaunchEnv
     ),
     pathStyle: 'posix',
     startupScriptPath,
     ...(hostContextPath ? { hostContextPath } : {}),
+    ...launchSessionTags(merged),
   }
 }
 
@@ -1700,24 +1499,39 @@ export function getPlainShellLaunchConfig(
     const windowsStatePath = sprintEngineStatePath ? toWindowsPath(sprintEngineStatePath) : undefined
 
     if (isNativeWindowsPath(windowsCwd)) {
+      const merged = collectLaunchContributionMerge({
+        cwd: windowsCwd,
+        sessionId,
+        statePath: windowsStatePath,
+        pathStyle: 'windows',
+        agentKind: 'terminal',
+      })
       return {
         command: 'powershell.exe',
         args: ['-NoLogo'],
-        env: withSprintEngineEnv(getTerminalEnv(), windowsCwd, windowsStatePath),
+        env: applyMergedLaunchContribution(getTerminalEnv(), merged, 'windows'),
         cwd: windowsCwd,
         pathStyle: 'windows',
+        ...launchSessionTags(merged),
       }
     }
 
+    const merged = collectLaunchContributionMerge({
+      cwd,
+      sessionId,
+      statePath: sprintEngineStatePath,
+      pathStyle: 'wsl',
+      agentKind: 'terminal',
+    })
     const startupScriptPath = createTerminalStartupScript(
       sessionId,
       'sh',
       [
         buildUserShellStartup(),
         `cd ${quotePosix(toWslPath(cwd))}`,
-        buildSprintEngineShellBootstrap(sprintEngineStatePath),
+        buildLaunchShellBootstrap(merged),
         'exec bash -li',
-      ].join('; ')
+      ].filter(Boolean).join('; ')
     )
 
     return {
@@ -1730,11 +1544,19 @@ export function getPlainShellLaunchConfig(
       ],
       pathStyle: 'wsl',
       startupScriptPath,
+      ...launchSessionTags(merged),
     }
   }
 
   const shellPath = getPosixShellPath()
   const shellName = shellPath.split(/[\\/]/).at(-1)
+  const merged = collectLaunchContributionMerge({
+    cwd,
+    sessionId,
+    statePath: sprintEngineStatePath,
+    pathStyle: 'posix',
+    agentKind: 'terminal',
+  })
   // Only a shell pane gets shell integration — OSC 7 and OSC 133 alike. An
   // agent pane runs a CLI rather than a prompt (nothing would fire the hook),
   // and a fleet pane must not resolve a local path at all — so this is the one
@@ -1746,18 +1568,20 @@ export function getPlainShellLaunchConfig(
     shellName === 'zsh' ? ensureShellIntegrationZshZdotdir() : null,
   )
   const launchCommand = [
-    buildSprintEngineShellBootstrap(sprintEngineStatePath),
+    buildLaunchShellBootstrap(merged),
     ...(shellIntegrationSetup ? [shellIntegrationSetup] : []),
     buildInteractiveShellExec(shellPath, shellName),
-  ].join('; ')
+  ].filter(Boolean).join('; ')
   const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)
 
   return {
     command: shellPath,
     cwd,
     args: isLoginShell(shellName) ? ['-l', startupScriptPath] : [startupScriptPath],
+    env: applyMergedLaunchContribution(getTerminalEnv(), merged, 'posix'),
     pathStyle: 'posix',
     startupScriptPath,
+    ...launchSessionTags(merged),
   }
 }
 

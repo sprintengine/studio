@@ -83,6 +83,15 @@ import type {
   ModuleSkillRegistration as AppModuleSkillRegistration,
   ModuleSkillTargetPolicy as AppModuleSkillTargetPolicy,
 } from '../../../src/shared/modules/skills'
+import type {
+  LaunchContribution as AppLaunchContribution,
+  LaunchContributionHostContextSection as AppLaunchContributionHostContextSection,
+  LaunchContributionMcpServer as AppLaunchContributionMcpServer,
+  LaunchContributionPathStyle as AppLaunchContributionPathStyle,
+  LaunchContributionRequest as AppLaunchContributionRequest,
+  LaunchContributionResult as AppLaunchContributionResult,
+  LaunchContributionSessionTag as AppLaunchContributionSessionTag,
+} from '../../../src/shared/modules/launch-contributions'
 import type { ModuleWorkspaceContextService as AppModuleWorkspaceContextService } from '../../../src/main/modules/module-workspace-service'
 import type {
   ModuleStorageErrorCode as AppModuleStorageErrorCode,
@@ -192,6 +201,13 @@ import type {
   McpConnectionMetadata as SdkMcpConnectionMetadata,
   McpToolRegistration as SdkMcpToolRegistration,
   EnsureSkillInstalledResult as SdkEnsureSkillInstalledResult,
+  LaunchContribution as SdkLaunchContribution,
+  LaunchContributionHostContextSection as SdkLaunchContributionHostContextSection,
+  LaunchContributionMcpServer as SdkLaunchContributionMcpServer,
+  LaunchContributionPathStyle as SdkLaunchContributionPathStyle,
+  LaunchContributionRequest as SdkLaunchContributionRequest,
+  LaunchContributionResult as SdkLaunchContributionResult,
+  LaunchContributionSessionTag as SdkLaunchContributionSessionTag,
   ModuleSkillRegistration as SdkModuleSkillRegistration,
   ModuleSkillTargetPolicy as SdkModuleSkillTargetPolicy,
   McpToolResult as SdkMcpToolResult,
@@ -398,6 +414,19 @@ expectType<IsExact<AppModuleSkillRegistration, SdkModuleSkillRegistration>>()
 expectType<IsExact<AppEnsureSkillInstalledResult, SdkEnsureSkillInstalledResult>>()
 expectType<IsExact<AppMainHost['registerSkills'], SdkMainHost['registerSkills']>>()
 expectType<IsExact<AppMainHost['ensureSkillInstalled'], SdkMainHost['ensureSkillInstalled']>>()
+
+// Launch contributions: the request/result shapes a module's entry.main
+// programs against, and the host method itself. Exact, not assignable — an
+// optional field added on one side only is the drift that would silently drop
+// a PATH entry or a host-context section.
+expectType<IsExact<AppLaunchContributionPathStyle, SdkLaunchContributionPathStyle>>()
+expectType<IsExact<AppLaunchContributionRequest, SdkLaunchContributionRequest>>()
+expectType<IsExact<AppLaunchContributionMcpServer, SdkLaunchContributionMcpServer>>()
+expectType<IsExact<AppLaunchContributionHostContextSection, SdkLaunchContributionHostContextSection>>()
+expectType<IsExact<AppLaunchContributionSessionTag, SdkLaunchContributionSessionTag>>()
+expectType<IsExact<AppLaunchContributionResult, SdkLaunchContributionResult>>()
+expectType<IsExact<AppLaunchContribution, SdkLaunchContribution>>()
+expectType<IsExact<AppMainHost['registerLaunchContribution'], SdkMainHost['registerLaunchContribution']>>()
 
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()

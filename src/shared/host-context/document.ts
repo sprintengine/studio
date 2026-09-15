@@ -64,6 +64,11 @@ export type HostContextInput = {
     rootPath?: string
     relativeRoot?: string
   }
+  /**
+   * Sections a module contributed for this launch. Appended after the
+   * design-system and Knowledge Graph sections, in module registration order.
+   */
+  moduleSections?: Array<{ heading: string; body: string }>
 }
 
 /**
@@ -88,6 +93,13 @@ export function buildHostContextDocument(input: HostContextInput): string | null
   const knowledgeLine = knowledgeSection(input.knowledge)
   if (knowledgeLine) {
     sections.push(['## Knowledge graph', '', knowledgeLine].join('\n'))
+  }
+
+  for (const section of input.moduleSections ?? []) {
+    const heading = section.heading.trim()
+    const body = section.body.trim()
+    if (!heading || !body) continue
+    sections.push([`## ${heading}`, '', body].join('\n'))
   }
 
   if (sections.length === 0) return null

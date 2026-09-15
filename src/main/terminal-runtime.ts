@@ -384,7 +384,7 @@ const sprintEngineAgentHeartbeatTimers = new Map<string, ReturnType<typeof setIn
 const pendingSprintEngineLifecycleCalls = new Set<Promise<void>>()
 const pendingSprintEngineTerminalTeardowns = new Map<string, { session: TerminalSession; promise: Promise<void> }>()
 
-export const SPRINTENGINE_AGENT_HEARTBEAT_INTERVAL_MS = 60 * 1000
+export const MANAGED_AGENT_HEARTBEAT_INTERVAL_MS = 60 * 1000
 
 /**
  * A sprint agent's worktree gets the managed Sprint Engine server plus every
@@ -1686,7 +1686,7 @@ function buildReapCandidates(): ReapCandidate[] {
       Boolean(session.sprintEngineStatePath)
       && (activeSprintRunStatePaths.has(session.sprintEngineStatePath ?? '')
         || !isAtRestAgentPhase(session.agentState?.phase)),
-    sprintManaged: Boolean(session.sprintEngineStatePath),
+    managed: session.managed === true || Boolean(session.sprintEngineStatePath),
     reapExempt: session.reapExempt === true,
     // Hook-reported self-scheduled wakeup (see ingestAgentStateFrame): a future
     // wake time holds the session in the pure policy.
@@ -2614,7 +2614,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // our terminal id since we mint and pass it; Codex/others mint their own and
   // we only learn it here). This is the id used to resume the conversation, so
   // persist it the first time the hook reports one. The frame is already routed
-  // to the right session by the per-terminal SPRINTENGINE_AGENT_ID, so concurrent
+  // to the right session by the per-terminal agent identity env, so concurrent
   // spawns can't cross-assign it.
   const cliSessionIdChanged =
     !!frame.sessionId && frame.sessionId !== session.cliSessionId
@@ -2904,7 +2904,7 @@ function startSprintEngineAgentHeartbeat(session: TerminalSession): void {
       return
     }
     void queueSprintEngineLifecycleCall(session, 'sprintengine.agent.heartbeat')
-  }, SPRINTENGINE_AGENT_HEARTBEAT_INTERVAL_MS)
+  }, MANAGED_AGENT_HEARTBEAT_INTERVAL_MS)
   timer.unref?.()
   sprintEngineAgentHeartbeatTimers.set(session.sessionId, timer)
 }
@@ -3215,7 +3215,7 @@ async function spawnAgentSessionFromDescriptor(input: {
 
     const initialSize = getTerminalSize(120, 30)
     // Inject the agent's durable identity so the agent-state reporter's hook
-    // frames map back to this session (SPRINTENGINE_AGENT_ID === executionId ===
+    // frames map back to this session (identity env === executionId ===
     // session.agentId below), and strip any stale id the app process inherited.
     // Descriptor env wins over the base, identity wins over both.
     const descriptorEnv = applyAgentIdentityEnv(
@@ -3458,7 +3458,7 @@ async function spawnMobileAgentTerminal(input: {
       secretConfigured: mobileAuthSecret.ok,
     })
     if (mobileBlock) return { ok: false, message: mobileBlock.message }
-    const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath, hostContextPath } = getShellLaunchConfig(
+    const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath, hostContextPath, managed, reapExempt } = getShellLaunchConfig(
       input.cwd,
       input.sessionId,
       false,
@@ -3509,10 +3509,12 @@ async function spawnMobileAgentTerminal(input: {
       agentId: input.agentId,
       cli: input.cli,
       cwd: launchCwd ?? input.cwd,
-      sprintEngineStatePath: input.sprintEngineStatePath,
-      sprintEngineMcpRunId,
-      sprintEngineRole: input.role,
-      executionMode: input.executionMode,
+        sprintEngineStatePath: input.sprintEngineStatePath,
+        sprintEngineMcpRunId,
+        sprintEngineRole: input.role,
+        managed: managed === true || Boolean(input.sprintEngineStatePath),
+        ...(reapExempt ? { reapExempt: true } : {}),
+        executionMode: input.executionMode,
       worktreeId: input.worktreeId,
       worktreePath: input.worktreePath,
       visible: false,
@@ -3932,7 +3934,7 @@ async function spawnTerminalFromIpc(
         })
         if (block) return { ok: false, sessionId, message: block.message, exitCode: 1 }
       }
-      const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath, hostContextPath } = shellOnly
+      const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath, hostContextPath, managed, reapExempt } = shellOnly
         ? getPlainShellLaunchConfig(workingDirectory, sprintEngineStatePath, sessionId)
         : getShellLaunchConfig(
           workingDirectory,
@@ -4005,6 +4007,8 @@ async function spawnTerminalFromIpc(
         sprintEngineStatePath,
         sprintEngineMcpRunId,
         sprintEngineRole: sprintEngineRoleForLaunch(agentSession?.role, agentId),
+        managed: managed === true || Boolean(sprintEngineStatePath),
+        ...(reapExempt ? { reapExempt: true } : {}),
         executionMode,
         worktreeId,
         worktreePath,
