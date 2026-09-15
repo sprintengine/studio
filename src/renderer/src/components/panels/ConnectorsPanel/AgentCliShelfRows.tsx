@@ -55,6 +55,12 @@ import type { ConnectorEntry } from './connectorsFacets'
 // Agent CLIs list alone, and the capability-modules list it was measured
 // against has since left the door entirely (module switches live in Settings →
 // Modules, source-tabs ruling 2026-09-05).
+//
+// Both rows here draw the provider row's card surface: the catalogue puts each
+// group in the settings list card (list-card ruling 2026-09-15), and a row
+// loose in that card — its own radius, the narrower page inset — reads as a
+// card in a card. The catalogue is these rows' only host, so the surface is
+// stated here rather than threaded through a prop for one caller.
 export function AgentCliRegistryRow({
   entry,
   registryUrl,
@@ -70,6 +76,7 @@ export function AgentCliRegistryRow({
   const trust = plugin ? pluginTrust(plugin) : null
   return (
     <ProviderRow
+      surface="card"
       icon={
         <PluginIcon
           iconUrl={plugin ? resolveIconUrl(registryUrl, plugin.icon) : null}
@@ -283,6 +290,7 @@ export function AgentCliRuntimeRows({
         return (
           <ProviderRow
             key={entry.key}
+            surface="card"
             icon={
               <PluginIcon
                 iconUrl={entry.plugin ? resolveIconUrl(registryUrl, entry.plugin.icon) : null}
