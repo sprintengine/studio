@@ -67,6 +67,7 @@ async function main(): Promise<void> {
   const { Badge } = await import('./Badge')
   const { Checkbox } = await import('./Checkbox')
   const { EmptyState } = await import('./EmptyState')
+  const { SettingCard } = await import('./SettingRow')
   const { Table } = await import('./Table')
 
   const document = dom.window.document
@@ -240,6 +241,39 @@ async function main(): Promise<void> {
     assert.ok(!/h-full/.test(listClasses), 'a list empty state sits inside the list, not as a page of its own')
     pane.unmount()
     list.unmount()
+  })
+
+  // ── SettingCard ───────────────────────────────────────────────────────────
+
+  run('a list card is a real list with its rows divided by hairlines', () => {
+    const view = mount(
+      <SettingCard as="ul" ariaLabel="Machines">
+        <li>one</li>
+        <li>two</li>
+      </SettingCard>,
+    )
+    const card = view.container.querySelector('ul[aria-label="Machines"]')
+    assert.ok(card, 'the list form is a <ul> carrying the list name')
+    const classes = card?.getAttribute('class') ?? ''
+    assert.match(classes, /\[&>\*\+\*\]:border-t/, 'rules go between rows')
+    assert.ok(!/grid-cols-2/.test(classes), 'one column by default')
+    view.unmount()
+  })
+
+  run('two columns stay one card, with the rules where the cells meet', () => {
+    const view = mount(
+      <SettingCard as="ul" ariaLabel="Skills" columns={2}>
+        <li>a</li>
+        <li>b</li>
+        <li>c</li>
+      </SettingCard>,
+    )
+    const classes = view.container.querySelector('ul')?.getAttribute('class') ?? ''
+    assert.match(classes, /sm:grid-cols-2/, 'two abreast from the sm breakpoint')
+    assert.match(classes, /nth-child\(2\)\]:border-t-0/, 'the first row is two cells, so the second cell drops its top rule')
+    assert.match(classes, /nth-child\(even\)\]:border-l/, 'the right column draws the rule between the columns')
+    assert.equal(view.container.querySelectorAll('ul').length, 1, 'one card, not two side by side')
+    view.unmount()
   })
 
   if (failures > 0) {

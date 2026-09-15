@@ -25,16 +25,31 @@ import React from 'react'
  * a list and must not claim to be one. Pass `as="ul"` when the rows genuinely
  * *are* a list of like things (paired devices, tailnet machines, recent
  * messages) — then the rows are `<li>`s and `ariaLabel` names the list.
+ *
+ * That list form is the **list card** (ruled 2026-09-15): the one surface every
+ * list of things in Settings and in the Extensions door sits in — agent CLIs,
+ * version-control providers, knowledge projects, modules, plugins, skills. The
+ * Remote tab's machines list drew it first; the rest of the product conforms
+ * to it rather than each list deciding its own edge.
  */
 export function SettingCard({
   as = 'div',
   ariaLabel,
+  columns = 1,
   className,
   children,
 }: {
   as?: 'div' | 'ul'
   /** Names the list. Only meaningful with `as="ul"`. */
   ariaLabel?: string
+  /**
+   * `2` lays the rows out two abreast from the `sm` breakpoint, still inside
+   * ONE card. A catalogue page of thirty short rows is twice as tall as it
+   * needs to be in one column, and two cards side by side would be two edges
+   * for one group. Row-major, which is the order a pager and an alphabetical
+   * sort already produce.
+   */
+  columns?: 1 | 2
   className?: string
   children: React.ReactNode
 }): JSX.Element {
@@ -52,6 +67,13 @@ export function SettingCard({
         // The divider goes BETWEEN rows and never around them, so the card's
         // own border is never doubled and a one-row card carries no rule.
         '[&>*+*]:border-t [&>*+*]:border-[color:var(--border-subtle)]',
+        // Two columns: the first ROW is two cells, so the second cell drops the
+        // top rule the one-column form gave it, and every even cell draws a
+        // left rule where the columns meet. `nth-child(n+3)` onward keeps the
+        // top rule from the base class, which is exactly the second row down.
+        columns === 2
+          ? 'sm:grid sm:grid-cols-2 sm:[&>*:nth-child(2)]:border-t-0 sm:[&>*:nth-child(even)]:border-l sm:[&>*:nth-child(even)]:border-[color:var(--border-subtle)]'
+          : '',
         className ?? '',
       ].join(' ')}
     >
