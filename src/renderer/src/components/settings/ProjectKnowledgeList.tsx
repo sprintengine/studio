@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { Checkbox, GhostButton, InlineNotice, Input, StatusDot } from '../ui'
+import { Checkbox, GhostButton, InlineNotice, Input, MicroChip, StatusDot } from '../ui'
 import type { Tone } from '../ui'
+import { SettingCard, SettingsSectionTitle } from './SettingsAtoms'
 import {
   listOpenProjectKnowledge,
   relativePathBetween,
@@ -209,33 +210,50 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
     )
   }
 
+  // The list card (setting-row → The list card, 2026-09-15): the band above
+  // names the group and carries the count and the controls that act on the
+  // whole list; the card is the group's one edge; the rows sit full-bleed
+  // inside it. This list used to draw its own idiom — rows bled 8px past the
+  // page edge with a rounded selection fill on the current project — which
+  // made it the one settings list that looked like neither the others nor the
+  // Remote tab's machines.
   return (
-    <div className="space-y-2">
-      {projects.length > 1 ? (
-        <div className="flex items-center justify-between gap-3">
-          <Checkbox
-            checked={allSelected}
-            indeterminate={someSelected && !allSelected}
-            onChange={toggleAll}
-            label="Select all"
-            size="body"
-            className="w-fit"
-          />
-          {someSelected ? (
+    <section className="space-y-2">
+      <SettingsSectionTitle
+        count={projects.length}
+        action={
+          projects.length > 1 ? (
+            // One slot, holding what acts on the whole list: the tri-state box,
+            // and the bulk actions once something is ticked. The count of ticked
+            // rows sits beside them so the verb says how many it will touch.
             <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]">
-              <span className="tabular-nums">{selectedEntries.length} selected</span>
-              <GhostButton size="sm" onClick={() => void chooseSharedFolder()}>
-                Point at shared folder…
-              </GhostButton>
-              <GhostButton size="sm" onClick={() => setSelected({})}>
-                Clear
-              </GhostButton>
+              {someSelected ? (
+                <>
+                  <span className="tabular-nums">{selectedEntries.length} selected</span>
+                  <GhostButton size="sm" onClick={() => void chooseSharedFolder()}>
+                    Point at shared folder…
+                  </GhostButton>
+                  <GhostButton size="sm" onClick={() => setSelected({})}>
+                    Clear
+                  </GhostButton>
+                </>
+              ) : null}
+              <Checkbox
+                checked={allSelected}
+                indeterminate={someSelected && !allSelected}
+                onChange={toggleAll}
+                label="Select all"
+                size="body"
+                className="w-fit"
+              />
             </div>
-          ) : null}
-        </div>
-      ) : null}
+          ) : undefined
+        }
+      >
+        Projects
+      </SettingsSectionTitle>
 
-      <ul className="space-y-px">
+      <SettingCard as="ul" ariaLabel="Projects">
         {projects.map((entry) => {
           const status = statuses[entry.key] ?? null
           const isChecking = Boolean(checking[entry.key])
@@ -243,11 +261,8 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
           const isSelected = Boolean(selected[entry.key])
           const error = status && !status.ok ? status.message : null
           return (
-            <li
-              key={entry.key}
-              className={`-mx-2 rounded-md px-2 ${isActive ? 'bg-[color:var(--bg-selected)]' : ''}`}
-            >
-              <div className="flex items-center gap-3 py-2.5">
+            <li key={entry.key} className="px-4 py-3">
+              <div className="flex items-center gap-3">
                 <Checkbox
                   checked={isSelected}
                   ariaLabel={`Select ${entry.name}`}
@@ -261,15 +276,14 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
                   label={dotLabel(entry, status, isChecking)}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
+                  <div className="flex items-center gap-2">
                     <span className="truncate text-body font-medium text-[color:var(--text-strong)]">
                       {entry.name}
                     </span>
-                    {isActive ? (
-                      <span className="shrink-0 text-meta text-[color:var(--text-muted)]">
-                        Current
-                      </span>
-                    ) : null}
+                    {/* The project the open workspace belongs to. A chip, as the
+                        Remote tab marks "This device" — not a selection fill,
+                        which would say "picked" about a row nobody picked. */}
+                    {isActive ? <MicroChip>Current</MicroChip> : null}
                     {entry.workspaceCount > 1 ? (
                       <span className="shrink-0 tabular-nums text-meta text-[color:var(--text-muted)]">
                         {entry.workspaceCount} workspaces
@@ -311,12 +325,15 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
                 </div>
               </div>
               {error ? (
-                <p className="pb-2 pl-[3.25rem] text-meta text-[color:var(--tone-warn)]">{error}</p>
+                // Under the name, on its left edge: the checkbox, the dot and
+                // their two gaps.
+                // design-tokens-allow: alignment — the error's left edge is the name's (16px box + 6px dot + two 12px gaps), structure not rhythm
+                <p className="mt-1 pl-[3.25rem] text-meta text-[color:var(--tone-warn)]">{error}</p>
               ) : null}
             </li>
           )
         })}
-      </ul>
+      </SettingCard>
 
       {bulkMessage ? (
         bulkMessage.tone === 'warn' ? (
@@ -325,6 +342,6 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
           <p className="text-body leading-5 text-[color:var(--text-muted)]">{bulkMessage.text}</p>
         )
       ) : null}
-    </div>
+    </section>
   )
 }
