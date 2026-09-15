@@ -34,8 +34,10 @@
  * one column is twice the height it needs and two cards side by side would be
  * two edges for one group. Row-major, which is the order a pager and an
  * alphabetical sort already produce. The first ROW is two cells, so the second
- * cell drops the top rule; every even cell draws the rule where the columns
- * meet. */
+ * cell drops the top rule; every ODD cell draws the rule where the columns
+ * meet — on the left cell, not the right, because an odd count leaves the
+ * last row half empty and a rule owned by the absent right cell is absent
+ * with it. */
 .ds-setting-row-list--two-column {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -45,8 +47,8 @@
   border-top: 0;
 }
 
-.ds-setting-row-list--two-column > :nth-child(even) {
-  border-left: 1px solid var(--sem-color-border-subtle);
+.ds-setting-row-list--two-column > :nth-child(odd) {
+  border-right: 1px solid var(--sem-color-border-subtle);
 }
 
 .ds-setting-row {

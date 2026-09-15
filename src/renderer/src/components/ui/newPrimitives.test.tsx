@@ -271,7 +271,12 @@ async function main(): Promise<void> {
     const classes = view.container.querySelector('ul')?.getAttribute('class') ?? ''
     assert.match(classes, /sm:grid-cols-2/, 'two abreast from the sm breakpoint')
     assert.match(classes, /nth-child\(2\)\]:border-t-0/, 'the first row is two cells, so the second cell drops its top rule')
-    assert.match(classes, /nth-child\(even\)\]:border-l/, 'the right column draws the rule between the columns')
+    assert.match(
+      classes,
+      /nth-child\(odd\)\]:border-r/,
+      'the LEFT column draws the rule between the columns, so a trailing odd cell is still ruled',
+    )
+    assert.ok(!/nth-child\(even\)\]:border-l/.test(classes), 'and the right column owns none — it may be absent')
     assert.equal(view.container.querySelectorAll('ul').length, 1, 'one card, not two side by side')
     view.unmount()
   })

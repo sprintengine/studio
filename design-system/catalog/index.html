@@ -6348,8 +6348,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * one column is twice the height it needs and two cards side by side would be
  * two edges for one group. Row-major, which is the order a pager and an
  * alphabetical sort already produce. The first ROW is two cells, so the second
- * cell drops the top rule; every even cell draws the rule where the columns
- * meet. */
+ * cell drops the top rule; every ODD cell draws the rule where the columns
+ * meet — on the left cell, not the right, because an odd count leaves the
+ * last row half empty and a rule owned by the absent right cell is absent
+ * with it. */
 .ds-setting-row-list--two-column {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6359,8 +6361,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   border-top: 0;
 }
 
-.ds-setting-row-list--two-column > :nth-child(even) {
-  border-left: 1px solid var(--sem-color-border-subtle);
+.ds-setting-row-list--two-column > :nth-child(odd) {
+  border-right: 1px solid var(--sem-color-border-subtle);
 }
 
 .ds-setting-row {
@@ -31388,7 +31390,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <p>What goes in a list card is not this component's row: it is whichever row the thing already has — [provider-row](../provider-row/component.md) in its <code>--in-card</code> form, a connector row, a machine row — drawn full-bleed at the card's inset (<code>space.xl</code> at the sides, <code>space.lg</code> above and below), with no radius of its own. A row that is picked or opened takes its fill edge to edge; a row's disclosure opens inside its own <code>&lt;li&gt;</code>. Nothing inside the card draws a second card: an expansion is an indented block, never a bordered surface.</p>
 <p>Before the ruling the product had four answers to &quot;a list of things on a settings page&quot;: rows loose on the surface, a gap grid of rows in two columns, a rounded row inset in a padded list, and this card. They read as four products. One card, and the rows conform to it.</p>
 <h4>Variants</h4>
-<ul><li><strong>Default</strong> — label and help on the left, control on the right, vertically centred.</li><li><strong><code>--stacked</code></strong> — the control drops under the text, for a control that needs the full width: a path field, a four-option segmented control, a text area. The row keeps its padding and its hairline; only the axis changes. Reach for it per row, not per card — a card of stacked rows is a form, and a form wants [field](../field/component.md).</li><li><strong><code>--two-column</code></strong> (on the list, <code>.ds-setting-row-list--two-column</code>) — the list card with its rows two abreast. For a card of many short rows — a catalogue page, a module category — where one column is twice the height it needs and two cards side by side would be two edges for one group. Still one card: row-major order, a hairline where the columns meet, the top rules starting from the second row. Never for setting rows themselves — a control and its label want the width.</li><li><strong><code>--disabled</code></strong> — the control cannot be used yet. The label drops to <code>text.muted</code>; the help stays as it is, because a person has to be able to read what they cannot have. Pair it with a <code>--requirement</code> suffix saying why. The <strong>control host does not dim</strong> — every control here draws its own disabled treatment, and a second opacity on the host multiplies with it (a switch at 0.45 inside a host at 0.5 lands near a fifth). The control owns its own disabled tone; the row owns the label and the reason.</li></ul>
+<ul><li><strong>Default</strong> — label and help on the left, control on the right, vertically centred.</li><li><strong><code>--stacked</code></strong> — the control drops under the text, for a control that needs the full width: a path field, a four-option segmented control, a text area. The row keeps its padding and its hairline; only the axis changes. Reach for it per row, not per card — a card of stacked rows is a form, and a form wants [field](../field/component.md).</li><li><strong><code>--two-column</code></strong> (on the list, <code>.ds-setting-row-list--two-column</code>) — the list card with its rows two abreast. For a card of many short rows — a catalogue page, a module category — where one column is twice the height it needs and two cards side by side would be two edges for one group. Still one card: row-major order, a hairline where the columns meet (drawn by the left cell, so an odd count's trailing cell is still ruled against the empty half beside it), the top rules starting from the second row. Never for setting rows themselves — a control and its label want the width.</li><li><strong><code>--disabled</code></strong> — the control cannot be used yet. The label drops to <code>text.muted</code>; the help stays as it is, because a person has to be able to read what they cannot have. Pair it with a <code>--requirement</code> suffix saying why. The <strong>control host does not dim</strong> — every control here draws its own disabled treatment, and a second opacity on the host multiplies with it (a switch at 0.45 inside a host at 0.5 lands near a fifth). The control owns its own disabled tone; the row owns the label and the reason.</li></ul>
 <h4>States</h4>
 <p>The row has none. It is a label and a container — every state belongs to the control inside it, which brings its own hover, focus ring and disabled tone from its own component.</p>
 <p>| Part | Treatment | |---|---| | Row | No hover, no focus, no selection. It is not a control | | Card | No hover, no shadow. <code>border.subtle</code> at rest and always | | Control | Whatever its own component specifies, disabled included | | Disabled row | Label drops to <code>text.muted</code>. The host itself is untouched |</p>
@@ -31435,8 +31437,10 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
  * one column is twice the height it needs and two cards side by side would be
  * two edges for one group. Row-major, which is the order a pager and an
  * alphabetical sort already produce. The first ROW is two cells, so the second
- * cell drops the top rule; every even cell draws the rule where the columns
- * meet. */
+ * cell drops the top rule; every ODD cell draws the rule where the columns
+ * meet — on the left cell, not the right, because an odd count leaves the
+ * last row half empty and a rule owned by the absent right cell is absent
+ * with it. */
 .ds-setting-row-list--two-column {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -31446,8 +31450,8 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   border-top: 0;
 }
 
-.ds-setting-row-list--two-column &gt; :nth-child(even) {
-  border-left: 1px solid var(--sem-color-border-subtle);
+.ds-setting-row-list--two-column &gt; :nth-child(odd) {
+  border-right: 1px solid var(--sem-color-border-subtle);
 }
 
 .ds-setting-row {

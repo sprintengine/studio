@@ -68,11 +68,13 @@ export function SettingCard({
         // own border is never doubled and a one-row card carries no rule.
         '[&>*+*]:border-t [&>*+*]:border-[color:var(--border-subtle)]',
         // Two columns: the first ROW is two cells, so the second cell drops the
-        // top rule the one-column form gave it, and every even cell draws a
-        // left rule where the columns meet. `nth-child(n+3)` onward keeps the
-        // top rule from the base class, which is exactly the second row down.
+        // top rule the one-column form gave it, and every ODD cell draws a
+        // right rule where the columns meet. On the left cell, not the right:
+        // an odd count leaves the last row half empty, and a rule owned by the
+        // absent right cell is absent with it. `nth-child(n+3)` onward keeps
+        // the top rule from the base class, which is exactly the second row.
         columns === 2
-          ? 'sm:grid sm:grid-cols-2 sm:[&>*:nth-child(2)]:border-t-0 sm:[&>*:nth-child(even)]:border-l sm:[&>*:nth-child(even)]:border-[color:var(--border-subtle)]'
+          ? 'sm:grid sm:grid-cols-2 sm:[&>*:nth-child(2)]:border-t-0 sm:[&>*:nth-child(odd)]:border-r sm:[&>*:nth-child(odd)]:border-[color:var(--border-subtle)]'
           : '',
         className ?? '',
       ].join(' ')}

@@ -82,9 +82,10 @@ products. One card, and the rows conform to it.
   list card with its rows two abreast. For a card of many short rows — a
   catalogue page, a module category — where one column is twice the height it
   needs and two cards side by side would be two edges for one group. Still one
-  card: row-major order, a hairline where the columns meet, the top rules
-  starting from the second row. Never for setting rows themselves — a control
-  and its label want the width.
+  card: row-major order, a hairline where the columns meet (drawn by the
+  left cell, so an odd count's trailing cell is still ruled against the empty
+  half beside it), the top rules starting from the second row. Never for
+  setting rows themselves — a control and its label want the width.
 - **`--disabled`** — the control cannot be used yet. The label drops to
   `text.muted`; the help stays as it is, because a person has to be able to
   read what they cannot have. Pair it with a `--requirement` suffix saying why.
