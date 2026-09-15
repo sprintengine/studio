@@ -539,18 +539,18 @@ function KeepRecentAliveField({ descriptor }: { descriptor: SettingDescriptor })
 }
 
 // The Agents page header: the name on the left, the freshness fact and the two
-// page controls on the right. The one chrome row for this list — the fact and
+// page controls on the right. The one chrome row for this page — the fact and
 // the control that refreshes it share a band rather than stacking a toolbar on
-// a status line.
+// a status line. The count is not here: it sits on the Agent CLIs section band
+// over the list it counts, and the same number in two places is two chances to
+// disagree.
 function AgentCliBand({
-  count,
   checkedAt,
   now,
   addPending,
   onAdd,
   onRecheck,
 }: {
-  count?: number
   checkedAt: number | null
   now: number
   addPending: boolean
@@ -558,13 +558,11 @@ function AgentCliBand({
   onRecheck: () => void
 }) {
   const freshness = formatRelativeMsAgo(checkedAt, now)
-  const meta = [count !== undefined ? `${count} installed` : null, freshness ? `checked ${freshness}` : null]
-    .filter(Boolean)
-    .join(' · ')
+  const meta = freshness ? `checked ${freshness}` : undefined
   return (
     <SettingsPageHeader
       title="Agents"
-      meta={meta || undefined}
+      meta={meta}
       actions={
         <>
           <Tooltip content={addPending ? 'Installing a CLI from a folder' : 'Install a CLI from a folder'}>
@@ -1692,7 +1690,6 @@ export default function SettingsPanel({
           className="space-y-3"
         >
           <AgentCliBand
-            count={pluginCatalogStatus === 'ready' ? installedPluginRows.length : undefined}
             checkedAt={cliAvailabilityCheckedAt}
             now={agentsFreshnessNow}
             addPending={cliInstallPending}
@@ -1750,7 +1747,14 @@ export default function SettingsPanel({
               }
             />
           ) : (
-            <div>
+            // The list card (setting-row → The list card, 2026-09-15): the
+            // section band with the count outside, one bordered surface, the
+            // rows full-bleed inside it — the shape the Remote tab's machines
+            // drew first. These rows sat loose under the switch card before,
+            // which made the page's one list the one thing on it with no edge.
+            <section className="space-y-2">
+              <SettingsSectionTitle count={installedPluginRows.length}>Agent CLIs</SettingsSectionTitle>
+              <SettingCard as="ul" ariaLabel="Agent CLIs">
               {installedPluginRows.map((plugin) => {
                 const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
                 const declaredModels = plugin.modelSelection?.options ?? []
@@ -1763,6 +1767,8 @@ export default function SettingsPanel({
                 return (
                   <ProviderRow
                     key={plugin.id}
+                    as="li"
+                    surface="card"
                     icon={
                       <CliIcon
                         cli={plugin.id}
@@ -1963,7 +1969,8 @@ export default function SettingsPanel({
                   </ProviderRow>
                 )
               })}
-            </div>
+              </SettingCard>
+            </section>
           )}
 
           <TextGenerationSettingsSection />
