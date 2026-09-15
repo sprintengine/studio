@@ -214,8 +214,9 @@ export function ThirdPartyModuleRow({
   const enableLabelId = useId()
   return (
     // A row inside the modules card: the card owns the hairline, so the row
-    // pads its sides too — the card is full-bleed.
-    <div className="flex flex-col gap-2 px-3 py-2.5">
+    // pads its sides too — the card is full-bleed. Same 16/12px inset as every
+    // other list-card row, so this card lines up with the bundled ones above.
+    <div className="flex flex-col gap-2 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">

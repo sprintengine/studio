@@ -9,18 +9,20 @@ import {
   type SpecialistPack,
 } from '../../specialists/specialistPacks'
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../AppIcons'
-import { ConnectorRow, ConnectorSectionHeading } from '../panels/ConnectorsPanel/ConnectorRow'
+import { ConnectorRow } from '../panels/ConnectorsPanel/ConnectorRow'
 import { EmptyState, GhostButton, InboxSearchInput, Switch } from '../ui'
 import { mcpMonogram } from '../ui/mcpMonogram'
 import { COMING_SOON_IDS, MODULE_CATEGORY_GROUPS, categoryLabel } from './ModuleControls'
 import { ThirdPartyModuleList } from './ThirdPartyModuleList'
-import { SettingCard, SettingsPageHeader } from './SettingsAtoms'
+import { SettingCard, SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
 
 // Module manager: one surface for everything that plugs into the app — the
 // bundled capability modules, the specialist packs that feed the spawn menu,
-// and third-party modules installed from disk. Rendered in the Connectors
-// idiom (icon chip · name + chips · summary · right-aligned control) so the
-// two marketplace-shaped surfaces read as one system. Module enablement
+// and third-party modules installed from disk. The rows are the Connectors
+// row (icon chip · name + chips · summary · right-aligned control) so the two
+// marketplace-shaped surfaces read as one system; the groups are the settings
+// list card under a settings section band (setting-row → The list card,
+// 2026-09-15) so this tab reads as the rest of Settings does. Module enablement
 // writes appSettings.modules; pack enablement writes
 // appSettings.specialistPacks — same stores the old split tabs used.
 
@@ -58,6 +60,7 @@ function ModuleCard({
   const chips = comingSoon ? ['Coming soon'] : manifest.core ? ['Always on'] : []
   const card = (
     <ConnectorRow
+      surface="card"
       icon={<ModuleTileIcon name={manifest.displayName} />}
       name={manifest.displayName}
       summary={manifest.summary}
@@ -74,9 +77,9 @@ function ModuleCard({
       }
     />
   )
-  // A coming-soon module is absent from the enablement universe — the card is
+  // A coming-soon module is absent from the enablement universe — the row is
   // purely informational, so it reads muted with no control.
-  return comingSoon ? <div className="opacity-60">{card}</div> : card
+  return <li className={comingSoon ? 'opacity-60' : undefined}>{card}</li>
 }
 
 function SpecialistPackCard({
@@ -93,8 +96,14 @@ function SpecialistPackCard({
   onSetEnabled: (enabled: boolean) => void
 }) {
   return (
-    <div className="flex flex-col gap-2">
+    // The row and its disclosure share one list item, so the roster opens
+    // INSIDE the pack's own cell and the packs below only move down. The
+    // roster used to be a second SettingCard under the row — a card in a card
+    // once the packs themselves sat in one — so it is now an indented block
+    // on the name's left edge, the way a provider row's detail opens.
+    <li>
       <ConnectorRow
+        surface="card"
         icon={
           <ModuleTileIcon
             name={pack.name}
@@ -111,12 +120,13 @@ function SpecialistPackCard({
         }
       />
       {expanded ? (
-        <SettingCard className={enabled ? '' : 'opacity-50'}>
+        // design-tokens-allow: alignment — the roster's left edge is the pack name's (16px inset + 36px chip + 8px gap), structure not rhythm
+        <ul className={`space-y-3 pb-3 pl-[60px] pr-4 pt-1 ${enabled ? '' : 'opacity-50'}`} aria-label={`${pack.name} agents`}>
           {pack.specialists.map((specialist) => (
-            <div key={specialist.id} className="flex items-center gap-3 px-3 py-2.5">
+            <li key={specialist.id} className="flex items-start gap-3">
               <SpecialistActionIcon
                 icon={specialist.icon}
-                className="icon-md shrink-0 text-[color:var(--text-muted)]"
+                className="icon-md mt-0.5 shrink-0 text-[color:var(--text-muted)]"
               />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-body font-medium text-[color:var(--text-strong)]">
@@ -128,11 +138,11 @@ function SpecialistPackCard({
                   </div>
                 ) : null}
               </div>
-            </div>
+            </li>
           ))}
-        </SettingCard>
+        </ul>
       ) : null}
-    </div>
+    </li>
   )
 }
 
@@ -195,8 +205,10 @@ export function ModulesSettingsTab() {
 
       {moduleGroups.map(({ category, manifests }) => (
         <section key={category} className="space-y-2">
-          <ConnectorSectionHeading label={categoryLabel(category)} count={manifests.length} />
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <SettingsSectionTitle count={manifests.length}>{categoryLabel(category)}</SettingsSectionTitle>
+          {/* Two columns in ONE card: a category is one group with one edge;
+              the rows are short, so one column would be twice the height. */}
+          <SettingCard as="ul" ariaLabel={categoryLabel(category)} columns={2}>
             {manifests.map((manifest) => (
               <ModuleCard
                 key={manifest.id}
@@ -206,13 +218,13 @@ export function ModulesSettingsTab() {
                 onToggle={(next) => setModuleEnabled(manifest.id, next)}
               />
             ))}
-          </div>
+          </SettingCard>
         </section>
       ))}
 
       {!q && packs.length === 0 ? (
         <section className="space-y-2">
-          <ConnectorSectionHeading label="Specialist packs" count={0} />
+          <SettingsSectionTitle count={0}>Specialist packs</SettingsSectionTitle>
           <EmptyState
             density="list"
             title="No specialist packs installed."
@@ -229,8 +241,8 @@ export function ModulesSettingsTab() {
         </section>
       ) : visiblePacks.length > 0 ? (
         <section className="space-y-2">
-          <ConnectorSectionHeading label="Specialist packs" count={visiblePacks.length} />
-          <div className="flex flex-col gap-2">
+          <SettingsSectionTitle count={visiblePacks.length}>Specialist packs</SettingsSectionTitle>
+          <SettingCard as="ul" ariaLabel="Specialist packs">
             {visiblePacks.map((pack) => (
               <SpecialistPackCard
                 key={pack.id}
@@ -243,7 +255,7 @@ export function ModulesSettingsTab() {
                 onSetEnabled={(next) => setSpecialistPackEnabled(pack.id, next)}
               />
             ))}
-          </div>
+          </SettingCard>
         </section>
       ) : null}
 
