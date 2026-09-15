@@ -27,6 +27,7 @@ import {
   STUDIO_PLUGIN_SOURCE_ID,
   STUDIO_PLUGIN_WORKSPACE_DIR,
   STUDIO_SKILLS_PLUGIN_ID,
+  WORKFLOW_ROLES_PLUGIN_ID,
   studioClaudePluginKey,
   substituteStudioPluginTokens,
   type StudioPluginTokens,
@@ -115,6 +116,14 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
   const workflowIds = new Set(workflow.filter((entry) => entry.isDirectory()).map((entry) => entry.name))
   for (const dirName of dirs) {
     assert.equal(workflowIds.has(dirName), false, `${dirName} is a workflow skill and must not install with the plugin`)
+  }
+  // Same rule for the role pack: listed beside this plugin, never copied by
+  // this installer. A workspace that has never installed it stays without it.
+  const roles = await readdir(join(TEMPLATE_ROOT, WORKFLOW_ROLES_PLUGIN_ID, 'skills'), { withFileTypes: true })
+  const roleIds = new Set(roles.filter((entry) => entry.isDirectory()).map((entry) => entry.name))
+  assert.equal(roleIds.has('architect'), true, 'the pack is in the bundled marketplace')
+  for (const dirName of dirs) {
+    assert.equal(roleIds.has(dirName), false, `${dirName} is a workflow role and must not install with the plugin`)
   }
 }
 
@@ -230,6 +239,15 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
       assert.equal(provenance?.commitSha, result.version, 'the version is what a later sync compares')
     }
   }
+  // The role pack sits in the materialised marketplace as bytes the catalogue
+  // can seed from, but none of its skills land in a harness directory. A
+  // fresh workspace ships no role skills (owner ruling 2026-09-07).
+  assert.equal(result.skillDirNames.includes('architect'), false)
+  assert.equal(
+    existsSync(join(workspace, SKILL_HARNESS_DIR.agents, 'skills', 'architect')),
+    false,
+    'opening a workspace does not install workflow-roles',
+  )
 
   // 3. The hook, registered from the plugin's own declaration, into the file
   //    the claude-code manifest names — and pointing at a reporter that exists.
@@ -446,6 +464,37 @@ async function handEditedSkillsAreRestoredOnTheNextOpen(): Promise<void> {
   })
   assert.ok(second.ok, second.ok ? '' : second.message)
   assert.equal(existsSync(join(victim, 'SKILL.md')), true, 'a built-in plugin cannot be removed by deleting it')
+  await rm(workspace, { recursive: true, force: true })
+}
+
+async function workflowRolesRemovedStayRemovedOnTheNextOpen(): Promise<void> {
+  // The correction to the discarded built-in install: deleting a role skill
+  // by hand (or via Remove) must not be undone the next time the workspace
+  // is opened. installStudioPlugin restores its own skills; it must not
+  // restore the sixteen.
+  const { workspace, reporter } = await workspaceAndReporter()
+  const options = {
+    workspaceRoot: workspace,
+    templateRoot: TEMPLATE_ROOT,
+    harnesses: ['agents'] as const,
+    tokens: tokens(workspace),
+    agentStateReporterSourcePath: reporter,
+    hooksAcknowledged: true,
+    registerWithClaude: true,
+  }
+  const first = await installStudioPlugin(options)
+  assert.ok(first.ok, first.ok ? '' : first.message)
+  const planted = join(workspace, SKILL_HARNESS_DIR.agents, 'skills', 'architect')
+  await mkdir(planted, { recursive: true })
+  await writeFile(join(planted, 'SKILL.md'), '---\nname: architect\n---\nplanted\n', 'utf8')
+  await rm(planted, { recursive: true, force: true })
+  const second = await installStudioPlugin(options)
+  assert.ok(second.ok, second.ok ? '' : second.message)
+  assert.equal(
+    existsSync(join(planted, 'SKILL.md')),
+    false,
+    'a removed workflow-roles skill must not come back on the next open',
+  )
   await rm(workspace, { recursive: true, force: true })
 }
 
@@ -696,6 +745,7 @@ async function main(): Promise<void> {
   await aMissingReporterStopsTheInstallBeforeItRegistersAnything()
   await aWorkspaceThatVanishedIsRefusedByName()
   await handEditedSkillsAreRestoredOnTheNextOpen()
+  await workflowRolesRemovedStayRemovedOnTheNextOpen()
   await aLaunchInjectedWorkspaceKeepsItsClaudeFilesClean()
   await nativeEnablementIsOffAndSaysSo()
   await proseThatNamesATokenSurvivesVerbatim()

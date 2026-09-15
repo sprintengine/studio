@@ -396,4 +396,32 @@ run('the count ignores the search box', () => {
   )
 })
 
+run('a version bump of an installed workflow-roles pack is an available update, never applied silently', () => {
+  const studio: SkillSource = {
+    ...SOURCE,
+    id: 'github:sprintengine/studio-releases',
+    repo: 'sprintengine/studio-releases',
+    commitSha: 'newcommit',
+  }
+  const installed = record({
+    sourceId: studio.id,
+    pluginId: 'workflow-roles',
+    pluginName: 'workflow-roles',
+    marketplaceName: 'sprintengine-studio',
+    claudePluginKey: 'workflow-roles@sprintengine-studio',
+    skillDirNames: ['architect'],
+    commitSha: 'oldcommit',
+  })
+  assert.equal(
+    derivePluginInstallState([installed], studio.id, plugin('workflow-roles'), 'sprintengine-studio', studio.commitSha)
+      .kind,
+    'update-available',
+  )
+  assert.equal(
+    derivePluginInstallState([installed], studio.id, plugin('workflow-roles'), 'sprintengine-studio', 'oldcommit').kind,
+    'installed',
+    'the same commit is not an update, and no file is rewritten until the person accepts',
+  )
+})
+
 console.log('plugins surface model: ok')

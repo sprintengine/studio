@@ -62,11 +62,16 @@ async function main(): Promise<void> {
   assert.equal(pluginManifest.name, 'workflow-roles')
 
   const marketplace = JSON.parse(await readFile(MARKETPLACE_PATH, 'utf8')) as {
-    plugins: { name: string; source: string }[]
+    plugins: { name: string; source: string; version?: string }[]
   }
   const listed = marketplace.plugins.filter((entry) => entry.name === 'workflow-roles')
   assert.equal(listed.length, 1, 'the marketplace must list workflow-roles exactly once')
   assert.equal(listed[0]?.source, './workflow-roles')
+  assert.equal(
+    typeof listed[0]?.version === 'string' && listed[0].version !== '',
+    true,
+    'the listing carries a version so a bump can surface as an available update',
+  )
 
   const packageJson = JSON.parse(await readFile(join(REPO_ROOT, 'package.json'), 'utf8')) as {
     build?: { extraResources?: Array<{ from?: string; to?: string; filter?: string[] }> }

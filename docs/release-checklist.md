@@ -23,6 +23,12 @@ Use this checklist for every preview or stable desktop release.
   the shipped build differ from the tag it claims to be. A stale seed is not
   fatal (the live feed wins by `updatedAt` within the hour) but a fresh install
   shows an old list until its first fetch.
+- Run `npm run sync:catalogue`, and commit the result if it moved. This pulls
+  the published `workflow-roles` plugin from `studio-releases` into
+  `resources/studio-plugin/workflow-roles/`, the offline seed the SprintEngine
+  Studio tab lists when the network is away. It leaves `sprintengine-studio/`
+  untouched — that plugin is authored here and published there, never pulled
+  back. Same tagging rule as the model feed.
 - Confirm `RELEASES_TOKEN` exists under Settings -> Secrets and variables ->
   Actions. Releases go to the PUBLIC `sprintengine/studio-releases`, and the
   workflow's own `GITHUB_TOKEN` cannot write to another repo. Without it the
