@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { CliModelPopoverSurface, GhostButton, Popover } from '../ui'
+import { CliModelPopoverSurface, GhostButton, Popover, PrimaryButton } from '../ui'
 import { CliInstallRosterRow } from '../workspace/cliInstallRoute'
 import { SpawnPermissionFooter } from '../workspace/agentComposer/spawnFooter'
 import { useAgentComposer, type AgentComposerSelection } from '../workspace/agentComposer/useAgentComposer'
@@ -8,27 +8,34 @@ import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../store/slices/settin
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getBacklogHandoffHost } from './backlogHandoffHost'
 import { canHandBacklogItemToAgent } from '../../utils/backlogHandoff'
+import {
+  agentBacklogOpenPorts,
+  agentLinkForItem,
+  hasAgentLink,
+  openAgentBacklogLink,
+} from '../../utils/agentBacklogLinks'
 import type { AgentCli } from '../../types/workspace'
 import type { BacklogItem } from '../../utils/backlog'
 
 // ── "Hand to agent" on a Backlog item ────────────────────────────────────────
 //
-// The second way an item is executed, beside "Run a Sprint": one agent, on a
-// model the person picks, started on this item alone. The surface the button
-// opens is `CliModelPopoverSurface` — the SAME picker the new-chat engine
-// control opens — and clicking a model row IS the handoff, in one action, the
-// way the spawn picker made a model row spawn (MC-2122). There is no roster of
-// identities in front of it and no confirm step behind it.
+// The shell's primary execute control on a Backlog item: one agent, on a
+// model the person picks, started on this item alone. Module actions live in
+// the menus (owner ruling 2026-09-15); this button and "Open agent" beside it
+// are the header's own. The surface the button opens is `CliModelPopoverSurface`
+// — the SAME picker the new-chat engine control opens — and clicking a model
+// row IS the handoff, in one action, the way the spawn picker made a model row
+// spawn (MC-2122). There is no roster of identities in front of it and no
+// confirm step behind it.
 //
 // What the agent is handed is the Backlog skill's own invocation for the CLI
 // that was picked, as its startup prompt — the same composition the automation
 // `backlog.work` tool makes — so lifecycle stays with the skill contract and
 // this control never touches item status. The link back to the agent is
-// recorded by the host, which is what turns the item's execute action into
-// "Open agent" afterwards.
+// recorded by the host, which is what turns on the header's "Open agent"
+// control afterwards.
 //
-// The button lives in the detail pane rather than in the module action band
-// above it: a module action `run()`s, and this one has to OPEN something
+// The button lives in the detail pane because it has to OPEN something
 // anchored to its own trigger. Agent creation still belongs to the shell, so
 // the click routes out through `backlogHandoffHost`.
 
@@ -62,9 +69,9 @@ export function BacklogHandToAgentButton({
       popupRole="menu"
       placement="bottom-start"
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <GhostButton ref={ref} onClick={togglePopover} {...triggerProps}>
+        <PrimaryButton ref={ref} onClick={togglePopover} {...triggerProps}>
           Hand to agent
-        </GhostButton>
+        </PrimaryButton>
       )}
     >
       <HandToAgentPicker item={item} workspaceRoot={workspaceRoot} onClose={() => setOpen(false)} />
@@ -165,4 +172,36 @@ function HandToAgentPicker({
       }
     />
   )
+}
+
+// The shell's second header control: reopen the agent already working this
+// item. Not a module action — agent sessions belong to the shell — so it sits
+// beside "Hand to agent" rather than in the menus with contributed execute
+// actions (owner ruling 2026-09-15).
+export function BacklogOpenAgentButton({
+  item,
+  workspaceId,
+  workspaceRoot,
+}: {
+  item: BacklogItem
+  workspaceId: string
+  workspaceRoot: string
+}): JSX.Element | null {
+  if (item.status === 'archived' || !hasAgentLink(item)) return null
+
+  const open = (): void => {
+    const link = agentLinkForItem(item)
+    if (!link) return
+    void (async () => {
+      await openAgentBacklogLink({
+        workspaceId,
+        workspaceRoot,
+        item,
+        link,
+        ports: await agentBacklogOpenPorts(),
+      })
+    })()
+  }
+
+  return <GhostButton onClick={open}>Open agent</GhostButton>
 }

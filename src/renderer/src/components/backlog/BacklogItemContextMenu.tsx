@@ -1,5 +1,7 @@
+import { Fragment } from 'react'
 import {
   ContextMenu,
+  MENU_GROUP_LABEL_CLASS,
   MenuDivider,
   MenuFlyoutItem,
   MenuItem,
@@ -7,6 +9,8 @@ import {
   StarGlyph,
   type SelectItem,
 } from '../ui'
+import { groupBacklogModuleActions } from './backlogModuleActions'
+import type { BacklogItemActionCategory } from '../../modules/renderer-host'
 import CliIcon from '../CliIcon'
 import type { AgentState } from '../../types/workspace'
 import type {
@@ -43,8 +47,39 @@ export type BacklogDependencyChoice = { id: string; slug: string; title: string;
 export type BacklogContextItemAction = {
   id: string
   label: string
+  category: BacklogItemActionCategory
+  order?: number
   disabled: boolean
   run: () => void
+}
+
+function BacklogModuleActionMenuItems({
+  itemActions,
+  onPick,
+}: {
+  itemActions: ReadonlyArray<BacklogContextItemAction>
+  onPick: (action: BacklogContextItemAction) => void
+}): JSX.Element {
+  return (
+    <>
+      {groupBacklogModuleActions(itemActions).map((group, index) => (
+        <Fragment key={group.heading ?? `module-actions-${index}`}>
+          {group.heading ? (
+            <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{group.heading}</div>
+          ) : null}
+          {group.actions.map((itemAction) => (
+            <MenuItem
+              key={itemAction.id}
+              disabled={itemAction.disabled}
+              onClick={() => onPick(itemAction)}
+            >
+              {itemAction.label}
+            </MenuItem>
+          ))}
+        </Fragment>
+      ))}
+    </>
+  )
 }
 
 // The Send-to-agent choice list: one MenuItem per agent terminal target, with
@@ -231,8 +266,8 @@ export function BacklogItemContextMenu({
   epicChoices: ReadonlyArray<BacklogEpicChoice>
   // Items this one can declare as prerequisites (self filtered out below).
   dependencyChoices: ReadonlyArray<BacklogDependencyChoice>
-  // Module-contributed actions resolved for this exact row. This keeps Run a
-  // Sprint/Open Sprint on the same eligibility and execution path as detail.
+  // Module-contributed actions resolved for this exact row. Same eligibility
+  // and run path as the detail header's More-actions menu.
   itemActions: ReadonlyArray<BacklogContextItemAction>
   agentTargets: Array<AgentState & { cliSessionId: string }>
   agentSessions: TerminalSessionSnapshot[] | null
@@ -258,18 +293,13 @@ export function BacklogItemContextMenu({
         surfaceClassName="min-w-[240px]"
       >
         {itemActions.length > 0 ? (
-          itemActions.map((itemAction) => (
-            <MenuItem
-              key={itemAction.id}
-              disabled={itemAction.disabled}
-              onClick={() => {
-                itemAction.run()
-                onClose()
-              }}
-            >
-              {itemAction.label}
-            </MenuItem>
-          ))
+          <BacklogModuleActionMenuItems
+            itemActions={itemActions}
+            onPick={(itemAction) => {
+              itemAction.run()
+              onClose()
+            }}
+          />
         ) : (
           <MenuItem disabled onClick={() => {}}>
             No actions for this selection
@@ -287,18 +317,15 @@ export function BacklogItemContextMenu({
       onClose={onClose}
       surfaceClassName="min-w-[240px]"
     >
-      {itemActions.map((itemAction) => (
-        <MenuItem
-          key={itemAction.id}
-          disabled={itemAction.disabled}
-          onClick={() => {
+      {itemActions.length > 0 ? (
+        <BacklogModuleActionMenuItems
+          itemActions={itemActions}
+          onPick={(itemAction) => {
             itemAction.run()
             onClose()
           }}
-        >
-          {itemAction.label}
-        </MenuItem>
-      ))}
+        />
+      ) : null}
       {itemActions.length > 0 ? <MenuDivider /> : null}
       <MenuFlyoutItem
         label="Send to agent"

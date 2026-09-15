@@ -481,6 +481,7 @@
     "src/renderer/src/components/panels/AutomationsPanel/AutomationEditor.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/panels/AutomationsPanel/AutomationRunActions.test.tsx": "cjs-external-jsx-flexlayout-2",
     "src/renderer/src/components/panels/AutomationsPanel/automationEditorSave.test.tsx": "cjs-external-jsx-flexlayout",
+    "src/renderer/src/components/panels/BacklogPanel.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/panels/ConnectorsPanel/agentCliShelfInstall.test.tsx": "cjs-external-jsx-flexlayout",
     "src/renderer/src/components/panels/ConnectorsPanel/installedInventoryUpdates.test.tsx": "cjs-external-jsx-flexlayout",
     "src/renderer/src/components/panels/SprintEngineSettingsPopover.test.tsx": "cjs-bundled-jsx-2",

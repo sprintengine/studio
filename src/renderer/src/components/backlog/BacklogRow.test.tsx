@@ -943,11 +943,11 @@ run('relationship search requires a query and matches human-facing Backlog IDs',
   assert.deepEqual(filterBacklogItemSearchOptions(choices, 'MC-9999'), [], 'an unknown code cannot create a free-form relationship')
 })
 
-run('row context menu reuses module-contributed Sprint actions', () => {
+run('row context menu lists module-contributed actions through the shared grouping helper', () => {
   // The optional second argument is the whole multi-selection (MC-2060); the
   // single-row path still resolves through the same shared registry call.
   assert.match(backlogPanelSource, /externalActionsForItem\(menuItem, menuSelectionItems \?\? undefined\)/, 'the exact row is resolved through the shared module action registry')
-  assert.match(contextMenuSource, /itemActions\.map\(\(itemAction\)/, 'visible module actions render in the row menu')
+  assert.match(contextMenuSource, /<BacklogModuleActionMenuItems/, 'visible module actions render in the row menu')
   assert.match(contextMenuSource, /itemAction\.run\(\)/, 'activation uses the existing action run path')
 })
 

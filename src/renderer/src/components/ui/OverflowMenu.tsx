@@ -3,7 +3,7 @@ import { Popover } from './Popover'
 import { MenuDivider, MenuSwatchRow, MenuFlyoutItem } from './ContextMenu'
 import { KebabGlyph } from './KebabGlyph'
 import { Tooltip } from './Tooltip'
-import { MENU_ITEM_CLASS, MENU_LIST_CLASS } from './menuClasses'
+import { MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS } from './menuClasses'
 import { FOCUS_RING_CLASS } from './tokens'
 import { TruncatedText } from './TruncatedText'
 import type { HighlightColor } from '../../types/workspace'
@@ -23,6 +23,15 @@ export type OverflowMenuItem =
       icon?: React.ReactNode
     }
   | { kind: 'separator'; id: string }
+  | {
+      // A group heading — the alternative to a separator, never an addition to
+      // one (design-system/components/menu → Divider). Used when a menu holds
+      // more than one labelled group, e.g. module-contributed Backlog actions
+      // split by category.
+      kind: 'heading'
+      id: string
+      label: string
+    }
   | {
       // A color-swatch row (the shared MenuSwatchRow), for menus that also carry
       // an identity/highlight colour — e.g. an epic's colour on the Backlog
@@ -83,7 +92,11 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
   const interactiveItems = useMemo(
     () =>
       items.filter(
-        (item) => item.kind !== 'separator' && item.kind !== 'swatch' && item.kind !== 'flyout',
+        (item) =>
+          item.kind !== 'separator'
+          && item.kind !== 'heading'
+          && item.kind !== 'swatch'
+          && item.kind !== 'flyout',
       ) as Extract<OverflowMenuItem, { kind?: 'item' }>[],
     [items],
   )
@@ -168,6 +181,13 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
           {items.map((item) => {
             if (item.kind === 'separator') {
               return <MenuDivider key={item.id} />
+            }
+            if (item.kind === 'heading') {
+              return (
+                <div key={item.id} className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>
+                  {item.label}
+                </div>
+              )
             }
             if (item.kind === 'swatch') {
               return (

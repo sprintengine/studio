@@ -228,9 +228,10 @@ export const sprintEngineRendererModule: RendererModule = {
         selection && selection.items.length > 1
           ? `Start a sprint from these ${selection.items.length} items`
           : 'Run a Sprint',
-      // An item already handed to an agent shows "Open agent" as its execute
-      // action instead — running a fresh Sprint over work an agent already owns
-      // would fork the effort, so the Sprint entry point drops out entirely.
+      // An item already handed to an agent is withheld: running a fresh Sprint
+      // over work an agent already owns would fork the effort, so this entry
+      // point drops out entirely. "Open agent" is the shell's own header
+      // control for that case, not a module action.
       // A selection is eligible only when every member is (one linked or
       // terminal row would otherwise ride into the bundle silently).
       isVisible: ({ item, selection }) =>
