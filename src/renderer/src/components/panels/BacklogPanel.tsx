@@ -45,6 +45,7 @@ import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '
 import { sendFileDropToTerminal, setFileDropData, type FileDropPayload } from '../../utils/terminalDrop'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { canHandBacklogItemToAgent } from '../../utils/backlogHandoff'
+import { hasAgentLink } from '../../utils/agentBacklogLinks'
 import { consumePendingBacklogReveal, subscribeBacklogReveal } from '../../utils/backlogReveal'
 import { findDuplicateBacklogIds } from '../../../../shared/backlog/item-id'
 import {
@@ -69,7 +70,8 @@ import {
   sprintEngineRunLinkForItem,
 } from '../../utils/sprintengineBacklogLinks'
 import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
-import { BacklogHandToAgentButton } from '../backlog/BacklogHandToAgentButton'
+import { BacklogHandToAgentButton, BacklogOpenAgentButton } from '../backlog/BacklogHandToAgentButton'
+import { overflowItemsForBacklogModuleActions } from '../backlog/backlogModuleActions'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
 import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSection'
 import { BacklogMockupsSection } from '../backlog/BacklogMockupsSection'
@@ -1726,6 +1728,8 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       ? externalActionsForItem(menuItem, menuSelectionItems ?? undefined).map(({ action, label, disabled, run }) => ({
           id: action.id,
           label,
+          category: action.category,
+          order: action.order,
           disabled,
           run,
         }))
@@ -2434,7 +2438,7 @@ export function BacklogDetail({
   runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
   now: number
   hasItems: boolean
-  externalActions: Array<{ action: BacklogItemAction; disabled: boolean; run: () => void }>
+  externalActions: Array<{ action: BacklogItemAction; label: string; disabled: boolean; run: () => void }>
   workspaceId: string
   linkProviders: ReadonlyArray<BacklogLinkProvider>
   showBack: boolean
@@ -2589,13 +2593,13 @@ export function BacklogDetail({
     )
   }
 
-  // The first sprintengine.run execution link is the primary Open Sprint Engine
-  // target (its action lives in the header), so it is kept out of the secondary
-  // Links list — one existing run reads as one Open action, not a link
-  // collection. Only de-dup when that primary action is actually present: it and
-  // the provider share module enablement, and the action hides for archived
-  // items, so absent an enabled provider or on an archived item the run link
-  // stays visible as safe unavailable metadata instead of disappearing.
+  // The first sprintengine.run execution link is the Open Sprint target (its
+  // action lives in the menus), so it is kept out of the secondary Links list —
+  // one existing run reads as one Open action, not a link collection. Only de-dup
+  // when that action is actually present: it and the provider share module
+  // enablement, and the action hides for archived items, so absent an enabled
+  // provider or on an archived item the run link stays visible as safe
+  // unavailable metadata instead of disappearing.
   const primaryRunLink = sprintEngineRunLinkForItem(selected)
   const primaryRunLinkId =
     primaryRunLink
@@ -2623,6 +2627,7 @@ export function BacklogDetail({
   // predicate is shared with the button itself, so the band's layout decision
   // and the control's own gate can never disagree about an item.
   const canHandToAgent = canHandBacklogItemToAgent(selected)
+  const showOpenAgent = selected.status !== 'archived' && hasAgentLink(selected)
 
   // Full timestamp for the relative-time tooltip ("2h ago" → the actual date).
   const modifiedAbsolute =
@@ -2740,6 +2745,16 @@ export function BacklogDetail({
               ariaLabel="More actions"
               triggerTooltip="More actions"
               items={[
+                ...overflowItemsForBacklogModuleActions(
+                  externalActions.map(({ action, label, disabled, run }) => ({
+                    id: action.id,
+                    label,
+                    category: action.category,
+                    order: action.order,
+                    disabled,
+                    run,
+                  })),
+                ),
                 // The file-navigation actions were on their own buttons; folded in
                 // here they free the row down to the primary action + this menu.
                 { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
@@ -2934,25 +2949,23 @@ export function BacklogDetail({
             panel and the Backlog door render byte-identically without it. */}
         {headerExtra}
 
-        {/* Earned, not standing (MC-2067): a host with no external action to
-            offer gets no action band at all, because the overflow menu that used
-            to be stranded on it now sits inline with the title it acts on.
-            "Hand to agent" earns the band on its own terms: it is the second
-            way to execute an item (one agent rather than a sprint), it is the
-            detail pane's own control rather than a module's, and it is always
-            last — a Sprint is the louder offer where both stand. */}
-        {externalActions.length > 0 || canHandToAgent ? (
+        {/* Earned, not standing (MC-2067): a host with no shell action to offer
+            gets no action band at all, because the overflow menu that used to be
+            stranded on it now sits inline with the title it acts on.
+            "Hand to agent" is the header's primary button; "Open agent" sits
+            beside it when the item already has an agent link. Module actions
+            live in the menus, not here (owner ruling 2026-09-15). */}
+        {canHandToAgent || showOpenAgent ? (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            {externalActions.map(({ action, disabled, run }, index) => {
-              const Button = index === 0 ? PrimaryButton : GhostButton
-              return (
-                <Button key={action.id} onClick={run} disabled={disabled}>
-                  {action.label}
-                </Button>
-              )
-            })}
             {canHandToAgent ? (
               <BacklogHandToAgentButton item={selected} workspaceRoot={folderPath} />
+            ) : null}
+            {showOpenAgent ? (
+              <BacklogOpenAgentButton
+                item={selected}
+                workspaceId={workspaceId}
+                workspaceRoot={folderPath}
+              />
             ) : null}
           </div>
         ) : null}

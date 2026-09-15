@@ -1524,6 +1524,11 @@ export type BacklogItemAction = {
   id: string
   label: string
   category: BacklogItemActionCategory
+  /**
+   * Position within the Backlog menus — the row's right-click menu and the
+   * detail header's More-actions menu — sorted by `order` then label. It does
+   * not earn a header button; those belong to the shell.
+   */
   order?: number
   isVisible?: (context: BacklogItemActionContext) => boolean
   getState?: (context: BacklogItemActionContext) => BacklogItemActionState

@@ -479,6 +479,7 @@
     "src/renderer/src/components/panels/AgentChatView.test.ts": "esm-bundled-jsx-jsdom",
     "src/renderer/src/components/panels/AgentPanel.test.ts": "esm-bundled-2",
     "src/renderer/src/components/panels/AutomationsPanel/AutomationEditor.test.tsx": "cjs-bundled-jsx",
+    "src/renderer/src/components/panels/BacklogPanel.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/panels/AutomationsPanel/AutomationRunActions.test.tsx": "cjs-external-jsx-flexlayout-2",
     "src/renderer/src/components/panels/AutomationsPanel/automationEditorSave.test.tsx": "cjs-external-jsx-flexlayout",
     "src/renderer/src/components/panels/ConnectorsPanel/agentCliShelfInstall.test.tsx": "cjs-external-jsx-flexlayout",

@@ -216,6 +216,12 @@ export type BacklogItemAction = {
   id: string
   label: string
   category: BacklogItemActionCategory
+  /**
+   * Position within the Backlog menus — the row's right-click menu and the
+   * detail header's More-actions menu — sorted by `order` then label. It does
+   * not earn a header button; those belong to the shell
+   * (owner ruling 2026-09-15).
+   */
   order?: number
   /** Selection-aware display label; falls back to `label` when absent. */
   getLabel?: (context: BacklogItemActionContext) => string

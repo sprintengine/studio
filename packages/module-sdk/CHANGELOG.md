@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Backlog item actions render in menus, not as header buttons.**
+  `BacklogItemAction.order` positions an action within the row's right-click
+  menu and the detail header's More-actions menu. The header's own buttons
+  belong to the shell. No type change.
+
 - **The package is now `@sprintengine/module-sdk`** (was `@multicode/module-sdk`),
   matching the app's name since 2026-09-08. **A module author must change every
   import**, including the `--external:` flags for the host-bridged subpaths:

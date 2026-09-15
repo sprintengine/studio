@@ -86,6 +86,50 @@ export type AgentBacklogLinkOpenPorts = {
   }): Promise<unknown> | unknown
 }
 
+// Activate the agent's workspace, then focus (or add) its terminal tab. The
+// mounted model is tried first; if the workspace was just activated and its
+// model isn't mounted yet, the persisted layout model is mutated so the tab is
+// present on mount. Shared by the link provider and the detail pane's own
+// "Open agent" control — this is a shell action, not a module contribution
+// (owner ruling 2026-09-15).
+export async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts> {
+  const [{ useWorkspaceStore }, { publishDiagnostic }, { focusOrAddAgentTab, ensureAgentTabInLayoutModel, flashAgentTab }, { findWorkspaceForAgentPreferring: findAgentWorkspace }] =
+    await Promise.all([
+      import('../store/workspaceStore'),
+      import('./diagnostics'),
+      import('./modelRegistry'),
+      import('./agentLocation'),
+    ])
+  return {
+    focusAgent: ({ agentId, agentName, preferredWorkspaceId }) => {
+      const store = useWorkspaceStore.getState()
+      // Live lookup, preferring the workspace the link recorded: a shared id like
+      // `agent-1` must land on its own workspace, not the first other workspace
+      // that also has an `agent-1`. The global scan is the moved-agent fallback.
+      const workspace = findAgentWorkspace(store.workspaces, agentId, preferredWorkspaceId)
+      if (!workspace) return false
+      store.setActiveWorkspace(workspace.id)
+      // Flash the green spawn border so the user can see *which* terminal was
+      // revealed when several share a tab strip. focusOrAddAgentTab only selects
+      // an already-open tab (no flash of its own), so we flash explicitly here.
+      if (focusOrAddAgentTab(workspace.id, agentId, agentName)) {
+        flashAgentTab(workspace.id, agentId)
+        return true
+      }
+      try {
+        // Workspace was cold: seed the tab into the persisted layout, then latch
+        // a flash that fires once its Model mounts (see consumePendingAgentFlash).
+        store.updateLayout(workspace.id, ensureAgentTabInLayoutModel(workspace.layoutModel, agentId, agentName))
+        flashAgentTab(workspace.id, agentId)
+        return true
+      } catch {
+        return false
+      }
+    },
+    publishDiagnostic,
+  }
+}
+
 export async function openAgentBacklogLink(
   input: BacklogLinkProviderInput & { ports: AgentBacklogLinkOpenPorts },
 ): Promise<boolean> {
