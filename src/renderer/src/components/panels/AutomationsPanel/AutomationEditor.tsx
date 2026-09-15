@@ -22,12 +22,13 @@ import {
   EMPTY_SPRINT_LANDED_FORM,
   EMPTY_WEBHOOK_FORM,
   REPO_EVENT_TRIGGER_KIND,
-  SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
+  SPRINT_LANDED_TRIGGER_KIND,
   WEBHOOK_TRIGGER_KIND,
   actionLabel,
   automationCliFieldError,
   isAuthorableTrigger,
   isScheduleConfig,
+  missingProviderReason,
   providerUnavailableReason,
   repoEventFormFromConfig,
   resolveSubmitTrigger,
@@ -196,7 +197,7 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
     webhook: def.trigger.kind === WEBHOOK_TRIGGER_KIND
       ? webhookFormFromConfig(def.trigger.config)
       : { ...EMPTY_WEBHOOK_FORM },
-    sprintLanded: def.trigger.kind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
+    sprintLanded: def.trigger.kind === SPRINT_LANDED_TRIGGER_KIND
       ? sprintLandedFormFromConfig(def.trigger.config)
       : { ...EMPTY_SPRINT_LANDED_FORM },
     config,
@@ -250,7 +251,11 @@ export function AutomationEditor({
   )
 
   const actionProvider = providers?.actions.find((a) => a.kind === form.actionKind) ?? null
-  const actionUnavailableReason = providerUnavailableReason(actionProvider)
+  const actionUnavailableReason = actionProvider
+    ? providerUnavailableReason(actionProvider)
+    : editor.mode === 'edit' && form.actionKind
+      ? missingProviderReason(form.actionKind, 'action')
+      : null
   const configKeys = actionProvider ? schemaStringKeys(actionProvider.configSchema) : []
   const requiredKeys = actionProvider ? schemaRequiredKeys(actionProvider.configSchema) : new Set<string>()
 
@@ -290,11 +295,10 @@ export function AutomationEditor({
   const disableAfterRunTouchedRef = useRef(false)
   useEffect(() => {
     if (editor.mode !== 'create' || disableAfterRunTouchedRef.current) return
-    const isChainPair =
-      form.triggerKind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
-      && form.actionKind === 'sprint-engine-start'
+    const pairing = providers?.triggers.find((trigger) => trigger.kind === form.triggerKind)?.pairsWith
+    const isChainPair = pairing?.actionKind === form.actionKind && pairing.defaultDisableAfterRun === true
     setForm((prev) => (prev.disableAfterRun === isChainPair ? prev : { ...prev, disableAfterRun: isChainPair }))
-  }, [editor.mode, form.triggerKind, form.actionKind])
+  }, [editor.mode, form.triggerKind, form.actionKind, providers])
 
   // The two attachments a run can carry, each shown only for an action whose
   // schema consumes it — and each persisted by the submit below, which is why
@@ -414,7 +418,7 @@ export function AutomationEditor({
       if (form.cadenceType === 'weekly' && form.daysOfWeek.length === 0) return 'Pick at least one day for a weekly schedule.'
       if (form.cadenceType === 'at' && !form.atDatetime.trim()) return 'Pick a date and time for a one-time schedule.'
     }
-    if (!triggerReadOnly && form.triggerKind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND && !form.sprintLanded.team.trim()) {
+    if (!triggerReadOnly && form.triggerKind === SPRINT_LANDED_TRIGGER_KIND && !form.sprintLanded.team.trim()) {
       return 'Pick the sprint team to watch.'
     }
     if (configKeys.includes('cli')) {
@@ -496,9 +500,16 @@ export function AutomationEditor({
 
   const actionItems: SelectItem[] = (providers?.actions ?? []).map((a) => ({
     value: a.kind,
-    label: providerUnavailableReason(a) ? `${actionLabel(a.kind)} — unavailable` : actionLabel(a.kind),
+    label: providerUnavailableReason(a) ? `${actionLabel(a.kind, providers)} — unavailable` : actionLabel(a.kind, providers),
     disabled: Boolean(providerUnavailableReason(a)),
   }))
+  if (form.actionKind && !actionItems.some((item) => item.value === form.actionKind)) {
+    actionItems.push({
+      value: form.actionKind,
+      label: `${actionLabel(form.actionKind, providers)} — unavailable`,
+      disabled: true,
+    })
+  }
 
   // Save and Cancel. One pair, wherever they paint: at the foot of the form in a
   // panel, or portaled into the host's bar (the Automations door, mockup
@@ -527,7 +538,7 @@ export function AutomationEditor({
           distinguishable from an automation written here. */}
       <div className="flex items-start gap-3">
         <span className="mt-1.5 flex items-center">
-          <AutomationTypeGlyph kind={form.actionKind} />
+          <AutomationTypeGlyph kind={form.actionKind} glyph={actionProvider?.glyph} label={actionLabel(form.actionKind, providers)} />
         </span>
         <div className="min-w-0 flex-1">
           <Input

@@ -34,6 +34,9 @@ export function createRepoEventTriggerProvider(
 ): AutomationTriggerProvider {
   return {
     kind: REPO_EVENT_TRIGGER_KIND,
+    label: 'Event',
+    glyph: 'clock',
+    summary: 'On GitHub/Jira event',
     requiredIntegrations: [REPO_TASK_SOURCE_INTEGRATION_ID],
     configSchema: {
       type: 'object',

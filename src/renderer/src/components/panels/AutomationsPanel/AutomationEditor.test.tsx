@@ -62,11 +62,12 @@ const BLOCKED_REASON =
 
 const blockedProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'webhook', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
   ],
   actions: [{
     kind: 'weather-deck.refresh-forecast',
+    moduleId: 'weather-deck',
     configSchema: { type: 'object' },
     requiredIntegrations: [],
     missingIntegrations: [],
@@ -243,12 +244,13 @@ console.log('AutomationEditor trigger round-trip tests passed')
 
 const repoEventProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'repo-event', configSchema: { type: 'object' }, requiredIntegrations: ['module:repo-tasks'], missingIntegrations: [] },
-    { kind: 'webhook', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'repo-event', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: ['module:repo-tasks'], missingIntegrations: [] },
+    { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
   ],
   actions: [{
     kind: 'spawn-agent',
+    moduleId: 'automations',
     configSchema: { type: 'object', properties: { prompt: { type: 'string' } } },
     requiredIntegrations: [],
     missingIntegrations: [],
@@ -270,8 +272,8 @@ assert.doesNotMatch(repoEventMarkup, /Editing this trigger type isn.t supported 
 // repo-event absent from providers.triggers entirely — shown, not hidden.
 const noRepoEventProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'webhook', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
   ],
   actions: repoEventProviders.actions,
 }
@@ -324,11 +326,12 @@ console.log('AutomationEditor family render tests passed')
 
 const spawnAgentProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'webhook', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
   ],
   actions: [{
     kind: 'spawn-agent',
+    moduleId: 'automations',
     configSchema: {
       type: 'object',
       properties: { cli: { type: 'string' }, prompt: { type: 'string' } },
@@ -390,11 +393,12 @@ console.log('AutomationEditor agent-block render tests passed')
 
 const connectorProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'webhook', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
   ],
   actions: [{
     kind: 'spawn-agent',
+    moduleId: 'automations',
     configSchema: {
       type: 'object',
       properties: { cli: { type: 'string' }, prompt: { type: 'string' }, connectorId: { type: 'string' } },
@@ -452,10 +456,11 @@ console.log('AutomationEditor connector-picker render tests passed')
 
 const starterProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
   ],
   actions: [{
     kind: 'spawn-agent',
+    moduleId: 'automations',
     configSchema: {
       type: 'object',
       properties: { cli: { type: 'string' }, prompt: { type: 'string' }, spawnSkillId: { type: 'string' }, connectorId: { type: 'string' } },

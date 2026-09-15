@@ -30,6 +30,9 @@ const MIN_WEBHOOK_SECRET_LENGTH = 16
 export function createWebhookTriggerProvider(): AutomationTriggerProvider {
   return {
     kind: WEBHOOK_TRIGGER_KIND,
+    label: 'Webhook',
+    glyph: 'clock',
+    summary: 'On webhook',
     configSchema: {
       type: 'object',
       required: ['kind'],

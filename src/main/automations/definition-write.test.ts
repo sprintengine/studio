@@ -4,10 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from '../../shared/automations/contracts'
-import { SPRINT_ENGINE_START_ACTION_KIND } from './actions/sprint-engine'
-import { createDefinitionWriteCore, parseDefinitionDraft, parseDefinitionPatch } from './definition-write'
-import { allowAutomationProvider, createBuiltInAutomationProviderRegistry } from './provider-registry'
+import { createDefinitionWriteCore, parseDefinitionDraft, parseDefinitionPatch, applyProviderPairDefaults } from './definition-write'
+import {
+  allowAutomationProvider,
+  createAutomationProviderRegistry,
+  createBuiltInAutomationProviderRegistry,
+} from './provider-registry'
 import { validateScheduleTriggerConfig } from './schedule'
 import { AutomationsStore } from './store'
 
@@ -25,36 +27,49 @@ function draftInput(overrides: {
   }
 }
 
+function pairingRegistry() {
+  const registry = createAutomationProviderRegistry()
+  registry.registerTriggerProvider('weather-deck', {
+    kind: 'weather-deck.forecast-ready',
+    pairsWith: { actionKind: 'weather-deck.refresh-forecast', defaultDisableAfterRun: true },
+    configSchema: {},
+    subscribe: () => () => undefined,
+  })
+  return registry
+}
+
 function assertLandedStartPairDefaultsToRunOnce(): void {
-  const result = parseDefinitionDraft(draftInput({
-    triggerKind: SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
-    actionKind: SPRINT_ENGINE_START_ACTION_KIND,
+  const parsed = parseDefinitionDraft(draftInput({
+    triggerKind: 'weather-deck.forecast-ready',
+    actionKind: 'weather-deck.refresh-forecast',
   }))
-  assert.equal(result.ok, true)
-  if (!result.ok) return
-  assert.equal(result.value.disableAfterRun, true, 'a landed→start chain fires once by default to bound ping-pong')
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) return
+  const result = applyProviderPairDefaults(parsed.value, pairingRegistry().listTriggerProviderRegistrations())
+  assert.equal(result.disableAfterRun, true, 'a provider-declared pair fires once by default to bound ping-pong')
 }
 
 function assertExplicitFalseOptsOut(): void {
-  const result = parseDefinitionDraft(draftInput({
-    triggerKind: SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
-    actionKind: SPRINT_ENGINE_START_ACTION_KIND,
+  const parsed = parseDefinitionDraft(draftInput({
+    triggerKind: 'weather-deck.forecast-ready',
+    actionKind: 'weather-deck.refresh-forecast',
     disableAfterRun: false,
   }))
-  assert.equal(result.ok, true)
-  if (!result.ok) return
-  assert.equal(result.value.disableAfterRun, false, 'an explicit choice wins over the default — opt-out, not a lock')
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) return
+  const result = applyProviderPairDefaults(parsed.value, pairingRegistry().listTriggerProviderRegistrations())
+  assert.equal(result.disableAfterRun, false, 'an explicit choice wins over the default — opt-out, not a lock')
 }
 
 function assertOtherPairsAreUnaffected(): void {
-  // A different action under the same trigger keeps the field absent (no default).
-  const result = parseDefinitionDraft(draftInput({
-    triggerKind: SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
+  const parsed = parseDefinitionDraft(draftInput({
+    triggerKind: 'weather-deck.forecast-ready',
     actionKind: 'spawn-agent',
   }))
-  assert.equal(result.ok, true)
-  if (!result.ok) return
-  assert.equal(result.value.disableAfterRun, undefined, 'only the landed→start pair defaults to run-once')
+  assert.equal(parsed.ok, true)
+  if (!parsed.ok) return
+  const result = applyProviderPairDefaults(parsed.value, pairingRegistry().listTriggerProviderRegistrations())
+  assert.equal(result.disableAfterRun, undefined, 'only the declared pair defaults to run-once')
 }
 
 function assertRetiredAutonomyFieldIsIgnoredNotRejected(): void {

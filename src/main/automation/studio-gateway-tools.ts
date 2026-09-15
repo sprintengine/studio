@@ -24,19 +24,6 @@ const APP_MUTATION_TOOLS = new Set([
   'backlog.repair',
   'backlog.update',
   'backlog.work',
-  'sprint.artifact.approve',
-  'sprint.artifact.request_changes',
-  'sprint.cancel',
-  'sprint.create',
-  'sprint.pr.create',
-  'sprint.pr.status',
-  'sprint.resume',
-  'sprint.set_mode',
-  'sprint.task.comment',
-  'sprint.task.create',
-  'sprint.task.resolve_input',
-  'sprint.task.set_status',
-  'sprint.task.update',
   // Configuring who may drive this machine. Classified as mutations so every
   // one of them is audited — minting a pairing code is the most consequential
   // write on this surface. The tailnet listener never serves them at all

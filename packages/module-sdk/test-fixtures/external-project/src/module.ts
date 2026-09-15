@@ -58,6 +58,10 @@ const forecastService = createServiceToken<{ refresh(): Promise<void> }>('weathe
 
 const forecastTrigger: AutomationTriggerProvider = {
   kind: 'weather-deck.forecast-ready',
+  label: 'Forecast ready',
+  glyph: 'clock',
+  summary: 'When a watched city forecast updates',
+  pairsWith: { actionKind: 'weather-deck.refresh-forecast', defaultDisableAfterRun: true },
   configSchema: {
     type: 'object',
     properties: {
@@ -104,6 +108,9 @@ const forecastTool: McpToolRegistration = {
 
 const forecastAction: AutomationActionProvider = {
   kind: 'weather-deck.refresh-forecast',
+  label: 'Refresh forecast',
+  glyph: 'clock',
+  summary: 'Pull the latest forecast for the watched city',
   configSchema: {
     type: 'object',
     properties: {

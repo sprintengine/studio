@@ -1,6 +1,7 @@
 // Type-only, so the cycle back to this module (builtin.ts imports the kinds and
 // the schedule type from here) is erased at build time.
 import type { BuiltinAutomation } from './builtin'
+import { BUNDLED_MODULE_IDS } from '../modules/manifest'
 
 export type JsonSchema = Record<string, unknown>
 
@@ -75,9 +76,6 @@ export type AutomationsRunEvent = {
 export const SCHEDULE_TRIGGER_KIND = 'schedule'
 export const REPO_EVENT_TRIGGER_KIND = 'repo-event'
 export const WEBHOOK_TRIGGER_KIND = 'webhook'
-export const SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND = 'sprint-engine.run-landed'
-export const SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND = 'sprint-engine.run-needs-input'
-export const SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND = 'sprint-engine.run-completed'
 
 export const SPAWN_AGENT_ACTION_KIND = 'spawn-agent'
 const RUN_SKILL_LOOP_ACTION_KIND = 'run-skill-loop'
@@ -145,34 +143,14 @@ export type WebhookTriggerConfig = {
   label?: string
 }
 
-// Sprint-landed trigger wire config (MC-1438). `team` is the watched run's team
-// directory name under `.sprintengine/sprintengine/`. Shared so the main-process
-// provider and the renderer editor build/parse it typed.
-export type SprintEngineRunLandedTriggerConfig = {
-  kind: typeof SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
-  team: string
-}
-
-// Run-event trigger wire configs (MC-1656). Both watch one team's `projection.
-// json` and fire on a run-state predicate — `run-needs-input` per blocked task,
-// `run-completed` once per finished run. `team` is the watched run's team
-// directory name under `.sprintengine/sprintengine/`; `label` is an optional
-// display note. Shared so the main-process providers and the renderer editor
-// build/parse them typed.
-export type SprintEngineRunNeedsInputTriggerConfig = {
-  kind: typeof SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND
-  team: string
-  label?: string
-}
-
-export type SprintEngineRunCompletedTriggerConfig = {
-  kind: typeof SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND
-  team: string
-  label?: string
-}
-
 export type AutomationTriggerProvider = {
   kind: TriggerKind
+  /** Sentence-case family label the Automations panel shows. */
+  label?: string
+  glyph?: AutomationProviderGlyph
+  /** One-line summary for the panel's supporting line. */
+  summary?: string
+  pairsWith?: AutomationTriggerPairing
   configSchema: JsonSchema
   requiredIntegrations?: string[]
   validateConfig?(config: unknown): { ok: true } | { ok: false; error: string }
@@ -204,7 +182,34 @@ export type AutomationTriggerPollResult =
   | { ok: true; events: AutomationTriggerPollEvent[] }
   | { ok: false; blockedReason: string }
 
-export type ActionKind = string
+/**
+ * Bundled action kinds the host ships, plus module-namespaced kinds
+ * (`<module-id>.<suffix>`). The union stays open so a compiled module can
+ * register its own kinds; the literals document the ones the panel already
+ * knows how to author.
+ */
+export type ActionKind = 'spawn-agent' | 'run-command' | 'run-skill-loop' | string
+
+/**
+ * Closed vocabulary of Automations panel type-glyphs. The panel draws these
+ * shapes; a module names one rather than shipping SVG. `agent` is a
+ * head-and-shoulders figure, `loop` is the repeat arrows, `board` is a
+ * four-pane board, `clock` is the automations clock (and the fallback for an
+ * omitted glyph).
+ */
+export const AUTOMATION_PROVIDER_GLYPHS = ['agent', 'loop', 'board', 'clock'] as const
+export type AutomationProviderGlyph = (typeof AUTOMATION_PROVIDER_GLYPHS)[number]
+
+/**
+ * When a definition pairs this trigger with `actionKind` and leaves
+ * `disableAfterRun` unspecified, the write path applies `defaultDisableAfterRun`.
+ * Used to bound ping-pong between a completion trigger and a start action
+ * without the host naming either kind.
+ */
+export type AutomationTriggerPairing = {
+  actionKind: ActionKind
+  defaultDisableAfterRun?: boolean
+}
 
 export type ActionContext = {
   automationId: string
@@ -229,6 +234,11 @@ export type ActionContext = {
 
 export type AutomationActionProvider = {
   kind: ActionKind
+  /** Sentence-case label the Automations panel shows for this action. */
+  label?: string
+  glyph?: AutomationProviderGlyph
+  /** One-line summary for the panel's supporting line. */
+  summary?: string
   configSchema: JsonSchema
   requiredIntegrations?: string[]
   run(config: unknown, ctx: ActionContext): Promise<Partial<AutomationRun>>
@@ -445,10 +455,40 @@ export type AutomationsRunFinalizeInput = AutomationsDefinitionInput & {
 
 export type AutomationsProviderView = {
   kind: string
+  moduleId: string
+  label?: string
+  glyph?: AutomationProviderGlyph
+  summary?: string
+  pairsWith?: AutomationTriggerPairing
   configSchema: JsonSchema
   requiredIntegrations: string[]
   missingIntegrations: string[]
   blockedReason?: string
+}
+
+/**
+ * Module id a persisted kind belongs to when its provider is not registered.
+ * Dotted kinds (`weather-deck.forecast-ready`) use the prefix; bundled
+ * hyphenated kinds (`sprint-engine-start`) match a reserved module id.
+ */
+export function contributorModuleIdFromKind(kind: string): string | null {
+  const trimmed = kind.trim()
+  if (!trimmed) return null
+  const dot = trimmed.indexOf('.')
+  if (dot > 0) return trimmed.slice(0, dot)
+  for (const moduleId of BUNDLED_MODULE_IDS) {
+    if (trimmed === moduleId || trimmed.startsWith(`${moduleId}-`)) return moduleId
+  }
+  return null
+}
+
+/** Sentence-case display name from a module id (`sprint-engine` → `Sprint Engine`). */
+export function displayNameFromModuleId(moduleId: string): string {
+  return moduleId
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
 }
 
 export type AutomationsProviders = {

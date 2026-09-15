@@ -80,6 +80,9 @@ export type SpawnAgentResolvedTarget = {
 export function createSpawnAgentActionProvider(): AutomationActionProvider {
   return {
     kind: 'spawn-agent',
+    label: 'Spawn an agent',
+    glyph: 'agent',
+    summary: 'Launch a CLI agent in a workspace',
     configSchema: {
       type: 'object',
       required: ['prompt'],

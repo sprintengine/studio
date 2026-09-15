@@ -20,6 +20,7 @@ import { createWorkspaceSyncService } from '../workspace-sync-service'
 import { createFakeIpcMain } from '../module-host/ipc-main-fake.test-helper'
 import { loadMainModules, type CapabilityModule } from '../module-host/load-modules'
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
+import { createSprintGatewayTools, type SprintGatewayBackends } from '../modules/sprint-engine-gateway-tools'
 import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME } from './gateway-audit'
 import { createStudioGatewayTools, isStudioGatewayMutation } from './studio-gateway-tools'
 import { requiredScopeForTool } from './tailnet/tailnet-scopes'
@@ -112,22 +113,22 @@ type BackendsOverrides = {
   listAutomationRuns?: AutomationBackends['listAutomationRuns']
   backlogWrite?: Partial<AutomationBackends['backlogWrite']>
   getAutomationsFrontDoor?: AutomationBackends['getAutomationsFrontDoor']
-  listSprintRunStatePaths?: AutomationBackends['listSprintRunStatePaths']
+  listSprintRunStatePaths?: SprintGatewayBackends['listSprintRunStatePaths']
   mobileControl?: AutomationBackends['mobileControl']
-  readSprintEngineProjection?: AutomationBackends['readSprintEngineProjection']
-  readSprintAutomationMode?: AutomationBackends['readSprintAutomationMode']
-  setSprintAutomationMode?: AutomationBackends['setSprintAutomationMode']
-  resumeSprintRun?: AutomationBackends['resumeSprintRun']
-  cancelSprintRun?: AutomationBackends['cancelSprintRun']
-  reviewSprintArtifact?: AutomationBackends['reviewSprintArtifact']
-  commentSprintTask?: AutomationBackends['commentSprintTask']
-  resolveSprintTaskInput?: AutomationBackends['resolveSprintTaskInput']
-  setSprintTaskStatus?: AutomationBackends['setSprintTaskStatus']
-  createSprintTask?: AutomationBackends['createSprintTask']
-  updateSprintTask?: AutomationBackends['updateSprintTask']
-  createSprintPullRequest?: AutomationBackends['createSprintPullRequest']
-  refreshSprintPullRequestStatus?: AutomationBackends['refreshSprintPullRequestStatus']
-  readSprintTokenUsage?: AutomationBackends['readSprintTokenUsage']
+  readSprintEngineProjection?: SprintGatewayBackends['readSprintEngineProjection']
+  readSprintAutomationMode?: SprintGatewayBackends['readSprintAutomationMode']
+  setSprintAutomationMode?: SprintGatewayBackends['setSprintAutomationMode']
+  resumeSprintRun?: SprintGatewayBackends['resumeSprintRun']
+  cancelSprintRun?: SprintGatewayBackends['cancelSprintRun']
+  reviewSprintArtifact?: SprintGatewayBackends['reviewSprintArtifact']
+  commentSprintTask?: SprintGatewayBackends['commentSprintTask']
+  resolveSprintTaskInput?: SprintGatewayBackends['resolveSprintTaskInput']
+  setSprintTaskStatus?: SprintGatewayBackends['setSprintTaskStatus']
+  createSprintTask?: SprintGatewayBackends['createSprintTask']
+  updateSprintTask?: SprintGatewayBackends['updateSprintTask']
+  createSprintPullRequest?: SprintGatewayBackends['createSprintPullRequest']
+  refreshSprintPullRequestStatus?: SprintGatewayBackends['refreshSprintPullRequestStatus']
+  readSprintTokenUsage?: SprintGatewayBackends['readSprintTokenUsage']
   createAgentWorktree?: AutomationBackends['createAgentWorktree']
   readWorkspaceCheckout?: AutomationBackends['readWorkspaceCheckout']
   readRepositoryIdentity?: AutomationBackends['readRepositoryIdentity']
@@ -145,7 +146,7 @@ function unexpectedCall(name: string): () => never {
   }
 }
 
-function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
+function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends & SprintGatewayBackends {
   // `workspace.create` mints in main now (MC-2158), so the backend is a real
   // registry rather than a delegated renderer call the test has to stub answering.
   let createdIds = 0
@@ -387,22 +388,6 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'marketplace.list',
       'module.list',
       'module.status',
-      'sprint.artifact.approve',
-      'sprint.artifact.request_changes',
-      'sprint.cancel',
-      'sprint.create',
-      'sprint.list',
-      'sprint.pr.create',
-      'sprint.pr.status',
-      'sprint.resume',
-      'sprint.set_mode',
-      'sprint.status',
-      'sprint.task.comment',
-      'sprint.task.create',
-      'sprint.task.resolve_input',
-      'sprint.task.set_status',
-      'sprint.task.update',
-      'sprint.token_usage',
       'terminal.create',
       'terminal.list',
       'workspace.checkout',
@@ -1578,8 +1563,8 @@ async function testConcurrentBridgesKeepResponsesAndAttributionIsolated(): Promi
   })
   await server.start()
   writeFileSync(infoPath, JSON.stringify({ socketPath, protocol: 'mcp-jsonrpc-ndjson', pid: process.pid }))
-  const first = spawnBridge(infoPath, { ...process.env, MULTICODE_AGENT_ID: 'agent-first' })
-  const second = spawnBridge(infoPath, { ...process.env, MULTICODE_AGENT_ID: 'agent-second' })
+  const first = spawnBridge(infoPath, { ...process.env, SPRINTENGINE_AGENT_ID: 'agent-first' })
+  const second = spawnBridge(infoPath, { ...process.env, SPRINTENGINE_AGENT_ID: 'agent-second' })
   try {
     for (const bridge of [first, second]) {
       bridge.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })}\n`)
@@ -2278,7 +2263,7 @@ async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise
 }
 
 async function testSprintReadToolsAnswerFromDisk(): Promise<void> {
-  const tools = createAutomationTools(
+  const tools = createSprintGatewayTools(
     backendsOf({
       workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
       listSprintRunStatePaths: async (root) => [
@@ -2351,7 +2336,7 @@ async function testSprintCreateComposesInMainAndConfirms(): Promise<void> {
     startedAt: 1,
     lastOutputAt: 1,
   } as never
-  const tools = createAutomationTools({
+  const tools = createSprintGatewayTools({
     ...backendsOf(),
     getWorkspaceSyncSnapshot: () => snapshotOf(workspaceVisible ? [workspace] : []),
     listTerminalSessions: () => (architectAlive ? [session] : []),
@@ -2492,7 +2477,7 @@ async function testSprintCreateComposesInMainAndConfirms(): Promise<void> {
   }
 
   // Service failures pass through verbatim (name collisions, controller errors).
-  const failing = createAutomationTools({
+  const failing = createSprintGatewayTools({
     ...backendsOf(),
     createSprint: async () => ({ ok: false, code: 'sprint_team_exists', message: 'That team already exists.' }),
   })
@@ -2507,7 +2492,7 @@ async function testSprintCreateComposesInMainAndConfirms(): Promise<void> {
 async function testSprintCreateCarriesTheRunRuntime(): Promise<void> {
   const requests: SprintCreateRequest[] = []
   const workspace = testWorkspace('ws-sprint', { folderPath: '/tmp/project-a', mode: 'sprintengine' as never })
-  const tools = createAutomationTools({
+  const tools = createSprintGatewayTools({
     ...backendsOf(),
     getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
     createSprint: async (request) => {
@@ -2670,7 +2655,7 @@ async function testSprintCreateWarnsOnAnUnmarkedEpic(): Promise<void> {
     // epic LAUNCH — the run plans regardless, so there is nothing to warn about.
     'backlog/stray-epic.md': { isEpic: true },
   }
-  const tools = createAutomationTools({
+  const tools = createSprintGatewayTools({
     ...backendsOf(),
     getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
     createSprint: async () => ({ ok: true, workspaceId: 'ws-sprint' }),
@@ -2728,7 +2713,7 @@ async function testSprintLifecycleToolsMutateViaMainServices(): Promise<void> {
   const projectionRuns = new Set([statePath])
 
   function toolsFor(cancelResult: () => Promise<unknown>): McpToolRegistration[] {
-    return createAutomationTools(
+    return createSprintGatewayTools(
       backendsOf({
         workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
         readSprintEngineProjection: async (path) =>
@@ -2820,7 +2805,7 @@ async function testSprintSteeringToolsMutateViaMainServices(): Promise<void> {
   const updateCalls: SprintEngineTaskUpdateInput[] = []
   const okData = { ok: true as const, data: {} }
 
-  const tools = createAutomationTools(
+  const tools = createSprintGatewayTools(
     backendsOf({
       workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
       readSprintEngineProjection: async (path) =>
@@ -3000,7 +2985,7 @@ async function testSprintSteeringToolsMutateViaMainServices(): Promise<void> {
 
   // A backend {ok:false} surfaces the tool's _failed code with the message and
   // any stderr intact.
-  const failing = createAutomationTools(
+  const failing = createSprintGatewayTools(
     backendsOf({
       workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
       readSprintEngineProjection: async () => ({ ok: true, data: { goal: 'g', tasks: [] }, token: '1:2' }),
@@ -3043,7 +3028,7 @@ async function testSprintVcsAndUsageToolsReadViaMainServices(): Promise<void> {
     computedAt: 'test-time',
   }
 
-  const tools = createAutomationTools(
+  const tools = createSprintGatewayTools(
     backendsOf({
       workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
       readSprintEngineProjection: async (path) =>
@@ -3099,7 +3084,7 @@ async function testSprintVcsAndUsageToolsReadViaMainServices(): Promise<void> {
 
   // A non-worktree run's refusal is the engine's ({ok:false}); the tool surfaces
   // sprint_pr_failed with the message + stderr, never pre-empting it at the tool layer.
-  const refusing = createAutomationTools(
+  const refusing = createSprintGatewayTools(
     backendsOf({
       workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
       readSprintEngineProjection: async () => ({ ok: true, data: { goal: 'g', tasks: [] }, token: '1:2' }),
@@ -4045,6 +4030,69 @@ async function testMobileCommandToolDispatchesOnlyTheServedEnvelopes(): Promise<
   assert.equal(dispatched.length, 2)
 }
 
+async function testSprintGatewayToolsRegisterFromTheModule(): Promise<void> {
+  const expected = [
+    'sprint.artifact.approve',
+    'sprint.artifact.request_changes',
+    'sprint.cancel',
+    'sprint.create',
+    'sprint.list',
+    'sprint.pr.create',
+    'sprint.pr.status',
+    'sprint.resume',
+    'sprint.set_mode',
+    'sprint.status',
+    'sprint.task.comment',
+    'sprint.task.create',
+    'sprint.task.resolve_input',
+    'sprint.task.set_status',
+    'sprint.task.update',
+    'sprint.token_usage',
+  ]
+  const moduleTools = createSprintGatewayTools(backendsOf())
+  assert.deepEqual(moduleTools.map((entry) => entry.name).sort(), expected)
+  assert.equal(createAutomationTools(backendsOf()).some((entry) => entry.name.startsWith('sprint.')), false)
+
+  const resolveEnabled = createStudioGatewayTools({
+    appTools: createAutomationTools(backendsOf()),
+    sprintEngineMcpHub: { callRunTool: async () => ({}) },
+    resolveModuleTools: () =>
+      moduleTools.map((registration) => ({
+        moduleId: 'sprint-engine',
+        moduleDisplayName: 'Sprint Engine',
+        registration,
+      })),
+    isModuleEnabled: () => true,
+  })
+  const enabledNames = new Set(resolveEnabled().map((entry) => entry.name))
+  for (const name of expected) assert.equal(enabledNames.has(name), true, `${name} is listed while the module is enabled`)
+
+  const resolveDisabled = createStudioGatewayTools({
+    appTools: createAutomationTools(backendsOf()),
+    sprintEngineMcpHub: { callRunTool: async () => ({}) },
+    resolveModuleTools: () =>
+      moduleTools.map((registration) => ({
+        moduleId: 'sprint-engine',
+        moduleDisplayName: 'Sprint Engine',
+        registration,
+      })),
+    isModuleEnabled: () => false,
+  })
+  const disabled = await tool(resolveDisabled(), 'sprint.create').handler({ folderPath: '/tmp/project-a' })
+  assert.equal(
+    (disabled.structuredContent as { error?: { code?: string } })?.error?.code,
+    'sprint-engine_module_disabled'
+  )
+
+  const resolveAbsent = createStudioGatewayTools({
+    appTools: createAutomationTools(backendsOf()),
+    sprintEngineMcpHub: { callRunTool: async () => ({}) },
+    resolveModuleTools: () => [],
+    isModuleEnabled: () => true,
+  })
+  assert.equal(resolveAbsent().some((entry) => entry.name === 'sprint.create'), false)
+}
+
 const tests = [
   testSettingsDefaultOnAndRoundTrip,
   testStudioGatewayStartsDespiteLegacyDisabledSetting,
@@ -4073,6 +4121,7 @@ const tests = [
   testSprintLifecycleToolsMutateViaMainServices,
   testSprintSteeringToolsMutateViaMainServices,
   testSprintVcsAndUsageToolsReadViaMainServices,
+  testSprintGatewayToolsRegisterFromTheModule,
   testAgentLaunchWidensConfigAndIsolation,
   testTerminalCreateSpawnsAndReturnsTheAttachableSession,
   testTerminalCreateTakesThisMachinesLaunchDefaults,

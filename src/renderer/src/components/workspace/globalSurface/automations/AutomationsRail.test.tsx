@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type {
   AutomationDefinition,
   AutomationsInstanceEntry,
+  AutomationsProviders,
 } from '../../../../../../shared/automations/contracts'
 import { BUILTIN_AUTOMATIONS } from '../../../../../../shared/automations/builtin'
 import { AutomationsRail } from './AutomationsRail'
@@ -96,7 +97,30 @@ run('renders each automation with its name, plain state line, and the New automa
 // Rows carry a type glyph — what the automation runs — never a tone dot; the
 // state line beside it carries the words (owner ruling 2026-07-24).
 run('rows carry an action-type glyph, not a status dot', () => {
-  const html = render()
+  const providers: AutomationsProviders = {
+    triggers: [],
+    actions: [
+      {
+        kind: 'spawn-agent',
+        moduleId: 'automations',
+        label: 'Spawn an agent',
+        glyph: 'agent',
+        configSchema: {},
+        requiredIntegrations: [],
+        missingIntegrations: [],
+      },
+      {
+        kind: 'sprint-engine-run',
+        moduleId: 'sprint-engine',
+        label: 'Run a sprint',
+        glyph: 'board',
+        configSchema: {},
+        requiredIntegrations: [],
+        missingIntegrations: [],
+      },
+    ],
+  }
+  const html = render({ providers })
   assert.ok(html.includes('aria-label="Spawn an agent"'), 'the agent automations carry the agent mark')
   assert.ok(html.includes('aria-label="Run a sprint"'), 'the sprint automation carries the sprint mark')
 })

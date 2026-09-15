@@ -25,7 +25,6 @@ const MAX_BODY_LINES = 500
 
 /** The four areas the item names. A fifth is fine; a missing one is not. */
 const REQUIRED_AREAS = [
-  'studio-sprints',
   'studio-backlog',
   'studio-automations',
   'studio-workspaces',

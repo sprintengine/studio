@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { app } from 'electron'
 import { registerSprintEngineIpc } from '../ipc/sprintengine-ipc'
 import { registerSprintEngineAutomationIpc } from '../ipc/sprintengine-automation-ipc'
 import { registerSprintRuntimeIpc } from '../ipc/sprint-runtime-ipc'
@@ -9,9 +12,21 @@ import { writeDiagnosticLog } from '../diagnostics-service'
 import { sprintTokenUsageDeps } from '../sprintengine-token-sampling'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
 import { findSprintEngineRuntimeRoot } from '../mcp-config-service'
-import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintPullRequestMergePollerToken, SprintRuntimeToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
+import { SprintCreateServiceToken, SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintPullRequestMergePollerToken, SprintRuntimeToken, WorkspaceSyncServiceToken, AutomationsProviderRegistryToken, TerminalRuntimeToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import { createSprintEngineLaunchContribution } from './sprint-engine-launch-contribution'
+import {
+  createSprintEngineRunActionProvider,
+  createSprintEngineStartActionProvider,
+} from '../automations/actions/sprint-engine'
+import { createSprintEngineRunLandedTriggerProvider } from '../automations/triggers/sprint-engine-run-landed'
+import {
+  createSprintEngineRunCompletedTriggerProvider,
+  createSprintEngineRunNeedsInputTriggerProvider,
+} from '../automations/triggers/sprint-engine-run-events'
+import { createSprintGatewayTools } from './sprint-engine-gateway-tools'
+import { listBacklogItems, readBacklogItem } from '../backlog-service'
+import { discoverMobileSprintEngineStatePaths } from '../mobile-sprintengine-discovery'
 
 // Sprint Engine as a capability module (main side).
 //
@@ -36,7 +51,7 @@ export const sprintEngineModule: CapabilityModule = {
     category: 'orchestration',
     summary: 'Autonomous multi-agent sprint board with quality gates and managed MCP runtime.',
     defaultEnabled: true,
-    dependsOn: ['agent-runtime'],
+    dependsOn: ['agent-runtime', 'automations'],
   },
   registerMain(host) {
     const artifacts = host.requireService(SprintEngineArtifactsToken)
@@ -54,6 +69,74 @@ export const sprintEngineModule: CapabilityModule = {
       refreshPullRequestStatus: artifacts.refreshPullRequestStatus,
       mergePullRequest: artifacts.mergePullRequest,
     }))
+
+    const frontDoors = {
+      setRunnerMode: artifacts.setRunnerMode,
+      readProjection: artifacts.readProjection,
+      refreshPullRequestStatus: artifacts.refreshPullRequestStatus,
+      mergePullRequest: artifacts.mergePullRequest,
+    }
+    const automationsRegistry = host.requireService(AutomationsProviderRegistryToken)
+    automationsRegistry.registerActionProvider(host.moduleId, createSprintEngineRunActionProvider(frontDoors))
+    automationsRegistry.registerTriggerProvider(host.moduleId, createSprintEngineRunLandedTriggerProvider(frontDoors))
+    automationsRegistry.registerTriggerProvider(host.moduleId, createSprintEngineRunNeedsInputTriggerProvider(frontDoors))
+    automationsRegistry.registerTriggerProvider(host.moduleId, createSprintEngineRunCompletedTriggerProvider(frontDoors))
+    const sprintCreate = host.requireService(SprintCreateServiceToken)
+    automationsRegistry.registerActionProvider(
+      host.moduleId,
+      createSprintEngineStartActionProvider({ createSprint: (request) => sprintCreate.createSprint(request) })
+    )
+
+    const terminalRuntime = host.requireService(TerminalRuntimeToken)
+    host.registerMcpTools(
+      createSprintGatewayTools({
+        getWorkspaceSyncSnapshot: () => workspaceSync.getSnapshot(),
+        listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),
+        createSprint: (request) => sprintCreate.createSprint(request),
+        listBacklogItems,
+        readBacklogItem,
+        listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
+        readSprintEngineProjection: (statePath) => artifacts.readProjection({ statePath }),
+        readSprintAutomationMode: (input) => automation.readAutomationMode(input),
+        setSprintAutomationMode: (input) => automation.setAutomationMode(input),
+        resumeSprintRun: (statePath) => sprintRuntime.applyResume(statePath),
+        cancelSprintRun: async (payload) => {
+          const result = await artifacts.cancelRun(payload)
+          if (result.ok) sprintRuntime.cancelRun(payload.statePath)
+          return result
+        },
+        reviewSprintArtifact: (payload, action) => artifacts.reviewArtifact(payload, action, 'user'),
+        commentSprintTask: (payload) => artifacts.commentTask(payload),
+        resolveSprintTaskInput: async (payload) => {
+          const result = await artifacts.resolveTaskInput(payload)
+          if (result.ok) sprintRuntime.resumeIfBlocked(payload.statePath)
+          return result
+        },
+        setSprintTaskStatus: (payload) => artifacts.setTaskStatus(payload),
+        createSprintTask: (payload) => artifacts.createTask(payload),
+        updateSprintTask: (payload) => artifacts.updateTask(payload),
+        createSprintPullRequest: (payload) => artifacts.createPullRequest(payload),
+        refreshSprintPullRequestStatus: (payload) => artifacts.refreshPullRequestStatus(payload),
+        readSprintTokenUsage: (statePath) => computeSprintEngineTokenUsageReport(statePath, sprintTokenUsageDeps()),
+      })
+    )
+
+    host.registerSkills([
+      {
+        id: 'studio-sprints',
+        sourceDir: bundledSkillDir('resources', 'studio-plugin', 'sprintengine-studio', 'skills', 'studio-sprints'),
+        targetPolicy: 'all-native',
+        description:
+          'Work inside a SprintEngine Studio sprint run, or steer one from outside. Use when you were started as a sprint agent, when a prompt names a run slug or a task id like T3, when asked to claim, publish, review or advance sprint work, and when asked to create, resume, cancel, re-plan, approve artifacts for, or read the status, token usage or pull request of a sprint run through the sprintengine_* or sprint_* tools.',
+      },
+      {
+        id: 'sprintengine',
+        sourceDir: bundledSkillDir('.agents', 'skills', 'sprintengine'),
+        targetPolicy: 'all-native',
+        description:
+          'Coordinate sprintengine task claiming, status updates, evidence publishing, artifact review gates, and projections for projects that use named per-team run stores under the workspace\'s app-owned sidecar directory, plus `plan.md` files. Use when acting as a sprintengine architect or worker in this repo\'s sprintengine-mode workflow.',
+      },
+    ])
 
     mcpHub.claimOwnership({
       onSpawnFailure: (message) =>
@@ -242,4 +325,15 @@ function readTokenUsageCached(statePath: string): Promise<SprintEngineTokenUsage
     if (now - entry.at >= TOKEN_USAGE_CACHE_TTL_MS && key !== statePath) tokenUsageCache.delete(key)
   }
   return report
+}
+
+function bundledSkillDir(...parts: string[]): string {
+  const candidates = [
+    resolve(process.cwd(), ...parts),
+    join(app.isPackaged ? process.resourcesPath : app.getAppPath(), ...parts),
+  ]
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+  return candidates[0] ?? resolve(process.cwd(), ...parts)
 }

@@ -6,16 +6,18 @@ import { foreignScheduleTimeZone } from '../../../../../shared/automations/caden
 import {
   REPO_EVENT_TRIGGER_KIND,
   SCHEDULE_TRIGGER_KIND,
-  SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
+  SPRINT_LANDED_TRIGGER_KIND,
   TRIGGER_FAMILY_LABEL,
   WEBHOOK_ROUTE_PREFIX,
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_TRIGGER_KIND,
   WEEKDAY_SHORT,
   cadenceSummary,
+  contributorModuleIdFromKind,
   generateWebhookSecret,
   isAuthorableTrigger,
   isScheduleConfig,
+  missingProviderReason,
   providerUnavailableReason,
   type EditorState,
   type RepoEventForm,
@@ -34,14 +36,14 @@ const CANONICAL_FAMILIES: TriggerKind[] = [
   SCHEDULE_TRIGGER_KIND,
   REPO_EVENT_TRIGGER_KIND,
   WEBHOOK_TRIGGER_KIND,
-  SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
 ]
 
 // The picker's family label is the one canonical TRIGGER_FAMILY_LABEL map (shared
 // with the list's supporting line, so the two can't drift), falling back to the
 // raw kind for unknown third-party families.
-function familyLabel(kind: TriggerKind): string {
-  return TRIGGER_FAMILY_LABEL[kind] ?? kind
+function familyLabel(kind: TriggerKind, providers: AutomationsProviders | null): string {
+  const fromProvider = providers?.triggers.find((entry) => entry.kind === kind)?.label
+  return fromProvider ?? TRIGGER_FAMILY_LABEL[kind] ?? kind
 }
 
 // The control box is `ui/Input`. This file used to declare its own copy of
@@ -76,7 +78,7 @@ function familyUnavailableReason(kind: TriggerKind, providers: AutomationsProvid
   const provider = providers.triggers.find((t) => t.kind === kind)
   if (!provider) {
     if (kind === REPO_EVENT_TRIGGER_KIND) return 'This trigger needs a module that syncs GitHub or Jira issues into this project, and none is connected.'
-    if (kind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND) return 'This trigger needs the Sprint Engine module, which is not enabled.'
+    if (contributorModuleIdFromKind(kind)) return missingProviderReason(kind, 'trigger')
     return null
   }
   return providerUnavailableReason(provider, 'trigger')
@@ -117,11 +119,22 @@ export function TriggerFields({
     )
   }
 
-  const familyItems: SelectItem[] = CANONICAL_FAMILIES.map((kind) => {
+  const pickerKinds: TriggerKind[] = []
+  const seen = new Set<string>()
+  const pushKind = (kind: TriggerKind) => {
+    if (seen.has(kind)) return
+    seen.add(kind)
+    pickerKinds.push(kind)
+  }
+  for (const kind of CANONICAL_FAMILIES) pushKind(kind)
+  for (const trigger of providers?.triggers ?? []) pushKind(trigger.kind)
+  if (editor.mode === 'edit') pushKind(editor.definition.trigger.kind)
+
+  const familyItems: SelectItem[] = pickerKinds.map((kind) => {
     const reason = familyUnavailableReason(kind, providers)
     return {
       value: kind,
-      label: reason ? `${familyLabel(kind)} — unavailable` : familyLabel(kind),
+      label: reason ? `${familyLabel(kind, providers)} — unavailable` : familyLabel(kind, providers),
       disabled: Boolean(reason),
     }
   })
@@ -150,7 +163,7 @@ export function TriggerFields({
         <RepoEventFields value={value.repoEvent} onChange={(repoEvent) => onChange({ repoEvent })} />
       ) : value.triggerKind === WEBHOOK_TRIGGER_KIND ? (
         <WebhookFields value={value.webhook} onChange={(webhook) => onChange({ webhook })} />
-      ) : value.triggerKind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND ? (
+      ) : value.triggerKind === SPRINT_LANDED_TRIGGER_KIND ? (
         <SprintLandedFields
           workspaceRoot={workspaceRoot}
           value={value.sprintLanded}

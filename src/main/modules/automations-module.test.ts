@@ -41,12 +41,14 @@ import {
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_EVENT_CHANNEL,
 } from '../../shared/automations/contracts'
-import { SPRINT_ENGINE_RUN_ACTION_KIND, SPRINT_ENGINE_START_ACTION_KIND } from '../automations/actions/sprint-engine'
+import { SPRINT_ENGINE_RUN_ACTION_KIND, SPRINT_ENGINE_START_ACTION_KIND, createSprintEngineRunActionProvider, createSprintEngineStartActionProvider } from '../automations/actions/sprint-engine'
 import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
-import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from '../automations/triggers/sprint-engine-run-landed'
+import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND, createSprintEngineRunLandedTriggerProvider } from '../automations/triggers/sprint-engine-run-landed'
 import {
   SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
   SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
+  createSprintEngineRunCompletedTriggerProvider,
+  createSprintEngineRunNeedsInputTriggerProvider,
 } from '../automations/triggers/sprint-engine-run-events'
 import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import { broadcastAutomationsRunEvent, createAutomationsModule } from './automations-module'
@@ -194,15 +196,26 @@ function fakeSprintEngineAutomationFrontDoorModule(): CapabilityModule {
       displayName: 'Sprint Engine',
       version: 1,
       defaultEnabled: true,
-      dependsOn: ['agent-runtime'],
+      dependsOn: ['agent-runtime', 'automations'],
     },
     registerMain(host) {
-      host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
-        setRunnerMode: async () => ({ ok: true, data: {} }),
+      const frontDoors = {
+        setRunnerMode: async () => ({ ok: true as const, data: {} }),
         readProjection: async () => ({ ok: false as const, message: 'not used' }),
-        refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
-        mergePullRequest: async () => ({ ok: true, data: {} }),
-      }))
+        refreshPullRequestStatus: async () => ({ ok: true as const, data: {} }),
+        mergePullRequest: async () => ({ ok: true as const, data: {} }),
+      }
+      host.provideService(SprintEngineAutomationFrontDoorsToken, () => frontDoors)
+      const registry = host.requireService(AutomationsProviderRegistryToken)
+      registry.registerActionProvider(host.moduleId, createSprintEngineRunActionProvider(frontDoors))
+      registry.registerTriggerProvider(host.moduleId, createSprintEngineRunLandedTriggerProvider(frontDoors))
+      registry.registerTriggerProvider(host.moduleId, createSprintEngineRunNeedsInputTriggerProvider(frontDoors))
+      registry.registerTriggerProvider(host.moduleId, createSprintEngineRunCompletedTriggerProvider(frontDoors))
+      const sprintCreate = host.requireService(SprintCreateServiceToken)
+      registry.registerActionProvider(
+        host.moduleId,
+        createSprintEngineStartActionProvider({ createSprint: (request) => sprintCreate.createSprint(request) })
+      )
     },
   }
 }

@@ -10,7 +10,7 @@ import type { Workspace } from '../../renderer/src/types/workspace'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../shared/workspace-mode'
 import type { WorkspaceCreateRequest } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
-import { SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID, SPRINT_ENGINE_RUN_ACTION_KIND } from './actions/sprint-engine'
+import { SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID, SPRINT_ENGINE_RUN_ACTION_KIND, createSprintEngineRunActionProvider } from './actions/sprint-engine'
 import {
   RunWorktreeUnavailableError,
   createBuiltInAutomationActionProviders,
@@ -29,11 +29,6 @@ import {
   type RegisteredAutomationProvider,
 } from './provider-registry'
 import { REPO_EVENT_TRIGGER_KIND } from './triggers/repo-event'
-import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from './triggers/sprint-engine-run-landed'
-import {
-  SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
-  SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
-} from './triggers/sprint-engine-run-events'
 import { WEBHOOK_TRIGGER_KIND } from './triggers/webhook'
 
 function workspace(id: string, folderPath: string | null, overrides: Partial<Workspace> = {}): Workspace {
@@ -239,8 +234,9 @@ function executorHarness(
 }
 
 function firstPartyActionProviders(calls: string[] = []): AutomationActionProvider[] {
-  return createBuiltInAutomationActionProviders({
-    sprintEngine: {
+  return [
+    ...createBuiltInAutomationActionProviders(),
+    createSprintEngineRunActionProvider({
       setRunnerMode: async (input) => {
         calls.push(`sprint-mode:${input.statePath}:${input.cliWatchPolling}`)
         return { ok: true, data: {} }
@@ -248,8 +244,8 @@ function firstPartyActionProviders(calls: string[] = []): AutomationActionProvid
       readProjection: async () => ({ ok: false, message: 'not used' }),
       refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
       mergePullRequest: async () => ({ ok: true, data: {} }),
-    },
-  })
+    }),
+  ]
 }
 
 async function assertDefaultRunCreatesHostWorkspaceAndLaunchesOnBus(): Promise<void> {
@@ -883,54 +879,23 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
         throw new Error('not used')
       },
     },
-    sprintEngine: {
-      setRunnerMode: async () => {
-        throw new Error('not used')
-      },
-      readProjection: async () => {
-        throw new Error('not used')
-      },
-      refreshPullRequestStatus: async () => {
-        throw new Error('not used')
-      },
-      mergePullRequest: async () => {
-        throw new Error('not used')
-      },
-    },
   })
   assert.equal(namespacedProviderId('automations', 'schedule'), 'automations.schedule')
   assert.equal(builtIns.getTriggerProvider('automations.schedule')?.kind, 'schedule')
   assert.equal(builtIns.getTriggerProvider(`automations.${WEBHOOK_TRIGGER_KIND}`)?.kind, WEBHOOK_TRIGGER_KIND)
   assert.equal(builtIns.getTriggerProvider(`automations.${REPO_EVENT_TRIGGER_KIND}`)?.kind, REPO_EVENT_TRIGGER_KIND)
-  assert.equal(
-    builtIns.getTriggerProvider(`sprint-engine.${SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND}`)?.kind,
-    SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
-  )
-  assert.equal(
-    builtIns.getTriggerProvider(`sprint-engine.${SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND}`)?.kind,
-    SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
-  )
-  assert.equal(
-    builtIns.getTriggerProvider(`sprint-engine.${SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND}`)?.kind,
-    SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
-  )
   assert.equal(builtIns.getActionProvider('automations.spawn-agent')?.kind, 'spawn-agent')
   assert.equal(builtIns.getActionProvider('automations.run-skill-loop')?.kind, 'run-skill-loop')
-  assert.equal(builtIns.getActionProvider(`sprint-engine.${SPRINT_ENGINE_RUN_ACTION_KIND}`)?.kind, SPRINT_ENGINE_RUN_ACTION_KIND)
   assert.equal(builtIns.getActionProvider('other.spawn-agent'), undefined)
   assert.deepEqual(builtIns.listTriggerProviders().map((provider) => provider.kind), [
     'schedule',
     WEBHOOK_TRIGGER_KIND,
     REPO_EVENT_TRIGGER_KIND,
-    SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
-    SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
-    SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
   ])
   assert.deepEqual(builtIns.listActionProviders().map((provider) => provider.kind), [
     'spawn-agent',
     'run-skill-loop',
-    SPRINT_ENGINE_RUN_ACTION_KIND,
-  ], 'sprint-engine-start is creator-gated: absent without a createSprint backend')
+  ])
   assert.equal(SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID, 'module:sprint-engine')
 
   const duplicateRegistry = createAutomationProviderRegistry()

@@ -701,6 +701,14 @@ provider. Provider ids are namespaced by the registering module id inside
 the studio, while `providers:list` still exposes the provider's declared `kind`
 to the editor form.
 
+Declare `label`, `glyph` and `summary` so the Automations panel can name the
+kind without the host hard-coding your copy. `glyph` is one of
+`AUTOMATION_PROVIDER_GLYPHS` (`agent`, `loop`, `board`, `clock`); omitted
+falls back to the clock. A trigger that must not ping-pong with a companion
+action declares `pairsWith: { actionKind, defaultDisableAfterRun: true }` —
+the write path applies that default when the pair is written together and
+`disableAfterRun` is left unspecified.
+
 ```ts
 import {
   registerAutomationAction,
@@ -722,6 +730,9 @@ export const manifest: CapabilityManifest = {
 const refreshForecast: AutomationActionProvider = {
   kind: 'weather-deck.refresh-forecast',
   configSchema: { type: 'object' },
+  label: 'Refresh forecast',
+  glyph: 'clock',
+  summary: 'Pull the latest forecast for the watched city',
   run: async (_config, context) => {
     context.reportProgress({ summary: 'Refreshing forecast.' })
     return { status: 'completed', summary: 'Forecast refreshed.' }

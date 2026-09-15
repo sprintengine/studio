@@ -480,6 +480,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   const rail = (
     <AutomationsRail
       entries={visibleEntries}
+      providers={providers}
       builtins={visibleBuiltins}
       addedBuiltinIds={addedIds}
       selectedId={editorTarget ? null : selectedId}
