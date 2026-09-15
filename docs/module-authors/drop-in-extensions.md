@@ -129,7 +129,9 @@ answers to that id.
 
 A module can ship Python packages inside its signed bundle. The host runs them
 on the CPython the app already bundles — you never see the interpreter path.
-Declare `process:spawn`.
+Third-party modules must declare `process:spawn` (the host checks it at
+registration and at `runPython`); bundled first-party modules have no
+permissions list and are not checked at this surface.
 
 ```ts
 const sidecar = host.registerSidecar({

@@ -206,11 +206,31 @@ function testPythonSidecarRequiresSpawnPermission(): void {
   )
 }
 
+function testBundledModuleSkipsSpawnPermission(): void {
+  const kernel = createMainKernel(createFakeIpcMain(), {
+    resolveModuleRoot: () => MODULE_ROOT,
+    resolveModuleManifest: () => ({
+      id: 'sprint-engine',
+      displayName: 'Sprint Engine',
+      version: 1,
+      defaultEnabled: true,
+    }),
+  })
+  const handle = kernel.hostFor('sprint-engine').registerSidecar({
+    id: 'sprintengine-mcp',
+    kind: 'python',
+    python: { root: 'python', module: 'sprintengine_mcp' },
+    startOn: 'demand',
+  })
+  assert.equal(handle.status().state, 'stopped')
+}
+
 async function main(): Promise<void> {
   await testEscapingPythonRootIsALoadError()
   await testDemandPythonSidecarSpawnsAndDiesOnUnload()
   await testRunPythonUsesManagedInterpreter()
   testPythonSidecarRequiresSpawnPermission()
+  testBundledModuleSkipsSpawnPermission()
   console.log('python-sidecar tests passed')
 }
 

@@ -15,8 +15,10 @@
   `signalReady()`. `stop()` and unload kill the child. `kind: 'process'` with
   a module-supplied lifecycle stays legal for non-Python daemons.
   `runPython({ root, script | module, args, cwd, env, timeoutMs })` is the
-  one-shot twin and returns `{ exitCode, stdout, stderr }`. Both surfaces
-  require `process:spawn`. New mirrored types: `PythonSidecarConfig`,
+  one-shot twin and returns `{ exitCode, stdout, stderr }`. Third-party
+  modules must declare `process:spawn` on both surfaces (the host checks it);
+  bundled first-party modules have no permissions list and are not gated
+  there. New mirrored types: `PythonSidecarConfig`,
   `SidecarHandle`, `SidecarRunState`, `SidecarRuntimeStatus`,
   `SidecarStartOptions`, `RunPythonRequest`, `RunPythonResult`.
 

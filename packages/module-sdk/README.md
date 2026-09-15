@@ -345,7 +345,10 @@ alone (both still report `ok: true`, because the skill IS present).
 A module can ship Python packages inside its signed bundle and have the host
 run them on the CPython the app already bundles. You never see the interpreter
 path — that is the host's, so a missing user Python cannot silently take over.
-Declare `process:spawn`.
+Third-party modules must declare `process:spawn`; the host checks it at
+`registerSidecar({ kind: 'python' })` and `runPython` and refuses a module
+that omitted it. Bundled first-party modules have no permissions list — they
+already run as the app — so that check is skipped for them.
 
 **Sidecar** (`kind: 'python'`). The host owns the process: it containment-checks
 `python.root` (the same rule as `registerSkills` — relative to your module
