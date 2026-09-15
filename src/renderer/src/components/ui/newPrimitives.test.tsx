@@ -278,7 +278,23 @@ async function main(): Promise<void> {
     )
     assert.ok(!/nth-child\(even\)\]:border-l/.test(classes), 'and the right column owns none — it may be absent')
     assert.equal(view.container.querySelectorAll('ul').length, 1, 'one card, not two side by side')
+    // Three cells: the last row is half empty, and the horizontal rule above
+    // it is drawn by cells, so an empty cell fills the half to carry it.
+    const cells = view.container.querySelectorAll('ul > li')
+    assert.equal(cells.length, 4, 'an odd count gets one filler cell')
+    const filler = cells[3]
+    assert.equal(filler.getAttribute('aria-hidden'), 'true', 'the filler is not a list item to a screen reader')
+    assert.match(filler.getAttribute('class') ?? '', /\bhidden\b.*\bsm:block\b/, 'and not a row in the one-column fallback')
     view.unmount()
+
+    const even = mount(
+      <SettingCard as="ul" ariaLabel="Skills" columns={2}>
+        <li>a</li>
+        <li>b</li>
+      </SettingCard>,
+    )
+    assert.equal(even.container.querySelectorAll('ul > li').length, 2, 'an even count needs no filler')
+    even.unmount()
   })
 
   if (failures > 0) {

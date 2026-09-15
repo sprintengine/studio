@@ -84,8 +84,10 @@ products. One card, and the rows conform to it.
   needs and two cards side by side would be two edges for one group. Still one
   card: row-major order, a hairline where the columns meet (drawn by the
   left cell, so an odd count's trailing cell is still ruled against the empty
-  half beside it), the top rules starting from the second row. Never for
-  setting rows themselves — a control and its label want the width.
+  half beside it), the top rules starting from the second row. An odd count
+  ends with an empty `aria-hidden` filler cell so that last top rule runs the
+  full width instead of stopping at the divider. Never for setting rows
+  themselves — a control and its label want the width.
 - **`--disabled`** — the control cannot be used yet. The label drops to
   `text.muted`; the help stays as it is, because a person has to be able to
   read what they cannot have. Pair it with a `--requirement` suffix saying why.

@@ -54,6 +54,17 @@ export function SettingCard({
   children: React.ReactNode
 }): JSX.Element {
   const Host = as
+  // An odd count in two columns leaves the last row half empty, and a rule is
+  // drawn by cells: with no right cell the top rule stopped at the column
+  // divider. An empty filler cell takes that top rule like any other, so the
+  // rule runs the card's full width. Hidden from assistive tech and from the
+  // one-column fallback, where it would be an empty last row.
+  const Filler = as === 'ul' ? 'li' : 'div'
+  const filler =
+    // `toArray`, not `count`: a conditional `null` child is not a cell.
+    columns === 2 && React.Children.toArray(children).length % 2 === 1 ? (
+      <Filler aria-hidden="true" className="hidden sm:block" />
+    ) : null
   return (
     <Host
       aria-label={as === 'ul' ? ariaLabel : undefined}
@@ -80,6 +91,7 @@ export function SettingCard({
       ].join(' ')}
     >
       {children}
+      {filler}
     </Host>
   )
 }

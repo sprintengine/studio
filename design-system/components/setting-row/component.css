@@ -37,7 +37,9 @@
  * cell drops the top rule; every ODD cell draws the rule where the columns
  * meet — on the left cell, not the right, because an odd count leaves the
  * last row half empty and a rule owned by the absent right cell is absent
- * with it. */
+ * with it. The same half-empty row ends with an empty filler cell
+ * (`aria-hidden`), which takes the top rule like any cell, so the horizontal
+ * rule runs the card's full width rather than stopping at the divider. */
 .ds-setting-row-list--two-column {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
