@@ -538,7 +538,7 @@ export function AutomationEditor({
           distinguishable from an automation written here. */}
       <div className="flex items-start gap-3">
         <span className="mt-1.5 flex items-center">
-          <AutomationTypeGlyph kind={form.actionKind} glyph={actionProvider?.glyph} />
+          <AutomationTypeGlyph kind={form.actionKind} glyph={actionProvider?.glyph} label={actionLabel(form.actionKind, providers)} />
         </span>
         <div className="min-w-0 flex-1">
           <Input
