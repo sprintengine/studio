@@ -31,6 +31,7 @@ import {
   InlineNotice,
   Pager,
   PrimaryButton,
+  SettingCard,
   Spinner,
   StatusDot,
   Tooltip,
@@ -617,21 +618,22 @@ function InstalledView({
           <section key={group.key} className="space-y-2">
             <ConnectorSectionHeading label={group.label} count={group.count} />
             {!sourceGrouping && group.kind === 'module' ? moduleUpdateSlot : null}
-            {/* The Browse grid, row for row: two columns of the same card row
-                the marketplace renders, so Installed reads as the same surface
-                turned to face what is already here. */}
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {/* The Browse card, row for row: one two-column list card of the
+                same row the marketplace renders, so Installed reads as the
+                same surface turned to face what is already here. */}
+            <SettingCard as="ul" ariaLabel={group.label} columns={2}>
               {group.items.map((item) => (
-                <InstalledRow
-                  key={item.key}
-                  item={item}
-                  actions={actions}
-                  registryPlugins={registryPlugins}
-                  skillUse={skillUse}
-                  cliUpdate={cliUpdate}
-                />
+                <li key={item.key}>
+                  <InstalledRow
+                    item={item}
+                    actions={actions}
+                    registryPlugins={registryPlugins}
+                    skillUse={skillUse}
+                    cliUpdate={cliUpdate}
+                  />
+                </li>
               ))}
-            </div>
+            </SettingCard>
           </section>
         ))}
       </div>
@@ -666,8 +668,8 @@ function InstalledView({
 // entries: 36px icon chip · name + kind chip · human summary · plain-language
 // status · actions. The forward actions (New chat, Use in agent, Update) are
 // visible, as Browse's Add is; Remove is an icon action withheld until the row
-// is pointed at or focused, so a grid of installed things does not read as a
-// grid of delete buttons, and its reserved slot is one control wide rather
+// is pointed at or focused, so a card of installed things does not read as a
+// card of delete buttons, and its reserved slot is one control wide rather
 // than a word. Actions exist only where a real handler does.
 function InstalledRow({
   item,
@@ -759,6 +761,7 @@ function InstalledRow({
 
   return (
     <ConnectorRow
+      surface="card"
       icon={
         item.kind === 'mcp' ? (
           <ExtensionIcon slug={mcpIconSlug(item.id)} name={item.name} size={36} />

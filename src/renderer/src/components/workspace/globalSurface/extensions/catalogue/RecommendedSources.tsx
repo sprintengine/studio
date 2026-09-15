@@ -31,7 +31,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import type { HostedSource } from '../../../../../../../shared/electron-api'
 import { recommendedSourcesToAdd } from '../../../../../../../shared/hosted-sources-feed'
 import { skillSourceMonogram, type SkillSource } from '../../../../../../../shared/skills'
-import { GhostButton, InlineNotice, Spinner } from '../../../../ui'
+import { GhostButton, InlineNotice, SettingCard, Spinner } from '../../../../ui'
 import { ConnectorRow, ConnectorSectionHeading } from '../../../../panels/ConnectorsPanel/ConnectorRow'
 import { SourceMonogram } from '../skills/SourceMonogram'
 
@@ -138,28 +138,33 @@ export function RecommendedSources({
       {failure ? (
         <InlineNotice tone="error" title="That source was not added." hint={failure.message} />
       ) : null}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {/* The same list card the catalogue groups above it sit in (list-card
+          ruling 2026-09-15): this list is offered under them and must not
+          look like a different kind of list. */}
+      <SettingCard as="ul" ariaLabel="Recommended sources" columns={2}>
         {offered.map((source) => (
-          <ConnectorRow
-            key={source.id}
-            icon={<SourceMonogram monogram={skillSourceMonogram(source.repo.split('/')[1] ?? source.repo)} size="lg" />}
-            name={source.repo}
-            summary={source.description}
-            chips={[KIND_LABEL[source.kind]]}
-            actions={
-              <GhostButton
-                size="sm"
-                onClick={() => void add(source)}
-                disabled={busyRepo !== null}
-                className="border border-[color:var(--border-default)]"
-                aria-label={`Add ${source.repo} as a source`}
-              >
-                {busyRepo === source.repo ? <Spinner size={12} label="Adding" /> : 'Add'}
-              </GhostButton>
-            }
-          />
+          <li key={source.id}>
+            <ConnectorRow
+              surface="card"
+              icon={<SourceMonogram monogram={skillSourceMonogram(source.repo.split('/')[1] ?? source.repo)} size="lg" />}
+              name={source.repo}
+              summary={source.description}
+              chips={[KIND_LABEL[source.kind]]}
+              actions={
+                <GhostButton
+                  size="sm"
+                  onClick={() => void add(source)}
+                  disabled={busyRepo !== null}
+                  className="border border-[color:var(--border-default)]"
+                  aria-label={`Add ${source.repo} as a source`}
+                >
+                  {busyRepo === source.repo ? <Spinner size={12} label="Adding" /> : 'Add'}
+                </GhostButton>
+              }
+            />
+          </li>
         ))}
-      </div>
+      </SettingCard>
     </section>
   )
 }
