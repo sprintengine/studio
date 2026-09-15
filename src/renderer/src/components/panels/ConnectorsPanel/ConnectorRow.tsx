@@ -16,12 +16,14 @@ import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import type { ConnectorEntry } from './connectorsFacets'
 
 // The one section-heading treatment for the whole Connectors surface: muted
-// label · hairline · count.
+// label · count. It used to carry a hairline out to the right edge, which was
+// the group's separator while the rows under it sat loose; the rows now sit in
+// a list card (ruled 2026-09-15), and a rule directly above a card's border is
+// two rules for one boundary. The card is the edge; the heading only names it.
 export function ConnectorSectionHeading({ label, count }: { label: string; count?: number }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-baseline gap-2">
       <span className="text-body font-medium text-[color:var(--text-muted)]">{label}</span>
-      <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
       {typeof count === 'number' ? (
         <span className="tabular-nums font-mono text-meta text-[color:var(--text-subtle)]">{count}</span>
       ) : null}
@@ -76,6 +78,7 @@ export function ConnectorRow({
   actions,
   selected = false,
   onOpen,
+  surface = 'page',
 }: {
   icon: React.ReactNode
   /** News waiting on this row, as the kit's corner count on the mark. Null, or
@@ -98,12 +101,31 @@ export function ConnectorRow({
   selected?: boolean
   // When present the name/summary area is a button that opens the detail panel.
   onOpen?: () => void
+  /**
+   * Where the row sits. `page` (default) is a row loose in a gap grid: its own
+   * radius under the fill, a tight inset. `card` is a row inside the list card
+   * (`SettingCard as="ul"`, ruled 2026-09-15): no radius because the card
+   * clips, the card's 16px inset, and the fill reaching the card's edge — the
+   * same numbers the Remote tab's machine rows draw, so a plugin, a skill and
+   * a paired device read as rows of one product.
+   */
+  surface?: 'page' | 'card'
 }) {
-  // list-row, not a card: no border box — the grid's gaps separate rows, and
-  // the standard fills carry hover (--bg-hover) and selection (--bg-selected).
+  const inCard = surface === 'card'
+  // list-row, not a card of its own: no border box — the standard fills carry
+  // hover (--bg-hover) and selection (--bg-selected). Loose, the grid's gaps
+  // separate rows; in a card, the card's hairlines do.
   const rowClass = selected
     ? 'bg-[color:var(--bg-selected)]'
     : 'hover:bg-[color:var(--bg-hover)]'
+  // The content branches keep the kit's `flush` inset (8/6px). The card form
+  // adds the remainder on the wrapper — 8px more at the left, 6px more above
+  // and below — so the row lands on the machine row's 16/12px without
+  // restating a padding the kit already owns (two `p*-` utilities on one
+  // element are resolved by stylesheet order, not by the order they are
+  // written). The wrapper is what carries the fill, so the fill still runs
+  // edge to edge.
+  const wrapperClass = inCard ? 'pl-2 py-1.5 pr-4' : 'rounded-md pr-2.5'
   const content = (
     <>
       <ConnectorMark icon={icon} badge={badge} />
@@ -155,7 +177,7 @@ export function ConnectorRow({
     // padding. The non-interactive twin repeats it verbatim so the two branches
     // stay the same shape; this element keeps the ground, the radius and the
     // right-hand inset the trailing actions sit in.
-    <div className={`group relative flex items-center gap-2 rounded-md pr-2.5 transition-colors ${rowClass}`}>
+    <div className={`group relative flex items-center gap-2 transition-colors ${wrapperClass} ${rowClass}`}>
       {onOpen ? (
         <RowButton
           density="flush"
@@ -184,6 +206,7 @@ export function ConnectorEntryRow({
   onOpen,
   onToggleInstalled,
   onLaunch,
+  surface,
 }: {
   entry: ConnectorEntry
   registryUrl: string | null
@@ -193,6 +216,7 @@ export function ConnectorEntryRow({
   onToggleInstalled?: () => void
   // Launchable connectors only.
   onLaunch?: () => void
+  surface?: 'page' | 'card'
 }) {
   const icon = entry.plugin ? (
     <PluginIcon iconUrl={resolveIconUrl(registryUrl, entry.plugin.icon)} name={entry.name} size={36} />
@@ -207,6 +231,7 @@ export function ConnectorEntryRow({
       chips={entry.componentLabels}
       selected={selected}
       onOpen={onOpen}
+      surface={surface}
       actions={
         <>
           {entry.source === 'registry' ? (
