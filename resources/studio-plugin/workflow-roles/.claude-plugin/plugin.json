@@ -1,0 +1,10 @@
+{
+  "name": "workflow-roles",
+  "description": "The sixteen Sprint Engine workflow roles, each a skill whose frontmatter carries the role id, label and icon.",
+  "version": "1.0.0",
+  "author": {
+    "name": "SprintEngine Studio"
+  },
+  "homepage": "https://github.com/sprintengine/studio-releases",
+  "keywords": ["sprintengine", "roles", "skills", "workflow"]
+}
