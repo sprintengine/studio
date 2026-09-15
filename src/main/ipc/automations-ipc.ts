@@ -344,6 +344,13 @@ function providerView(
   const requiredIntegrations = registration.requiredIntegrations
   return {
     kind: registration.kind,
+    moduleId: registration.moduleId,
+    ...(registration.label ? { label: registration.label } : {}),
+    ...(registration.glyph ? { glyph: registration.glyph } : {}),
+    ...(registration.summary ? { summary: registration.summary } : {}),
+    ...('pairsWith' in registration.provider && registration.provider.pairsWith
+      ? { pairsWith: registration.provider.pairsWith }
+      : {}),
     configSchema: registration.configSchema,
     requiredIntegrations,
     missingIntegrations: requiredIntegrations.filter((id) => isIntegrationAvailable?.(id) !== true),
@@ -355,11 +362,17 @@ function legacyProviderRegistration<T extends AutomationTriggerProvider | Automa
   providerType: T extends AutomationTriggerProvider ? 'trigger' : 'action',
   provider: T
 ): RegisteredAutomationProvider<T> {
+  const label = ownDataProperty<unknown>(provider, 'label', undefined)
+  const glyph = ownDataProperty<unknown>(provider, 'glyph', undefined)
+  const summary = ownDataProperty<unknown>(provider, 'summary', undefined)
   return {
     providerId: provider.kind,
     moduleId: 'automations',
     providerType,
     kind: provider.kind,
+    ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
+    ...(glyph === 'agent' || glyph === 'loop' || glyph === 'board' || glyph === 'clock' ? { glyph } : {}),
+    ...(typeof summary === 'string' && summary.trim() ? { summary: summary.trim() } : {}),
     configSchema: ownDataProperty(provider, 'configSchema', fallbackConfigSchema()),
     requiredIntegrations: snapshotRequiredIntegrations(provider),
     provider,

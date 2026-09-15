@@ -83,11 +83,12 @@ async function main(): Promise<void> {
 
   const providers = {
     triggers: [
-      { kind: 'schedule', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+      { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
     ],
     actions: [
       {
         kind: 'spawn-agent',
+        moduleId: 'automations',
         configSchema: {
           type: 'object',
           properties: { cli: { type: 'string' }, prompt: { type: 'string' } },

@@ -6,18 +6,19 @@ import {
 import {
   REPO_EVENT_TRIGGER_KIND,
   SCHEDULE_TRIGGER_KIND,
-  SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
   WEBHOOK_TRIGGER_KIND,
+  contributorModuleIdFromKind,
+  displayNameFromModuleId,
   type AutomationDefinition,
   type AutomationRun,
   type AutomationRunStatus,
   type AutomationStatus,
   type AutomationsEngineStatus,
   type AutomationsProviderView,
+  type AutomationsProviders,
   type AutomationsRunsListResult,
   type RepoEventTriggerConfig,
   type ScheduleTriggerConfig,
-  type SprintEngineRunLandedTriggerConfig,
   type TriggerKind,
   type WebhookTriggerConfig,
 } from '../../../../../shared/automations/contracts'
@@ -29,7 +30,10 @@ import { relativeFromNow } from '../../../utils/relativeTime'
 // Re-exported so the editor (AutomationEditor.tsx, TriggerFields.tsx) keeps
 // importing the canonical trigger-kind constants and cadence copy from this
 // module; the definitions themselves live in contracts.ts and cadence.ts.
-export { REPO_EVENT_TRIGGER_KIND, SCHEDULE_TRIGGER_KIND, SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND }
+export { REPO_EVENT_TRIGGER_KIND, SCHEDULE_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND }
+export { contributorModuleIdFromKind, displayNameFromModuleId } from '../../../../../shared/automations/contracts'
+
+export const SPRINT_LANDED_TRIGGER_KIND = 'sprint-engine.run-landed'
 export { WEEKDAY_SHORT }
 
 // Shared async + editor state used across the control-center modules.
@@ -103,45 +107,38 @@ export function isScheduleConfig(config: unknown): config is ScheduleTriggerConf
 }
 
 // ---------------------------------------------------------------------------
-// Human-readable copy — actions and non-schedule trigger families read as
-// sentences, not the machine kind strings the providers register under.
-// AutomationsProviderView carries no display copy, so the renderer owns these
-// maps; unknown third-party kinds fall back to their raw kind.
-// ---------------------------------------------------------------------------
-
+// Human-readable copy — bundled actions and trigger families. Module-contributed
+// kinds read their `label` / `summary` from AutomationsProviderView; these maps
+// are the fallback while providers are still loading, and for kinds the host
+// itself registers. Unknown third-party kinds fall back to their raw kind.
 const ACTION_LABEL: Record<string, string> = {
   'spawn-agent': 'Spawn an agent',
   'run-skill-loop': 'Run a skill loop',
-  'sprint-engine-run': 'Run a sprint',
-  'sprint-engine-start': 'Start the next sprint',
 }
 
-// Sentence-case action label for a kind, falling back to the raw kind for
-// unknown third-party actions.
-export function actionLabel(kind: string): string {
+export function actionLabel(kind: string, providers?: AutomationsProviders | null): string {
+  const fromProvider = providers?.actions.find((action) => action.kind === kind)?.label
+  if (fromProvider) return fromProvider
   return ACTION_LABEL[kind] ?? kind
 }
 
-// Summary copy for the non-schedule trigger families (schedule cadences are
-// summarized by cadenceSummary). Unknown families fall back to the raw kind.
 const TRIGGER_SUMMARY: Record<string, string> = {
   'repo-event': 'On GitHub/Jira event',
   webhook: 'On webhook',
-  'sprint-engine.run-landed': 'When a sprint’s work lands',
 }
 
-// Quiet family prefix for the list's supporting line — the most load-bearing
-// dimension, scannable ahead of the cadence/summary ('Schedule · Every 2h',
-// 'Event · On GitHub/Jira event', 'Webhook · On webhook'). Unknown third-party
-// families fall back to their raw kind.
 export const TRIGGER_FAMILY_LABEL: Record<string, string> = {
   schedule: 'Schedule',
   'repo-event': 'Event',
   webhook: 'Webhook',
-  'sprint-engine.run-landed': 'Sprint landed',
 }
 
-export function triggerFamilyLabel(trigger: AutomationDefinition['trigger']): string {
+export function triggerFamilyLabel(
+  trigger: AutomationDefinition['trigger'],
+  providers?: AutomationsProviders | null,
+): string {
+  const fromProvider = providers?.triggers.find((entry) => entry.kind === trigger.kind)?.label
+  if (fromProvider) return fromProvider
   return TRIGGER_FAMILY_LABEL[trigger.kind] ?? trigger.kind
 }
 
@@ -158,9 +155,11 @@ export function cadenceSummary(
   trigger: AutomationDefinition['trigger'],
   at: Date = new Date(),
   readerTimeZone: string = Intl.DateTimeFormat().resolvedOptions().timeZone,
+  providers?: AutomationsProviders | null,
 ): string {
   if (trigger.kind !== SCHEDULE_TRIGGER_KIND || !isScheduleConfig(trigger.config)) {
-    return TRIGGER_SUMMARY[trigger.kind] ?? trigger.kind
+    const fromProvider = providers?.triggers.find((entry) => entry.kind === trigger.kind)?.summary
+    return fromProvider ?? TRIGGER_SUMMARY[trigger.kind] ?? trigger.kind
   }
   return scheduleCadenceSummaryForReader(trigger.config, at, readerTimeZone)
 }
@@ -214,7 +213,7 @@ export function triggerDetail(
   }
   if (trigger.kind === REPO_EVENT_TRIGGER_KIND) return repoEventDetail(trigger.config)
   if (trigger.kind === WEBHOOK_TRIGGER_KIND) return webhookDetail(trigger.config)
-  if (trigger.kind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND) return sprintLandedDetail(trigger.config)
+  if (trigger.kind === SPRINT_LANDED_TRIGGER_KIND) return sprintLandedDetail(trigger.config)
   return null
 }
 
@@ -225,6 +224,8 @@ function sprintLandedDetail(config: unknown): string | null {
   const team = (config as Record<string, unknown>).team
   return typeof team === 'string' && team.trim() ? team.trim() : null
 }
+
+type SprintLandedTriggerConfig = { kind: typeof SPRINT_LANDED_TRIGGER_KIND; team: string }
 
 // ---------------------------------------------------------------------------
 // Trigger round-trip — build the trigger to persist without rewriting families
@@ -296,8 +297,9 @@ export type WebhookForm = {
   label: string
 }
 
-// The sprint-landed editor sub-state (triggers/sprint-engine-run-landed.ts
-// schema: the watched team dir under .sprintengine/sprintengine/).
+// The sprint-landed editor sub-state. Kind string is the persisted value the
+// Sprint Engine module registers; the form stays here so a saved definition
+// still round-trips when the module is enabled.
 export type SprintLandedForm = {
   team: string
 }
@@ -329,19 +331,19 @@ const WEBHOOK_PATH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 // families return false — they stay read-only and round-trip verbatim.
 export function isAuthorableTrigger(trigger: AutomationDefinition['trigger']): boolean {
   if (trigger.kind === REPO_EVENT_TRIGGER_KIND || trigger.kind === WEBHOOK_TRIGGER_KIND) return true
-  if (trigger.kind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND) return true
+  if (trigger.kind === SPRINT_LANDED_TRIGGER_KIND) return true
   if (trigger.kind === SCHEDULE_TRIGGER_KIND) return isEditableScheduleTrigger(trigger)
   return false
 }
 
-function buildSprintLandedConfig(form: SprintLandedForm): SprintEngineRunLandedTriggerConfig {
-  return { kind: SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND, team: form.team.trim() }
+function buildSprintLandedConfig(form: SprintLandedForm): SprintLandedTriggerConfig {
+  return { kind: SPRINT_LANDED_TRIGGER_KIND, team: form.team.trim() }
 }
 
 // Seed the sprint-landed form sub-state from a loaded config.
 export function sprintLandedFormFromConfig(config: unknown): SprintLandedForm {
   if (!config || typeof config !== 'object') return { ...EMPTY_SPRINT_LANDED_FORM }
-  const record = config as Partial<SprintEngineRunLandedTriggerConfig>
+  const record = config as Partial<SprintLandedTriggerConfig>
   return { team: typeof record.team === 'string' ? record.team : '' }
 }
 
@@ -480,6 +482,12 @@ export function providerUnavailableReason(
   return null
 }
 
+export function missingProviderReason(kind: string, noun: 'action' | 'trigger'): string {
+  const moduleId = contributorModuleIdFromKind(kind)
+  if (!moduleId) return `No ${noun} provider is registered for "${kind}".`
+  return `This ${noun} needs the ${displayNameFromModuleId(moduleId)} module, which is not enabled.`
+}
+
 // Resolve the trigger to persist from the ACTIVE family. A loaded cron schedule
 // or unknown family is returned verbatim (read-only — no authoring control), so a
 // save never converts a trigger the editor cannot author. Schedule/repo-event/
@@ -498,8 +506,8 @@ export function resolveSubmitTrigger(
   if (form.triggerKind === WEBHOOK_TRIGGER_KIND) {
     return { kind: WEBHOOK_TRIGGER_KIND, config: buildWebhookConfig(form.webhook) }
   }
-  if (form.triggerKind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND) {
-    return { kind: SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND, config: buildSprintLandedConfig(form.sprintLanded) }
+  if (form.triggerKind === SPRINT_LANDED_TRIGGER_KIND) {
+    return { kind: SPRINT_LANDED_TRIGGER_KIND, config: buildSprintLandedConfig(form.sprintLanded) }
   }
   const loaded = editor.mode === 'edit' ? editor.definition.trigger.config : null
   const timezone = isScheduleConfig(loaded) ? loaded.timezone : fallbackTimezone

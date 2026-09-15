@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import type { AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
+import type { AutomationsInstanceEntry, AutomationsProviders } from '../../../../../../shared/automations/contracts'
 import type { BuiltinAutomation } from '../../../../../../shared/automations/builtin'
 import { actionLabel } from '../../../panels/AutomationsPanel/automationsFormat'
 import { AutomationTypeGlyph } from '../../../panels/AutomationsPanel/AutomationTypeGlyph'
@@ -33,7 +33,7 @@ import { builtinRowId, builtinStateLine } from './builtinAutomations'
 // semantics, ↑/↓ + j/k keyboard navigation, and row layout are the substrate's;
 // this maps automation entries onto it and keeps the salience ordering upstream.
 export function AutomationsRail({
-  entries, builtins, addedBuiltinIds, selectedId, now, onSelect, onCreate, search, filter, emptyNotice, builtinNotice,
+  entries, builtins, addedBuiltinIds, selectedId, now, onSelect, onCreate, search, filter, emptyNotice, builtinNotice, providers,
 }: {
   entries: AutomationsInstanceEntry[]
   /** The shipped five, as main reports them. Empty while the read is in flight or
@@ -55,16 +55,18 @@ export function AutomationsRail({
    *  or it failed. Never an empty group in silence: that reads as "this app
    *  ships none", which is a different and false statement. */
   builtinNotice?: ReactNode
+  providers?: AutomationsProviders | null
 }): JSX.Element {
   const yourRows: SurfaceRailRow[] = entries.map((entry) => {
     const rail = automationRailState(entry, now)
     const kind = entry.definition.action.kind
+    const glyph = providers?.actions.find((action) => action.kind === kind)?.glyph
     return {
       id: entry.definition.id,
       title: entry.definition.name,
       stateLine: rail.text,
-      icon: <AutomationTypeGlyph kind={kind} />,
-      tooltip: `${entry.definition.name} — ${actionLabel(kind)} · ${rail.text}`,
+      icon: <AutomationTypeGlyph kind={kind} glyph={glyph} label={actionLabel(kind, providers)} />,
+      tooltip: `${entry.definition.name} — ${actionLabel(kind, providers)} · ${rail.text}`,
     }
   })
 

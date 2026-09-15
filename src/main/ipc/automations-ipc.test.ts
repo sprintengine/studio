@@ -29,7 +29,7 @@ import {
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
 import { createAutomationsEngine } from '../automations/engine'
-import { SPRINT_ENGINE_RUN_ACTION_KIND } from '../automations/actions/sprint-engine'
+import { SPRINT_ENGINE_RUN_ACTION_KIND, createSprintEngineRunActionProvider } from '../automations/actions/sprint-engine'
 import { REPO_TASK_SOURCE_INTEGRATION_ID } from '../automations/repo-task-source'
 import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
 import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
@@ -142,6 +142,10 @@ async function testProviderList(): Promise<void> {
     triggers: [
       {
         kind: 'schedule',
+        moduleId: 'automations',
+        label: 'Schedule',
+        glyph: 'clock',
+        summary: 'On a repeating cadence',
         configSchema: {
           type: 'object',
           required: ['kind', 'cadence', 'timezone'],
@@ -197,6 +201,10 @@ async function testProviderList(): Promise<void> {
       },
       {
         kind: WEBHOOK_TRIGGER_KIND,
+        moduleId: 'automations',
+        label: 'Webhook',
+        glyph: 'clock',
+        summary: 'On webhook',
         configSchema: {
           type: 'object',
           required: ['kind'],
@@ -217,6 +225,10 @@ async function testProviderList(): Promise<void> {
     actions: [
       {
         kind: 'spawn-agent',
+        moduleId: 'automations',
+        label: 'Spawn an agent',
+        glyph: 'agent',
+        summary: 'Launch a CLI agent in a workspace',
         configSchema: {
           type: 'object',
           required: ['prompt'],
@@ -248,6 +260,10 @@ async function testProviderList(): Promise<void> {
       },
       {
         kind: 'run-skill-loop',
+        moduleId: 'automations',
+        label: 'Run a skill loop',
+        glyph: 'loop',
+        summary: 'Run a skill in a repeating agent loop',
         configSchema: {
           type: 'object',
           required: ['prompt'],
@@ -281,7 +297,10 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
         throw new Error('not used')
       },
     },
-    sprintEngine: {
+  })
+  providerRegistry.registerActionProvider(
+    'sprint-engine',
+    createSprintEngineRunActionProvider({
       setRunnerMode: async () => {
         throw new Error('not used')
       },
@@ -294,8 +313,8 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
       mergePullRequest: async () => {
         throw new Error('not used')
       },
-    },
-  })
+    }),
+  )
 
   registerAutomationsIpc(
     {

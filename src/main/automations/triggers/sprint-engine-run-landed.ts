@@ -1,9 +1,7 @@
 import { createHash } from 'node:crypto'
 
-import {
-  SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
-  type AutomationTriggerProvider,
-  type SprintEngineRunLandedTriggerConfig,
+import type {
+  AutomationTriggerProvider,
 } from '../../../shared/automations/contracts'
 import type { SprintEngineState } from '../../../shared/sprintengine/run-types'
 import {
@@ -14,11 +12,17 @@ import {
 } from '../../../shared/sprintengine/state'
 import {
   SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID,
+  SPRINT_ENGINE_START_ACTION_KIND,
   type SprintEngineAutomationFrontDoors,
 } from '../actions/sprint-engine'
 import { workspaceSidecarPath } from '../../workspace-sidecar'
 
-export { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND }
+export const SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND = 'sprint-engine.run-landed'
+
+export type SprintEngineRunLandedTriggerConfig = {
+  kind: typeof SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
+  team: string
+}
 
 // Sprint chaining fires on LANDED (MC-1438, decided): a worktree-backed run has
 // landed when every declared project's pull request is merged; a non-worktree
@@ -60,6 +64,10 @@ export function createSprintEngineRunLandedTriggerProvider(
 
   return {
     kind: SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
+    label: 'Sprint landed',
+    glyph: 'board',
+    summary: 'When a sprint’s work lands',
+    pairsWith: { actionKind: SPRINT_ENGINE_START_ACTION_KIND, defaultDisableAfterRun: true },
     requiredIntegrations: [SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID],
     configSchema: {
       type: 'object',

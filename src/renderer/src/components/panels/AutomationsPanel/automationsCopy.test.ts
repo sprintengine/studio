@@ -11,6 +11,7 @@ import {
   triggerDetail,
   triggerFamilyLabel,
   type AutomationFeedRun,
+  missingProviderReason,
 } from './automationsFormat'
 import type {
   AutomationDefinition,
@@ -62,11 +63,32 @@ function summary(trigger: AutomationDefinition['trigger']): string {
 run('maps every known action kind to a sentence-case label', () => {
   assert.equal(actionLabel('spawn-agent'), 'Spawn an agent')
   assert.equal(actionLabel('run-skill-loop'), 'Run a skill loop')
-  assert.equal(actionLabel('sprint-engine-run'), 'Run a sprint')
+})
+
+run('reads an action label from the registered provider when one is supplied', () => {
+  assert.equal(
+    actionLabel('sprint-engine-run', {
+      triggers: [],
+      actions: [{
+        kind: 'sprint-engine-run',
+        moduleId: 'sprint-engine',
+        label: 'Run a sprint',
+        configSchema: {},
+        requiredIntegrations: [],
+        missingIntegrations: [],
+      }],
+    }),
+    'Run a sprint',
+  )
 })
 
 run('falls back to the raw kind for an unknown third-party action', () => {
   assert.equal(actionLabel('vendor-x-custom-action'), 'vendor-x-custom-action')
+})
+
+run('names the owning module when a saved kind has no registered provider', () => {
+  assert.match(missingProviderReason('sprint-engine-start', 'action'), /Sprint Engine module/)
+  assert.match(missingProviderReason('sprint-engine.run-landed', 'trigger'), /Sprint Engine module/)
 })
 
 // --- Non-schedule trigger summaries (T2 AC#4) ------------------------------

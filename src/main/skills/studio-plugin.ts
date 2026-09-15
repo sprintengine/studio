@@ -315,13 +315,16 @@ export async function readStudioPluginTemplate(
   }
 }
 
+/** Skill directory names a capability module owns; the plugin template no longer installs them. */
+const MODULE_OWNED_STUDIO_PLUGIN_SKILLS = new Set(['studio-sprints'])
+
 /** The skill directory names the template ships, in listing order. */
 export async function listStudioPluginSkillDirs(template: StudioPluginTemplate): Promise<string[]> {
   const skillsRoot = join(template.pluginDir, 'skills')
   const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => null)
   if (entries === null) return []
   return entries
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && !MODULE_OWNED_STUDIO_PLUGIN_SKILLS.has(entry.name))
     .map((entry) => entry.name)
     .sort()
 }

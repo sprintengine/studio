@@ -705,8 +705,43 @@ export type AutomationTriggerPollResult =
   | { ok: true; events: AutomationTriggerPollEvent[] }
   | { ok: false; blockedReason: string }
 
+/**
+ * Bundled action kinds the host ships, plus module-namespaced kinds
+ * (`<module-id>.<suffix>`). The union stays open so a compiled module can
+ * register its own kinds; the literals document the ones the panel already
+ * knows how to author.
+ */
+export type ActionKind = 'spawn-agent' | 'run-command' | 'run-skill-loop' | string
+
+/**
+ * Closed vocabulary of Automations panel type-glyphs. The panel draws these
+ * shapes; a module names one rather than shipping SVG. `agent` is a
+ * head-and-shoulders figure, `loop` is the repeat arrows, `board` is a
+ * four-pane board, `clock` is the automations clock (and the fallback for an
+ * omitted glyph).
+ */
+export const AUTOMATION_PROVIDER_GLYPHS = ['agent', 'loop', 'board', 'clock'] as const
+export type AutomationProviderGlyph = (typeof AUTOMATION_PROVIDER_GLYPHS)[number]
+
+/**
+ * When a definition pairs this trigger with `actionKind` and leaves
+ * `disableAfterRun` unspecified, the write path applies `defaultDisableAfterRun`.
+ * Used to bound ping-pong between a completion trigger and a start action
+ * without the host naming either kind.
+ */
+export type AutomationTriggerPairing = {
+  actionKind: ActionKind
+  defaultDisableAfterRun?: boolean
+}
+
 export type AutomationTriggerProvider = {
   kind: TriggerKind
+  /** Sentence-case family label the Automations panel shows. */
+  label?: string
+  glyph?: AutomationProviderGlyph
+  /** One-line summary for the panel's supporting line. */
+  summary?: string
+  pairsWith?: AutomationTriggerPairing
   configSchema: JsonSchema
   requiredIntegrations?: string[]
   validateConfig?(config: unknown): { ok: true } | { ok: false; error: string }
@@ -723,8 +758,6 @@ export type AutomationTriggerProvider = {
     context?: AutomationTriggerPollContext
   }): Promise<AutomationTriggerPollResult>
 }
-
-export type ActionKind = 'spawn-agent' | 'run-command' | 'run-skill-loop' | string
 
 export type AutomationRunIsolation = 'worktree' | 'workspace-checkout'
 
@@ -794,6 +827,11 @@ export type ActionContext = {
 
 export type AutomationActionProvider = {
   kind: ActionKind
+  /** Sentence-case label the Automations panel shows for this action. */
+  label?: string
+  glyph?: AutomationProviderGlyph
+  /** One-line summary for the panel's supporting line. */
+  summary?: string
   configSchema: JsonSchema
   requiredIntegrations?: string[]
   run(config: unknown, ctx: ActionContext): Promise<Partial<AutomationRun>>

@@ -18,7 +18,6 @@ import { createModuleAutomationsRegistry } from '../automations/module-service'
 import { AutomationsStore } from '../automations/store'
 import { registerAutomationsIpc } from '../ipc/automations-ipc'
 import {
-  SprintCreateServiceToken,
   AutomationsAppFrontDoorToken,
   AutomationsEngineToken,
   AutomationsModuleServiceToken,
@@ -36,10 +35,6 @@ import {
   type AutomationsDefinitionsChangedEvent,
   type AutomationsRunEvent,
 } from '../../shared/automations/contracts'
-import {
-  SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID,
-  type SprintEngineAutomationFrontDoors,
-} from '../automations/actions/sprint-engine'
 import {
   REPO_TASK_SOURCE_INTEGRATION_ID,
   type RepoTaskSourceFrontDoors,
@@ -101,15 +96,11 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       dependsOn: ['agent-runtime'],
     },
     registerMain(host) {
-      const sprintCreateService = host.requireService(SprintCreateServiceToken)
       const agentLaunchService = host.requireService(AgentLaunchServiceToken)
       const workspaceSyncService = host.requireService(WorkspaceSyncServiceToken)
       const terminalRuntime = host.requireService(TerminalRuntimeToken)
       const repoTaskFrontDoors = serviceBackedRepoTaskFrontDoors(() =>
         host.getService(RepoTaskSourceFrontDoorsToken)
-      )
-      const sprintEngineFrontDoors = serviceBackedSprintEngineFrontDoors(() =>
-        host.getService(SprintEngineAutomationFrontDoorsToken)
       )
       const isIntegrationAvailable = createFirstPartyAutomationIntegrationResolver({
         hasRepoTaskSource: () => Boolean(host.getService(RepoTaskSourceFrontDoorsToken)),
@@ -117,8 +108,6 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       })
       const providerRegistry = createBuiltInAutomationProviderRegistry({
         repoTasks: repoTaskFrontDoors,
-        sprintEngine: sprintEngineFrontDoors,
-        createSprint: (request) => sprintCreateService.createSprint(request),
       })
       const checkProviderPermission = options.checkProviderPermission ?? allowAutomationProvider
       host.provideService(AutomationsProviderRegistryToken, () => providerRegistry)
@@ -282,7 +271,7 @@ function createFirstPartyAutomationIntegrationResolver(input: {
 }): (id: string) => boolean | undefined {
   return (id) => {
     if (id === REPO_TASK_SOURCE_INTEGRATION_ID) return input.hasRepoTaskSource()
-    if (id === SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID) return input.hasSprintEngine()
+    if (id === 'module:sprint-engine') return input.hasSprintEngine()
     return undefined
   }
 }
@@ -293,20 +282,5 @@ function serviceBackedRepoTaskFrontDoors(
   return {
     readAllTasks: async (input) =>
       resolve()?.readAllTasks(input) ?? { ok: false, message: 'No repo task source is available.' },
-  }
-}
-
-function serviceBackedSprintEngineFrontDoors(
-  resolve: () => SprintEngineAutomationFrontDoors | undefined
-): SprintEngineAutomationFrontDoors {
-  return {
-    setRunnerMode: async (input) =>
-      resolve()?.setRunnerMode(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
-    readProjection: async (input) =>
-      resolve()?.readProjection(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
-    refreshPullRequestStatus: async (input) =>
-      resolve()?.refreshPullRequestStatus(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
-    mergePullRequest: async (input) =>
-      resolve()?.mergePullRequest(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
   }
 }

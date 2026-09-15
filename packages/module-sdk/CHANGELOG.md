@@ -34,6 +34,16 @@
   `SidecarHandle`, `SidecarRunState`, `SidecarRuntimeStatus`,
   `SidecarStartOptions`, `RunPythonRequest`, `RunPythonResult`.
 
+- **Automations providers carry display metadata and pairing defaults.**
+  `AutomationActionProvider` and `AutomationTriggerProvider` gain optional
+  `label`, `glyph` (from the closed `AUTOMATION_PROVIDER_GLYPHS` vocabulary:
+  `agent`, `loop`, `board`, `clock`) and `summary`. The Automations panel
+  reads those instead of hard-coding a module's copy. A trigger may declare
+  `pairsWith: { actionKind, defaultDisableAfterRun }` so a chained pair
+  defaults `disableAfterRun` without the host naming either kind.
+  `ActionKind` keeps the bundled literals (`spawn-agent`, `run-command`,
+  `run-skill-loop`) and stays open to module-namespaced kinds.
+
 - **Backlog item actions render in menus, not as header buttons.**
   `BacklogItemAction.order` positions an action within the row's right-click
   menu and the detail header's More-actions menu. The header's own buttons

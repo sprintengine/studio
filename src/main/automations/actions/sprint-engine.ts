@@ -54,6 +54,9 @@ export function createSprintEngineRunActionProvider(
 ): AutomationActionProvider {
   return {
     kind: SPRINT_ENGINE_RUN_ACTION_KIND,
+    label: 'Run a sprint',
+    glyph: 'board',
+    summary: 'Start the runner for a watched sprint team',
     configSchema: {
       type: 'object',
       required: ['team'],
@@ -132,6 +135,9 @@ export function createSprintEngineStartActionProvider(
   const resolveBaseStartPoint = deps.resolveBaseStartPoint ?? defaultResolveBaseStartPoint
   return {
     kind: SPRINT_ENGINE_START_ACTION_KIND,
+    label: 'Start the next sprint',
+    glyph: 'board',
+    summary: 'Start a sprint from a chosen backlog item',
     configSchema: {
       type: 'object',
       required: ['backlogItem'],

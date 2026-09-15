@@ -229,7 +229,8 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
   }
 
   // 2. The skills, in every harness, each carrying provenance.
-  assert.equal(result.skillDirNames.length >= 5, true)
+  assert.equal(result.skillDirNames.length >= 4, true)
+  assert.equal(result.skillDirNames.includes('studio-sprints'), false, 'studio-sprints installs from the Sprint Engine module, not the plugin')
   for (const harness of ['agents', 'claude'] as const) {
     for (const dirName of result.skillDirNames) {
       const dir = join(workspace, SKILL_HARNESS_DIR[harness], 'skills', dirName)
@@ -367,7 +368,8 @@ async function anUnacknowledgedInstallStillShipsTheSkills(): Promise<void> {
   })
   assert.ok(result.ok, result.ok ? '' : result.message)
   assert.equal(result.hookSettingsPath, '', 'no hook is registered without the acknowledgement')
-  assert.equal(result.skillDirNames.length >= 5, true, 'the skills are not held hostage by the hook')
+  assert.equal(result.skillDirNames.length >= 4, true, 'the skills are not held hostage by the hook')
+  assert.equal(result.skillDirNames.includes('studio-sprints'), false)
   const local = resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
   const parsed = JSON.parse(await readFile(local, 'utf8')) as Record<string, unknown>
   assert.equal('hooks' in parsed, false)

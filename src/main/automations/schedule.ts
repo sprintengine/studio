@@ -27,6 +27,9 @@ const AT_DATETIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d)(
 
 export const scheduleTriggerProvider: AutomationTriggerProvider = {
   kind: 'schedule',
+  label: 'Schedule',
+  glyph: 'clock',
+  summary: 'On a repeating cadence',
   configSchema: {
     type: 'object',
     required: ['kind', 'cadence', 'timezone'],

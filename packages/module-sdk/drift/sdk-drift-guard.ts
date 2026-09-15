@@ -27,6 +27,7 @@ import type {
   ModuleTrustStatus as AppModuleTrustStatus,
 } from '../../../src/shared/modules/manifest'
 import { BUNDLED_MODULE_IDS as APP_BUNDLED_MODULE_IDS } from '../../../src/shared/modules/manifest'
+import { AUTOMATION_PROVIDER_GLYPHS as APP_AUTOMATION_PROVIDER_GLYPHS } from '../../../src/shared/automations/contracts'
 import type { CapabilityPermission as AppCapabilityPermission } from '../../../src/shared/modules/permissions'
 import { KNOWN_CAPABILITY_PERMISSIONS as APP_KNOWN_CAPABILITY_PERMISSIONS } from '../../../src/shared/modules/permissions'
 import type {
@@ -48,6 +49,8 @@ import type {
   AutomationTriggerPollEvent as AppAutomationTriggerPollEvent,
   AutomationTriggerPollResult as AppAutomationTriggerPollResult,
   AutomationTriggerProvider as AppAutomationTriggerProvider,
+  AutomationTriggerPairing as AppAutomationTriggerPairing,
+  AutomationProviderGlyph as AppAutomationProviderGlyph,
   JsonSchema as AppJsonSchema,
   ScheduleTriggerConfig as AppScheduleTriggerConfig,
   TriggerKind as AppTriggerKind,
@@ -190,6 +193,8 @@ import type {
   AutomationTriggerPollEvent as SdkAutomationTriggerPollEvent,
   AutomationTriggerPollResult as SdkAutomationTriggerPollResult,
   AutomationTriggerProvider as SdkAutomationTriggerProvider,
+  AutomationTriggerPairing as SdkAutomationTriggerPairing,
+  AutomationProviderGlyph as SdkAutomationProviderGlyph,
   JsonSchema as SdkJsonSchema,
   FileDropPayload as SdkFileDropPayload,
   GlobalSurfaceDefinition as SdkGlobalSurfaceDefinition,
@@ -268,7 +273,7 @@ import type {
   WorkspaceTypeDefinition as SdkWorkspaceTypeDefinition,
   WorkspaceTypeSupervisor as SdkWorkspaceTypeSupervisor,
 } from '../src/index'
-import { BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS, KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS, MULTICODE_FILE_DROP_MIME as SDK_FILE_DROP_MIME } from '../src/index'
+import { BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS, KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS, MULTICODE_FILE_DROP_MIME as SDK_FILE_DROP_MIME, AUTOMATION_PROVIDER_GLYPHS as SDK_AUTOMATION_PROVIDER_GLYPHS } from '../src/index'
 
 // The bridged UI kit and door shell (D6). The SDK restates these shapes by
 // hand — it cannot import app source — so both halves are imported here as
@@ -381,6 +386,8 @@ expectType<IsExact<AppAutomationTriggerPollContext, SdkAutomationTriggerPollCont
 expectType<IsExact<AppAutomationTriggerPollEvent, SdkAutomationTriggerPollEvent>>()
 expectType<IsExact<AppAutomationTriggerPollResult, SdkAutomationTriggerPollResult>>()
 expectType<IsExact<AppAutomationTriggerProvider, SdkAutomationTriggerProvider>>()
+expectType<IsExact<AppAutomationTriggerPairing, SdkAutomationTriggerPairing>>()
+expectType<IsExact<AppAutomationProviderGlyph, SdkAutomationProviderGlyph>>()
 expectType<IsExact<AppActionKind, SdkActionKind>>()
 expectType<IsExact<AppAutomationRun, SdkAutomationRun>>()
 expectType<IsExact<AppAutomationDefinition, SdkAutomationDefinition>>()
@@ -536,6 +543,11 @@ assert.deepEqual(
   [...SDK_KNOWN_CAPABILITY_PERMISSIONS],
   [...APP_KNOWN_CAPABILITY_PERMISSIONS],
   'KNOWN_CAPABILITY_PERMISSIONS drifted between SDK and app'
+)
+assert.deepEqual(
+  [...SDK_AUTOMATION_PROVIDER_GLYPHS],
+  [...APP_AUTOMATION_PROVIDER_GLYPHS],
+  'AUTOMATION_PROVIDER_GLYPHS drifted between SDK and app'
 )
 assert.equal(SDK_FILE_DROP_MIME, APP_FILE_DROP_MIME, 'MULTICODE_FILE_DROP_MIME drifted between SDK and app')
 

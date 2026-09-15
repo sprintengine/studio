@@ -416,7 +416,7 @@ const api: Record<string, unknown> = {
     ok: true,
     bundledVersion: '1.0.0',
     installedVersion: '1.0.0',
-    skillDirNames: ['studio-sprints', 'studio-backlog', 'studio-automations', 'studio-workspaces'],
+    skillDirNames: ['studio-backlog', 'studio-automations', 'studio-workspaces'],
   }),
   workspaceSkillsList: async () => ({ ok: true, skills: [] }),
   skillsListInstalledPlugins: async () => ({ ok: true, plugins: [] }),

@@ -16,6 +16,9 @@ export type RunSkillLoopConfig = {
 export function createRunSkillLoopActionProvider(): AutomationActionProvider {
   return {
     kind: 'run-skill-loop',
+    label: 'Run a skill loop',
+    glyph: 'loop',
+    summary: 'Run a skill in a repeating agent loop',
     configSchema: {
       type: 'object',
       required: ['prompt'],

@@ -8,8 +8,7 @@ import type {
   AutomationTriggerProvider,
   AutomationsResult,
 } from '../../shared/automations/contracts'
-import { SCHEDULE_TRIGGER_KIND, SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from '../../shared/automations/contracts'
-import { SPRINT_ENGINE_START_ACTION_KIND } from './actions/sprint-engine'
+import { SCHEDULE_TRIGGER_KIND } from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { projectFoldersFromWorkspaceSyncSnapshot } from './engine'
 import {
@@ -151,7 +150,11 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
     draft: AutomationDefinitionDraft
   ): Promise<DefinitionWriteResult<AutomationDefinition>> {
     const timestamp = new Date(deps.now()).toISOString()
-    const definition = buildDefinitionForCreate(draft, timestamp, deps.createAutomationId)
+    const withPairDefaults = applyProviderPairDefaults(
+      draft,
+      deps.getTriggerProviderRegistrations()
+    )
+    const definition = buildDefinitionForCreate(withPairDefaults, timestamp, deps.createAutomationId)
     const prepared = prepareDefinitionForWrite(
       definition,
       deps.getTriggerProviderRegistrations(),
@@ -504,17 +507,6 @@ export function parseDefinitionDraft(input: unknown): AutomationsResult<Automati
     return fail('invalid_input', 'Automation definition disableAfterRun must be a boolean.')
   }
   const disableAfterRun = input.disableAfterRun as boolean | undefined
-  // A run-landed → sprint-start chain that leaves "run once" unspecified defaults
-  // to fire-once: without it an A↔B pair of these automations ping-pongs unbounded
-  // (each landed run re-fires the other, and the per-run self-trigger guard only
-  // catches a sprint that recreates its OWN watched team). An explicit value —
-  // including false — still wins, so the default is opt-out, not a lock.
-  const effectiveDisableAfterRun =
-    disableAfterRun === undefined
-    && trigger.value.kind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
-    && action.value.kind === SPRINT_ENGINE_START_ACTION_KIND
-      ? true
-      : disableAfterRun
   const id = trimmedString(input.id)
   return ok({
     ...(id ? { id } : {}),
@@ -528,7 +520,7 @@ export function parseDefinitionDraft(input: unknown): AutomationsResult<Automati
     // host (module service, marketplace install) or absent (user records) — a
     // caller-supplied owner or provenance is ignored, never trusted.
     ...(runInWorktree === undefined ? {} : { runInWorktree }),
-    ...(effectiveDisableAfterRun === undefined ? {} : { disableAfterRun: effectiveDisableAfterRun }),
+    ...(disableAfterRun === undefined ? {} : { disableAfterRun }),
   })
 }
 
@@ -614,4 +606,22 @@ function ok<T>(value: T): AutomationsResult<T> {
 
 function fail<T = never>(code: string, message: string): AutomationsResult<T> {
   return { ok: false, code, message }
+}
+
+/**
+ * Provider-declared pairing defaults. A trigger that names `pairsWith` asks the
+ * write path to stamp `disableAfterRun` when this draft pairs it with that
+ * action and the field is left unspecified. An explicit value — including
+ * false — still wins.
+ */
+export function applyProviderPairDefaults(
+  draft: AutomationDefinitionDraft,
+  triggerProviders: RegisteredAutomationProvider<AutomationTriggerProvider>[]
+): AutomationDefinitionDraft {
+  if (draft.disableAfterRun !== undefined) return draft
+  const pairing = triggerProviders.find((registration) => registration.kind === draft.trigger.kind)
+    ?.provider.pairsWith
+  if (!pairing || pairing.actionKind !== draft.action.kind) return draft
+  if (pairing.defaultDisableAfterRun !== true) return draft
+  return { ...draft, disableAfterRun: true }
 }

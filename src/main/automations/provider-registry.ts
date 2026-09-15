@@ -1,25 +1,13 @@
-import type { SprintCreateRequest, SprintCreateResult } from '../../shared/sprint-create'
-import type { AutomationActionProvider, AutomationTriggerProvider, JsonSchema } from '../../shared/automations/contracts'
+import type { AutomationActionProvider, AutomationProviderGlyph, AutomationTriggerProvider, JsonSchema } from '../../shared/automations/contracts'
 import { BUNDLED_MODULE_IDS } from '../../shared/modules/manifest'
 import { createRunSkillLoopActionProvider } from './actions/run-skill-loop'
 import { createSpawnAgentActionProvider } from './actions/spawn-agent'
-import {
-  createSprintEngineRunActionProvider,
-  createSprintEngineStartActionProvider,
-  type SprintEngineAutomationFrontDoors,
-} from './actions/sprint-engine'
 import { scheduleTriggerProvider } from './schedule'
 import type { RepoTaskSourceFrontDoors } from './repo-task-source'
 import { createRepoEventTriggerProvider } from './triggers/repo-event'
-import {
-  createSprintEngineRunCompletedTriggerProvider,
-  createSprintEngineRunNeedsInputTriggerProvider,
-} from './triggers/sprint-engine-run-events'
-import { createSprintEngineRunLandedTriggerProvider } from './triggers/sprint-engine-run-landed'
 import { createWebhookTriggerProvider } from './triggers/webhook'
 
 const AUTOMATIONS_PROVIDER_MODULE_ID = 'automations'
-const SPRINT_ENGINE_PROVIDER_MODULE_ID = 'sprint-engine'
 
 export type BuiltInAutomationProviderRegistryOptions = {
   /**
@@ -27,14 +15,6 @@ export type BuiltInAutomationProviderRegistryOptions = {
    * trigger; a host without one advertises no repo-event family at all.
    */
   repoTasks?: RepoTaskSourceFrontDoors
-  sprintEngine?: SprintEngineAutomationFrontDoors
-  /**
-   * Sprint creation for the `sprint-engine-start` action, backed by main's
-   * SprintCreateService (MC-2160). The action is only registered when a
-   * creator is supplied, so a host without one advertises no way to start a
-   * run rather than one that fails at execution time.
-   */
-  createSprint?: (request: SprintCreateRequest) => Promise<SprintCreateResult>
 }
 
 type RegisteredProviderType = 'trigger' | 'action'
@@ -44,6 +24,9 @@ export type RegisteredAutomationProvider<T extends AutomationTriggerProvider | A
   moduleId: string
   providerType: RegisteredProviderType
   kind: string
+  label?: string
+  glyph?: AutomationProviderGlyph
+  summary?: string
   configSchema: JsonSchema
   requiredIntegrations: string[]
   provider: T
@@ -142,30 +125,6 @@ export function createBuiltInAutomationProviderRegistry(
   if (options.repoTasks) {
     registry.registerTriggerProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createRepoEventTriggerProvider(options.repoTasks))
   }
-  if (options.sprintEngine) {
-    registry.registerActionProvider(
-      SPRINT_ENGINE_PROVIDER_MODULE_ID,
-      createSprintEngineRunActionProvider(options.sprintEngine)
-    )
-    registry.registerTriggerProvider(
-      SPRINT_ENGINE_PROVIDER_MODULE_ID,
-      createSprintEngineRunLandedTriggerProvider(options.sprintEngine)
-    )
-    registry.registerTriggerProvider(
-      SPRINT_ENGINE_PROVIDER_MODULE_ID,
-      createSprintEngineRunNeedsInputTriggerProvider(options.sprintEngine)
-    )
-    registry.registerTriggerProvider(
-      SPRINT_ENGINE_PROVIDER_MODULE_ID,
-      createSprintEngineRunCompletedTriggerProvider(options.sprintEngine)
-    )
-    if (options.createSprint) {
-      registry.registerActionProvider(
-        SPRINT_ENGINE_PROVIDER_MODULE_ID,
-        createSprintEngineStartActionProvider({ createSprint: options.createSprint })
-      )
-    }
-  }
   return registry
 }
 
@@ -227,6 +186,9 @@ function blockedTriggerProvider(
     ?? `Automation trigger provider "${registration.kind}" is blocked.`
   return {
     kind: registration.kind,
+    ...(registration.label ? { label: registration.label } : {}),
+    ...(registration.glyph ? { glyph: registration.glyph } : {}),
+    ...(registration.summary ? { summary: registration.summary } : {}),
     configSchema: registration.configSchema,
     subscribe: () => () => undefined,
     computeNextRun: () => null,
@@ -242,6 +204,9 @@ function blockedActionProvider(
     ?? `Automation action provider "${registration.kind}" is blocked.`
   return {
     kind: registration.kind,
+    ...(registration.label ? { label: registration.label } : {}),
+    ...(registration.glyph ? { glyph: registration.glyph } : {}),
+    ...(registration.summary ? { summary: registration.summary } : {}),
     configSchema: registration.configSchema,
     run: async () => ({
       status: 'blocked',
@@ -253,14 +218,27 @@ function blockedActionProvider(
 
 function snapshotProviderMetadata(provider: AutomationTriggerProvider | AutomationActionProvider): {
   kind: string
+  label?: string
+  glyph?: AutomationProviderGlyph
+  summary?: string
   configSchema: JsonSchema
   requiredIntegrations: string[]
 } {
+  const label = ownDataProperty<unknown>(provider, 'label', undefined)
+  const glyph = ownDataProperty<unknown>(provider, 'glyph', undefined)
+  const summary = ownDataProperty<unknown>(provider, 'summary', undefined)
   return {
     kind: provider.kind,
+    ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
+    ...(isAutomationProviderGlyph(glyph) ? { glyph } : {}),
+    ...(typeof summary === 'string' && summary.trim() ? { summary: summary.trim() } : {}),
     configSchema: ownDataProperty(provider, 'configSchema', fallbackConfigSchema()),
     requiredIntegrations: snapshotRequiredIntegrations(provider),
   }
+}
+
+function isAutomationProviderGlyph(value: unknown): value is AutomationProviderGlyph {
+  return value === 'agent' || value === 'loop' || value === 'board' || value === 'clock'
 }
 
 function snapshotRequiredIntegrations(provider: AutomationTriggerProvider | AutomationActionProvider): string[] {

@@ -1,13 +1,9 @@
 import { createHash } from 'node:crypto'
 
-import {
-  SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
-  SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
-  type AutomationTriggerPollContext,
-  type AutomationTriggerPollEvent,
-  type AutomationTriggerProvider,
-  type SprintEngineRunCompletedTriggerConfig,
-  type SprintEngineRunNeedsInputTriggerConfig,
+import type {
+  AutomationTriggerPollContext,
+  AutomationTriggerPollEvent,
+  AutomationTriggerProvider,
 } from '../../../shared/automations/contracts'
 import type { SprintEngineProjectionReadResult } from '../../../shared/electron-api'
 import type { SprintEngineState } from '../../../shared/sprintengine/run-types'
@@ -23,11 +19,20 @@ import {
 } from '../actions/sprint-engine'
 import { workspaceSidecarPath } from '../../workspace-sidecar'
 
-export {
-  SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
-  SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
+export const SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND = 'sprint-engine.run-completed'
+export const SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND = 'sprint-engine.run-needs-input'
+
+export type SprintEngineRunNeedsInputTriggerConfig = {
+  kind: typeof SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND
+  team: string
+  label?: string
 }
-export type { SprintEngineRunCompletedTriggerConfig, SprintEngineRunNeedsInputTriggerConfig }
+
+export type SprintEngineRunCompletedTriggerConfig = {
+  kind: typeof SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND
+  team: string
+  label?: string
+}
 
 // Two POLLING run-event triggers (MC-1656): the app initiates contact when a
 // watched sprint blocks on a human question or finishes. Eventing is polling over
@@ -115,6 +120,9 @@ export function createSprintEngineRunCompletedTriggerProvider(
   const completedObservedAt = new Map<string, { fingerprint: string; since: number }>()
   return createRunEventTriggerProvider({
     kind: SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
+    label: 'Sprint completed',
+    glyph: 'board',
+    summary: 'When a sprint run finishes',
     frontDoors,
     validate: (config) => validateRunEventTriggerConfig(config, SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND),
     toEvents: ({ state, team, statePath, now }) => {
@@ -170,6 +178,9 @@ export function createSprintEngineRunNeedsInputTriggerProvider(
 ): AutomationTriggerProvider {
   return createRunEventTriggerProvider({
     kind: SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
+    label: 'Sprint needs input',
+    glyph: 'board',
+    summary: 'When a sprint task waits on a human',
     frontDoors,
     validate: (config) => validateRunEventTriggerConfig(config, SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND),
     toEvents: ({ state, team, now }) => {
@@ -203,6 +214,9 @@ export function createSprintEngineRunNeedsInputTriggerProvider(
 
 type RunEventTriggerOptions<T extends { kind: string; team: string }> = {
   kind: string
+  label: string
+  glyph: 'board'
+  summary: string
   frontDoors: Pick<SprintEngineAutomationFrontDoors, 'readProjection'>
   validate(config: unknown): ValidatedConfig<T>
   toEvents(input: { state: SprintEngineState; team: string; statePath: string; now: number }): AutomationTriggerPollEvent[]
@@ -213,6 +227,9 @@ function createRunEventTriggerProvider<T extends { kind: string; team: string }>
 ): AutomationTriggerProvider {
   return {
     kind: options.kind,
+    label: options.label,
+    glyph: options.glyph,
+    summary: options.summary,
     requiredIntegrations: [SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID],
     configSchema: {
       type: 'object',

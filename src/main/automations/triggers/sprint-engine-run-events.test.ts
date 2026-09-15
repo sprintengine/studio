@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict'
 
-import {
-  SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
-  SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
-  type AutomationTriggerPollContext,
-} from '../../../shared/automations/contracts'
+import type { AutomationTriggerPollContext } from '../../../shared/automations/contracts'
 import type { SprintEngineProjectionReadResult } from '../../../shared/electron-api'
 import {
   COMPLETED_CONFIRMATION_MS,
+  SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
+  SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
   createSprintEngineRunCompletedTriggerProvider,
   createSprintEngineRunNeedsInputTriggerProvider,
   sprintEngineRunFingerprint,

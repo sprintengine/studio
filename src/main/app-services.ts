@@ -82,8 +82,6 @@ import { readInstallId } from './telemetry/install-id'
 import type { BackgroundStatus } from '../shared/background-mode'
 import { createSprintPowerManager } from './sprint-power-manager'
 import { createSprintRuntime, type SprintRuntime } from './sprint-runtime'
-import { computeSprintEngineTokenUsageReport } from './sprintengine-token-usage'
-import { sprintTokenUsageDeps } from './sprintengine-token-sampling'
 import { setSprintEngineAutoRunPerfLogger } from '../shared/sprintengine/auto-run'
 import { createSprintEngineRunnerLog } from './sprintengine-runner-log'
 import { resolveMemoryRoot } from './memory-graph'
@@ -1120,7 +1118,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         // a restart.
         getAgentSpawnPermissionDefault: () => sprintEngineLaunchSettings.get().lastAgentSpawnPermissionPreset,
         createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
-        createSprint: (request) => sprintCreateService.createSprint(request),
         listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
         readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
         // Same filesystem store the Automations IPC front door reads; roots are
@@ -1137,8 +1134,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           repairIntegrity: repairBacklogIntegrity,
         },
         getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
-        listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
-        readSprintEngineProjection: (statePath) => sprintEngineArtifacts.readProjection({ statePath }),
         // The mobile companion over the gateway (tailnet-mobile-transport):
         // the SAME snapshot builder and command service the relay bridge uses,
         // wired to the same root/state-path discovery, so the two transports
@@ -1220,45 +1215,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
             },
           }
         })(),
-        // Sprint lifecycle control (MC-1653): mode writes go through the main-owned
-        // intent service (same lane as the mobile relay/sprint.status), never the
-        // renderer delegate. Cancel is the composed op the IPC channel uses — the
-        // engine cancel write, then scheduler teardown on success — so a paused or
-        // manual run's live agents are also stopped (sprint-engine-module).
-        readSprintAutomationMode: (input) => sprintEngineAutomation.readAutomationMode(input),
-        setSprintAutomationMode: (input) => sprintEngineAutomation.setAutomationMode(input),
-        resumeSprintRun: (statePath) => sprintRuntime.applyResume(statePath),
-        cancelSprintRun: async (payload) => {
-          const result = await sprintEngineArtifacts.cancelRun(payload)
-          if (result.ok) sprintRuntime.cancelRun(payload.statePath)
-          return result
-        },
-        // Sprint steering (MC-1654): artifact review + task mutation, all through
-        // the main-owned sprintEngineArtifacts handlers (two-lane rule, not the
-        // renderer delegate). Review mode is pinned 'user' — the external caller is
-        // a human-proxy surface, never the auto-runner's 'auto-run' policy path.
-        reviewSprintArtifact: (payload, action) => sprintEngineArtifacts.reviewArtifact(payload, action, 'user'),
-        commentSprintTask: (payload) => sprintEngineArtifacts.commentTask(payload),
-        // Like the IPC front door: a successful resolution lifts the
-        // external-input blocker, so wake the scheduler from `blocked`
-        // (paused/failed/terminal states untouched).
-        resolveSprintTaskInput: async (payload) => {
-          const result = await sprintEngineArtifacts.resolveTaskInput(payload)
-          if (result.ok) sprintRuntime.resumeIfBlocked(payload.statePath)
-          return result
-        },
-        setSprintTaskStatus: (payload) => sprintEngineArtifacts.setTaskStatus(payload),
-        createSprintTask: (payload) => sprintEngineArtifacts.createTask(payload),
-        updateSprintTask: (payload) => sprintEngineArtifacts.updateTask(payload),
-        // Sprint VCS + usage reads (MC-1655): PR open/refresh run the engine's own
-        // vcs CLI (main-owned, like the steering block); each re-reads the run
-        // projection so the tool can hand back the refreshed vcs block. Token usage
-        // computes straight off the ledger — the module's 15s render-storm cache
-        // (sprint-engine-module) is not needed at MCP call cadence, so this calls
-        // the underlying compute directly (it never throws, degrading to empty).
-        createSprintPullRequest: (payload) => sprintEngineArtifacts.createPullRequest(payload),
-        refreshSprintPullRequestStatus: (payload) => sprintEngineArtifacts.refreshPullRequestStatus(payload),
-        readSprintTokenUsage: (statePath) => computeSprintEngineTokenUsageReport(statePath, sprintTokenUsageDeps()),
         // Agent-at-launch worktrees (agent.launch isolation + every connector
         // launch): derive the `agent/<slug>` branch and container the Worktree
         // manager uses, then create through the shared git helper. Mirrors
