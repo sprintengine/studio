@@ -21,7 +21,10 @@ the other.
   into the list.
 - `ds-provider-row__face` — the resting row: `space.lg` of vertical padding,
   `space.md` at the sides, and **no border**. Five bordered bars in a list read
-  as five panels; space and the hover fill do the separating.
+  as five panels; space and the hover fill do the separating. Where the list
+  itself is a settings group or a catalogue page, the *list* takes one edge —
+  the list card — and the rows inside it are still borderless, divided by the
+  card's hairlines (the `--in-card` variant below).
 - `ds-provider-row__mark` — the brand mark's slot at `icon.size.lg`. The row
   sizes the slot and never picks the mark: a provider whose identity is a logo
   and one whose identity is a glyph must read at one weight.
@@ -67,6 +70,12 @@ the other.
   `text.default`; nothing else changes. **Not a disabled state** — every control
   keeps working, and the Install button such a row carries is the reason it is
   listed at all.
+- In a card (`ds-provider-row--in-card`) — the row inside the list card
+  ([setting-row](../setting-row/component.md) → *The list card*, ruled
+  2026-09-15). The face drops its radius and takes the card's `space.xl` side
+  inset; the health dot's keyline and the corner count's ring follow the
+  card's raised ground so neither halos. Everything else — the axes, the
+  disclosure, the expansion's alignment to the name — is unchanged.
 - **No tone variants of the row itself, deliberately.** An unhealthy provider is
   reported by its dot and its state line, not by tinting the row. A list where
   three of nine rows carry a wash has no resting state left.
@@ -129,6 +138,11 @@ the other.
 - Keep the expansion the per-instance form that already exists. This is
   disclosure, not navigation: nothing about opening a row changes where the user
   is.
+- **A settings group or a catalogue page of these rows takes the list card**
+  (ruled 2026-09-15); a rail, a shelf or an onboarding step does not. The
+  section band sits outside the card with the count and the one control that
+  acts on the whole list; the rows sit inside it in the `--in-card` form.
+  Rows loose under a band on a settings page were the shape this replaced.
 
 ## Accessibility
 

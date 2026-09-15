@@ -12,6 +12,8 @@
 <link rel="stylesheet" href="../switch/component.css" />
 <!-- The corner count on a mark is the badge component, unchanged. -->
 <link rel="stylesheet" href="../badge/component.css" />
+<!-- The list card the in-card rows sit in is setting-row's, unchanged. -->
+<link rel="stylesheet" href="../setting-row/component.css" />
 <style>
   body {
     margin: 0;
@@ -318,6 +320,58 @@
       </span>
     </div>
   </div>
+
+  <!-- In a card: the same rows as a settings group. The band stays outside;
+       the list card (setting-row) is the group's one edge; the rows drop their
+       radius and take the card's inset. -->
+  <div class="demo-band" style="margin-top: var(--sem-space-3xl)">
+    <h2>Version control</h2>
+  </div>
+  <ul class="ds-setting-row-list" aria-label="Version control">
+    <li class="ds-provider-row ds-provider-row--in-card">
+      <div class="ds-provider-row__face">
+        <span class="ds-provider-row__mark">
+          <span class="demo-mono-mark">git</span>
+          <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--good"></span>
+        </span>
+        <span class="ds-provider-row__text">
+          <span class="ds-provider-row__line">
+            <span class="ds-provider-row__name">Git</span>
+            <span class="ds-provider-row__version">2.47.1</span>
+          </span>
+          <span class="ds-provider-row__state">Available</span>
+        </span>
+      </div>
+    </li>
+    <li class="ds-provider-row ds-provider-row--in-card ds-provider-row--disclosable">
+      <div class="ds-provider-row__face">
+        <span class="ds-provider-row__mark">
+          <span class="demo-mono-mark">gh</span>
+          <span aria-hidden="true" class="ds-provider-row__health ds-provider-row__health--warn"></span>
+        </span>
+        <span class="ds-provider-row__text">
+          <span class="ds-provider-row__line">
+            <span class="ds-provider-row__name">GitHub</span>
+            <span class="ds-provider-row__version">2.62.0</span>
+          </span>
+          <span class="ds-provider-row__state">Not authenticated — <span class="ds-provider-row__id">gh auth login</span></span>
+        </span>
+        <span class="ds-provider-row__trail">
+          <button
+            type="button"
+            class="ds-provider-row__disclosure"
+            aria-expanded="false"
+            aria-controls="detail-github-card"
+            aria-label="GitHub details"
+          >
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" class="ds-provider-row__chevron">
+              <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+        </span>
+      </div>
+    </li>
+  </ul>
 </div>
 
 <div class="demo-stage" data-mode="dark">

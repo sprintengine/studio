@@ -40,6 +40,17 @@
   cursor: pointer;
 }
 
+/* --in-card: the row inside a list card (setting-row's `.ds-setting-row-list`,
+ * ruled 2026-09-15). The card clips its rows, so the face draws no radius — an
+ * inset rounded fill inside a bordered card reads as a card in a card — and it
+ * takes the card's 16px inset so the fill runs edge to edge like every other
+ * card row. */
+.ds-provider-row--in-card > .ds-provider-row__face {
+  padding-left: var(--sem-space-xl);
+  padding-right: var(--sem-space-xl);
+  border-radius: 0;
+}
+
 /* The brand mark's box. The row sizes the slot and never picks the mark: a
  * provider whose identity is a logo and one whose identity is a glyph must read
  * at one weight. 1px down so the mark's optical centre lands on the name's
@@ -107,6 +118,12 @@
   height: 6px;
   border-radius: 999px;
   box-shadow: 0 0 0 2px var(--sem-color-bg-surface);
+}
+
+/* In a card the resting ground is the raised tone; a keyline in the app
+ * surface's colour would halo on it. */
+.ds-provider-row--in-card .ds-provider-row__health {
+  box-shadow: 0 0 0 2px var(--sem-color-bg-surface-raised);
 }
 
 .ds-provider-row--disclosable > .ds-provider-row__face:hover .ds-provider-row__health {
@@ -252,4 +269,11 @@
   padding-right: var(--sem-space-md);
   padding-bottom: var(--sem-space-lg);
   padding-left: calc(var(--sem-space-md) + var(--sem-icon-size-lg) + var(--sem-space-lg));
+}
+
+/* Same sum from the card's wider inset, so the detail still opens on the
+ * name's edge. */
+.ds-provider-row--in-card > .ds-provider-row__detail {
+  padding-right: var(--sem-space-xl);
+  padding-left: calc(var(--sem-space-xl) + var(--sem-icon-size-lg) + var(--sem-space-lg));
 }

@@ -29,6 +29,26 @@
   border-top: 1px solid var(--sem-color-border-subtle);
 }
 
+/* --two-column: the same card, its rows two abreast (ruled 2026-09-15). For a
+ * list card of many short rows — a catalogue page, a module category — where
+ * one column is twice the height it needs and two cards side by side would be
+ * two edges for one group. Row-major, which is the order a pager and an
+ * alphabetical sort already produce. The first ROW is two cells, so the second
+ * cell drops the top rule; every even cell draws the rule where the columns
+ * meet. */
+.ds-setting-row-list--two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ds-setting-row-list--two-column > :nth-child(2) {
+  border-top: 0;
+}
+
+.ds-setting-row-list--two-column > :nth-child(even) {
+  border-left: 1px solid var(--sem-color-border-subtle);
+}
+
 .ds-setting-row {
   display: flex;
   min-height: var(--sem-size-control-lg);

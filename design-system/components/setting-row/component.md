@@ -48,6 +48,27 @@ This is the "stated reason" the section spec asks for before content takes a
 container. Recorded in `foundations/principles.md` under *Hairlines carry the
 structure* (ruling 2026-09-14).
 
+### The list card
+
+The same card, as a `<ul>` of `<li>` rows, is the **list card**: the one
+surface a list of *things* sits in on a settings page or a catalogue page —
+paired machines, agent CLIs, version-control providers, knowledge projects,
+modules, plugins, skills (ruled 2026-09-15). The section label sits outside
+it exactly as above, carrying the count and at most one trailing control.
+
+What goes in a list card is not this component's row: it is whichever row the
+thing already has — [provider-row](../provider-row/component.md) in its
+`--in-card` form, a connector row, a machine row — drawn full-bleed at the
+card's inset (`space.xl` at the sides, `space.lg` above and below), with no
+radius of its own. A row that is picked or opened takes its fill edge to edge;
+a row's disclosure opens inside its own `<li>`. Nothing inside the card draws a
+second card: an expansion is an indented block, never a bordered surface.
+
+Before the ruling the product had four answers to "a list of things on a
+settings page": rows loose on the surface, a gap grid of rows in two columns,
+a rounded row inset in a padded list, and this card. They read as four
+products. One card, and the rows conform to it.
+
 ## Variants
 
 - **Default** — label and help on the left, control on the right, vertically
@@ -57,6 +78,13 @@ structure* (ruling 2026-09-14).
   The row keeps its padding and its hairline; only the axis changes. Reach for
   it per row, not per card — a card of stacked rows is a form, and a form wants
   [field](../field/component.md).
+- **`--two-column`** (on the list, `.ds-setting-row-list--two-column`) — the
+  list card with its rows two abreast. For a card of many short rows — a
+  catalogue page, a module category — where one column is twice the height it
+  needs and two cards side by side would be two edges for one group. Still one
+  card: row-major order, a hairline where the columns meet, the top rules
+  starting from the second row. Never for setting rows themselves — a control
+  and its label want the width.
 - **`--disabled`** — the control cannot be used yet. The label drops to
   `text.muted`; the help stays as it is, because a person has to be able to
   read what they cannot have. Pair it with a `--requirement` suffix saying why.
