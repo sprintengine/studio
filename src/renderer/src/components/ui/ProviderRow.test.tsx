@@ -632,6 +632,34 @@ const BASE = {
 }
 
 // ---------------------------------------------------------------------------
+// In a list card the row is full-bleed and a real list item
+// ---------------------------------------------------------------------------
+{
+  const { host, root } = mount(
+    <ul>
+      <ProviderRow {...BASE} as="li" surface="card" health="good" badge={{ count: 1, label: 'Claude — update available' }} />
+    </ul>,
+  )
+  const item = host.querySelector('ul > li')
+  assert.ok(item, 'as="li" renders a list item, so a card <ul> holds valid children')
+  const face = item?.querySelector('div.group') as HTMLElement | null
+  assert.match(face?.className ?? '', /\bpx-4\b/, 'the card inset is the machine row’s 16px')
+  assert.doesNotMatch(face?.className ?? '', /rounded-/, 'no radius — the card clips, and a rounded fill inside it is a card in a card')
+  const dot = host.querySelector('span[aria-hidden="true"][style*="background-color"]') as HTMLElement | null
+  assert.match(dot?.className ?? '', /--bg-surface-raised/, 'the dot’s keyline tracks the card’s raised ground, or it halos')
+  const badge = host.querySelector('[aria-label="Claude — update available"]') as HTMLElement | null
+  assert.match(badge?.className ?? '', /--bg-surface-raised/, 'and so does the corner count’s ring')
+  unmount(root, host)
+
+  // The default is untouched: a row loose on a page keeps its radius and inset.
+  const loose = mount(<ProviderRow {...BASE} />)
+  assert.equal(loose.host.firstElementChild?.tagName, 'DIV', 'a loose row is a <div>')
+  const looseFace = loose.host.querySelector('div.group') as HTMLElement | null
+  assert.match(looseFace?.className ?? '', /rounded-\[var\(--radius-sm\)\] px-2\.5/, 'and draws the page inset')
+  unmount(loose.root, loose.host)
+}
+
+// ---------------------------------------------------------------------------
 // Host wiring a mounted row cannot observe
 // ---------------------------------------------------------------------------
 const repoRoot = process.cwd()

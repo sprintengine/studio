@@ -100,6 +100,16 @@ export type ProviderRowProps = {
   onSelect?: () => void
   /** The per-instance detail revealed by the chevron. */
   children?: React.ReactNode
+  /**
+   * Where the row sits. `page` (default) is a row loose on a surface: its own
+   * radius under the hover fill, a 10px inset. `card` is a row inside the list
+   * card (`SettingCard as="ul"`, ruled 2026-09-15): square corners because the
+   * card clips, the card's 16px inset, and the fill reaching the card's edge —
+   * an inset rounded fill inside a bordered card reads as a card in a card.
+   */
+  surface?: 'page' | 'card'
+  /** `li` when the row is a child of a list card's `<ul>`. */
+  as?: 'div' | 'li'
   className?: string
 }
 
@@ -116,6 +126,8 @@ export function ProviderStateId({ children }: { children: React.ReactNode }) {
 // selected fill, so all three states are named.
 // design-tokens-allow: zero-blur 2px ring, not a glow — the no-glow-shadow rule targets non-zero blur radii on CTAs.
 const DOT_KEYLINE_RESTING = 'shadow-[0_0_0_2px_var(--bg-surface)]'
+// design-tokens-allow: same zero-blur keyline, on the list card's raised ground.
+const DOT_KEYLINE_RESTING_CARD = 'shadow-[0_0_0_2px_var(--bg-surface-raised)]'
 // design-tokens-allow: same zero-blur keyline, tracking the selected fill.
 const DOT_KEYLINE_SELECTED = 'shadow-[0_0_0_2px_var(--bg-selected)]'
 // design-tokens-allow: same zero-blur keyline, tracking the hover fill.
@@ -163,9 +175,12 @@ export function ProviderRow({
   selected = false,
   onSelect,
   children,
+  surface = 'page',
+  as: Host = 'div',
   className,
 }: ProviderRowProps) {
   const detailId = `${React.useId()}-detail`
+  const inCard = surface === 'card'
   const disclosable = Boolean(onExpandedChange && children)
   const selectable = Boolean(onSelect) && !disclosable
   const switchable = typeof enabled === 'boolean' && Boolean(onEnabledChange)
@@ -204,7 +219,7 @@ export function ProviderRow({
               // longer paints a hover fill must not ring its dot in the hover
               // colour either, or the keyline halos on a surface-coloured row.
               disclosable || selectable ? DOT_KEYLINE_HOVER : '',
-              selected ? DOT_KEYLINE_SELECTED : DOT_KEYLINE_RESTING,
+              selected ? DOT_KEYLINE_SELECTED : inCard ? DOT_KEYLINE_RESTING_CARD : DOT_KEYLINE_RESTING,
             ].join(' ')}
             style={{ backgroundColor: STATUS_TONE_COLOR_VAR[health] }}
           />
@@ -221,7 +236,7 @@ export function ProviderRow({
             count={badge.count}
             max={99}
             ariaLabel={badge.label}
-            className="border-[color:var(--bg-surface)]"
+            className={inCard ? 'border-[color:var(--bg-surface-raised)]' : 'border-[color:var(--bg-surface)]'}
           />
         ) : null}
       </span>
@@ -260,7 +275,7 @@ export function ProviderRow({
   )
 
   return (
-    <div className={className ?? ''}>
+    <Host className={className ?? ''}>
       {/* Mouse users get the whole row as the hit target; the chevron is the
           only focusable control for it, so there is exactly one tab stop and
           one aria-expanded per row rather than a row-button wrapping a
@@ -272,9 +287,12 @@ export function ProviderRow({
       <div
         {...(disclosable ? { onClick: toggleExpanded } : {})}
         className={[
-          // 12px vertical padding, no border. The radius only shows under the
-          // hover fill, so it matches the fill rather than drawing a box.
-          'group flex items-start gap-3 rounded-[var(--radius-sm)] px-2.5 py-3',
+          // 12px vertical padding, no border. Loose on a page the radius only
+          // shows under the hover fill, so it matches the fill rather than
+          // drawing a box; in a card there is no radius at all — the card
+          // clips, and the fill runs edge to edge like every other card row.
+          'group flex items-start gap-3 py-3',
+          inCard ? 'px-4' : 'rounded-[var(--radius-sm)] px-2.5',
           // The crossfade is a raw utility rather than `.interactive` because
           // `.interactive` also carries the 0.97 press scale, which belongs to
           // a button and not to a full-width row. That means the shared
@@ -347,13 +365,14 @@ export function ProviderRow({
           expansion would have every row probing at once.
 
           pl-11 = the row's own 10px inset + the 22px mark + the 12px gap, so
-          the detail starts on the same left edge as the name above it.
-          design-tokens-allow: alignment — the detail's left edge is the name's (10px inset + 22px mark + 12px gap), structure not rhythm */}
+          the detail starts on the same left edge as the name above it. In a
+          card the inset is 16px, so the same sum is 50px.
+          design-tokens-allow: alignment — the detail's left edge is the name's (inset + 22px mark + 12px gap), structure not rhythm */}
       {open ? (
-        <div id={detailId} className="pb-3 pl-11 pr-2.5">
+        <div id={detailId} className={inCard ? 'pb-3 pl-[50px] pr-4' : 'pb-3 pl-11 pr-2.5'}>
           {children}
         </div>
       ) : null}
-    </div>
+    </Host>
   )
 }
