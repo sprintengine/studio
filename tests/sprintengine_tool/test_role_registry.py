@@ -441,7 +441,7 @@ def test_bare_discovery_searches_the_user_install_root(tmp_path: Path, monkeypat
     install_root = tmp_path / "sprintengine-roles"
     write_role(install_root, "installed_auditor")
     write_skill(install_root, "installed_auditor")
-    monkeypatch.delenv("MULTICODE_SPRINTENGINE_REGISTRY_ROOTS", raising=False)
+    monkeypatch.delenv("SPRINTENGINE_REGISTRY_ROOTS", raising=False)
     monkeypatch.setenv("MULTICODE_SPRINTENGINE_USER_REGISTRY_ROOT", str(install_root))
 
     discovery = discover_role_registry(workspace_root=Path("/unused/workspace"), user_root=Path("/unused/user"))
