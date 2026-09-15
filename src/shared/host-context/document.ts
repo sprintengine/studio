@@ -23,8 +23,6 @@
  * hook titles the workspace from the first words it sees, and those have to be
  * the person's request, not the host's.
  */
-import { join } from 'path'
-
 import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../design-system/attach'
 import { STUDIO_PRODUCT_NAME } from '../product-identity'
 import { knowledgeLaunchContext } from '../project-knowledge'
@@ -124,8 +122,8 @@ export function wrapHostContextForPrompt(
  * Plugin (skills/MCP only) and does not load `rules/`. Cursor Plugin discovery
  * in CLI 2026.09.10 looks for `.cursor-plugin/plugin.json` first.
  */
-export const CURSOR_HOST_CONTEXT_PLUGIN_MANIFEST_REL = join('.cursor-plugin', 'plugin.json')
-export const CURSOR_HOST_CONTEXT_PLUGIN_RULE_REL = join('rules', 'host-context.mdc')
+export const CURSOR_HOST_CONTEXT_PLUGIN_MANIFEST_REL = '.cursor-plugin/plugin.json'
+export const CURSOR_HOST_CONTEXT_PLUGIN_RULE_REL = 'rules/host-context.mdc'
 export const CURSOR_HOST_CONTEXT_PLUGIN_NAME = 'sprintengine-host-context'
 
 /**
