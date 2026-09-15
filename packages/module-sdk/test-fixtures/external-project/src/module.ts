@@ -46,7 +46,7 @@ export const manifest: CapabilityManifest = {
   summary: 'Forecast panel and quick-check command.',
   defaultEnabled: true,
   source: 'third-party',
-  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'ipc:agents', 'automations.manage', 'backlog.read', 'agents:companion', 'storage'],
+  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'ipc:agents', 'automations.manage', 'backlog.read', 'agents:companion', 'storage', 'process:spawn'],
   dependsOn: ['automations', 'agent-runtime'],
   entry: {
     main: 'dist/main.cjs',
@@ -248,6 +248,26 @@ export const registerMain: RegisterMain = (host) => {
   })
   host.registerIpc('weather-deck:read-outlook', async () => ({ city: 'Dublin', summary: 'clear', refreshedAt: 0 }))
   host.registerSidecar({ id: 'weather-deck-poller', kind: 'process', description: 'Background forecast poller.' })
+  const pythonSidecar = host.registerSidecar({
+    id: 'weather-deck-mcp',
+    kind: 'python',
+    python: {
+      root: 'python',
+      module: 'weather_deck_mcp',
+      args: ['--http', '--port', '0'],
+      env: { WEATHER_DECK_USER_ID: 'studio-app' },
+    },
+    startOn: 'demand',
+  })
+  pythonSidecar.onStderr((chunk) => {
+    if (chunk.includes('ready')) pythonSidecar.signalReady()
+  })
+  void host.runPython({
+    root: 'python',
+    module: 'weather_deck_mcp',
+    args: ['--version'],
+    timeoutMs: 5_000,
+  })
   host.onStartup(() => {
     host.notify({ severity: 'info', title: 'Weather Deck ready' })
   })

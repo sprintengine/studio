@@ -125,6 +125,36 @@ invoke, or one the user should see listed — call
 answers `{ ok, status, message? }`; `status: 'unknown-skill'` means nothing
 answers to that id.
 
+### Shipping Python with a module
+
+A module can ship Python packages inside its signed bundle. The host runs them
+on the CPython the app already bundles — you never see the interpreter path.
+Declare `process:spawn`.
+
+```ts
+const sidecar = host.registerSidecar({
+  id: 'my-module-mcp',
+  kind: 'python',
+  python: {
+    root: 'python',                 // relative to the module root
+    module: 'my_module_mcp',        // python -m
+    args: ['--http', '--port', '0'],
+    env: { MY_MODULE_USER_ID: 'studio-app' },
+  },
+  startOn: 'demand',
+})
+sidecar.onStderr((chunk) => {
+  if (chunk.includes('ready')) sidecar.signalReady()
+})
+await sidecar.start()
+await sidecar.ready
+```
+
+`python.root` must stay inside the module root, same containment rule as
+`registerSkills`. `stop()` and unload kill the child. For a process that
+should exit, `host.runPython({ root, script | module, args, cwd, env,
+timeoutMs })` returns `{ exitCode, stdout, stderr }`.
+
 ### Publishing a module to the marketplace
 
 Folder install (above) is the developer loop. To let other users discover and

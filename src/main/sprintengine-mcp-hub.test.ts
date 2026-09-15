@@ -6,16 +6,77 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createMainKernel } from './module-host/main-host'
-import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
+import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService, type SprintEngineMcpHubSidecar } from './sprintengine-mcp-hub'
+
+function sidecarFromFakeProcess(child: FakeHubProcess): SprintEngineMcpHubSidecar {
+  const stderrListeners = new Set<(chunk: string) => void>()
+  const exitListeners = new Set<(code: number | null, signal: string | null) => void>()
+  child.stderr.on('data', (chunk: Buffer | string) => {
+    const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+    for (const listener of stderrListeners) listener(text)
+  })
+  child.on('exit', (code) => {
+    for (const listener of exitListeners) listener(typeof code === 'number' ? code : 0, null)
+  })
+  return {
+    get pid() {
+      return child.pid
+    },
+    async start() {
+      return
+    },
+    async stop() {
+      child.kill()
+    },
+    onStderr(listener) {
+      stderrListeners.add(listener)
+      return () => {
+        stderrListeners.delete(listener)
+      }
+    },
+    onExit(listener) {
+      exitListeners.add(listener)
+      return () => {
+        exitListeners.delete(listener)
+      }
+    },
+  }
+}
+
+function createLivePythonHub(options: {
+  logMainPerfEvent?: (scope: string, event: string, payload: Record<string, unknown>) => void
+}): { service: ReturnType<typeof createSprintEngineMcpHubService> } {
+  const kernel = createMainKernel({ handle: () => undefined } as unknown as Parameters<typeof createMainKernel>[0])
+  const handle = kernel.hostFor('sprint-engine').registerSidecar({
+    id: 'sprintengine-mcp',
+    kind: 'python',
+    python: {
+      root: process.cwd(),
+      module: 'sprintengine_mcp',
+      args: ['--http', '--port', '0'],
+      env: {
+        SPRINTENGINE_MCP_USER_ID: 'multicode-app',
+        SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
+      },
+    },
+    startOn: 'demand',
+  })
+  return {
+    service: createSprintEngineMcpHubService({
+      sidecar: handle,
+      logMainPerfEvent: options.logMainPerfEvent,
+    }),
+  }
+}
 
 async function main(): Promise<void> {
   const diagnostics: Array<{ scope: string; event: string; payload: Record<string, unknown> }> = []
-  const service = createSprintEngineMcpHubService({
-    runtimeRoot: () => process.cwd(),
+  const live = createLivePythonHub({
     logMainPerfEvent: (scope, event, payload) => {
       diagnostics.push({ scope, event, payload })
     },
   })
+  const service = live.service
 
   const first = await service.ensureStarted()
   const second = await service.ensureStarted()
@@ -97,7 +158,6 @@ async function main(): Promise<void> {
   assert.equal(JSON.stringify(diagnostics).includes(registration.runToken), false, 'hub diagnostics must not leak run tokens')
 
   const failedService = createSprintEngineMcpHubService({
-    runtimeRoot: () => null,
     logMainPerfEvent: (scope, event, payload) => {
       diagnostics.push({ scope, event, payload })
     },
@@ -113,8 +173,7 @@ async function main(): Promise<void> {
   const slowDiagnostics: Array<{ event: string; payload: Record<string, unknown> }> = []
   const slowProcess = createFakeHubProcess()
   const slowService = createSprintEngineMcpHubService({
-    runtimeRoot: () => process.cwd(),
-    spawnProcess: (() => slowProcess) as never,
+    sidecar: sidecarFromFakeProcess(slowProcess),
     logMainPerfEvent: (_scope, event, payload) => {
       slowDiagnostics.push({ event, payload })
     },
@@ -196,8 +255,7 @@ async function testStatelessSingleRequestToolCall(): Promise<void> {
 
   const child = createFakeHubProcess()
   const service = createSprintEngineMcpHubService({
-    runtimeRoot: () => process.cwd(),
-    spawnProcess: (() => child) as never,
+    sidecar: sidecarFromFakeProcess(child),
   })
   try {
     const started = service.ensureStarted()
@@ -302,7 +360,7 @@ function createFakeHubProcess(): FakeHubProcess {
 // failures after claiming are reported to the owning module.
 async function testGatedHubOwnership(): Promise<void> {
   const unclaimed = createGatedSprintEngineMcpHub(
-    createSprintEngineMcpHubService({ runtimeRoot: () => process.cwd() })
+    createSprintEngineMcpHubService()
   )
   await assert.rejects(() => unclaimed.ensureStarted(), /Sprint Engine module is disabled/)
   await assert.rejects(
@@ -320,7 +378,7 @@ async function testGatedHubOwnership(): Promise<void> {
   await unclaimed.stop()
 
   const spawnFailures: string[] = []
-  const failing = createGatedSprintEngineMcpHub(createSprintEngineMcpHubService({ runtimeRoot: () => null }))
+  const failing = createGatedSprintEngineMcpHub(createSprintEngineMcpHubService())
   failing.claimOwnership({ onSpawnFailure: (message) => spawnFailures.push(message) })
   await assert.rejects(() => failing.ensureStarted(), /Bundled Sprint Engine MCP runtime was not found/)
   assert.deepEqual(spawnFailures, ['Bundled Sprint Engine MCP runtime was not found.'])
@@ -338,28 +396,27 @@ async function testGatedHubOwnership(): Promise<void> {
 async function testKernelOwnedSidecarLifecycle(): Promise<void> {
   const kernel = createMainKernel({ handle: () => undefined } as unknown as Parameters<typeof createMainKernel>[0])
   const notifications = kernel.recentNotifications()
-  const hub = createGatedSprintEngineMcpHub(
-    createSprintEngineMcpHubService({ runtimeRoot: () => process.cwd() })
-  )
+  const handle = kernel.hostFor('sprint-engine').registerSidecar({
+    id: 'sprintengine-mcp',
+    kind: 'python',
+    python: {
+      root: process.cwd(),
+      module: 'sprintengine_mcp',
+      args: ['--http', '--port', '0'],
+      env: {
+        SPRINTENGINE_MCP_USER_ID: 'multicode-app',
+        SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
+      },
+    },
+    startOn: 'demand',
+  })
+  const hub = createGatedSprintEngineMcpHub(createSprintEngineMcpHubService({ sidecar: handle }))
   const host = kernel.hostFor('sprint-engine')
   hub.claimOwnership({
     onSpawnFailure: (message) =>
       host.notify({ severity: 'error', title: 'Sprint Engine MCP hub failed to start', body: message }),
   })
-  const handle = host.registerSidecar(
-    { id: 'sprintengine-mcp', kind: 'python-mcp', module: 'sprintengine_mcp', startOn: 'demand' },
-    {
-      start: async () => {
-        await hub.ensureStarted()
-      },
-      stop: () => hub.stop(),
-      status: () => {
-        const current = hub.status()
-        const state = current.state === 'ready' ? 'running' : current.state
-        return { state, error: current.lastError }
-      },
-    }
-  )
+  host.onShutdown(() => hub.stop())
 
   await kernel.runStartup()
   assert.equal(handle.status().state, 'stopped', 'demand sidecar does not spawn at app startup')
