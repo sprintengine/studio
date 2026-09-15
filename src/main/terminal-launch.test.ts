@@ -18,8 +18,16 @@ import {
   cleanupHostContextFile,
   hostContextRenderInputs,
   mergeProviderLaunchEnv,
+  applyMergedLaunchContribution,
+  buildLaunchShellBootstrap,
   type HostContextDelivery,
 } from './terminal-launch'
+import {
+  addLaunchContribution,
+  collectLaunchContributions,
+  EMPTY_LAUNCH_CONTRIBUTION,
+  resetLaunchContributionsForTest,
+} from './module-host/launch-contributions'
 
 async function main(): Promise<void> {
   testNoOpWithoutProviderEnv()
@@ -31,6 +39,9 @@ async function main(): Promise<void> {
   testStripsInheritedAgentStateSocket()
   testSocketNeverClobberedByProviderEnv()
   testJsonEnvValuesMergeInsteadOfClobbering()
+  testNoContributionLeavesEnvAndBootstrapUntouched()
+  testContributionEnvIsAppliedAfterCoreAndStripsIdentityKeys()
+  testThrowingContributionDoesNotFailTheMerge()
   testNothingIsDeliveredWhenTheHostHasNothingToSay()
   testArgvModeCarriesTheFileAndTheText()
   testPromptModeWritesNoFileAndWrapsTheRequest()
@@ -224,6 +235,60 @@ function testJsonEnvValuesMergeInsteadOfClobbering(): void {
   // so no other manifest's env changes behaviour.
   const plain = mergeProviderLaunchEnv({ ANTHROPIC_BASE_URL: 'https://a' }, { ANTHROPIC_BASE_URL: 'https://b' })
   assert.equal(plain.ANTHROPIC_BASE_URL, 'https://b')
+}
+
+function testNoContributionLeavesEnvAndBootstrapUntouched(): void {
+  resetLaunchContributionsForTest()
+  const base = { PATH: '/usr/bin', FOO: '1' }
+  assert.deepEqual(applyMergedLaunchContribution(base, EMPTY_LAUNCH_CONTRIBUTION, 'posix'), base)
+  assert.equal(buildLaunchShellBootstrap(EMPTY_LAUNCH_CONTRIBUTION), '')
+  const collected = collectLaunchContributions({
+    cli: 'codex',
+    workspaceRoot: '/Users/dev/project',
+    sessionId: 'plain',
+    pathStyle: 'posix',
+  })
+  assert.deepEqual(collected.env, {})
+  assert.deepEqual(collected.pathEntries, [])
+  assert.deepEqual(collected.shellFunctions, [])
+}
+
+function testContributionEnvIsAppliedAfterCoreAndStripsIdentityKeys(): void {
+  const merged = {
+    ...EMPTY_LAUNCH_CONTRIBUTION,
+    env: { MODULE_ROOT: '/Users/dev/mod', TERM: 'should-not-win' },
+    pathEntries: ['/Users/dev/mod/bin'],
+    identityKeys: ['MODULE_ID'],
+    shellFunctions: ['mod() { :; }', 'export -f mod >/dev/null 2>&1 || true'],
+  }
+  const applied = applyMergedLaunchContribution(
+    { PATH: '/usr/bin', MODULE_ID: 'stale', TERM: 'xterm-256color' },
+    merged,
+    'posix'
+  )
+  assert.equal(applied.MODULE_ID, undefined, 'contribution identity keys are stripped first')
+  assert.equal(applied.MODULE_ROOT, '/Users/dev/mod')
+  assert.equal(applied.TERM, 'xterm-256color', 'protected keys stay core-owned')
+  assert.ok(applied.PATH?.startsWith('/Users/dev/mod/bin:'), applied.PATH)
+  const bootstrap = buildLaunchShellBootstrap(merged)
+  assert.ok(bootstrap.includes('mod() { :; }'))
+}
+
+function testThrowingContributionDoesNotFailTheMerge(): void {
+  resetLaunchContributionsForTest()
+  addLaunchContribution('good', () => ({ env: { GOOD: '1' } }))
+  addLaunchContribution('boom', () => {
+    throw new Error('contribution exploded')
+  })
+  const merged = collectLaunchContributions({
+    cli: 'codex',
+    workspaceRoot: '/Users/dev/project',
+    sessionId: 's1',
+    pathStyle: 'posix',
+  })
+  assert.equal(merged.env.GOOD, '1')
+  assert.deepEqual(merged.failures, [{ moduleId: 'boom', message: 'contribution exploded' }])
+  resetLaunchContributionsForTest()
 }
 
 // A plain repo — no design system, no knowledge graph — launches exactly as it

@@ -82,6 +82,7 @@ async function main(): Promise<void> {
     testOpenCodeTakesTheContextThroughItsConfigEnv()
     testPromptFallbackCliRendersNoContextFlag()
     testCursorTakesTheContextAsAPluginDirOnLaunchAndResume()
+    testAModuleHostContextSectionRidesTheDeclaredChannel()
     testLaunchPreviewNeverShowsHostContext()
     testLaunchPluginDirsReachLaunchAndResume()
     testLaunchSettingsReachLaunchAndResume()
@@ -1280,6 +1281,38 @@ function testGrokTakesTheContextTextOnLaunchAndResume(): void {
     // Text, not a path: grok documents no file-taking variant.
     assert.equal(out.argv[flagAt + 1], HOST_CONTEXT_TEXT)
   }
+}
+
+function testAModuleHostContextSectionRidesTheDeclaredChannel(): void {
+  const text = [
+    HOST_CONTEXT_TEXT,
+    '',
+    '## Sprint Engine',
+    '',
+    'Use the sprintengine CLI for run tools.',
+  ].join('\n')
+  const grok = renderAgentLaunchArgv({
+    cli: 'grok',
+    sessionId: 'sid_mod',
+    contextFile: HOST_CONTEXT_FILE,
+    contextText: text,
+  })
+  const grokFlag = grok.argv.indexOf('--append-system-prompt')
+  assert.ok(grokFlag >= 0)
+  assert.equal(grok.argv[grokFlag + 1], text)
+  assert.ok(String(grok.argv[grokFlag + 1]).includes('## Sprint Engine'))
+
+  const claude = renderAgentLaunchArgv({
+    cli: 'claude-code',
+    sessionId: 'sid_mod',
+    contextFile: HOST_CONTEXT_FILE,
+    contextText: text,
+  })
+  assert.deepEqual(
+    [claude.argv[claude.argv.indexOf('--append-system-prompt-file') + 1]],
+    [HOST_CONTEXT_FILE],
+    'claude still takes the file; the extra section lives in the document, not the argv'
+  )
 }
 
 function testOpenCodeTakesTheContextThroughItsConfigEnv(): void {

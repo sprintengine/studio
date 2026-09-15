@@ -117,13 +117,13 @@ export type ReapCandidate = {
   // Caller-supplied: the terminal belongs to an active managed run (e.g. a
   // SprintEngine agent). Defaults to the SAFE value (true) when unsure.
   inActiveRun: boolean
-  // Caller-supplied: an orchestrator-managed SprintEngine terminal (has a run
-  // statePath). Excluded from the recency floor entirely — the floor is a
-  // promise about the USER'S terminals: engine agents of a finished run must
-  // not occupy keep-alive slots (evicting the user's own terminals from their
-  // budget) nor be spared from the dispose path that closes the
-  // parked-until-teardown memory gap.
-  sprintManaged: boolean
+  // Caller-supplied: an orchestrator-managed terminal (a module tagged the
+  // session via `session.managed` on its launch contribution). Excluded from
+  // the recency floor entirely — the floor is a promise about the USER'S
+  // terminals: managed agents of a finished run must not occupy keep-alive
+  // slots (evicting the user's own terminals from their budget) nor be spared
+  // from the dispose path that closes the parked-until-teardown memory gap.
+  managed: boolean
   // User lock ("keep running"): the user explicitly exempted this terminal from
   // reaping via its lock control. Absolute — no idle clock ever overrides it.
   reapExempt: boolean
@@ -251,10 +251,10 @@ export function selectReapableSessions(
   // count toward the floor — the cap only bites when reaping the full set would
   // drop the live user-agent population below N. Oldest-rested reap first, so
   // the spared remainder is always the most recently used.
-  const sprintReapable = reapable.filter((candidate) => candidate.sprintManaged)
-  const userReapable = reapable.filter((candidate) => !candidate.sprintManaged)
+  const managedReapable = reapable.filter((candidate) => candidate.managed)
+  const userReapable = reapable.filter((candidate) => !candidate.managed)
   const liveUserAgentCount = candidates.filter(
-    (candidate) => candidate.processAlive && candidate.kind === 'agent' && !candidate.sprintManaged
+    (candidate) => candidate.processAlive && candidate.kind === 'agent' && !candidate.managed
   ).length
   const maxUserReapable = Math.max(0, liveUserAgentCount - keepRecentAliveCount)
 
@@ -270,7 +270,7 @@ export function selectReapableSessions(
   const oldestFirst = [...userReapable].sort((a, b) => restingSince(a) - restingSince(b))
   return {
     reapableSessionIds: [
-      ...sprintReapable.map((candidate) => candidate.sessionId),
+      ...managedReapable.map((candidate) => candidate.sessionId),
       ...oldestFirst.slice(0, maxUserReapable).map((candidate) => candidate.sessionId),
     ],
     heldByRecencyFloorSessionIds: oldestFirst.slice(maxUserReapable).map((candidate) => candidate.sessionId),

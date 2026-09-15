@@ -53,13 +53,15 @@ contracts, so a published version always matches the app version it ships with.
 - **Main host**: `registerIpc` (channel ownership enforced), service tokens,
   startup/shutdown hooks, `registerSidecar` (including host-owned `kind:
   'python'` sidecars — see "Python the host runs"), `runPython`,
-  `notify(severity, title,
-  body?)` (identity stamped by the host, per-module flood-bounded), and
-  `registerMcpTools(tools)` — agent-facing MCP tools on the always-on Studio
-  gateway, owned by your module's id with duplicate-name rejection. Tool
-  availability follows your module's enablement live: a disabled module's
-  tools stay listed and answer an actionable enable error instead of running.
-  Declare `ipc:agents`. Skills your module ships ride the same
+  `registerLaunchContribution` (per-spawn env, PATH shims, shell functions,
+  managed-MCP entries, host-context sections and a session lifetime tag — see
+  "Launch contributions"), `notify(severity, title, body?)` (identity stamped
+  by the host, per-module flood-bounded), and `registerMcpTools(tools)` —
+  agent-facing MCP tools on the always-on Studio gateway, owned by your
+  module's id with duplicate-name rejection. Tool availability follows your
+  module's enablement live: a disabled module's tools stay listed and answer
+  an actionable enable error instead of running. Declare `ipc:agents`. Skills
+  your module ships ride the same
   ownership discipline through `registerSkills(skills)`, and
   `ensureSkillInstalled(workspaceRoot, skillId)` puts one in a workspace on
   demand — see "Skills a module ships".
@@ -555,6 +557,54 @@ snapshot read, not a subscription — live state is a separate surface).
 `list()` on the same service enumerates every open workspace — the main-side
 twin of `RendererHost.listWorkspaces`, and how an MCP tool your module
 contributes answers "which project roots are open" with no window in sight.
+
+## Launch contributions
+
+Every agent spawn (and every plain-shell pane) asks registered modules what to
+put on that launch. Declare `ipc:agents` and register a function of the launch
+request; the host calls every contribution in module registration order, merges
+the results, and never lets a throw fail the spawn — a failing contribution is
+recorded as a module diagnostic and skipped.
+
+```ts
+import type { RegisterMain } from '@sprintengine/module-sdk'
+
+export const registerMain: RegisterMain = (host) => {
+  host.registerLaunchContribution((launch) => ({
+    env: { MY_MODULE_ROOT: launch.workspaceRoot },
+    pathEntries: ['/Users/dev/my-module/bin'],
+    shellFunctions: [
+      'mymodule() { command my-module "$@"; }',
+      'export -f mymodule >/dev/null 2>&1 || true',
+    ],
+    hostContext: [{ heading: 'My module', body: 'Standing instruction for this agent.' }],
+    session: { managed: false },
+    identityKeys: ['MY_MODULE_AGENT_ID'],
+  }))
+}
+```
+
+- **`env`** is merged after the host's own session env and before the CLI
+  manifest's `launch.env`. Protected identity keys (`TERM`, the agent-identity
+  vars, `FORCE_HYPERLINK`) cannot be overwritten. `identityKeys` are stripped
+  from inherited env first, so a stale value from the process that launched
+  Studio cannot leak into a spawn that did not set its own.
+- **`pathEntries`** are directories you own (typically under module storage)
+  prepended to `PATH`. Write your own shims there; the host does not write them.
+- **`shellFunctions`** are POSIX function definitions appended to the login
+  shell bootstrap. They are unused on a native Windows PTY.
+- **`mcpServers`** are managed MCP config entries in the shape the host already
+  syncs into a workspace CLI config.
+- **`hostContext`** sections are appended to the host-context document after the
+  design-system and Knowledge Graph sections, and ride whatever channel the CLI
+  manifest declares (`contextInjection`), so a standing instruction survives
+  resume like the rest of the document.
+- **`session.managed`** tags the terminal as module-owned for the idle reaper
+  (excluded from the recency floor that protects the user's own agents).
+  `session.reapExempt` holds it out of the reaper entirely.
+
+A module that is disabled or not installed contributes nothing, so a plain
+launch is byte-identical to a launch in a build with no modules.
 
 ## Agent sessions (main)
 
