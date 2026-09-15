@@ -75,6 +75,11 @@ const SECTION_AVATAR_SIZE = 22
  */
 type SkillRow = { sourceId: string; item: SkillListItem }
 
+/** What names a row to React, for the list item the surface wraps it in. */
+function skillRowKey(row: SkillRow): string {
+  return `${row.sourceId} ${row.item.skillId}`
+}
+
 /** The Installed section's source id: no source at all. */
 const NO_SOURCE = ''
 
@@ -340,7 +345,7 @@ export function SkillsCatalogue({
       const orphan = row.sourceId === NO_SOURCE
       return (
         <ConnectorRow
-          key={`${row.sourceId} ${item.skillId}`}
+          surface="card"
           icon={
             <ExtensionIcon
               name={item.name}
@@ -582,6 +587,7 @@ export function SkillsCatalogue({
       body={body}
       sections={sections}
       renderRow={renderRow}
+      rowKey={skillRowKey}
       noun="skill"
       detail={detail}
     />

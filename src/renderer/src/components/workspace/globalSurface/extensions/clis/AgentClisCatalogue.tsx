@@ -262,6 +262,7 @@ export function AgentClisCatalogue({
       body={body}
       sections={sections}
       renderRow={renderRow}
+      rowKey={(entry) => entry.key}
       noun="agent CLI"
       detail={detail}
     />

@@ -8,9 +8,15 @@
 // this row are the whole navigation, so the door brings no rail and the
 // sidebar column keeps the five drawer rows the person arrived by.
 //
+// List-card ruling (2026-09-15): each group's rows sit in the settings list
+// card — one bordered surface per group, the rows full-bleed inside it, two
+// abreast — the same card the Remote tab's machines and the Settings lists
+// sit in. The rows were a gap grid before, and a page of them read as a
+// different product from the Settings page one door over.
+//
 // This file owns that frame. What goes IN a tab is each catalogue's own
 // business — a registry category, a repository's folders, the CLI shelf — and
-// arrives as sections of items plus a way to draw one.
+// arrives as sections of items plus a way to draw one and a way to key it.
 
 import React, { useMemo, useState } from 'react'
 
@@ -19,6 +25,7 @@ import {
   InboxSearchInput,
   OverflowMenu,
   Pager,
+  SettingCard,
   Tabs,
   TabPanel,
   Tooltip,
@@ -75,6 +82,7 @@ export function CatalogueSurface<T>({
   body,
   sections,
   renderRow,
+  rowKey,
   noun,
   detail,
 }: {
@@ -101,7 +109,13 @@ export function CatalogueSurface<T>({
    */
   body?: React.ReactNode
   sections?: readonly CatalogueSection<T>[]
+  /**
+   * Draws one item, already in its `<li>`: the surface owns the list item, so
+   * a row component need not know it is in a list, and the card's hairline
+   * math counts one child per item. `rowKey` names the item for React.
+   */
   renderRow?: (item: T, index: number) => React.ReactNode
+  rowKey?: (item: T) => string
   /** Singular noun for the pager's sentence: 'plugin', 'skill', 'agent CLI'. */
   noun: string
   /**
@@ -235,7 +249,7 @@ export function CatalogueSurface<T>({
                 <div className="space-y-8">
                   {view.groups.map((group) => {
                     const section = sectionByKey.get(group.key)
-                    if (!section || !renderRow) return null
+                    if (!section || !renderRow || !rowKey) return null
                     const heading = (
                       <ConnectorSectionHeading
                         // A group that started on an earlier page says so,
@@ -249,8 +263,8 @@ export function CatalogueSurface<T>({
                       <section key={group.key} className="space-y-3">
                         {section.leading ? (
                           // The source's mark leads its heading, and the
-                          // heading keeps its own rule and count: the kit
-                          // section head, not a second heading idiom.
+                          // heading keeps its own count: the kit section
+                          // head, not a second heading idiom.
                           <div className="flex items-center gap-2.5">
                             {section.leading}
                             <div className="min-w-0 flex-1">{heading}</div>
@@ -258,16 +272,18 @@ export function CatalogueSurface<T>({
                         ) : (
                           heading
                         )}
-                        {/* Rows breathe: a column gap wide enough that two
-                            rows' Install buttons and names do not read as
-                            one line, and a row gap that separates rows
-                            without ruling them (extensions review,
-                            2026-09-08). */}
-                        <div className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
-                          {section.items
-                            .slice(group.start, group.end)
-                            .map((item, index) => renderRow(item, group.start + index))}
-                        </div>
+                        {/* One card per group, two columns inside it. The
+                            card's hairlines do the separating the old grid's
+                            gaps did, and its edge is the group's — the
+                            heading names it, the card bounds it. The rows
+                            keep the wide inset, so two rows' names and
+                            Install buttons still do not read as one line
+                            (extensions review, 2026-09-08). */}
+                        <SettingCard as="ul" ariaLabel={group.label} columns={2}>
+                          {section.items.slice(group.start, group.end).map((item, index) => (
+                            <li key={rowKey(item)}>{renderRow(item, group.start + index)}</li>
+                          ))}
+                        </SettingCard>
                       </section>
                     )
                   })}

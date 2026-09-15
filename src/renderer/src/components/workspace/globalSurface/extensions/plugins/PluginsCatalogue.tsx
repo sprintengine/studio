@@ -125,6 +125,22 @@ function pluginKey(sourceId: string, pluginId: string): string {
   return `${sourceId}\u0000${pluginId}`
 }
 
+/** What names an item to React, for the list item the surface wraps it in. */
+function pluginItemKey(item: PluginItem): string {
+  switch (item.kind) {
+    case 'builtin':
+      return 'sprintengine-studio-builtin'
+    case 'connector':
+      return item.entry.key
+    case 'plugin':
+      return pluginKey(item.sourceId, item.item.pluginId)
+    case 'installed-server':
+      return `installed ${item.server.id}`
+    case 'server':
+      return `${item.sourceId} ${item.server.id}`
+  }
+}
+
 export function PluginsCatalogue({
   sources,
   connectors,
@@ -685,7 +701,7 @@ export function PluginsCatalogue({
         const row = item.row
         return (
           <ConnectorRow
-            key="sprintengine-studio-builtin"
+            surface="card"
             icon={
               <ExtensionIcon
                 name={row.name}
@@ -714,7 +730,7 @@ export function PluginsCatalogue({
         const entry = item.entry
         return (
           <ConnectorEntryRow
-            key={entry.key}
+            surface="card"
             entry={entry}
             registryUrl={connectors.registryUrl}
             selected={openRow?.kind === 'connector' && openRow.key === entry.key}
@@ -729,7 +745,7 @@ export function PluginsCatalogue({
           openRow?.kind === 'plugin' && openRow.sourceId === item.sourceId && openRow.id === row.pluginId
         return (
           <ConnectorRow
-            key={pluginKey(item.sourceId, row.pluginId)}
+            surface="card"
             icon={
               <ExtensionIcon
                 name={row.name}
@@ -794,7 +810,7 @@ export function PluginsCatalogue({
         const server = item.server
         return (
           <ConnectorRow
-            key={`installed ${server.id}`}
+            surface="card"
             icon={<ExtensionIcon name={server.name} size={ROW_ICON_SIZE} />}
             name={server.name}
             summary={server.description || server.command || server.url || server.id}
@@ -815,7 +831,7 @@ export function PluginsCatalogue({
       const needsPlugin = referencesPluginRoot(server)
       return (
         <ConnectorRow
-          key={`${item.sourceId} ${server.id}`}
+          surface="card"
           icon={
             <ExtensionIcon
               name={server.name}
@@ -1122,6 +1138,7 @@ export function PluginsCatalogue({
       body={body}
       sections={sections}
       renderRow={renderRow}
+      rowKey={pluginItemKey}
       noun="plugin"
       detail={detail}
     />
