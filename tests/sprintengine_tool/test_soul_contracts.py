@@ -15,11 +15,11 @@ import pytest
 
 from sprintengine_core.role_registry import BUNDLED_REGISTRY_ROOT, RoleSkillRegistry
 from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
+from workflow_roles import WORKFLOW_ROLE_IDS, workspace_role_discovery
 
-# Specialist roles ship as an installable pack; resolve it as an explicit plugin
-# layer so the role-identity anchors below are actually checked. The host skills
-# (quality norms, phase packs) stay in the bundled root.
-SPECIALIST_PACK_ROOT = Path(__file__).resolve().parents[2] / "resources" / "specialist-pack"
+# Workflow roles resolve from a workspace the shared helper installed
+# (``.claude/skills``). Host skills (quality norms, phase packs) stay in the
+# bundled root.
 
 # Anchor phrases per bundled skill. Every skill referenced by a bundled role
 # manifest must have an entry; the registration test below enforces this.
@@ -131,18 +131,17 @@ def test_phase_review_base_pack_resolves_through_registry_layering(tmp_path: Pat
 
 
 @pytest.fixture()
-def bundled_discovery(tmp_path: Path):
-    # Specialist roles resolve from the pack (explicit plugin layer); host skills
-    # from the bundled root — the composition a real dispatch renders.
-    return RoleSkillRegistry(
-        workspace_root=tmp_path / "workspace",
-        plugin_roots=[SPECIALIST_PACK_ROOT],
+def bundled_discovery(workflow_roles_workspace: Path, tmp_path: Path):
+    # Role identity from the workspace fixture; host skills from the bundled
+    # root — the composition a real dispatch renders.
+    return workspace_role_discovery(
+        workflow_roles_workspace,
         user_root=tmp_path / "user",
-        bundled_root=BUNDLED_REGISTRY_ROOT,
-    ).discover()
+    )
 
 
 def test_every_bundled_soul_skill_has_registered_anchors(bundled_discovery) -> None:
+    assert set(bundled_discovery.roles) == WORKFLOW_ROLE_IDS
     referenced = {
         entry_skill.skill
         for entry in bundled_discovery.roles.values()
