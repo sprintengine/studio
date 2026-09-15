@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **A module can ship Python the host runs on the managed interpreter**
+  (`MainHost.registerSidecar` `kind: 'python'`, `MainHost.runPython`). Sidecar
+  registration used to be a label: `kind` was free-form and nothing honoured
+  it, so a module that wanted its own packages on the app's CPython had to
+  spawn `python3` itself and hope. `registerSidecar({ id, kind: 'python',
+  python: { root, module, args, env }, startOn })` is now host-owned — the
+  host containment-checks `python.root` (the same rule as `registerSkills`),
+  prepends it to `PYTHONPATH`, and spawns on the managed interpreter. The
+  returned `SidecarHandle` carries `pid`, stdout/stderr chunk callbacks,
+  `onExit`, and a `ready` promise the module resolves from its own output via
+  `signalReady()`. `stop()` and unload kill the child. `kind: 'process'` with
+  a module-supplied lifecycle stays legal for non-Python daemons.
+  `runPython({ root, script | module, args, cwd, env, timeoutMs })` is the
+  one-shot twin and returns `{ exitCode, stdout, stderr }`. Third-party
+  modules must declare `process:spawn` on both surfaces (the host checks it);
+  bundled first-party modules have no permissions list and are not gated
+  there. New mirrored types: `PythonSidecarConfig`,
+  `SidecarHandle`, `SidecarRunState`, `SidecarRuntimeStatus`,
+  `SidecarStartOptions`, `RunPythonRequest`, `RunPythonResult`.
+
 - **Backlog item actions render in menus, not as header buttons.**
   `BacklogItemAction.order` positions an action within the row's right-click
   menu and the detail header's More-actions menu. The header's own buttons

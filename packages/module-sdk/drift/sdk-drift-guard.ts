@@ -61,7 +61,17 @@ import type {
   ModuleNotificationSeverity as AppModuleNotificationSeverity,
   ModuleNotifyInput as AppModuleNotifyInput,
 } from '../../../src/shared/modules/notifications'
-import type { MainHost as AppMainHost, SidecarSpec as AppSidecarSpec } from '../../../src/main/module-host/main-host'
+import type {
+  MainHost as AppMainHost,
+  PythonSidecarConfig as AppPythonSidecarConfig,
+  RunPythonRequest as AppRunPythonRequest,
+  RunPythonResult as AppRunPythonResult,
+  SidecarHandle as AppSidecarHandle,
+  SidecarRunState as AppSidecarRunState,
+  SidecarRuntimeStatus as AppSidecarRuntimeStatus,
+  SidecarSpec as AppSidecarSpec,
+  SidecarStartOptions as AppSidecarStartOptions,
+} from '../../../src/main/module-host/main-host'
 import type {
   McpConnectionContext as AppMcpConnectionContext,
   McpConnectionMetadata as AppMcpConnectionMetadata,
@@ -219,7 +229,14 @@ import type {
   SettingsSectionDefinition as SdkSettingsSectionDefinition,
   SettingsSectionProps as SdkSettingsSectionProps,
   SidebarNavEntryDefinition as SdkSidebarNavEntryDefinition,
+  PythonSidecarConfig as SdkPythonSidecarConfig,
+  RunPythonRequest as SdkRunPythonRequest,
+  RunPythonResult as SdkRunPythonResult,
+  SidecarHandle as SdkSidecarHandle,
+  SidecarRunState as SdkSidecarRunState,
+  SidecarRuntimeStatus as SdkSidecarRuntimeStatus,
   SidecarSpec as SdkSidecarSpec,
+  SidecarStartOptions as SdkSidecarStartOptions,
   TopBarItemDefinition as SdkTopBarItemDefinition,
   TriggerKind as SdkTriggerKind,
   WorkspaceCreationStepProps as SdkWorkspaceCreationStepProps,
@@ -280,6 +297,14 @@ expectType<IsExact<AppModuleNotification, SdkModuleNotification>>()
 expectType<IsExact<AppModuleNotifyInput, SdkModuleNotifyInput>>()
 expectType<IsExact<AppModuleNotificationSeverity, SdkModuleNotificationSeverity>>()
 expectType<IsExact<AppSidecarSpec, SdkSidecarSpec>>()
+expectType<IsExact<AppPythonSidecarConfig, SdkPythonSidecarConfig>>()
+expectType<IsExact<AppSidecarHandle, SdkSidecarHandle>>()
+expectType<IsExact<AppSidecarRunState, SdkSidecarRunState>>()
+expectType<IsExact<AppSidecarRuntimeStatus, SdkSidecarRuntimeStatus>>()
+expectType<IsExact<AppSidecarStartOptions, SdkSidecarStartOptions>>()
+expectType<IsExact<AppRunPythonRequest, SdkRunPythonRequest>>()
+expectType<IsExact<AppRunPythonResult, SdkRunPythonResult>>()
+expectType<IsExact<AppMainHost['runPython'], SdkMainHost['runPython']>>()
 expectType<IsExact<AppCommandScope, SdkCommandScope>>()
 expectType<IsExact<AppCommandAvailability, SdkCommandAvailability>>()
 // The published view module availability predicates are evaluated against

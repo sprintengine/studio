@@ -8,23 +8,24 @@ import { listKnownWorkspaceRoots } from '../workspace-roots'
 import { writeDiagnosticLog } from '../diagnostics-service'
 import { sprintTokenUsageDeps } from '../sprintengine-token-sampling'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
+import { findSprintEngineRuntimeRoot } from '../mcp-config-service'
 import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintPullRequestMergePollerToken, SprintRuntimeToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
-import type { SidecarRunState } from '../module-host/main-host'
-import type { SprintEngineMcpHubStatus } from '../sprintengine-mcp-hub'
 
 // Sprint Engine as a capability module (main side).
 //
 // The Sprint Engine MCP hub is a *lazily-started* shared daemon — it only
 // spawns when an agent launches with a managed Sprint Engine run — so its
-// sidecar registers with `startOn: 'demand'`. The module owns the hub's
-// lifecycle through the kernel: it claims spawn ownership (a disabled module
-// means the gate stays closed and the hub process cannot start), spawn failures
-// surface as module-identified notifications, and both live disable and app
-// shutdown stop the process. A module disabled before main registration still
-// needs an app restart after enabling so this ownership hook can be installed.
-// Making Sprint Engine fully live-unloadable additionally needs renderer gating
-// (panels, workspace mode, the always-on auto-run supervisor).
+// sidecar registers as host-owned `kind: 'python'` with `startOn: 'demand'`.
+// The module supplies the Python packages' root (today the app's resources;
+// later the module bundle) and never sees the interpreter path. It claims
+// spawn ownership (a disabled module means the gate stays closed and the hub
+// process cannot start), spawn failures surface as module-identified
+// notifications, and both live disable and app shutdown stop the process. A
+// module disabled before main registration still needs an app restart after
+// enabling so this ownership hook can be installed. Making Sprint Engine fully
+// live-unloadable additionally needs renderer gating (panels, workspace mode,
+// the always-on auto-run supervisor).
 export const sprintEngineModule: CapabilityModule = {
   manifest: {
     id: 'sprint-engine',
@@ -55,24 +56,28 @@ export const sprintEngineModule: CapabilityModule = {
       onSpawnFailure: (message) =>
         host.notify({ severity: 'error', title: 'Sprint Engine MCP hub failed to start', body: message }),
     })
-    host.registerSidecar(
-      {
-        id: 'sprintengine-mcp',
-        kind: 'python-mcp',
-        module: 'sprintengine_mcp',
-        description: 'Shared MCP hub; lazily started on the first managed sprint run.',
-        startOn: 'demand',
-      },
-      {
-        start: async () => {
-          await mcpHub.ensureStarted()
-        },
-        stop: () => mcpHub.stop(),
-        // The hub also starts outside the kernel handle (agent launches call
-        // ensureRunRegistered), so its own state is the status truth source.
-        status: () => hubSidecarStatus(mcpHub.status()),
-      }
-    )
+    const pythonRoot = findSprintEngineRuntimeRoot()
+    const handle = host.registerSidecar({
+      id: 'sprintengine-mcp',
+      kind: 'python',
+      ...(pythonRoot
+        ? {
+            python: {
+              root: pythonRoot,
+              module: 'sprintengine_mcp',
+              args: ['--http', '--port', '0'],
+              env: {
+                SPRINTENGINE_MCP_USER_ID: 'multicode-app',
+                SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
+              },
+            },
+          }
+        : { module: 'sprintengine_mcp' }),
+      description: 'Shared MCP hub; lazily started on the first managed sprint run.',
+      startOn: 'demand',
+    })
+    if (pythonRoot) mcpHub.bindSidecar(handle)
+    host.onShutdown(() => mcpHub.stop())
 
     registerSprintEngineIpc(host.ipcMain, {
       reviewArtifact: artifacts.reviewArtifact,
@@ -234,15 +239,4 @@ function readTokenUsageCached(statePath: string): Promise<SprintEngineTokenUsage
     if (now - entry.at >= TOKEN_USAGE_CACHE_TTL_MS && key !== statePath) tokenUsageCache.delete(key)
   }
   return report
-}
-
-const HUB_STATE_TO_SIDECAR_STATE: Record<SprintEngineMcpHubStatus['state'], SidecarRunState> = {
-  stopped: 'stopped',
-  starting: 'starting',
-  ready: 'running',
-  failed: 'failed',
-}
-
-function hubSidecarStatus(status: SprintEngineMcpHubStatus): { state: SidecarRunState; error?: string } {
-  return { state: HUB_STATE_TO_SIDECAR_STATE[status.state], error: status.lastError }
 }

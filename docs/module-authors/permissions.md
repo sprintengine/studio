@@ -76,7 +76,10 @@ external-URL opening) sit outside every tier today; only the legacy
   companion agent, and `agents:session` is checked on every call to the
   agent-sessions service. `agents:session` is scoped further, by agent-id
   namespace: a module reaches the terminal sessions it started and named, never
-  another module's and never the user's own agents.
+  another module's and never the user's own agents. A fourth check is
+  `process:spawn` on `registerSidecar({ kind: 'python' })` and `runPython`: a
+  third-party module that omitted it is refused at that call. Bundled
+  first-party modules have no permissions list and are not checked there.
 - Declaring less than you use is a trust violation users can hold against your
   publisher key; signature verification binds your manifest (including
   `permissions`) to the signed content, so changing declared access requires
