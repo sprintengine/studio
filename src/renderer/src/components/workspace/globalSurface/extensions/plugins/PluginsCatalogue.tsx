@@ -575,6 +575,9 @@ export function PluginsCatalogue({
       const hiddenMcp = hiddenMcpFor(source.id)
       const lower = needle.trim().toLowerCase()
       const plugins = derivePluginRows({ source, scan: sourceScan, installed: sources.installedPlugins, query: needle })
+        // Only the app's own plugin is hidden: what we publish is a template,
+        // and the built-in row already represents it. `workflow-roles` is an
+        // ordinary row with Install and Remove (owner ruling 2026-09-07).
         .filter((item) => !(mine && item.pluginId === STUDIO_PLUGIN_ID))
         .map((item) => ({ kind: 'plugin' as const, sourceId: source.id, item }))
       const servers = scanMcpServers(sourceScan)

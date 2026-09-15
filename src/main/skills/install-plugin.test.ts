@@ -12,6 +12,7 @@ import { join } from 'node:path'
 
 import { emptyPluginComponents, type ScannedPlugin, type ScannedSkill } from '../../shared/skills'
 import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
+import { WORKFLOW_ROLES_PLUGIN_ID } from './studio-plugin'
 import { readSkillProvenance } from './install'
 import {
   CLAUDE_SETTINGS_RELATIVE_PATH,
@@ -238,6 +239,51 @@ async function theAppsOwnPluginIsNeverInstalledTwice(): Promise<void> {
   if (result.ok) return
   assert.match(result.message, /built in/)
   assert.equal(existsSync(join(workspace, '.claude')), false, 'nothing was written at all')
+}
+
+async function workflowRolesInstallsAndUninstallsLikeAnyMarketplacePlugin(): Promise<void> {
+  // The discarded built-in install put this plugin on the refuse list next to
+  // sprintengine-studio. It must install through the same catalogue path as
+  // every other marketplace plugin, and Remove must take the copies back.
+  const workspace = await mkdtemp(join(tmpdir(), 'multicode-workflow-roles-'))
+  const roles = plugin({
+    id: WORKFLOW_ROLES_PLUGIN_ID,
+    name: WORKFLOW_ROLES_PLUGIN_ID,
+    origin: { kind: 'in-tree', path: WORKFLOW_ROLES_PLUGIN_ID },
+    components: {
+      ...emptyPluginComponents(),
+      skills: [skill(`${WORKFLOW_ROLES_PLUGIN_ID}/skills/architect`)],
+    },
+  })
+  const result = await installPlugin({
+    workspaceRoot: workspace,
+    sourceId: 'github:sprintengine/studio-releases',
+    marketplaceName: 'sprintengine-studio',
+    marketplaceRepo: 'sprintengine/studio-releases',
+    plugin: roles,
+    harnesses: ['claude', 'agents'],
+    commitSha: 'abc1234',
+    readSkillFile: READ,
+    mcpClients: [],
+  })
+  assert.equal(result.ok, true, result.ok ? '' : result.message)
+  if (!result.ok) return
+  assert.equal(existsSync(join(workspace, '.agents', 'skills', 'architect', 'SKILL.md')), true)
+  assert.equal(existsSync(join(workspace, '.claude', 'skills', 'architect', 'SKILL.md')), true)
+  const provenance = await readSkillProvenance(join(workspace, '.agents', 'skills', 'architect'))
+  assert.equal(provenance?.sourceId, 'github:sprintengine/studio-releases')
+  assert.equal(provenance?.commitSha, 'abc1234')
+
+  const removed = await uninstallPlugin({
+    workspaceRoot: workspace,
+    pluginId: WORKFLOW_ROLES_PLUGIN_ID,
+    marketplaceName: 'sprintengine-studio',
+    skillDirNames: ['architect'],
+    allHarnesses: ['claude', 'agents'],
+  })
+  assert.equal(removed.ok, true)
+  assert.equal(existsSync(join(workspace, '.agents', 'skills', 'architect')), false)
+  assert.equal(existsSync(join(workspace, '.claude', 'skills', 'architect')), false)
 }
 
 async function pluginOnlyRepositoryCopiesSkillsToClaudeToo(): Promise<void> {
@@ -483,6 +529,7 @@ async function main(): Promise<void> {
   await claudeIsCopiedForLikeEveryOtherHarness()
   await theSettingsKeysAreAnExtraNothingDependsOn()
   await theAppsOwnPluginIsNeverInstalledTwice()
+  await workflowRolesInstallsAndUninstallsLikeAnyMarketplacePlugin()
   await pluginOnlyRepositoryCopiesSkillsToClaudeToo()
   await nothingToInstallIsSaidNotHidden()
   await installedServersCarryTheirSource()

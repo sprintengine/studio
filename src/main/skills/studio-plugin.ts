@@ -31,9 +31,12 @@
 //     must never be committed). That split is why this module does not call
 //     `enableClaudePlugin`, which writes both keys into one file.
 //
-// There is no uninstall. This plugin is built in: the catalogue offers no
-// Remove for it, and a workspace that has had its skills deleted by hand gets
-// them back the next time it is opened.
+// There is no uninstall of THIS plugin. It is built in: the catalogue offers
+// no Remove for it, and a workspace that has had its skills deleted by hand
+// gets them back the next time it is opened. `workflow-roles` is not this
+// plugin. It is a marketplace entry like any other — the catalogue offers
+// Install and Remove, and a workspace that has never installed it stays
+// without it (owner ruling 2026-09-07).
 
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
@@ -82,7 +85,16 @@ export const STUDIO_MARKETPLACE_RESOURCE_DIR = 'studio-plugin'
  */
 export const STUDIO_SKILLS_PLUGIN_ID = 'studio-skills'
 
-/** The marketplace that lists it. One plugin today; child 5 publishes the rest. */
+/**
+ * The sixteen Sprint Engine workflow roles. Published from the releases
+ * repository as an ordinary marketplace plugin: installable, removable, never
+ * force-installed (owner ruling 2026-09-07). Listed beside this plugin in the
+ * marketplace; copied only when someone presses Install, and not restored on
+ * the next workspace open.
+ */
+export const WORKFLOW_ROLES_PLUGIN_ID = 'workflow-roles'
+
+/** The marketplace that lists it. */
 const STUDIO_PLUGIN_MARKETPLACE_NAME = 'sprintengine-studio'
 
 /**

@@ -19,7 +19,15 @@ resources/studio-plugin/
       scripts/render-swap-report.mjs  the before/after page renderer
   studio-skills/
     skills/*/SKILL.md                 the workflow skills the app ships
+  workflow-roles/
+    skills/<kebab-id>/SKILL.md        the sixteen Sprint Engine workflow roles
 ```
+
+`workflow-roles` is a marketplace plugin like any other: the catalogue offers
+Install and Remove, and a workspace that has never installed it stays without
+it. `sprintengine-studio` is the built-in. The two must not be confused —
+force-installing the role pack would reinstate the forcing that was removed on
+2026-09-07.
 
 Installer: `src/main/skills/studio-plugin.ts` (what it writes) and
 `src/main/studio-plugin-service.ts` (when).
