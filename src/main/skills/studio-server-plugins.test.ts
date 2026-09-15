@@ -59,11 +59,12 @@ const MAX_BODY_LINES = 500
 type Entry = { name: string; source: string }
 
 /**
- * The two plugins that are not servers. Everything else the marketplace lists
- * is one of ours packaging somebody else's MCP server, and gets the server
- * rules below as well as the skill rule.
+ * Plugins that are not servers. Everything else the marketplace lists is one
+ * of ours packaging somebody else's MCP server, and gets the server rules
+ * below as well as the skill rule. `workflow-roles` is the role-skill pack:
+ * sixteen SKILL.md files, no MCP server.
  */
-const NOT_SERVERS = new Set<string>([STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID])
+const NOT_SERVERS = new Set<string>([STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID, 'workflow-roles'])
 
 async function skillDirsOf(pluginDir: string): Promise<string[]> {
   const entries = await readdir(join(pluginDir, 'skills'), { withFileTypes: true }).catch(() => null)

@@ -17,6 +17,12 @@
       "source": "./studio-skills",
       "description": "The workflow skills SprintEngine Studio ships: backlog, debug, prototype, review guide, handoff, knowledge, and the rest.",
       "version": "1.0.0"
+    },
+    {
+      "name": "workflow-roles",
+      "source": "./workflow-roles",
+      "description": "The sixteen Sprint Engine workflow roles, each a skill whose frontmatter carries the role id, label and icon.",
+      "version": "1.0.0"
     }
   ]
 }
