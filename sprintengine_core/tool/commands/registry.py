@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Mapping
 
 from sprintengine_core.role_registry import (
+    MissingRoleError,
     RegistryEntry,
     RegistryWarning,
     RoleManifest,
@@ -16,9 +16,6 @@ from sprintengine_core.role_registry import (
     normalize_role_id,
     role_manifest_payload,
 )
-
-
-REGISTRY_EXTRA_DIRS_ENV = "SPRINTENGINE_REGISTRY_EXTRA_DIRS"
 
 
 def roles_list(args) -> dict[str, Any]:
@@ -31,17 +28,17 @@ def role_get(args) -> dict[str, Any]:
     registry = _discover(args)
     try:
         entry = registry.role_entry(args.role)
-    except KeyError as exc:
-        _raise_unknown_role(args.role, registry.roles, cause=exc)
+    except MissingRoleError as exc:
+        raise SystemExit(str(exc)) from exc
     return {"ok": True, "role": _role_payload(entry, include_shadowed=True), "warnings": _warning_payloads(registry.warnings)}
 
 
 def soul_get(args) -> dict[str, Any]:
     registry = _discover(args)
     try:
-        rendered = registry.render_soul(args.role, workspace_root=Path.cwd(), run_id=args.run_id or "")
-    except KeyError as exc:
-        _raise_unknown_role(args.role, registry.roles, cause=exc)
+        rendered = registry.render_soul(args.role, workspace_root=_workspace_root(args), run_id=args.run_id or "")
+    except MissingRoleError as exc:
+        raise SystemExit(str(exc)) from exc
     except SoulRenderError as exc:
         raise SystemExit(f"Could not render Soul for role {args.role!r}: {exc}") from exc
     return {
@@ -69,25 +66,12 @@ def skill_get(args) -> dict[str, Any]:
     return {"ok": True, "skill": _skill_payload(entry, include_body=True), "warnings": _warning_payloads(registry.warnings)}
 
 
+def _workspace_root(args) -> Path:
+    return Path.cwd()
+
+
 def _discover(args):
-    return discover_role_registry(workspace_root=Path.cwd(), plugin_roots=_plugin_roots_from_args(args))
-
-
-def _plugin_roots_from_args(args) -> list[Path]:
-    roots: list[Path] = []
-    for raw in getattr(args, "extra_dir", None) or []:
-        roots.append(Path(raw).expanduser())
-    env_value = os.environ.get(REGISTRY_EXTRA_DIRS_ENV, "")
-    for raw in env_value.split(os.pathsep):
-        if raw.strip():
-            roots.append(Path(raw.strip()).expanduser())
-    return roots
-
-
-def _raise_unknown_role(role: str, roles: Mapping[str, RegistryEntry], *, cause: Exception | None = None) -> None:
-    known = ", ".join(sorted(roles))
-    detail = f" Known roles: {known}." if known else ""
-    raise SystemExit(f"Unknown registry role: {role}.{detail}") from cause
+    return discover_role_registry(workspace_root=_workspace_root(args))
 
 
 def _role_payload(entry: RegistryEntry, *, include_shadowed: bool = False) -> dict[str, Any]:
@@ -95,9 +79,9 @@ def _role_payload(entry: RegistryEntry, *, include_shadowed: bool = False) -> di
     if not isinstance(role, RoleManifest):
         return {}
     payload = _role_manifest_payload(role)
-    payload["source"] = _source_payload(entry.source.layer.name)
+    payload["source"] = _source_payload(entry)
     if include_shadowed:
-        payload["shadowedSources"] = [_source_payload(source.layer.name) for source in entry.shadowed]
+        payload["shadowedSources"] = [_source_payload_from_source(source) for source in entry.shadowed]
     return payload
 
 
@@ -111,7 +95,7 @@ def _skill_payload(entry: RegistryEntry, *, include_body: bool) -> dict[str, Any
     payload: dict[str, Any] = {
         "id": skill.id,
         "frontmatter": dict(skill.frontmatter),
-        "source": _source_payload(entry.source.layer.name),
+        "source": _source_payload(entry),
     }
     if include_body:
         payload["body"] = skill.body
@@ -120,8 +104,12 @@ def _skill_payload(entry: RegistryEntry, *, include_body: bool) -> dict[str, Any
     return payload
 
 
-def _source_payload(layer_name: str) -> dict[str, Any]:
-    return {"layer": layer_name}
+def _source_payload(entry: RegistryEntry) -> dict[str, Any]:
+    return _source_payload_from_source(entry.source)
+
+
+def _source_payload_from_source(source) -> dict[str, Any]:
+    return {"layer": source.layer.name, "path": str(source.path)}
 
 
 def _warning_payloads(warnings: tuple[RegistryWarning, ...]) -> list[dict[str, Any]]:

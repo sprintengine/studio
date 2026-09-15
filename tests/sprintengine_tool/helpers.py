@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from sprintengine_core import store as folder_store
+from workflow_roles import write_workspace_role as _write_workspace_role_skill
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -174,30 +175,24 @@ def write_workspace_role(
     label: str | None = None,
     description: str | None = None,
     review_skill: str | None = None,
-) -> None:
-    """Write a v2 workspace-layer role manifest plus its implement skill.
+    body: str | None = None,
+    harness: str = ".claude",
+) -> Path:
+    """Write a role skill into a workspace harness directory.
 
-    `review_skill` adds a role-scoped `directives.review` pack (the caller writes
-    that skill itself).
+    ``aliases`` and ``review_skill`` are accepted and ignored: the alias table
+    and phase-directive packs died with the manifest. Callers that still pass
+    them keep compiling.
     """
-    root = workspace / ".sprintengine"
-    roles_dir = root / "roles"
-    skill_dir = root / "skills" / role_id
-    roles_dir.mkdir(parents=True, exist_ok=True)
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    directives: dict[str, Any] = {"implement": [{"skill": role_id}]}
-    if review_skill is not None:
-        directives["review"] = [{"skill": review_skill}]
-    payload: dict[str, Any] = {
-        "id": role_id,
-        "label": label or role_id.replace("_", " ").title(),
-        "aliases": aliases or [],
-        "directives": directives,
-    }
-    if description is not None:
-        payload["description"] = description
-    (roles_dir / f"{role_id}.json").write_text(json.dumps(payload), encoding="utf-8")
-    (skill_dir / "SKILL.md").write_text(f"# {role_id}\n\nTemporary test role.", encoding="utf-8")
+    del aliases, review_skill
+    return _write_workspace_role_skill(
+        workspace,
+        role_id,
+        label=label,
+        description=description,
+        body=body,
+        harness=harness,
+    )
 
 
 def get_task(state: dict[str, Any], task_id: str) -> dict[str, Any]:

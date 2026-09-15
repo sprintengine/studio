@@ -1073,3 +1073,24 @@ def test_managed_agent_join_composes_the_role_prompt_file(tmp_path) -> None:
 
     assert response["ok"] is True
     assert role_prose in response["result"]["prompt"]
+
+
+def test_sprint_run_cli_composition_resolves_role_from_workspace_skills(tmp_path) -> None:
+    from helpers import write_workspace_role
+    from sprintengine_core.tool.prompts import load_prompt
+
+    workspace = tmp_path / "workspace"
+    write_workspace_role(
+        workspace,
+        "developer",
+        label="Developer",
+        body="Workspace-installed developer identity for {{role}}.",
+    )
+    prompt = load_prompt(
+        "developer",
+        workspace_root=workspace,
+        knowledge_root_configured=False,
+        backlog_sourced=False,
+    )
+    assert "Workspace-installed developer identity for developer." in prompt
+    assert "# Soul Personality And Quality Bar" in prompt

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sprintengine_core.role_registry import RegistryDiscovery, discover_role_registry, normalize_role_id
+from sprintengine_core.role_registry import MissingRoleError, RegistryDiscovery, discover_role_registry, normalize_role_id
 
 
 def configured_soul_role_ids(discovery: RegistryDiscovery | None = None) -> frozenset[str]:
@@ -43,6 +43,8 @@ def is_configured_role(role: str, discovery: RegistryDiscovery | None = None) ->
 def require_configured_role(role: str, *, context: str = "role", discovery: RegistryDiscovery | None = None) -> str:
     try:
         return canonical_role_id(role, discovery)
+    except MissingRoleError as exc:
+        raise SystemExit(f"{context} has unknown role {role!r}. {exc}") from exc
     except KeyError as exc:
         known = ", ".join(sorted(configured_role_ids(discovery)))
         detail = f" Known roles: {known}." if known else ""
