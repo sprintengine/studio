@@ -36,6 +36,16 @@ export { normalizeMcpClients, normalizeMcpServerConfig }
 const MANAGED_START = '# >>> multicode mcp managed'
 const MANAGED_END = '# <<< multicode mcp managed'
 
+/**
+ * The id the deleted in-tree Sprint Engine wrote its per-run HTTP server under.
+ * Nothing serves it any more, so a workspace that ran a sprint keeps an entry
+ * pointing at a dead hub and the CLI shows a failed server. The Studio sync
+ * pass forgets it (`studio-mcp-sync.ts`) and the Claude settings writer keeps
+ * it out of the enabled/disabled lists. A filter, not a migration: nothing is
+ * carried forward.
+ */
+export const RETIRED_SPRINTENGINE_MCP_SERVER_ID = 'multicode-sprintengine'
+
 export type PluginLookup = (id: string) => { manifest: PluginManifest } | undefined
 
 export type McpConfigService = {
@@ -436,7 +446,7 @@ function enableStudioMcpForClaudeWorkspace(
   const strings = (value: unknown): string[] =>
     Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
   const withoutManagedIds = (values: string[]): string[] =>
-    values.filter((id) => id !== STUDIO_MCP_SERVER_ID)
+    values.filter((id) => id !== STUDIO_MCP_SERVER_ID && id !== RETIRED_SPRINTENGINE_MCP_SERVER_ID)
   const enabled = [...withoutManagedIds(strings(existing.enabledMcpjsonServers)), STUDIO_MCP_SERVER_ID]
   const disabled = withoutManagedIds(strings(existing.disabledMcpjsonServers))
   const next: Record<string, unknown> = {

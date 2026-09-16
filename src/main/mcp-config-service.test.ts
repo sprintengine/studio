@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import type { McpSettings } from '../shared/electron-api'
 import type { PluginManifest, PluginMcpConfigFormat } from '../shared/plugin-manifest'
 import { STUDIO_MCP_SERVER_ID } from '../shared/product-identity'
-import { createMcpConfigService, type PluginLookup } from './mcp-config-service'
+import { createMcpConfigService, RETIRED_SPRINTENGINE_MCP_SERVER_ID, type PluginLookup } from './mcp-config-service'
+import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { createPluginRegistry } from './plugin-registry'
 
 const BUNDLED_ROOT = join(process.cwd(), 'resources', 'plugins')
@@ -747,6 +748,7 @@ async function main(): Promise<void> {
 
   await sourceInstalledServerSyncsAndKeepsItsProvenance(service, temp)
   await aForgottenServerLeavesTheConfig(service, temp)
+  await theRetiredSprintEngineServerIsForgottenByTheStudioSync(service, temp)
 }
 
 /**
@@ -860,6 +862,56 @@ async function aForgottenServerLeavesTheConfig(
   assert.equal(restored.ok, true)
   const stale = JSON.parse(await readFile(path, 'utf-8')) as { mcpServers: Record<string, unknown> }
   assert.deepEqual(Object.keys(stale.mcpServers).sort(), ['keeper', 'telegram'])
+}
+
+/**
+ * A workspace that ran a sprint kept an HTTP entry for the deleted engine's hub
+ * in `.mcp.json` (and in Claude's enabled list), so Claude showed a failed
+ * server on every launch. The Studio sync forgets it; a user's own servers and
+ * the gateway stay.
+ */
+async function theRetiredSprintEngineServerIsForgottenByTheStudioSync(
+  service: ReturnType<typeof createMcpConfigService>,
+  temp: string
+): Promise<void> {
+  const root = join(temp, 'retired-sprintengine')
+  await mkdir(join(root, '.claude'), { recursive: true })
+  await writeFile(
+    join(root, '.mcp.json'),
+    `${JSON.stringify({
+      mcpServers: {
+        [RETIRED_SPRINTENGINE_MCP_SERVER_ID]: { type: 'http', url: 'http://127.0.0.1:49152/mcp/run-1' },
+        mine: { command: 'npx', args: ['-y', 'mine'] },
+      },
+    }, null, 2)}\n`,
+    'utf-8'
+  )
+  await writeFile(
+    join(root, '.claude', 'settings.local.json'),
+    `${JSON.stringify({ enabledMcpjsonServers: [RETIRED_SPRINTENGINE_MCP_SERVER_ID, 'mine'] }, null, 2)}\n`,
+    'utf-8'
+  )
+
+  const result = await syncStudioMcpConfig(
+    { workspaceRoot: root, settings: { syncEnabled: true, servers: {} }, clients: ['claude-code'] },
+    {
+      mcpConfigService: service,
+      studioGateway: () => ({ command: process.execPath, bridgeScriptPath: '/app/bridge.mjs', userDataDir: '/data' }),
+    }
+  )
+  assert.equal(result.ok, true, result.ok ? '' : result.message)
+  const written = JSON.parse(await readFile(join(root, '.mcp.json'), 'utf-8')) as { mcpServers: Record<string, unknown> }
+  assert.deepEqual(
+    Object.keys(written.mcpServers).sort(),
+    ['mine', STUDIO_MCP_SERVER_ID].sort(),
+    'the retired server is gone; the user server and the gateway stay'
+  )
+  const claudeSettings = JSON.parse(await readFile(join(root, '.claude', 'settings.local.json'), 'utf-8')) as {
+    enabledMcpjsonServers: string[]
+  }
+  assert.equal(claudeSettings.enabledMcpjsonServers.includes(RETIRED_SPRINTENGINE_MCP_SERVER_ID), false)
+  assert.equal(claudeSettings.enabledMcpjsonServers.includes('mine'), true)
+  assert.equal(claudeSettings.enabledMcpjsonServers.includes(STUDIO_MCP_SERVER_ID), true)
 }
 
 main().catch((error) => {
