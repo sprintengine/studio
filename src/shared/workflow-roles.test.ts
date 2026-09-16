@@ -6,6 +6,7 @@ import { STUDIO_SKILL_SOURCE_NAME } from './skills'
 import {
   ADD_LOCAL_SKILL_SOURCE_LABEL,
   DEFAULT_USER_SKILLS_DIR_DISPLAY,
+  NO_WORKFLOW_ROLES_HEAD,
   NO_WORKFLOW_ROLES_INSTALLED_MESSAGE,
   NO_WORKFLOW_ROLES_INSTALLED_ON_DESKTOP_MESSAGE,
   WORKFLOW_ROLES_PACK_ID,
@@ -77,5 +78,22 @@ assert.equal(
 
 assert.match(NO_WORKFLOW_ROLES_INSTALLED_ON_DESKTOP_MESSAGE, /on the desktop/)
 assert.doesNotMatch(NO_WORKFLOW_ROLES_INSTALLED_ON_DESKTOP_MESSAGE, /Add from/)
+
+const pythonRegistry = readFileSync(
+  join(process.cwd(), 'sprintengine_core', 'role_registry.py'),
+  'utf8',
+)
+assert.ok(
+  pythonRegistry.includes(NO_WORKFLOW_ROLES_HEAD),
+  'the engine empty-pack head matches the desktop copy',
+)
+assert.ok(
+  pythonRegistry.includes(ADD_LOCAL_SKILL_SOURCE_LABEL),
+  'the engine quotes the same shipping menu label',
+)
+assert.ok(
+  pythonRegistry.includes(STUDIO_SKILL_SOURCE_NAME),
+  'the engine names the same skill source',
+)
 
 console.log('workflow-roles.test.ts passed')

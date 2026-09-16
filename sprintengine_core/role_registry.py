@@ -16,9 +16,14 @@ BUNDLED_HOST_SKILLS_ROOT = BUNDLED_REGISTRY_ROOT / "skills"
 
 # Offline seed / install source for the workflow-roles pack. Production
 # discovery never reads this: a missing pack is the empty-pack error, not a
-# quiet substitute (owner ruling 2026-09-08, MC-2507). Pytest sets
-# SPRINTENGINE_TEST_BUNDLED_WORKFLOW_ROLES=1 so the suite can resolve the
-# sixteen without copying them into git-fixture workspaces.
+# quiet substitute (owner ruling 2026-09-08, MC-2507).
+#
+# Pytest-only (lander 2026-09-16): many CLI tests run with cwd=REPO_ROOT and
+# discover from that tree. Installing the sixteen into those git fixtures
+# dirties the suite, so pytest — and Node tests that spawn the same engine —
+# set SPRINTENGINE_TEST_BUNDLED_WORKFLOW_ROLES=1. This is not a user setting;
+# a process that exports it outside the test harness is opting into test
+# discovery, not a product fallback. Empty-pack tests delete it.
 BUNDLED_WORKFLOW_ROLES_SKILLS = (
     Path(__file__).resolve().parents[1]
     / "resources"

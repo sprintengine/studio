@@ -50,6 +50,7 @@ async function main(): Promise<void> {
   testPromptModeLeavesAnEmptyComposerAlone()
   testWslAndWindowsNormalizeTheContextPaths()
   testSpecialistSpawnCarriesRoleInHostContextNotThePrompt()
+  testEmptyPackEmitsNoRoleSection()
   await testCleanupRemovesAFileOrAPluginDirectory()
   testWindowsPowerShellHandsTheExeEveryArgumentIntact()
   testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning()
@@ -389,6 +390,27 @@ function testSpecialistSpawnCarriesRoleInHostContextNotThePrompt(): void {
     assert.ok(
       !(buildHostContextDocument({}) ?? '').includes('## Role'),
       'a missing role produces no section',
+    )
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+}
+
+function testEmptyPackEmitsNoRoleSection(): void {
+  // No roles installed: readRoleBrief is the missing-role state, and the
+  // host-context document emits no ## Role — the same gate resolveRoleHostContext
+  // uses (owner ruling 2026-09-08).
+  const workspace = mkdtempSync(join(tmpdir(), 'host-context-empty-pack-'))
+  try {
+    const brief = readRoleBrief(workspace, 'architect')
+    assert.equal(brief.ok, false)
+    if (brief.ok) return
+    assert.match(brief.message, /no workflow roles are installed/)
+    // resolveRoleHostContext returns undefined when !brief.ok, so the document
+    // is built with no role input — the same path a specialist launch takes.
+    assert.ok(
+      !(buildHostContextDocument({}) ?? '').includes('## Role'),
+      'an empty pack emits no Role section',
     )
   } finally {
     rmSync(workspace, { recursive: true, force: true })
