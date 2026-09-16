@@ -489,6 +489,11 @@ export class MobileBridge {
   private recentCommands: MobileBridgeCommandEvent[] = []
   private reconnectTimer: NodeJS.Timeout | null = null
   private commandPollTimer: NodeJS.Timeout | null = null
+  // shutdown() is sync; connectOnce / pollRelayCommands are not. An in-flight
+  // poll's `finally` used to call scheduleNextCommandPoll after the timer was
+  // cleared, which rescheduled forever and kept a Node process (the unit-test
+  // runner included) from exiting.
+  private closed = false
   private reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS
   private loaded = false
   private relayToken: string | null = null
@@ -729,6 +734,7 @@ export class MobileBridge {
   }
 
   shutdown(): void {
+    this.closed = true
     this.clearReconnectTimer()
     this.clearCommandPollTimer()
     this.snapshotService.shutdown()
@@ -766,7 +772,7 @@ export class MobileBridge {
   }
 
   private async connectOnce(): Promise<void> {
-    if (!this.enabled) return
+    if (this.closed || !this.enabled) return
     if (!this.relayUrl) {
       this.relayStatus = 'unconfigured'
       this.nextReconnectAt = null
@@ -776,6 +782,7 @@ export class MobileBridge {
     }
 
     const session = await this.sessionProvider()
+    if (this.closed) return
     if (!session.authenticated) {
       this.relayStatus = 'error'
       this.recordDiagnostic('warning', 'unauthenticated', 'Mobile relay connection requires a signed-in desktop session.', true)
@@ -784,6 +791,7 @@ export class MobileBridge {
     }
 
     const accessToken = await this.accessTokenProvider()
+    if (this.closed) return
     if (!accessToken) {
       this.relayStatus = 'error'
       this.recordDiagnostic('warning', 'unauthenticated', 'Mobile relay connection requires a desktop access token.', true)
@@ -804,6 +812,7 @@ export class MobileBridge {
         displayName: getDesktopDisplayName(),
         commands: RELAY_SUPPORTED_COMMANDS,
       })
+      if (this.closed) return
 
       this.desktopRelaySessionId = payload.desktopRelaySessionId
       this.relayToken = payload.relayToken
@@ -823,6 +832,7 @@ export class MobileBridge {
 
   private connectWithBackoff(delayMs = this.reconnectDelayMs): void {
     this.clearReconnectTimer()
+    if (this.closed) return
 
     if (!this.enabled) {
       this.relayStatus = 'disabled'
@@ -1049,6 +1059,7 @@ export class MobileBridge {
 
   private startCommandPolling(): void {
     this.clearCommandPollTimer()
+    if (this.closed) return
     // Fresh connection (or newly-armed pairing loop): start fast with an attention
     // window so the first command is delivered promptly, then decay if it stays quiet.
     this.commandPollIntervalMsCurrent = this.commandPollIntervalMs
@@ -1066,6 +1077,7 @@ export class MobileBridge {
 
   private scheduleNextCommandPoll(): void {
     this.clearCommandPollTimer()
+    if (this.closed) return
     if (!this.enabled || this.relayStatus !== 'connected' || !this.shouldPollCommands()) {
       // Nothing left to poll for. If we were connected — last active device revoked, or
       // a pairing challenge expired unpaired — drop to idle. This runs in pollRelayCommands'

@@ -124,13 +124,27 @@ async function bundle(esbuild, testPath, profile, outFile) {
   await esbuild.build(options)
 }
 
+// Per-file wall clock. A hung file used to stall the whole suite until a
+// lander's outer cap (20 minutes); this fails that file and lets the rest
+// finish. Generous vs the slowest honest file (~a few seconds), tight vs a
+// leaked timer or open server holding the event loop open.
+const FILE_TIMEOUT_MS = 60_000
+
 function runNode(outFile, nodeFlags) {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [...nodeFlags, outFile],
-      { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024 },
-      (error, stdout, stderr) => resolve({ ok: !error, stdout, stderr }),
+      {
+        cwd: repoRoot,
+        maxBuffer: 32 * 1024 * 1024,
+        timeout: FILE_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
+      },
+      (error, stdout, stderr) => {
+        const hung = Boolean(error && error.killed && error.signal === 'SIGKILL')
+        resolve({ ok: !error, hung, stdout, stderr })
+      },
     )
   })
 }
@@ -202,13 +216,16 @@ async function main() {
         await bundle(esbuild, testPath, profile, outFile)
         result = await runNode(outFile, profile.node ?? [])
       } catch (error) {
-        result = { ok: false, stdout: '', stderr: `bundle failed: ${error.message}` }
+        result = { ok: false, hung: false, stdout: '', stderr: `bundle failed: ${error.message}` }
       }
       done += 1
       if (result.ok) {
         progress(`  ${done}/${selected.length} passing…`)
       } else {
-        failures.push({ testPath, detail: `${result.stdout}\n${result.stderr}`.trim() })
+        const detail = result.hung
+          ? `hung: ${testPath}`
+          : `${result.stdout}\n${result.stderr}`.trim()
+        failures.push({ testPath, detail })
         progress(''.padEnd(60))
         console.log(`  FAIL ${testPath}`)
         if (opts.bail) stopped = true

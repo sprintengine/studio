@@ -12,7 +12,10 @@ import { DEFAULT_MOBILE_RELAY_URL } from '../../service-endpoints'
 
 const now = new Date('2026-04-28T22:00:00.000Z')
 
-void main()
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
 
 async function main(): Promise<void> {
   await assertLegacyLocalRelayUrlMigratesToProductionDefault()
@@ -27,6 +30,7 @@ async function main(): Promise<void> {
   await assertPairedIdleCadenceBacksOffToCeilingAndSnapsBackOnCommand()
   await assertRevokingLastDeviceStopsPollingAndGoesIdle()
   await assertPairingFromIdleKeepsConnectionAfterRaceWithConnectPoll()
+  await assertShutdownDoesNotReschedulePolling()
 }
 
 async function assertLegacyLocalRelayUrlMigratesToProductionDefault(): Promise<void> {
@@ -582,6 +586,40 @@ async function assertPairingFromIdleKeepsConnectionAfterRaceWithConnectPoll(): P
   assert.equal(relay.connects.length, 1)
   assert.equal(state.relayStatus, 'connected')
   assert.notEqual(state.commandPollCadence.state, 'paused')
+}
+
+// shutdown() is sync and the poll loop is not: an in-flight poll's finally used
+// to call scheduleNextCommandPoll after the timer was cleared, which kept this
+// file's Node process alive when the suite ran it last (serial) and a sibling's
+// CPU load stretched the poll past shutdown. The process then never exited and
+// the runner had no per-file timeout, so verify:app sat until an outer cap.
+async function assertShutdownDoesNotReschedulePolling(): Promise<void> {
+  const fixture = await writeSprintEngineFixture()
+  const relay = new ProgrammableRelayTransport()
+  const bridge = new MobileBridge(
+    async () => ({
+      authenticated: true,
+      session: { id: 'ses_seed_usr_seed_pro', expiresAt: new Date(now.getTime() + 60_000).toISOString() },
+    }),
+    {
+      relayUrl: 'https://relay.test',
+      storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
+      accessTokenProvider: async () => 'desktop-access-token',
+      relayTransport: relay,
+      statePathsProvider: async () => [fixture.statePath],
+      commandPollIntervalMs: 50,
+    }
+  )
+
+  await bridge.updateSettings({ enabled: true })
+  await waitForState(bridge, (state) =>
+    state.relayStatus === 'connected' && state.commandPollCadence.state !== 'paused'
+  )
+  bridge.shutdown()
+  await delay(50)
+  const pollsAfterShutdown = relay.pollCount
+  await delay(200)
+  assert.equal(relay.pollCount, pollsAfterShutdown, 'shutdown must not let an in-flight poll reschedule')
 }
 
 class FakeRelayTransport implements MobileRelayTransport {
