@@ -170,7 +170,7 @@ function workspaceRelativePath(rootPath: string, filePath: string): string {
 // it is what the providers produce, so it cannot be private to this file any
 // more. `keywords` is still extra match text that is searched but never
 // displayed — a workspace switch row matches on its type label and curated
-// search terms ("kanban", "roster") the way the retired sidebar search did,
+// search terms ("schedule", "cron") the way the retired sidebar search did,
 // without crowding those terms into the visible description.
 type Command = PaletteCommand
 
@@ -1259,7 +1259,7 @@ export default function CommandPalette({
                 the list stays up: a skill whose install was refused must not
                 also make the palette vanish. */}
             {actionError && (
-              <p role="alert" className="px-4 py-2 text-meta text-[color:var(--tone-danger)]">
+              <p role="alert" className="px-4 py-2 text-meta text-[color:var(--tone-error)]">
                 {actionError}
               </p>
             )}
