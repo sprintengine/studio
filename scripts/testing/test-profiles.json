@@ -2,9 +2,7 @@
   "$comment": "How each test file is bundled. Generated from the 547 one-off npm scripts this replaced: every flag set here is byte-identical to what that test built with before. A test file inherits the nearest enclosing directory default; overrides name the exceptions.",
   "$serialComment": "Tests that must not share a CPU with the rest: they assert on scheduler timing, so contention makes them flake. They run last, one at a time.",
   "$skipComment": "Not run by default, with the reason each is held back. They are listed on every run so a skip stays visible instead of quietly rotting. Include them with --all.",
-  "skip": {
-    "validation/multiauth-relay-e2e/bridge-against-relay.test.ts": "Drives a real multiauth AuthService/RelayService out of the sibling ../multiauth checkout (plus a pg stub), so it cannot build on a machine that only has this repo. Held out of the public gate on purpose; see validation/multiauth-relay-e2e/README.md."
-  },
+  "skip": {},
   "serial": [
     "src/main/account-client.test.ts",
     "src/main/agent-state-service.test.ts",
@@ -68,47 +66,7 @@
       ],
       "ext": "cjs"
     },
-    "cjs-bundled-4": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=cjs",
-        "--packages=bundle",
-        "--external:react",
-        "--external:react-dom",
-        "--define:import.meta.env.DEV=false",
-        "--loader:.css=empty"
-      ],
-      "ext": "cjs"
-    },
-    "cjs-bundled-5": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=cjs",
-        "--packages=bundle",
-        "--external:react",
-        "--external:react-dom",
-        "--define:import.meta.env.DEV=false",
-        "--loader:.css=empty"
-      ],
-      "ext": "cjs"
-    },
     "cjs-bundled-jsx": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=cjs",
-        "--jsx=automatic",
-        "--packages=bundle",
-        "--external:react",
-        "--external:react-dom",
-        "--define:import.meta.env.DEV=false",
-        "--loader:.css=empty"
-      ],
-      "ext": "cjs"
-    },
-    "cjs-bundled-jsx-2": {
       "esbuild": [
         "--bundle",
         "--platform=node",
@@ -152,37 +110,12 @@
       ],
       "ext": "cjs"
     },
-    "cjs-bundled-jsx-jsdom-2": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=cjs",
-        "--jsx=automatic",
-        "--packages=bundle",
-        "--external:react",
-        "--external:react-dom",
-        "--external:jsdom",
-        "--define:import.meta.env.DEV=false",
-        "--loader:.css=empty"
-      ],
-      "ext": "cjs"
-    },
     "cjs-external": {
       "esbuild": [
         "--bundle",
         "--platform=node",
         "--format=cjs",
         "--packages=external"
-      ],
-      "ext": "cjs"
-    },
-    "cjs-external-2": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=cjs",
-        "--packages=external",
-        "--loader:.css=empty"
       ],
       "ext": "cjs"
     },
@@ -208,17 +141,6 @@
       ],
       "ext": "cjs"
     },
-    "cjs-external-flexlayout": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=cjs",
-        "--packages=external",
-        "--loader:.css=empty",
-        "--alias:flexlayout-react=./scripts/testing/stubs/flexlayout-react.cjs"
-      ],
-      "ext": "cjs"
-    },
     "cjs-external-flexlayout-2": {
       "esbuild": [
         "--bundle",
@@ -226,17 +148,6 @@
         "--format=cjs",
         "--packages=external",
         "--alias:flexlayout-react=./scripts/testing/stubs/flexlayout-react.cjs"
-      ],
-      "ext": "cjs"
-    },
-    "cjs-external-jsx": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=cjs",
-        "--jsx=automatic",
-        "--packages=external",
-        "--loader:.css=empty"
       ],
       "ext": "cjs"
     },
@@ -319,48 +230,6 @@
       ],
       "ext": "mjs"
     },
-    "esm-bundled-jsx": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=esm",
-        "--jsx=automatic",
-        "--packages=bundle",
-        "--external:react",
-        "--external:react-dom",
-        "--define:import.meta.env.DEV=false",
-        "--loader:.css=empty"
-      ],
-      "ext": "mjs"
-    },
-    "esm-bundled-jsx-2": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=esm",
-        "--jsx=automatic",
-        "--packages=bundle",
-        "--external:react",
-        "--external:react-dom",
-        "--define:import.meta.env.DEV=false",
-        "--loader:.css=empty"
-      ],
-      "ext": "mjs"
-    },
-    "esm-bundled-jsx-3": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=esm",
-        "--packages=bundle",
-        "--external:react",
-        "--external:react-dom",
-        "--define:import.meta.env.DEV=false",
-        "--loader:.css=empty",
-        "--jsx=automatic"
-      ],
-      "ext": "mjs"
-    },
     "esm-bundled-jsx-jsdom": {
       "esbuild": [
         "--bundle",
@@ -373,15 +242,6 @@
         "--external:jsdom",
         "--define:import.meta.env.DEV=false",
         "--loader:.css=empty"
-      ],
-      "ext": "mjs"
-    },
-    "esm-external": {
-      "esbuild": [
-        "--bundle",
-        "--platform=node",
-        "--format=esm",
-        "--packages=external"
       ],
       "ext": "mjs"
     }
@@ -397,7 +257,6 @@
     "src/renderer/src/components/auxWindows": "cjs-external",
     "src/renderer/src/components/backlog": "cjs-external",
     "src/renderer/src/components/extensions": "cjs-bundled",
-    "src/renderer/src/components/htmlArtifact": "esm-bundled",
     "src/renderer/src/components/onboarding": "cjs-bundled-jsx",
     "src/renderer/src/components/panels": "cjs-bundled",
     "src/renderer/src/components/panels/git": "cjs-bundled-jsx-jsdom",
@@ -440,7 +299,6 @@
     "src/renderer/src/components/panels/BacklogPanel.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/panels/ConnectorsPanel/agentCliShelfInstall.test.tsx": "cjs-external-jsx-flexlayout",
     "src/renderer/src/components/panels/ConnectorsPanel/installedInventoryUpdates.test.tsx": "cjs-external-jsx-flexlayout",
-    "src/renderer/src/components/panels/runPullRequest.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/settings/ModuleSettingsSection.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/settings/RemoteTailnetSettingsTab.test.tsx": "cjs-bundled-jsx-jsdom",
     "src/renderer/src/components/settings/ThirdPartyModuleList.test.tsx": "cjs-bundled-jsx",
@@ -481,7 +339,6 @@
     "src/renderer/src/components/workspace/newWorkspace/folderCreation.test.ts": "cjs-external",
     "src/renderer/src/components/workspace/openInEditorTargets.test.ts": "cjs-external",
     "src/renderer/src/components/workspace/pane/paneKinds.test.ts": "cjs-bundled-jsx",
-    "src/renderer/src/components/workspace/panelTabAccent.test.ts": "cjs-bundled",
     "src/renderer/src/components/workspace/sidebarWidth.test.ts": "cjs-external",
     "src/renderer/src/components/workspace/terminalLines.test.ts": "cjs-external",
     "src/renderer/src/components/workspace/useSidebarGitSummaries.test.ts": "cjs-bundled",
@@ -511,7 +368,6 @@
     "src/renderer/src/utils/workspaceRunGlyph.test.ts": "cjs-bundled",
     "src/renderer/src/utils/workspaceSettle.test.ts": "cjs-bundled",
     "src/seams/freshInstallWalkSeam.test.ts": "cjs-external",
-    "src/seams/prepackagedAutomationsSeam.test.ts": "cjs-external",
-    "validation/multiauth-relay-e2e/bridge-against-relay.test.ts": "cjs-external"
+    "src/seams/prepackagedAutomationsSeam.test.ts": "cjs-external"
   }
 }
