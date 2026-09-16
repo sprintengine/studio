@@ -700,7 +700,7 @@ run('every Backlog link shows a visible status word and a Tooltip detail', () =>
 run('Backlog links can be detached without deleting their targets', () => {
   assert.match(linksSectionSource, /aria-label=\{`Unlink \$\{model\.label\}`\}/, 'each secondary link exposes an accessible unlink control')
   assert.match(backlogPanelSource, /window\.api\.removeBacklogLink\(/, 'unlink persists through the dedicated Backlog IPC')
-  assert.match(backlogPanelSource, /The run itself will not be deleted/, 'manual status override explains that unlinking preserves the run')
+  assert.match(backlogPanelSource, /The linked work itself is not deleted/, 'manual status override explains that unlinking preserves the linked work')
 })
 
 run('Backlog link resolve/open failures surface inline instead of being swallowed', () => {

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createRendererHost, type BacklogLinkProvider } from '../modules/renderer-host'
 import type { BacklogItem, BacklogItemLink, BacklogResolvedLink } from './backlog'
 import {
+  backlogItemWithoutRetiredLinks,
   backlogLinkControlModel,
   nextBacklogItemStatusFromLinks,
   openBacklogLink,
@@ -12,6 +13,7 @@ import {
   resolveBacklogLink,
   resolveBacklogLinks,
   syncBacklogItemLinks,
+  isRetiredBacklogLink,
   unknownBacklogResolvedLink,
 } from './backlogLinks'
 
@@ -64,7 +66,48 @@ function provider(moduleId: string, targetKinds: string[], status: BacklogResolv
   }
 }
 
+// A link the removed in-tree Sprint Engine wrote before it went: nothing can
+// resolve it now, so it must neither render nor drive status.
+const retiredSprintLink: BacklogItemLink = {
+  id: 'sprint-engine:run-1',
+  moduleId: 'sprint-engine',
+  type: 'execution',
+  label: 'Sprint',
+  target: { kind: 'sprint-engine.run', id: 'run-1', path: '.sprintengine/run-1/run.yaml' },
+  status: 'active',
+}
+
+async function retiredSprintLinksAreIgnoredOnRead(): Promise<void> {
+  assert.equal(isRetiredBacklogLink(retiredSprintLink), true, 'a sprint-engine link is retired')
+  assert.equal(isRetiredBacklogLink(executionLink), false, 'a live module link is not')
+
+  const mixed: BacklogItem = { ...baseItem, links: [retiredSprintLink, executionLink] }
+  const cleaned = backlogItemWithoutRetiredLinks(mixed)
+  assert.deepEqual(cleaned.links.map((link) => link.id), ['atlas:run'], 'the sprint link is dropped, the rest kept')
+  assert.deepEqual(mixed.links.map((link) => link.id), ['sprint-engine:run-1', 'atlas:run'], 'the input is not mutated')
+  const clean: BacklogItem = { ...baseItem, links: [executionLink] }
+  assert.equal(backlogItemWithoutRetiredLinks(clean), clean, 'an item with no retired link keeps its identity')
+
+  // It never makes an item look in progress, on its own or on an epic.
+  assert.equal(nextBacklogItemStatusFromLinks('ready', [retiredSprintLink]), 'ready', 'an "active" sprint link does not drive in_progress')
+  assert.equal(
+    nextBacklogItemStatusFromLinks('ready', [retiredSprintLink], ['completed']),
+    'completed',
+    'an "active" sprint link does not hold an epic open',
+  )
+
+  // It never renders as an "Unavailable" link, even without the filter upstream.
+  const resolved = await resolveBacklogLinks({
+    workspaceId: 'ws',
+    workspaceRoot: '/repo',
+    item: { ...baseItem, links: [retiredSprintLink] },
+    providers: [],
+  })
+  assert.deepEqual(resolved, [], 'a sprint link resolves to nothing, not to an Unavailable row')
+}
+
 async function main(): Promise<void> {
+  await retiredSprintLinksAreIgnoredOnRead()
   const host = createRendererHost()
   host.hostFor('atlas').registerBacklogLinkProvider(provider('atlas', ['atlas.run'], 'completed'))
   host.hostFor('atlas').registerBacklogLinkProvider(provider('atlas', ['atlas.chart'], 'active'))
