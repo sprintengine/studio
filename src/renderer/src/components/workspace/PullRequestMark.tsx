@@ -358,8 +358,7 @@ function MarkTooltip({ copy }: { copy: PullRequestCopy }) {
  * the app's one external-open path.
  *
  * The ink is the state's tone, inline from the shared map — the idiom every
- * other tone-driven mark in the app already uses (`runPullRequestChipInk`,
- * `StatusDot`) — so no per-state class literal exists here to fall out of step
+ * other tone-driven mark in the app already uses (`StatusDot`) — so no per-state class literal exists here to fall out of step
  * with the map. Inline also outranks the kit's own ink at every state, which is
  * what keeps a merged mark violet under the pointer instead of reverting to the
  * button's neutral hover ink.

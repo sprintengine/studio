@@ -101,11 +101,10 @@ export type CardLaunchChoice = {
   permissionPreset: CliPermissionPreset
 }
 
-// A general agent, always. A card names a capability, not a role, and the role
-// modifier is the spawn picker's own control — the same reading "Hand to agent"
-// took. Keying off General is also how "otherwise the last-used row leads" is
-// answered: the picker READS the engine the person last chose for a roleless
-// agent. It does not write it back — see `choose` below.
+// A general agent, always — the same reading "Hand to agent" takes. Keying off
+// General is also how "otherwise the last-used row leads" is answered: the
+// picker READS the engine the person last chose for a general agent. It does
+// not write it back — see `choose` below.
 const CARD_SELECTION: AgentComposerSelection = { kind: 'general' }
 
 /** The runtime a card insists on, or null when it names none. */

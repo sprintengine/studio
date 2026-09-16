@@ -194,8 +194,7 @@ export function backlogMockupResolutionCandidates(ref: string): string[] {
 // decides what "resolves" means (exists on disk, readable content, …) and
 // reports a miss as null or by throwing — both advance to the next candidate.
 // Every consumer of the tolerated-roots rule goes through here so the probing
-// behavior can never drift between the section UI, the preview, and the sprint
-// source enrichment.
+// behavior can never drift between the section UI and the preview.
 export async function resolveFirstMockupCandidate<T>(
   ref: string,
   probe: (relativePath: string) => Promise<T | null>,

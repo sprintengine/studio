@@ -39,10 +39,9 @@ import type { BacklogItem } from '../../utils/backlog'
 // anchored to its own trigger. Agent creation still belongs to the shell, so
 // the click routes out through `backlogHandoffHost`.
 
-// A general agent, always: the role modifier is the spawn picker's own control
-// and a handoff has one job. The composer hook still keys General's remembered
-// CLI/model off this selection, so the picker opens on the engine the person
-// last chose and a pick here writes that default back.
+// A general agent, always: a handoff has one job. The composer hook keys
+// General's remembered CLI/model off this selection, so the picker opens on the
+// engine the person last chose and a pick here writes that default back.
 const HANDOFF_SELECTION: AgentComposerSelection = { kind: 'general' }
 
 export function BacklogHandToAgentButton({

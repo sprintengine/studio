@@ -1254,14 +1254,9 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       )
 
       // Everything needed to identify this agent, surfaced in the hover/focus
-      // popout wrapping the tab content. Role glyph stays the at-rest signal;
-      // the popout carries the exact model, the session id, and the
-      // conversation itself.
-      //
-      // No role line any more (2026-09-07): it read "No role" for almost every
-      // agent, and the role glyph the tab already wears says it for the ones it
-      // did not. No runtime line either — it repeated the mark on the tab — and
-      // no checkout line, which repeated the branch on the topbar.
+      // popout wrapping the tab content: the exact model, the session id, and
+      // the conversation itself. No runtime line — it repeated the mark on the
+      // tab — and no checkout line, which repeated the branch on the topbar.
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then the honest recency source

@@ -1572,7 +1572,7 @@ function ExplorerTree({
           workspaceId,
           workspaceRoot: rootPath,
           entries: contextSelection,
-          })
+        })
       } catch (error) {
         showError(error)
       }

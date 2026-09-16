@@ -54,8 +54,6 @@ type ModalProps = {
   contained?: boolean
 }
 
-// The one workbench height. Was 720px fixed, 90vh (Diagnostics)
-// and content-fit under 80vh (Rosters) — three answers to one question.
 /**
  * The one selector that finds a live modal surface in the document. Exported
  * because three files ask the same question — "is a dialog on screen above me?"
@@ -124,8 +122,7 @@ export function Modal({
       // Escape closes the TOPMOST surface only. A popover or menu open inside
       // the dialog consumes the key first and marks it handled; without this
       // check the dialog closes out from under it, taking the surface the
-      // person was actually dismissing with it. The roster manager carried
-      // this guard privately before it became a Modal consumer (MC-2110).
+      // person was actually dismissing with it.
       if (event.key === 'Escape' && !event.defaultPrevented) onClose()
     }
     window.addEventListener('keydown', onKey)

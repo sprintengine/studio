@@ -16,17 +16,12 @@
   name.
 
 - **`CommandAvailability` loses `sprintengineWorkspace`,
-  `sprintengineHasArchitect`, `sprintengineFocusAgentVisible`,
-  `sprintEngineEnabled` and `workflowRolesInstalled`.** The shell no longer
-  computes any of them, so a command gating on one could never become
-  available. The union is open at the type level, so a module that still names
-  one compiles — and reads as unsatisfied, which is what it already was. Gate on
-  a `panel:<moduleId>` scope or an availability predicate instead.
-
-- **`LaunchContributionRequest` loses `statePath`.** It carried a run file the
-  host had already resolved, and the host resolves none: a contributor received
-  `undefined` on every launch. A module that owns such a path resolves it
-  itself from `workspaceRoot`.
+  `sprintengineHasArchitect`, `sprintengineFocusAgentVisible` and
+  `sprintEngineEnabled`.** The shell no longer computes any of them, so a
+  command gating on one could never become available. The union is open at the
+  type level, so a module that still names one compiles — and reads as
+  unsatisfied, which is what it already was. Gate on a `panel:<moduleId>` scope
+  or an availability predicate instead.
 
 - **`CliManifest` loses `souls` and `CliSoulsSpec`.** The app no longer reads a
   CLI plugin's role directory, because it has no concept of a role.
@@ -89,15 +84,10 @@
   Duplicate ids are a registration error. New types: `FileAction`,
   `FileActionContext`, `FileActionEntry`, `FileActionState`.
 
-- **`CommandAvailability` gains `workflowRolesInstalled`.** True when the
-  active workspace has at least one installed workflow-role skill, so a
-  specialist-spawn or add-role command has something to resolve. Unknown
-  strings still fail closed.
-
 - **A module can contribute to every agent launch**
   (`host.registerLaunchContribution`). The function receives `{ cli,
-  workspaceRoot, sessionId, agentId, agentKind, resume, statePath,
-  knowledgeRoot, pathStyle }` and returns `{ env, pathEntries, shellFunctions,
+  workspaceRoot, sessionId, agentId, agentKind, resume, knowledgeRoot,
+  pathStyle }` and returns `{ env, pathEntries, shellFunctions,
   mcpServers, hostContext, session, identityKeys }`. Contributions run in
   module registration order and a throw is recorded as a module diagnostic
   without failing the spawn. Declare `ipc:agents`. New types:

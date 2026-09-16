@@ -12,7 +12,7 @@ import type { PluginCapabilities, PluginRegistryListEntry } from './plugin-manif
 export type ResumeCapabilities = Pick<PluginCapabilities, 'resumeSession' | 'sessionIdFromCaller'>
 
 // Whether a CLI can resume a recorded conversation after its process is gone
-// (app restart, freeze-the-view reap, Sprint Engine idle-retirement). Mirrors
+// (app restart, freeze-the-view reap). Mirrors
 // `capabilities.resumeSession`.
 export function agentCliSupportsConversationResume(caps: ResumeCapabilities | undefined): boolean {
   return caps?.resumeSession ?? false

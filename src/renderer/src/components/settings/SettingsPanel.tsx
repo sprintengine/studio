@@ -1615,8 +1615,8 @@ export default function SettingsPanel({
                         className={ROW_FIELD}
                       />
                       {/* Cancel before Save — the shared order every other
-                          dialog and editor in the app uses (the role editor
-                          above, `Modal.Footer`, `ConfirmDialog`). This row was
+                          dialog and editor in the app uses (`Modal.Footer`,
+                          `ConfirmDialog`). This row was
                           the one place that flipped it, so the confirming
                           button moved under the pointer depending on which
                           surface you were on (MC-2117). */}

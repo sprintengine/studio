@@ -1,6 +1,6 @@
 // The working-agent Backlog link shape, single-sourced for every writer: the
-// renderer handoff (drag/drop, "send to agent"), Sprint Engine projection
-// refresh, and the automation server's backlog.assign tool. Pure and
+// renderer handoff (drag/drop, "send to agent") and the automation server's
+// backlog.assign tool. Pure and
 // node-free (tsconfig.web-safe). The renderer-only halves — resolving a link
 // to a live agent and opening its terminal — stay in
 // src/renderer/src/utils/agentBacklogLinks.ts.
