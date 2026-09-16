@@ -281,17 +281,11 @@ export class MobileControlCommandService {
       // Everything `allowedCommandTypes` already refused, restated so the switch
       // stays exhaustive over the protocol's union — the compiler, not a reader,
       // is what keeps a new command type from falling through here silently.
+      // Both are read elsewhere: `snapshot.request` is answered by the bridge's
+      // snapshot dispatcher and `device.revoke` by its revoke path, before either
+      // reaches the command service.
       case 'snapshot.request':
-      case 'artifact.read':
       case 'device.revoke':
-      case 'sprintengine.create':
-      case 'task.start':
-      case 'agent.followUp':
-      case 'artifact.approve':
-      case 'artifact.requestChanges':
-      case 'backlog.startSprintEngine':
-      case 'sprintengine.openPullRequest':
-      case 'sprintengine.setAutomationMode':
         return this.resultRecorder.reject(command, 'command_not_supported', `Mobile command ${command.type} is not available on this desktop.`, false)
     }
   }

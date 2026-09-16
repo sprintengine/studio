@@ -1,4 +1,4 @@
-export const mobileControlProtocolVersion = 2 as const;
+export const mobileControlProtocolVersion = 3 as const;
 export const mobileControlWorkspaceSnapshotVersion = 2 as const;
 
 /**
@@ -19,7 +19,7 @@ export const mobileControlWorkspaceSnapshotVersion = 2 as const;
  * Outbound traffic is unaffected: this desktop always STAMPS
  * `mobileControlProtocolVersion`. The window governs only what it will read.
  */
-export const mobileControlSupportedProtocolVersions = [1, 2] as const;
+export const mobileControlSupportedProtocolVersions = [2, 3] as const;
 
 export type MobileControlProtocolVersion = (typeof mobileControlSupportedProtocolVersions)[number];
 export type MobileControlWorkspaceSnapshotVersion = typeof mobileControlWorkspaceSnapshotVersion;
@@ -69,18 +69,9 @@ export function unsupportedMobileControlProtocolVersion(
 
 export type MobileControlCommandType =
   | "snapshot.request"
-  | "artifact.read"
-  | "sprintengine.create"
-  | "task.start"
-  | "artifact.approve"
-  | "artifact.requestChanges"
-  | "agent.followUp"
   | "device.revoke"
   | "backlog.update"
-  | "backlog.startSprintEngine"
   | "backlog.create"
-  | "sprintengine.openPullRequest"
-  | "sprintengine.setAutomationMode"
   | "automations.control";
 
 export type MobileControlEventType =
@@ -88,29 +79,18 @@ export type MobileControlEventType =
   | "command.accepted"
   | "command.rejected"
   | "device.presence"
-  | "artifact.reviewUpdated"
   | "notification.created";
 
 export type MobileControlCapability =
   | "snapshots.read"
-  | "artifacts.read"
-  | "sprintengines.create"
-  | "tasks.start"
-  | "artifacts.review"
-  | "agents.followUp"
   | "devices.revoke"
   | "backlog.update"
-  | "backlog.start"
   | "backlog.create"
-  | "sprintengines.pr"
-  | "sprintengines.automation"
-  // Control the desktop's automations (src/main/automations). A SEPARATE
-  // capability from `sprintengines.automation`, which is a false friend: that
-  // one is a Sprint Engine RUN's automation mode — a different subsystem, a
-  // different store. Reusing it would have handed every already-paired device
-  // the power to fire agent runs on the desktop, a privilege nobody consented
-  // to at pair time. Scopes are frozen at pairing, so this one is paid for with
-  // a deliberate re-pair (relay scope `relay:automations:control`).
+  // Control the desktop's automations (src/main/automations). This is the
+  // desktop's own automations store, not a Sprint Engine run's automation mode:
+  // the run-scoped `sprintengines.automation` capability that used to sit beside
+  // it, and which was a standing invitation to confuse the two, left the wire
+  // with the rest of the Sprint Engine surface (v3).
   | "automations.control";
 
 export type MobileControlErrorCode =
@@ -125,29 +105,21 @@ export type MobileControlErrorCode =
   | "command_expired"
   | "duplicate_idempotency_key"
   | "stale_snapshot"
-  | "sprintengine_not_found"
+  // Kept although its name reads sprint-shaped: the automations controller
+  // answers a run already in flight with it (src/main/mobile/control/command.ts).
   | "task_not_ready"
-  | "artifact_not_found"
   | "path_not_allowed"
   | "snapshot_too_large"
   | "python_tool_failed"
   | "internal_error";
 
-export type MobileNotificationCategory =
-  | "artifact.ready"
-  | "task.needs_input"
-  | "command.failed"
-  | "desktop.offline"
-  | "sprintengine.complete";
+export type MobileNotificationCategory = "command.failed" | "desktop.offline";
 
 export type MobileNotificationTarget =
-  | { kind: "artifact"; sprintEngineId: string; artifactId: string }
-  | { kind: "task"; sprintEngineId: string; taskId: string }
-  | { kind: "sprintEngine"; sprintEngineId: string }
-  | { kind: "command"; commandId: string; sprintEngineId?: string }
+  | { kind: "command"; commandId: string }
   | { kind: "desktop" };
 
-export type MobileControlWorkspaceKind = "sprintengine" | "switchboard" | "watchtower";
+export type MobileControlWorkspaceKind = "switchboard" | "watchtower";
 
 export type MobileControlWorkspaceCapability =
   | "summary.read"
@@ -174,13 +146,10 @@ export interface MobileControlCapabilities {
   deviceId: string;
   commands: MobileControlCommandType[];
   capabilities: MobileControlCapability[];
-  artifactPreviewModes: ArtifactPreviewMode[];
-  maxFollowUpCharacters: number;
   snapshotTtlMs: number;
 }
 
 export type MobileControlDevicePlatform = "ios" | "android" | "web";
-export type ArtifactPreviewMode = "text" | "markdown" | "restrictedHtml";
 
 export interface MobileControlDevice {
   protocolVersion: MobileControlProtocolVersion;
@@ -210,10 +179,8 @@ export interface MobileControlCommandBase<Type extends MobileControlCommandType,
 // the one collection absent from the default set, so a phone surface that wants
 // those monitors must name it explicitly. The rest ship by default.
 export const mobileSnapshotCollections = [
-  "sprintEngines",
   "desktopWorkspaces",
   "backlog",
-  "roleCatalogs",
   "automations",
 ] as const;
 export type MobileSnapshotCollection = (typeof mobileSnapshotCollections)[number];
@@ -221,14 +188,13 @@ export type MobileSnapshotCollection = (typeof mobileSnapshotCollections)[number
 export type SnapshotRequestCommand = MobileControlCommandBase<
   "snapshot.request",
   {
-    sprintEngineId?: string;
     /**
      * The `snapshotVersion` the client already holds. When it equals the
      * version the desktop would ship, `dispatchSnapshotRequest` skips the
      * payload and answers `{ ok: true, unchanged: true, snapshotVersion }`
      * (item 1599) — an If-None-Match on the read path. Additive and
      * old-client-safe: a client that omits it gets the full snapshot exactly
-     * as before, so the protocol stays v2 with no re-pair.
+     * as before, so it cost no version bump of its own.
      *
      * This is skip-on-match, the opposite of the base `expectedSnapshotVersion`
      * (a reject-on-mismatch mutation guard) — do not fold the two together.
@@ -238,103 +204,17 @@ export type SnapshotRequestCommand = MobileControlCommandBase<
      * Scope the snapshot to a single project root (item 1600). The value is the
      * relay-safe workspace token the phone already holds as `projectKey` on every
      * collection (deriveWorkspaceId output); the desktop resolves it back to the
-     * real root and returns only that root's sprint engines, backlog and
-     * automations. Like `sprintEngineId`, a scoped request skips the size-shedding
-     * ladder. Additive and old-client-safe.
+     * real root and returns only that root's backlog and automations.
+     * Additive and old-client-safe.
      */
     workspacePath?: string;
     /**
      * Restrict the payload to these collections (item 1600) so a list screen can
-     * skip the ones it does not render. Absent means the default set — sprint
-     * engines, backlog, role catalogs and automations; `desktopWorkspaces`
-     * (switchboard/watchtower) is off by default and ships only when
-     * named here. Additive and old-client-safe.
+     * skip the ones it does not render. Absent means the default set — backlog
+     * and automations; `desktopWorkspaces` (switchboard/watchtower) is off by
+     * default and ships only when named here. Additive and old-client-safe.
      */
     include?: MobileSnapshotCollection[];
-  }
->;
-
-export type ArtifactReadCommand = MobileControlCommandBase<
-  "artifact.read",
-  {
-    sprintEngineId: string;
-    artifactId: string;
-    previewMode: ArtifactPreviewMode;
-  }
->;
-
-/**
- * Sprint configuration a phone may attach to either create command. Scope is
- * exactly what the desktop's CLI bootstrap path (`handover`) genuinely honors:
- * the team name and an explicit roster. Presence of `roleCounts` means the
- * user composed the roster; absence means the architect picks the team
- * (`rosterConfigured: false` engine-side). Automation mode, permission
- * presets, max-parallel, and workflow phases are desktop-app runner state the
- * main-process command path cannot reach — they stay on the
- * mobile-control-parity epic (MC-1497 et al.) and must not be added here
- * until a desktop honor path exists.
- *
- * Worktree mode is deliberately NOT here: only the backlog-start path
- * establishes it (see `BacklogStartSprintEngineCommand.useWorktrees`), so a
- * field on the shared config would be a knob that silently does nothing on
- * `sprintengine.create`.
- */
-export interface SprintEngineCreateConfig {
-  /** Engine-slugified; creating an existing team is rejected with a clear error. */
-  teamName?: string;
-  /** Role id → seat count (1–10). Role ids are validated by the engine's registry. */
-  roleCounts?: Record<string, number>;
-}
-
-export type SprintEngineCreateCommand = MobileControlCommandBase<
-  "sprintengine.create",
-  {
-    workspacePath: string;
-    productPrompt: string;
-    config?: SprintEngineCreateConfig;
-  }
->;
-
-export type TaskStartCommand = MobileControlCommandBase<
-  "task.start",
-  {
-    sprintEngineId: string;
-    taskId: string;
-    role: string;
-    /**
-     * Deprecated and ignored: the desktop session orchestrator spawns every
-     * mobile-started task in the current workspace and has no worktree
-     * plumbing on this path. Clients send "preferred" for wire compatibility;
-     * no UI offers the choice. Revisit when the desktop honors it.
-     */
-    worktreeIsolation: "required" | "preferred" | "disabled";
-  }
->;
-
-export type ArtifactApproveCommand = MobileControlCommandBase<
-  "artifact.approve",
-  {
-    sprintEngineId: string;
-    artifactId: string;
-    feedback?: string;
-  }
->;
-
-export type ArtifactRequestChangesCommand = MobileControlCommandBase<
-  "artifact.requestChanges",
-  {
-    sprintEngineId: string;
-    artifactId: string;
-    feedback: string;
-  }
->;
-
-export type AgentFollowUpCommand = MobileControlCommandBase<
-  "agent.followUp",
-  {
-    sprintEngineId: string;
-    agentId: string;
-    text: string;
   }
 >;
 
@@ -358,39 +238,6 @@ export type BacklogUpdateCommand = MobileControlCommandBase<
   }
 >;
 
-/**
- * Hand a backlog item to an agent team (MC-1493). Payload-only growth on purpose:
- * a NEW command type would need a new relay scope, and scopes are frozen at pair
- * time — the owner's phone would have to be re-paired. Extending this payload
- * needs none of that.
- */
-export type BacklogStartSprintEngineCommand = MobileControlCommandBase<
-  "backlog.startSprintEngine",
-  {
-    workspacePath: string;
-    relativePath: string;
-    config?: SprintEngineCreateConfig;
-    /**
-     * Work the item's whole epic: the desktop resolves every active leaf child
-     * pointing up at this epic and seeds them as the run's source bundle, so the
-     * architect plans across the epic rather than the container alone. Ignored
-     * when the item is not an epic. Absent means the desktop decides — and it
-     * launches an epic as an epic, which is what tapping an epic means.
-     */
-    epic?: boolean;
-    /**
-     * Run the team in one shared git worktree + branch. A non-worktree run has no
-     * branch, so the engine refuses `vcs pr` on it outright — worktree mode is the
-     * precondition for this command ever producing a pull request.
-     *
-     * Absent means the desktop decides: on wherever it is possible, off in a
-     * workspace with no git repository at its root (there is nothing to branch
-     * from, and failing the start there would be a pointless regression). An
-     * explicit value always wins and is allowed to fail loudly.
-     */
-    useWorktrees?: boolean;
-  }
->;
 
 export type BacklogCreateCommand = MobileControlCommandBase<
   "backlog.create",
@@ -401,25 +248,6 @@ export type BacklogCreateCommand = MobileControlCommandBase<
     type?: MobileControlBacklogItemType;
     difficulty?: MobileControlBacklogItemDifficulty;
     criticality?: MobileControlBacklogItemCriticality;
-  }
->;
-
-// Open (or return the existing) pull request for a completed worktree run
-// (MC-1496). Idempotent: a second call returns the same URL without a second PR.
-export type SprintEngineOpenPullRequestCommand = MobileControlCommandBase<
-  "sprintengine.openPullRequest",
-  {
-    sprintEngineId: string;
-  }
->;
-
-// Set the run's three-state automation mode (MC-1497). The mode is the authority
-// the desktop supervisor reads; the executor routes to the desktop session.
-export type SprintEngineSetAutomationModeCommand = MobileControlCommandBase<
-  "sprintengine.setAutomationMode",
-  {
-    sprintEngineId: string;
-    mode: MobileControlAutomationMode;
   }
 >;
 
@@ -463,319 +291,15 @@ export type AutomationsControlCommand = MobileControlCommandBase<
 
 export type MobileControlCommand =
   | SnapshotRequestCommand
-  | ArtifactReadCommand
-  | SprintEngineCreateCommand
-  | TaskStartCommand
-  | ArtifactApproveCommand
-  | ArtifactRequestChangesCommand
-  | AgentFollowUpCommand
   | DeviceRevokeCommand
   | BacklogUpdateCommand
-  | BacklogStartSprintEngineCommand
   | BacklogCreateCommand
-  | SprintEngineOpenPullRequestCommand
-  | SprintEngineSetAutomationModeCommand
   | AutomationsControlCommand;
-
-export type MobileControlNeedsInputKind = "architect" | "user" | "owner" | "external_validation";
-
-export interface MobileControlTaskNeedsInput {
-  kind?: MobileControlNeedsInputKind;
-  reason?: string;
-  question?: string;
-  suggestedResolution?: string;
-  artifactId?: string;
-}
-
-export interface MobileControlTaskEvidence {
-  summary?: string;
-  touchedFileCount?: number;
-  commandCount?: number;
-  resultCount?: number;
-}
-
-export interface MobileControlTaskFeedback {
-  confidencePct?: number;
-  hallucinationRiskPct?: number;
-}
-
-export interface MobileControlTaskReviewSignals {
-  findingCount?: number;
-  issueCount?: number;
-  verdict?: string;
-}
-
-export interface MobileControlTaskRelease {
-  requestedBy?: string;
-  reason?: string;
-}
-
-export type MobileControlTaskCommentType =
-  | "implementation_summary"
-  | "implementation_response"
-  | "review_feedback"
-  | "test_feedback"
-  | "product_feedback"
-  | "architect_feedback"
-  | "needs_input"
-  | "user_note"
-  | "system_note";
-
-export interface MobileControlTaskCommentSummary {
-  id: string;
-  type?: MobileControlTaskCommentType;
-  actor: string;
-  authorRole?: string;
-  body: string;
-  createdAt?: string;
-}
-
-/**
- * The backlog item a task delivers (MC-2060). The engine's task record carries
- * `backlogRef: { projectRelativePath, displayKey? }`; this is the same pointer
- * under the wire's own vocabulary, so a reader joins `relativePath` straight to
- * `MobileControlBacklogItemSnapshot.relativePath`.
- *
- * MC-1848 made the referenced item the worker's canonical brief, so this is not
- * decoration — it is how a board task reaches its specification.
- *
- * Additive and old-client-safe: a phone that ignores it renders exactly as before.
- * The path is repo-relative and therefore relay-safe; no absolute path rides here.
- *
- * **Joining across collections uses `projectKey`, never `workspacePath`.**
- * `sanitizeMobileSnapshotForRelay` encodes each collection's path differently, so
- * a `sprintEngines[].workspacePath` and a `backlog[].workspacePath` for one repo
- * are not comparable — see the note on `MobileControlSprintEngineSnapshot.projectKey`.
- */
-export interface MobileControlTaskBacklogRef {
-  /** Repo-relative path of the backlog item, e.g. `backlog/2026-07-30-example.md`. */
-  relativePath: string;
-  /** The item's display id when it has one, e.g. `MC-2020`. */
-  displayKey?: string;
-}
-
-export interface MobileControlRecordedArtifactSummary {
-  id: string;
-  kind?: string;
-  title?: string;
-  path?: string;
-  createdAt?: string;
-}
-
-export interface MobileControlTaskSnapshot {
-  taskId: string;
-  title: string;
-  // Optional since MC-2057 (run schema v5, "roleless runs"), which made a task's
-  // role optional in the engine and deleted the `general` role. It stayed
-  // REQUIRED here for one release, and the snapshot producer met that contract by
-  // substituting `'developer'` — so every roleless task, including the
-  // coordinator seat's, reached the phone labelled Developer. A field that is
-  // required but sometimes fabricated is worse than an optional one: nothing
-  // downstream can tell the forged values from the real ones.
-  //
-  // Making it optional is additive and old-client-safe, so the wire stays v2 —
-  // no re-pair, no new scope. A reader renders the ABSENCE (no glyph, no accent),
-  // never a stand-in role, which would only restate the lie one shade quieter.
-  role?: string;
-  status: "todo" | "ready" | "in_progress" | "review" | "needs_input" | "done" | "canceled";
-  ownerAgentId?: string;
-  /** The backlog item this task delivers (MC-2060), when it names one. */
-  backlogRef?: MobileControlTaskBacklogRef;
-  dependsOn: string[];
-  needsInput?: MobileControlTaskNeedsInput;
-  evidence?: MobileControlTaskEvidence;
-  feedback?: MobileControlTaskFeedback;
-  reviewSignals?: MobileControlTaskReviewSignals;
-  release?: MobileControlTaskRelease;
-  latestComments?: MobileControlTaskCommentSummary[];
-  latestOpenFeedback?: MobileControlTaskCommentSummary[];
-  recordedArtifacts?: MobileControlRecordedArtifactSummary[];
-}
-
-export interface MobileControlRosterEntry {
-  role?: string;
-  status?: string;
-  currentTaskId?: string | null;
-}
-
-export interface MobileControlArtifactSnapshot {
-  artifactId: string;
-  title: string;
-  kind: string;
-  status: "draft" | "ready_for_review" | "approved" | "changes_requested";
-  taskId?: string;
-  path?: string;
-}
-
-export interface MobileControlSprintEngineLockReport {
-  name: string;
-  exists?: boolean;
-  stale?: boolean;
-  ageSeconds?: number | null;
-}
-
-export interface MobileControlSprintEngineLockWarning {
-  name: string;
-  message: string;
-  ageSeconds?: number | null;
-}
-
-export interface MobileControlSprintEngineLockState {
-  warnings?: MobileControlSprintEngineLockWarning[];
-  locks?: MobileControlSprintEngineLockReport[];
-}
-
-export interface MobileControlSprintEngineActivityEntry {
-  id?: string;
-  type?: string;
-  timestamp?: string;
-  actor?: string;
-  message?: string;
-}
-
-export interface MobileControlSprintEngineActivitySummary {
-  count: number;
-  latest?: MobileControlSprintEngineActivityEntry;
-}
-
-export interface MobileControlSprintEngineCounts {
-  ready?: number;
-  needsInput?: number;
-}
-
-// The three-state Sprint Engine automation mode, mirroring the renderer's
-// `SprintEngineAutomationMode` (renderer/src/types/workspace.ts). Carried on the
-// snapshot so the phone control renders the truth; set by
-// `sprintengine.setAutomationMode` (MC-1497).
-export type MobileControlAutomationMode = "manual" | "run_agents" | "run_agents_and_approve_artifacts";
-
-// One project a run works in, mirroring the engine's `vcs.repos` entry (MC-1613)
-// trimmed to what a phone can render. Phone-shaped, like the vcs block below: run
-// worktree paths, base refs and commit shas stay on the desktop, which is why this
-// is not the engine's entry verbatim.
-export interface MobileControlSprintEngineRepo {
-  /** The project id the run declares and its tasks target: `primary`, or a name like `multicode-mobile`. */
-  id: string;
-  /** Workspace-relative project root: `.` for the primary project, `../multicode-mobile` for the rest. */
-  root: string;
-  /** The run branch in this project (every project of a run shares one branch name). */
-  branch: string;
-  /** This project's run-worktree state (`not_created` · `ready` · …); absent until the engine records one. */
-  status?: string;
-}
-
-// Worktree / pull-request state for a run, mirroring the desktop `SprintEngineVcs`
-// (renderer/src/types/workspace.ts). Present only for worktree runs; the phone
-// uses it to decide "Open pull request" vs "View pull request" (MC-1496/MC-1498).
-export interface MobileControlSprintEngineVcsState {
-  /** True when the run executes on its own git worktree/branch. */
-  worktree: boolean;
-  /** The run branch, when a worktree has been initialized. */
-  branch?: string;
-  pullRequestUrl?: string;
-  /** Merge/lifecycle state of the PR: open · merged · closed (from `pullRequestState`/`status`). */
-  pullRequestStatus?: string;
-  /** Reason the last PR-open attempt failed, surfaced with a Retry affordance. */
-  pullRequestError?: string;
-  /**
-   * Every project a multi-repo run works in, the primary one first (MC-1613).
-   *
-   * Additive: the fields above keep describing the primary project, so a client
-   * that never reads this list renders a two-project run exactly as it renders a
-   * one-project run. Absent for single-repo runs — their one project IS the block
-   * above — and absent from a desktop older than MC-1613, so a client that wants
-   * the list reads `repos ?? [the primary block]` and handles both.
-   */
-  repos?: MobileControlSprintEngineRepo[];
-}
-
-// One "Started from" provenance row — a real on-disk seed document the run was
-// launched from. Mirrors the desktop `SprintEngineSeedRow`
-// (renderer .../sprintEngineStartedFrom.ts), trimmed to what the phone renders.
-export interface MobileControlSprintEngineStartedFromRow {
-  /** Project-relative on-disk path (read/previewed via `artifact.read`). */
-  path: string;
-  fileName: string;
-  kindLabel: string;
-  role: "primary" | "epic-child" | "supporting";
-  isPrimary: boolean;
-  /** ISO capture time, surfaced only for reference-mode rows. */
-  capturedAt?: string;
-  /** Project-relative `backlog/…` path when the row is a backlog item/epic child. */
-  backlogPath?: string;
-}
-
-// The run's launch provenance (the desktop Inbox "Started from" section). Rows are
-// capped at the desktop's "4 + show more" convention; bodies are fetched on
-// demand, never shipped inline.
-export interface MobileControlSprintEngineStartedFrom {
-  /** True when the launch seed is a backlog epic (children nest under it). */
-  epic: boolean;
-  subtitle: string;
-  rows: MobileControlSprintEngineStartedFromRow[];
-  /** Rows omitted past the cap, for a "show N more on desktop" hint. */
-  omitted?: number;
-}
-
-export interface MobileControlSprintEngineSnapshot {
-  sprintEngineId: string;
-  name: string;
-  workspacePath: string;
-  /**
-   * The repo this record belongs to, as a relay-safe token (MC-1583).
-   *
-   * The one identifier the phone can join `workspaces`, `sprintEngines` and
-   * `backlog` on. It exists because `workspacePath` cannot serve as that key:
-   * `sanitizeMobileSnapshotForRelay` must strip absolute paths before they cross
-   * the relay, and it necessarily encodes each collection's copy differently
-   * (dropped / basename / token). Joining on it split one repo into two projects.
-   * Absent from a desktop older than MC-1583 — callers fall back to the path.
-   */
-  projectKey?: string;
-  statePath: string;
-  planPath?: string;
-  snapshotVersion: string;
-  updatedAt: string;
-  board: {
-    todo: number;
-    ready: number;
-    inProgress: number;
-    review: number;
-    needsInput: number;
-    done: number;
-  };
-  tasks: MobileControlTaskSnapshot[];
-  artifacts: MobileControlArtifactSnapshot[];
-  roster?: Record<string, MobileControlRosterEntry>;
-  runSummary?: Record<string, string | number | boolean | null>;
-  planReview?: Record<string, string | number | boolean | null>;
-  /** Current automation mode (MC-1497), so the phone control renders the truth. */
-  automationMode?: MobileControlAutomationMode;
-  /** Worktree/PR state for the run (MC-1496/MC-1498); absent for non-worktree runs. */
-  vcs?: MobileControlSprintEngineVcsState;
-  /** Launch provenance — the "Started from" seed docs (MC-1498). */
-  startedFrom?: MobileControlSprintEngineStartedFrom;
-  /** Folder-store lock reports and stale-lock warnings. */
-  locks?: MobileControlSprintEngineLockState;
-  /** Latest projection activity entry plus total event count. */
-  activity?: MobileControlSprintEngineActivitySummary;
-  /** Headline counts mirrored from the projection's top-level counts block. */
-  counts?: MobileControlSprintEngineCounts;
-}
 
 export interface MobileControlWorkspaceSummary {
   status: "idle" | "running" | "needs_input" | "blocked" | "complete" | "error" | "unknown";
   headline?: string;
   counts?: Record<string, number>;
-}
-
-export interface MobileControlSprintEngineWorkspaceDetail {
-  sprintEngineId: string;
-  snapshotVersion: string;
-  board: MobileControlSprintEngineSnapshot["board"];
-  roster?: Record<string, MobileControlRosterEntry>;
-  runSummary?: Record<string, string | number | boolean | null>;
-  planReview?: Record<string, string | number | boolean | null>;
 }
 
 export interface MobileControlSwitchboardSourceSummary {
@@ -864,7 +388,6 @@ export interface MobileControlWatchtowerWorkspaceDetail {
 }
 
 export type MobileControlWorkspaceDetail =
-  | { kind: "sprintengine"; data: MobileControlSprintEngineWorkspaceDetail }
   | { kind: "switchboard"; data: MobileControlSwitchboardWorkspaceDetail }
   | { kind: "watchtower"; data: MobileControlWatchtowerWorkspaceDetail };
 
@@ -873,7 +396,7 @@ export interface MobileControlWorkspaceSnapshot {
   kind: MobileControlWorkspaceKind;
   name: string;
   workspacePath?: string;
-  /** The repo this workspace belongs to. See MobileControlSprintEngineSnapshot.projectKey. */
+  /** The repo this workspace belongs to, as a relay-safe token (MC-1583). */
   projectKey?: string;
   statePath?: string;
   updatedAt: string;
@@ -900,23 +423,6 @@ export interface MobileControlBacklogItemSnapshot {
   // The up-pointing epic slug (frontmatter `epic:`) when this item belongs to an
   // epic; absent otherwise. The epic -> children direction stays a derived query.
   epic?: string;
-  /**
-   * The Sprint Engine run working this item, from its `execution` link. Keyed the
-   * same as `MobileControlSprintEngineSnapshot.sprintEngineId`, so the phone can
-   * join an item to its live run — and reach that run's board.
-   */
-  sprintEngineId?: string;
-  /**
-   * The pull request the item's run opened, from its `sprintengine.pullRequest`
-   * link. A URL only: the relay's result-summary filter is fine with one, and no
-   * diff content may ever ride this wire.
-   *
-   * PR *status* is deliberately not denormalized here — it lives on the run
-   * (`MobileControlSprintEngineSnapshot.pullRequestStatus`), which is where it is
-   * kept fresh. The phone joins on `sprintEngineId` rather than reading a copy
-   * that would go stale the moment the PR merged.
-   */
-  pullRequestUrl?: string;
   updatedAt?: string;
 }
 
@@ -937,70 +443,16 @@ export interface MobileControlBacklogEpicSnapshot {
   totalCount: number;
 }
 
-// Registry layer a role was resolved from, in the desktop's precedence order
-// (workspace -> plugin -> user -> bundled). Deliberately widened with `string`:
-// the desktop names a plugin layer `plugin:<id>`, and a client that hard-rejects
-// an unrecognised layer would break the moment a new one is added. The phone
-// groups on it at most; it never gates behaviour on it.
-export type MobileControlRoleSource = "bundled" | "user" | "workspace" | "plugin" | (string & {});
-
-// One role the desktop's Sprint Engine role registry resolved for a workspace
-// (MC-1543). Roles are JSON manifests discovered at runtime across four layers,
-// so the phone cannot know them ahead of a release — it has to be told. This is
-// the picker's whole vocabulary: what to show, how to label it, and whether it
-// is a fix-forward sweep. Directives, skills, and prompts are deliberately NOT
-// here: the phone stages a roster, it does not compose an agent.
-export interface MobileControlRoleDescriptor {
-  /** Registry-resolved id — an open string, the key `roleCounts` is keyed by. */
-  roleId: string;
-  /** Manifest `label`. Always present; the producer humanizes a missing one. */
-  label: string;
-  /** Manifest `summary`, truncated to `sprintEngineRoleSummaryMaxChars`. */
-  summary?: string;
-  /** True when the manifest declares a `sweep` block (audits the finished work). */
-  sweep?: boolean;
-  /** Registry layer, for grouping and for showing "custom" provenance. */
-  source?: MobileControlRoleSource;
-}
-
 export interface MobileControlBacklogWorkspaceSnapshot {
   workspaceId: string;
   workspacePath: string;
-  /** The repo this backlog group belongs to. See MobileControlSprintEngineSnapshot.projectKey. */
+  /** The repo this backlog group belongs to, as a relay-safe token (MC-1583). */
   projectKey?: string;
   workspaceName: string;
   updatedAt: string;
   items: MobileControlBacklogItemSnapshot[];
   /** Epic metadata for the workspace's epics (MC-1498). */
   epics?: MobileControlBacklogEpicSnapshot[];
-  // The workspace's resolved role registry (MC-1543), so the phone's sprint-launch
-  // picker offers exactly the roles that workspace has — including user-, plugin-,
-  // and workspace-authored ones it can't know at build time.
-  //
-  // It rides the *backlog* workspace because that is the record both launch
-  // surfaces already key off: `sprintengine.create` and `backlog.startSprintEngine`
-  // both carry a `workspacePath`, and both pick it from this list.
-  //
-  // ABSENT AND EMPTY MEAN DIFFERENT THINGS, and a reader must honour the
-  // difference:
-  //
-  // - absent → unknown. The registry could not be read, the catalog was shed by
-  //   the size ladder, or the desktop predates this field. A reader may fall back
-  //   to a bundled list, and should say that it is doing so.
-  // - `[]`   → known empty. The registry was read and this workspace has no roles.
-  //   MC-1587 un-shipped the bundled role pack, so roles now come only from an
-  //   installed pack or a user manifest, and having none is an ordinary state.
-  //   A reader must NOT fall back here: those invented ids would become the run's
-  //   `configuredRoles` (the legal role set `plan.add_task` enforces) and nothing
-  //   would be able to staff them.
-  roles?: MobileControlRoleDescriptor[];
-  /**
-   * Present with `roles: []` when the desktop has read the registry and this
-   * workspace has no installed workflow-role skills. The phone cannot install
-   * a pack, so the producer names the desktop remedy rather than leaving the
-   * picker looking merely empty.
-   */
-  rolesUnavailable?: string;
 }
 
 // Terminal and in-flight states of one automation run (`AutomationRunStatus`,
@@ -1038,7 +490,7 @@ export interface MobileControlAutomationRunSummary {
 // watches automations; the desktop authors them.
 export interface MobileControlAutomationSnapshot {
   automationId: string;
-  /** The repo this automation belongs to. See MobileControlSprintEngineSnapshot.projectKey. */
+  /** The repo this automation belongs to, as a relay-safe token (MC-1583). */
   projectKey?: string;
   name: string;
   /**
@@ -1157,7 +609,6 @@ export interface MobileControlSnapshot {
   // entries here would turn every desktop command addition into a client that
   // can no longer read snapshots at all.
   commands?: string[];
-  sprintEngines: MobileControlSprintEngineSnapshot[];
   workspaces?: MobileControlWorkspaceSnapshot[];
   backlog?: MobileControlBacklogWorkspaceSnapshot[];
   // Flat across the desktop's automations store, grouped by each entry's
@@ -1170,14 +621,6 @@ export interface MobileControlSnapshot {
   // Dev servers this desktop publishes on the tailnet, so the phone has a door
   // to them (Track 1b). Additive and omitted when there are none.
   webTargets?: MobileControlWebTargetSnapshot[];
-  snapshotLimits?: {
-    sprintEngines?: {
-      included: number;
-      omitted: number;
-      total: number;
-      reason: "relay_result_summary_size";
-    };
-  };
 }
 
 export interface MobileControlEventBase<Type extends MobileControlEventType, Payload> {
@@ -1219,20 +662,10 @@ export type DevicePresenceEvent = MobileControlEventBase<
   }
 >;
 
-export type ArtifactReviewUpdatedEvent = MobileControlEventBase<
-  "artifact.reviewUpdated",
-  {
-    sprintEngineId: string;
-    artifactId: string;
-    status: MobileControlArtifactSnapshot["status"];
-  }
->;
-
 export type NotificationCreatedEvent = MobileControlEventBase<
   "notification.created",
   {
     category: MobileNotificationCategory;
-    sprintEngineId?: string;
     title: string;
     body: string;
     severity: "info" | "warning" | "error";
@@ -1246,7 +679,6 @@ export type MobileControlEvent =
   | CommandAcceptedEvent
   | CommandRejectedEvent
   | DevicePresenceEvent
-  | ArtifactReviewUpdatedEvent
   | NotificationCreatedEvent;
 
 export type ValidationResult<T> =
@@ -1271,18 +703,9 @@ type ObjectValidationResult =
 
 const commandTypes = [
   "snapshot.request",
-  "artifact.read",
-  "sprintengine.create",
-  "task.start",
-  "artifact.approve",
-  "artifact.requestChanges",
-  "agent.followUp",
   "device.revoke",
   "backlog.update",
-  "backlog.startSprintEngine",
   "backlog.create",
-  "sprintengine.openPullRequest",
-  "sprintengine.setAutomationMode",
   "automations.control",
 ] as const satisfies readonly MobileControlCommandType[];
 
@@ -1291,23 +714,14 @@ const eventTypes = [
   "command.accepted",
   "command.rejected",
   "device.presence",
-  "artifact.reviewUpdated",
   "notification.created",
 ] as const satisfies readonly MobileControlEventType[];
 
 const capabilities = [
   "snapshots.read",
-  "artifacts.read",
-  "sprintengines.create",
-  "tasks.start",
-  "artifacts.review",
-  "agents.followUp",
   "devices.revoke",
   "backlog.update",
-  "backlog.start",
   "backlog.create",
-  "sprintengines.pr",
-  "sprintengines.automation",
   "automations.control",
 ] as const satisfies readonly MobileControlCapability[];
 
@@ -1336,34 +750,17 @@ const errorCodes = [
   "command_expired",
   "duplicate_idempotency_key",
   "stale_snapshot",
-  "sprintengine_not_found",
   "task_not_ready",
-  "artifact_not_found",
   "path_not_allowed",
   "snapshot_too_large",
   "python_tool_failed",
   "internal_error",
 ] as const satisfies readonly MobileControlErrorCode[];
 
-const artifactPreviewModes = ["text", "markdown", "restrictedHtml"] as const satisfies readonly ArtifactPreviewMode[];
 const devicePlatforms = ["ios", "android", "web"] as const satisfies readonly MobileControlDevicePlatform[];
-const taskStatuses = ["todo", "ready", "in_progress", "review", "needs_input", "done", "canceled"] as const;
-const artifactStatuses = ["draft", "ready_for_review", "approved", "changes_requested"] as const;
-const taskCommentTypes = [
-  "implementation_summary",
-  "implementation_response",
-  "review_feedback",
-  "test_feedback",
-  "product_feedback",
-  "architect_feedback",
-  "needs_input",
-  "user_note",
-  "system_note",
-] as const satisfies readonly MobileControlTaskCommentType[];
 const presenceValues = ["online", "offline", "revoked"] as const;
 const severityValues = ["info", "warning", "error"] as const;
-const worktreeIsolationValues = ["required", "preferred", "disabled"] as const;
-const workspaceKinds = ["sprintengine", "switchboard", "watchtower"] as const;
+const workspaceKinds = ["switchboard", "watchtower"] as const;
 const workspaceCapabilities = [
   "summary.read",
   "detail.read",
@@ -1377,14 +774,10 @@ const workspaceCapabilities = [
 ] as const satisfies readonly MobileControlWorkspaceCapability[];
 const workspaceSummaryStatuses = ["idle", "running", "needs_input", "blocked", "complete", "error", "unknown"] as const;
 const notificationCategories = [
-  "artifact.ready",
-  "task.needs_input",
   "command.failed",
   "desktop.offline",
-  "sprintengine.complete",
 ] as const satisfies readonly MobileNotificationCategory[];
-const notificationTargetKinds = ["artifact", "task", "sprintEngine", "command", "desktop"] as const;
-const needsInputKinds = ["architect", "user", "owner", "external_validation"] as const satisfies readonly MobileControlNeedsInputKind[];
+const notificationTargetKinds = ["command", "desktop"] as const;
 const automationStatuses = ["enabled", "paused", "blocked"] as const satisfies readonly MobileControlAutomationSnapshot["status"][];
 const automationRunStatuses = [
   "queued",
@@ -1490,17 +883,9 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
     requireString(snapshot.value, "generatedAt") ??
     requireIsoDate(snapshot.value, "generatedAt") ??
     requireString(snapshot.value, "desktopSessionId") ??
-    optionalString(snapshot.value, "snapshotVersion") ??
-    requireArray(snapshot.value, "sprintEngines");
+    optionalString(snapshot.value, "snapshotVersion");
   if (baseError) {
     return invalidPayload(baseError);
-  }
-
-  for (const sprintEngine of snapshot.value.sprintEngines as unknown[]) {
-    const error = validateSprintEngineSnapshot(sprintEngine);
-    if (error) {
-      return invalidPayload(error);
-    }
   }
 
   if (snapshot.value.commands !== undefined) {
@@ -1599,8 +984,6 @@ export function validateMobileControlCapabilities(input: unknown): ValidationRes
     requireString(contract.value, "deviceId") ??
     requireArray(contract.value, "commands") ??
     requireArray(contract.value, "capabilities") ??
-    requireArray(contract.value, "artifactPreviewModes") ??
-    requirePositiveInteger(contract.value, "maxFollowUpCharacters") ??
     requirePositiveInteger(contract.value, "snapshotTtlMs");
   if (baseError) {
     return invalidPayload(baseError);
@@ -1608,12 +991,7 @@ export function validateMobileControlCapabilities(input: unknown): ValidationRes
 
   const commandError = validateStringLiteralArray(contract.value.commands, commandTypes, "capabilities.commands");
   const capabilityError = validateCapabilityArray(contract.value.capabilities, "capabilities.capabilities");
-  const previewModeError = validateStringLiteralArray(
-    contract.value.artifactPreviewModes,
-    artifactPreviewModes,
-    "capabilities.artifactPreviewModes",
-  );
-  const error = commandError ?? capabilityError ?? previewModeError;
+  const error = commandError ?? capabilityError;
   if (error) {
     return invalidPayload(error);
   }
@@ -1671,10 +1049,10 @@ export function validateMobileControlError(input: unknown): ValidationResult<Mob
  * `current` accepts only the version this build speaks, and is for the payloads
  * the desktop SENDS. A window buys nothing there — a phone receiving a snapshot
  * from a newer desktop is not helped by also accepting older ones — and it costs
- * something real: a v1 snapshot carries the retired gate-era task vocabulary
- * (`testing`, `product`, `changes_requested`, `blocked`), so accepting the
- * version would only get the reader further in before failing on a status it
- * cannot render.
+ * something real: a v2 snapshot carries the Sprint Engine collections this wire
+ * retired (`sprintEngines`, `roleCatalogs`, the `sprintengine` workspace kind),
+ * so accepting the version would only get the reader further in before failing
+ * on a shape it no longer has a type for.
  */
 type ProtocolVersionStrictness = "window" | "current";
 
@@ -1700,110 +1078,23 @@ function validateProtocolVersion(
   return null;
 }
 
-export const sprintEngineTeamNameMaxChars = 64;
-export const sprintEngineRoleCountMax = 10;
-export const sprintEngineRosterMaxRoles = 12;
-
-// Bounds on the published role catalog (MC-1543). The snapshot's only size-shedding
-// pass drops whole sprint engines (src/main/mobile/bridge/snapshot-request.ts), so a
-// catalog it cannot shed must stay small by construction or it eats the relay's
-// result-summary budget. 15 bundled roles ship today; 48 leaves room for a
-// well-stocked user/workspace registry, and a summary is a picker subtitle, not prose.
-export const sprintEngineRoleCatalogMaxRoles = 48;
-export const sprintEngineRoleSummaryMaxChars = 160;
-
-// Bounds on the automations projection (item 47), for the same reason as the role
-// catalog above: the shedding pass in src/main/mobile/bridge/snapshot-request.ts
-// drops role catalogs and then whole sprint engines, and knows nothing about
-// automations — so an unbounded automations collection cannot be shed and would
-// eat the relay's result-summary budget out from under the runs it cannot drop.
+// Bounds on the automations projection (item 47). The snapshot has no
+// size-shedding ladder left — the sprint runs and role catalogs it used to drop
+// left the wire in v3 — so every collection on it must now stay small by
+// construction or it eats the relay's result-summary budget outright.
 // The producer enforces these; the wire types cannot.
 export const automationsPerProjectMax = 24;
 export const automationRecentRunsMax = 5;
 export const automationRunTextMaxChars = 160;
 
-// Shared by sprintengine.create and backlog.startSprintEngine: both bootstrap
-// a team through the same desktop CLI path, so they carry the same config.
-function validateSprintEngineCreateConfig(payload: Record<string, unknown>): string | null {
-  const config = payload.config;
-  if (config === undefined) {
-    return null;
-  }
-  if (typeof config !== "object" || config === null || Array.isArray(config)) {
-    return "config must be an object";
-  }
-
-  const record = config as Record<string, unknown>;
-
-  if (record.teamName !== undefined) {
-    if (typeof record.teamName !== "string" || record.teamName.trim().length === 0) {
-      return "config.teamName must be a non-empty string";
-    }
-    if (record.teamName.trim().length > sprintEngineTeamNameMaxChars) {
-      return `config.teamName must be ${sprintEngineTeamNameMaxChars} characters or less`;
-    }
-  }
-
-  if (record.roleCounts !== undefined) {
-    if (typeof record.roleCounts !== "object" || record.roleCounts === null || Array.isArray(record.roleCounts)) {
-      return "config.roleCounts must be an object of role id to seat count";
-    }
-    const entries = Object.entries(record.roleCounts as Record<string, unknown>);
-    if (entries.length === 0) {
-      return "config.roleCounts must name at least one role when present";
-    }
-    if (entries.length > sprintEngineRosterMaxRoles) {
-      return `config.roleCounts must name ${sprintEngineRosterMaxRoles} roles or fewer`;
-    }
-    for (const [role, count] of entries) {
-      if (role.trim().length === 0) {
-        return "config.roleCounts role ids must be non-empty";
-      }
-      if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > sprintEngineRoleCountMax) {
-        return `config.roleCounts values must be integers from 1 to ${sprintEngineRoleCountMax}`;
-      }
-    }
-  }
-
-  return null;
-}
-
 function validateCommandPayload(type: MobileControlCommandType, payload: Record<string, unknown>): string | null {
   switch (type) {
     case "snapshot.request":
       return (
-        optionalString(payload, "sprintEngineId") ??
         optionalString(payload, "knownSnapshotVersion") ??
         optionalString(payload, "workspacePath") ??
         optionalSnapshotCollections(payload, "include")
       );
-    case "artifact.read":
-      return (
-        requireString(payload, "sprintEngineId") ??
-        requireString(payload, "artifactId") ??
-        requireLiteral(payload, "previewMode", artifactPreviewModes)
-      );
-    case "sprintengine.create":
-      return (
-        requireString(payload, "workspacePath") ??
-        requireString(payload, "productPrompt") ??
-        // Tolerated for older clients; the desktop never read it.
-        optionalString(payload, "requestedRole") ??
-        validateSprintEngineCreateConfig(payload)
-      );
-    case "task.start":
-      return (
-        requireString(payload, "sprintEngineId") ??
-        requireString(payload, "taskId") ??
-        requireString(payload, "role") ??
-        requireLiteral(payload, "worktreeIsolation", worktreeIsolationValues)
-      );
-    case "artifact.approve":
-      return requireString(payload, "sprintEngineId") ?? requireString(payload, "artifactId") ?? optionalString(payload, "feedback");
-    case "artifact.requestChanges":
-      return requireString(payload, "sprintEngineId") ?? requireString(payload, "artifactId") ?? requireString(payload, "feedback");
-    case "agent.followUp":
-      return requireString(payload, "sprintEngineId") ?? requireString(payload, "agentId") ?? requireString(payload, "text");
     case "device.revoke":
       return requireString(payload, "deviceId") ?? optionalString(payload, "reason");
     case "backlog.update":
@@ -1815,14 +1106,6 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
         optionalString(payload, "difficulty") ??
         optionalString(payload, "criticality")
       );
-    case "backlog.startSprintEngine":
-      return (
-        requireString(payload, "workspacePath") ??
-        requireString(payload, "relativePath") ??
-        optionalBoolean(payload, "epic") ??
-        optionalBoolean(payload, "useWorktrees") ??
-        validateSprintEngineCreateConfig(payload)
-      );
     case "backlog.create":
       return (
         requireString(payload, "workspacePath") ??
@@ -1832,10 +1115,6 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
         optionalString(payload, "difficulty") ??
         optionalString(payload, "criticality")
       );
-    case "sprintengine.openPullRequest":
-      return requireString(payload, "sprintEngineId");
-    case "sprintengine.setAutomationMode":
-      return requireString(payload, "sprintEngineId") ?? requireLiteral(payload, "mode", automationModeValues);
     case "automations.control":
       return (
         requireString(payload, "workspacePath") ??
@@ -1844,8 +1123,6 @@ function validateCommandPayload(type: MobileControlCommandType, payload: Record<
       );
   }
 }
-
-const automationModeValues = ["manual", "run_agents", "run_agents_and_approve_artifacts"] as const;
 
 const automationActionValues = ["enable", "pause", "runNow"] as const satisfies readonly MobileControlAutomationAction[];
 
@@ -1874,16 +1151,9 @@ function validateEventPayload(type: MobileControlEventType, payload: Record<stri
       }
       return requireLiteral(payload, "presence", presenceValues);
     }
-    case "artifact.reviewUpdated":
-      return (
-        requireString(payload, "sprintEngineId") ??
-        requireString(payload, "artifactId") ??
-        requireLiteral(payload, "status", artifactStatuses)
-      );
     case "notification.created":
       return (
         requireLiteral(payload, "category", notificationCategories) ??
-        optionalString(payload, "sprintEngineId") ??
         requireString(payload, "title") ??
         requireString(payload, "body") ??
         requireLiteral(payload, "severity", severityValues) ??
@@ -1905,352 +1175,13 @@ function validateNotificationTarget(input: unknown): string | null {
   }
 
   switch (target.value.kind) {
-    case "artifact":
-      return requireString(target.value, "sprintEngineId") ?? requireString(target.value, "artifactId");
-    case "task":
-      return requireString(target.value, "sprintEngineId") ?? requireString(target.value, "taskId");
-    case "sprintEngine":
-      return requireString(target.value, "sprintEngineId");
     case "command":
-      return requireString(target.value, "commandId") ?? optionalString(target.value, "sprintEngineId");
+      return requireString(target.value, "commandId");
     case "desktop":
       return null;
   }
 
   return "notification.target.kind must be a supported notification target";
-}
-
-function validateSprintEngineSnapshot(input: unknown): string | null {
-  const sprintEngine = validateObject(input, "snapshot.sprintEngine");
-  if (sprintEngine.ok === false) {
-    return sprintEngine.error;
-  }
-
-  const baseError =
-    requireString(sprintEngine.value, "sprintEngineId") ??
-    requireString(sprintEngine.value, "name") ??
-    requireString(sprintEngine.value, "workspacePath") ??
-    requireString(sprintEngine.value, "statePath") ??
-    optionalString(sprintEngine.value, "planPath") ??
-    requireString(sprintEngine.value, "snapshotVersion") ??
-    requireString(sprintEngine.value, "updatedAt") ??
-    requireIsoDate(sprintEngine.value, "updatedAt") ??
-    requireArray(sprintEngine.value, "tasks") ??
-    requireArray(sprintEngine.value, "artifacts");
-  if (baseError) {
-    return baseError;
-  }
-
-  const board = validateObject(sprintEngine.value.board, "sprintEngine.board");
-  if (board.ok === false) {
-    return board.error;
-  }
-
-  const boardError =
-    requireNonNegativeInteger(board.value, "todo") ??
-    requireNonNegativeInteger(board.value, "ready") ??
-    requireNonNegativeInteger(board.value, "inProgress") ??
-    requireNonNegativeInteger(board.value, "review") ??
-    requireNonNegativeInteger(board.value, "needsInput") ??
-    requireNonNegativeInteger(board.value, "done");
-  if (boardError) {
-    return boardError;
-  }
-
-  for (const task of sprintEngine.value.tasks as unknown[]) {
-    const taskError = validateTaskSnapshot(task);
-    if (taskError) {
-      return taskError;
-    }
-  }
-
-  for (const artifact of sprintEngine.value.artifacts as unknown[]) {
-    const artifactError = validateArtifactSnapshot(artifact);
-    if (artifactError) {
-      return artifactError;
-    }
-  }
-
-  return (
-    validateOptionalRoster(sprintEngine.value.roster, "snapshot.sprintEngine.roster") ??
-    validateOptionalRecordSummary(sprintEngine.value.runSummary, "snapshot.sprintEngine.runSummary") ??
-    validateOptionalRecordSummary(sprintEngine.value.planReview, "snapshot.sprintEngine.planReview") ??
-    validateOptionalLockState(sprintEngine.value.locks, "snapshot.sprintEngine.locks") ??
-    validateOptionalActivitySummary(sprintEngine.value.activity, "snapshot.sprintEngine.activity") ??
-    validateOptionalProjectionCounts(sprintEngine.value.counts, "snapshot.sprintEngine.counts")
-  );
-}
-
-function validateOptionalLockState(input: unknown, fieldName: string): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const lockState = validateObject(input, fieldName);
-  if (lockState.ok === false) {
-    return lockState.error;
-  }
-  if (lockState.value.locks !== undefined) {
-    const locksError = requireArray(lockState.value, "locks");
-    if (locksError) return `${fieldName}.${locksError}`;
-    for (const [index, entry] of (lockState.value.locks as unknown[]).entries()) {
-      const lockReport = validateObject(entry, `${fieldName}.locks[${index}]`);
-      if (lockReport.ok === false) return lockReport.error;
-      const reportError =
-        requireString(lockReport.value, "name") ??
-        optionalNullableNumber(lockReport.value, "ageSeconds");
-      if (reportError) return `${fieldName}.locks[${index}].${reportError}`;
-    }
-  }
-  if (lockState.value.warnings !== undefined) {
-    const warningsError = requireArray(lockState.value, "warnings");
-    if (warningsError) return `${fieldName}.${warningsError}`;
-    for (const [index, entry] of (lockState.value.warnings as unknown[]).entries()) {
-      const warning = validateObject(entry, `${fieldName}.warnings[${index}]`);
-      if (warning.ok === false) return warning.error;
-      const warningError =
-        requireString(warning.value, "name") ??
-        requireString(warning.value, "message") ??
-        optionalNullableNumber(warning.value, "ageSeconds");
-      if (warningError) return `${fieldName}.warnings[${index}].${warningError}`;
-    }
-  }
-  return null;
-}
-
-function validateOptionalActivitySummary(input: unknown, fieldName: string): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const summary = validateObject(input, fieldName);
-  if (summary.ok === false) {
-    return summary.error;
-  }
-  const summaryError = requireNonNegativeInteger(summary.value, "count");
-  if (summaryError) return `${fieldName}.${summaryError}`;
-  if (summary.value.latest === undefined) return null;
-  const latest = validateObject(summary.value.latest, `${fieldName}.latest`);
-  if (latest.ok === false) return latest.error;
-  return (
-    optionalString(latest.value, "id") ??
-    optionalString(latest.value, "type") ??
-    optionalString(latest.value, "timestamp") ??
-    optionalString(latest.value, "actor") ??
-    optionalString(latest.value, "message")
-  );
-}
-
-function validateOptionalProjectionCounts(input: unknown, fieldName: string): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const counts = validateObject(input, fieldName);
-  if (counts.ok === false) {
-    return counts.error;
-  }
-  const readyError = counts.value.ready === undefined ? null : requireNonNegativeInteger(counts.value, "ready");
-  if (readyError) return `${fieldName}.${readyError}`;
-  const needsInputError = counts.value.needsInput === undefined ? null : requireNonNegativeInteger(counts.value, "needsInput");
-  if (needsInputError) return `${fieldName}.${needsInputError}`;
-  return null;
-}
-
-function validateOptionalRoster(input: unknown, fieldName: string): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const roster = validateObject(input, fieldName);
-  if (roster.ok === false) {
-    return roster.error;
-  }
-  for (const [agentId, value] of Object.entries(roster.value)) {
-    const entry = validateObject(value, `${fieldName}.${agentId}`);
-    if (entry.ok === false) {
-      return entry.error;
-    }
-    const entryError =
-      optionalString(entry.value, "role") ??
-      optionalString(entry.value, "status") ??
-      optionalNullableString(entry.value, "currentTaskId");
-    if (entryError) {
-      return `${fieldName}.${agentId}.${entryError}`;
-    }
-  }
-  return null;
-}
-
-function validateOptionalRecordSummary(input: unknown, fieldName: string): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const record = validateObject(input, fieldName);
-  if (record.ok === false) {
-    return record.error;
-  }
-  for (const [key, value] of Object.entries(record.value)) {
-    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean" && value !== null) {
-      return `${fieldName}.${key} must be a string, number, boolean, or null`;
-    }
-  }
-  return null;
-}
-
-function validateTaskSnapshot(input: unknown): string | null {
-  const task = validateObject(input, "snapshot.task");
-  if (task.ok === false) {
-    return task.error;
-  }
-
-  return (
-    requireString(task.value, "taskId") ??
-    requireString(task.value, "title") ??
-    // Optional since MC-2057 — see MobileControlTaskSnapshot.role. A desktop that
-    // omits it is describing a roleless task, not sending a malformed snapshot.
-    optionalString(task.value, "role") ??
-    requireLiteral(task.value, "status", taskStatuses) ??
-    optionalString(task.value, "ownerAgentId") ??
-    validateOptionalTaskBacklogRef(task.value.backlogRef) ??
-    requireArray(task.value, "dependsOn") ??
-    validateStringArray(task.value.dependsOn, "task.dependsOn") ??
-    validateOptionalNeedsInput(task.value.needsInput) ??
-    validateOptionalTaskEvidence(task.value.evidence) ??
-    validateOptionalTaskFeedback(task.value.feedback) ??
-    validateOptionalReviewSignals(task.value.reviewSignals) ??
-    validateOptionalTaskRelease(task.value.release) ??
-    validateOptionalArray(task.value.latestComments, "task.latestComments", validateTaskCommentSummary) ??
-    validateOptionalArray(task.value.latestOpenFeedback, "task.latestOpenFeedback", validateTaskCommentSummary) ??
-    validateOptionalArray(task.value.recordedArtifacts, "task.recordedArtifacts", validateRecordedArtifactSummary)
-  );
-}
-
-function validateOptionalTaskBacklogRef(input: unknown): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const ref = validateObject(input, "task.backlogRef");
-  if (ref.ok === false) {
-    return ref.error;
-  }
-  // `relativePath` is required: a reference with only a display key points at
-  // nothing this phone can open, and the engine normalizes that case away too.
-  return requireString(ref.value, "relativePath") ?? optionalString(ref.value, "displayKey");
-}
-
-function validateOptionalNeedsInput(input: unknown): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const needsInput = validateObject(input, "task.needsInput");
-  if (needsInput.ok === false) {
-    return needsInput.error;
-  }
-  return (
-    optionalLiteral(needsInput.value, "kind", needsInputKinds, "task.needsInput.kind") ??
-    optionalString(needsInput.value, "reason") ??
-    optionalString(needsInput.value, "question") ??
-    optionalString(needsInput.value, "suggestedResolution") ??
-    optionalString(needsInput.value, "artifactId")
-  );
-}
-
-function validateOptionalTaskEvidence(input: unknown): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const evidence = validateObject(input, "task.evidence");
-  if (evidence.ok === false) {
-    return evidence.error;
-  }
-  return (
-    optionalString(evidence.value, "summary") ??
-    optionalNonNegativeInteger(evidence.value, "touchedFileCount") ??
-    optionalNonNegativeInteger(evidence.value, "commandCount") ??
-    optionalNonNegativeInteger(evidence.value, "resultCount")
-  );
-}
-
-function validateOptionalTaskFeedback(input: unknown): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const feedback = validateObject(input, "task.feedback");
-  if (feedback.ok === false) {
-    return feedback.error;
-  }
-  return (
-    optionalPercentage(feedback.value, "confidencePct") ??
-    optionalPercentage(feedback.value, "hallucinationRiskPct")
-  );
-}
-
-function validateOptionalReviewSignals(input: unknown): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const review = validateObject(input, "task.reviewSignals");
-  if (review.ok === false) {
-    return review.error;
-  }
-  return (
-    optionalNonNegativeInteger(review.value, "findingCount") ??
-    optionalNonNegativeInteger(review.value, "issueCount") ??
-    optionalString(review.value, "verdict")
-  );
-}
-
-function validateOptionalTaskRelease(input: unknown): string | null {
-  if (input === undefined) {
-    return null;
-  }
-  const release = validateObject(input, "task.release");
-  if (release.ok === false) {
-    return release.error;
-  }
-  return optionalString(release.value, "requestedBy") ?? optionalString(release.value, "reason");
-}
-
-function validateTaskCommentSummary(input: unknown, fieldName: string): string | null {
-  const comment = validateObject(input, fieldName);
-  if (comment.ok === false) {
-    return comment.error;
-  }
-  return (
-    requireString(comment.value, "id") ??
-    optionalLiteral(comment.value, "type", taskCommentTypes, `${fieldName}.type`) ??
-    requireString(comment.value, "actor") ??
-    optionalString(comment.value, "authorRole") ??
-    requireString(comment.value, "body") ??
-    optionalIsoDate(comment.value, "createdAt")
-  );
-}
-
-function validateRecordedArtifactSummary(input: unknown, fieldName: string): string | null {
-  const artifact = validateObject(input, fieldName);
-  if (artifact.ok === false) {
-    return artifact.error;
-  }
-  return (
-    requireString(artifact.value, "id") ??
-    optionalString(artifact.value, "kind") ??
-    optionalString(artifact.value, "title") ??
-    optionalString(artifact.value, "path") ??
-    optionalIsoDate(artifact.value, "createdAt")
-  );
-}
-
-function validateArtifactSnapshot(input: unknown): string | null {
-  const artifact = validateObject(input, "snapshot.artifact");
-  if (artifact.ok === false) {
-    return artifact.error;
-  }
-
-  return (
-    requireString(artifact.value, "artifactId") ??
-    requireString(artifact.value, "title") ??
-    requireString(artifact.value, "kind") ??
-    requireLiteral(artifact.value, "status", artifactStatuses) ??
-    optionalString(artifact.value, "taskId") ??
-    optionalString(artifact.value, "path")
-  );
 }
 
 function validateWorkspaceSnapshot(input: unknown): string | null {
@@ -2342,20 +1273,6 @@ function validateWorkspaceDetail(kind: MobileControlWorkspaceKind, input: unknow
   }
 
   switch (kind) {
-    case "sprintengine": {
-      const board = validateObject(data.value.board, "workspace.detail.data.board");
-      if (board.ok === false) {
-        return board.error;
-      }
-      return (
-        requireString(data.value, "sprintEngineId") ??
-        requireString(data.value, "snapshotVersion") ??
-        validateBoardCounts(board.value, "workspace.detail.data.board") ??
-        validateOptionalRoster(data.value.roster, "workspace.detail.data.roster") ??
-        validateOptionalRecordSummary(data.value.runSummary, "workspace.detail.data.runSummary") ??
-        validateOptionalRecordSummary(data.value.planReview, "workspace.detail.data.planReview")
-      );
-    }
     case "switchboard":
       return (
         optionalNonNegativeInteger(data.value, "inboxCount") ??
@@ -2758,16 +1675,6 @@ function optionalSnapshotCollections(record: Record<string, unknown>, field: str
   return null;
 }
 
-function optionalPercentage(record: Record<string, unknown>, field: string): string | null {
-  if (record[field] === undefined) {
-    return null;
-  }
-  const value = record[field];
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100
-    ? null
-    : `${field} must be a number between 0 and 100 when provided`;
-}
-
 function optionalNullableString(record: Record<string, unknown>, field: string): string | null {
   if (record[field] === undefined || record[field] === null) {
     return null;
@@ -2783,17 +1690,6 @@ function requireLiteralNumber(record: Record<string, unknown>, field: string, ex
 
 function isOneOf<const Values extends readonly string[]>(input: unknown, values: Values): input is Values[number] {
   return typeof input === "string" && values.includes(input);
-}
-
-function validateBoardCounts(board: Record<string, unknown>, fieldName: string): string | null {
-  return (
-    requireNonNegativeInteger(board, "todo") ??
-    requireNonNegativeInteger(board, "ready") ??
-    requireNonNegativeInteger(board, "inProgress") ??
-    requireNonNegativeInteger(board, "review") ??
-    requireNonNegativeInteger(board, "needsInput") ??
-    requireNonNegativeInteger(board, "done")
-  )?.replace(/^/, `${fieldName}.`) ?? null;
 }
 
 function invalidPayload(message: string): ValidationResult<never> {

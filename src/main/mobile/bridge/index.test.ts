@@ -2,12 +2,21 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedDevice } from './index'
+import {
+  MobileBridge,
+  type MobileRelayAuthenticatedDevice,
+  type MobileRelayScope,
+  type MobileRelayTransport,
+  type RelayCommandType,
+} from './index'
 import { MobileControlCommandService, type MobileControlCommand } from '../control/command'
 import { relaySummaryByteLength, relayResultSummaryMaxBytes, summarizeCommandResult } from './command-results'
 import { dispatchSnapshotRequest } from './snapshot-request'
 import { MobileControlSnapshotService } from '../control/snapshot'
-import { validateMobileControlSnapshot } from '../../../../packages/mobile-control-protocol/src/index'
+import {
+  mobileControlProtocolVersion,
+  validateMobileControlSnapshot,
+} from '../../../../packages/mobile-control-protocol/src/index'
 import { DEFAULT_MOBILE_RELAY_URL } from '../../service-endpoints'
 
 const now = new Date('2026-04-28T22:00:00.000Z')
@@ -138,23 +147,27 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
       payload: {},
       device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
     }),
+    // Retired with the Sprint Engine and then removed from the wire entirely
+    // (protocol v3), so their types and scopes no longer exist and are cast in.
+    // A relay that still delivered one must still get an ANSWER: a command the
+    // desktop drops is a command the phone waits out to its own timeout.
     commandDelivery('cmd_retired_approve', {
       desktopRelaySessionId: 'drs_desktop_1',
-      commandType: 'artifact.approve',
+      commandType: 'artifact.approve' as RelayCommandType,
       payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
-      device: pairedDevice({ scopes: ['relay:artifact:review'] }),
+      device: pairedDevice({ scopes: ['relay:artifact:review' as MobileRelayScope] }),
     }),
     commandDelivery('cmd_retired_artifact_read', {
       desktopRelaySessionId: 'drs_desktop_1',
-      commandType: 'artifact.read',
+      commandType: 'artifact.read' as RelayCommandType,
       payload: { sprintEngineId: 'relay-team', artifactId: 'A1', previewMode: 'markdown' },
-      device: pairedDevice({ scopes: ['relay:artifact:read'] }),
+      device: pairedDevice({ scopes: ['relay:artifact:read' as MobileRelayScope] }),
     }),
     commandDelivery('cmd_retired_task_start', {
       desktopRelaySessionId: 'drs_desktop_1',
-      commandType: 'task.start',
+      commandType: 'task.start' as RelayCommandType,
       payload: { sprintEngineId: 'relay-team', taskId: 'T1', role: 'developer', worktreeIsolation: 'preferred' },
-      device: pairedDevice({ scopes: ['relay:task:start'] }),
+      device: pairedDevice({ scopes: ['relay:task:start' as MobileRelayScope] }),
     }),
     commandDelivery('cmd_missing_device', {
       desktopRelaySessionId: 'drs_desktop_1',
@@ -206,16 +219,19 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
 
   assert.equal(relay.connects.length, 1)
   assert.equal(relay.connects[0].accessToken, 'desktop-access-token')
-  // The relay's INBOUND vocabulary keeps the sprint members so an old phone's
-  // envelope still parses; what the desktop advertises does not.
-  assert.equal(relay.connects[0].commands.includes('artifact.approve'), true)
-  assert.equal(relay.snapshots[0].snapshot.sprintEngines.length, 0)
+  // INVERTED at protocol v3. The relay's inbound vocabulary used to keep the
+  // sprint members so an old phone's envelope still parsed; the wire no longer
+  // has them, so this desktop no longer offers to accept them either.
+  assert.equal(relay.connects[0].commands.includes('artifact.approve' as RelayCommandType), false)
+  assert.equal(Object.hasOwn(relay.snapshots[0].snapshot, 'sprintEngines'), false)
 
   const resultByCommand = new Map(relay.results.map((result) => [result.commandId, result]))
   assert.equal(resultByCommand.get('cmd_backlog_update')?.status, 'completed')
   assert.equal(resultByCommand.get('cmd_snapshot')?.status, 'completed')
   assert.equal(resultByCommand.get('cmd_snapshot')?.resultCode, 'OK')
-  // MC-2575: every retired sprint command is answered, and answered honestly.
+  // Every retired sprint command is answered, and answered honestly. The refusal
+  // now comes from the relay gate (the type maps to no capability) rather than
+  // from the command service, one step earlier and with the same code.
   for (const commandId of ['cmd_retired_approve', 'cmd_retired_artifact_read', 'cmd_retired_task_start']) {
     assert.equal(resultByCommand.get(commandId)?.status, 'failed', `${commandId} must come back`)
     assert.equal(resultByCommand.get(commandId)?.resultCode, 'COMMAND_NOT_SUPPORTED', `${commandId} must say why`)
@@ -265,12 +281,11 @@ async function assertOversizedSnapshotRequestFailsRatherThanTruncating(): Promis
   // The payload is non-ASCII on purpose: it sits under the relay's CHARACTER
   // count and over its BYTE budget, so only a byte-wise measure refuses it.
   const oversized = {
-    protocolVersion: 2,
+    protocolVersion: mobileControlProtocolVersion,
     generatedAt: now.toISOString(),
     desktopSessionId: 'desktop_1',
     snapshotVersion: 'snap_oversized',
     commands: [],
-    sprintEngines: [],
     workspaces: [],
     backlog: [{
       workspaceId: 'backlog:ws_token',
@@ -356,8 +371,8 @@ async function assertSnapshotWithinBudgetShipsWhole(): Promise<void> {
   const snapshot = result?.summary.data
   const validation = validateMobileControlSnapshot(snapshot)
   assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : undefined)
-  assert.deepEqual((snapshot as { sprintEngines?: unknown[] })?.sprintEngines, [])
-  assert.equal((snapshot as { snapshotLimits?: unknown })?.snapshotLimits, undefined)
+  assert.equal(Object.hasOwn(snapshot as object, 'sprintEngines'), false)
+  assert.equal(Object.hasOwn(snapshot as object, 'snapshotLimits'), false)
   assert.equal((snapshot as { backlog?: { items: unknown[] }[] })?.backlog?.[0]?.items.length, 20)
 }
 
@@ -652,7 +667,7 @@ class FakeRelayTransport implements MobileRelayTransport {
     summary: Record<string, unknown>
   }> = []
   readonly revocations: Parameters<MobileRelayTransport['revokeDevice']>[0][] = []
-  readonly snapshots: Array<{ snapshot: { sprintEngines: Array<{ sprintEngineId: string }> } }> = []
+  readonly snapshots: Array<{ snapshot: object }> = []
   private delivered = false
 
   constructor(private readonly deliveries: Awaited<ReturnType<MobileRelayTransport['listPendingCommands']>>) {}
@@ -857,7 +872,7 @@ function commandDelivery(
   commandId: string,
   input: {
     desktopRelaySessionId: string
-    commandType: 'snapshot.request' | 'artifact.read' | 'artifact.approve' | 'task.start' | 'device.revoke' | 'backlog.update'
+    commandType: RelayCommandType
     payload: Record<string, unknown>
     device: MobileRelayAuthenticatedDevice | null
   }

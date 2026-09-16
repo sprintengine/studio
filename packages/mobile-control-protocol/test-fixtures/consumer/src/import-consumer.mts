@@ -19,11 +19,11 @@ export function assertProtocolContract(): void {
   const command: MobileControlCommand = {
     protocolVersion: mobileControlProtocolVersion,
     commandId: 'cmd_1',
-    type: 'artifact.approve',
+    type: 'backlog.update',
     issuedAt: '2026-04-28T19:00:00.000Z',
     deviceId: 'device_1',
     idempotencyKey: 'mobile:device_1:cmd_1',
-    payload: { sprintEngineId: 'engine_1', artifactId: 'A1' },
+    payload: { workspacePath: 'ws_1', relativePath: 'backlog/2026-04-28-example.md' },
   }
   const accepted = validateMobileControlCommand(command)
   if (accepted.ok !== true) throw new Error(`a current-version command was refused: ${accepted.error.message}`)

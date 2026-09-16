@@ -9,35 +9,17 @@ import type {
 import { relayDeviceCapabilities } from './relay-device'
 
 const SIDE_EFFECTING_COMMANDS = new Set<MobileControlCommandType>([
-  'sprintengine.create',
-  'task.start',
-  'artifact.approve',
-  'artifact.requestChanges',
-  'agent.followUp',
   'device.revoke',
   'backlog.update',
-  'backlog.startSprintEngine',
   'backlog.create',
-  'sprintengine.openPullRequest',
-  'sprintengine.setAutomationMode',
   'automations.control',
 ])
 
 const CAPABILITY_BY_COMMAND: Record<MobileControlCommandType, MobileControlCapability> = {
   'snapshot.request': 'snapshots.read',
-  'artifact.read': 'artifacts.read',
-  'sprintengine.create': 'sprintengines.create',
-  'task.start': 'tasks.start',
-  'artifact.approve': 'artifacts.review',
-  'artifact.requestChanges': 'artifacts.review',
-  'agent.followUp': 'agents.followUp',
   'device.revoke': 'devices.revoke',
   'backlog.update': 'backlog.update',
-  'backlog.startSprintEngine': 'backlog.start',
   'backlog.create': 'backlog.create',
-  'sprintengine.openPullRequest': 'sprintengines.pr',
-  'sprintengine.setAutomationMode': 'sprintengines.automation',
-  // Its own capability, never 'sprintengines.automation' — see MobileControlCapability.
   'automations.control': 'automations.control',
 }
 
@@ -84,8 +66,19 @@ export function authorizeRelayCommand(input: {
     return { code: 'device_revoked', message: 'Mobile device is revoked on this desktop.' }
   }
 
+  // A command type this table does not map is one this protocol version does not
+  // have — the nine sprint commands, until v3 took them off the wire. Answer it
+  // as unsupported rather than falling through to an `includes(undefined)` that
+  // happens to be false: both refuse, but only one of them says why.
+  const requiredCapability = CAPABILITY_BY_COMMAND[commandType] as MobileControlCapability | undefined
+  if (!requiredCapability) {
+    return {
+      code: 'command_not_supported',
+      message: `Mobile command ${commandType} is not part of this protocol version.`,
+    }
+  }
+
   const capabilities = relayDeviceCapabilities(device)
-  const requiredCapability = CAPABILITY_BY_COMMAND[commandType]
   if (!capabilities.includes(requiredCapability)) {
     return { code: 'unauthorized', message: `Mobile device is missing ${requiredCapability}.` }
   }

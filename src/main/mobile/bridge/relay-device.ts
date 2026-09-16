@@ -9,18 +9,10 @@ import { isMobileControlCapability } from './validation'
 const CAPABILITY_BY_RELAY_SCOPE: Record<MobileRelayScope, MobileControlCapability | null> = {
   'relay:presence:read': null,
   'relay:snapshot:read': 'snapshots.read',
-  'relay:artifact:read': 'artifacts.read',
-  'relay:artifact:review': 'artifacts.review',
-  'relay:sprintengine:create': 'sprintengines.create',
-  'relay:task:start': 'tasks.start',
-  'relay:agent:followup': 'agents.followUp',
   'relay:push:register': null,
   'relay:device:revoke': 'devices.revoke',
   'relay:backlog:update': 'backlog.update',
-  'relay:backlog:start': 'backlog.start',
   'relay:backlog:create': 'backlog.create',
-  'relay:sprintengine:pr': 'sprintengines.pr',
-  'relay:sprintengine:automation': 'sprintengines.automation',
   'relay:automations:control': 'automations.control',
 }
 

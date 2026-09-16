@@ -10,7 +10,10 @@ import {
 import { sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from './snapshot'
 import { validateMobileWorkspacePath } from './workspace'
 import { dispatchSnapshotRequest } from '../bridge/snapshot-request'
-import { validateMobileControlSnapshot } from '../../../../packages/mobile-control-protocol/src/index'
+import {
+  mobileControlProtocolVersion,
+  validateMobileControlSnapshot,
+} from '../../../../packages/mobile-control-protocol/src/index'
 
 // Mirrors the relay's containsLocalPath guard (multiauth src/relay/result-summary.ts):
 // the sanitized snapshot must contain none of these.
@@ -29,12 +32,9 @@ async function main(): Promise<void> {
 
 function buildSnapshotFixture(root: string): MobileControlSnapshot {
   return {
-    protocolVersion: 2,
+    protocolVersion: mobileControlProtocolVersion,
     generatedAt: '2026-06-27T00:00:00.000Z',
     desktopSessionId: 'sess',
-    // MC-2575: the desktop never produces a sprint engine any more; the required
-    // wire key is the empty array.
-    sprintEngines: [],
     workspaces: [],
     backlog: [
       {
@@ -76,7 +76,7 @@ function assertSanitizerStripsLocalPaths(): void {
   const validation = validateMobileControlSnapshot(safe)
   assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : undefined)
 
-  assert.deepEqual(safe.sprintEngines, [])
+  assert.equal(Object.hasOwn(safe, 'sprintEngines'), false)
 
   // Backlog workspacePath round-trips for create/start, so it must be a
   // resolvable token, and resolve back to the original root.

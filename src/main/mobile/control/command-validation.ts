@@ -15,25 +15,17 @@ type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: MobileControlError }
 
-// Every command type on the wire, including the nine the Sprint Engine took with
-// it (MC-2575). A paired phone ships on its own release train and will keep
-// sending them, and the honest answer to one is `command_not_supported` from the
-// command service — not `invalid_payload` from the envelope validator, which
-// would tell its owner the phone had sent something malformed.
+// Every command type on the wire. The nine the Sprint Engine took with it
+// (MC-2575) were carried here for one release so a phone that still sent one got
+// `command_not_supported` from the command service rather than `invalid_payload`
+// from the envelope validator. Protocol v3 removed them from the wire, so a
+// sender of one is outside the version window and is refused at the handshake
+// instead — which is where a version mismatch belongs.
 const commandTypes = new Set<MobileControlCommandType>([
   'snapshot.request',
-  'artifact.read',
-  'sprintengine.create',
-  'task.start',
-  'artifact.approve',
-  'artifact.requestChanges',
-  'agent.followUp',
   'device.revoke',
   'backlog.update',
-  'backlog.startSprintEngine',
   'backlog.create',
-  'sprintengine.openPullRequest',
-  'sprintengine.setAutomationMode',
   'automations.control',
 ])
 const automationActionValues = new Set(['enable', 'pause', 'runNow'])
@@ -98,21 +90,11 @@ export function buildError(code: MobileControlError['code'], message: string, re
 
 function validateCommandPayload(type: MobileControlCommandType, payload: Record<string, unknown>): string | null {
   switch (type) {
-    // Retired with the Sprint Engine (MC-2575). Their payloads are no longer
-    // shaped by anything on this desktop, so there is nothing left to check
-    // beyond the envelope: the command service refuses them by type.
-    case 'sprintengine.create':
-    case 'artifact.approve':
-    case 'artifact.requestChanges':
-    case 'artifact.read':
-    case 'task.start':
-    case 'agent.followUp':
-    case 'backlog.startSprintEngine':
-    case 'sprintengine.openPullRequest':
-    case 'sprintengine.setAutomationMode':
-      return null
+    // Every field on a snapshot request is optional, and the only one this
+    // desktop acts on is checked where it is resolved (workspacePath, against
+    // the allowed roots). There is nothing to require here.
     case 'snapshot.request':
-      return optionalString(payload, 'sprintEngineId')
+      return optionalString(payload, 'workspacePath')
     case 'device.revoke':
       return requireString(payload, 'deviceId') ?? optionalString(payload, 'reason')
     case 'backlog.update':

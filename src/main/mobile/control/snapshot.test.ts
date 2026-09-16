@@ -20,17 +20,19 @@ import {
   automationRunTextMaxChars,
   automationsPerProjectMax,
   mobileControlProtocolVersion,
+  mobileSnapshotCollections,
   validateMobileControlSnapshot,
   type MobileControlAutomationSnapshot,
-  type MobileControlCommandType,
   type MobileControlSnapshot,
 } from '../../../../packages/mobile-control-protocol/src/index'
 
 const generatedAt = '2026-04-28T19:30:00.000Z'
 
-// The nine commands that left with the Sprint Engine (MC-2575). A desktop that
-// advertised one would have a phone drawing a control that cannot work.
-const retiredSprintCommands = [
+// The nine commands that left with the Sprint Engine (MC-2575) and then left the
+// wire (protocol v3). They are plain strings now, not `MobileControlCommandType`
+// members — the `satisfies` that used to sit here would no longer compile, which
+// is itself the strongest statement this file can make about them.
+const retiredSprintCommands: readonly string[] = [
   'sprintengine.create',
   'task.start',
   'agent.followUp',
@@ -40,12 +42,12 @@ const retiredSprintCommands = [
   'backlog.startSprintEngine',
   'sprintengine.openPullRequest',
   'sprintengine.setAutomationMode',
-] as const satisfies readonly MobileControlCommandType[]
+]
 
 void main()
 
 async function main(): Promise<void> {
-  await assertSnapshotReportsSprintsAbsentButWellFormed()
+  await assertSnapshotCarriesNoSprintEngineCollection()
   await assertSnapshotAdvertisesNoSprintCommand()
   await assertSnapshotIncludesWorkspaceBacklog()
   await assertSnapshotCarriesNoRoleCatalogue()
@@ -74,18 +76,18 @@ async function main(): Promise<void> {
 // depends on the package there is exactly one hand-maintained copy left, over
 // there, and this pin is still the only thing that catches it drifting.
 //
-// MC-2575 cut the desktop's sprint surface without touching a byte of this file:
-// `sprintEngines`, `roleCatalogs` and the sprint command members are a contract
-// with a phone that ships on its own release train, and the desktop now answers
-// them empty instead of dropping them. So the hash below is the value it has
-// always had, and still compares against the phone's untouched
-// `src/shared/mobile-control/protocol.ts`.
+// Protocol v3 (2026-09-16) changed this file for the first time since the
+// extraction: `sprintEngines`, `roleCatalogs`, the sprint commands, capabilities,
+// relay scopes and the `sprintengine` workspace kind are gone, and the wire
+// version moved 2 -> 3. Both repositories were edited together and both pins were
+// set to the hash below in the same change, which is the procedure in
+// docs/compatibility.md step 5.
 //
 // Retire this once the phone ships against the package: at that point there is
 // no second copy to compare and the phone's own pin becomes an assertion about
 // which package version it resolved. docs/mobile-protocol-package.md has the
 // order of operations.
-const mobileProtocolSourceSha256 = '372e1abd94a4a00e5815df1b7cc7d8b57160a59413d503e6df8d32622609c85b'
+const mobileProtocolSourceSha256 = '1b0382458dae8a62aa2a145c2ae0fc751f900097f6eb9d4e7e767ccda4e5fd33'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'packages/mobile-control-protocol/src/index.ts'))
@@ -97,12 +99,18 @@ function assertMobileProtocolCopyHasNotDrifted(): void {
   )
 }
 
-// MC-2575 acceptance. `sprintEngines` is a REQUIRED member of the wire snapshot,
-// so "absent" has to be the empty array rather than a missing key: a phone that
-// reads `snapshot.sprintEngines.length` would throw on the latter, which is the
-// malformed-or-partial snapshot the item forbids. The whole payload is put
-// through the protocol's own validator to prove it.
-async function assertSnapshotReportsSprintsAbsentButWellFormed(): Promise<void> {
+// INVERTED at protocol v3, and this is the assertion the whole change turns on.
+//
+// At v2 this read `Object.hasOwn(snapshot, 'sprintEngines') === true`, because
+// `sprintEngines` was a REQUIRED member: a desktop that dropped the key made
+// every snapshot read on the phone fail `invalid_payload`, losing backlog and
+// automations along with the runs. That is why MC-2575 emitted `[]` forever
+// instead of removing it — the right call while a paired phone demanded it.
+//
+// Pre-release there is no such phone, so the collection is gone from the wire
+// rather than hollowed out, and the key must now be ABSENT. The validator is run
+// over the whole payload, twice, to prove that absence is well-formed.
+async function assertSnapshotCarriesNoSprintEngineCollection(): Promise<void> {
   const workspaceRoot = await makeWorkspaceRoot('sprints-absent')
   await writeBacklogFixture(workspaceRoot, 'backlog_absent', 'Something to read')
   const service = new MobileControlSnapshotService()
@@ -113,9 +121,10 @@ async function assertSnapshotReportsSprintsAbsentButWellFormed(): Promise<void> 
     generatedAt,
   })
 
-  assert.deepEqual(snapshot.sprintEngines, [])
-  assert.equal(Object.hasOwn(snapshot, 'sprintEngines'), true, 'the required key is present, not omitted')
-  assert.equal(snapshot.snapshotLimits, undefined)
+  assert.equal(Object.hasOwn(snapshot, 'sprintEngines'), false, 'the collection is gone, not emptied')
+  assert.equal(Object.hasOwn(snapshot, 'snapshotLimits'), false, 'its shedding report went with it')
+  assert.equal(snapshot.protocolVersion, mobileControlProtocolVersion)
+  assert.equal(mobileControlProtocolVersion, 3, 'a removed required member is a wire bump')
   // The rest of the snapshot is untouched by the cut.
   assert.equal(snapshot.backlog?.length, 1)
   assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
@@ -135,7 +144,11 @@ async function assertSnapshotAdvertisesNoSprintCommand(): Promise<void> {
 
   for (const retired of retiredSprintCommands) {
     assert.equal(snapshot.commands?.includes(retired), false, `${retired} must not be advertised`)
-    assert.equal(defaultMobileSnapshotCommands.includes(retired), false, `${retired} must not be in the default set`)
+    assert.equal(
+      (defaultMobileSnapshotCommands as readonly string[]).includes(retired),
+      false,
+      `${retired} must not be in the default set`,
+    )
   }
   // What survives still is.
   assert.equal(snapshot.commands?.includes('snapshot.request'), true)
@@ -227,9 +240,22 @@ async function assertSnapshotCarriesNoRoleCatalogue(): Promise<void> {
     desktopSessionId: 'desktop_1',
     workspaceRoots: [workspaceRoot],
     generatedAt,
-    // Asking for the collection by name changes nothing: there is no producer.
-    include: ['backlog', 'roleCatalogs'],
+    // INVERTED at protocol v3: `roleCatalogs` used to be a nameable collection
+    // with no producer. It is not a collection at all now, so naming it is a
+    // payload error rather than a request the desktop quietly answers empty.
+    include: ['backlog'],
   })
+
+  assert.equal(
+    (mobileSnapshotCollections as readonly string[]).includes('roleCatalogs'),
+    false,
+    'roleCatalogs is no longer a snapshot collection',
+  )
+  assert.equal(
+    (mobileSnapshotCollections as readonly string[]).includes('sprintEngines'),
+    false,
+    'sprintEngines is no longer a snapshot collection',
+  )
 
   const backlogWorkspace = snapshot.backlog?.[0]
   assert.equal(backlogWorkspace?.items.length, 1)
@@ -452,7 +478,6 @@ async function assertShedDropsRecentRunsWhenTheSnapshotIsOversized(): Promise<vo
   // validator would reject a nulled one.
   assert.equal(shed.automations?.every((automation) => !('recentRuns' in automation)), true)
   assert.equal(shed.automations?.[0]?.name, oversized.automations?.[0]?.name)
-  assert.deepEqual(shed.sprintEngines, [])
 
   assert.equal(
     relaySummaryByteLength(summarizeCommandResult(result)) <= relayResultSummaryMaxBytes,
@@ -542,11 +567,14 @@ async function assertSnapshotOmitsUnavailableWorkspaceKinds(): Promise<void> {
     desktopSessionId: 'desktop_1',
     workspaceRoots: [workspaceRoot],
     generatedAt,
-    include: ['sprintEngines', 'desktopWorkspaces', 'roleCatalogs'],
+    // `sprintEngines` and `roleCatalogs` were nameable here at v2 and are not
+    // members of `MobileSnapshotCollection` any more; `desktopWorkspaces` is the
+    // one that survived, and it still has no projection to serve.
+    include: ['desktopWorkspaces'],
   })
 
   assert.deepEqual(snapshot.workspaces, [])
-  assert.deepEqual(snapshot.sprintEngines, [])
+  assert.equal(Object.hasOwn(snapshot, 'sprintEngines'), false)
   assert.equal(snapshot.backlog, undefined)
   assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
   service.shutdown()
@@ -565,7 +593,7 @@ async function assertUnscopedDefaultSnapshotIsValidForOldClients(): Promise<void
   assert.equal(result.ok, true)
   const snapshot = (result.ok ? result.data : null) as MobileControlSnapshot
   assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
-  assert.deepEqual(snapshot.sprintEngines, [])
+  assert.equal(Object.hasOwn(snapshot, 'sprintEngines'), false)
   assert.equal(snapshot.backlog?.length, 1)
   service.shutdown()
 }
@@ -580,7 +608,6 @@ async function assertScopedRequestSkipsSheddingLadder(): Promise<void> {
     desktopSessionId: 'desktop_1',
     snapshotVersion: 'snap_scoped',
     commands: [],
-    sprintEngines: [],
     workspaces: [],
     automations: ['ws_alpha', 'ws_beta', 'ws_gamma', 'ws_delta'].flatMap(automationsAtFullCap),
   }

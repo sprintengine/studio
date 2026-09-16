@@ -55,37 +55,20 @@ import { readStudioEnv } from '../../../shared/studio-env'
 
 export type MobileControlCommandType =
   | 'snapshot.request'
-  | 'artifact.read'
-  | 'sprintengine.create'
-  | 'task.start'
-  | 'artifact.approve'
-  | 'artifact.requestChanges'
-  | 'agent.followUp'
   | 'device.revoke'
   | 'backlog.update'
-  | 'backlog.startSprintEngine'
   | 'backlog.create'
-  | 'sprintengine.openPullRequest'
-  | 'sprintengine.setAutomationMode'
   | 'automations.control'
 
 export type MobileControlCapability =
   | 'snapshots.read'
-  | 'artifacts.read'
-  | 'sprintengines.create'
-  | 'tasks.start'
-  | 'artifacts.review'
-  | 'agents.followUp'
   | 'devices.revoke'
   | 'backlog.update'
-  | 'backlog.start'
   | 'backlog.create'
-  | 'sprintengines.pr'
-  | 'sprintengines.automation'
-  // Controls the desktop's automations (src/main/automations). NOT the same thing
-  // as `sprintengines.automation`, which is a Sprint Engine run's automation mode —
-  // a different subsystem, and reusing its scope would have silently granted every
-  // already-paired device the power to fire agent runs here.
+  // Controls the desktop's automations (src/main/automations). The run-scoped
+  // `sprintengines.automation` capability that used to sit beside it — and that
+  // was a standing invitation to confuse the two subsystems — left the wire with
+  // the rest of the Sprint Engine surface (protocol v3).
   | 'automations.control'
 
 export type MobileControlErrorCode =
@@ -100,9 +83,9 @@ export type MobileControlErrorCode =
   | 'command_expired'
   | 'duplicate_idempotency_key'
   | 'stale_snapshot'
-  | 'sprintengine_not_found'
+  // Kept although its name reads sprint-shaped: the automations controller
+  // answers a run already in flight with it (../control/command.ts).
   | 'task_not_ready'
-  | 'artifact_not_found'
   | 'path_not_allowed'
   | 'snapshot_too_large'
   | 'python_tool_failed'
@@ -148,42 +131,23 @@ type MobileControlCapabilities = {
   deviceId: string
   commands: MobileControlCommandType[]
   capabilities: MobileControlCapability[]
-  artifactPreviewModes: ('text' | 'markdown' | 'restrictedHtml')[]
-  maxFollowUpCharacters: number
   snapshotTtlMs: number
 }
 
 export type MobileRelayScope =
   | 'relay:presence:read'
   | 'relay:snapshot:read'
-  | 'relay:artifact:read'
-  | 'relay:artifact:review'
-  | 'relay:sprintengine:create'
-  | 'relay:task:start'
-  | 'relay:agent:followup'
   | 'relay:push:register'
   | 'relay:device:revoke'
   | 'relay:backlog:update'
-  | 'relay:backlog:start'
   | 'relay:backlog:create'
-  | 'relay:sprintengine:pr'
-  | 'relay:sprintengine:automation'
   | 'relay:automations:control'
 
 export type RelayCommandType =
   | 'snapshot.request'
-  | 'artifact.read'
-  | 'sprintengine.create'
-  | 'task.start'
-  | 'artifact.approve'
-  | 'artifact.requestChanges'
-  | 'agent.followup'
   | 'device.revoke'
   | 'backlog.update'
-  | 'backlog.startSprintEngine'
   | 'backlog.create'
-  | 'sprintengine.openPullRequest'
-  | 'sprintengine.setAutomationMode'
   | 'automations.control'
 
 export type RelayCommandEnvelope = {
@@ -403,13 +367,12 @@ const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000
 const DEFAULT_COMMAND_POLL_CEILING_MS = 30_000
 const DEFAULT_COMMAND_POLL_ATTENTION_WINDOW_MS = 150_000
 // What this desktop ASKS a phone for at pairing, and what it tells a paired
-// phone it can do. The Sprint Engine's scopes and commands are gone from all
-// three lists (MC-2575): a scope is a privilege, and asking for one the desktop
-// cannot exercise would put a consent prompt in front of someone for something
-// that does not exist. The INBOUND vocabulary is untouched — `RelayCommandType`,
-// `MobileControlCapability` and the protocol's command union all still carry the
-// sprint members, because a phone that predates the cut keeps sending them and
-// the desktop has to read the envelope in order to answer it.
+// phone it can do. MC-2575 took the Sprint Engine's scopes and commands out of
+// these three lists; protocol v3 took them off the wire entirely, so the INBOUND
+// vocabulary — `RelayCommandType`, `MobileControlCapability` and the protocol's
+// command union — no longer carries them either. There is no older phone to read
+// an envelope for: a peer outside the version window is refused at the
+// handshake, which is the one place a version mismatch should be answered.
 const REQUESTED_SCOPES: MobileControlCapability[] = [
   'snapshots.read',
   'devices.revoke',
@@ -888,12 +851,6 @@ export class MobileBridge {
       deviceId: this.desktopInstanceId,
       commands: SUPPORTED_COMMANDS,
       capabilities: REQUESTED_SCOPES,
-      // Both are Sprint Engine facts — an artifact preview and an agent
-      // follow-up are commands this desktop no longer serves — but the
-      // capabilities record requires them, so they report the empty truth
-      // rather than a promise (MC-2575).
-      artifactPreviewModes: [],
-      maxFollowUpCharacters: 0,
       snapshotTtlMs: 10_000,
     }
   }
@@ -1177,20 +1134,9 @@ export class MobileBridge {
           command,
           revokeDevice: (deviceId, reason) => this.revokeDevice(deviceId, reason),
         })
-      // Everything else, including the nine commands that left with the Sprint
-      // Engine (MC-2575). The command service answers a retired one with an
-      // audited `command_not_supported`, which is what the relay hands back to
-      // the phone — a refusal it can show, not a delivery that never returns.
-      case 'artifact.read':
-      case 'sprintengine.create':
-      case 'task.start':
-      case 'artifact.approve':
-      case 'artifact.requestChanges':
-      case 'agent.followUp':
-      case 'sprintengine.openPullRequest':
-      case 'sprintengine.setAutomationMode':
+      // Everything else: the backlog and automations mutations, which the
+      // command service executes against a resolved workspace root.
       case 'backlog.update':
-      case 'backlog.startSprintEngine':
       case 'backlog.create':
       case 'automations.control':
         return this.dispatchWorkspaceMutation(command)

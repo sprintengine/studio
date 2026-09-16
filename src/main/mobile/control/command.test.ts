@@ -53,39 +53,46 @@ async function main(): Promise<void> {
   await assertAutomationsControlIsAdvertisedOnlyWithItsHandler()
 }
 
-// MC-2575. A phone paired before the Sprint Engine left keeps sending the
-// commands it was paired for, and the two things that must NOT happen are a
-// throw (which loses the command silently — the relay never gets a result) and
-// a malformed answer. Both are covered here: a well-formed, audited refusal.
+// INVERTED at protocol v3. MC-2575 required these to be refused as
+// `command_not_supported` — the envelope validator had to ACCEPT them so a phone
+// paired before the Sprint Engine left got an honest refusal from the service
+// rather than a "malformed" answer to a message that was not malformed.
+//
+// The wire no longer defines them, so that is no longer the truth to tell. A
+// sender of one is speaking a version outside the window, and `invalid_payload`
+// from the envelope validator is now the accurate answer: this build cannot read
+// the message. What must NOT change is that something comes back at all — a
+// dropped command is a phone spinning until its own timeout, which was the real
+// failure MC-2575 was guarding against, and it is still guarded here.
 async function assertRetiredSprintCommandIsRefusedCleanly(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-retired-'))
   const service = new MobileControlCommandService({ workspaceRoot, now: () => now })
 
-  const result = await service.dispatch(command('task.start', {
+  const result = await service.dispatch(command('task.start' as MobileControlCommand['type'], {
     sprintEngineId: 'team',
     taskId: 'T1',
     role: 'developer',
     worktreeIsolation: 'preferred',
-  }))
+  } as MobileControlCommand['payload']))
 
   assert.equal(result.ok, false)
-  assert.equal(result.ok === false ? result.error.code : '', 'command_not_supported')
+  assert.equal(result.ok === false ? result.error.code : '', 'invalid_payload')
   assert.equal(result.ok === false ? result.error.retryable : true, false)
-  assert.equal(result.commandType, 'task.start')
-  // Audited like any other refusal, so the desktop's own log says a phone asked.
+  // Still audited, so the desktop's own log says a phone asked for something the
+  // wire no longer carries.
   const audit = service.getAuditLog()[0]
   assert.equal(audit.status, 'rejected')
-  assert.equal(audit.code, 'command_not_supported')
-  assert.equal(audit.commandType, 'task.start')
+  assert.equal(audit.code, 'invalid_payload')
 }
 
 async function assertEveryRetiredSprintCommandIsRefusedCleanly(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-retired-all-'))
   const service = new MobileControlCommandService({ workspaceRoot, now: () => now })
 
-  // Every payload here is one a live phone really sends, so the envelope
-  // validator has to accept it and the refusal has to come from the service.
-  const retired: Array<[MobileControlCommand['type'], Record<string, unknown>]> = [
+  // Every payload here is one a live phone really sent at v2. None of the nine
+  // types is a member of `MobileControlCommandType` any more, which is why each
+  // is cast in rather than declared — the cast IS the assertion.
+  const retired: Array<[string, Record<string, unknown>]> = [
     ['sprintengine.create', { workspacePath: workspaceRoot, productPrompt: 'Build it' }],
     ['task.start', { sprintEngineId: 'team', taskId: 'T1', role: 'developer', worktreeIsolation: 'preferred' }],
     ['agent.followUp', { sprintEngineId: 'team', agentId: 'developer-1', text: 'carry on' }],
@@ -98,21 +105,25 @@ async function assertEveryRetiredSprintCommandIsRefusedCleanly(): Promise<void> 
   ]
 
   for (const [type, payload] of retired) {
-    const result = await service.dispatch(command(type, payload as MobileControlCommand['payload'], {
+    const result = await service.dispatch(command(type as MobileControlCommand['type'], payload as MobileControlCommand['payload'], {
       commandId: `cmd_${type}`,
       idempotencyKey: `mobile:device_1:${type}`,
     }))
     assert.equal(result.ok, false, `${type} must be refused`)
     assert.equal(
       result.ok === false ? result.error.code : '',
-      'command_not_supported',
-      `${type} must be refused as unsupported, not as malformed`,
+      'invalid_payload',
+      `${type} is no longer a command this wire defines`,
     )
   }
 
-  // And none of them is advertised, so a current phone never draws the control.
+  // And none of them is advertised, so no phone draws the control.
   for (const [type] of retired) {
-    assert.equal(defaultMobileSnapshotCommands.includes(type), false, `${type} must not be advertised`)
+    assert.equal(
+      (defaultMobileSnapshotCommands as readonly string[]).includes(type),
+      false,
+      `${type} must not be advertised`,
+    )
   }
 }
 

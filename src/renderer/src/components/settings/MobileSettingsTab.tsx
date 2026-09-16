@@ -118,12 +118,14 @@ type MobileBridgeState = {
   pairingChallenge: Omit<MobileBridgePairingChallenge, 'pairingCode' | 'pairingUri'> | null
   pairedDevices: MobileControlDevice[]
   capabilities: {
-    protocolVersion: 2
+    // The wire version this desktop stamps, from the protocol package. A literal
+    // `2` sat here until protocol v3 — a hand-maintained second copy of a number
+    // that only ever has one right value, in a file nothing would fail to compile
+    // if it went stale.
+    protocolVersion: MobileControlProtocolVersion
     deviceId: string
     commands: MobileControlCommandType[]
     capabilities: MobileControlCapability[]
-    artifactPreviewModes: ('text' | 'markdown' | 'restrictedHtml')[]
-    maxFollowUpCharacters: number
     snapshotTtlMs: number
   }
   diagnostics: MobileBridgeDiagnosticEntry[]

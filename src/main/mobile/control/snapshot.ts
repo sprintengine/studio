@@ -23,21 +23,14 @@ export type { MobileControlSnapshot }
 const defaultPublishThrottleMs = 1000
 
 /**
- * The commands this desktop will actually execute (MC-2575).
+ * The commands this desktop will actually execute.
  *
- * The Sprint Engine leaves the app as a signed module and takes the phone's
- * sprint surface with it, so the nine sprint commands — `sprintengine.create`,
- * `task.start`, `artifact.read`, `artifact.approve`, `artifact.requestChanges`,
- * `agent.followUp`, `backlog.startSprintEngine`, `sprintengine.openPullRequest`
- * and `sprintengine.setAutomationMode` — are no longer advertised. They remain
- * in the protocol's command union and in the relay bridge's inbound vocabulary,
- * because a paired phone ships on its own release train and will keep sending
- * them; the desktop answers those with `command_not_supported` rather than
- * refusing to read the envelope.
+ * MC-2575 stopped advertising the nine sprint commands while leaving them in the
+ * protocol's union; protocol v3 deleted them, so this list and that union are now
+ * the same five members and the `satisfies` below is what keeps them so.
  *
  * `snapshot.commands` is `string[]` on the wire by design, so a phone reads this
- * list to decide which controls to draw. Shrinking it is how the phone learns
- * the sprint screens are not available on this desktop.
+ * list to decide which controls to draw rather than inferring them from a version.
  */
 const mobileSnapshotCommandTypes = [
   'snapshot.request',
@@ -66,19 +59,10 @@ export type MobileControlSnapshotRequest = {
 }
 
 // The unscoped default: the two collections that still have a producer.
-//
-// RETAINED FOR PROTOCOL COMPATIBILITY. `packages/mobile-control-protocol/src/index.ts`
-// still declares `desktopWorkspaces`, `sprintEngines` and `roleCatalogs`, the
-// retired `MobileControlWorkspaceKind` members and their detail shapes, and its
-// validator still accepts them on receipt. That file is a byte-identical mirror
-// of the mobile app's copy (pinned by sha256 in snapshot.test.ts), so the note
-// lives here rather than in it. An installed companion on an older build may
-// still ask for any of them and may hold a cached snapshot containing them; the
-// desktop now answers with the section simply absent — `sprintEngines` is always
-// the empty array the wire requires, no workspace of a retired kind is ever
-// emitted, and no role catalogue is ever attached — so no protocol version bump
-// and no re-pair is needed. Delete the shapes from both copies, and bump the
-// protocol version, once the companion stops sending or expecting them.
+// `desktopWorkspaces` is the third and only other one the wire declares, and it
+// is off by default — a phone that wants the switchboard/watchtower monitors
+// names it. `sprintEngines` and `roleCatalogs` were here until protocol v3 took
+// the Sprint Engine off the wire; there is nothing left to retain them for.
 const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set([
   'backlog',
   'automations',
@@ -211,10 +195,6 @@ export class MobileControlSnapshotService {
         webTargets,
       }),
       commands: normalizeMobileControlCommands(request.commands ?? this.supportedCommands),
-      // Required by the wire and always empty: the sprint surface is a module
-      // this desktop no longer contains (MC-2575). Empty is the well-formed way
-      // to say "no runs here"; omitting it would be a malformed snapshot.
-      sprintEngines: [],
       workspaces,
       ...(backlog.length > 0 ? { backlog } : {}),
       ...(automations.length > 0 ? { automations } : {}),
