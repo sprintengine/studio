@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from sprintengine_core.role_registry import (
     MissingRoleError,
+    NO_WORKFLOW_ROLES_INSTALLED,
     RegistryEntry,
     RegistryWarning,
     RoleManifest,
@@ -23,6 +24,8 @@ from sprintengine_core.role_registry import (
 def roles_list(args) -> dict[str, Any]:
     registry = _discover(args)
     roles = [_role_payload(entry, include_shadowed=bool(args.include_shadowed)) for _, entry in sorted(registry.roles.items())]
+    if not roles:
+        print(NO_WORKFLOW_ROLES_INSTALLED, file=sys.stderr)
     return {"ok": True, "roles": roles, "aliases": dict(sorted(registry.aliases.items())), "warnings": _warning_payloads(registry.warnings)}
 
 

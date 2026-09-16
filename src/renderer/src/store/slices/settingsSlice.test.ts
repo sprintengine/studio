@@ -419,9 +419,14 @@ const carrier = {
   diffView: 'side-by-side' as DiffViewMode,
   checkCliVersions: true,
   sprintEngineRoleRegistry: null,
+  sprintEngineRoleRegistryEpoch: 0,
   agentConfigAdoptionResult: null,
 }
 const slice = createSettingsSlice((mutator) => mutator(carrier))
+slice.bumpSprintEngineRoleRegistryEpoch()
+assert.equal(carrier.sprintEngineRoleRegistryEpoch, 1, 'installing a pack refreshes the registry without a restart')
+slice.bumpSprintEngineRoleRegistryEpoch()
+assert.equal(carrier.sprintEngineRoleRegistryEpoch, 2)
 // Settings is a MODAL (doors→modals, 2026-09-01; a door before that): opening
 // it floats the modal over whatever owns the card region, and what stays in
 // `settingsOverlay` is only the REQUEST — which category, and whether an
@@ -665,6 +670,7 @@ const permissionCarrier = {
   diffView: 'side-by-side' as DiffViewMode,
   checkCliVersions: true,
   sprintEngineRoleRegistry: null,
+  sprintEngineRoleRegistryEpoch: 0,
   agentConfigAdoptionResult: null,
   activeModalSurfaceWorkspaceId: null,
 }

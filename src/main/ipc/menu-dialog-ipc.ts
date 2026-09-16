@@ -2,6 +2,8 @@ import { stat } from 'node:fs/promises'
 import { BrowserWindow, Menu, app, dialog, type IpcMain } from 'electron'
 import type { ContextMenuItem } from '../../shared/electron-api'
 
+import { ensureDefaultUserSkillsDir } from '../skills/user-skills-dir'
+
 export const TEST_OPEN_DIR_ENV = 'SPRINTENGINE_TEST_OPEN_DIR'
 
 export type TestOpenDirOverrideOptions = {
@@ -27,7 +29,7 @@ export async function resolveTestOpenDirOverride({
 }
 
 export function registerMenuDialogIpc(ipcMain: IpcMain): void {
-  ipcMain.handle('fs:dialog:opendir', async (event) => {
+  ipcMain.handle('fs:dialog:opendir', async (event, options?: { defaultPath?: string }) => {
     const testOverride = await resolveTestOpenDirOverride({ isPackaged: app.isPackaged })
     if (testOverride) return testOverride
 
@@ -35,9 +37,14 @@ export function registerMenuDialogIpc(ipcMain: IpcMain): void {
     const result = await dialog.showOpenDialog(win!, {
       properties: process.platform === 'darwin' ? ['openDirectory', 'createDirectory'] : ['openDirectory'],
       title: 'Open Folder',
+      ...(typeof options?.defaultPath === 'string' && options.defaultPath.trim()
+        ? { defaultPath: options.defaultPath }
+        : {}),
     })
     return result.filePaths[0] ?? null
   })
+
+  ipcMain.handle('skills:ensure-default-user-dir', (): string => ensureDefaultUserSkillsDir())
 
   // Cold-start default location for a brand-new workspace folder, used only
   // when the renderer has no selected/recent folder to derive a parent from.

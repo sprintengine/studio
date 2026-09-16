@@ -135,9 +135,9 @@ function resolvesAsAddableRole(
 // roster. The registry is the source of available specialist roles; the bundled
 // seed inside `orderSprintEngineRosterRoles` only fixes canonical ordering and
 // is gated to registry-resolvable roles here, so a fresh install with no pack
-// offers NO roles — which is a roleless run, not a broken one — and an installed
-// pack offers its specialist roles in curated order. The user grows the roster;
-// agents still never do.
+// offers NO roles: the picker greys out rather than becoming a roleless run
+// (owner ruling 2026-09-08). An installed pack offers its specialist roles in
+// curated order. The user grows the roster; agents still never do.
 export function listSprintEngineAddableRoles(
   registry?: SprintEngineRoleRegistry | null,
   disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,

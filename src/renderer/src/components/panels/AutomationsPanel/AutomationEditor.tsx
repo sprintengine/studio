@@ -43,6 +43,8 @@ import {
   type SprintLandedForm,
   type WebhookForm,
 } from './automationsFormat'
+import { NoWorkflowRolesNotice } from '../../NoWorkflowRolesNotice'
+import { missingRoleMessage, workflowRolesInstalled } from '../../../../../shared/workflow-roles'
 import { AgentModelFields, PermissionField } from './AgentFields'
 import { AttachmentFields } from './AttachmentFields'
 import { SprintStartFields } from './SprintStartFields'
@@ -278,6 +280,10 @@ export function AutomationEditor({
   const selectedSpecialist = form.config.specialistId
     ? specialistRoster.find((action) => action.id === form.config.specialistId) ?? null
     : null
+  const unresolvedSpecialistId = form.config.specialistId?.trim() ?? ''
+  const rolesLoaded = sprintEngineRoleRegistry !== null
+  const packInstalled = workflowRolesInstalled(sprintEngineRoleRegistry)
+  const specialistMissing = Boolean(unresolvedSpecialistId) && rolesLoaded && !selectedSpecialist
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
   const selectedCli = resolveAutomationRuntimeCli(form.config.cli, lastSelectedCli, cliCatalog)
   const showAgentPicker = !actionUnavailableReason && configKeys.includes('cli')
@@ -425,12 +431,18 @@ export function AutomationEditor({
       const cliError = automationCliFieldError(form.config.cli, cliCatalog)
       if (cliError) return cliError
     }
+    if (specialistMissing) {
+      return missingRoleMessage(
+        unresolvedSpecialistId,
+        specialistRoster.map((action) => action.id),
+      )
+    }
     for (const key of requiredKeys) {
       if (INTERNAL_CONFIG_KEYS.has(key)) continue
       if (!form.config[key]?.trim()) return `${CONFIG_FIELD_LABEL[key] ?? key} is required.`
     }
     return null
-  }, [form, actionProvider, actionUnavailableReason, requiredKeys, configKeys, cliCatalog, triggerReadOnly, triggerUnavailableReason, shouldSendTrigger])
+  }, [form, actionProvider, actionUnavailableReason, requiredKeys, configKeys, cliCatalog, triggerReadOnly, triggerUnavailableReason, shouldSendTrigger, specialistMissing, unresolvedSpecialistId, specialistRoster])
 
   const handleSubmit = useCallback(async () => {
     if (validationError || !workspaceRoot) { setError(validationError); return }
@@ -583,6 +595,9 @@ export function AutomationEditor({
                 onPickerOpenChange={setAgentPickerOpen}
                 onPatchConfig={patchConfig}
               />
+              {showAgentPicker && rolesLoaded && !packInstalled ? (
+                <NoWorkflowRolesNotice />
+              ) : null}
 
               {/* Runs and Permission (§.duo): when it fires, and what it may do
                   while nobody is watching. */}

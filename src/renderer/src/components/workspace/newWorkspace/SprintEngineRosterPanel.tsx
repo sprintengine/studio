@@ -24,6 +24,8 @@ import {
   listSprintEngineWizardRoles,
 } from '../../../utils/sprintengineRoleOptions'
 import { CheckIcon, ChevronDownIcon } from '../../AppIcons'
+import { NoWorkflowRolesNotice } from '../../NoWorkflowRolesNotice'
+import { workflowRolesInstalled } from '../../../../../shared/workflow-roles'
 import {
   CliModelPickerButton,
   GhostButton,
@@ -154,7 +156,12 @@ export function SprintEngineRosterPanel({
       </div>
 
       <div className="mt-2 border-t border-[color:var(--border-subtle)]">
-        {roles.map((role) => (
+        {(registryStatus === 'ready' || registryStatus === 'unavailable') && !workflowRolesInstalled(registry) ? (
+          <div className="py-3">
+            <NoWorkflowRolesNotice />
+          </div>
+        ) : (
+          roles.map((role) => (
           <RosterRoleRow
             key={role}
             role={role}
@@ -170,7 +177,8 @@ export function SprintEngineRosterPanel({
             onSetRoleModel={onSetRoleModel}
             onSetRoleReasoning={onSetRoleReasoning}
           />
-        ))}
+          ))
+        )}
       </div>
     </div>
   )

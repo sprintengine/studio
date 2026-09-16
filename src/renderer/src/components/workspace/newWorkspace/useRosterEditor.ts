@@ -212,6 +212,7 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
     () => (isNoRolesRosterRef(initial.selectedRosterId) ? 2 : 3),
   )
 
+  const sprintEngineRoleRegistryEpoch = useWorkspaceStore((s) => s.sprintEngineRoleRegistryEpoch)
   const [registry, setRegistry] = useState<SprintEngineRoleRegistry | null>(null)
   const [registryStatus, setRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
 
@@ -258,7 +259,7 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
     return () => {
       cancelled = true
     }
-  }, [workspaceRoot])
+  }, [workspaceRoot, sprintEngineRoleRegistryEpoch])
 
   // Once detection is trustworthy, remap any role default seeded to an
   // uninstalled CLI so creation never deploys — or even offers — a CLI the user

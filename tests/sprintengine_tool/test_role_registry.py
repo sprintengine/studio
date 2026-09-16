@@ -145,16 +145,20 @@ def test_harness_walk_order_matches_the_spec() -> None:
     )
 
 
-def test_bundled_default_resolves_without_a_workspace_install() -> None:
+def test_empty_workspace_resolves_no_roles(empty_role_pack: None) -> None:
     discovery = discover_role_registry(workspace_root=Path("/unused/workspace"))
-    assert set(discovery.roles) >= WORKFLOW_ROLE_IDS
-    tester = discovery.role_entry("tester")
-    assert tester.source.layer.name == "bundled"
-    assert "workflow-roles/skills" in str(tester.source.path).replace("\\", "/")
+    assert discovery.roles == {}
+    with pytest.raises(MissingRoleError) as exc_info:
+        discovery.get_role("architect")
+    message = str(exc_info.value)
+    assert "no workflow roles are installed in this workspace" in message
+    assert "workflow-roles" in message
+    assert "Add from folder…" in message
+    assert "Known roles" not in message
 
 
 def test_host_layer_skills_come_from_the_package_not_the_workspace(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
+    workspace = install_workflow_roles(tmp_path / "workspace")
     skill_dir = workspace / ".agents" / "skills" / "workspace-knowledge"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(

@@ -46,7 +46,7 @@ export type SkillSource = {
   /**
    * Absolute folder path for a `local` source, '' for every other kind. A
    * folder on this machine is a source you can point at (the source-tabs
-   * ruling, 2026-09-05: the plus offers "Add from file…" beside "Add from
+   * ruling, 2026-09-05: the plus offers "Add from folder…" beside "Add from
    * GitHub…"), and the path is the only identity it has — there is no
    * repository to name it by.
    */

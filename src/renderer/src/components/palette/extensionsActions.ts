@@ -31,6 +31,7 @@
 
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import type { ShowToastInput } from '../../store/toastStore'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   AGENT_NO_LONGER_RUNNING_MESSAGE,
   NO_WORKSPACE_FOLDER_MESSAGE,
@@ -86,6 +87,7 @@ export async function installSkillRow(input: SkillRowInput): Promise<ResolvedSki
     })
     if (!installed.ok) return { ok: false, message: installed.message }
     dirName = installed.dirName
+    useWorkspaceStore.getState().bumpSprintEngineRoleRegistryEpoch()
   }
   return resolveWorkspaceSkill({ workspaceRoot, skillId: dirName })
 }
@@ -233,6 +235,7 @@ export async function installPluginRow(input: PluginRowInput): Promise<ResolvedS
     workspaceRoot,
   })
   if (!installed.ok) return { ok: false, message: installed.message }
+  useWorkspaceStore.getState().bumpSprintEngineRoleRegistryEpoch()
   // What the install actually wrote outranks what the scan predicted: the
   // receipt is the only thing that knows which directories exist now.
   const written = installed.harnesses.flatMap((harness) => harness.skillDirNames)

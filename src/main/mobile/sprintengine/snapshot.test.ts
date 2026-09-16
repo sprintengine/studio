@@ -93,7 +93,7 @@ async function main(): Promise<void> {
 // no second copy to compare and the phone's own pin becomes an assertion about
 // which package version it resolved. docs/mobile-protocol-package.md has the
 // order of operations.
-const mobileProtocolSourceSha256 = 'cb448e716bf7a9cdd681c78d33c3c95494a80e316f7905f6c21c24cd2432fb2a'
+const mobileProtocolSourceSha256 = '372e1abd94a4a00e5815df1b7cc7d8b57160a59413d503e6df8d32622609c85b'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'packages/mobile-control-protocol/src/index.ts'))
@@ -1445,6 +1445,11 @@ async function assertEmptyRoleCatalogIsDistinctFromAnUnreadableOne(): Promise<vo
   const empty = await readWith(async () => [])
   assert.equal('roles' in (empty ?? {}), true, 'a registry read that found nothing must still SAY so')
   assert.deepEqual(empty?.roles, [], 'and it says so with an empty catalog, not by omission')
+  assert.match(
+    empty?.rolesUnavailable ?? '',
+    /Install the workflow-roles pack from the SprintEngine Studio skill source on the desktop/,
+    'the phone is told to install on the desktop, not given an empty picker',
+  )
 
   // The empty catalog has to survive the wire, or the producer is emitting
   // something the validator would reject in the field.

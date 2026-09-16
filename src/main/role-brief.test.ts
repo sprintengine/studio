@@ -26,7 +26,7 @@ function main(): void {
   testDroppedAliasIsANamedMissingRole()
   testFirstHarnessWins()
   testSkillWithoutRoleMetadataIsIgnored()
-  testBundledLastLayerIsReadableButNotAWorkspacePointer()
+  testEmptyWorkspaceIsANamedMissingRole()
   console.log('role-brief tests passed')
 }
 
@@ -112,18 +112,20 @@ function testSkillWithoutRoleMetadataIsIgnored(): void {
   assert.match(result.message, /not-a-role/)
 }
 
-function testBundledLastLayerIsReadableButNotAWorkspacePointer(): void {
-  // Empty workspace: discovery still hits the packaged workflow-roles last
-  // layer. The brief is readable so a sprint run does not go roleless, but
-  // workspaceRel stays null so host-context never points at a file the CLI
-  // cannot load. MC-2507 owns the picker empty-state for this same case.
-  const workspace = mkdtempSync(join(tmpdir(), 'role-brief-bundled-'))
+function testEmptyWorkspaceIsANamedMissingRole(): void {
+  // Empty workspace: discovery does not substitute the packaged workflow-roles
+  // tree. A missing pack is the named missing-role error, never a brief
+  // (owner ruling 2026-09-08).
+  const workspace = mkdtempSync(join(tmpdir(), 'role-brief-empty-'))
   const result = readRoleBrief(workspace, 'architect')
-  assert.equal(result.ok, true, result.ok ? '' : result.message)
-  if (!result.ok) return
-  assert.equal(result.workspaceRel, null, 'bundled last layer is not a workspace path')
-  assert.ok(result.brief.trim().length > 0)
-  assert.ok(result.skillPath.includes('workflow-roles'))
+  assert.equal(result.ok, false)
+  if (result.ok) return
+  assert.equal(result.message, missingRoleMessage('architect', []))
+  assert.match(result.message, /no workflow roles are installed/)
+  assert.match(result.message, /Add from folder/)
+  assert.deepEqual(result.knownRoles, [])
+  const source = readFileSync(join(process.cwd(), 'src', 'main', 'role-brief.ts'), 'utf8')
+  assert.doesNotMatch(source, /studio-plugin.*workflow-roles/)
 }
 
 main()

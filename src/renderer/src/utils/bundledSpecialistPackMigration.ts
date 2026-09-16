@@ -74,6 +74,7 @@ export async function runBundledSpecialistPackMigration(): Promise<void> {
       console.error('[BundledPackMigration] install rejected manifests', result.rejected)
     }
     useWorkspaceStore.getState().markBundledSpecialistPackMigrated()
+    useWorkspaceStore.getState().bumpSprintEngineRoleRegistryEpoch()
     await refreshRoleRegistryAfterInstall()
   } catch (error) {
     console.error('[BundledPackMigration] install threw', error)

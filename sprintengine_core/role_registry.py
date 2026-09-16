@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -13,9 +14,16 @@ import yaml
 BUNDLED_REGISTRY_ROOT = Path(__file__).resolve().parents[1] / "resources" / "sprintengine"
 BUNDLED_HOST_SKILLS_ROOT = BUNDLED_REGISTRY_ROOT / "skills"
 
-# Packaged default for a fresh install and for this repository as a workspace.
-# Workspace harness directories still win: this is the last source, not a
-# substitute for a role the workspace actually installed.
+# Offline seed / install source for the workflow-roles pack. Production
+# discovery never reads this: a missing pack is the empty-pack error, not a
+# quiet substitute (owner ruling 2026-09-08, MC-2507).
+#
+# Pytest-only (lander 2026-09-16): many CLI tests run with cwd=REPO_ROOT and
+# discover from that tree. Installing the sixteen into those git fixtures
+# dirties the suite, so pytest — and Node tests that spawn the same engine —
+# set SPRINTENGINE_TEST_BUNDLED_WORKFLOW_ROLES=1. This is not a user setting;
+# a process that exports it outside the test harness is opting into test
+# discovery, not a product fallback. Empty-pack tests delete it.
 BUNDLED_WORKFLOW_ROLES_SKILLS = (
     Path(__file__).resolve().parents[1]
     / "resources"
@@ -37,6 +45,10 @@ HARNESS_DIRECTORIES: tuple[str, ...] = (
     ".grok",
 )
 
+# Pytest-only. Production and a fresh install never set this; empty-pack tests
+# delete it so they see the same state a user with nothing installed sees.
+TEST_BUNDLED_WORKFLOW_ROLES_ENV = "SPRINTENGINE_TEST_BUNDLED_WORKFLOW_ROLES"
+
 ROLE_METADATA_KEY = "sprintengine-role"
 ROLE_LABEL_KEY = "role-label"
 ROLE_ICON_KEY = "role-icon"
@@ -52,10 +64,14 @@ active_workspace_root: ContextVar[Path | None] = ContextVar(
 SUPPORTED_TEMPLATE_VARIABLES = frozenset({"role", "role_label", "workspace_root", "run_id"})
 TEMPLATE_PATTERN = re.compile(r"{{\s*([^{}]+?)\s*}}")
 
-MISSING_ROLE_REMEDIES = (
+NO_WORKFLOW_ROLES_HEAD = "No workflow roles are installed."
+NO_WORKFLOW_ROLES_REMEDIES = (
     "Install the workflow-roles pack from the SprintEngine Studio skill source, "
-    "or add a role skill to your skills folder (~/.multicode/skills)."
+    "or put your own role skills in your skills folder (~/.multicode/skills) — "
+    'add or change it under Extensions → Skills → "Add from folder…".'
 )
+NO_WORKFLOW_ROLES_INSTALLED = f"{NO_WORKFLOW_ROLES_HEAD} {NO_WORKFLOW_ROLES_REMEDIES}"
+MISSING_ROLE_REMEDIES = NO_WORKFLOW_ROLES_REMEDIES
 
 # `sprintengine.soul.get` / `soul get` stay registered until this Studio
 # release, then they go. Recorded 2026-09-16 (MC-2508, one-release alias).
@@ -164,11 +180,16 @@ class MissingRoleError(KeyError):
     def __init__(self, role_id: str, *, known_roles: Iterable[str] = ()) -> None:
         self.role_id = role_id
         self.known_roles = tuple(sorted(known_roles))
-        known_clause = f" Known roles: {', '.join(self.known_roles)}." if self.known_roles else ""
-        message = (
-            f"Unknown role {role_id!r}: no skill declaring it is installed in this workspace. "
-            f"{MISSING_ROLE_REMEDIES}{known_clause}"
-        )
+        if self.known_roles:
+            message = (
+                f"Unknown role {role_id!r}: no skill declaring it is installed in this workspace. "
+                f"{MISSING_ROLE_REMEDIES} Known roles: {', '.join(self.known_roles)}."
+            )
+        else:
+            message = (
+                f"Unknown role {role_id!r}: no workflow roles are installed in this workspace. "
+                f"{MISSING_ROLE_REMEDIES}"
+            )
         super().__init__(message)
         self.message = message
 
@@ -314,24 +335,27 @@ class RoleSkillRegistry:
                 warnings,
             )
 
-        bundled_roles_layer = SourceLayer(
-            "bundled",
-            BUNDLED_WORKFLOW_ROLES_SKILLS,
-            len(HARNESS_DIRECTORIES),
-        )
-        self._ingest_skill_dir(
-            BUNDLED_WORKFLOW_ROLES_SKILLS,
-            bundled_roles_layer,
-            roles,
-            skills,
-            warnings,
-        )
+        host_precedence = len(HARNESS_DIRECTORIES)
+        if os.environ.get(TEST_BUNDLED_WORKFLOW_ROLES_ENV) == "1":
+            bundled_roles_layer = SourceLayer(
+                "bundled",
+                BUNDLED_WORKFLOW_ROLES_SKILLS,
+                host_precedence,
+            )
+            self._ingest_skill_dir(
+                BUNDLED_WORKFLOW_ROLES_SKILLS,
+                bundled_roles_layer,
+                roles,
+                skills,
+                warnings,
+            )
+            host_precedence += 1
 
         host_skills: dict[str, RegistryEntry] = {}
         host_layer = SourceLayer(
             "bundled",
             BUNDLED_HOST_SKILLS_ROOT,
-            len(HARNESS_DIRECTORIES) + 1,
+            host_precedence,
         )
         self._ingest_skill_dir(
             BUNDLED_HOST_SKILLS_ROOT,

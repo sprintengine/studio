@@ -190,6 +190,7 @@ import { getElectronAccelerator } from '../../commands/effectiveKeybindings'
 import { LEGACY_COMMAND_ID_ALIASES, type KeybindingPlatform } from '../../commands/keybindings'
 import type { CommandAvailabilityContext } from '../../commands/availability'
 import type { CommandScope, ModuleCommandContext } from '../../commands/types'
+import { workflowRolesInstalled } from '../../../../shared/workflow-roles'
 import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
 // From the pure search module, not the palette component: the palette is
 // React.lazy and importing a type through it would be a needless edge into the
@@ -590,6 +591,8 @@ export default function WorkspaceManager() {
   const sidebarWidth = useWorkspaceStore((s) => s.sidebarWidth)
   const setSidebarWidth = useWorkspaceStore((s) => s.setSidebarWidth)
   const setSprintEngineRoleRegistry = useWorkspaceStore((s) => s.setSprintEngineRoleRegistry)
+  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
+  const sprintEngineRoleRegistryEpoch = useWorkspaceStore((s) => s.sprintEngineRoleRegistryEpoch)
   const settingsOverlayOpen = useWorkspaceStore((s) => s.activeModalSurface === 'settings')
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
@@ -753,7 +756,7 @@ export default function WorkspaceManager() {
     return () => {
       cancelled = true
     }
-  }, [activeWorkspaceFolderPath, setSprintEngineRoleRegistry])
+  }, [activeWorkspaceFolderPath, setSprintEngineRoleRegistry, sprintEngineRoleRegistryEpoch])
   // The pre-creation New Chat panel's scope. Present while the panel is open;
   // folderPath is the project the chat lands in (null → inherit active),
   // folderLabel names it in the panel's scoping chip, and connector is the
@@ -921,6 +924,7 @@ export default function WorkspaceManager() {
     if (selectModuleEnabled(moduleEnablement, 'sprint-engine')) context.sprintEngineEnabled = true
     // The global Automations screen needs the automations module (its store/IPC).
     if (selectModuleEnabled(moduleEnablement, 'automations')) context.automationsEnabled = true
+    if (workflowRolesInstalled(sprintEngineRoleRegistry)) context.workflowRolesInstalled = true
     if (activeCommandScopes.includes('panel:sprintengine')) {
       context.sprintengineWorkspace = true
       const sprintEngineState = commandWorkspace?.sprintEngineState ?? null
@@ -952,6 +956,7 @@ export default function WorkspaceManager() {
     activeCommandScopes,
     windowActiveWorkspaceId,
     terminalSessions,
+    sprintEngineRoleRegistry,
   ])
   // Names the bucket a session with no workspace row is listed under. A module
   // that spawns agents outside a window's knowledge (the review guide runs as an

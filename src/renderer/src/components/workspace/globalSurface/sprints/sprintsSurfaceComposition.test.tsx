@@ -248,9 +248,9 @@ const api: Record<string, unknown> = {
       ok: true,
       data: {
         roles: [
-          { id: 'developer', label: 'Developer' },
-          { id: 'tester', label: 'Tester' },
-          { id: 'security', label: 'Security' },
+          { id: 'developer', label: 'Developer', source: { layer: 'workspace' } },
+          { id: 'tester', label: 'Tester', source: { layer: 'workspace' } },
+          { id: 'security', label: 'Security', source: { layer: 'workspace' } },
         ],
       },
     }

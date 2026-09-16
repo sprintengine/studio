@@ -40,6 +40,8 @@ import {
  type TabItem,
  type Tone,
 } from '../ui'
+import { NoWorkflowRolesNotice } from '../NoWorkflowRolesNotice'
+import { workflowRolesInstalled } from '../../../../shared/workflow-roles'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
@@ -692,6 +694,7 @@ export function SprintRunBoard({
  const openFile = useWorkspaceStore((s) => s.openFile)
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
  const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
+ const sprintEngineRoleRegistryEpoch = useWorkspaceStore((s) => s.sprintEngineRoleRegistryEpoch)
  const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
  const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
  const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
@@ -923,7 +926,7 @@ export function SprintRunBoard({
    return () => {
      cancelled = true
    }
- }, [roleRegistryRoot])
+ }, [roleRegistryRoot, sprintEngineRoleRegistryEpoch])
 
  useEffect(() => {
  setPendingAutomationMode(null)
@@ -1841,6 +1844,8 @@ export function SprintRunBoard({
  const addMemberDialogOptions = hasResidentWorkspace
  ? addMemberOptions
  : addMemberOptions.filter((option) => !configuredRoleIds.has(option.role))
+ const workflowRolesMissing = roleRegistry !== null && !workflowRolesInstalled(roleRegistry)
+ const rolelessRun = Array.isArray(sprintEngineState.configuredRoles) && sprintEngineState.configuredRoles.length === 0
 
  const openAddMemberDialog = () => {
  const uncoveredRole = findFirstUncoveredSprintEngineRole({
@@ -2375,11 +2380,13 @@ export function SprintRunBoard({
  // found)" uses, because a menu item's label is its only copy channel.
  label: !canMutateRunRoster
  ? 'More roles (its workspace is closed)'
- : addMemberDialogOptions.length === 0
+ : workflowRolesMissing && !rolelessRun
+ ? 'More roles (no workflow roles are installed)'
+ : addMemberDialogOptions.length === 0 && !rolelessRun
  ? 'More roles (every role is already on this run)'
  : 'More roles',
  onSelect: openAddMemberDialog,
- disabled: !canMutateRunRoster || addMemberDialogOptions.length === 0,
+ disabled: !canMutateRunRoster || (workflowRolesMissing && !rolelessRun) || (!rolelessRun && addMemberDialogOptions.length === 0),
  })
  items.push({ kind: 'separator', id: 'sep-2' })
  items.push({
@@ -3304,6 +3311,9 @@ export function SprintRunBoard({
  </div>
 
  <ModalBody className="space-y-1">
+ {workflowRolesMissing && !rolelessRun ? (
+ <NoWorkflowRolesNotice className="mb-3" />
+ ) : null}
  {addMemberDialogOptions.map((option) => {
  const role = option.role
  const selected = role === addMemberRole
@@ -3416,10 +3426,10 @@ export function SprintRunBoard({
  <ModalButton onClick={() => setAddMemberOpen(false)}>Cancel</ModalButton>
  <ModalButton
  variant="primary"
- disabled={addMemberBusy}
- onClick={() => void confirmAddMember(addMemberRole)}
+ disabled={addMemberBusy || (workflowRolesMissing && !rolelessRun)}
+ onClick={() => void confirmAddMember(rolelessRun && addMemberDialogOptions.length === 0 ? undefined : addMemberRole)}
  >
- {addMemberBusy ? 'Adding…' : `Add ${getSprintEngineRoleLabel(addMemberRole)}`}
+ {addMemberBusy ? 'Adding…' : rolelessRun && addMemberDialogOptions.length === 0 ? 'Add an agent' : `Add ${getSprintEngineRoleLabel(addMemberRole)}`}
  </ModalButton>
  </ModalFooter>
  </Modal>

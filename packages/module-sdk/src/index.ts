@@ -1783,6 +1783,9 @@ export type CommandAvailability =
   | 'terminalActive'
   | 'diagnosticsEnabled'
   | 'automationsEnabled'
+  // The active workspace has at least one installed workflow-role skill, so a
+  // specialist spawn or "add a role" command has something to resolve.
+  | 'workflowRolesInstalled'
   // Open at the type level so new shell conditions never break a compiled
   // module; an unknown condition reads as unsatisfied (fail closed). Prefer
   // an availability predicate for module-specific gating.

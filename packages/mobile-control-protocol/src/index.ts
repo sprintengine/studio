@@ -994,6 +994,13 @@ export interface MobileControlBacklogWorkspaceSnapshot {
   //   `configuredRoles` (the legal role set `plan.add_task` enforces) and nothing
   //   would be able to staff them.
   roles?: MobileControlRoleDescriptor[];
+  /**
+   * Present with `roles: []` when the desktop has read the registry and this
+   * workspace has no installed workflow-role skills. The phone cannot install
+   * a pack, so the producer names the desktop remedy rather than leaving the
+   * picker looking merely empty.
+   */
+  rolesUnavailable?: string;
 }
 
 // Terminal and in-flight states of one automation run (`AutomationRunStatus`,

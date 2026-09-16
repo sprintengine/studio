@@ -1,6 +1,8 @@
 import React from 'react'
 
 import { CliModelPickerButton, RoleAvatar, RowButton, Select, type SelectItem } from '../../ui'
+import { NoWorkflowRolesNotice } from '../../NoWorkflowRolesNotice'
+import { workflowRolesInstalled } from '../../../../../shared/workflow-roles'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
@@ -76,8 +78,10 @@ export function SprintEngineRosterTable({
 }: RosterTableProps) {
   const roles = listSprintEngineWizardRoles(registry, disabledRoleIds)
   const fallbackCli = cliOptions[0]?.value ?? 'claude-code'
+  const packMissing = registry !== undefined && registry !== null && !workflowRolesInstalled(registry)
   return (
     <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">
+      {packMissing ? <div className="p-3"><NoWorkflowRolesNotice /></div> : null}
       {roles.map((role) => {
         const count = roleCounts[role] ?? 0
         const isAdded = count > 0
@@ -127,7 +131,7 @@ export function SprintEngineRosterTable({
             <RowButton
               density="flush"
               aria-pressed={isAdded}
-              disabled={countDisabled}
+              disabled={countDisabled || packMissing}
               aria-label={
                 workTypes
                   ? isAdded
@@ -138,7 +142,7 @@ export function SprintEngineRosterTable({
                     : `${label} — add to the team`
               }
               onClick={() => {
-                if (!countDisabled) onSetCount(role, isAdded ? 0 : 1)
+                if (!countDisabled && !packMissing) onSetCount(role, isAdded ? 0 : 1)
               }}
               className="min-w-0 flex-1"
             >

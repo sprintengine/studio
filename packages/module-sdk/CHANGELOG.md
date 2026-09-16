@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`CommandAvailability` gains `workflowRolesInstalled`.** True when the
+  active workspace has at least one installed workflow-role skill, so a
+  specialist-spawn or add-role command has something to resolve. Unknown
+  strings still fail closed.
+
 - **A module can contribute to every agent launch**
   (`host.registerLaunchContribution`). The function receives `{ cli,
   workspaceRoot, sessionId, agentId, agentKind, resume, statePath,

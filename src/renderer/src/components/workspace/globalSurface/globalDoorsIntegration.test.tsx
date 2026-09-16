@@ -850,7 +850,7 @@ async function main(): Promise<void> {
     )
     assert.deepEqual(
       menuItems,
-      ['Add from file…', 'Add from GitHub…'],
+      ['Add from folder…', 'Add from GitHub…'],
       'the plus offers a folder on this machine and a repository, and nothing else',
     )
     await act(async () => {

@@ -434,7 +434,7 @@ export const COMMAND_REGISTRY = [
     category: 'specialist',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Alt+P'],
-    availability: ['activeWorkspace'],
+    availability: ['activeWorkspace', 'workflowRolesInstalled'],
     handlerPath: { kind: 'workspace-manager', handler: "addNewSpecialist('architect')" },
   }),
   command({
@@ -443,7 +443,7 @@ export const COMMAND_REGISTRY = [
     category: 'specialist',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Alt+M'],
-    availability: ['activeWorkspace'],
+    availability: ['activeWorkspace', 'workflowRolesInstalled'],
     handlerPath: { kind: 'workspace-manager', handler: "addNewSpecialist('performance')" },
   }),
   command({
@@ -452,7 +452,7 @@ export const COMMAND_REGISTRY = [
     category: 'specialist',
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Alt+F'],
-    availability: ['activeWorkspace'],
+    availability: ['activeWorkspace', 'workflowRolesInstalled'],
     handlerPath: { kind: 'workspace-manager', handler: "addNewSpecialist('frontend-design-review')" },
   }),
   command({
@@ -468,7 +468,7 @@ export const COMMAND_REGISTRY = [
     title: 'Sprint: More Roles',
     category: 'sprintengine',
     scopes: ['panel:sprintengine'],
-    availability: ['sprintengineWorkspace'],
+    availability: ['sprintengineWorkspace', 'workflowRolesInstalled'],
     handlerPath: { kind: 'panel-event', eventId: 'sprintengine.add.role' },
   }),
   command({

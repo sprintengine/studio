@@ -778,7 +778,7 @@ async function main(): Promise<void> {
     const items = [...dom.window.document.querySelectorAll('[role="menu"] button')].map(
       (item) => item.textContent?.trim() ?? '',
     )
-    assert.deepEqual(items, ['Add from file…', 'Add from GitHub…'])
+    assert.deepEqual(items, ['Add from folder…', 'Add from GitHub…'])
   })
 
   await run('Escape closes the menu', async () => {

@@ -3617,7 +3617,9 @@ export type ElectronApi = {
   listFolderOpenTargets: () => Promise<FolderOpenTargetAvailability[]>
   openFolderInTarget: (request: FolderOpenRequest) => Promise<FolderOpenResult>
   watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
-  openDir: () => Promise<string | null>
+  openDir: (options?: { defaultPath?: string }) => Promise<string | null>
+  /** Creates `~/.multicode/skills` if needed and returns its absolute path. */
+  ensureDefaultUserSkillsDir: () => Promise<string>
   defaultWorkspaceParentDir: () => Promise<string | null>
   openFile: (options?: OpenDialogOptions) => Promise<string | null>
   showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>

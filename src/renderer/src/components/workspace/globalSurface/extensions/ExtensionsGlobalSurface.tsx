@@ -256,9 +256,11 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   }, [sources])
 
   /**
-   * "Add from file…": a folder on this machine. The picker is the app's own
+   * "Add from folder…": a folder on this machine. The picker is the app's own
    * open-folder dialog, and the scan is the same rule a repository gets — the
-   * source kind differs, the reading does not.
+   * source kind differs, the reading does not. The default destination is the
+   * user's skills folder (`~/.multicode/skills`), created lazily the first time
+   * this control opens.
    */
   const addFromFile = useCallback(async (): Promise<void> => {
     setAddError(null)
@@ -266,7 +268,11 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
       setAddError('Adding a folder needs a newer app build. Update and restart.')
       return
     }
-    const path = await window.api.openDir()
+    const defaultPath =
+      typeof window.api.ensureDefaultUserSkillsDir === 'function'
+        ? await window.api.ensureDefaultUserSkillsDir()
+        : undefined
+    const path = await window.api.openDir(defaultPath ? { defaultPath } : undefined)
     if (!path) return
     // No `replace`: a folder already in the list is not an error to report but
     // a tab to open — "you have this one, here it is" — and Sync on its head

@@ -18,6 +18,9 @@ import {
 type IpcHandler = (_event: unknown, payload: unknown) => Promise<unknown>
 
 async function main(): Promise<void> {
+  // Integration tests that init a sprint need the sixteen without copying them
+  // into git fixtures. Production never sets this.
+  process.env.SPRINTENGINE_TEST_BUNDLED_WORKFLOW_ROLES = '1'
   await testReadProjectionUsesProjectionFile()
   await testReadProjectionSurfacesUnavailableAndInvalidProjection()
   await testReadProjectionMarksMissingRunDirectoryPermanent()
@@ -721,6 +724,7 @@ async function testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles():
 
   try {
     delete process.env.PYTHONPATH
+    delete process.env.SPRINTENGINE_TEST_BUNDLED_WORKFLOW_ROLES
     const handlers = createSprintEngineArtifactHandlers({
       getAuthenticatedUserId: () => 'user-1',
       openExternal: async () => undefined,
@@ -734,11 +738,12 @@ async function testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles():
       aliases?: Record<string, string>
     }
     const roleIds = new Set((payload.roles ?? []).map((role) => role.id))
-    assert.equal(roleIds.has('developer'), true, 'bundled developer role is discovered through the real MCP bridge')
+    assert.equal(roleIds.has('developer'), false, 'the packaged workflow-roles tree is not a discovery layer')
     assert.equal(roleIds.has('marketer'), true, 'workspace custom role fixture is discovered through the real MCP bridge')
     assert.equal(payload.roles?.find((role) => role.id === 'marketer')?.source?.layer, 'workspace')
     assert.equal(payload.aliases?.marketer, 'marketer')
   } finally {
+    process.env.SPRINTENGINE_TEST_BUNDLED_WORKFLOW_ROLES = '1'
     if (previousPythonPath === undefined) {
       delete process.env.PYTHONPATH
     } else {

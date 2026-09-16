@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -22,19 +23,33 @@ from sprintengine_core.skill_layers import (
 from sprintengine_core.tool.roles import configured_role_ids
 from workflow_roles import WORKFLOW_ROLE_IDS, write_workspace_role
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
-def run_souls(*args: str) -> subprocess.CompletedProcess[str]:
+
+def run_souls(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(REPO_ROOT), env.get("PYTHONPATH", "")) if part
+    )
     return subprocess.run(
         [sys.executable, "-m", "souls", *args],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
+        cwd=cwd,
+        env=env,
     )
 
 
-def test_souls_list_includes_canonical_roles() -> None:
-    completed = run_souls("list", "--format", "json")
+@pytest.fixture
+def installed_roles(workflow_roles_workspace: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.chdir(workflow_roles_workspace)
+    return workflow_roles_workspace
+
+
+def test_souls_list_includes_canonical_roles(installed_roles: Path) -> None:
+    completed = run_souls("list", "--format", "json", cwd=installed_roles)
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
@@ -47,29 +62,26 @@ def test_souls_list_includes_canonical_roles() -> None:
     by_role = {soul["role"]: soul for soul in payload["souls"]}
     assert by_role["blog_writer"]["aliases"] == []
     assert by_role["presentation"]["aliases"] == []
-    assert by_role["tester"]["path"].endswith(
-        "resources/studio-plugin/workflow-roles/skills/tester/SKILL.md"
-    )
+    assert by_role["tester"]["path"].endswith(".claude/skills/tester/SKILL.md")
     assert "souls/prompts" not in by_role["tester"]["path"]
 
 
-def test_configured_roles_exclude_validation_only_defaults() -> None:
+def test_configured_roles_exclude_validation_only_defaults(installed_roles: Path) -> None:
     configured = configured_role_ids()
+    assert WORKFLOW_ROLE_IDS.issubset(configured)
     assert "registry_probe" not in configured
     assert "marketer" not in configured
 
 
-def test_souls_get_returns_prompt_for_hyphen_spelling() -> None:
-    completed = run_souls("get", "spec-reviewer", "--format", "json")
+def test_souls_get_returns_prompt_for_hyphen_spelling(installed_roles: Path) -> None:
+    completed = run_souls("get", "spec-reviewer", "--format", "json", cwd=installed_roles)
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
 
     assert payload["ok"] is True
     assert payload["role"] == "spec_reviewer"
-    assert payload["path"].endswith(
-        "resources/studio-plugin/workflow-roles/skills/spec-reviewer/SKILL.md"
-    )
+    assert payload["path"].endswith(".claude/skills/spec-reviewer/SKILL.md")
     assert "souls/prompts" not in payload["path"]
     assert "principal-level specification-conformance reviewer" in payload["content"]
 
@@ -91,7 +103,7 @@ def test_bundled_role_skills_carry_only_the_portable_identity() -> None:
             assert heading not in body, skill_dir.name
 
 
-def test_bare_soul_excludes_host_and_sprintengine_layers() -> None:
+def test_bare_soul_excludes_host_and_sprintengine_layers(installed_roles: Path) -> None:
     # The portable soul carries the role identity only — none of the host or
     # Sprint Engine layer content.
     rendered = render_soul("developer")
@@ -106,7 +118,7 @@ def test_bare_soul_excludes_host_and_sprintengine_layers() -> None:
     assert "principal software engineer" in rendered
 
 
-def test_layered_soul_includes_each_shared_section_once() -> None:
+def test_layered_soul_includes_each_shared_section_once(installed_roles: Path) -> None:
     # A Sprint Engine dispatch layers the studio's product skills and quality
     # norms on top of the soul; each appears exactly once.
     rendered = render_soul("developer", extra_skills=SPRINTENGINE_SOUL_EXTRA_SKILLS)
@@ -123,7 +135,7 @@ def test_layered_soul_includes_each_shared_section_once() -> None:
     assert "MULTICODE_KNOWLEDGE_ROOT" in rendered
 
 
-def test_standalone_soul_layers_multicode_skills_only() -> None:
+def test_standalone_soul_layers_multicode_skills_only(installed_roles: Path) -> None:
     # The standalone (dropdown) spawn layers studio product skills but not
     # the Sprint Engine quality norms.
     rendered = render_soul("developer", extra_skills=MULTICODE_LAYER_SKILLS)
@@ -141,7 +153,7 @@ def test_standalone_soul_layers_multicode_skills_only() -> None:
 _CODE_SPAN_FILE_PATH = re.compile(r"`[\w.@/-]+/[\w.@-]+\.[A-Za-z0-9]+`")
 
 
-def test_bundled_base_souls_do_not_include_sprintengine_runtime_language() -> None:
+def test_bundled_base_souls_do_not_include_sprintengine_runtime_language(installed_roles: Path) -> None:
     forbidden = [
         "Sprint Engine",
         "SprintEngine",
@@ -160,45 +172,53 @@ def test_bundled_base_souls_do_not_include_sprintengine_runtime_language() -> No
             assert needle not in prose, f"{role} base Soul leaked runtime language: {needle}"
 
 
-def test_souls_get_returns_nuclear_reviewer() -> None:
-    completed = run_souls("get", "nuclear_reviewer", "--format", "json")
+def test_souls_get_returns_nuclear_reviewer(installed_roles: Path) -> None:
+    completed = run_souls("get", "nuclear_reviewer", "--format", "json", cwd=installed_roles)
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
 
     assert payload["ok"] is True
     assert payload["role"] == "nuclear_reviewer"
-    assert payload["path"].endswith(
-        "resources/studio-plugin/workflow-roles/skills/nuclear-reviewer/SKILL.md"
-    )
+    assert payload["path"].endswith(".claude/skills/nuclear-reviewer/SKILL.md")
     assert "principal-level structural maintainability reviewer" in payload["content"]
     assert "{{final_goal}}" not in payload["content"]
 
 
-def test_souls_get_returns_blog_writer_for_hyphen_spelling() -> None:
-    completed = run_souls("get", "blog-writer", "--format", "json")
+def test_souls_get_returns_blog_writer_for_hyphen_spelling(installed_roles: Path) -> None:
+    completed = run_souls("get", "blog-writer", "--format", "json", cwd=installed_roles)
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
 
     assert payload["ok"] is True
     assert payload["role"] == "blog_writer"
-    assert payload["path"].endswith(
-        "resources/studio-plugin/workflow-roles/skills/blog-writer/SKILL.md"
-    )
+    assert payload["path"].endswith(".claude/skills/blog-writer/SKILL.md")
     assert "senior blog writer" in payload["content"]
     assert "Image Generation" in payload["content"]
 
 
-def test_souls_validate_passes() -> None:
-    completed = run_souls("validate")
+def test_souls_validate_passes(installed_roles: Path) -> None:
+    completed = run_souls("validate", cwd=installed_roles)
 
     assert completed.returncode == 0, completed.stderr
     assert "All Souls are valid." in completed.stdout
 
 
-def test_souls_unknown_role_fails_clearly() -> None:
-    completed = run_souls("get", "unknown-role", "--format", "json")
+def test_souls_get_from_an_empty_workspace_is_nonzero(tmp_path: Path, empty_role_pack: None) -> None:
+    workspace = tmp_path / "empty"
+    workspace.mkdir()
+    completed = run_souls("get", "architect", "--format", "json", cwd=workspace)
+    assert completed.returncode != 0
+    payload = json.loads(completed.stderr)
+    assert payload["ok"] is False
+    assert "no workflow roles are installed in this workspace" in payload["message"]
+    assert "Add from folder…" in payload["message"]
+    assert "Known roles:" not in payload["message"]
+
+
+def test_souls_unknown_role_fails_clearly(installed_roles: Path) -> None:
+    completed = run_souls("get", "unknown-role", "--format", "json", cwd=installed_roles)
 
     assert completed.returncode == 1
     payload = json.loads(completed.stderr)
@@ -210,10 +230,10 @@ def test_souls_unknown_role_fails_clearly() -> None:
     assert "Known roles:" in payload["message"]
 
 
-def test_souls_path_uses_the_bundled_skill_file() -> None:
+def test_souls_path_uses_the_workspace_skill_file(installed_roles: Path) -> None:
     path = soul_path("tester")
 
-    assert path.match("*/resources/studio-plugin/workflow-roles/skills/tester/SKILL.md")
+    assert path.match("*/.claude/skills/tester/SKILL.md")
     assert "souls/prompts" not in path.as_posix()
 
 
@@ -246,10 +266,10 @@ def test_dropped_alias_does_not_resolve(tmp_path, monkeypatch) -> None:
     assert "no skill declaring it is installed" in str(exc_info.value)
 
 
-def test_validate_passes_with_bundled_roles_and_an_empty_workspace(tmp_path: Path, monkeypatch) -> None:
+def test_validate_passes_with_an_empty_workspace(tmp_path: Path, monkeypatch, empty_role_pack: None) -> None:
     empty = RoleSkillRegistry(workspace_root=tmp_path / "workspace").discover()
     monkeypatch.setattr(souls_registry, "_default_discovery", lambda: empty)
-    assert WORKFLOW_ROLE_IDS.issubset(empty.roles)
+    assert empty.roles == {}
     assert validate_souls() == []
 
 

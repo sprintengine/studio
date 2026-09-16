@@ -7,7 +7,12 @@ import sys
 from pathlib import Path
 
 from helpers import REPO_ROOT, create_team, create_workspace_team, get_task, read_state, task, write_state, write_workspace_role
-from sprintengine_core.role_registry import SOUL_GET_CLI_DEPRECATED, SOUL_GET_REMOVAL_RELEASE
+from sprintengine_core.role_registry import (
+    NO_WORKFLOW_ROLES_INSTALLED,
+    SOUL_GET_CLI_DEPRECATED,
+    SOUL_GET_REMOVAL_RELEASE,
+)
+from workflow_roles import install_workflow_roles
 
 MCP_USER_ID_ENV = "SPRINTENGINE_MCP_USER_ID"
 MCP_USER_AUTHORIZED_ENV = "SPRINTENGINE_MCP_USER_AUTHORIZED"
@@ -236,17 +241,31 @@ def test_custom_workspace_role_resolves_through_the_cli(tmp_path) -> None:
     assert "qualityGates" not in payload["task"]
 
 
-def test_registry_inspection_commands_work_from_repo_root() -> None:
-    roles = parse_stdout_json(run_swarm(["roles", "list", "--include-shadowed"]))
-    role = parse_stdout_json(run_swarm(["role", "get", "tester"]))
-    soul = parse_stdout_json(run_swarm(["soul", "get", "tester", "--run-id", "registry-cli-test"]))
-    skills = parse_stdout_json(run_swarm(["skill", "list"]))
-    skill = parse_stdout_json(run_swarm(["skill", "get", "tester"]))
+def test_registry_inspection_from_repo_root_is_the_empty_pack(empty_role_pack: None) -> None:
+    listed = run_swarm(["roles", "list", "--include-shadowed"])
+    brief = run_swarm(["roles", "brief", "tester"])
+    payload = json.loads(listed.stdout)
+
+    assert listed.returncode == 0, listed.stderr
+    assert payload["ok"] is True
+    assert payload["roles"] == []
+    assert NO_WORKFLOW_ROLES_INSTALLED in listed.stderr
+    assert brief.returncode != 0
+    assert "no workflow roles are installed in this workspace" in brief.stderr
+
+
+def test_registry_inspection_commands_work_from_an_installed_workspace(tmp_path) -> None:
+    workspace = install_workflow_roles(tmp_path / "workspace")
+    roles = parse_stdout_json(run_swarm_in_cwd(["roles", "list", "--include-shadowed"], workspace))
+    role = parse_stdout_json(run_swarm_in_cwd(["role", "get", "tester"], workspace))
+    soul = parse_stdout_json(run_swarm_in_cwd(["soul", "get", "tester", "--run-id", "registry-cli-test"], workspace))
+    skills = parse_stdout_json(run_swarm_in_cwd(["skill", "list"], workspace))
+    skill = parse_stdout_json(run_swarm_in_cwd(["skill", "get", "tester"], workspace))
 
     assert roles["ok"] is True
-    assert any(entry["id"] == "tester" and entry["source"]["layer"] == "bundled" for entry in roles["roles"])
+    assert any(entry["id"] == "tester" and entry["source"]["layer"] == "workspace" for entry in roles["roles"])
     assert role["role"]["id"] == "tester"
-    assert role["role"]["source"]["layer"] == "bundled"
+    assert role["role"]["source"]["layer"] == "workspace"
     assert "shadowedSources" in role["role"]
     assert soul["role"]["id"] == "tester"
     assert "principal QA engineer" in soul["soul"]["content"]
@@ -289,9 +308,10 @@ def test_registry_inspection_extra_dir_is_accepted_and_ignored(tmp_path) -> None
     assert any(entry["id"] == "plugin_writer" and entry["source"]["layer"] == "workspace" for entry in skills["skills"])
 
 
-def test_registry_inspection_unknown_role_and_skill_errors_include_known_ids() -> None:
-    role = run_swarm(["role", "get", "not-a-role"])
-    skill = run_swarm(["skill", "get", "not-a-skill"])
+def test_registry_inspection_unknown_role_and_skill_errors_include_known_ids(tmp_path) -> None:
+    workspace = install_workflow_roles(tmp_path / "workspace")
+    role = run_swarm_in_cwd(["role", "get", "not-a-role"], workspace)
+    skill = run_swarm_in_cwd(["skill", "get", "not-a-skill"], workspace)
 
     assert role.returncode != 0
     assert "Unknown role 'not-a-role'" in role.stderr
@@ -329,13 +349,14 @@ def test_mcp_backend_registry_inspection_commands_work_from_custom_workspace(tmp
     assert skill["skill"]["id"] == "marketer"
 
 
-def test_mcp_backend_soul_get_unknown_role_error_includes_known_ids() -> None:
+def test_mcp_backend_soul_get_unknown_role_error_includes_known_ids(tmp_path) -> None:
+    workspace = install_workflow_roles(tmp_path / "workspace")
     env = {
         MCP_USER_ID_ENV: "workspace-user",
         MCP_USER_AUTHORIZED_ENV: "1",
     }
 
-    soul = run_swarm(["--backend", "mcp-local", "soul", "get", "not-a-role"], env=env)
+    soul = run_swarm_in_cwd(["--backend", "mcp-local", "soul", "get", "not-a-role"], workspace, env=env)
 
     assert soul.returncode != 0
     assert "unknown_role" in soul.stderr
@@ -344,9 +365,10 @@ def test_mcp_backend_soul_get_unknown_role_error_includes_known_ids() -> None:
     assert "developer" in soul.stderr
 
 
-def test_sprintengine_roles_brief_matches_soul_get_and_warns_deprecated() -> None:
-    brief = run_swarm(["roles", "brief", "architect"])
-    soul = run_swarm(["soul", "get", "architect"])
+def test_sprintengine_roles_brief_matches_soul_get_and_warns_deprecated(tmp_path) -> None:
+    workspace = install_workflow_roles(tmp_path / "workspace")
+    brief = run_swarm_in_cwd(["roles", "brief", "architect"], workspace)
+    soul = run_swarm_in_cwd(["soul", "get", "architect"], workspace)
 
     assert brief.returncode == 0, brief.stderr
     assert soul.returncode == 0, soul.stderr
@@ -360,14 +382,15 @@ def test_sprintengine_roles_brief_matches_soul_get_and_warns_deprecated() -> Non
     assert payload["soul"]["content"]
 
 
-def test_sprintengine_roles_brief_resolves_either_spelling_and_rejects_dropped_alias() -> None:
-    hyphen = parse_stdout_json(run_swarm(["roles", "brief", "spec-reviewer"]))
-    underscore = parse_stdout_json(run_swarm(["soul", "get", "spec_reviewer"]))
+def test_sprintengine_roles_brief_resolves_either_spelling_and_rejects_dropped_alias(tmp_path) -> None:
+    workspace = install_workflow_roles(tmp_path / "workspace")
+    hyphen = parse_stdout_json(run_swarm_in_cwd(["roles", "brief", "spec-reviewer"], workspace))
+    underscore = parse_stdout_json(run_swarm_in_cwd(["soul", "get", "spec_reviewer"], workspace))
     assert hyphen["soul"]["content"] == underscore["soul"]["content"]
     assert hyphen["role"]["id"] == "spec_reviewer"
 
-    missing_brief = run_swarm(["roles", "brief", "qa-test"])
-    missing_soul = run_swarm(["soul", "get", "qa-test"])
+    missing_brief = run_swarm_in_cwd(["roles", "brief", "qa-test"], workspace)
+    missing_soul = run_swarm_in_cwd(["soul", "get", "qa-test"], workspace)
     assert missing_brief.returncode != 0
     assert missing_soul.returncode != 0
     assert "Unknown role 'qa-test'" in missing_brief.stderr

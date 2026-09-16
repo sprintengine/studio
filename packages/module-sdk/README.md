@@ -88,7 +88,10 @@ contracts, so a published version always matches the app version it ships with.
   `registerCommand` (registered id is namespaced `<moduleId>.<id>`; scope
   `panel:<moduleId>` activates while a workspace of your module's mode is
   active, and `availability` accepts a predicate over the published
-  `ModuleCommandContext` view; panel-targeted dispatch is a
+  `ModuleCommandContext` view or a list of shell `CommandAvailability`
+  strings (`workflowRolesInstalled` when the active workspace has at least
+  one installed workflow-role skill; unknown strings fail closed);
+  panel-targeted dispatch is a
   `multicode:panel-command` CustomEvent from your `run()`),
   `registerSettingsSection` (values persist in the module's own
   `module:<id>` settings namespace), `registerSidebarNavEntry` (an

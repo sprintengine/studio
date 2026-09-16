@@ -75,6 +75,7 @@ function runEngine(cwd: string, statePath: string, args: string[]): string {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, SPRINTENGINE_TEST_BUNDLED_WORKFLOW_ROLES: '1' },
   })
 }
 

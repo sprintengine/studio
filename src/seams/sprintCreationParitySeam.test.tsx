@@ -134,6 +134,16 @@ const initCalls: InitCall[] = []
     })
     return { ok: true, targets: [], issues: [] }
   },
+  readSprintEngineRegistryRoles: async () => ({
+    ok: true,
+    data: {
+      roles: [
+        { id: 'architect', label: 'Architect', source: { layer: 'workspace' } },
+        { id: 'developer', label: 'Developer', source: { layer: 'workspace' } },
+        { id: 'tester', label: 'Tester', source: { layer: 'workspace' } },
+      ],
+    },
+  }),
 }
 const mcpSyncCalls: Array<{ workspaceRoot: string; enabledIds: string[] }> = []
 

@@ -3,9 +3,10 @@
  * prompt / host-context builders.
  *
  * A role is a SKILL.md whose frontmatter carries `metadata.sprintengine-role`.
- * The engine walks the same harness directories in this order (first hit wins);
- * the bundled workflow-roles pack is a last layer the file reader adds, not a
- * substitute named here. Paths in launch copy are workspace-relative so the
+ * The engine walks the same harness directories in this order (first hit wins).
+ * The packaged workflow-roles tree is an install source, not a discovery layer:
+ * a workspace with no installed role skills is a named missing-role error
+ * (owner ruling 2026-09-08). Paths in launch copy are workspace-relative so the
  * CLI loads the skill the same way it loads any other workspace skill.
  */
 
@@ -22,9 +23,10 @@ export const ROLE_HARNESS_DIRECTORIES: readonly string[] = [
 
 export const ROLE_METADATA_KEY = 'sprintengine-role'
 
-export const MISSING_ROLE_REMEDIES =
-  'Install the workflow-roles pack from the SprintEngine Studio skill source, '
-  + 'or add a role skill to your skills folder (~/.multicode/skills).'
+export {
+  missingRoleMessage,
+  NO_WORKFLOW_ROLES_REMEDIES as MISSING_ROLE_REMEDIES,
+} from '../workflow-roles'
 
 /** Hyphen and underscore spellings of a role id are the same name. */
 export function normalizeRoleId(value: string): string {
@@ -44,21 +46,6 @@ export function kebabRoleDirectory(roleId: string): string {
  */
 export function defaultWorkspaceRoleSkillRel(roleId: string): string {
   return `.claude/skills/${kebabRoleDirectory(roleId)}/SKILL.md`
-}
-
-/**
- * The missing-role message the engine raises (`MissingRoleError`). The app
- * surface must say the same thing: which spelling failed, that nothing is
- * substituted, and the two remedies.
- */
-export function missingRoleMessage(roleId: string, knownRoles: readonly string[] = []): string {
-  const knownClause = knownRoles.length > 0
-    ? ` Known roles: ${[...knownRoles].sort().join(', ')}.`
-    : ''
-  return (
-    `Unknown role '${roleId}': no skill declaring it is installed in this workspace. `
-    + `${MISSING_ROLE_REMEDIES}${knownClause}`
-  )
 }
 
 /**
