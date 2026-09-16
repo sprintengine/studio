@@ -153,6 +153,27 @@ def test_bundled_default_resolves_without_a_workspace_install() -> None:
     assert "workflow-roles/skills" in str(tester.source.path).replace("\\", "/")
 
 
+def test_host_layer_skills_come_from_the_package_not_the_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    skill_dir = workspace / ".agents" / "skills" / "workspace-knowledge"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: workspace-knowledge\ndescription: Workspace copy.\n---\n\nWorkspace copy of the knowledge skill.\n",
+        encoding="utf-8",
+    )
+    discovery = discover_role_registry(workspace_root=workspace)
+    rendered = discovery.render_soul(
+        "developer",
+        workspace_root=workspace,
+        extra_skills=("workspace_knowledge",),
+    )
+    assert "MULTICODE_KNOWLEDGE_ROOT" in rendered.content
+    assert "Workspace copy of the knowledge skill." not in rendered.content
+    host = discovery.skills["workspace_knowledge"]
+    assert host.source.layer.name == "bundled"
+    assert "resources/sprintengine/skills" in str(host.source.path).replace("\\", "/")
+
+
 def test_rendered_soul_strips_frontmatter_and_wraps_the_body(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     write_workspace_role(

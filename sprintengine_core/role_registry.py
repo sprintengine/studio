@@ -342,7 +342,11 @@ class RoleSkillRegistry:
             if document is None:
                 continue
             source = SourceEntry(layer, path)
-            if skill_id not in skills:
+            # Role skills: first hit wins (workspace harnesses, then the bundled
+            # pack). Host layers are package-owned and ingested last: a
+            # workspace skill of the same id (the installable
+            # workspace-knowledge skill) must not substitute for them.
+            if not as_roles or skill_id not in skills:
                 skills[skill_id] = RegistryEntry(value=document, source=source)
             if not as_roles:
                 continue
