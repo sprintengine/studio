@@ -185,8 +185,8 @@ async function main(): Promise<void> {
           .filter((name): name is string => name !== undefined)
 
   // The folder's own rows, read top to bottom the way someone scanning the
-  // sidebar does. The Starred band renders the same chats again above the
-  // folders, so it is scoped out here and asserted on separately.
+  // sidebar does. Starred chats have moved out of the folder, so they are
+  // scoped out here and asserted on separately.
   const rowOrder = (): string[] => {
     const starredBody = container.querySelector('#ws-starred-body')
     const starred = new Set(starredBody ? [...starredBody.querySelectorAll('[role="treeitem"]')] : [])
@@ -198,28 +198,30 @@ async function main(): Promise<void> {
 
   const starredOrder = (): string[] => namesIn(container.querySelector('#ws-starred-body'))
 
-  // The folder's row element for one chat, for reading the classes its state
-  // paints on it.
-  const rowFor = (name: string): Element | undefined => {
-    const starredBody = container.querySelector('#ws-starred-body')
-    const starred = new Set(starredBody ? [...starredBody.querySelectorAll('[role="treeitem"]')] : [])
-    return [...container.querySelectorAll('[role="treeitem"]')].find(
-      (row) => !starred.has(row) && row.textContent?.includes(name)
-    )
-  }
+  // The row element for one chat, for reading the classes its state paints on
+  // it. A starred chat has one row, in Starred; an unstarred chat has one row
+  // in its folder.
+  const rowFor = (name: string): Element | undefined =>
+    [...container.querySelectorAll('[role="treeitem"]')].find((row) => row.textContent?.includes(name))
 
   try {
     await render(whileBravoWorks)
     assert.deepEqual(
       rowOrder(),
-      ['Alpha', 'Bravo', 'Charlie', 'Delta'],
-      'message order, newest first — a running agent and a blocked one both sit where the person left them'
+      ['Alpha', 'Charlie'],
+      'message order, newest first — Bravo and Delta have moved to Starred, and a running agent sits where the person left it'
     )
+    assert.deepEqual(starredOrder(), ['Bravo', 'Delta'], 'starred chats live only in Starred, same clock')
 
     await render(afterBravoFinishes)
     assert.deepEqual(
       rowOrder(),
-      ['Alpha', 'Bravo', 'Charlie', 'Delta'],
+      ['Alpha', 'Charlie'],
+      'the folder does not reflow when a starred row finishes'
+    )
+    assert.deepEqual(
+      starredOrder(),
+      ['Bravo', 'Delta'],
       'the row that just finished goes green in place: same row above it, same row below'
     )
     // "In place" is only half of it — the other half is that the row goes
@@ -233,20 +235,13 @@ async function main(): Promise<void> {
     // Selecting Bravo clears its green mark. Nothing moved when the mark
     // arrived, so nothing may move when it goes.
     await render({ ...afterBravoFinishes, activeWorkspaceId: 'w2' } as unknown as SidebarProps)
-    assert.deepEqual(
-      rowOrder(),
-      ['Alpha', 'Bravo', 'Charlie', 'Delta'],
-      'nothing reflows under the cursor that just clicked'
-    )
+    assert.deepEqual(rowOrder(), ['Alpha', 'Charlie'], 'the folder does not reflow under the cursor that just clicked')
+    assert.deepEqual(starredOrder(), ['Bravo', 'Delta'], 'and Starred does not reflow either')
 
-    // Charlie is the blocked row throughout, and stays third throughout: gold
-    // tints a row, it never lifts one.
+    // Charlie is the blocked row throughout, and stays second in the folder
+    // throughout: gold tints a row, it never lifts one.
     await render({ ...afterBravoFinishes, activeWorkspaceId: 'w4' } as unknown as SidebarProps)
-    assert.deepEqual(
-      rowOrder(),
-      ['Alpha', 'Bravo', 'Charlie', 'Delta'],
-      'a row waiting on you keeps its seat too'
-    )
+    assert.deepEqual(rowOrder(), ['Alpha', 'Charlie'], 'a row waiting on you keeps its seat too')
 
     assert.deepEqual(
       starredOrder(),
@@ -255,7 +250,8 @@ async function main(): Promise<void> {
     )
 
     // The one event that moves a row: the person sends a message in Delta,
-    // which lifts it to the top of its group — and of the Starred band.
+    // which lifts it to the top of the Starred band. The folder is unchanged
+    // because Delta lives there now, not under the project.
     const afterDeltaMessage = {
       ...afterBravoFinishes,
       workspaces: workspaces.map((ws) =>
@@ -263,12 +259,23 @@ async function main(): Promise<void> {
       ),
     } as unknown as SidebarProps
     await render(afterDeltaMessage)
+    assert.deepEqual(rowOrder(), ['Alpha', 'Charlie'], 'a starred chat leaving its seat does not reorder the folder')
+    assert.deepEqual(starredOrder(), ['Delta', 'Bravo'], 'sending a message moves it to the top of Starred')
+
+    // The same clock still orders the folder, once the person speaks in an
+    // unstarred chat.
+    const afterCharlieMessage = {
+      ...afterDeltaMessage,
+      workspaces: afterDeltaMessage.workspaces.map((ws) =>
+        ws.id === 'w3' ? ({ ...ws, lastUserMessageAt: Date.now() } as unknown as Workspace) : ws
+      ),
+    } as unknown as SidebarProps
+    await render(afterCharlieMessage)
     assert.deepEqual(
       rowOrder(),
-      ['Delta', 'Alpha', 'Bravo', 'Charlie'],
-      'sending a message is the only thing that moves a row, and it moves it to the top'
+      ['Charlie', 'Alpha'],
+      'sending a message is the only thing that moves a folder row, and it moves it to the top'
     )
-    assert.deepEqual(starredOrder(), ['Delta', 'Bravo'], 'the Starred band moves with it')
   } finally {
     act(() => {
       root.unmount()

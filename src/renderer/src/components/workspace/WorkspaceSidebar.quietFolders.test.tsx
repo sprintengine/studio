@@ -4,8 +4,10 @@ import { JSDOM } from 'jsdom'
 
 // Quiet folders (owner ruling, 2026-09-07). A project whose every chat has
 // settled is not drawn in the sidebar at all: its header was a line saying
-// nothing was happening, over a "Settled 1" fold and nothing to do. It is not
-// archived — the folder is still open, and New chat is where you pick a
+// nothing was happening, over a "Settled 1" fold and nothing to do. The same
+// is true of a project whose only live chat has moved to Starred — the row is
+// already on screen, and a header over nothing is that empty folder. It is
+// not archived — the folder is still open, and New chat is where you pick a
 // project to start a conversation in. The folder comes back the moment
 // anything in it is active, selected, or un-settled. The settle rule itself is
 // workspaceSettle.test.ts's; the shelf a half-quiet folder shows is
@@ -76,6 +78,10 @@ async function main(): Promise<void> {
     workspace('w2', 'Bravo', { settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 5 * DAY }),
     workspace('w3', 'Charlie', { folderPath: '/attic', settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 5 * DAY }),
     workspace('w4', 'Delta', { folderPath: '/attic', settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 4 * DAY }),
+    // A project whose only live chat has moved to Starred is quiet in the
+    // tree: the row is already on screen, and a header over nothing is the
+    // same empty folder the ruling above removed.
+    workspace('w5', 'Echo', { folderPath: '/pinned', highlight: { starred: true } }),
   ]
 
   const noop = () => {}
@@ -138,7 +144,7 @@ async function main(): Promise<void> {
 
   const rowNames = (): string[] =>
     [...container.querySelectorAll('[role="treeitem"]')]
-      .map((row) => ['Alpha', 'Bravo', 'Charlie', 'Delta'].find((name) => row.textContent?.includes(name)))
+      .map((row) => ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'].find((name) => row.textContent?.includes(name)))
       .filter((name): name is string => name !== undefined)
 
   const shelfButtons = (): HTMLButtonElement[] =>
@@ -149,7 +155,11 @@ async function main(): Promise<void> {
   try {
     await render(props)
     assert.deepEqual(folderNames(), ['projA'], 'the all-settled project is not a folder in the tree')
-    assert.deepEqual(rowNames(), ['Alpha'], 'and none of its chats are rows anywhere')
+    assert.deepEqual(
+      rowNames(),
+      ['Echo', 'Alpha'],
+      'the starred chat is a Starred row, not a reason to keep its project header'
+    )
     assert.equal(shelfButtons().length, 1, 'only the live project shows a Settled shelf — for its own resting chat')
     assert.equal(
       dom.window.document.getElementById('ws-resting-body'),
@@ -161,15 +171,15 @@ async function main(): Promise<void> {
     // in is never shelved, so the folder has an active row again.
     await render({ ...props, activeWorkspaceId: 'w3' } as unknown as SidebarProps)
     assert.deepEqual(folderNames(), ['projA', 'attic'], 'the selected chat puts its project back in the tree')
-    assert.deepEqual(rowNames(), ['Alpha', 'Charlie'], 'Delta stays in its folder’s shelf')
+    assert.deepEqual(rowNames(), ['Echo', 'Alpha', 'Charlie'], 'Delta stays in its folder’s shelf')
 
     // Waking a chat by hand does the same.
     await render({
       ...props,
-      workspaces: [workspaces[0], workspaces[1], { ...workspaces[2], settledAt: null }, workspaces[3]],
+      workspaces: [workspaces[0], workspaces[1], { ...workspaces[2], settledAt: null }, workspaces[3], workspaces[4]],
     } as unknown as SidebarProps)
     assert.deepEqual(folderNames(), ['projA', 'attic'], 'un-settling a chat wakes its project too')
-    assert.deepEqual(rowNames(), ['Alpha', 'Charlie'], 'as an active row, with its quiet neighbour still shelved')
+    assert.deepEqual(rowNames(), ['Echo', 'Alpha', 'Charlie'], 'as an active row, with its quiet neighbour still shelved')
 
     // Every project quiet: the tree draws no folders at all.
     await render({

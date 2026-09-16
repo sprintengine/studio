@@ -2303,23 +2303,16 @@ export default function WorkspaceSidebar({
   // so a sleeper in a folder that has stepped out is still there to be found
   // and woken early.
   //
-  // A conversation running on a paired machine keeps its project here, the
-  // same as a local one: it is something going on, and rest and sleep are
-  // states a chat enters on THIS disk — nothing over there has one.
-  const activeGroups = useMemo(
-    () =>
-      groups.filter(
-        (group) => group.remoteRows.length > 0 || !group.workspaces.every((w) => isShelved(w) || isAsleep(w))
-      ),
-    [groups, isShelved, isAsleep]
-  )
-
-
   // Starred workspaces order the same way the folders do: by the person's last
   // message, newest first, and nothing else. This supersedes manual drag
   // position within the Starred section.
-  // A starred row never settles on its own, but a person can settle one by
-  // hand; rest means rest, so it then shows in its folder's shelf alone.
+  //
+  // Starring MOVES the row here. It used to also stay under its project (and
+  // in the all-chats stream), so the same chat was drawn twice; the session
+  // manager dropdown already listed each one once (`buildSidebarWorkspaceOrder`)
+  // and the rail now matches. A starred row never settles on its own, but a
+  // person can settle one by hand; rest means rest, so it then shows in its
+  // folder's shelf alone, not here.
   const starredWorkspaces = useMemo(
     () =>
       sortWorkspacesByUserMessage(
@@ -2331,6 +2324,27 @@ export default function WorkspaceSidebar({
         )
       ),
     [localRailWorkspaces, isAsleep]
+  )
+  const starredWorkspaceIds = useMemo(
+    () => new Set(starredWorkspaces.map((workspace) => workspace.id)),
+    [starredWorkspaces]
+  )
+
+  // A conversation running on a paired machine keeps its project here, the
+  // same as a local one: it is something going on, and rest and sleep are
+  // states a chat enters on THIS disk — nothing over there has one.
+  //
+  // A chat that has moved to Starred does not keep its project alive either:
+  // the row is already on screen, and a header over an empty body (or over a
+  // Settled fold with nothing to do) is the quiet-folder case above.
+  const activeGroups = useMemo(
+    () =>
+      groups.filter(
+        (group) =>
+          group.remoteRows.length > 0 ||
+          !group.workspaces.every((w) => isShelved(w) || isAsleep(w) || starredWorkspaceIds.has(w.id))
+      ),
+    [groups, isShelved, isAsleep, starredWorkspaceIds]
   )
 
   const workspaceById = useMemo(() => {
@@ -3656,9 +3670,10 @@ export default function WorkspaceSidebar({
   // The flat stream (all-chats-view, 2026-09-07): every local chat in one list,
   // ordered by when you last messaged each (owner, 2026-09-07 — this list used
   // to count the agent's turn too, and a chat finishing then jumped ahead of
-  // the row you were reaching for). No headings: the gold and green washes say
-  // which rows want you, and a band would be a second, weaker way of saying it
-  // (owner, 2026-09-07).
+  // the row you were reaching for), except the ones that have moved to Starred
+  // so the same chat is not drawn twice. No headings: the gold and green washes
+  // say which rows want you, and a band would be a second, weaker way of saying
+  // it (owner, 2026-09-07).
   //
   // Rest works exactly as it does in the tree, with one shelf instead of one
   // per project: the same rows, the same fold, the same count.
@@ -3672,7 +3687,7 @@ export default function WorkspaceSidebar({
     const settledRows = sortWorkspacesByUserMessage(localRailWorkspaces.filter(isShelved))
     const snoozedRows = sortByWake(localRailWorkspaces.filter((w) => !isShelved(w) && isAsleep(w)))
     const streamRows = sortWorkspacesByUserMessage(
-      localRailWorkspaces.filter((w) => !isShelved(w) && !isAsleep(w))
+      localRailWorkspaces.filter((w) => !isShelved(w) && !isAsleep(w) && !starredWorkspaceIds.has(w.id))
     )
     const expanded = expandedSettledFolders[ALL_CHATS_SHELF_KEY] === true
     const snoozeExpanded = expandedSettledFolders[ALL_CHATS_SNOOZE_SHELF_KEY] === true
@@ -3759,7 +3774,9 @@ export default function WorkspaceSidebar({
     // blocked agent tints the row but never moves it (owner ruling
     // 2026-09-09) — the same order the Starred band and the flat stream use,
     // so a row only ever changes seat when someone speaks in it.
-    const visibleWorkspaces = sortWorkspacesByUserMessage(group.workspaces)
+    const visibleWorkspaces = sortWorkspacesByUserMessage(
+      group.workspaces.filter((workspace) => !starredWorkspaceIds.has(workspace.id))
+    )
     const folderBodyId = `ws-folder-body-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
     const dropMark =
       dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key

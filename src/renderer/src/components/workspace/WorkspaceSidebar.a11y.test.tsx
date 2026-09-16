@@ -64,12 +64,14 @@ async function main(): Promise<void> {
   const workspace = (id: string, name: string, folderPath: string, extra?: Record<string, unknown>) =>
     ({ id, name, mode: 'standard', folderPath, ...extra }) as unknown
 
-  // projA holds the active row plus a sibling; projB holds a starred row (which
-  // also surfaces in the Starred section) — enough to exercise both sections.
+  // projA holds the active row plus a sibling; projB holds a live row and a
+  // starred row that lives only in the Starred section — enough to exercise
+  // both sections without listing Charlie twice.
   const workspaces = [
     workspace('w1', 'Alpha', '/projA'),
     workspace('w2', 'Bravo', '/projA'),
     workspace('w3', 'Charlie', '/projB', { highlight: { color: 'blue', starred: true } }),
+    workspace('w4', 'Delta', '/projB'),
   ] as SidebarProps['workspaces']
 
   const selected: string[] = []
@@ -132,8 +134,8 @@ async function main(): Promise<void> {
 
   const rows = () => [...tree!.querySelectorAll('[role="treeitem"]')] as HTMLElement[]
 
-  // Every workspace row is a treeitem, and the starred row surfaces twice
-  // (Starred section + its folder), so w1, w2, w3-in-folder, w3-starred = 4.
+  // Every workspace row is a treeitem, once: Alpha, Bravo, Delta, and Charlie
+  // in Starred. Starring moves Charlie out of projB rather than copying it.
   assert.equal(rows().length, 4, 'each visible workspace row is a treeitem')
 
   // AC1: roving tabindex — exactly one row is the tab stop, and it is the active

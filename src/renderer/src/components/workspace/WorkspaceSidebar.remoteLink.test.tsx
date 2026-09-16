@@ -139,9 +139,10 @@ async function main(): Promise<void> {
       name: 'Tara Boyle · multicode',
       mode: 'standard',
       folderPath: null,
-      // Starred, so the pass below also covers the Starred section: it renders
-      // its own copy of the row under a `starred-` key prefix, and a gate that
-      // only reached the project tree would leave the chat standing up there.
+      // Starred, so the pass below also covers the Starred section: starring
+      // moves the row there under a `starred-` key prefix, and a gate that
+      // only reached the project tree would leave the chat standing up here
+      // with no row at all.
       highlight: { starred: true },
       remoteOrigin: {
         connectionId: 'c1',
@@ -218,7 +219,7 @@ async function main(): Promise<void> {
 
   const rowKeys = (): string[] =>
     [...container.querySelectorAll('[data-row-key]')].map((row) => row.getAttribute('data-row-key') ?? '')
-  /** Every row drawn for a workspace, wherever it was drawn — the project tree AND Starred. */
+  /** Every row drawn for a workspace, wherever it was drawn. */
   const rowsFor = (id: string): string[] => rowKeys().filter((key) => key === id || key.endsWith(`-${id}`))
 
   // Unconditional teardown. The sidebar arms interval timers, so a root left
@@ -229,13 +230,13 @@ async function main(): Promise<void> {
     await render()
     assert.deepEqual(
       rowsFor('w2').sort(),
-      ['starred-w2', 'w2'],
-      'on the tailnet the chat opened from the Mini is a row, and a starred one too',
+      ['starred-w2'],
+      'on the tailnet the chat opened from the Mini is a row, in Starred because it is starred',
     )
 
     // Titled with the CHAT, not with an agent standing in it — even though the
     // stored name still carries the agent from the old rule.
-    const remoteRow = container.querySelector('[data-row-key="w2"]')!
+    const remoteRow = container.querySelector('[data-row-key="starred-w2"]')!
     assert.ok(
       !(remoteRow.textContent ?? '').includes('Tara Boyle'),
       `the agent's name is not the row's title: ${remoteRow.textContent}`,
@@ -265,7 +266,7 @@ async function main(): Promise<void> {
 
     tailnetAddress = '100.64.0.5'
     await render()
-    assert.deepEqual(rowsFor('w2').sort(), ['starred-w2', 'w2'], 'and it returns, in both places, with the link')
+    assert.deepEqual(rowsFor('w2'), ['starred-w2'], 'and it returns, in Starred, with the link')
 
   } finally {
     act(() => {

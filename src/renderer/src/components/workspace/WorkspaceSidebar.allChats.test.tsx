@@ -92,6 +92,12 @@ async function main(): Promise<void> {
       lastUserMessageAt: now - 10 * HOUR,
       settledAt: now - HOUR,
     }),
+    // Echo is more recent than Charlie, so without the move-to-Starred rule it
+    // would lead both lists. It must appear once, in Starred, in either shape.
+    workspace('w5', 'Echo', '/repo/apples', {
+      lastUserMessageAt: now - MINUTE,
+      highlight: { starred: true },
+    }),
   ]
 
   const noop = () => {}
@@ -139,10 +145,28 @@ async function main(): Promise<void> {
     }
   }
 
+  const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']
   const rowNames = (): string[] =>
     [...container.querySelectorAll('[role="treeitem"]')]
-      .map((row) => ['Alpha', 'Bravo', 'Charlie', 'Delta'].find((name) => row.textContent?.includes(name)))
+      .map((row) => NAMES.find((name) => row.textContent?.includes(name)))
       .filter((name): name is string => name !== undefined)
+
+  const starredNames = (): string[] =>
+    [...(container.querySelector('#ws-starred-body')?.querySelectorAll('[role="treeitem"]') ?? [])]
+      .map((row) => NAMES.find((name) => row.textContent?.includes(name)))
+      .filter((name): name is string => name !== undefined)
+
+  const streamOrFolderNames = (): string[] => {
+    const starred = new Set(
+      container.querySelector('#ws-starred-body')
+        ? [...container.querySelector('#ws-starred-body')!.querySelectorAll('[role="treeitem"]')]
+        : []
+    )
+    return [...container.querySelectorAll('[role="treeitem"]')]
+      .filter((row) => !starred.has(row))
+      .map((row) => NAMES.find((name) => row.textContent?.includes(name)))
+      .filter((name): name is string => name !== undefined)
+  }
 
   const rowFor = (name: string): HTMLElement => {
     const row = [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((el) =>
@@ -180,18 +204,29 @@ async function main(): Promise<void> {
       null,
       'and the rail carries no view control of its own — the switch lives in Settings'
     )
+    assert.deepEqual(starredNames(), ['Echo'], 'a starred chat sits in Starred')
+    assert.equal(
+      streamOrFolderNames().includes('Echo'),
+      false,
+      'and not also under its project — starring moves the row, it does not copy it'
+    )
+    assert.equal(rowNames().filter((name) => name === 'Echo').length, 1, 'so it is drawn once')
 
     chooseView('all')
     await settle()
 
     assert.equal(useWorkspaceStore.getState().chatListView, 'all')
     assert.deepEqual(folderHeadings(), [], 'the stream has no folder headers')
+    assert.deepEqual(starredNames(), ['Echo'], 'Starred is the same section in the stream')
+    assert.equal(streamOrFolderNames().includes('Echo'), false, 'and Echo is not also a stream row')
+    assert.equal(rowNames().filter((name) => name === 'Echo').length, 1, 'once in this shape too')
 
     // Order: the chat the person messaged twenty minutes ago leads. Bravo's
     // agent finishing and the keystroke in it move nothing. Delta is resting
-    // and is not in the stream.
+    // and is not in the stream. Echo is more recent than all of them and still
+    // does not lead: it lives in Starred.
     assert.deepEqual(
-      rowNames(),
+      streamOrFolderNames(),
       ['Charlie', 'Alpha', 'Bravo'],
       'most recently messaged first; an agent turn and a keystroke are not the person speaking'
     )
@@ -224,7 +259,12 @@ async function main(): Promise<void> {
     chooseView('projects')
     await settle()
     assert.equal(useWorkspaceStore.getState().chatListView, 'projects')
-    assert.ok(folderHeadings().some((heading) => heading.includes('pears')), 'the headers come back')
+    assert.ok(
+      folderHeadings().some((heading) => heading.includes('pears')),
+      'the headers come back'
+    )
+    assert.deepEqual(starredNames(), ['Echo'], 'and Echo is still only in Starred')
+    assert.equal(streamOrFolderNames().includes('Echo'), false, 'not under apples')
   } finally {
     act(() => {
       root.unmount()

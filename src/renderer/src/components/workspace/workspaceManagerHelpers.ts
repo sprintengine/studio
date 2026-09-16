@@ -392,8 +392,9 @@ export function groupSessionItems(
  * Reproduces the workspace grouping users see in the left sidebar so the
  * session manager dropdown matches: starred workspaces first, then folder
  * groups in first-occurrence order, with each workspace appearing exactly
- * once. Both the starred section and each folder's rows are ordered by when
- * the person last messaged each (`workspaceLastUserMessageAt`).
+ * once (a starred chat lives in the Starred section and is not also listed
+ * under its project). Both the starred section and each folder's rows are
+ * ordered by when the person last messaged each (`workspaceLastUserMessageAt`).
  *
  * That is now the whole order on both surfaces. The sidebar used to band its
  * rows by attention (blocked, just finished, running, at rest) on top of this
