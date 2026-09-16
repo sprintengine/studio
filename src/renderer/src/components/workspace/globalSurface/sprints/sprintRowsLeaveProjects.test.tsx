@@ -169,11 +169,15 @@ async function main(): Promise<void> {
     agents: {},
     openFiles: [],
     createdAt: 2,
-    sprintEngineContext: {
-      teamName: runName,
-      teamSlug: runSlug,
-      teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/${runSlug}`,
-      statePath,
+    moduleState: {
+      sprintengine: {
+        context: {
+          teamName: runName,
+          teamSlug: runSlug,
+          teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/${runSlug}`,
+          statePath,
+        },
+      },
     },
   }
   useWorkspaceStore.setState({

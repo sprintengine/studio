@@ -407,16 +407,20 @@ async function main(): Promise<void> {
         agents: {},
         openFiles: [],
         createdAt: 4,
-        sprintEngineContext: {
-          statePath: residentStatePath,
-          teamDir: `${multicode}/.sprintengine/sprintengine/live-run`,
-          teamSlug: 'live-run',
-          rootPath: multicode,
-        },
         // The resident workspace holds the run's state exactly as its own
         // projection supervisor left it — normalized through the same reader the
         // door uses for a run it opens from disk.
-        sprintEngineState: normalizeSprintEngineProjection(projectionFor('live-run'), 'live-run'),
+        moduleState: {
+          sprintengine: {
+            context: {
+              statePath: residentStatePath,
+              teamDir: `${multicode}/.sprintengine/sprintengine/live-run`,
+              teamSlug: 'live-run',
+              rootPath: multicode,
+            },
+            state: normalizeSprintEngineProjection(projectionFor('live-run'), 'live-run'),
+          },
+        },
       },
     ],
     activeWorkspaceId: 'w-mc',

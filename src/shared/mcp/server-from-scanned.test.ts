@@ -146,16 +146,18 @@ run('an entry removed mid-sync is not resurrected', () => {
 })
 
 // ── The twin declarations ────────────────────────────────────────────────────
-// `McpServerConfig` is declared twice — in the IPC contract and in the renderer's
-// agent-state module, which re-exports it. They are structurally identical on
-// purpose, and a provenance field added to one and not the other is a config
-// that loses its source somewhere between the two. This guard is cheap; the
-// drift it catches is not.
+// `McpServerConfig` is declared twice — in the IPC contract and in the core
+// agent-state module, which the renderer re-exports. They are structurally
+// identical on purpose, and a provenance field added to one and not the other
+// is a config that loses its source somewhere between the two. This guard is
+// cheap; the drift it catches is not. The twin moved out of the engine folder
+// with AgentKind (MC-2573); `src/shared/sprintengine/agent-state.ts` is a
+// re-export shim.
 
 run('the MCP provenance types are identical in both declarations', () => {
   const read = (path: string): string => readFileSync(join(process.cwd(), path), 'utf8')
   const contract = read('src/shared/electron-api.ts')
-  const twin = read('src/shared/sprintengine/agent-state.ts')
+  const twin = read('src/shared/agent-state.ts')
   for (const source of [contract, twin]) {
     assert.match(source, /export type McpServerSource = 'bundled' \| 'custom' \| 'source'/)
     assert.match(source, /sourceRef\?: McpServerSourceRef/)

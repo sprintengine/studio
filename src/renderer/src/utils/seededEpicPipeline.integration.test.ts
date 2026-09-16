@@ -246,7 +246,11 @@ function workspaceFor(root: string, statePath: string): Workspace {
     mode: 'sprintengine',
     agents: {},
     layoutModel: null,
-    sprintEngineContext: { statePath, teamSlug: 'delivery', teamName: 'Delivery' },
+    moduleState: {
+      sprintengine: {
+        context: { statePath, teamSlug: 'delivery', teamName: 'Delivery' },
+      },
+    },
   } as unknown as Workspace
 }
 

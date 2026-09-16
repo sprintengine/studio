@@ -70,8 +70,12 @@ run('checkoutPathFor resolves the checkout the agents actually work in', () => {
     checkoutPathFor({
       id: 'w3',
       folderPath: '/repo',
-      sprintEngineState: {
-        vcs: { mode: 'run_worktree', worktreePath: '.worktrees/run-7', branchName: 'run-7' },
+      moduleState: {
+        sprintengine: {
+          state: {
+            vcs: { mode: 'run_worktree', worktreePath: '.worktrees/run-7', branchName: 'run-7' },
+          },
+        },
       },
     } as never),
     '/repo/.worktrees/run-7'
