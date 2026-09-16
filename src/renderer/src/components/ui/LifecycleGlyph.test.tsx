@@ -5,21 +5,12 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { LifecycleGlyph } from './LifecycleGlyph'
-import { PullRequestGlyph } from './PullRequestGlyph'
 import type { LifecycleState } from '../../../../shared/lifecycle-state'
 
 // The lifecycle vocabulary's one rule: STATE READS BY SHAPE, and colour only
-// reinforces. It held for sixteen of the eighteen states and not for the last
-// two — `done_unmerged` and `done_merged` shared one branch fork and were told
-// apart by tone alone, under a ruling (and a sanctioned exception in the glyphs
-// entry) that a distinct merge shape read as noise at 16 px.
-//
-// Both are retired (epic pull-request-marks, decision 12), and this suite is
-// what keeps them retired: the two states now draw the OPEN and MERGED pull
-// request marks, the same drawings `PullRequestGlyph` renders, and the tones
-// stay the lifecycle tones they always were. A test that only checked "it
-// renders an svg" would not have caught the defect this fixes, so what is
-// asserted is that no two states in the whole vocabulary draw the same thing.
+// reinforces. A test that only checked "it renders an svg" would not catch a
+// state told apart by tone alone, so what is asserted is that no two states in
+// the whole vocabulary draw the same thing.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>')
 
@@ -32,16 +23,8 @@ const EVERY_STATE: Record<LifecycleState, true> = {
   blocked: true,
   in_progress: true,
   paused: true,
-  review: true,
-  testing: true,
-  product: true,
-  changes_requested: true,
   needs_input: true,
-  recorded: true,
   done: true,
-  approved_auto: true,
-  done_unmerged: true,
-  done_merged: true,
   archived: true,
   failed: true,
 }
@@ -97,40 +80,13 @@ run('no two lifecycle states draw the same shape', () => {
   assert.equal(byDrawing.size, STATES.length, 'every state has its own drawing')
 })
 
-run('the branch pair draws the pull request marks, not a private fork', () => {
-  const unmerged = drawing(svgFor(<LifecycleGlyph state="done_unmerged" />))
-  const merged = drawing(svgFor(<LifecycleGlyph state="done_merged" />))
-
-  assert.equal(
-    unmerged,
-    drawing(svgFor(<PullRequestGlyph state="open" />)),
-    'complete-but-not-merged is the OPEN pull request mark',
-  )
-  assert.equal(
-    merged,
-    drawing(svgFor(<PullRequestGlyph state="merged" />)),
-    'complete-and-merged is the MERGED pull request mark',
-  )
-  assert.notEqual(unmerged, merged, 'and they are two shapes, which is the whole point')
-})
-
-run('the branch pair keeps its LIFECYCLE tones, which are not the pull request tones', () => {
-  const classOf = (state: LifecycleState) => svgFor(<LifecycleGlyph state={state} />).getAttribute('class') ?? ''
-  // Unmerged is `--tone-good` (a lifecycle "this is complete"), NOT the accent a
-  // pull request's own open state takes. The shapes came from the pull request
-  // family; the tones did not, and conflating them would recolour the backlog.
-  assert.ok(classOf('done_unmerged').includes('--tone-good'), 'unmerged stays the completion green')
-  assert.ok(!classOf('done_unmerged').includes('--accent-primary'), 'unmerged did not take the PR open accent')
-  assert.ok(classOf('done_merged').includes('--tone-merged'), 'merged stays the merged violet')
-})
-
 run('a labelled glyph speaks and a decorative one is hidden', () => {
-  const labelled = svgFor(<LifecycleGlyph state="done_merged" label="Merged" />)
+  const labelled = svgFor(<LifecycleGlyph state="done" label="Done" />)
   assert.equal(labelled.getAttribute('role'), 'img')
-  assert.equal(labelled.getAttribute('aria-label'), 'Merged')
+  assert.equal(labelled.getAttribute('aria-label'), 'Done')
   assert.equal(labelled.getAttribute('aria-hidden'), null)
 
-  const decorative = svgFor(<LifecycleGlyph state="done_merged" />)
+  const decorative = svgFor(<LifecycleGlyph state="done" />)
   assert.equal(decorative.getAttribute('aria-hidden'), 'true')
   assert.equal(decorative.getAttribute('aria-label'), null)
 })

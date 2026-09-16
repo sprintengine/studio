@@ -174,17 +174,15 @@ One status idiom per surface: a surface shows the 6 px `StatusDot` *or* a
 ### Lifecycle (16-grid — `ui/LifecycleGlyph.tsx`)
 
 The shape-coded lifecycle vocabulary shared by Backlog readiness and
-Automations run state. Eighteen states, read by shape first — every state
+Automations run state. Ten states, read by shape first — every state
 survives grayscale — with ink only reinforcing:
 
 | Shape | States |
 |---|---|
 | Ring (plain / dashed) | `todo`, `ready` (heavier stroke), `idea` (dashed) |
-| Ring + inner mark | `blocked` (bar), `paused` (pause bars), `needs_input` (!), `changes_requested` (return arrow), `archived` (slash), `failed` (×) |
-| Filling gauge arc | `in_progress` ¼ (spins when `live`), `review` ½, `testing` ¾, `product` ⅞ |
-| Disc / ring + check | `done` (filled), `approved_auto` (outline) |
-| Pull request mark | `done_unmerged` (the open drawing, `--tone-good`), `done_merged` (the merged drawing, `--tone-merged`) — two shapes out of the Pull request family below; the lifecycle tones only reinforce them |
-| Document + tick | `recorded` |
+| Ring + inner mark | `blocked` (bar), `paused` (pause bars), `needs_input` (!), `archived` (slash), `failed` (×) |
+| Quarter gauge arc | `in_progress` ¼ (spins when `live`) |
+| Filled disc + check | `done` |
 
 Held states (`blocked`, `paused`) are neutral ink, never the accent — the
 accent means *startable or live right now*, and never `--tone-error` —
@@ -224,10 +222,8 @@ surface inks the same state the same way:
 The primitive takes `state` and an optional `label`; the caller owns the size
 (`icon-xs` beside meta copy, `icon-sm` in a row's leading slot) and the ink.
 
-**Every pull request in the product is drawn from here.** `LifecycleGlyph`'s
-`done_unmerged` / `done_merged` pair takes the open and merged drawings (keeping
-its own lifecycle tones, which are not pull request tones), `BranchStepStrip`'s
-merge commits take the merged one, and `PullRequestMark` — the pull request a
+**Every pull request in the product is drawn from here.** `BranchStepStrip`'s
+merge commits take the merged drawing, and `PullRequestMark` — the pull request a
 conversation wears on its sidebar line and in its peek card — leads with the
 mark for its state. Nothing draws its own.
 

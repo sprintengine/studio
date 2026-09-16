@@ -8702,7 +8702,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-embed-component-glyphs .demo-tone-good { color: var(--sem-color-status-good); }
 .ds-embed-component-glyphs .demo-tone-warn { color: var(--sem-color-status-warn); }
 .ds-embed-component-glyphs .demo-tone-danger { color: var(--sem-color-status-danger); }
-.ds-embed-component-glyphs .demo-tone-merged { color: var(--sem-color-status-merged); }
 .ds-embed-component-glyphs .demo-tone-disabled { color: var(--sem-color-text-disabled); }
 .ds-embed-component-group-header {
     margin: 0;
@@ -19682,36 +19681,13 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <path d="M8 5.3v3.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
       <circle cx="8" cy="10.7" r="0.9" fill="currentColor"/>
     </symbol>
-    <symbol id="g-lc-changes" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
-      <path d="M9.7 5.9 6.4 8l3.3 2.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-    </symbol>
     <symbol id="g-lc-in-progress" viewBox="0 0 16 16" fill="none">
       <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
       <path d="M8 3a5 5 0 0 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
     </symbol>
-    <symbol id="g-lc-review" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
-      <path d="M8 3a5 5 0 0 1 0 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="g-lc-testing" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
-      <path d="M8 3a5 5 0 1 1 -5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-    </symbol>
     <symbol id="g-lc-done" viewBox="0 0 16 16" fill="none">
       <circle cx="8" cy="8" r="5.25" fill="currentColor"/>
       <path d="M5.5 8.2l1.7 1.7 3.4-3.9" style="stroke: var(--sem-color-bg-app)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    </symbol>
-    <symbol id="g-lc-approved-auto" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5.25" stroke="currentColor" stroke-width="1.4"/>
-      <path d="M5.5 8.2l1.7 1.7 3.4-3.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    </symbol>
-    <symbol id="g-lc-branch" viewBox="0 0 16 16" fill="none">
-      <circle cx="5" cy="3.6" r="1.55" stroke="currentColor" stroke-width="1.3"/>
-      <circle cx="5" cy="12.4" r="1.55" stroke="currentColor" stroke-width="1.3"/>
-      <circle cx="11" cy="4.2" r="1.55" stroke="currentColor" stroke-width="1.3"/>
-      <path d="M5 5.15v5.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-      <path d="M11 5.75v.7a3.1 3.1 0 0 1-3.1 3.1H6.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="g-lc-archived" viewBox="0 0 16 16" fill="none">
       <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
@@ -19902,14 +19878,8 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="Blocked"><use href="#g-lc-blocked"/></svg><span class="demo-name">blocked</span></span>
       <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="Paused"><use href="#g-lc-paused"/></svg><span class="demo-name">paused</span></span>
       <span class="demo-cell demo-tone-live"><svg class="ds-glyph ds-glyph--spin" role="img" aria-label="In progress"><use href="#g-lc-in-progress"/></svg><span class="demo-name">in progress</span></span>
-      <span class="demo-cell demo-tone-live"><svg class="ds-glyph" role="img" aria-label="In review"><use href="#g-lc-review"/></svg><span class="demo-name">review</span></span>
-      <span class="demo-cell demo-tone-live"><svg class="ds-glyph" role="img" aria-label="In testing"><use href="#g-lc-testing"/></svg><span class="demo-name">testing</span></span>
-      <span class="demo-cell demo-tone-warn"><svg class="ds-glyph" role="img" aria-label="Changes requested"><use href="#g-lc-changes"/></svg><span class="demo-name">changes</span></span>
       <span class="demo-cell demo-tone-warn"><svg class="ds-glyph" role="img" aria-label="Needs input"><use href="#g-lc-needs-input"/></svg><span class="demo-name">needs input</span></span>
       <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Done"><use href="#g-lc-done"/></svg><span class="demo-name">done</span></span>
-      <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Approved automatically"><use href="#g-lc-approved-auto"/></svg><span class="demo-name">auto-approved</span></span>
-      <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Complete, not merged"><use href="#g-lc-branch"/></svg><span class="demo-name">unmerged</span></span>
-      <span class="demo-cell demo-tone-merged"><svg class="ds-glyph" role="img" aria-label="Merged"><use href="#g-lc-branch"/></svg><span class="demo-name">merged</span></span>
       <span class="demo-cell demo-tone-disabled"><svg class="ds-glyph" role="img" aria-label="Archived"><use href="#g-lc-archived"/></svg><span class="demo-name">archived</span></span>
       <span class="demo-cell demo-tone-danger"><svg class="ds-glyph" role="img" aria-label="Failed"><use href="#g-lc-failed"/></svg><span class="demo-name">failed</span></span>
     </div>
@@ -20008,7 +19978,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <span class="demo-cell demo-tone-live"><svg class="ds-glyph ds-glyph--spin" role="img" aria-label="In progress"><use href="#g-lc-in-progress"/></svg><span class="demo-name">in progress</span></span>
       <span class="demo-cell demo-tone-warn"><svg class="ds-glyph" role="img" aria-label="Needs input"><use href="#g-lc-needs-input"/></svg><span class="demo-name">needs input</span></span>
       <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Done"><use href="#g-lc-done"/></svg><span class="demo-name">done</span></span>
-      <span class="demo-cell demo-tone-merged"><svg class="ds-glyph" role="img" aria-label="Merged"><use href="#g-lc-branch"/></svg><span class="demo-name">merged</span></span>
       <span class="demo-cell demo-tone-danger"><svg class="ds-glyph" role="img" aria-label="Failed"><use href="#g-lc-failed"/></svg><span class="demo-name">failed</span></span>
     </div>
   </div>
@@ -20071,8 +20040,8 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>There is one status vocabulary, and it is <code>LifecycleGlyph</code> (below). The 24-grid <code>PriorityIcon</code> / <code>StatusIcon</code> pair that used to sit here is gone: it was a second answer to the same question, drawn on a different grid, and the folder status enum it keyed off is now <code>FolderStatus</code> in the shared layer with no glyph family of its own.</p>
 <p>One status idiom per surface: a surface shows the 6 px <code>StatusDot</code> *or* a <code>LifecycleGlyph</code>, never both.</p>
 <h5>Lifecycle (16-grid — <code>ui/LifecycleGlyph.tsx</code>)</h5>
-<p>The shape-coded lifecycle vocabulary shared by Backlog readiness and Automations run state. Eighteen states, read by shape first — every state survives grayscale — with ink only reinforcing:</p>
-<p>| Shape | States | |---|---| | Ring (plain / dashed) | <code>todo</code>, <code>ready</code> (heavier stroke), <code>idea</code> (dashed) | | Ring + inner mark | <code>blocked</code> (bar), <code>paused</code> (pause bars), <code>needs_input</code> (!), <code>changes_requested</code> (return arrow), <code>archived</code> (slash), <code>failed</code> (×) | | Filling gauge arc | <code>in_progress</code> ¼ (spins when <code>live</code>), <code>review</code> ½, <code>testing</code> ¾, <code>product</code> ⅞ | | Disc / ring + check | <code>done</code> (filled), <code>approved_auto</code> (outline) | | Pull request mark | <code>done_unmerged</code> (the open drawing, <code>--tone-good</code>), <code>done_merged</code> (the merged drawing, <code>--tone-merged</code>) — two shapes out of the Pull request family below; the lifecycle tones only reinforce them | | Document + tick | <code>recorded</code> |</p>
+<p>The shape-coded lifecycle vocabulary shared by Backlog readiness and Automations run state. Ten states, read by shape first — every state survives grayscale — with ink only reinforcing:</p>
+<p>| Shape | States | |---|---| | Ring (plain / dashed) | <code>todo</code>, <code>ready</code> (heavier stroke), <code>idea</code> (dashed) | | Ring + inner mark | <code>blocked</code> (bar), <code>paused</code> (pause bars), <code>needs_input</code> (!), <code>archived</code> (slash), <code>failed</code> (×) | | Quarter gauge arc | <code>in_progress</code> ¼ (spins when <code>live</code>) | | Filled disc + check | <code>done</code> |</p>
 <p>Held states (<code>blocked</code>, <code>paused</code>) are neutral ink, never the accent — the accent means *startable or live right now*, and never <code>--tone-error</code> — waiting is calm, not a defect.</p>
 <h5>Pull request (16-grid — <code>ui/PullRequestGlyph.tsx</code>)</h5>
 <p>*Where did this work go* — the state of a pull request, in the three marks GitHub itself has taught people to read (epic <code>pull-request-marks</code>, decision 1, 2026-09-09). 16-grid, stroke 1.4, <code>currentColor</code>, <code>fill=&quot;none&quot;</code>. All three are the same branch-and-node armature, so the family reads as one set; what differs is where the branch ends, and that difference is the state.</p>
@@ -20081,7 +20050,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><strong>Shape first, tone second.</strong> The three shapes are distinguishable in grayscale; the tone only agrees with the shape. The tone map is shared — one function, <code>pullRequestTone</code> in <code>src/shared/git/pull-request.ts</code> — so every surface inks the same state the same way:</p>
 <p>| State | Tone | CSS variable | |---|---|---| | <code>open</code> | <code>accent</code> — the one you can still act on | <code>--accent-primary</code> | | <code>merged</code> | <code>merged</code> — the violet a landed branch already wears | <code>--tone-merged</code> (<code>--sem-color-status-merged</code>) | | <code>closed</code> | <code>error</code> — GitHub's own red for a pull request that ended without landing | <code>--tone-error</code> (<code>--sem-color-status-danger</code>) |</p>
 <p>The primitive takes <code>state</code> and an optional <code>label</code>; the caller owns the size (<code>icon-xs</code> beside meta copy, <code>icon-sm</code> in a row's leading slot) and the ink.</p>
-<p><strong>Every pull request in the product is drawn from here.</strong> <code>LifecycleGlyph</code>'s <code>done_unmerged</code> / <code>done_merged</code> pair takes the open and merged drawings (keeping its own lifecycle tones, which are not pull request tones), <code>BranchStepStrip</code>'s merge commits take the merged one, and <code>PullRequestMark</code> — the pull request a conversation wears on its sidebar line and in its peek card — leads with the mark for its state. Nothing draws its own.</p>
+<p><strong>Every pull request in the product is drawn from here.</strong> <code>BranchStepStrip</code>'s merge commits take the merged drawing, and <code>PullRequestMark</code> — the pull request a conversation wears on its sidebar line and in its peek card — leads with the mark for its state. Nothing draws its own.</p>
 <h5>Capability (16-grid — <code>ui/CapabilityGlyphs.tsx</code>)</h5>
 <p>| Export | Meaning | |---|---| | <code>SkillsGlyph</code> | The Skills category mark (framed panel) | | <code>McpGlyph</code> | The MCP plug mark |</p>
 <p>Shared by Extensions and capability inventory rows so a category reads the same everywhere; default themselves to <code>icon-xs</code> + <code>--text-muted</code>.</p>
@@ -20244,7 +20213,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
   .demo-tone-good { color: var(--sem-color-status-good); }
   .demo-tone-warn { color: var(--sem-color-status-warn); }
   .demo-tone-danger { color: var(--sem-color-status-danger); }
-  .demo-tone-merged { color: var(--sem-color-status-merged); }
   .demo-tone-disabled { color: var(--sem-color-text-disabled); }
 &lt;/style&gt;
 &lt;/head&gt;
@@ -20327,36 +20295,13 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;path d=&quot;M8 5.3v3.1&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot;/&gt;
       &lt;circle cx=&quot;8&quot; cy=&quot;10.7&quot; r=&quot;0.9&quot; fill=&quot;currentColor&quot;/&gt;
     &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-lc-changes&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
-      &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
-      &lt;path d=&quot;M9.7 5.9 6.4 8l3.3 2.1&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
-    &lt;/symbol&gt;
     &lt;symbol id=&quot;g-lc-in-progress&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
       &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-opacity=&quot;0.22&quot;/&gt;
       &lt;path d=&quot;M8 3a5 5 0 0 1 5 5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot;/&gt;
     &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-lc-review&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
-      &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-opacity=&quot;0.22&quot;/&gt;
-      &lt;path d=&quot;M8 3a5 5 0 0 1 0 10&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot;/&gt;
-    &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-lc-testing&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
-      &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-opacity=&quot;0.22&quot;/&gt;
-      &lt;path d=&quot;M8 3a5 5 0 1 1 -5 5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot;/&gt;
-    &lt;/symbol&gt;
     &lt;symbol id=&quot;g-lc-done&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
       &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;5.25&quot; fill=&quot;currentColor&quot;/&gt;
       &lt;path d=&quot;M5.5 8.2l1.7 1.7 3.4-3.9&quot; style=&quot;stroke: var(--sem-color-bg-app)&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
-    &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-lc-approved-auto&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
-      &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;5.25&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
-      &lt;path d=&quot;M5.5 8.2l1.7 1.7 3.4-3.9&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
-    &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-lc-branch&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
-      &lt;circle cx=&quot;5&quot; cy=&quot;3.6&quot; r=&quot;1.55&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;/&gt;
-      &lt;circle cx=&quot;5&quot; cy=&quot;12.4&quot; r=&quot;1.55&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;/&gt;
-      &lt;circle cx=&quot;11&quot; cy=&quot;4.2&quot; r=&quot;1.55&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot;/&gt;
-      &lt;path d=&quot;M5 5.15v5.7&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot;/&gt;
-      &lt;path d=&quot;M11 5.75v.7a3.1 3.1 0 0 1-3.1 3.1H6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
     &lt;/symbol&gt;
     &lt;symbol id=&quot;g-lc-archived&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;
       &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;
@@ -20547,14 +20492,8 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Blocked&quot;&gt;&lt;use href=&quot;#g-lc-blocked&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;blocked&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Paused&quot;&gt;&lt;use href=&quot;#g-lc-paused&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;paused&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell demo-tone-live&quot;&gt;&lt;svg class=&quot;ds-glyph ds-glyph--spin&quot; role=&quot;img&quot; aria-label=&quot;In progress&quot;&gt;&lt;use href=&quot;#g-lc-in-progress&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;in progress&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell demo-tone-live&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;In review&quot;&gt;&lt;use href=&quot;#g-lc-review&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;review&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell demo-tone-live&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;In testing&quot;&gt;&lt;use href=&quot;#g-lc-testing&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;testing&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell demo-tone-warn&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Changes requested&quot;&gt;&lt;use href=&quot;#g-lc-changes&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;changes&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell demo-tone-warn&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Needs input&quot;&gt;&lt;use href=&quot;#g-lc-needs-input&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;needs input&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell demo-tone-good&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Done&quot;&gt;&lt;use href=&quot;#g-lc-done&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;done&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell demo-tone-good&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Approved automatically&quot;&gt;&lt;use href=&quot;#g-lc-approved-auto&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;auto-approved&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell demo-tone-good&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Complete, not merged&quot;&gt;&lt;use href=&quot;#g-lc-branch&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;unmerged&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell demo-tone-merged&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Merged&quot;&gt;&lt;use href=&quot;#g-lc-branch&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;merged&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell demo-tone-disabled&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Archived&quot;&gt;&lt;use href=&quot;#g-lc-archived&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;archived&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell demo-tone-danger&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Failed&quot;&gt;&lt;use href=&quot;#g-lc-failed&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;failed&lt;/span&gt;&lt;/span&gt;
     &lt;/div&gt;
@@ -20653,7 +20592,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;span class=&quot;demo-cell demo-tone-live&quot;&gt;&lt;svg class=&quot;ds-glyph ds-glyph--spin&quot; role=&quot;img&quot; aria-label=&quot;In progress&quot;&gt;&lt;use href=&quot;#g-lc-in-progress&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;in progress&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell demo-tone-warn&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Needs input&quot;&gt;&lt;use href=&quot;#g-lc-needs-input&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;needs input&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell demo-tone-good&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Done&quot;&gt;&lt;use href=&quot;#g-lc-done&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;done&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell demo-tone-merged&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Merged&quot;&gt;&lt;use href=&quot;#g-lc-branch&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;merged&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell demo-tone-danger&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Failed&quot;&gt;&lt;use href=&quot;#g-lc-failed&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;failed&lt;/span&gt;&lt;/span&gt;
     &lt;/div&gt;
   &lt;/div&gt;

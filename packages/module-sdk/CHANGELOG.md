@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **`LifecycleState` loses `review`, `testing`, `product`,
+  `changes_requested`, `recorded`, `approved_auto`, `done_unmerged` and
+  `done_merged`, and `WorkspaceRunGlyphState` loses `review`.** They were
+  the in-tree run engine's pipeline stages, and nothing in the host produces
+  them any more. This is a **breaking type change**: a `deriveRunGlyph`
+  provider or a `LifecycleGlyph` caller that returns one stops compiling. Map
+  the stage onto the remaining vocabulary (`in_progress` for a stage still
+  running, `needs_input` for a stage waiting on a person, `done` for a
+  finished one).
+
 - **`ActionContext.spawnAgent` loses `specialistId`.** The app no longer has a
   concept of a specialist or a role, so there is nothing for the field to name
   and the host ignored it. This is a **breaking type change** for an automation

@@ -118,7 +118,7 @@ assert.equal(
     } as never)
   }
   registerSettleProbe('settle-probe-running', 'in_progress')
-  registerSettleProbe('settle-probe-unmerged', 'done_unmerged')
+  registerSettleProbe('settle-probe-waiting', 'needs_input')
   registerSettleProbe('settle-probe-done', 'done')
   registerSettleProbe('settle-probe-quiet', null)
 
@@ -128,9 +128,9 @@ assert.equal(
     'a run still in flight never settles'
   )
   assert.equal(
-    shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-unmerged' as Workspace['mode'] }), NOW),
+    shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-waiting' as Workspace['mode'] }), NOW),
     false,
-    'a finished-but-unmerged run never settles'
+    'a run waiting on the person never settles'
   )
   assert.equal(
     shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-done' as Workspace['mode'] }), NOW),

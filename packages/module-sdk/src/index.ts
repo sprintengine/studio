@@ -1494,7 +1494,6 @@ export type WorkspaceRunGlyphState =
   | 'ready'
   | 'in_progress'
   | 'paused'
-  | 'review'
   | 'needs_input'
   | 'done'
   | 'failed'
@@ -1505,7 +1504,7 @@ export type WorkspaceRunGlyph = {
   state: WorkspaceRunGlyphState
   /** Adds the live pulse — only while something is actually running. */
   live: boolean
-  /** Plain-language status, e.g. "2 scheduled today" or "Reviewing PR #12". */
+  /** Plain-language status, e.g. "2 scheduled today" or "Waiting on a reply". */
   label: string
 }
 
