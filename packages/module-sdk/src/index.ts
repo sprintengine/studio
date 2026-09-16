@@ -1634,10 +1634,6 @@ export type WorkspaceTypeDefinition = {
   createLabel?: string
   /** Glyph beside the sidebar row title for workspaces of this type. */
   RowMark?: WorkspaceTypeIconComponent
-  /** Whether Delete must trash on-disk state for this workspace. */
-  hasOnDiskState?(workspace: WorkspaceTypeSidebarWorkspace): boolean
-  /** Path named in the delete confirmation; null when there is none. */
-  onDiskStateDirectory?(workspace: WorkspaceTypeSidebarWorkspace): string | null
   /** Extra context-menu items on this type's sidebar rows. */
   rowActions?: WorkspaceTypeRowAction[]
   /** The type's config step in the creation hub (one per type in v1). */

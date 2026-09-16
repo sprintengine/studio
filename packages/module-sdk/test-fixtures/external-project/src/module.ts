@@ -553,8 +553,6 @@ const forecastWorkspaceType: WorkspaceTypeDefinition = {
   createWorkspace: createForecastWorkspace,
   createLabel: 'New forecast',
   RowMark: () => null,
-  hasOnDiskState: () => false,
-  onDiskStateDirectory: () => null,
   hiddenFromRail: false,
   supervisors: [{ Component: ForecastSupervisor, scope: 'global' }],
   // Sidebar status from module-owned state (sync — a supervisor-maintained

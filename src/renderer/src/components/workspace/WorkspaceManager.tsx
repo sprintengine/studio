@@ -2135,19 +2135,6 @@ export default function WorkspaceManager() {
     [removeWorkspace]
   )
 
-  // "Delete workspace" from the sidebar's confirm dialog. Terminals are
-  // terminated before the row goes, so nothing is left writing into a project
-  // whose workspace no longer exists.
-  const deleteWorkspaceWithState = useCallback(
-    async (id: string) => {
-      const workspace = workspaces.find((candidate) => candidate.id === id)
-      if (!workspace) return
-      await terminateWorkspaceTerminals(workspace)
-      removeWorkspace(id)
-    },
-    [workspaces, removeWorkspace]
-  )
-
   const handleForgetFolder = useCallback(
     (folderPath: string) => {
       const normalize = (value: string) =>
@@ -4128,7 +4115,6 @@ export default function WorkspaceManager() {
         onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
         onMoveWorkspaceToMainWindow={moveWorkspaceToPrimaryWindow}
         onCloseWorkspace={closeWorkspaceById}
-        onDeleteWorkspaceWithState={deleteWorkspaceWithState}
         onForgetFolder={handleForgetFolder}
         onNewChat={() => openNewChatPanel()}
         onNewChatInFolder={(folderPath) => openNewChatPanel(folderPath)}

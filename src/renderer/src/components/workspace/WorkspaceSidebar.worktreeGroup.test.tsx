@@ -124,7 +124,6 @@ async function main(): Promise<void> {
     onMoveWorkspaceToNewWindow: noop,
     onMoveWorkspaceToMainWindow: noop,
     onCloseWorkspace: noop,
-    onDeleteWorkspaceWithState: noop,
     onForgetFolder: noop,
     onNewChat: noop,
     onNewChatInFolder: (folderPath: string) => newChatCalls.push(folderPath),

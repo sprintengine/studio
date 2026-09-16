@@ -85,10 +85,9 @@ contracts, so a published version always matches the app version it ships with.
   page's body. Absent ⇒ the hub creates from `createTemplate` directly;
   `createLabel` names the create control (picker, hub) and defaults to
   `label`; `RowMark` is the glyph beside a sidebar row of this type;
-  `hasOnDiskState` / `onDiskStateDirectory` drive the shell's Delete-with-
-  on-disk-state confirm; `rowActions` are extra context-menu items on those
-  rows (`{ id, label, variant?, isVisible, confirm, run }`), gone with the
-  module, never a disabled core row; `hiddenFromRail` withholds workspaces
+  `rowActions` are extra context-menu items on those rows (`{ id, label,
+  variant?, isVisible, confirm, run }`), gone with the module, never a
+  disabled core row; `hiddenFromRail` withholds workspaces
   of this type from the Projects list, keyboard switch targets, and
   command-palette results — hidden from discovery, still in the store and
   explicitly activatable, the rail analog of `hiddenFromPicker`),
