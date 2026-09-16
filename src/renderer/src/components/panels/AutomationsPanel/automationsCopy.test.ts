@@ -4,10 +4,8 @@ import {
   actionLabel,
   aggregateFeedRuns,
   cadenceSummary,
-  engineHealth,
   isEngineUnreachable,
   mergeFeedRuns,
-  runDuration,
   triggerDetail,
   triggerFamilyLabel,
   type AutomationFeedRun,
@@ -196,18 +194,7 @@ run('names the zone of a cadence written in someone else’s', () => {
   assert.equal(summary(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
 })
 
-// --- Operational overview (T6): engine health + runs feed -------------------
-
-run('maps engine state to a glyph-led health label, surfacing the sidecar error', () => {
-  assert.equal(engineHealth({ state: 'running' }).label, 'Scheduler active')
-  assert.equal(engineHealth({ state: 'running' }).tone, 'default')
-  const failed = engineHealth({ state: 'failed', error: 'webhook-receiver bind failed' })
-  assert.equal(failed.label, 'Scheduler error')
-  assert.equal(failed.detail, 'webhook-receiver bind failed')
-  assert.equal(failed.tone, 'error')
-  assert.equal(engineHealth({ state: 'unavailable' }).tone, 'warn')
-  assert.equal(engineHealth(null).label, 'Scheduler status unknown')
-})
+// --- Operational overview (T6): engine reachability + runs feed -------------
 
 run('treats only known not-running states as unreachable (null is unknown, not unreachable)', () => {
   assert.equal(isEngineUnreachable({ state: 'running' }), false)
@@ -216,18 +203,6 @@ run('treats only known not-running states as unreachable (null is unknown, not u
   assert.equal(isEngineUnreachable({ state: 'unavailable' }), true)
   assert.equal(isEngineUnreachable({ state: 'failed' }), true)
   assert.equal(isEngineUnreachable({ state: 'stopped' }), true)
-})
-
-run('formats run duration from started→completed, null while running or unstarted', () => {
-  const make = (over: Partial<AutomationRun>): AutomationRun => ({
-    id: 'r', automationId: 'a', status: 'completed', dueAt: '2026-01-01T00:00:00Z',
-    startedAt: null, completedAt: null, ...over,
-  })
-  assert.equal(runDuration(make({ startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:00:45Z' })), '45s')
-  assert.equal(runDuration(make({ startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T00:02:05Z' })), '2m 5s')
-  assert.equal(runDuration(make({ startedAt: '2026-01-01T00:00:00Z', completedAt: '2026-01-01T01:30:00Z' })), '1h 30m')
-  assert.equal(runDuration(make({ startedAt: '2026-01-01T00:00:00Z', completedAt: null })), null)
-  assert.equal(runDuration(make({ startedAt: null, completedAt: null })), null)
 })
 
 run('merges feed runs newest-first and caps to the limit', () => {

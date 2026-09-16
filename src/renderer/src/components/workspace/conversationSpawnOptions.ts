@@ -40,55 +40,6 @@ export function buildConversationSpawnOptions(
   )
 }
 
-// One conversation PROVIDER as the spawn picker lists it (MC-2122): the rail's
-// conversation entry shows providers, not the cross-product of every model, and
-// the model stays switchable in the chat composer until the first message.
-export type ConversationProviderRow = {
-  providerId: string
-  providerLabel: string
-  modelId: string
-  modelLabel: string
-}
-
-/**
- * Collapse the option list to one row per provider that can actually start a
- * session, in catalog order. Each row opens on the remembered model when that
- * model belongs to the provider, else on the provider's first model.
- *
- * Unavailable providers are dropped rather than shown disabled: a row that
- * cannot spawn is not a way in. A metered provider still appears here even when
- * the subscription harness is unavailable — the fail-closed rule in
- * `resolveDefaultConversationOption` is about never making metered the SILENT
- * default, and a row the user clicks is an explicit pick.
- */
-export function buildConversationProviderRows(
-  options: ConversationSpawnOption[],
-  remembered: AgentConversationRuntime | null | undefined,
-): ConversationProviderRow[] {
-  const rows: ConversationProviderRow[] = []
-  const seen = new Set<string>()
-  for (const option of options) {
-    if (option.unavailable) continue
-    if (seen.has(option.providerId)) continue
-    seen.add(option.providerId)
-    const forProvider = options.filter(
-      (entry) => entry.providerId === option.providerId && !entry.unavailable,
-    )
-    const rememberedModel =
-      remembered && remembered.providerId === option.providerId
-        ? forProvider.find((entry) => entry.modelId === remembered.modelId)
-        : undefined
-    const opening = rememberedModel ?? option
-    rows.push({
-      providerId: opening.providerId,
-      providerLabel: opening.providerLabel,
-      modelId: opening.modelId,
-      modelLabel: opening.modelLabel,
-    })
-  }
-  return rows
-}
-
 // The agent-state fields that make a fresh agent a conversation-runtime agent.
 // Shared by the spawn action and its test so the routing contract cannot drift:
 // `runtimeKind`/`conversation` opt into AgentChatView, and the `cli*` fields are

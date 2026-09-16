@@ -225,29 +225,3 @@ export type ConversationSessionActionResult =
 export type ConversationListSessionsResult =
   | { ok: true; sessions: ConversationSessionSummary[] }
   | { ok: false; message: string }
-
-export type ConversationProviderTestState =
-  | 'missing_key'
-  | 'invalid_key'
-  | 'invalid_endpoint'
-  | 'reachable'
-  | 'network_error'
-  | 'rate_limited'
-  | 'model_error'
-  | 'malformed_response'
-
-type ConversationProviderTestStatus = {
-  providerId: string
-  state: ConversationProviderTestState
-  message: string
-  modelId?: string
-  usage?: {
-    inputTokens?: number
-    outputTokens?: number
-    totalTokens?: number
-  }
-}
-
-export type ConversationProviderTestResult =
-  | { ok: true; status: ConversationProviderTestStatus & { state: 'reachable' } }
-  | { ok: false; status: ConversationProviderTestStatus }

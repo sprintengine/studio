@@ -3,11 +3,10 @@
 //
 // Source-tabs ruling (2026-09-05). What went with the nested Sources rail:
 //
-//   - The four `sourceLayout()` shapes. Solo / flat / grouped / search-first
-//     existed to decide how much of a source to put on screen at once, which
-//     is the pager's job now. The rule they encoded — group by the folders the
-//     repository actually keeps its skills in — survives, in
-//     `deriveSkillCatalogueGroups`.
+//   - The per-source layout shapes (solo / flat / grouped / search-first).
+//     Deciding how much of a source to put on screen at once is the pager's
+//     job now. Grouping by the folders the repository actually keeps its
+//     skills in survives, in `deriveSkillCatalogueGroups`.
 //   - Batch selection. The row idiom the ruling names carries ONE control, so
 //     a row installs itself; a checkbox column and a footer "Install 6" is a
 //     second interaction model on the same rows.

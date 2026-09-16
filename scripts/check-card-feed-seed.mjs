@@ -81,7 +81,7 @@ const SURFACE_VIEWS = new Set(['home', 'plugins', 'skills', 'agent-clis'])
 
 // The hero's dek is CLAMPED to two lines, because the hero plate's floor is
 // derived from the tallest stack the overlay can legally draw
-// (`HERO_PLATE_MIN_HEIGHT_PX`, cardSplash.tsx) and a floor needs a ceiling. A
+// (the `CardSplash` floor, cardSplash.tsx) and a floor needs a ceiling. A
 // longer dek is therefore not a dek that wraps — it is a sentence the card
 // silently eats, which is what the shipped hero did until 2026-09-06: it lost
 // "while you watch the board" mid-word at 1440px, on the first card of the

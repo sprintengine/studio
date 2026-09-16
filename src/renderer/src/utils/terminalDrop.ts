@@ -1,7 +1,4 @@
-import type {
-  BuiltinSkillTargetState,
-  SkillHarness,
-} from '../../../shared/electron-api'
+import type { BuiltinSkillTargetState } from '../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
 import type { AgentSkill } from '../../../shared/skills'
 import { plainSkillInvocation } from '../../../shared/skill-invocation'
@@ -337,75 +334,6 @@ export function backlogSkillInvocationForDrop(
     skillName: 'Backlog',
     path: /\s/.test(relativePath) ? `'${relativePath}'` : relativePath,
   })
-}
-
-// Backwards-compatible export for older tests/callers. Prefer
-// backlogSkillInvocationForDrop for plugin-declared behavior.
-//
-// The inline manifests below state no install targets on purpose: this path
-// reads support, harnessId and invocation only, and a harness directory
-// written here would be a second declaration competing with the real one.
-export function backlogSlashCommandForDrop(
-  payload: FileDropPayload,
-  session: TerminalSessionSnapshot,
-  installedHarnesses: readonly SkillHarness[]
-): string | null {
-  const plugins: PluginRegistryListEntry[] = [
-    {
-      id: 'claude-code',
-      displayName: 'Claude Code',
-      source: 'bundled',
-      version: 1,
-      binary: 'claude',
-      resumeSession: true,
-      sessionIdFromCaller: true,
-      agentStateCapable: true,
-      skillIntegration: {
-        support: 'native',
-        harnessId: 'claude',
-        installTargets: [],
-        invocation: { fileDropTemplate: '/{{skillId}} {{path}}', nativeSlashCommand: true },
-      },
-    },
-    {
-      id: 'claude',
-      displayName: 'Claude Code',
-      source: 'bundled',
-      version: 1,
-      binary: 'claude',
-      resumeSession: true,
-      sessionIdFromCaller: true,
-      agentStateCapable: true,
-      skillIntegration: {
-        support: 'native',
-        harnessId: 'claude',
-        installTargets: [],
-        invocation: { fileDropTemplate: '/{{skillId}} {{path}}', nativeSlashCommand: true },
-      },
-    },
-    {
-      id: 'codex',
-      displayName: 'Codex',
-      source: 'bundled',
-      version: 1,
-      binary: 'codex',
-      resumeSession: true,
-      sessionIdFromCaller: false,
-      agentStateCapable: true,
-      skillIntegration: {
-        support: 'native',
-        harnessId: 'codex',
-        installTargets: [],
-        invocation: { fileDropTemplate: 'Use ${{skillId}} to work {{path}}.', explicitMention: true },
-      },
-    },
-  ]
-  const targets = installedHarnesses.map((harness): BuiltinSkillTargetState => ({
-    harness,
-    status: 'installed',
-    support: 'native',
-  }))
-  return backlogSkillInvocationForDrop(payload, session, plugins, targets)
 }
 
 async function resolveBacklogSkillInvocation(

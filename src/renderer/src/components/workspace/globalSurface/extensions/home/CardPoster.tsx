@@ -531,7 +531,7 @@ export function CardPoster({
             <div className="mt-2.5 flex items-end gap-5">
               <div className="min-w-0 flex-1">
                 {/* Two lines, and the clamp is load-bearing rather than tidy.
-                    The hero plate's floor (`HERO_PLATE_MIN_HEIGHT_PX`,
+                    The hero plate's floor (`CardSplash`,
                     `cardSplash.tsx`) is derived from the TALLEST stack this
                     overlay can legally draw, and the dek was the one part of
                     that stack with no ceiling on it — a dek long enough to

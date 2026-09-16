@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'fs'
-import { copyFile, mkdir, readFile, rm, writeFile } from 'fs/promises'
+import { copyFile, mkdir, readFile, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/electron-api'
@@ -1537,16 +1537,6 @@ async function mergeFlatAgentStateHooks(
   await writeFile(hooksPath, JSON.stringify(file, null, 2) + '\n', 'utf8')
 }
 
-async function unmergeFlatAgentStateHooks(hooksPath: string): Promise<void> {
-  const existing = await readJsonIfExists<FlatHooksFile>(hooksPath)
-  if (!existing?.hooks || typeof existing.hooks !== 'object' || Array.isArray(existing.hooks)) return
-  stripFlatAgentStateEntries(existing.hooks)
-  // Match the settings-json unmerge: an emptied hooks map is deleted rather
-  // than left as a `"hooks": {}` stub.
-  if (Object.keys(existing.hooks).length === 0) delete existing.hooks
-  await writeFile(hooksPath, JSON.stringify(existing, null, 2) + '\n', 'utf8')
-}
-
 // =============================================================================
 // TOML managed block (registration kind 'toml-block')
 //
@@ -1589,7 +1579,7 @@ export function renderTomlAgentStateHooksBlock(
   return lines.join('\n')
 }
 
-// Replace (or, with an empty block, remove) our managed hooks block, preserving
+// Replace our managed hooks block, preserving
 // everything else in the file. Mirrors the MCP writer's replaceManagedBlock.
 function replaceTomlAgentStateBlock(previous: string, block: string): string {
   const pattern = new RegExp(`${escapeRegExp(AGENT_STATE_TOML_START)}[\\s\\S]*?${escapeRegExp(AGENT_STATE_TOML_END)}\\n?`, 'm')
@@ -1604,10 +1594,6 @@ export function mergeTomlAgentStateHooks(
   events: ReadonlyArray<{ event: string; matcher?: string }>
 ): string {
   return replaceTomlAgentStateBlock(previous, renderTomlAgentStateHooksBlock(command, events))
-}
-
-export function unmergeTomlAgentStateHooks(previous: string): string {
-  return replaceTomlAgentStateBlock(previous, '')
 }
 
 // The array-of-tables variant (registration kind 'toml-array-block'): Kimi
@@ -1842,56 +1828,6 @@ export async function installAgentStateReporter(
     return {
       ok: false,
       message: error instanceof Error ? error.message : 'Failed to install agent-state reporter.',
-    }
-  }
-}
-
-export async function uninstallAgentStateReporter(
-  workspaceRoot: string,
-  spec: PluginAgentStateSpec,
-  options: { homeDir?: string } = {}
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
-  const registration = spec.registration
-  try {
-    const targetPath = resolveRegistrationPath(workspaceRoot, registration, options.homeDir ?? homedir())
-    switch (registration.kind) {
-      case 'settings-json': {
-        if (existsSync(targetPath)) {
-          await unmergeAgentStateHooks(targetPath)
-          // Unconditional, never gated on spec.statusLine: a spec that turned
-          // the flag OFF must still be able to give a person their status line
-          // back.
-          await unmergeStatusLineForwarder(targetPath)
-        }
-        const destStatusLine = resolve(workspaceRoot, STATUS_LINE_HOOK_SCRIPT_REL)
-        if (existsSync(destStatusLine)) await rm(destStatusLine, { force: true })
-        // The copied stdin-filter reporter is shared by every command-hook
-        // registration in the workspace; the settings-json uninstall owns its
-        // removal (legacy behavior — the other kinds leave it in place).
-        const destScript = resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
-        if (existsSync(destScript)) await rm(destScript, { force: true })
-        break
-      }
-      case 'flat-hooks-json':
-        if (existsSync(targetPath)) await unmergeFlatAgentStateHooks(targetPath)
-        break
-      case 'toml-block':
-      case 'toml-array-block': {
-        const previous = await readTextIfExists(targetPath)
-        if (previous !== null) await writeFile(targetPath, unmergeTomlAgentStateHooks(previous), 'utf8')
-        break
-      }
-      case 'owned-json':
-      case 'plugin-file':
-        if (existsSync(targetPath)) await rm(targetPath, { force: true })
-        break
-    }
-    return { ok: true }
-  } catch (error) {
-    return {
-      ok: false,
-      message: error instanceof Error ? error.message : 'Failed to uninstall agent-state reporter.',
     }
   }
 }

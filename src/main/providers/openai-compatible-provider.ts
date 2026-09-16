@@ -1,8 +1,4 @@
-import type {
-  ConversationEvent,
-  ConversationProviderTestResult,
-  ConversationProviderTestState,
-} from '../../shared/conversation-runtime'
+import type { ConversationEvent } from '../../shared/conversation-runtime'
 import type { ConversationProviderModel, LoadedConversationProvider } from '../../shared/plugin-manifest'
 import { isRecord } from '../../shared/records'
 import type {
@@ -54,74 +50,6 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
     stopSession(input) {
       return [event(input, 'session_closed')]
     },
-  }
-}
-
-export async function testOpenAiCompatibleConnection(
-  input: {
-    providerId: string
-    modelId?: string
-    getProviderById: (providerId: string) => LoadedConversationProvider | undefined
-    resolveSecret: ProviderSecretResolver
-    fetch?: typeof fetch
-  }
-): Promise<ConversationProviderTestResult> {
-  const provider = input.getProviderById(input.providerId)
-  if (!provider) return testFailure(input.providerId, 'invalid_endpoint', 'Conversation provider is not installed.')
-  if (!provider.manifest.openaiCompatible) {
-    return testFailure(input.providerId, 'invalid_endpoint', 'Conversation provider is not OpenAI-compatible.')
-  }
-
-  const modelId = input.modelId?.trim() || provider.manifest.models[0]?.id
-  if (!modelId || !provider.manifest.models.some((model) => model.id === modelId)) {
-    return testFailure(input.providerId, 'model_error', 'Conversation model is invalid.')
-  }
-
-  const secret = await input.resolveSecret(input.providerId)
-  if (!secret.ok) {
-    return testFailure(input.providerId, 'missing_key', 'Provider API key is not configured.')
-  }
-
-  const endpoint = resolveEndpoint(provider)
-  if (!endpoint.ok) return testFailure(input.providerId, 'invalid_endpoint', endpoint.message)
-
-  try {
-    const response = await (input.fetch ?? fetch)(endpoint.url, {
-      method: 'POST',
-      headers: buildHeaders(secret.value),
-      body: JSON.stringify({
-        model: modelId,
-        messages: [{ role: 'user', content: 'Multicode connection test. Reply briefly.' }],
-        max_tokens: 1,
-        stream: false,
-      }),
-    })
-    if (!response.ok) {
-      const detail = await readProviderErrorDetail(response)
-      return testFailure(input.providerId, mapHttpFailure(response.status), httpFailureMessage(response.status, detail))
-    }
-    let payload: unknown
-    try {
-      payload = await response.json()
-    } catch {
-      return testFailure(input.providerId, 'malformed_response', 'Provider returned a malformed connection-test response.')
-    }
-    if (!isChatCompletionResponse(payload)) {
-      return testFailure(input.providerId, 'malformed_response', 'Provider returned a malformed connection-test response.')
-    }
-    const usage = extractUsage(payload.usage)
-    return {
-      ok: true,
-      status: {
-        providerId: input.providerId,
-        state: 'reachable',
-        modelId,
-        message: 'Provider endpoint is reachable.',
-        ...(usage ? { usage } : {}),
-      },
-    }
-  } catch {
-    return testFailure(input.providerId, 'network_error', 'Provider endpoint could not be reached.')
   }
 }
 
@@ -347,12 +275,6 @@ function parseModelsPayload(payload: unknown): ConversationProviderModel[] | nul
   return models
 }
 
-function mapHttpFailure(status: number): Exclude<ConversationProviderTestState, 'missing_key' | 'reachable' | 'network_error' | 'malformed_response' | 'model_error'> {
-  if (status === 401 || status === 403) return 'invalid_key'
-  if (status === 429) return 'rate_limited'
-  return 'invalid_endpoint'
-}
-
 function mapHttpTurnFailure(status: number): ChatCompletionErrorKind {
   if (status === 401 || status === 403) return 'auth'
   if (status === 429) return 'rate_limit'
@@ -418,26 +340,8 @@ function extractUsage(value: unknown): { inputTokens?: number; outputTokens?: nu
   return { inputTokens, outputTokens, totalTokens }
 }
 
-function isChatCompletionResponse(value: unknown): value is { choices: unknown[]; usage?: unknown } {
-  if (!isRecord(value) || !Array.isArray(value.choices) || value.choices.length === 0) return false
-  return value.choices.some((choice) => {
-    if (!isRecord(choice)) return false
-    const message = choice.message
-    if (!isRecord(message)) return false
-    return typeof message.content === 'string' || Array.isArray(message.content)
-  })
-}
-
 function numberOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
-function testFailure(
-  providerId: string,
-  state: Exclude<ConversationProviderTestResult['status']['state'], 'reachable'>,
-  message: string
-): ConversationProviderTestResult {
-  return { ok: false, status: { providerId, state, message } }
 }
 
 function failure(input: MockAdapterTurnInput, reason: ChatCompletionErrorKind, message: string): ConversationEvent {

@@ -6,24 +6,23 @@ import { join } from 'node:path'
 
 import type { WorkspaceSkill } from '../shared/electron-api'
 import type { SkillTreeEntry } from '../main/skills/scan'
-import { STUDIO_SKILL_SOURCE_ID, type ScanResult, type ScannedSkill, type SkillSource } from '../shared/skills'
+import { STUDIO_SKILL_SOURCE_ID, type ScanResult } from '../shared/skills'
 import { STUDIO_MARKETPLACE_RESOURCE_DIR } from '../main/skills/studio-plugin'
 import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
 
 // ── Seam: a skill source, end to end (T1 → T2 → T3 → T4 → T7, item MC-1932ff) ─
 //
 // Every task in this run owns one hop of one chain: T1 turns a repository tree
-// into skills and writes them into a workspace, T2 picks the shape that list is
-// browsed in, T3 opens a skill's files and resolves the links between them, T4
+// into skills and writes them into a workspace, T3 opens a skill's files and resolves the links between them, T4
 // re-reads a source and re-copies what the workspace holds, T7 keeps the retired
 // skill-packs deep link landing on Skills. Each suite proves its own hop against
 // inputs it supplies itself, and none of them can show that the hops meet:
 //
-//  * the scan suite asserts counts and grouping off recorded trees, but stops
-//    before `sourceLayout()` and never renders a row;
-//  * the surface suite renders every layout from hand-built scans, so nothing
-//    there would notice if a real repository stopped producing the scan that
-//    layout was written for;
+//  * the scan suite asserts counts and grouping off recorded trees, but never
+//    renders a row;
+//  * the surface suite groups hand-built scans, so nothing there would notice
+//    if a real repository stopped producing the scan the grouping was written
+//    for;
 //  * the install and sync suites drive their own `readFile`, so neither crosses
 //    the IPC channel names the renderer actually calls, nor the file bytes a
 //    real repository would hand back.
@@ -343,7 +342,6 @@ async function main(): Promise<void> {
 
   await testScanBrowseReadInstallSync(workspaceRoot)
   await testCrossSourceCollisionKeepsItsOwnBytes()
-  await testLayoutBoundaries()
   await testRetiredSkillPacksDeepLinkStillOpensSkills()
 
   // Everything this suite did, across every source, stayed inside the two hosts
@@ -514,10 +512,8 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   }
 
   // Every source lists in FULL now, one page of twenty-four at a time, under the
-  // headings its own folders give it. The four `sourceLayout()` shapes decided
-  // how much of a source to put on screen at once, which is the pager's job
-  // since the source-tabs ruling (2026-09-05); what survives of that rule is
-  // the grouping, and each repository's own shape of it is what this walks.
+  // headings its own folders give it (source-tabs ruling, 2026-09-05); each
+  // repository's own shape of that grouping is what this walks.
 
   // 41 skills in six folders: six headings, and a pager that says 41. Forty-one
   // is what the PINNED tree holds — mattpocock/skills is at 37 upstream today
@@ -988,71 +984,6 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
 /** The visible text of the surface, for a failure message worth reading. */
 function visibleText(markup: string): string {
   return markup.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 600)
-}
-
-// --- 1933 D4: the layout thresholds, at their edges --------------------------
-
-async function testLayoutBoundaries(): Promise<void> {
-  const { sourceLayout } = await import('../shared/skills')
-  const { deriveSourceView } = await import(
-    '../renderer/src/components/workspace/globalSurface/extensions/skills/skillsSurfaceModel'
-  )
-
-  const source: SkillSource = {
-    id: 'github:example/skills',
-    kind: 'github',
-    name: 'skills',
-    repo: 'example/skills',
-    monogram: 'ES',
-    blurb: '',
-    commitSha: 'a'.repeat(40),
-    scannedAt: '2026-07-28T00:00:00Z',
-  }
-
-  const scanOf = (count: number, groupCount: number): ScanResult => {
-    const groups = Array.from({ length: groupCount }, (_, index) => `group-${index}`)
-    const skills: ScannedSkill[] = Array.from({ length: count }, (_, index) => ({
-      id: groupCount > 0 ? `skills/${groups[index % groupCount]}/skill-${index}` : `skills/skill-${index}`,
-      name: `skill-${index}`,
-      description: '',
-      group: groupCount > 0 ? groups[index % groupCount] : '',
-      files: [{ path: 'SKILL.md', size: 100, blobSha: 'b'.repeat(40), isEntry: true }],
-      allowedTools: [],
-      hasExecutables: false,
-    }))
-    return {
-      skills,
-      groups,
-      groupingSignal: groupCount > 0 ? 'folders' : 'none',
-      fileCount: count,
-      commitSha: source.commitSha,
-    }
-  }
-
-  const viewKind = (scan: ScanResult): string =>
-    deriveSourceView({ source, scan, installedDirNames: new Set(), activeGroup: null, query: '' }).kind
-
-  // Ungrouped: one list stays browsable to 24, and past it the page is
-  // search-first (D4 — the gap the backlog table left undefined).
-  for (const [count, layout] of [
-    [24, 'flat'],
-    [25, 'search'],
-  ] as const) {
-    const scan = scanOf(count, 0)
-    assert.equal(sourceLayout(scan), layout, `${count} ungrouped skills is the ${layout} layout`)
-    assert.equal(viewKind(scan), layout, `and the surface renders it as ${layout}`)
-  }
-
-  // Grouped: the groups do the narrowing, so a grouped source stays browsable
-  // to 60 and turns search-first at 61.
-  for (const [count, layout] of [
-    [60, 'grouped'],
-    [61, 'search'],
-  ] as const) {
-    const scan = scanOf(count, 4)
-    assert.equal(sourceLayout(scan), layout, `${count} grouped skills is the ${layout} layout`)
-    assert.equal(viewKind(scan), layout, `and the surface renders it as ${layout}`)
-  }
 }
 
 // --- 1936: the retired skill-packs deep link still opens Skills --------------

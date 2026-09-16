@@ -7,7 +7,6 @@ import type { LoadedConversationProvider } from '../../shared/plugin-manifest'
 import {
   createOpenAiCompatibleProvider,
   listOpenAiCompatibleModels,
-  testOpenAiCompatibleConnection,
 } from './openai-compatible-provider'
 
 async function main(): Promise<void> {
@@ -19,7 +18,6 @@ async function main(): Promise<void> {
   const baseUrl = `http://127.0.0.1:${address.port}`
 
   try {
-    await testConnectionStates(baseUrl)
     await testLiveModelCatalog(baseUrl)
     await testStreamingTurnProducesCanonicalEvents(baseUrl)
     await testStreamingTurnCancellationReportsInterrupted(baseUrl)
@@ -29,78 +27,6 @@ async function main(): Promise<void> {
   }
 
   console.log('openai-compatible-provider tests passed')
-}
-
-async function testConnectionStates(baseUrl: string): Promise<void> {
-  const provider = loadedProvider(baseUrl)
-  assert.equal(
-    (await testOpenAiCompatibleConnection({
-      providerId: provider.manifest.id,
-      getProviderById: () => provider,
-      resolveSecret: async () => ({ ok: false, message: 'missing' }),
-    })).status.state,
-    'missing_key'
-  )
-  assert.equal(
-    (await testOpenAiCompatibleConnection({
-      providerId: provider.manifest.id,
-      getProviderById: () => provider,
-      resolveSecret: async () => ({ ok: true, value: 'bad-key' }),
-    })).status.state,
-    'invalid_key'
-  )
-  assert.equal(
-    (await testOpenAiCompatibleConnection({
-      providerId: provider.manifest.id,
-      getProviderById: () => loadedProvider(baseUrl, '/missing'),
-      resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
-    })).status.state,
-    'invalid_endpoint'
-  )
-  const reachable = await testOpenAiCompatibleConnection({
-    providerId: provider.manifest.id,
-    modelId: 'test-model',
-    getProviderById: () => provider,
-    resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
-  })
-  assert.equal(reachable.ok, true)
-  assert.equal(reachable.status.state, 'reachable')
-  assert.deepEqual(reachable.status.usage, { inputTokens: 2, outputTokens: 1, totalTokens: 3 })
-  assert.equal(JSON.stringify(reachable).includes('sk-test'), false)
-  assert.equal(
-    (await testOpenAiCompatibleConnection({
-      providerId: provider.manifest.id,
-      getProviderById: () => loadedProvider(baseUrl, '/malformed'),
-      resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
-    })).status.state,
-    'malformed_response'
-  )
-  const notChatCompletion = await testOpenAiCompatibleConnection({
-    providerId: provider.manifest.id,
-    getProviderById: () => loadedProvider(baseUrl, '/not-chat-completions'),
-    resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
-  })
-  assert.equal(notChatCompletion.status.state, 'malformed_response')
-  assert.equal(JSON.stringify(notChatCompletion).includes('sk-test'), false)
-  assert.equal(
-    (await testOpenAiCompatibleConnection({
-      providerId: provider.manifest.id,
-      getProviderById: () => loadedProvider(baseUrl, '/rate-limit'),
-      resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
-    })).status.state,
-    'rate_limited'
-  )
-  assert.equal(
-    (await testOpenAiCompatibleConnection({
-      providerId: provider.manifest.id,
-      getProviderById: () => provider,
-      resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
-      fetch: async () => {
-        throw new Error('socket closed')
-      },
-    })).status.state,
-    'network_error'
-  )
 }
 
 async function testLiveModelCatalog(baseUrl: string): Promise<void> {

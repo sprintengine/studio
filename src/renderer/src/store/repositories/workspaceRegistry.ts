@@ -1,12 +1,10 @@
 // Workspace registry repository
 //
-// Owns the persisted workspace-registry storage key. The custom storage adapter
-// in workspaceStore.ts is the only consumer that calls into this module; every
-// other surface (settings, auth, sidebar, terminal reconciliation)
-// reaches localStorage through a separate app-settings key and physically cannot
-// modify the registry by construction.
+// The persisted registry envelope and the lazy split of a legacy v44 envelope,
+// which the workspaceStore custom storage adapter runs on first cold load. The
+// storage key itself is `WORKSPACE_STORAGE_KEY` (slices/persistenceSlice.ts).
 //
-// Persisted v46 envelope shape (stored at WORKSPACE_REGISTRY_STORAGE_KEY):
+// Persisted v46 envelope shape:
 //   {
 //     state: {
 //       workspaces: Workspace[]
@@ -15,22 +13,10 @@
 //     },
 //     version: 46,
 //   }
-//
-// Empty-state semantics (per the task acceptance):
-//   - workspaces.length > 0      → classification: present (recoverable target)
-//   - workspaces.length === 0
-//     && workspaceRegistryEmptyState != null      → intentional user removal (no recovery)
-//   - workspaces.length === 0
-//     && workspaceRegistryEmptyState == null      → dangerous empty (recovery target if backup
-//                                   exists and is non-empty)
-//   - localStorage missing       → dangerous_empty_missing_storage
-//   - localStorage unreadable    → dangerous_empty_unreadable
-//   - schema corruption          → dangerous_empty_no_workspaces
 
 import type { Workspace, WorkspaceId, WorkspaceRegistryEmptyState } from '../../types/workspace'
 
-export const WORKSPACE_REGISTRY_STORAGE_KEY = 'multicode-workspaces'
-export const WORKSPACE_REGISTRY_VERSION = 46
+const WORKSPACE_REGISTRY_VERSION = 46
 
 type WorkspaceRegistryState = {
   workspaces: Workspace[]
@@ -38,90 +24,9 @@ type WorkspaceRegistryState = {
   workspaceRegistryEmptyState: WorkspaceRegistryEmptyState | null
 }
 
-export type WorkspaceRegistryEnvelope = {
+type WorkspaceRegistryEnvelope = {
   state: WorkspaceRegistryState
   version: number
-}
-
-export type WorkspaceRegistryClassification =
-  | 'present'
-  | 'intentional_empty'
-  | 'dangerous_empty_missing_storage'
-  | 'dangerous_empty_unreadable'
-  | 'dangerous_empty_no_workspaces'
-
-type ClassifyInput = { rawLocalStorage: string | null }
-
-export function classifyWorkspaceRegistry(input: ClassifyInput): WorkspaceRegistryClassification {
-  if (input.rawLocalStorage === null) return 'dangerous_empty_missing_storage'
-
-  let parsed: { state?: Partial<WorkspaceRegistryState> } | null = null
-  try {
-    parsed = JSON.parse(input.rawLocalStorage) as { state?: Partial<WorkspaceRegistryState> }
-  } catch {
-    return 'dangerous_empty_unreadable'
-  }
-
-  const state = parsed?.state
-  if (!state || typeof state !== 'object') return 'dangerous_empty_unreadable'
-
-  if (Array.isArray(state.workspaces) && state.workspaces.length > 0) return 'present'
-  if (!Array.isArray(state.workspaces)) return 'dangerous_empty_no_workspaces'
-
-  // workspaces is an empty array. Only an explicit workspaceRegistryEmptyState record proves
-  // user intent. Shape inference (e.g., the presence of sibling fields) is
-  // intentionally NOT used — startup writes carry those too.
-  if (state.workspaceRegistryEmptyState && typeof state.workspaceRegistryEmptyState === 'object') {
-    return 'intentional_empty'
-  }
-  return 'dangerous_empty_no_workspaces'
-}
-
-export function isDangerousRegistryClassification(
-  classification: WorkspaceRegistryClassification,
-): boolean {
-  return classification !== 'present' && classification !== 'intentional_empty'
-}
-
-export function readRawWorkspaceRegistry(): string | null {
-  if (typeof window === 'undefined') return null
-  try {
-    return window.localStorage.getItem(WORKSPACE_REGISTRY_STORAGE_KEY)
-  } catch {
-    return null
-  }
-}
-
-export function readWorkspaceRegistryEnvelope(): WorkspaceRegistryEnvelope | null {
-  const raw = readRawWorkspaceRegistry()
-  if (!raw) return null
-  try {
-    const parsed = JSON.parse(raw) as Partial<WorkspaceRegistryEnvelope>
-    if (!parsed || typeof parsed !== 'object') return null
-    const state = parsed.state
-    if (!state || typeof state !== 'object') return null
-    if (!Array.isArray((state as WorkspaceRegistryState).workspaces)) return null
-    return {
-      state: state as WorkspaceRegistryState,
-      version: typeof parsed.version === 'number' ? parsed.version : 0,
-    }
-  } catch {
-    return null
-  }
-}
-
-export function writeWorkspaceRegistry(envelope: WorkspaceRegistryEnvelope): void {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(
-      WORKSPACE_REGISTRY_STORAGE_KEY,
-      JSON.stringify(envelope),
-    )
-  } catch (error) {
-    console.warn('[workspaceRegistry] localStorage write failed', {
-      message: error instanceof Error ? error.message : 'unknown',
-    })
-  }
 }
 
 // Detect a legacy v44 envelope that still has appSettings/sidebarCollapsed

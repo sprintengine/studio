@@ -37,11 +37,20 @@ import {
   renderOwnedJsonAgentStateHooksConfig,
   renderTomlAgentStateHooksBlock,
   renderTomlArrayAgentStateHooksBlock,
-  unmergeTomlAgentStateHooks,
   resolveAgentStateEvent,
   selectAgentStateTarget,
-  uninstallAgentStateReporter,
+  unmergeAgentStateHooks,
+  unmergeStatusLineForwarder,
 } from './agent-state'
+
+// What the studio-plugin migration runs on a Claude settings file
+// (studio-plugin.ts): our hooks and our status line come out, everything the
+// person had stays.
+async function unmergeClaudeSettings(settingsPath: string): Promise<{ ok: true }> {
+  await unmergeAgentStateHooks(settingsPath)
+  await unmergeStatusLineForwarder(settingsPath)
+  return { ok: true }
+}
 
 type Settings = {
   hooks?: Record<string, Array<{ matcher?: string; hooks?: Array<{ type: string; command: string; _multicode?: string }> }>>
@@ -979,8 +988,8 @@ async function run(): Promise<void> {
   settings = await readSettings(settingsPath)
   assert.equal(countOurEntries(settings), claudeRegisteredEvents.length)
 
-  // Uninstall removes ours, keeps the user's, prunes emptied event keys.
-  const removed = await uninstallAgentStateReporter(root, claudeSpec)
+  // Unmerge removes ours, keeps the user's, prunes emptied event keys.
+  const removed = await unmergeClaudeSettings(settingsPath)
   assert.equal(removed.ok, true)
   settings = await readSettings(settingsPath)
   assert.equal(countOurEntries(settings), 0)
@@ -1020,7 +1029,7 @@ async function run(): Promise<void> {
   )
 
   // Install round-trip on disk: writes .codex/config.toml, copies the reporter,
-  // preserves prior content, and uninstall removes the block but keeps the rest.
+  // and preserves prior content.
   const codexRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-codex-'))
   const codexReporter = join(codexRoot, 'reporter-src.mjs')
   await writeFile(codexReporter, '// reporter\n', 'utf8')
@@ -1039,12 +1048,6 @@ async function run(): Promise<void> {
   // guarantee) and the live socket.
   assert.ok(codexConfig.includes(join(codexRoot, '.multicode', 'hooks', 'agent-state.mjs').split('\\').join('/')))
 
-  const codexRemoved = await uninstallAgentStateReporter(codexRoot, codexSpec)
-  assert.equal(codexRemoved.ok, true)
-  codexConfig = await readFile(join(codexRoot, '.codex', 'config.toml'), 'utf8')
-  assert.ok(codexConfig.includes('approval_policy = "on-request"'), 'uninstall dropped user config')
-  assert.ok(!codexConfig.includes('[[hooks.SessionStart]]'), 'uninstall left the hooks block')
-
   // --- plugin-file: socket baking renders a valid JS string literal --------
   const ocTemplate = "const BAKED_SOCKET = '__SPRINTENGINE_AGENT_STATE_SOCKET__'\n"
   // A Windows pipe path's backslashes must survive as data, not act as escapes.
@@ -1057,7 +1060,7 @@ async function run(): Promise<void> {
 
   // --- plugin-file install round-trip on disk (opencode spec) --------------
   // Writes .opencode/plugin/multicode-agent-state.js with the socket baked in,
-  // is idempotent, and uninstall removes the plugin file.
+  // and is idempotent.
   const ocRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-opencode-'))
   const ocReporter = join(ocRoot, 'opencode-reporter-src.mjs')
   await writeFile(ocReporter, ocTemplate, 'utf8')
@@ -1075,10 +1078,6 @@ async function run(): Promise<void> {
   assert.equal(ocReinstall.ok, true)
   ocPlugin = await readFile(ocPluginPath, 'utf8')
   assert.equal((ocPlugin.match(/const BAKED_SOCKET =/gu) ?? []).length, 1, 'opencode plugin duplicated on re-install')
-
-  const ocRemoved = await uninstallAgentStateReporter(ocRoot, opencodeSpec)
-  assert.equal(ocRemoved.ok, true)
-  assert.equal(existsSync(ocPluginPath), false, 'uninstall left the opencode plugin file')
 
   // Missing source script is a safe, reported failure (never throws).
   const ocMissing = await installAgentStateReporter(ocRoot, opencodeSpec, {
@@ -1123,8 +1122,7 @@ async function run(): Promise<void> {
 
   // --- owned-json install round-trip on disk (grok spec) -------------------
   // Writes .grok/hooks/multicode-agent-state.json, copies the shared reporter,
-  // references it by absolute path, and uninstall removes only our config file
-  // (the reporter script is shared with the Claude/Codex installs).
+  // and references it by absolute path.
   const grokRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-grok-'))
   const grokReporter = join(grokRoot, 'reporter-src.mjs')
   await writeFile(grokReporter, '// reporter\n', 'utf8')
@@ -1151,11 +1149,6 @@ async function run(): Promise<void> {
   assert.equal(grokReinstall.ok, true)
   const grokTwice = JSON.parse(await readFile(grokConfigPath, 'utf8')) as Settings
   assert.equal(grokTwice.hooks?.SessionStart?.length, 1, 'grok config duplicated on re-install')
-
-  const grokRemoved = await uninstallAgentStateReporter(grokRoot, grokSpec)
-  assert.equal(grokRemoved.ok, true)
-  assert.equal(existsSync(grokConfigPath), false, 'uninstall left the grok hook config')
-  assert.ok(existsSync(grokScript), 'grok uninstall must leave the shared reporter script')
 
   // Missing source script is a safe, reported failure (never throws).
   const grokMissing = await installAgentStateReporter(grokRoot, grokSpec, {
@@ -1200,7 +1193,7 @@ async function run(): Promise<void> {
   const cursorHooksPath = join(cursorRoot, '.cursor', 'hooks.json')
   await mkdir(join(cursorRoot, '.cursor'), { recursive: true })
   // A user's own hook and a stale reporter entry from a moved workspace root:
-  // the user's survives install + uninstall untouched; the stale one is
+  // the user's survives install untouched; the stale one is
   // reclaimed by command shape (no _multicode tag exists in this format).
   await writeFile(
     cursorHooksPath,
@@ -1249,13 +1242,6 @@ async function run(): Promise<void> {
     'reporter entry duplicated on re-install'
   )
 
-  // Uninstall removes ours, keeps the user's, prunes emptied event keys.
-  const cursorRemoved = await uninstallAgentStateReporter(cursorRoot, cursorSpec)
-  assert.equal(cursorRemoved.ok, true)
-  cursorFile = JSON.parse(await readFile(cursorHooksPath, 'utf8')) as FlatFile
-  assert.ok(cursorFile.hooks?.stop?.some((e) => e.command === 'notify-send done'), 'user hook lost on uninstall')
-  assert.equal(cursorFile.hooks?.sessionStart, undefined, 'emptied event key must be pruned')
-
   // --- Kimi Code: manifest-driven mapping ----------------------------------
   const kimiSpec = await loadBundledSpec('kimi-code')
   assert.equal(resolvePhase(kimiSpec, 'SessionStart'), 'starting')
@@ -1297,8 +1283,6 @@ async function run(): Promise<void> {
     1,
     'kimi block duplicated on re-merge'
   )
-  assert.ok(unmergeTomlAgentStateHooks(kimiMergedOnce).includes('prettier --write'), 'unmerge dropped user hook')
-  assert.ok(!unmergeTomlAgentStateHooks(kimiMergedOnce).includes('agent-state.mjs'), 'unmerge left our block')
 
   // --- user-scoped install resolves against homeDir, not the workspace -----
   const kimiWorkspace = await mkdtemp(join(tmpdir(), 'multicode-agent-state-kimi-ws-'))
@@ -1331,10 +1315,6 @@ async function run(): Promise<void> {
     !kimiConfig.includes(kimiWorkspace),
     'a user-global config must not reference any workspace-lifetime path'
   )
-
-  const kimiRemoved = await uninstallAgentStateReporter(kimiWorkspace, kimiSpec, { homeDir: kimiHome })
-  assert.equal(kimiRemoved.ok, true)
-  assert.ok(!(await readFile(kimiConfigPath, 'utf8')).includes('agent-state.mjs'), 'uninstall left the kimi block')
 
   // --- status line: install, wrap, precedence, restore ---------------------
   // The forwarder is installed alongside the hooks for a Claude-family
@@ -1407,12 +1387,11 @@ async function run(): Promise<void> {
     )
     assert.ok(existsSync(join(world.root, '.multicode', 'hooks', 'status-line.mjs')), 'forwarder not copied')
 
-    // Uninstall wrapped nothing, so the key goes entirely — and the copy with it.
-    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    // Nothing was wrapped, so the unmerge deletes the key entirely.
+    assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
     const after = await readStatusLine(world)
     assert.equal(after.statusLine, undefined, 'a status line that wrapped nothing must be deleted')
     assert.deepEqual(after.permissions, { allow: ['Bash(ls:*)'] }, 'uninstall must keep unrelated keys')
-    assert.ok(!existsSync(join(world.root, '.multicode', 'hooks', 'status-line.mjs')), 'forwarder copy survived uninstall')
   }
 
   // 2. A user-level status line is wrapped, its padding carried, and it is NOT
@@ -1436,7 +1415,7 @@ async function run(): Promise<void> {
     assert.equal((await installStatusLine(world)).ok, true)
     assert.equal(await readFile(world.settingsPath, 'utf8'), first, 'a second install must be byte-identical')
 
-    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
     settings = await readStatusLine(world)
     assert.equal(settings.statusLine, undefined, 'a user-level original must not be re-homed into the project file')
     const userSettings = JSON.parse(await readFile(join(world.home, '.claude', 'settings.json'), 'utf8'))
@@ -1463,7 +1442,7 @@ async function run(): Promise<void> {
     let settings = await readStatusLine(world)
     assert.equal(settings.statusLine._multicodeWrappedFrom, 'local')
     assert.deepEqual(wrapArgOf(settings.statusLine.command), { command: 'local-line.sh' })
-    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
     settings = await readStatusLine(world)
     assert.deepEqual(settings.statusLine, mine, 'a local original must come back exactly as it was')
     assert.deepEqual(settings.env, { FOO: 'bar' }, 'uninstall must keep unrelated keys')
@@ -1571,7 +1550,7 @@ async function run(): Promise<void> {
     // And uninstall recovers it the same way. This is the case that loses the
     // command outright if only install knows the trick.
     await writeFile(world.settingsPath, JSON.stringify({ ...installed, statusLine: stripped }, null, 2), 'utf8')
-    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
     assert.deepEqual(
       (await readStatusLine(world)).statusLine,
       theirs,
@@ -1619,7 +1598,7 @@ async function run(): Promise<void> {
       odd,
       'a restore record we cannot re-wrap is never overwritten'
     )
-    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
     assert.deepEqual((await readStatusLine(world)).statusLine, odd, 'and it is still what comes back')
   }
   {
@@ -1706,7 +1685,7 @@ async function run(): Promise<void> {
     assert.ok(!('padding' in settings.statusLine), 'a non-numeric padding is not carried')
     assert.ok(!('refreshInterval' in settings.statusLine), 'nor a null refreshInterval')
     assert.deepEqual(settings.statusLine._multicodeWrapped, theirs, 'but the whole object is kept for the restore')
-    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
     assert.deepEqual((await readStatusLine(world)).statusLine, theirs)
   }
 
@@ -1761,7 +1740,7 @@ async function run(): Promise<void> {
   // 12. Someone replaced our status line by hand: uninstall leaves it exactly so.
   {
     const world = await seedStatusLineWorld({ local: { statusLine: { type: 'command', command: 'theirs.sh' } } })
-    assert.equal((await uninstallAgentStateReporter(world.root, claudeSpec)).ok, true)
+    assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
     assert.deepEqual((await readStatusLine(world)).statusLine, { type: 'command', command: 'theirs.sh' })
   }
 

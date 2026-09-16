@@ -18,33 +18,23 @@ import {
 } from './discoverModel'
 import {
   defaultSkillFilePath,
-  deriveGroupTabs,
   skillPluginFolder,
   deriveSkillCatalogueGroups,
   bundledScanLine,
-  skippedNoDescriptionLine,
   deriveInstallAvailability,
-  deriveSkillsKindStateLine,
-  deriveSourceRailRows,
-  deriveSourceView,
   describeDeadSkillLink,
-  describeSourceMeta,
   formatSkillFileSize,
   isMarkdownSkillFile,
   orderSkillFiles,
   resolveSkillLink,
-  skillCountLine,
   skillGroupLabel,
   stripSkillFrontmatter,
   skillSourceCommitsUrl,
   summarizeInstallRun,
   summarizeSyncRun,
-  type SkillScanLoad,
 } from './skillsSurfaceModel'
 
-// The Skills surface makes two promises this suite holds to: a source page's
-// shape follows what its scan actually found, and every count is honest —
-// loading and unreadable never render as zero.
+// The Skills surface lists what a source's scan actually found.
 
 function run(name: string, body: () => void): void {
   try {
@@ -95,236 +85,9 @@ function source(over: Partial<SkillSource> = {}): SkillSource {
   }
 }
 
-function grouped(count: number, groups: string[]): ScanResult {
-  const skills = Array.from({ length: count }, (_, index) =>
-    skill(`skills/${groups[index % groups.length]}/skill-${index}`, {
-      group: groups[index % groups.length],
-    }),
-  )
-  return scanOf(skills, { groups, groupingSignal: 'folders' })
-}
-
-// ── State lines ──────────────────────────────────────────────────────────────
-
-run('a pending or failed scan never reads as a zero count', () => {
-  assert.equal(skillCountLine(undefined), 'Loading…')
-  assert.equal(skillCountLine({ status: 'loading' }), 'Loading…')
-  assert.equal(skillCountLine({ status: 'error', message: 'rate limited' }), 'Count unavailable')
-  assert.equal(skillCountLine({ status: 'ready', scan: scanOf([skill('a')]) }), '1 skill')
-  assert.equal(skillCountLine({ status: 'ready', scan: scanOf([skill('a'), skill('b')]) }), '2 skills')
-})
-
-run('the rail row states the total only once every source has answered', () => {
-  const sources = [source({ id: 'builtin', name: 'Multicode' }), source({ id: 'github:o/r' })]
-  const partial: Record<string, SkillScanLoad> = {
-    builtin: { status: 'ready', scan: scanOf([skill('a'), skill('b')]) },
-    'github:o/r': { status: 'loading' },
-  }
-  assert.equal(deriveSkillsKindStateLine({ status: 'ready' }, sources, partial), '2 sources')
-  const complete: Record<string, SkillScanLoad> = {
-    ...partial,
-    'github:o/r': { status: 'ready', scan: scanOf([skill('c')]) },
-  }
-  assert.equal(deriveSkillsKindStateLine({ status: 'ready' }, sources, complete), '2 sources · 3 skills')
-  assert.equal(deriveSkillsKindStateLine({ status: 'loading' }, [], {}), 'Loading…')
-  assert.equal(
-    deriveSkillsKindStateLine({ status: 'error', message: 'no' }, sources, complete),
-    'Sources unavailable',
-  )
-  // A source whose scan failed holds the total back rather than under-counting.
-  assert.equal(
-    deriveSkillsKindStateLine({ status: 'ready' }, sources, {
-      ...complete,
-      'github:o/r': { status: 'error', message: 'offline' },
-    }),
-    '2 sources',
-  )
-})
-
-run('a repository source is named by its repository, not its last path segment', () => {
-  // mattpocock/skills, anthropics/skills and browser-act/skills all end in
-  // "skills"; three rail rows reading "skills" would be unnavigable.
-  const rows = deriveSourceRailRows(
-    [
-      source({ id: 'github:mattpocock/skills', name: 'skills', repo: 'mattpocock/skills' }),
-      source({ id: 'github:browser-act/skills', name: 'skills', repo: 'browser-act/skills' }),
-      source({ id: 'local:/skills', kind: 'local', name: 'Multicode', repo: '', path: '/skills', monogram: 'MC' }),
-    ],
-    {
-      'github:mattpocock/skills': { status: 'ready', scan: grouped(41, ['engineering', 'productivity']) },
-    },
-  )
-  assert.deepEqual(
-    rows.map((row) => `${row.monogram} ${row.name}`),
-    ['MS mattpocock/skills', 'BA browser-act/skills', 'MC Multicode'],
-  )
-  assert.equal(rows[0].stateLine, '41 skills')
-  assert.match(rows[0].tooltip, /mattpocock\/skills — 41 skills\./)
-  // A source with no scan yet still lists, and says so.
-  assert.equal(rows[1].stateLine, 'Loading…')
-})
-
-// ── The source page shape ────────────────────────────────────────────────────
-
-run('one skill is a skill page, not a list of one', () => {
-  const view = deriveSourceView({
-    source: source(),
-    scan: scanOf([skill('impeccable')]),
-    installedDirNames: new Set(),
-    activeGroup: null,
-    query: '',
-  })
-  assert.equal(view.kind, 'solo')
-  if (view.kind === 'solo') assert.equal(view.skill.skillId, 'impeccable')
-})
-
-run('a dozen ungrouped skills are one list', () => {
-  const skills = Array.from({ length: 12 }, (_, index) => skill(`skills/skill-${index}`))
-  const view = deriveSourceView({
-    source: source({ id: 'local:/skills', kind: 'local', repo: '', path: '/skills' }),
-    scan: scanOf(skills),
-    installedDirNames: new Set(['skill-3']),
-    activeGroup: null,
-    query: '',
-  })
-  assert.equal(view.kind, 'flat')
-  if (view.kind !== 'flat') return
-  assert.equal(view.items.length, 12)
-  assert.equal(view.items[3].installed, true)
-  assert.equal(view.items[4].installed, false)
-})
-
-run('a grouped source opens on its largest group, never its smallest', () => {
-  // Group names arrive sorted, so opening on the first would land
-  // mattpocock/skills on `deprecated` — four abandoned skills out of 41.
-  const scan = grouped(9, ['deprecated', 'engineering'])
-  scan.skills = scan.skills.map((entry, index) => ({
-    ...entry,
-    group: index < 2 ? 'deprecated' : 'engineering',
-  }))
-  const view = deriveSourceView({
-    source: source(),
-    scan,
-    installedDirNames: new Set(),
-    activeGroup: null,
-    query: '',
-  })
-  assert.equal(view.kind === 'grouped' && view.activeGroup, 'engineering')
-})
-
-run('a grouped source renders one group at a time, never all 41 rows', () => {
-  const scan = grouped(41, ['engineering', 'productivity', 'misc'])
-  const first = deriveSourceView({
-    source: source(),
-    scan,
-    installedDirNames: new Set(),
-    activeGroup: null,
-    query: '',
-  })
-  assert.equal(first.kind, 'grouped')
-  if (first.kind !== 'grouped') return
-  assert.equal(first.groups.length, 3)
-  assert.equal(first.activeGroup, 'engineering')
-  assert.ok(first.items.length < 41 && first.items.length > 0)
-  assert.ok(first.items.every((item) => item.group === 'engineering'))
-
-  const second = deriveSourceView({
-    source: source(),
-    scan,
-    installedDirNames: new Set(),
-    activeGroup: 'misc',
-    query: '',
-  })
-  assert.equal(second.kind === 'grouped' && second.activeGroup, 'misc')
-
-  // A group the source no longer has falls back to its first group rather than
-  // rendering an empty pane with no explanation.
-  const stale = deriveSourceView({
-    source: source(),
-    scan,
-    installedDirNames: new Set(),
-    activeGroup: 'deleted-group',
-    query: '',
-  })
-  assert.equal(stale.kind === 'grouped' && stale.activeGroup, 'engineering')
-})
-
-run('a 103-skill source is search-first and stays empty until it is asked', () => {
-  const scan = grouped(103, ['ecommerce', 'social-listening', 'video-platforms'])
-  const idle = deriveSourceView({
-    source: source(),
-    scan,
-    installedDirNames: new Set(),
-    activeGroup: null,
-    query: '',
-  })
-  assert.equal(idle.kind, 'search')
-  if (idle.kind !== 'search') return
-  assert.equal(idle.items.length, 0)
-  assert.equal(idle.prompt, 'Pick a category, or search.')
-
-  const byCategory = deriveSourceView({
-    source: source(),
-    scan,
-    installedDirNames: new Set(),
-    activeGroup: 'ecommerce',
-    query: '',
-  })
-  assert.ok(byCategory.kind === 'search' && byCategory.items.length > 0)
-  assert.ok(byCategory.kind === 'search' && byCategory.items.every((item) => item.group === 'ecommerce'))
-
-  const searched = deriveSourceView({
-    source: source(),
-    scan,
-    installedDirNames: new Set(),
-    activeGroup: null,
-    query: 'skill-7',
-  })
-  assert.ok(searched.kind === 'search' && searched.items.length > 0)
-  assert.equal(searched.kind === 'search' && searched.prompt, null)
-
-  const missed = deriveSourceView({
-    source: source(),
-    scan,
-    installedDirNames: new Set(),
-    activeGroup: null,
-    query: 'nothing-here',
-  })
-  assert.equal(missed.kind === 'search' && missed.items.length, 0)
-  assert.match(String(missed.kind === 'search' ? missed.prompt : ''), /Nothing matches/)
-})
-
-run('an ungrouped source past the browsing threshold is search-first too', () => {
-  const skills = Array.from({ length: 30 }, (_, index) => skill(`skills/skill-${index}`))
-  const view = deriveSourceView({
-    source: source(),
-    scan: scanOf(skills),
-    installedDirNames: new Set(),
-    activeGroup: null,
-    query: '',
-  })
-  assert.equal(view.kind, 'search')
-  assert.equal(view.kind === 'search' && view.groups.length, 0)
-  assert.equal(view.kind === 'search' && view.prompt, 'Search these 30 skills.')
-})
-
-run('a source that scanned no skills says so rather than rendering a list', () => {
-  const view = deriveSourceView({
-    source: source(),
-    scan: scanOf([]),
-    installedDirNames: new Set(),
-    activeGroup: null,
-    query: '',
-  })
-  assert.equal(view.kind, 'empty')
-})
-
-run('group tabs count their own members and read as words', () => {
-  const tabs = deriveGroupTabs(grouped(6, ['social-listening', 'Document skills']))
-  assert.deepEqual(
-    tabs.map((tab) => `${tab.label}:${tab.count}`),
-    ['Social listening:3', 'Document skills:3'],
-  )
+run('group labels read as words', () => {
+  assert.equal(skillGroupLabel('social-listening'), 'Social listening')
+  assert.equal(skillGroupLabel('Document skills'), 'Document skills')
   assert.equal(skillGroupLabel('(repo root)'), '(repo root)')
   assert.equal(skillGroupLabel('in-progress'), 'In progress')
 })
@@ -382,19 +145,6 @@ run('the source links out to the history that says what changed', () => {
   )
   // Nothing to link to for a source that is not a repository.
   assert.equal(skillSourceCommitsUrl(source({ id: 'local:/skills', kind: 'local', repo: '', path: '/skills' })), null)
-})
-
-// ── Header facts ─────────────────────────────────────────────────────────────
-
-run('a source header states only facts the scan produced', () => {
-  const meta = describeSourceMeta(source(), { status: 'ready', scan: scanOf([skill('a'), skill('b')]) })
-  // The repository is the header's title, so the line under it does not repeat it.
-  assert.deepEqual(meta, ['2 skills', '2 files', 'b81f77a'])
-  // Before the scan lands, no counts are claimed.
-  assert.deepEqual(describeSourceMeta(source(), { status: 'loading' }), ['b81f77a'])
-  // A source that has never been read states nothing at all, rather than a
-  // zero it did not measure or a commit nobody resolved.
-  assert.deepEqual(describeSourceMeta(source({ commitSha: '' }), { status: 'loading' }), [])
 })
 
 run('a listing that came out of the build says so; one read from the repository does not', () => {
@@ -655,15 +405,6 @@ run('the skills a manifest does not list are grouped, not dropped', () => {
 run('the reader drops a byte-order mark before the fence, so frontmatter is never prose', () => {
   const withBom = '\uFEFF---\nname: tdd\ndescription: A skill.\n---\n\n# TDD\n\nBody.\n'
   assert.equal(stripSkillFrontmatter(withBom), '\n# TDD\n\nBody.\n')
-})
-
-run('a source says how many directories the scan passed over, and never says zero', () => {
-  assert.equal(skippedNoDescriptionLine({ skippedNoDescription: 1 }), '1 directory skipped: no description')
-  assert.equal(skippedNoDescriptionLine({ skippedNoDescription: 3 }), '3 directories skipped: no description')
-  assert.equal(skippedNoDescriptionLine({ skippedNoDescription: 0 }), null)
-  // A scan cached before the count existed says nothing, rather than "0".
-  assert.equal(skippedNoDescriptionLine({}), null)
-  assert.equal(skippedNoDescriptionLine(null), null)
 })
 
 console.log('skills surface model tests passed')
