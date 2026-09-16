@@ -169,8 +169,8 @@ const GO_ANCHOR = 'relative inline-flex z-[var(--z-sticky)]'
  * keeps the name a superset of the label rather than a replacement for it.
  *
  * The word itself is `cardActionLabel(card)` — derived from what the card does,
- * never from a string the feed carries. `Install`, `Start`, `Create`,
- * `Open Workflows`: the button is the card's entire disclosure, because R2
+ * never from a string the feed carries. `Install`, `Create`, `See it`,
+ * `Open Skills`: the button is the card's entire disclosure, because R2
  * forbids the step list that would otherwise carry it.
  *
  * Shared rather than written twice on purpose: the two hosts below differ in
@@ -187,7 +187,7 @@ function goButtonProps({
   running: boolean
   disabled: boolean
 }): Record<string, unknown> {
-  // What this card offers, in one word — `Install`, `Start`, `Open Workflows`.
+  // What this card offers, in one word — `Install`, `Create`, `Open Skills`.
   // Derived from the card's own actions and kind, so it cannot disagree with
   // what the press does (`cardActionLabel`).
   const action = cardActionLabel(card)

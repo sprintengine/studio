@@ -16,8 +16,8 @@
 // predicate it asks.
 //
 // What is drawn here are STAND-INS, and they are deliberately obvious about it.
-// A shipped card carries a real capture — the studio over the Unreal editor, a
-// board mid-run, an agent clicking through an app — and the shot list that says
+// A shipped card carries a real capture — the studio over the Unreal editor, an
+// agent clicking through an app — and the shot list that says
 // which is in the mockup. Until those exist the plates are line drawings in
 // `currentColor` over token-built grounds, which is why they are correct in
 // both modes with no per-mode override and cost nothing to ship. Real captures
@@ -48,20 +48,13 @@ export { CARD_ART_NAMES, type CardArtName }
  * standing on it.
  */
 
-/**
- * The plates that are line art, which is all of them but `board`: the board is
- * built out of real elements because the four lanes and the tones in them ARE
- * the picture, and a drawing of a board is not a board.
- */
-type GlyphName = Exclude<CardArtName, 'board'>
-
 /** Line art at 96×96 in `currentColor`, ported from the mockup's sprite. */
 function Glyph({
   name,
   className,
   strokeWidth = 2,
 }: {
-  name: GlyphName
+  name: CardArtName
   className?: string
   strokeWidth?: number
 }): JSX.Element {
@@ -82,7 +75,7 @@ function Glyph({
   )
 }
 
-const GLYPH_PATHS: Record<GlyphName, JSX.Element> = {
+const GLYPH_PATHS: Record<CardArtName, JSX.Element> = {
   browser: (
     <>
       <rect x="10" y="18" width="76" height="56" rx="5" />
@@ -262,45 +255,8 @@ function ShotRail(): JSX.Element {
  * a picture, not a step of spacing, and the icon ramp it would otherwise come
  * from tops out at 20px because it exists for chrome icons.
  */
-function ShotGlyph({ name }: { name: GlyphName }): JSX.Element {
+function ShotGlyph({ name }: { name: CardArtName }): JSX.Element {
   return <Glyph name={name} className="mx-auto size-[76px] text-[color:var(--text-subtle)]" />
-}
-
-/**
- * One lane of the miniature board, and the chiplets standing in it.
- *
- * The mockup labels the lanes — Todo, Ready, Running, Done — at 7px, which is
- * below the 10px floor the design system holds every label to, and a decorative
- * plate is the last thing that should be buying an exception to it. The labels
- * are dropped rather than grown: at card size a lane is a finger wide, the warn
- * and good tones already say which lane is which, and the geometry is what
- * makes the picture read as a board. The alternative on the table was throwing
- * out the whole composition over a caption nobody stops to read.
- *
- * The lane ground is the raised surface where the mockup uses the themed canvas
- * (`--sem-color-bg-app`): a door never paints the canvas — that colour is the
- * sidebar's identity, and the gate at `scripts/lint-door-surfaces.mjs` holds
- * every surface under `globalSurface/` to it. A lane that lifts off the window
- * instead of sinking into it separates just as well, and keeps the plate inside
- * the door's own palette.
- */
-function BoardLane({ count, tone }: { count: number; tone?: 'run' | 'done' }): JSX.Element {
-  const chiplet =
-    tone === 'run'
-      ? 'bg-[color:var(--tone-warn-soft)] shadow-[inset_0_0_0_1px_var(--tone-warn)]'
-      : tone === 'done'
-        ? 'bg-[color:var(--tone-good-soft)] shadow-[inset_0_0_0_1px_var(--tone-good)]'
-        : 'bg-[color:var(--bg-surface)] shadow-[inset_0_0_0_1px_var(--border-subtle)]'
-  return (
-    <div
-      aria-hidden="true"
-      className="flex flex-col gap-0.5 overflow-hidden rounded-[var(--radius-xs)] bg-[color:var(--bg-surface-raised)] p-1"
-    >
-      {Array.from({ length: count }, (_, index) => (
-        <span key={index} className={`h-3 flex-none rounded-[var(--radius-xs)] ${chiplet}`} />
-      ))}
-    </div>
-  )
 }
 
 /**
@@ -340,7 +296,7 @@ function Scene({
 }
 
 /** The glyph as a scene stands it: centred, large, and running off the bottom. */
-function SceneGlyph({ name, strokeWidth }: { name: GlyphName; strokeWidth: number }): JSX.Element {
+function SceneGlyph({ name, strokeWidth }: { name: CardArtName; strokeWidth: number }): JSX.Element {
   return (
     <Glyph
       name={name}
@@ -387,25 +343,6 @@ export const CARD_ART: Record<CardArtName, () => JSX.Element> = {
       <Shot label="SprintEngine Studio">
         <div className="flex min-w-0 flex-1 flex-col justify-center p-2">
           <ShotGlyph name="split" />
-        </div>
-      </Shot>
-    </>
-  ),
-  // A · the product working, and the plate the hero wears. The miniature board
-  // the mockups put behind the wide card (`2026-09-06-extensions-home.html`
-  // `.shot-board`): four lanes, chiplets for the work in them, and the warn and
-  // good tones carrying a run that is halfway through. It is the one picture in
-  // the set that shows the product's actual shape rather than a symbol for it,
-  // which is why the hero gets it and `split` does not.
-  board: () => (
-    <>
-      <PlateWash tone="accent" />
-      <Shot label="SprintEngine Studio">
-        <div className="grid min-w-0 flex-1 grid-cols-4 gap-1 p-2">
-          <BoardLane count={5} />
-          <BoardLane count={3} />
-          <BoardLane count={4} tone="run" />
-          <BoardLane count={4} tone="done" />
         </div>
       </Shot>
     </>

@@ -92,6 +92,8 @@ const rejects = (go: unknown, match: RegExp) => {
       card({ slug: 'keeps' }),
       card({ slug: 'no-art', art: 'https://example.com/pretty.png' }),
       card({ slug: 'no-such-kind', kind: 'poster' }),
+      // A kind an older feed used and this build retired is dropped the same way.
+      card({ slug: 'retired-kind', kind: 'workflow' }),
       card({ slug: 'no-dek', dek: '   ' }),
       card({ slug: 'undated', publishedAt: 'soon' }),
       card({ slug: 'no-go', go: undefined }),
@@ -102,8 +104,9 @@ const rejects = (go: unknown, match: RegExp) => {
   )
   assert.ok(parsed.ok)
   assert.deepEqual(parsed.feed.cards.map((c) => c.slug), ['keeps', 'also-keeps'])
-  assert.equal(parsed.dropped, 7)
-  assert.equal(parsed.dropReasons.length, 7)
+  assert.equal(parsed.dropped, 8)
+  assert.equal(parsed.dropReasons.length, 8)
+  assert.match(parsed.dropReasons.join('\n'), /"retired-kind" has kind "workflow", which is not one this build knows/)
   assert.match(parsed.dropReasons.join('\n'), /must name artwork this build ships, not a URL/)
   assert.match(parsed.dropReasons.join('\n'), /duplicate slug "keeps"/)
 }
@@ -231,12 +234,11 @@ const rejects = (go: unknown, match: RegExp) => {
   rejects({ verb: 'clone.repo', repo: 'sprintengine/x', folderName: '../elsewhere' }, /folderName must be a single folder name/)
   rejects({ verb: 'clone.repo', repo: 'sprintengine/x', folderName: '..' }, /folderName must be a single folder name/)
 
-  // The six verbs the review found unexecutable are gone from the union, and a
+  // The verbs the review found unexecutable are gone from the union, and a
   // feed that still names one drops that card rather than half-running it.
   for (const gone of [
     { verb: 'add.source', repo: 'owner/name' },
     { verb: 'seed.backlog', title: 'A thing' },
-    { verb: 'create.sprint', goal: 'A thing' },
     { verb: 'create.workflow', goal: 'A thing' },
     { verb: 'create.automation', id: 'review-on-push' },
     { verb: 'design.import', mode: 'extract' },

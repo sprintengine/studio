@@ -136,7 +136,7 @@ function cardRequiredCli(card: HostedCard): AgentCli | null {
  *
  * **Derived from the ACTIONS, never from `kind`.** `kind` is the word on the
  * stamp — what the card is about — and the schema lets a showcase card open a
- * chat exactly as it lets a workflow card open a surface. Keying off it would
+ * chat exactly as it lets an automation card open a surface. Keying off it would
  * be this same bug with a different key, and the card that broke it would be a
  * card that spawns an agent behind a plain button.
  *
