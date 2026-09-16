@@ -68,7 +68,8 @@ NO_WORKFLOW_ROLES_HEAD = "No workflow roles are installed."
 NO_WORKFLOW_ROLES_REMEDIES = (
     "Install the workflow-roles pack from the SprintEngine Studio skill source, "
     "or put your own role skills in your skills folder (~/.multicode/skills) — "
-    'add or change it under Extensions → Skills → "Add from folder…".'
+    'add or change it under Extensions → Skills → "Add from folder…", '
+    'then "Install skill" into this workspace.'
 )
 NO_WORKFLOW_ROLES_INSTALLED = f"{NO_WORKFLOW_ROLES_HEAD} {NO_WORKFLOW_ROLES_REMEDIES}"
 MISSING_ROLE_REMEDIES = NO_WORKFLOW_ROLES_REMEDIES

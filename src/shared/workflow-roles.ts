@@ -10,6 +10,13 @@ import { STUDIO_SKILL_SOURCE_NAME } from './skills'
  */
 export const ADD_LOCAL_SKILL_SOURCE_LABEL = 'Add from folder…'
 
+/**
+ * The skill-page accent that copies a catalogue skill into this workspace.
+ * Quoted by the empty-pack error, so the two cannot drift: a test asserts the
+ * page renders this same constant.
+ */
+export const INSTALL_SKILL_LABEL = 'Install skill'
+
 /** Plugin id of the published workflow-roles pack. */
 export const WORKFLOW_ROLES_PACK_ID = 'workflow-roles'
 
@@ -23,7 +30,7 @@ export const DEFAULT_USER_SKILLS_DIR_DISPLAY = '~/.multicode/skills'
 
 export const NO_WORKFLOW_ROLES_HEAD = 'No workflow roles are installed.'
 
-export const NO_WORKFLOW_ROLES_REMEDIES = `Install the ${WORKFLOW_ROLES_PACK_ID} pack from the ${STUDIO_SKILL_SOURCE_NAME} skill source, or put your own role skills in your skills folder (${DEFAULT_USER_SKILLS_DIR_DISPLAY}) — add or change it under Extensions → Skills → "${ADD_LOCAL_SKILL_SOURCE_LABEL}".`
+export const NO_WORKFLOW_ROLES_REMEDIES = `Install the ${WORKFLOW_ROLES_PACK_ID} pack from the ${STUDIO_SKILL_SOURCE_NAME} skill source, or put your own role skills in your skills folder (${DEFAULT_USER_SKILLS_DIR_DISPLAY}) — add or change it under Extensions → Skills → "${ADD_LOCAL_SKILL_SOURCE_LABEL}", then "${INSTALL_SKILL_LABEL}" into this workspace.`
 
 /** Exact empty-pack error, the same on every desktop picker. */
 export const NO_WORKFLOW_ROLES_INSTALLED_MESSAGE = `${NO_WORKFLOW_ROLES_HEAD} ${NO_WORKFLOW_ROLES_REMEDIES}`

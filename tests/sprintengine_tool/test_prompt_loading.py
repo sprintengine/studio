@@ -1110,6 +1110,7 @@ def test_dropped_alias_is_a_named_missing_role_state(tmp_path) -> None:
     assert "Install the workflow-roles pack from the SprintEngine Studio skill source" in message
     assert "put your own role skills in your skills folder" in message
     assert "Add from folder…" in message
+    assert "Install skill" in message
     # The brief is not a substitute identity: composition raises rather than
     # returning None and continuing with norms only.
     with pytest.raises(MissingRoleError) as prompt_info:

@@ -6,6 +6,7 @@ import { STUDIO_SKILL_SOURCE_NAME } from './skills'
 import {
   ADD_LOCAL_SKILL_SOURCE_LABEL,
   DEFAULT_USER_SKILLS_DIR_DISPLAY,
+  INSTALL_SKILL_LABEL,
   NO_WORKFLOW_ROLES_HEAD,
   NO_WORKFLOW_ROLES_INSTALLED_MESSAGE,
   NO_WORKFLOW_ROLES_INSTALLED_ON_DESKTOP_MESSAGE,
@@ -16,6 +17,10 @@ import {
 
 const CATALOGUE = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/workspace/globalSurface/extensions/catalogue/CatalogueSurface.tsx'),
+  'utf8',
+)
+const SKILL_PAGE = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/globalSurface/extensions/skills/SkillPage.tsx'),
   'utf8',
 )
 
@@ -30,9 +35,24 @@ assert.match(
   'the Extensions plus menu renders the same constant the empty-pack error quotes',
 )
 assert.equal(
+  INSTALL_SKILL_LABEL,
+  'Install skill',
+  'the shipping skill-page accent copies a catalogue skill into this workspace',
+)
+assert.match(
+  SKILL_PAGE,
+  /INSTALL_SKILL_LABEL/,
+  'the skill page renders the same constant the empty-pack error quotes',
+)
+assert.equal(
   NO_WORKFLOW_ROLES_INSTALLED_MESSAGE.includes(ADD_LOCAL_SKILL_SOURCE_LABEL),
   true,
   'the error quotes the shipping menu label verbatim',
+)
+assert.equal(
+  NO_WORKFLOW_ROLES_INSTALLED_MESSAGE.includes(INSTALL_SKILL_LABEL),
+  true,
+  'the error quotes the shipping Install verb verbatim',
 )
 assert.equal(
   NO_WORKFLOW_ROLES_INSTALLED_MESSAGE.includes(STUDIO_SKILL_SOURCE_NAME),
@@ -90,6 +110,10 @@ assert.ok(
 assert.ok(
   pythonRegistry.includes(ADD_LOCAL_SKILL_SOURCE_LABEL),
   'the engine quotes the same shipping menu label',
+)
+assert.ok(
+  pythonRegistry.includes(INSTALL_SKILL_LABEL),
+  'the engine quotes the same shipping Install verb',
 )
 assert.ok(
   pythonRegistry.includes(STUDIO_SKILL_SOURCE_NAME),

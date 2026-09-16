@@ -16,6 +16,7 @@
 import React, { useState } from 'react'
 
 import { skillDirName, skillNameWarning, type ScannedSkill, type SkillSource } from '../../../../../../../shared/skills'
+import { INSTALL_SKILL_LABEL } from '../../../../../../../shared/workflow-roles'
 import {
   Badge,
   DefinitionList,
@@ -122,7 +123,7 @@ export function SkillPage({
             </OutlineButton>
           ) : (
             <PrimaryButton size="md" onClick={onInstall} disabled={!availability.enabled || installing}>
-              {installing ? 'Installing…' : 'Install skill'}
+              {installing ? 'Installing…' : INSTALL_SKILL_LABEL}
             </PrimaryButton>
           )}
           {installed || onInstallForUse ? (

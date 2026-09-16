@@ -2,6 +2,8 @@ import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { join, resolve } from 'path'
 
+import { productionChildEnv } from '../../production-child-env'
+
 type SprintEngineToolInvocation = {
   args: string[]
   cwd: string
@@ -20,11 +22,10 @@ export function createSprintEngineToolExecutor(sprintEngineToolPath: string): Sp
     const executable = getWorkspacePythonExecutable(invocation.cwd)
     const child = spawn(executable, [sprintEngineToolPath, ...invocation.args], {
       cwd: invocation.cwd,
-      env: {
-        ...process.env,
+      env: productionChildEnv(process.env, {
         SPRINTENGINE_REPO_WRAPPER_PATH: join(invocation.cwd, 'scripts', 'sprintengine_tool.py'),
         SPRINTENGINE_REPO_TOOL_PATH: join(invocation.cwd, '.agents', 'skills', 'sprintengine', 'scripts', 'sprintengine_tool.py'),
-      },
+      }),
       windowsHide: true,
     })
 
