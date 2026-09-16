@@ -2558,21 +2558,9 @@ body:has([data-selection-pane]:focus-within)
   }
 }
 
-/* Semantic "needs input" amber stays literal — it's a status idiom, not
-   surface chrome. The brand gold for an unrelated identity dot is in the same
-   hue family but distinct in scale and role.
-   design-tokens-allow-block: semantic needs-input amber + spawn emerald */
-.flexlayout__layout .flexlayout__tab_button.agent-tab-needs-input {
-  color: #ffe0a3;
-}
-
-/* Selected + needs-input: the underline goes amber instead of stacking a
-   second bar under the accent. Beats the focused-tabset accent rule on
-   specificity (four classes vs three). */
-.flexlayout__layout .flexlayout__tab_button.agent-tab-needs-input.flexlayout__tab_button--selected::after {
-  background: #ffbf2f;
-}
-
+/* The spawn flash's emerald stays literal — it's a one-shot status idiom, not
+   surface chrome.
+   design-tokens-allow-block: spawn emerald */
 .flexlayout__tab_button.agent-tab-spawn-flash {
   animation: agent-spawn-tab-flash 12800ms ease-out;
 }

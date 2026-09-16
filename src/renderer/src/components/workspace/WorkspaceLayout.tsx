@@ -132,7 +132,6 @@ type TabMenuState = {
   currentColor: HighlightColor | null
 }
 
-const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 /**
  * A tab's leading identity chip: a 16px plate carrying a 14px glyph. Several
  * tab kinds wear it — remote machine, a module panel, the CLI brand — and they
@@ -493,18 +492,8 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       const config = node.getConfig() as { agentId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
       const agent = workspaceAgents[agentId]
-      const currentClassName = node.getClassName() ?? ''
-      const classNames = currentClassName.split(/\s+/).filter(Boolean)
-      const nextClassNames = classNames.filter((className) => className !== AGENT_TAB_NEEDS_INPUT_CLASS)
       if (agent?.name && node.getName() !== agent.name) {
         model.doAction(Actions.renameTab(node.getId(), agent.name))
-      }
-
-      const nextClassName = Array.from(new Set(nextClassNames)).join(' ')
-      if (nextClassName !== currentClassName) {
-        model.doAction(Actions.updateNodeAttributes(node.getId(), {
-          className: nextClassName,
-        }))
       }
     })
   }, [workspaceAgents])
@@ -902,8 +891,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
     const nextConfig = { ...(node.getConfig() ?? {}), highlightColor: nextColor }
 
     // Preserve any existing non-highlight class names on the tab while we
-    // replace the tab-highlight-* class. Other classes here include
-    // `agent-tab-needs-input`.
+    // replace the tab-highlight-* class.
     const existingClassName = node.getClassName() ?? ''
     const baseClassNames = existingClassName
       .split(/\s+/u)
