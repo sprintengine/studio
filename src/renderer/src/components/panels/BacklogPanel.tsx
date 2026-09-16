@@ -263,8 +263,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // The extended (shift/cmd) selection layered over the cursor above (MC-2060),
-  // keyed by item id — this panel lists one project, so there is no cross-
-  // project rule to enforce (the door's model carries that via `groupOf`).
+  // keyed by item id.
   const [multiSelection, setMultiSelection] = useState(EMPTY_BACKLOG_MULTI_SELECTION)
   // Search is ephemeral: a transient act, never persisted or shared, so each
   // window's box starts empty and typing here never leaks to another workspace.
