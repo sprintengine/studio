@@ -28,7 +28,6 @@ rests (`patterns/selection`).
 | Title | `.ds-side-pane-title` | with the header — `font.size.body` at `emphasis`, matching the panel-header rhythm so board and aside read as one family |
 | Count | `.ds-side-pane-count` | no — display-only, `tabular-nums`; never hosts a control |
 | Body | — | caller-owned scroll container: keyboard handlers and list semantics vary per surface, so the system does not pre-empt them |
-| Resize handle | `.ds-side-pane-resize` | no — `role="separator"`, keyboard-operable, opt-in |
 
 ## Variants
 
@@ -53,14 +52,10 @@ rests (`patterns/selection`).
 | State | Treatment |
 |---|---|
 | Rest | Hairline, inherited surface; nothing else |
-| Resizing | The handle's 1px `accent.primary` guideline at full strength while the drag is live — accent as a hairline marking a genuinely live process, within budget |
-| Handle hovered | The same guideline at reduced strength, as the reach-for affordance |
-| Handle focused | The standard `focus.ring` at `focus.ring-offset` |
 | Expanded | Full row, no hairline |
 
-A persisted drag width overrides the preset but keeps the 320px floor and a
-65% ceiling — CSS `max-width` beats the inline width when they conflict, so a
-wide remembered pane cannot starve the board on a narrow window.
+The width is the preset's alone: the pane has no resize handle, so nothing
+overrides the percent and its pixel rails.
 
 ## Usage
 
@@ -73,20 +68,13 @@ reconsider the surface.
 edge over the scrolling body, matching the drawer's header. A toolbar stacked
 under it is the second band the composition rules exist to prevent.
 
-**Resize is opt-in and fully keyboard-operable.** The handle is a
-`role="separator"` with `aria-orientation="vertical"`: arrow keys step the
-width 16px toward or away from the divider, Home (and double-click) resets to
-the preset. The drag captures the pointer on the handle itself, because panes
-routinely host iframes that would otherwise swallow `pointermove` mid-drag
-and leave the resize stuck.
-
 **Element choice is a semantic claim.** `<aside>` for the pane that supports
 the main flow; `<section>` (with an accessible name) when the column *is* the
 main flow — an inbox column is not an aside to its own detail.
 
 **Rebuilding it in a framework:** what must survive is the flow-not-overlay
 nature (no portal, no trap — Tab passes through), the inner-edge hairline,
-the clamped width contract, and the separator keyboard behaviour.
+and the clamped width contract.
 
 ## Accessibility
 
@@ -95,9 +83,6 @@ the clamped width contract, and the separator keyboard behaviour.
   needs the disambiguation.
 - No focus trap and no scroll lock: the pane is page content. Tab order runs
   through it in document order.
-- The resize handle is focusable, visibly focused via `focus.ring`, and
-  operable by keyboard with the same result as the drag. Its `aria-label`
-  names the pane it resizes ("Resize review pane").
 - The close button's label names what it closes — "Close running agents",
   not "Close" — because several side panes can be open in one view.
 - The count is display-only. A count that should be clickable is a filter,

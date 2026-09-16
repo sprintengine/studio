@@ -42,8 +42,8 @@ left drawer would be a new component argued in the principles first.
 
 **Rejected: side pane as a drawer variant.** The shipped `SidePane` shares
 nothing that matters with this component — no portal, no scrim, no shadow, no
-focus capture, no `z` layer; it is flex chrome inside the page with a hairline
-and a resize handle. Folding it in here would put "overlay" and "in flow" —
+focus capture, no `z` layer; it is flex chrome inside the page with a
+hairline. Folding it in here would put "overlay" and "in flow" —
 opposite answers to the one question that defines this family — behind a
 single class. It has its own entry.
 
