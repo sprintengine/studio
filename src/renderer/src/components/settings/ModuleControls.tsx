@@ -19,13 +19,13 @@ const CATEGORY_ORDER: CapabilityCategory[] = [
 
 // Plain-language section headers shown in both Settings → Modules and the
 // first-run chooser (kept here so the two surfaces stay identical). Prefer
-// everyday wording over internal category ids — e.g. "Agents & workflows" rather
+// everyday wording over internal category ids — e.g. "Planning & automation" rather
 // than the raw "orchestration".
 const CATEGORY_LABEL: Record<string, string> = {
   core: 'Core',
   'dev-tools': 'Dev tools',
   vcs: 'Version control',
-  orchestration: 'Agents & workflows',
+  orchestration: 'Planning & automation',
   insight: 'Insights',
   connectivity: 'Connections',
 }
