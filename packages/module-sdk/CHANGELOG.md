@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **`BacklogItemView` loses `kind`.** A Backlog item is a markdown file with
+  metadata; the host no longer guesses a plan kind from its filename or title,
+  and no longer reads a `kind:` / `planKind:` frontmatter field. This is a
+  **breaking type change** for a module that reads `item.kind`. Read
+  `item.type` for the triage type (an `.html` file with no `type:` reads as
+  `mockup`), or `item.relativePath` for the file's format.
+
 - **The host no longer runs Python.** `MainHost.runPython`,
   `RunPythonRequest`, `RunPythonResult`, `PythonSidecarConfig` and
   `SidecarSpec.python` are removed, and the app stops bundling CPython. A

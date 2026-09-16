@@ -140,9 +140,8 @@ unrecognised key — is preserved untouched rather than stripped. The resolved
 
 ### Other read fields
 
-- **kind** (also accepted as `planKind` / `plan_kind` / `sourcePlanKind` /
-  `source_plan_kind`): `product_plan`, `architect_plan`, `html_mockup`, or
-  `unknown` — what kind of source document the item was minted from.
+- An `.html` / `.htm` file with no `type:` reads as `type: mockup`: the
+  format is what makes it a mockup, not a field.
 - A `status: needs_structure` written by an older build is read as `idea`.
 - `type: roadmap` is tolerated and carried as `rawType`; the main listing tags
   it `isRoadmap` and keeps it out of backlog lists. Any other unrecognised

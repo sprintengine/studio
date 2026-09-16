@@ -30,7 +30,6 @@ function makeRunner() {
           path: `${folderPath}/backlog/a.md`,
           relativePath: 'backlog/a.md',
           title: `scan ${calls[folderPath]}`,
-          kind: 'unknown',
           status: 'idea',
           isEpic: false,
           metadata: {},

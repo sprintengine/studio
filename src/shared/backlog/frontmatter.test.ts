@@ -149,8 +149,8 @@ run('parse splits frontmatter fields from the document body', () => {
 })
 
 run('parse keeps a nested section as section.key entries (backward compat read)', () => {
-  const { fields } = parseBacklogFrontmatter('---\nbacklog:\n  planKind: product_plan\n  size: l\n---\n# T')
-  assert.equal(fields['backlog.plankind'], 'product_plan')
+  const { fields } = parseBacklogFrontmatter('---\nbacklog:\n  epic: checkout\n  size: l\n---\n# T')
+  assert.equal(fields['backlog.epic'], 'checkout')
   assert.equal(fields['backlog.size'], 'l')
 })
 

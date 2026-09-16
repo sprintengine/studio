@@ -1686,7 +1686,7 @@ export type BacklogResolvedLink = BacklogItemLink & {
 
 /**
  * Read view of a Backlog item as handed to module callbacks. Enumerated app
- * internals (item kind, triage axes) are widened to `string` so new app values
+ * internals (triage axes) are widened to `string` so new app values
  * never break compiled modules.
  */
 export type BacklogItemView = {
@@ -1694,7 +1694,6 @@ export type BacklogItemView = {
   path: string
   relativePath: string
   title: string
-  kind: string
   status: BacklogItemStatus
   type?: string
   difficulty?: string

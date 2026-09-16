@@ -1,20 +1,5 @@
 import { basename } from './paths'
 
-/**
- * What shape of plan a source document is, inferred from its filename and its
- * title. The Backlog's own item kinds extend this union.
- */
-export type SourcePlanKind =
-  | 'unknown'
-  | 'product_plan'
-  | 'architect_plan'
-  // A backlog epic. Only ever a root plan kind — the epic's children carry
-  // their own leaf kinds.
-  | 'epic'
-  // Several backlog items and/or epics taken together (MC-2060/2061): the
-  // general shape of which a single epic is the special case.
-  | 'selection'
-
 export function toTitleName(value: string): string {
   return value
     .replace(/[-_]+/g, ' ')
@@ -57,23 +42,4 @@ export function markdownTitle(content: string): string | null {
 
 export function shouldScanDirectory(name: string): boolean {
   return name !== 'node_modules' && name !== '.git' && name !== '.multicode-worktrees'
-}
-
-const PRODUCT_FILENAME = /(^|[-_/\s])(product|prd|requirements|spec|rfc|brief)([-_\s.]|$)/i
-const ARCHITECT_FILENAME = /(^|[-_/\s])(implementation|architect|architecture|engineering|technical|tech[-_\s]?spec)([-_\s.]|$)/i
-const GENERIC_PLAN_FILENAME = /(^|[-_/\s])plan([-_\s.]|$)/i
-const ARCHITECT_TITLE = /\b(implementation plan|architect plan|technical plan|engineering plan|tech spec)\b/i
-const PRODUCT_TITLE = /\b(product plan|product requirements|prd|product brief)\b/i
-
-export function inferSourcePlanKind(filename: string, content: string): SourcePlanKind {
-  const baseName = basename(filename).replace(/\.md$/i, '')
-  if (ARCHITECT_FILENAME.test(baseName)) return 'architect_plan'
-  if (PRODUCT_FILENAME.test(baseName)) return 'product_plan'
-
-  const title = markdownTitle(content) ?? ''
-  if (PRODUCT_TITLE.test(title)) return 'product_plan'
-  if (ARCHITECT_TITLE.test(title)) return 'architect_plan'
-  if (GENERIC_PLAN_FILENAME.test(baseName)) return 'unknown'
-
-  return 'unknown'
 }

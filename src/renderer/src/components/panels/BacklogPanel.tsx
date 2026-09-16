@@ -1594,8 +1594,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     (event: React.MouseEvent, item: BacklogItem) => {
       event.preventDefault()
       // Even a set of one acts as a selection, so a lone selected epic
-      // launches with its bundle (planKind stays `epic`; the builder settles
-      // that); the reduced menu only engages above one row.
+      // launches with its bundle; the reduced menu only engages above one row.
       const inSelection = Boolean(multiSelection.keys?.has(item.id))
       setSelectedId(item.id)
       if (!inSelection) setMultiSelection(collapseBacklogSelectionTo(item.id))
@@ -3175,7 +3174,7 @@ function BacklogEpicSearchEditor({
 }
 
 function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
-  const isHtml = item.kind === 'html_mockup' || /\.html?$/i.test(item.relativePath)
+  const isHtml = /\.html?$/i.test(item.relativePath)
   const isMarkdown = !isHtml && /\.md$/i.test(item.relativePath)
   const renderAsMarkdown = isMarkdown && item.sourceContent.length <= MARKDOWN_PREVIEW_MAX_CHARS
 
