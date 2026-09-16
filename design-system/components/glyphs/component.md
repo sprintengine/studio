@@ -40,9 +40,8 @@ letterforms). Anything outside that band is drift, not a variant.
 
 - **`currentColor`, always.** A glyph inherits the ink of the text beside it
   and never carries its own palette. The whole list of self-coloring
-  exceptions: `PriorityIcon` urgent/high (`--tone-error` / `--tone-warn`),
-  `StatusIcon` done and the in-progress wedge family (`--tone-good` /
-  `--tone-accent`), and the two **identity-colour** families ruled 2026-09-06
+  exceptions: `LifecycleGlyph`, which inks each state in its lifecycle tone
+  (below), and the two **identity-colour** families ruled 2026-09-06
   (principles.md → "Identity colour"): vendor marks in their vendors' colours
   (`CliIcon`, `brand/EditorMarks`), and `FileTypeGlyph` under `tone="kind"`,
   which inks by language from the `--sem-color-mark-*` ramp.
@@ -103,9 +102,18 @@ the registry to point at:
 | Mark | Drawing |
 |---|---|
 | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher |
-| `SprintEngineMarkIcon` | The SprintEngine brand comet — pair with `--tool-sprintengine-ink` |
 | `AutomationsWorkspaceTypeIcon` | Schedule dial around a lightning bolt — "on a schedule, do work" |
 | `FolderTypeIcon` | The project folder, optionally wearing a workspace's own logo |
+
+### Product mark (`brand/SprintEngineFrond.tsx`)
+
+`SprintEngineFrond` is the SprintEngine frond, copied path-for-path from the
+mobile app's generated icon so both products carry one drawing. Two tones:
+`brand` keeps the mark's own ink and rust leaflet, for the fixed-light icon
+chip; `current` draws it in `currentColor` for chrome that inks its own glyphs.
+It is a brand mark, not a workspace type, so the dispatcher never resolves to
+it. The brand accent tokens `--tool-sprintengine` and `--tool-sprintengine-ink`
+stay defined for brand ink on themed chrome; the frond does not read them.
 
 ### Device identity (16-grid — `AppIcons.tsx`)
 
@@ -218,9 +226,10 @@ The primitive takes `state` and an optional `label`; the caller owns the size
 
 **Every pull request in the product is drawn from here.** `LifecycleGlyph`'s
 `done_unmerged` / `done_merged` pair takes the open and merged drawings (keeping
-its own lifecycle tones, which are not pull request tones), the branch step
-strip's merge commits take the merged one, and the backlog item and automation
-pull request chips lead with the mark for their state. Nothing draws its own.
+its own lifecycle tones, which are not pull request tones), `BranchStepStrip`'s
+merge commits take the merged one, and `PullRequestMark` — the pull request a
+conversation wears on its sidebar line and in its peek card — leads with the
+mark for its state. Nothing draws its own.
 
 ### Capability (16-grid — `ui/CapabilityGlyphs.tsx`)
 
@@ -426,10 +435,9 @@ All at `iconStroke` so the rail reads as one set.
 - **Decorative is the default.** A glyph whose meaning is carried by adjacent
   text is `aria-hidden="true"` — every core action, identity, and settings
   icon ships that way.
-- **Meaning-bearing glyphs label themselves.** `PriorityIcon`, `StatusIcon`,
-  a labelled `LifecycleGlyph`, `StarGlyph` with `label`, and
-  `PullRequestGlyph` with `label` carry `role="img"` + `aria-label` (and a
-  `<title>` where hover should confirm). Omit the label only when the row's text
+- **Meaning-bearing glyphs label themselves.** A labelled `LifecycleGlyph`,
+  `StarGlyph` with `label`, and `PullRequestGlyph` with `label` carry
+  `role="img"` + `aria-label` (and a `<title>` where hover should confirm). Omit the label only when the row's text
   already announces the state.
 - **Icon-only buttons carry `aria-label`** on the button; the glyph inside
   stays hidden. Pair with a tooltip that says the consequence, not the name.

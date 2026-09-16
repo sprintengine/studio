@@ -94,8 +94,8 @@ interactive part.
 
 The anatomy above says the action slot "holds a ghost button" — it did not say
 that button has to be spelled *Retry*, and the two strips that were rebuilding
-this component by hand both needed to say something else: **Relink** beside the
-retry on a Backlog scan whose saved folder went missing, and **Refresh
+this component by hand both needed to say something else: a **Relink** beside
+the retry on a surface whose saved folder went missing, and **Refresh
 walkthrough** on a review whose head moved. Shipped `Banner` takes an optional
 `action` node for exactly that, rendered after the Retry when both are given.
 

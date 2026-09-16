@@ -9,9 +9,9 @@ today (`workspace/WorkspaceManager.tsx`, `AutomationsPanel.tsx`,
 `AutomationsList.tsx`, `SkillsDiscover.tsx`), and
 the `icon.size.lg` token already names "empty-state glyphs" as a use with no
 component to consume it. The likely base is `SurfaceCanvasState` in
-`workspace/globalSurface/surfaceSubstrate.tsx` — the six-door unification
-that already renders one shared loading/empty/error anatomy (glyph in an
-`accent.soft` disc, title, one CTA) across every global surface. This entry
+`workspace/globalSurface/surfaceSubstrate.tsx`, which already renders one
+shared loading/empty/error anatomy (glyph in an `accent.soft` disc, title, one
+CTA) for the global surfaces that use it (Automations, Design). This entry
 generalizes that anatomy; MC-2115's consolidation consumes it.
 
 ## As shipped
