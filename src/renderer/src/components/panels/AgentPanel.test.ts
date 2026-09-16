@@ -137,16 +137,16 @@ assert.equal(
 
 // --- the pane mounts a terminal for a brand-new agent ------------------------
 // A New chat has no attached session id yet. The pane must still mount the
-// terminal (which spawns); only a missing CLI parks it on the inert Spawn pane.
+// terminal (which spawns); only a missing CLI parks it on the CLI install pane.
 assert.equal(
   agentPaneMountsTerminal({ agentCliUnavailable: false }),
   true,
-  'a new agent with an installed CLI mounts its terminal and spawns, not a Spawn button',
+  'a new agent with an installed CLI mounts its terminal and spawns',
 )
 assert.equal(
   agentPaneMountsTerminal({ agentCliUnavailable: true }),
   false,
-  'an agent whose CLI is not installed shows the inert pane',
+  'an agent whose CLI is not installed shows the CLI install pane',
 )
 
 console.log('AgentPanel.test.ts: ok')
