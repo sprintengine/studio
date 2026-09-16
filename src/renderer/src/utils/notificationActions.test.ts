@@ -40,6 +40,7 @@ function provider(
     notification: notification({ source: 'automations', workspaceId: undefined }),
     providers,
     revealWorkspace: () => assert.fail('must not use the workspace-reveal fallback when a provider action exists'),
+    workspaceExists: () => true,
   })
   assert.deepEqual(actions.map((a) => a.id), ['automations.open-run'], 'provider action survives a missing workspaceId')
   actions[0].run()
@@ -53,6 +54,7 @@ function provider(
     notification: notification({ source: 'terminal', workspaceId: 'ws-1' }),
     providers: [],
     revealWorkspace: (id) => { revealed = id },
+    workspaceExists: () => true,
   })
   assert.deepEqual(actions.map((a) => a.id), ['reveal-workspace'], 'falls back to a generic Open')
   assert.equal(actions[0].label, 'Open')
@@ -66,6 +68,7 @@ function provider(
     notification: notification({ source: 'terminal', workspaceId: undefined }),
     providers: [],
     revealWorkspace: () => assert.fail('nothing to reveal'),
+    workspaceExists: () => true,
   })
   assert.deepEqual(actions, [], 'no provider and no workspace yields no actions')
 }
@@ -79,6 +82,7 @@ function provider(
     notification: notification({ source: 'automations', workspaceId: 'ws-1' }),
     providers,
     revealWorkspace: () => assert.fail('provider action replaces the generic fallback'),
+    workspaceExists: () => true,
   })
   assert.deepEqual(actions.map((a) => a.id), ['automations.open-run'], 'provider actions replace the generic reveal')
 }
@@ -93,6 +97,7 @@ function provider(
     notification: notification({ source: 'automations', workspaceId: 'ws-1' }),
     providers,
     revealWorkspace: () => {},
+    workspaceExists: () => true,
   })
   assert.deepEqual(actions.map((a) => a.id), ['automations.open-run'], 'cross-source providers are ignored')
 }
@@ -109,6 +114,7 @@ function provider(
     notification: notification({ source: 'automations', workspaceId: 'ws-1' }),
     providers,
     revealWorkspace: () => {},
+    workspaceExists: () => true,
   })
   assert.deepEqual(actions.map((a) => a.id), ['shown'], 'isVisible:false actions are dropped')
 }
@@ -123,10 +129,39 @@ function provider(
     notification: notification({ source: 'automations', workspaceId: 'ws-1' }),
     providers,
     revealWorkspace: (id) => { revealed = id },
+    workspaceExists: () => true,
   })
   assert.deepEqual(actions.map((a) => a.id), ['reveal-workspace'], 'all-hidden provider actions fall back to reveal')
   actions[0].run()
   assert.equal(revealed, 'ws-1')
+}
+
+// --- No provider match + a workspace that no longer exists -> no Open. -------
+// A notification outlives the workspace it names (and the old Sprint Engine
+// ones named sprint workspaces that are gone); an Open that reveals nothing is
+// not offered.
+{
+  const actions = resolveNotificationActions({
+    notification: notification({ source: 'terminal', workspaceId: 'ws-gone' }),
+    providers: [],
+    revealWorkspace: () => assert.fail('a missing workspace is never revealed'),
+    workspaceExists: (id) => id === 'ws-live',
+  })
+  assert.deepEqual(actions, [], 'no Open for a workspace that no longer exists')
+}
+
+// --- A provider action is still offered when the named workspace is gone. -----
+{
+  const providers = [
+    provider('automations', () => [{ id: 'automations.open-run', label: 'Open', run: () => {} }]),
+  ]
+  const actions = resolveNotificationActions({
+    notification: notification({ source: 'automations', workspaceId: 'ws-gone' }),
+    providers,
+    revealWorkspace: () => {},
+    workspaceExists: () => false,
+  })
+  assert.deepEqual(actions.map((a) => a.id), ['automations.open-run'], 'provider deep-links do not depend on the workspace')
 }
 
 console.log('notificationActions.test.ts: ok')

@@ -22,8 +22,10 @@ export type ResolvedNotificationAction = {
 // notification names a workspace — a provider may deep-link to an app-level
 // screen that has no backing workspace at all (Automations). Only the generic
 // workspace-reveal fallback needs a `workspaceId`: a source with no provider
-// match falls back to "Open → reveal that workspace", and a notification with
-// neither a provider action nor a workspaceId gets no actions.
+// match falls back to "Open → reveal that workspace", but only while that
+// workspace still exists — a notification outlives the workspace it names, and
+// an Open that goes nowhere is worse than none. A notification with neither a
+// provider action nor a live workspace gets no actions.
 //
 // `providers` must already be filtered by module enablement by the caller, so a
 // disabled module contributes nothing — exactly like Backlog item actions. Pure
@@ -32,8 +34,9 @@ export function resolveNotificationActions(input: {
   notification: AppNotification
   providers: ReadonlyArray<RegisteredNotificationActionProvider>
   revealWorkspace: (workspaceId: string) => void
+  workspaceExists: (workspaceId: string) => boolean
 }): ResolvedNotificationAction[] {
-  const { notification, providers, revealWorkspace } = input
+  const { notification, providers, revealWorkspace, workspaceExists } = input
   const workspaceId = notification.workspaceId
   const context: NotificationActionContext = { notification, revealWorkspace }
   const providerActions = providers
@@ -43,7 +46,7 @@ export function resolveNotificationActions(input: {
   const actions: NotificationAction[] =
     providerActions.length > 0
       ? providerActions
-      : workspaceId
+      : workspaceId && workspaceExists(workspaceId)
         ? [
             {
               id: 'reveal-workspace',
