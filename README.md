@@ -11,8 +11,7 @@ system door, a memory graph, scheduled and triggered automations, an extension
 marketplace, and a companion for driving the whole thing from a phone.
 
 The app is an Electron desktop app with a React renderer and a TypeScript main
-process. It also ships a self-contained CPython, which capability modules run
-their Python sidecars on so a feature never depends on the user having Python.
+process.
 
 <!-- SCREENSHOT: replace this block with an image of the workspace view, e.g. ![SprintEngine Studio](docs/images/screenshot.png) -->
 

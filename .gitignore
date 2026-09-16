@@ -29,7 +29,7 @@ __pycache__/
 .codex/
 tmp/
 
-# Vendored runtimes (CPython + npm) fetched at build time by
+# Vendored runtime (npm) fetched at build time by
 # scripts/fetch-runtimes.mjs — large binaries, never committed.
 resources/runtime/
 

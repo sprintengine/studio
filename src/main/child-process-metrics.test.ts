@@ -56,7 +56,7 @@ async function main(): Promise<void> {
     assert.equal(byPid.get(103)!.memoryBytes, 260000 * 1024)
     assert.equal(byPid.get(104)!.name, 'Playwright MCP')
     assert.equal(byPid.get(105)!.name, 'Playwright MCP')
-    assert.equal(byPid.get(106)!.name, 'Python sidecar')
+    assert.equal(byPid.get(106)!.name, 'python helper')
     assert.equal(byPid.get(107)!.name, 'Codex CLI')
     assert.equal(JSON.stringify(metrics).includes('long prompt text'), false)
   })

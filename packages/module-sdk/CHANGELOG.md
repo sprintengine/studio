@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **The host no longer runs Python.** `MainHost.runPython`,
+  `RunPythonRequest`, `RunPythonResult`, `PythonSidecarConfig` and
+  `SidecarSpec.python` are removed, and the app stops bundling CPython. A
+  `registerSidecar` call is a declaration again: the host lists it but spawns
+  nothing, so `SidecarHandle` loses the members only a host-spawned child
+  could feed — `pid`, `onStdout`, `onStderr`, `onExit`, `ready` and
+  `signalReady()` — along with `SidecarChunkListener` and
+  `SidecarExitListener`. This is a **breaking change**: a module that
+  registered a `kind: 'python'` sidecar or called `runPython` stops
+  compiling. Ship your own runtime and spawn it yourself (declare
+  `process:spawn`), or port the work to TypeScript.
+
 - **`LifecycleState` loses `review`, `testing`, `product`,
   `changes_requested`, `recorded`, `approved_auto`, `done_unmerged` and
   `done_merged`, and `WorkspaceRunGlyphState` loses `review`.** They were

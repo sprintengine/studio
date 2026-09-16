@@ -195,10 +195,10 @@ jobs:
       # `npm run dist:*` chains runtimes:fetch before the build; CI calls
       # electron-builder directly and so once skipped it entirely. resources/runtime
       # is gitignored, so every CI installer up to v0.3.0 shipped WITHOUT the
-      # bundled CPython and npm that extraResources copies into the app.
+      # bundled npm that extraResources copies into the app.
       # electron-builder does not fail on a missing extraResources source; it
       # packages a green, silently incomplete app. Keep this ahead of the build.
-      - name: Vendor the bundled Python and npm runtimes
+      - name: Vendor the bundled npm runtime
         run: npm run runtimes:fetch -- ${{ matrix.runtimeArgs }}
 
       - name: Build renderer and main process

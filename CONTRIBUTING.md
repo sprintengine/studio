@@ -30,11 +30,8 @@ pin a port, or `SPRINTENGINE_USER_DATA_DIR` to pin a profile. Every variable the
 app owns was spelled `MULTICODE_*` before the 2026-09-08 rename and is still
 read under that name, so an old export in your shell profile keeps working.
 
-The toolchain is Node and nothing else. The app ships a self-contained CPython
-under `resources/runtime/python` for capability modules that run a Python
-sidecar, but no gate in this repository needs a Python on your machine, and
-there is no virtualenv to set up. `SPRINTENGINE_PYTHON` overrides the
-interpreter the app resolves if you ever need to point it at your own.
+The toolchain is Node and nothing else. No gate in this repository needs a
+Python on your machine, and the app neither ships nor resolves one.
 
 To produce a build:
 

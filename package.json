@@ -73,8 +73,8 @@
     ],
     "extraResources": [
       {
-        "from": "resources/runtime",
-        "to": "runtime",
+        "from": "resources/runtime/npm",
+        "to": "runtime/npm",
         "filter": [
           "**/*"
         ]

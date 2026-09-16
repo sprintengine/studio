@@ -58,7 +58,7 @@ jobs:
           npm pkg set "version=${version}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
-      - name: Vendor the bundled Python and npm runtimes
+      - name: Vendor the bundled npm runtime
         run: npm run runtimes:fetch -- --platform darwin --arch arm64
 
       - name: Build renderer and main process

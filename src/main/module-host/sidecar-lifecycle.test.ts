@@ -59,7 +59,7 @@ async function testDemandSidecar(): Promise<void> {
   const log: string[] = []
   const handle = kernel
     .hostFor('sprint-engine')
-    .registerSidecar({ id: 'lazy-daemon', kind: 'python-mcp', startOn: 'demand' }, trackingLifecycle(log, 'lazy-daemon'))
+    .registerSidecar({ id: 'lazy-daemon', kind: 'process', startOn: 'demand' }, trackingLifecycle(log, 'lazy-daemon'))
 
   await kernel.runStartup()
   assert.deepEqual(log, [], 'demand sidecars do not spawn at startup')
@@ -86,15 +86,15 @@ async function testSpawnFailure(): Promise<void> {
     { id: 'broken-daemon', kind: 'process', startOn: 'demand' },
     {
       start: async () => {
-        throw new Error('python runtime missing')
+        throw new Error('daemon binary missing')
       },
       stop: async () => undefined,
     }
   )
 
-  await assert.rejects(() => handle.start(), /python runtime missing/)
+  await assert.rejects(() => handle.start(), /daemon binary missing/)
   assert.equal(handle.status().state, 'failed')
-  assert.equal(handle.status().error, 'python runtime missing')
+  assert.equal(handle.status().error, 'daemon binary missing')
   assert.equal(delivered.length, 1)
   assert.equal(delivered[0].sourceModuleId, 'sprint-engine')
   assert.equal(delivered[0].severity, 'error')
@@ -125,7 +125,7 @@ async function testSpawnFailure(): Promise<void> {
 // start them and shutdown ignores them.
 async function testDeclarativeSidecar(): Promise<void> {
   const kernel = createMainKernel(createFakeIpcMain())
-  const handle = kernel.hostFor('sprint-engine').registerSidecar({ id: 'sprint-engine-core', kind: 'python-on-demand' })
+  const handle = kernel.hostFor('sprint-engine').registerSidecar({ id: 'sprint-engine-core', kind: 'process' })
 
   await kernel.runStartup()
   assert.equal(handle.status().state, 'declared')
@@ -142,7 +142,7 @@ async function testStatusDelegation(): Promise<void> {
   let externalState: SidecarRunState = 'stopped'
   let externalError: string | undefined
   const handle = kernel.hostFor('sprint-engine').registerSidecar(
-    { id: 'external-daemon', kind: 'python-mcp', startOn: 'demand' },
+    { id: 'external-daemon', kind: 'process', startOn: 'demand' },
     {
       start: async () => {
         externalState = 'running'

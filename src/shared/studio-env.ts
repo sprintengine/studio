@@ -60,7 +60,7 @@ export function readStudioEnv(name: string, env: EnvRecord = processEnv()): stri
 
 /**
  * Set a variable for a process whose reader ships with this app — its own child
- * processes, the Python tool, the MCP server. One name, the new one.
+ * processes, the MCP server. One name, the new one.
  *
  * Spreadable into an env literal, and empty for an absent value so a caller
  * writes `...studioEnvEntry(NAME, maybe)` instead of a conditional.

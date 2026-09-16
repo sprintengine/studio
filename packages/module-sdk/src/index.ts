@@ -209,27 +209,12 @@ export function createServiceToken<T>(key: string): ServiceToken<T> {
   return { key }
 }
 
-export type PythonSidecarConfig = {
-  /** Directory of Python packages, relative to the module root (absolute when the module has no root). */
-  root: string
-  /** `python -m <module>`. */
-  module: string
-  args?: string[]
-  env?: Record<string, string>
-}
-
 export type SidecarSpec = {
   id: string
-  /** e.g. 'python', 'python-mcp', 'process'. Free-form; the host interprets it. */
+  /** e.g. 'process'. Free-form; the host interprets it. */
   kind: string
-  /** Python module name or executable, depending on kind. */
+  /** Entry point or executable, depending on kind. */
   module?: string
-  /**
-   * Host-owned Python daemon. `kind` must be `'python'`. `root` is relative to
-   * the module root (absolute when the module has no root) and is refused when
-   * it escapes. The module never sees the interpreter path.
-   */
-  python?: PythonSidecarConfig
   description?: string
   /**
    * When the host spawns the sidecar: 'startup' (default) starts it during
@@ -247,9 +232,6 @@ export type SidecarStartOptions = {
   env?: Record<string, string>
 }
 
-export type SidecarChunkListener = (chunk: string) => void
-export type SidecarExitListener = (code: number | null, signal: string | null) => void
-
 export type SidecarRuntimeStatus = {
   id: string
   moduleId: string
@@ -260,37 +242,14 @@ export type SidecarRuntimeStatus = {
 }
 
 /**
- * Handle returned by `registerSidecar`. Python sidecars are host-owned: `start`
- * spawns on the managed interpreter, `stop`/unload kill the child, and you
- * watch output to decide when the daemon is ready.
+ * Handle returned by `registerSidecar`. The host does not spawn a module's
+ * sidecar: a registration is a declaration, so `start` refuses it and
+ * `status()` reports `'declared'`.
  */
 export type SidecarHandle = {
   start(options?: SidecarStartOptions): Promise<void>
   stop(): Promise<void>
   status(): SidecarRuntimeStatus
-  readonly pid: number | undefined
-  onStdout(listener: SidecarChunkListener): () => void
-  onStderr(listener: SidecarChunkListener): () => void
-  onExit(listener: SidecarExitListener): () => void
-  /** Resolves when the owner calls `signalReady()`. */
-  readonly ready: Promise<void>
-  signalReady(): void
-}
-
-export type RunPythonRequest = {
-  root: string
-  script?: string
-  module?: string
-  args?: string[]
-  cwd?: string
-  env?: Record<string, string>
-  timeoutMs?: number
-}
-
-export type RunPythonResult = {
-  exitCode: number | null
-  stdout: string
-  stderr: string
 }
 
 // ── MCP tools on the Studio gateway (MC-1855) ─────────────────────────────────
@@ -515,20 +474,11 @@ export type MainHost = {
   onShutdownBegin(hook: ShutdownBeginHook): void
   onShutdown(hook: ShutdownHook): void
   /**
-   * Declare a sidecar this module owns. `kind: 'python'` with a `python`
-   * config is host-owned: the host runs your packages on the managed
-   * interpreter and you never see that path. Requires `process:spawn`.
-   * `kind: 'process'` stays a declaration unless the host is also given a
-   * lifecycle (first-party modules).
+   * Declare a sidecar this module owns. The registration is a declaration:
+   * the host lists it but does not spawn it (only first-party modules hand the
+   * host a lifecycle).
    */
   registerSidecar(spec: SidecarSpec): SidecarHandle
-  /**
-   * Run a one-shot Python command on the managed interpreter. Same interpreter
-   * resolution and `root` containment as a python sidecar; you never see the
-   * interpreter path. Requires `process:spawn`. Exactly one of `script` or
-   * `module`.
-   */
-  runPython(request: RunPythonRequest): Promise<RunPythonResult>
   /**
    * Contribute env, PATH shims, shell functions, managed-MCP server entries,
    * host-context sections and a session lifetime tag to every agent launch.
