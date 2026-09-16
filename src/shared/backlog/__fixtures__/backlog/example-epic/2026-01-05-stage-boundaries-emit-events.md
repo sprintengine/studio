@@ -8,7 +8,6 @@ epic: example-epic
 dependsOn: 2026-01-06-name-the-stages-once
 id: 1002
 updated: 2026-01-06T11:30:00.000Z
-sprints: 2026-01-06-widget-pipeline-observability
 mockups: 2026-01-05-stage-timeline
 pr: 412
 ---

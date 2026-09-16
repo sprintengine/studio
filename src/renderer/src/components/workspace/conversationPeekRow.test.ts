@@ -129,7 +129,7 @@ run('an exited session still opens a card', () => {
 })
 
 run('a chat main has never heard of answers from its own agent records', () => {
-  const identities = chat([], { a1: agent() }, 'Retry budget for stalled sprints')
+  const identities = chat([], { a1: agent() }, 'Retry budget for stalled runs')
   const only = identities[0]
   assert.ok(only)
   assert.equal(
@@ -234,7 +234,7 @@ run('one agent takes the ROW’s status, which knows about waiting and about the
 run('several agents each say their OWN state, because each has its own card', () => {
   const identities = rowConversationPeekIdentities({
     workspace: {
-      name: 'Retry budget for stalled sprints',
+      name: 'Retry budget for stalled runs',
       agents: {
         a1: agent({ id: 'a1', cliSessionId: 's1' }),
         a2: agent({ id: 'a2', name: 'Lir Lynch', cliSessionId: 's2' }),
@@ -255,8 +255,8 @@ run('several agents each say their OWN state, because each has its own card', ()
     { kind: 'idle', label: 'Idle · 15m' },
     'the second agent is idle even though the ROW is working — the card is one agent’s',
   )
-  assert.equal(identities[0]?.name, 'Retry budget for stalled sprints', 'both cards still name the chat')
-  assert.equal(identities[1]?.name, 'Retry budget for stalled sprints')
+  assert.equal(identities[0]?.name, 'Retry budget for stalled runs', 'both cards still name the chat')
+  assert.equal(identities[1]?.name, 'Retry budget for stalled runs')
 })
 
 run('the session’s own figures ride the identity, so the card reads no snapshot itself', () => {
