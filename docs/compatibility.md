@@ -136,7 +136,7 @@ If your change alters anything that crosses either wire, do all of this:
    in `packages/mobile-control-protocol` and is published as
    `@sprintengine/mobile-control-protocol`. Until a released phone build depends
    on that package it still carries its own copy, so
-   `src/main/mobile/sprintengine/snapshot.test.ts` and the phone's
+   `src/main/mobile/control/snapshot.test.ts` and the phone's
    `mobileControlProtocol.regression.test.js` still pin the same sha256 of the
    source and fail the moment the two diverge. Editing the module means making
    the same edit in the phone's copy, setting both pins to the new shared hash,

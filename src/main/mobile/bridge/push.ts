@@ -1,4 +1,4 @@
-import { pushTokenHash, type MobilePushRegistrationTarget } from '../sprintengine/activity'
+import { createHash } from 'crypto'
 import type {
   MobileControlDevice,
   MobilePushRegistration,
@@ -11,6 +11,25 @@ import {
 } from './validation'
 
 const mobileControlProtocolVersion = 2 as const
+
+/**
+ * A device+registration pair a notification can be delivered to.
+ *
+ * Declared here since MC-2575: it used to live beside the Sprint Engine activity
+ * publisher, which was the only producer of notifications and left with the
+ * engine. Push registration itself is not a sprint feature — pairing, revocation
+ * and the store all still read it — so the shape stays with the registry.
+ */
+export type MobilePushRegistrationTarget = {
+  deviceId: string
+  registrationId: string
+  revokedAt?: string
+}
+
+/** Tokens are never stored in the clear; the hash is what pairs and revokes match on. */
+export function pushTokenHash(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
 
 export function registerMobilePushToken(
   pairedDevices: MobileControlDevice[],

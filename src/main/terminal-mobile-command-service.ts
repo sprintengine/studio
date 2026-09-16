@@ -1,17 +1,8 @@
-import type { TerminalSessionSnapshot } from '../shared/electron-api'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
-import { createMobileAutomationsController } from './mobile/sprintengine/automations-controller'
-import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
-import {
-  DesktopMobileSprintEngineSessionOrchestrator,
-  type DesktopMobileSprintEngineSessionAdapters,
-} from './mobile/sprintengine/session'
+import { createMobileAutomationsController } from './mobile/control/automations-controller'
+import { MobileControlCommandService } from './mobile/control/command'
 
 type TerminalMobileCommandServiceOptions = {
-  listTerminals(): Promise<TerminalSessionSnapshot[]>
-  spawnAgentTerminal: DesktopMobileSprintEngineSessionAdapters['spawnAgentTerminal']
-  writeTerminal(sessionId: string, data: string): void
-  setSprintEngineAutomationMode?: DesktopMobileSprintEngineSessionAdapters['setSprintEngineAutomationMode']
   // Item 47: the phone's `automations.control` command. Resolved lazily because
   // the Automations module registers its front door on the kernel after app
   // services are built; absent (tests, or a build without the module) means the
@@ -19,25 +10,15 @@ type TerminalMobileCommandServiceOptions = {
   resolveAutomationsFrontDoor?: () => AutomationsAppFrontDoor | null
 }
 
+// The phone's command service. It used to carry a session orchestrator as well —
+// the adapters behind `task.start`, `agent.followUp` and a run's automation mode
+// — and that left with the Sprint Engine (MC-2575). What remains reaches the
+// desktop's own stores, never a run's.
 export function createTerminalMobileCommandService({
-  listTerminals,
-  spawnAgentTerminal,
-  writeTerminal,
-  setSprintEngineAutomationMode,
   resolveAutomationsFrontDoor,
-}: TerminalMobileCommandServiceOptions): MobileSprintEngineCommandService {
-  const orchestrator = new DesktopMobileSprintEngineSessionOrchestrator({
-    adapters: {
-      listTerminals,
-      spawnAgentTerminal,
-      writeTerminal,
-      ...(setSprintEngineAutomationMode ? { setSprintEngineAutomationMode } : {}),
-    },
-  })
-
-  return new MobileSprintEngineCommandService({
+}: TerminalMobileCommandServiceOptions): MobileControlCommandService {
+  return new MobileControlCommandService({
     workspaceRoot: process.cwd(),
-    sessionOrchestrator: orchestrator,
     ...(resolveAutomationsFrontDoor
       ? { automationsController: createMobileAutomationsController(resolveAutomationsFrontDoor) }
       : {}),

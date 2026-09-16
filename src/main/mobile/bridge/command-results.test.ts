@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { summarizeCommandResult } from './command-results'
-import type { MobileSprintEngineCommandResult } from '../sprintengine/command'
+import type { MobileControlCommandResult } from '../control/command'
 
 // A failing command whose error names a local path used to reach the relay
 // unredacted, and the relay refuses the whole summary, so the phone never saw
 // the error at all: it polled to its own timeout. The message and the audit
 // go through the same redaction as data.
-function failing(message: string): MobileSprintEngineCommandResult {
+function failing(message: string): MobileControlCommandResult {
   return {
     ok: false,
     commandId: 'cmd-1',

@@ -20,7 +20,7 @@
  * because a metric was added. Everything after it is best effort: a failed flush
  * costs a batch, never a user action.
  */
-import { containsLocalPath } from '../mobile/sprintengine/relay-path-safety'
+import { containsLocalPath } from '../mobile/control/relay-path-safety'
 import {
   DEFAULT_POSTHOG_HOST,
   DEFAULT_POSTHOG_PROJECT_KEY,

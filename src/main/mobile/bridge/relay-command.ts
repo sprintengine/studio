@@ -1,4 +1,4 @@
-import type { MobileControlCommand } from '../sprintengine/command'
+import type { MobileControlCommand } from '../control/command'
 import type { MobileControlCommandType, MobileControlDevice, RelayCommandEnvelope, RelayCommandType } from './index'
 
 export function relayCommandTypeToMobile(type: RelayCommandType): MobileControlCommandType {

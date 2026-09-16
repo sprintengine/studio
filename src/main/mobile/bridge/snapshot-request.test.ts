@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
-import { dirname, join } from 'path'
+import { join } from 'path'
 import { tmpdir } from 'os'
-import { MobileSprintEngineSnapshotService, type MobileControlSnapshot } from '../sprintengine/snapshot'
+import { MobileControlSnapshotService, type MobileControlSnapshot } from '../control/snapshot'
 import { AutomationsStore } from '../../automations/store'
 import type { AutomationDefinition } from '../../../shared/automations/contracts'
 import { dispatchSnapshotRequest } from './snapshot-request'
 import { relaySummaryByteLength, summarizeCommandResult } from './command-results'
 import { validateMobileControlSnapshot } from '../../../../packages/mobile-control-protocol/src/index'
-import type { MobileControlCommand, MobileSprintEngineCommandResult } from '../sprintengine/command'
+import type { MobileControlCommand, MobileControlCommandResult } from '../control/command'
 
 // Two read-time wall-clock stamps that differ. `snapshot.ts` folds neither into the
 // top-level version after item 1605; these prove that by moving only the wall-clock.
@@ -20,7 +20,7 @@ void main()
 async function main(): Promise<void> {
   await assertConsecutiveIdleReadsShareTheTopLevelVersion()
   await assertWallClockCadenceAutomationStaysStableAcrossIdleReads()
-  await assertBacklogAutomationsAndEngineChangesEachBumpTheVersion()
+  await assertBacklogAndAutomationsChangesEachBumpTheVersion()
   await assertMatchingKnownVersionYieldsTheUnchangedFastPath()
   await assertStaleKnownVersionFallsThroughToTheFullSnapshot()
   await assertUnchangedResultCollapsesIdleReadTraffic()
@@ -31,18 +31,17 @@ async function main(): Promise<void> {
 // `generatedAt` — produce a byte-identical version. This is the precondition the item
 // 1599 fast path needs; without it the phone's If-None-Match could never match.
 async function assertConsecutiveIdleReadsShareTheTopLevelVersion(): Promise<void> {
-  const statePath = await writeIdleFleetFixture()
-  const service = emptyDesktopService()
+  const workspaceRoot = await writeIdleFleetFixture()
+  const service = new MobileControlSnapshotService()
 
-  const first = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt: generatedAtA })
-  const second = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt: generatedAtB })
+  const first = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt: generatedAtA })
+  const second = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt: generatedAtB })
 
   assert.notEqual(first.generatedAt, second.generatedAt, 'the two reads must carry different read-time stamps')
   assert.equal(second.snapshotVersion, first.snapshotVersion,
     'the top-level snapshotVersion is content-derived and stable across idle reads')
-  // The fleet really is non-trivial (engine + backlog + automation), so stability is
-  // not an artifact of an empty snapshot.
-  assert.equal(first.sprintEngines.length >= 1, true)
+  // The fleet really is non-trivial (backlog + automation), so stability is not an
+  // artifact of an empty snapshot.
   assert.equal((first.backlog ?? []).length >= 1, true)
   assert.equal((first.automations ?? []).length >= 1, true)
   service.shutdown()
@@ -57,16 +56,16 @@ async function assertConsecutiveIdleReadsShareTheTopLevelVersion(): Promise<void
 // same DST period, so the rendered cadence ("Daily at 09:00 PDT") is identical and the
 // version stays stable.
 async function assertWallClockCadenceAutomationStaysStableAcrossIdleReads(): Promise<void> {
-  const statePath = await writeStateFixture({ sprintengine: { name: 'Daily Cadence', updatedAt: generatedAtA }, tasks: [task('T1', 'done')], artifacts: [] })
-  const store = new AutomationsStore(workspaceRootForStatePath(statePath))
+  const workspaceRoot = await makeWorkspaceRoot()
+  const store = new AutomationsStore(workspaceRoot)
   await store.createDefinition({
     ...automationDefinition('daily', 'enabled'),
     trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'America/Los_Angeles' } },
   })
-  const service = emptyDesktopService()
+  const service = new MobileControlSnapshotService()
 
-  const first = await service.readSnapshot({ desktopSessionId: 'd', statePaths: [statePath], generatedAt: generatedAtA })
-  const second = await service.readSnapshot({ desktopSessionId: 'd', statePaths: [statePath], generatedAt: generatedAtB })
+  const first = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [workspaceRoot], generatedAt: generatedAtA })
+  const second = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [workspaceRoot], generatedAt: generatedAtB })
 
   // The cadence really did render a wall-clock string, so this is not a vacuous pass.
   assert.equal((first.automations ?? [])[0]?.cadence?.startsWith('Daily at 09:00'), true, 'the daily cadence must be pre-rendered')
@@ -76,43 +75,32 @@ async function assertWallClockCadenceAutomationStaysStableAcrossIdleReads(): Pro
 }
 
 // Acceptance (T2 #3): change detection is intact after dropping wall-clock — a
-// backlog-only, an automations-only, and a sprint-engine-state change EACH still move
-// the top-level version. Read-time `generatedAt` is held fixed so the only variable is
-// the mutated collection.
-async function assertBacklogAutomationsAndEngineChangesEachBumpTheVersion(): Promise<void> {
+// backlog-only and an automations-only change EACH still move the top-level version.
+// Read-time `generatedAt` is held fixed so the only variable is the mutated
+// collection. The sprint-engine-state arm went with the engine (MC-2575).
+async function assertBacklogAndAutomationsChangesEachBumpTheVersion(): Promise<void> {
   // Backlog-only.
   {
-    const statePath = await writeStateFixture({ sprintengine: { name: 'Backlog Bump', updatedAt: generatedAtA }, tasks: [task('T1', 'done')], artifacts: [] })
-    const root = workspaceRootForStatePath(statePath)
+    const root = await makeWorkspaceRoot()
     await writeBacklogFixture(root, 'backlog_x', 'Backlog item', 'ready')
-    const service = emptyDesktopService()
-    const before = await service.readSnapshot({ desktopSessionId: 'd', statePaths: [statePath], generatedAt: generatedAtA })
+    const service = new MobileControlSnapshotService()
+    const before = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [root], generatedAt: generatedAtA })
     await writeBacklogFixture(root, 'backlog_x', 'Backlog item', 'in_progress')
-    const after = await service.readSnapshot({ desktopSessionId: 'd', statePaths: [statePath], generatedAt: generatedAtA })
+    const after = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [root], generatedAt: generatedAtA })
     assert.notEqual(after.snapshotVersion, before.snapshotVersion, 'a backlog-only change bumps the top-level version')
     service.shutdown()
   }
   // Automations-only.
   {
-    const statePath = await writeStateFixture({ sprintengine: { name: 'Automations Bump', updatedAt: generatedAtA }, tasks: [task('T1', 'done')], artifacts: [] })
-    const store = new AutomationsStore(workspaceRootForStatePath(statePath))
+    const root = await makeWorkspaceRoot()
+    const store = new AutomationsStore(root)
     await store.createDefinition(automationDefinition('nightly', 'enabled'))
-    const service = emptyDesktopService()
-    const before = await service.readSnapshot({ desktopSessionId: 'd', statePaths: [statePath], generatedAt: generatedAtA })
+    const service = new MobileControlSnapshotService()
+    const before = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [root], generatedAt: generatedAtA })
     const paused = await store.updateDefinition(automationDefinition('nightly', 'paused'))
     assert.equal(paused.ok, true)
-    const after = await service.readSnapshot({ desktopSessionId: 'd', statePaths: [statePath], generatedAt: generatedAtA })
+    const after = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [root], generatedAt: generatedAtA })
     assert.notEqual(after.snapshotVersion, before.snapshotVersion, 'an automations-only change bumps the top-level version')
-    service.shutdown()
-  }
-  // Sprint-engine task-status change (MC-1567 invariant preserved).
-  {
-    const statePath = await writeStateFixture({ sprintengine: { name: 'Engine Bump', updatedAt: generatedAtA }, tasks: [task('T1', 'in_progress')], artifacts: [] })
-    const service = emptyDesktopService()
-    const before = await service.readSnapshot({ desktopSessionId: 'd', statePaths: [statePath], generatedAt: generatedAtA })
-    await writeFile(statePath, `${JSON.stringify({ sprintengine: { name: 'Engine Bump', updatedAt: generatedAtA }, tasks: [task('T1', 'done')], artifacts: [] }, null, 2)}\n`, 'utf8')
-    const after = await service.readSnapshot({ desktopSessionId: 'd', statePaths: [statePath], generatedAt: generatedAtA })
-    assert.notEqual(after.snapshotVersion, before.snapshotVersion, 'a sprint-engine task change bumps the top-level version (MC-1567)')
     service.shutdown()
   }
 }
@@ -122,14 +110,14 @@ async function assertBacklogAutomationsAndEngineChangesEachBumpTheVersion(): Pro
 // tiny change-token result — `{ unchanged: true, snapshotVersion }` and NOTHING
 // content-bearing — instead of the full payload.
 async function assertMatchingKnownVersionYieldsTheUnchangedFastPath(): Promise<void> {
-  const statePath = await writeIdleFleetFixture()
-  const service = emptyDesktopService()
+  const workspaceRoot = await writeIdleFleetFixture()
+  const service = new MobileControlSnapshotService()
 
   const full = await dispatchSnapshotRequest({
     command: snapshotRequestCommand('c-full', {}),
     snapshotService: service,
     desktopSessionId: 'desktop_1',
-    statePathsProvider: async () => [statePath],
+    workspaceRootsProvider: async () => [workspaceRoot],
   })
   const knownVersion = requireVersion(okData<MobileControlSnapshot>(full))
   assert.equal(knownVersion.startsWith('snap_'), true)
@@ -138,7 +126,7 @@ async function assertMatchingKnownVersionYieldsTheUnchangedFastPath(): Promise<v
     command: snapshotRequestCommand('c-unchanged', { knownSnapshotVersion: knownVersion }),
     snapshotService: service,
     desktopSessionId: 'desktop_1',
-    statePathsProvider: async () => [statePath],
+    workspaceRootsProvider: async () => [workspaceRoot],
   })
   const data = okData<Record<string, unknown>>(unchanged)
   assert.deepEqual(data, { unchanged: true, snapshotVersion: knownVersion },
@@ -154,18 +142,18 @@ async function assertMatchingKnownVersionYieldsTheUnchangedFastPath(): Promise<v
 // the handler returns the full snapshot exactly as for a client that sent none, so a
 // changed fleet or an old client is never starved.
 async function assertStaleKnownVersionFallsThroughToTheFullSnapshot(): Promise<void> {
-  const statePath = await writeIdleFleetFixture()
-  const service = emptyDesktopService()
+  const workspaceRoot = await writeIdleFleetFixture()
+  const service = new MobileControlSnapshotService()
 
   const result = await dispatchSnapshotRequest({
     command: snapshotRequestCommand('c-stale', { knownSnapshotVersion: 'snap_staleversion0000000' }),
     snapshotService: service,
     desktopSessionId: 'desktop_1',
-    statePathsProvider: async () => [statePath],
+    workspaceRootsProvider: async () => [workspaceRoot],
   })
   const data = okData<MobileControlSnapshot>(result)
   assert.equal('unchanged' in (data as unknown as Record<string, unknown>), false, 'a stale version must not trigger the fast path')
-  assert.equal(data.sprintEngines.length >= 1, true, 'the full snapshot is returned')
+  assert.equal((data.backlog ?? []).length >= 1, true, 'the full snapshot is returned')
   assert.equal(validateMobileControlSnapshot(data).ok, true, 'the fallback full snapshot still validates on the wire')
   service.shutdown()
 }
@@ -176,21 +164,21 @@ async function assertStaleKnownVersionFallsThroughToTheFullSnapshot(): Promise<v
 // full read is the current steady-state cost; the unchanged read is the cost after
 // item 1605 activates the item 1599 fast path.
 async function assertUnchangedResultCollapsesIdleReadTraffic(): Promise<void> {
-  const statePath = await writeIdleFleetFixture()
-  const service = emptyDesktopService()
+  const workspaceRoot = await writeIdleFleetFixture()
+  const service = new MobileControlSnapshotService()
 
   const full = await dispatchSnapshotRequest({
     command: snapshotRequestCommand('c-measure-full', {}),
     snapshotService: service,
     desktopSessionId: 'desktop_1',
-    statePathsProvider: async () => [statePath],
+    workspaceRootsProvider: async () => [workspaceRoot],
   })
   const knownVersion = requireVersion(okData<MobileControlSnapshot>(full))
   const unchanged = await dispatchSnapshotRequest({
     command: snapshotRequestCommand('c-measure-unchanged', { knownSnapshotVersion: knownVersion }),
     snapshotService: service,
     desktopSessionId: 'desktop_1',
-    statePathsProvider: async () => [statePath],
+    workspaceRootsProvider: async () => [workspaceRoot],
   })
 
   const fullBytes = relaySummaryByteLength(summarizeCommandResult(full))
@@ -211,40 +199,49 @@ async function assertUnchangedResultCollapsesIdleReadTraffic(): Promise<void> {
   service.shutdown()
 }
 
-// A snapshot service whose desktop-workspace readers all report empty, so the snapshot
-// is driven only by the on-disk fleet fixture (engine + backlog + automations).
-function emptyDesktopService(): MobileSprintEngineSnapshotService {
-  return new MobileSprintEngineSnapshotService({
-    stateReaders: {
-      readRoleCatalog: async () => [],
-    },
-  })
-}
+// One idle foregrounded phone's steady-state fleet: a working backlog and one
+// scheduled automation — the shape a phone re-pulls every 20 s while nothing
+// changes. It used to carry a live sprint run as well, which was the bulk of the
+// payload; since MC-2575 the backlog is the bulk, so the fixture seeds a
+// realistic number of items rather than the two that only ever existed to prove
+// the collection was non-empty.
+const idleFleetBacklogItems = 10
 
-// One idle foregrounded phone's steady-state fleet: a live sprint engine with a handful
-// of tasks/artifacts, a couple of backlog items, and one scheduled automation — the
-// shape a phone re-pulls every 20 s while nothing changes.
 async function writeIdleFleetFixture(): Promise<string> {
-  const statePath = await writeStateFixture({
-    sprintengine: { name: 'Idle Fleet Sprint Engine', updatedAt: generatedAtA },
-    tasks: [task('T1', 'done'), task('T2', 'in_progress'), task('T3', 'todo'), task('T4', 'todo')],
-    artifacts: [artifact('A1', 'architect_plan', 'approved', 'T1'), artifact('A2', 'code_review', 'approved', 'T2')],
-  })
-  const root = workspaceRootForStatePath(statePath)
-  await writeBacklogFixture(root, 'backlog_alpha', 'Alpha backlog item', 'ready')
-  await writeBacklogFixture(root, 'backlog_beta', 'Beta backlog item', 'in_progress')
+  const root = await makeWorkspaceRoot()
+  await mkdir(join(root, 'backlog'), { recursive: true })
+  await mkdir(join(root, '.sprintengine', 'backlog'), { recursive: true })
+  const items: Record<string, unknown>[] = []
+  for (let index = 0; index < idleFleetBacklogItems; index += 1) {
+    const itemId = `backlog_${String(index).padStart(2, '0')}`
+    await writeFile(
+      join(root, 'backlog', `${itemId}.md`),
+      `---\ntype: feature\n---\n\n# Backlog item ${index}\n\nA sentence of body text the excerpt is cut from.\n`,
+      'utf8'
+    )
+    items.push({
+      id: itemId,
+      source: { type: 'file', relativePath: `backlog/${itemId}.md` },
+      status: index % 2 === 0 ? 'ready' : 'in_progress',
+      type: 'feature',
+      metadata: {},
+      links: [],
+      createdAt: generatedAtA,
+      updatedAt: generatedAtA,
+    })
+  }
+  await writeFile(
+    join(root, '.sprintengine', 'backlog', 'items.json'),
+    JSON.stringify({ schemaVersion: 1, items }),
+    'utf8'
+  )
   const store = new AutomationsStore(root)
   await store.createDefinition(automationDefinition('nightly', 'enabled'))
-  return statePath
+  return root
 }
 
-async function writeStateFixture(state: Record<string, unknown>): Promise<string> {
-  const workspacePath = await mkdtemp(join(tmpdir(), 'multicode-snapshot-request-'))
-  const teamDirectory = join(workspacePath, '.sprintengine', 'sprintengine', 'team')
-  await mkdir(teamDirectory, { recursive: true })
-  const statePath = join(teamDirectory, 'run.yaml')
-  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
-  return statePath
+async function makeWorkspaceRoot(): Promise<string> {
+  return mkdtemp(join(tmpdir(), 'multicode-snapshot-request-'))
 }
 
 // Overwrites the item record so a second call with a new status is a real backlog-only
@@ -289,38 +286,11 @@ function automationDefinition(id: string, status: 'enabled' | 'paused'): Automat
   }
 }
 
-function task(id: string, status: string): Record<string, unknown> {
-  return {
-    id,
-    title: `Task ${id}`,
-    role: 'developer',
-    status,
-    ownerAgentId: status === 'in_progress' ? 'developer-1' : null,
-    dependsOn: [],
-  }
-}
-
-function artifact(id: string, kind: string, status: string, taskId: string): Record<string, unknown> {
-  return {
-    id,
-    kind,
-    title: `Artifact ${id}`,
-    path: '.sprintengine/sprintengine/team/product-requirements.md',
-    status,
-    createdBy: 'product',
-    taskId,
-  }
-}
-
-function workspaceRootForStatePath(statePath: string): string {
-  return dirname(dirname(dirname(dirname(statePath))))
-}
-
 function snapshotRequestCommand(commandId: string, payload: Record<string, unknown>): MobileControlCommand {
   return { type: 'snapshot.request', commandId, deviceId: 'device_1', payload } as never
 }
 
-function okData<T>(result: MobileSprintEngineCommandResult): T {
+function okData<T>(result: MobileControlCommandResult): T {
   assert.equal(result.ok, true, `command result must be ok: ${result.ok ? '' : JSON.stringify(result)}`)
   return (result.ok ? result.data : null) as T
 }

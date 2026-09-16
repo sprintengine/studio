@@ -215,7 +215,7 @@ export type AutomationBackends = {
    * (tailnet-mobile-transport, self-hosted-relay epic). Snapshots come back
    * in the same path-token form the relay serves — the phone round-trips
    * `ws_` tokens, never local paths — and commands run through the same
-   * MobileSprintEngineCommandService the relay bridge dispatches to, so the
+   * MobileControlCommandService the relay bridge dispatches to, so the
    * two transports cannot drift in behaviour.
    */
   mobileControl: {
@@ -595,12 +595,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // and command lane without the relay. v1 deliberately serves the epic's
   // acceptance set and nothing more; widening the command allowlist is a
   // decision, not a default.
-  const MOBILE_GATEWAY_COMMAND_TYPES = ['backlog.update', 'sprintengine.create'] as const
+  // `sprintengine.create` left this list with the engine (MC-2575); it is the
+  // one served type the desktop can no longer execute.
+  const MOBILE_GATEWAY_COMMAND_TYPES = ['backlog.update'] as const
 
   const workspaceSnapshot: McpToolRegistration = {
     name: 'workspace.snapshot',
     description:
-      'The mobile companion snapshot: sprint engines, backlog, automations, and workspaces as one versioned '
+      'The mobile companion snapshot: backlog, automations and workspaces as one versioned '
       + 'document, in the same path-token form the relay serves (ws_ tokens round-trip; local paths never leave '
       + 'the desktop). Pass knownSnapshotVersion from the previous read to get an {unchanged: true} marker '
       + 'instead of the full document when nothing moved.',
@@ -611,8 +613,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'array',
           items: { type: 'string' },
           description:
-            'Collections to include (sprintEngines, backlog, roleCatalogs, automations, desktopWorkspaces). '
-            + 'Defaults to the standard mobile set.',
+            'Collections to include (backlog, automations). Defaults to the standard mobile set.',
         },
         knownSnapshotVersion: { type: 'string', description: 'The snapshotVersion returned by the previous read.' },
       },

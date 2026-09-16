@@ -3,10 +3,10 @@ import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { MobileBridge, type MobileRelayTransport, type MobileRelayAuthenticatedDevice } from './index'
-import { MobileSprintEngineCommandService, type MobileControlCommand } from '../sprintengine/command'
+import { MobileControlCommandService, type MobileControlCommand } from '../control/command'
 import { relaySummaryByteLength, relayResultSummaryMaxBytes, summarizeCommandResult } from './command-results'
 import { dispatchSnapshotRequest } from './snapshot-request'
-import { MobileSprintEngineSnapshotService } from '../sprintengine/snapshot'
+import { MobileControlSnapshotService } from '../control/snapshot'
 import { validateMobileControlSnapshot } from '../../../../packages/mobile-control-protocol/src/index'
 import { DEFAULT_MOBILE_RELAY_URL } from '../../service-endpoints'
 
@@ -22,8 +22,8 @@ async function main(): Promise<void> {
   await assertDesktopPairingDisplayUsesManualRelayCode()
   await assertDesktopPairingDisplayRejectsLegacyRelayChallenge()
   await assertAuthenticatedRelayTransportDispatchesAndFailsClosed()
-  await assertOversizedSnapshotRequestReturnsBoundedSnapshotWithoutTruncatedSuccess()
-  await assertNonAsciiSnapshotRequestUsesUtf8ByteCapForBoundedSnapshot()
+  await assertOversizedSnapshotRequestFailsRatherThanTruncating()
+  await assertSnapshotWithinBudgetShipsWhole()
   await assertSnapshotRequestSkipsUnchangedWhenKnownVersionMatches()
   await assertMobileDeviceCannotRevokeSiblingDevice()
   await assertEnabledBridgeWithNoPairedDevicesIssuesNoRelayTraffic()
@@ -55,7 +55,7 @@ async function assertLegacyLocalRelayUrlMigratesToProductionDefault(): Promise<v
 }
 
 async function assertDesktopPairingDisplayUsesManualRelayCode(): Promise<void> {
-  const fixture = await writeSprintEngineFixture({ pairDevice: false })
+  const fixture = await writeBridgeFixture({ pairDevice: false })
   const relay = new PairingChallengeRelayTransport()
   const bridge = new MobileBridge(
     async () => ({
@@ -67,7 +67,7 @@ async function assertDesktopPairingDisplayUsesManualRelayCode(): Promise<void> {
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      statePathsProvider: async () => [fixture.statePath],
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
     }
   )
@@ -85,7 +85,7 @@ async function assertDesktopPairingDisplayUsesManualRelayCode(): Promise<void> {
 }
 
 async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise<void> {
-  const fixture = await writeSprintEngineFixture({ pairDevice: false })
+  const fixture = await writeBridgeFixture({ pairDevice: false })
   const relay = new LegacyPairingChallengeRelayTransport()
   const bridge = new MobileBridge(
     async () => ({
@@ -97,7 +97,7 @@ async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      statePathsProvider: async () => [fixture.statePath],
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
     }
   )
@@ -113,22 +113,24 @@ async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise
   bridge.shutdown()
 }
 
+// The relay's authorization gate and its command routing, together. Since
+// MC-2575 the sprint commands still ARRIVE — a paired phone sends what it was
+// paired for — and every one of them comes back as a well-formed refusal rather
+// than a throw, a hang or a malformed result.
 async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Promise<void> {
-  const fixture = await writeSprintEngineFixture()
-  const serviceWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-command-cwd-'))
-  const toolInvocations: Array<{ args: string[]; cwd: string }> = []
+  const fixture = await writeBridgeFixture()
+  // The mutated workspace is deliberately NOT the one the snapshot reads. The
+  // relay dispatches a batch concurrently, and a backlog write racing the
+  // snapshot's read of the same `items.json` is a real (pre-existing) product
+  // race that would make this test flaky rather than tell us anything about the
+  // routing it exists to check.
+  const mutation = await writeBridgeFixture({ pairDevice: false })
   const relay = new FakeRelayTransport([
-    commandDelivery('cmd_approve', {
+    commandDelivery('cmd_backlog_update', {
       desktopRelaySessionId: 'drs_desktop_1',
-      commandType: 'artifact.approve',
-      payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
-      device: pairedDevice({ scopes: ['relay:artifact:review'] }),
-    }),
-    commandDelivery('cmd_request_changes', {
-      desktopRelaySessionId: 'drs_desktop_1',
-      commandType: 'artifact.requestChanges',
-      payload: { sprintEngineId: 'relay-team', artifactId: 'A1', feedback: 'Sensitive reviewer feedback.' },
-      device: pairedDevice({ scopes: ['relay:artifact:review'] }),
+      commandType: 'backlog.update',
+      payload: { workspacePath: mutation.workspaceRoot, relativePath: 'backlog/backlog_0000.md', status: 'in_progress' },
+      device: pairedDevice({ scopes: ['relay:backlog:update'] }),
     }),
     commandDelivery('cmd_snapshot', {
       desktopRelaySessionId: 'drs_desktop_1',
@@ -136,34 +138,46 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
       payload: {},
       device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
     }),
-    commandDelivery('cmd_artifact_read', {
+    commandDelivery('cmd_retired_approve', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'artifact.approve',
+      payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
+      device: pairedDevice({ scopes: ['relay:artifact:review'] }),
+    }),
+    commandDelivery('cmd_retired_artifact_read', {
       desktopRelaySessionId: 'drs_desktop_1',
       commandType: 'artifact.read',
       payload: { sprintEngineId: 'relay-team', artifactId: 'A1', previewMode: 'markdown' },
       device: pairedDevice({ scopes: ['relay:artifact:read'] }),
     }),
+    commandDelivery('cmd_retired_task_start', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'task.start',
+      payload: { sprintEngineId: 'relay-team', taskId: 'T1', role: 'developer', worktreeIsolation: 'preferred' },
+      device: pairedDevice({ scopes: ['relay:task:start'] }),
+    }),
     commandDelivery('cmd_missing_device', {
       desktopRelaySessionId: 'drs_desktop_1',
-      commandType: 'artifact.approve',
-      payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
+      commandType: 'backlog.update',
+      payload: { workspacePath: mutation.workspaceRoot, relativePath: 'backlog/backlog_0000.md', status: 'ready' },
       device: null,
     }),
     commandDelivery('cmd_revoked', {
       desktopRelaySessionId: 'drs_desktop_1',
-      commandType: 'artifact.requestChanges',
-      payload: { sprintEngineId: 'relay-team', artifactId: 'A1', feedback: 'Needs more detail.' },
-      device: pairedDevice({ revokedAt: now.toISOString(), scopes: ['relay:artifact:review'] }),
+      commandType: 'backlog.update',
+      payload: { workspacePath: mutation.workspaceRoot, relativePath: 'backlog/backlog_0000.md', status: 'ready' },
+      device: pairedDevice({ revokedAt: now.toISOString(), scopes: ['relay:backlog:update'] }),
     }),
     commandDelivery('cmd_wrong_session', {
       desktopRelaySessionId: 'drs_other',
-      commandType: 'artifact.approve',
-      payload: { sprintEngineId: 'relay-team', artifactId: 'A1' },
-      device: pairedDevice({ scopes: ['relay:artifact:review'] }),
+      commandType: 'backlog.update',
+      payload: { workspacePath: mutation.workspaceRoot, relativePath: 'backlog/backlog_0000.md', status: 'ready' },
+      device: pairedDevice({ scopes: ['relay:backlog:update'] }),
     }),
     commandDelivery('cmd_missing_capability', {
       desktopRelaySessionId: 'drs_desktop_1',
-      commandType: 'task.start',
-      payload: { sprintEngineId: 'relay-team', taskId: 'T1', role: 'developer', worktreeIsolation: 'preferred' },
+      commandType: 'backlog.update',
+      payload: { workspacePath: mutation.workspaceRoot, relativePath: 'backlog/backlog_0000.md', status: 'ready' },
       device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
     }),
   ])
@@ -177,59 +191,49 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      commandService: new MobileSprintEngineCommandService({
-        workspaceRoot: serviceWorkspaceRoot,
+      commandService: new MobileControlCommandService({
+        workspaceRoot: mutation.workspaceRoot,
         now: () => now,
-        execute: async (invocation) => {
-          toolInvocations.push(invocation)
-          return { exitCode: 0, stdout: '{"ok":true,"action":"approved"}', stderr: '' }
-        },
       }),
-      statePathsProvider: async () => [fixture.statePath],
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
     }
   )
 
   await bridge.updateSettings({ enabled: true })
-  await waitFor(() => relay.results.length === 8 && relay.snapshots.length === 1)
+  await waitFor(() => relay.results.length === 9 && relay.snapshots.length === 1)
   bridge.shutdown()
 
   assert.equal(relay.connects.length, 1)
   assert.equal(relay.connects[0].accessToken, 'desktop-access-token')
+  // The relay's INBOUND vocabulary keeps the sprint members so an old phone's
+  // envelope still parses; what the desktop advertises does not.
   assert.equal(relay.connects[0].commands.includes('artifact.approve'), true)
-  assert.equal(relay.connects[0].commands.includes('task.start'), true)
-  assert.equal(toolInvocations.length, 2)
-  assert.equal(toolInvocations[0].cwd, fixture.workspaceRoot)
-  assert.equal(relay.snapshots[0].snapshot.sprintEngines[0].sprintEngineId, 'relay-team')
+  assert.equal(relay.snapshots[0].snapshot.sprintEngines.length, 0)
 
   const resultByCommand = new Map(relay.results.map((result) => [result.commandId, result]))
-  assert.equal(resultByCommand.get('cmd_approve')?.status, 'completed')
-  assert.equal(resultByCommand.get('cmd_request_changes')?.status, 'completed')
+  assert.equal(resultByCommand.get('cmd_backlog_update')?.status, 'completed')
   assert.equal(resultByCommand.get('cmd_snapshot')?.status, 'completed')
   assert.equal(resultByCommand.get('cmd_snapshot')?.resultCode, 'OK')
-  assert.equal(resultByCommand.get('cmd_artifact_read')?.status, 'completed')
-  assert.equal(resultByCommand.get('cmd_artifact_read')?.resultCode, 'OK')
+  // MC-2575: every retired sprint command is answered, and answered honestly.
+  for (const commandId of ['cmd_retired_approve', 'cmd_retired_artifact_read', 'cmd_retired_task_start']) {
+    assert.equal(resultByCommand.get(commandId)?.status, 'failed', `${commandId} must come back`)
+    assert.equal(resultByCommand.get(commandId)?.resultCode, 'COMMAND_NOT_SUPPORTED', `${commandId} must say why`)
+  }
   assert.equal(resultByCommand.get('cmd_missing_device')?.resultCode, 'UNAUTHENTICATED')
   assert.equal(resultByCommand.get('cmd_revoked')?.resultCode, 'DEVICE_REVOKED')
   assert.equal(resultByCommand.get('cmd_wrong_session')?.resultCode, 'UNAUTHORIZED')
   assert.equal(resultByCommand.get('cmd_missing_capability')?.resultCode, 'UNAUTHORIZED')
 
-  const approveAudit = resultByCommand.get('cmd_approve')?.summary.audit as Record<string, unknown>
-  assert.equal(typeof approveAudit.auditId, 'string')
-  assert.equal(approveAudit.commandId, 'cmd_approve')
-  assert.equal(approveAudit.deviceId, 'pdv_phone_1')
-  assert.equal(approveAudit.commandType, 'artifact.approve')
-  assert.equal(approveAudit.status, 'accepted')
-  assert.equal(approveAudit.artifactId, 'A1')
-  assert.equal(approveAudit.exitCode, 0)
-  assert.equal(typeof approveAudit.recordedAt, 'string')
-
-  const requestChangesSummary = resultByCommand.get('cmd_request_changes')?.summary ?? {}
-  const requestChangesAudit = requestChangesSummary.audit as Record<string, unknown>
-  assert.equal(requestChangesAudit.commandId, 'cmd_request_changes')
-  assert.equal(requestChangesAudit.artifactId, 'A1')
-  assert.equal(JSON.stringify(requestChangesSummary).includes('Sensitive reviewer feedback.'), false)
-  assert.equal(JSON.stringify(requestChangesSummary).includes(fixture.statePath), false)
+  const backlogAudit = resultByCommand.get('cmd_backlog_update')?.summary.audit as Record<string, unknown>
+  assert.equal(typeof backlogAudit.auditId, 'string')
+  assert.equal(backlogAudit.commandId, 'cmd_backlog_update')
+  assert.equal(backlogAudit.deviceId, 'pdv_phone_1')
+  assert.equal(backlogAudit.commandType, 'backlog.update')
+  assert.equal(backlogAudit.status, 'accepted')
+  assert.equal(typeof backlogAudit.recordedAt, 'string')
+  // The workspace root never crosses the relay, in a result or in its audit.
+  assert.equal(JSON.stringify(resultByCommand.get('cmd_backlog_update')?.summary).includes(mutation.workspaceRoot), false)
 
   const snapshotSummary = resultByCommand.get('cmd_snapshot')?.summary ?? {}
   assert.equal(snapshotSummary.ok, true)
@@ -237,14 +241,19 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
   const snapshotValidation = validateMobileControlSnapshot((snapshotSummary as { data?: unknown }).data)
   assert.equal(snapshotValidation.ok, true, snapshotValidation.ok === false ? snapshotValidation.error.message : undefined)
   assert.equal(relaySummaryByteLength(snapshotSummary) < relayResultSummaryMaxBytes, true)
-
-  const artifactReadSummary = resultByCommand.get('cmd_artifact_read')?.summary ?? {}
-  assert.equal(artifactReadSummary.ok, true)
-  assert.equal((artifactReadSummary as { data?: { content?: unknown } }).data?.content, '# Requirements\n')
 }
 
-async function assertOversizedSnapshotRequestReturnsBoundedSnapshotWithoutTruncatedSuccess(): Promise<void> {
-  const fixture = await writeSprintEngineFixture({ extraTaskCount: 7000 })
+// A snapshot that cannot be brought inside the relay's result-summary budget
+// must come back as a well-formed `snapshot_too_large` FAILURE, never as a
+// success carrying `{ truncated: true }` — a phone cannot tell a truncated
+// snapshot from a real one, and would render a fleet that is not there.
+//
+// Until MC-2575 the shedding ladder could always get there by dropping sprint
+// engines one at a time. It no longer can: what is left in an over-budget
+// snapshot is backlog, and there is no rung that drops backlog items. So the
+// honest refusal is what this asserts.
+async function assertOversizedSnapshotRequestFailsRatherThanTruncating(): Promise<void> {
+  const fixture = await writeBridgeFixture()
   const relay = new FakeRelayTransport([
     commandDelivery('cmd_oversized_snapshot', {
       desktopRelaySessionId: 'drs_desktop_1',
@@ -253,6 +262,29 @@ async function assertOversizedSnapshotRequestReturnsBoundedSnapshotWithoutTrunca
       device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
     }),
   ])
+  // The payload is non-ASCII on purpose: it sits under the relay's CHARACTER
+  // count and over its BYTE budget, so only a byte-wise measure refuses it.
+  const oversized = {
+    protocolVersion: 2,
+    generatedAt: now.toISOString(),
+    desktopSessionId: 'desktop_1',
+    snapshotVersion: 'snap_oversized',
+    commands: [],
+    sprintEngines: [],
+    workspaces: [],
+    backlog: [{
+      workspaceId: 'backlog:ws_token',
+      workspacePath: 'ws_token',
+      workspaceName: 'projA',
+      updatedAt: now.toISOString(),
+      items: [{
+        itemId: 'i1',
+        relativePath: 'backlog/a.md',
+        title: createNonAsciiPayloadBelowCharacterCapAboveByteCap(),
+        status: 'idea',
+      }],
+    }],
+  }
   const bridge = new MobileBridge(
     async () => ({
       authenticated: true,
@@ -263,7 +295,13 @@ async function assertOversizedSnapshotRequestReturnsBoundedSnapshotWithoutTrunca
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      statePathsProvider: async () => [fixture.statePath],
+      snapshotService: {
+        readSnapshot: async () => oversized,
+        publishSnapshot: async () => null,
+        subscribe: () => () => undefined,
+        shutdown: () => undefined,
+      } as unknown as MobileControlSnapshotService,
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
     }
   )
@@ -273,13 +311,18 @@ async function assertOversizedSnapshotRequestReturnsBoundedSnapshotWithoutTrunca
   bridge.shutdown()
 
   const result = relay.results.find((candidate) => candidate.commandId === 'cmd_oversized_snapshot')
-  assertBoundedSnapshotResult(result)
+  assert.equal(result?.status, 'failed')
+  assert.equal(result?.resultCode, 'SNAPSHOT_TOO_LARGE')
+  assert.equal(JSON.stringify(result?.summary).includes('"truncated":true'), false)
+  assert.equal(relaySummaryByteLength(result?.summary) < relayResultSummaryMaxBytes, true)
 }
 
-async function assertNonAsciiSnapshotRequestUsesUtf8ByteCapForBoundedSnapshot(): Promise<void> {
-  const fixture = await writeSprintEngineFixture({ nonAsciiPayload: createNonAsciiPayloadBelowCharacterCapAboveByteCap() })
+// A snapshot that FITS is shipped whole, validates on the wire, and says sprints
+// are absent rather than omitting the required key.
+async function assertSnapshotWithinBudgetShipsWhole(): Promise<void> {
+  const fixture = await writeBridgeFixture({ backlogItems: 20 })
   const relay = new FakeRelayTransport([
-    commandDelivery('cmd_non_ascii_snapshot', {
+    commandDelivery('cmd_sized_snapshot', {
       desktopRelaySessionId: 'drs_desktop_1',
       commandType: 'snapshot.request',
       payload: {},
@@ -296,17 +339,26 @@ async function assertNonAsciiSnapshotRequestUsesUtf8ByteCapForBoundedSnapshot():
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      statePathsProvider: async () => [fixture.statePath],
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
     }
   )
 
   await bridge.updateSettings({ enabled: true })
-  await waitFor(() => relay.results.some((result) => result.commandId === 'cmd_non_ascii_snapshot'))
+  await waitFor(() => relay.results.some((result) => result.commandId === 'cmd_sized_snapshot'))
   bridge.shutdown()
 
-  const result = relay.results.find((candidate) => candidate.commandId === 'cmd_non_ascii_snapshot')
-  assertBoundedSnapshotResult(result)
+  const result = relay.results.find((candidate) => candidate.commandId === 'cmd_sized_snapshot')
+  assert.equal(result?.status, 'completed')
+  assert.equal(result?.resultCode, 'OK')
+  assert.equal(result?.summary.ok, true)
+  assert.equal(JSON.stringify(result?.summary).includes('"truncated":true'), false)
+  const snapshot = result?.summary.data
+  const validation = validateMobileControlSnapshot(snapshot)
+  assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : undefined)
+  assert.deepEqual((snapshot as { sprintEngines?: unknown[] })?.sprintEngines, [])
+  assert.equal((snapshot as { snapshotLimits?: unknown })?.snapshotLimits, undefined)
+  assert.equal((snapshot as { backlog?: { items: unknown[] }[] })?.backlog?.[0]?.items.length, 20)
 }
 
 // Item 1599: a snapshot.request that echoes the version the client already
@@ -315,23 +367,23 @@ async function assertNonAsciiSnapshotRequestUsesUtf8ByteCapForBoundedSnapshot():
 async function assertSnapshotRequestSkipsUnchangedWhenKnownVersionMatches(): Promise<void> {
   // Inflate the payload so the full snapshot is unmistakably larger than the
   // change-token result the fast-path returns.
-  const fixture = await writeSprintEngineFixture({ extraTaskCount: 60 })
-  const service = new MobileSprintEngineSnapshotService()
+  const fixture = await writeBridgeFixture({ backlogItems: 40 })
+  const service = new MobileControlSnapshotService()
 
   // Build once and pin it: dispatchSnapshotRequest recomputes the snapshot on
   // every call (with a fresh wall-clock generatedAt), so a stub that returns the
   // same internal snapshot is what makes the version comparison deterministic.
   // The sanitized copy the client receives carries this same snapshotVersion.
-  const built = await service.readSnapshot({ desktopSessionId: 'ses_relay_desktop', statePaths: [fixture.statePath] })
+  const built = await service.readSnapshot({ desktopSessionId: 'ses_relay_desktop', workspaceRoots: [fixture.workspaceRoot] })
   const shippedVersion = built.snapshotVersion
   assert.equal(typeof shippedVersion, 'string')
 
-  const snapshotService = { readSnapshot: async () => built } as unknown as MobileSprintEngineSnapshotService
+  const snapshotService = { readSnapshot: async () => built } as unknown as MobileControlSnapshotService
   const dispatch = (payload: Record<string, unknown>) => dispatchSnapshotRequest({
     command: snapshotRequestCommand(payload),
     snapshotService,
     desktopSessionId: 'ses_relay_desktop',
-    statePathsProvider: async () => [fixture.statePath],
+    workspaceRootsProvider: async () => [fixture.workspaceRoot],
   })
 
   const unchanged = await dispatch({ knownSnapshotVersion: shippedVersion })
@@ -351,8 +403,8 @@ async function assertSnapshotRequestSkipsUnchangedWhenKnownVersionMatches(): Pro
   assert.equal(unchangedData.snapshotVersion, shippedVersion)
 
   // Absent and stale versions both return the full snapshot exactly as today.
-  assert.equal((full.data as { sprintEngines?: unknown[] }).sprintEngines?.length, 1)
-  assert.equal((stale.data as { sprintEngines?: unknown[] }).sprintEngines?.length, 1)
+  assert.equal((full.data as { backlog?: { items: unknown[] }[] }).backlog?.[0]?.items.length, 40)
+  assert.equal((stale.data as { backlog?: { items: unknown[] }[] }).backlog?.[0]?.items.length, 40)
 
   // The relay ships and ledgers the summarized result, so measure that.
   const unchangedBytes = relaySummaryByteLength(summarizeCommandResult(unchanged))
@@ -373,39 +425,8 @@ function snapshotRequestCommand(payload: Record<string, unknown>): MobileControl
   } as MobileControlCommand
 }
 
-function assertBoundedSnapshotResult(
-  result: FakeRelayTransport['results'][number] | undefined,
-): void {
-  assert.equal(result?.status, 'completed')
-  assert.equal(result?.resultCode, 'OK')
-  assert.equal(result?.summary.ok, true)
-  assert.equal(JSON.stringify(result?.summary).includes('"truncated":true'), false)
-  assert.equal(relaySummaryByteLength(result?.summary) < relayResultSummaryMaxBytes, true)
-
-  const snapshot = result?.summary.data
-  const validation = validateMobileControlSnapshot(snapshot)
-  assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : undefined)
-  assert.equal(relaySummaryByteLength(snapshot) < relayResultSummaryMaxBytes, true)
-  assert.equal((snapshot as { sprintEngines?: unknown[] })?.sprintEngines?.length, 0)
-  assert.deepEqual((snapshot as {
-    snapshotLimits?: {
-      sprintEngines?: {
-        included: number
-        omitted: number
-        total: number
-        reason: string
-      }
-    }
-  })?.snapshotLimits?.sprintEngines, {
-    included: 0,
-    omitted: 1,
-    total: 1,
-    reason: 'relay_result_summary_size',
-  })
-}
-
 async function assertMobileDeviceCannotRevokeSiblingDevice(): Promise<void> {
-  const fixture = await writeSprintEngineFixture()
+  const fixture = await writeBridgeFixture()
   const relay = new FakeRelayTransport([
     commandDelivery('cmd_revoke_sibling', {
       desktopRelaySessionId: 'drs_desktop_1',
@@ -424,7 +445,7 @@ async function assertMobileDeviceCannotRevokeSiblingDevice(): Promise<void> {
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      statePathsProvider: async () => [fixture.statePath],
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
     }
   )
@@ -445,7 +466,7 @@ async function assertMobileDeviceCannotRevokeSiblingDevice(): Promise<void> {
 // hold no relay session and issue no requests — no connect, no command poll — however
 // long it sits enabled. Proven by counting transport calls across several base intervals.
 async function assertEnabledBridgeWithNoPairedDevicesIssuesNoRelayTraffic(): Promise<void> {
-  const fixture = await writeSprintEngineFixture({ pairDevice: false })
+  const fixture = await writeBridgeFixture({ pairDevice: false })
   const relay = new ProgrammableRelayTransport()
   const bridge = new MobileBridge(
     async () => ({
@@ -457,7 +478,7 @@ async function assertEnabledBridgeWithNoPairedDevicesIssuesNoRelayTraffic(): Pro
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      statePathsProvider: async () => [fixture.statePath],
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 250,
     }
   )
@@ -478,7 +499,7 @@ async function assertEnabledBridgeWithNoPairedDevicesIssuesNoRelayTraffic(): Pro
 // interval decays x2 per tick up to the ceiling; a newly delivered command snaps it
 // back to the fast base cadence within one ceiling interval. Compressed timings.
 async function assertPairedIdleCadenceBacksOffToCeilingAndSnapsBackOnCommand(): Promise<void> {
-  const fixture = await writeSprintEngineFixture()
+  const fixture = await writeBridgeFixture()
   const relay = new ProgrammableRelayTransport()
   const bridge = new MobileBridge(
     async () => ({
@@ -490,7 +511,7 @@ async function assertPairedIdleCadenceBacksOffToCeilingAndSnapsBackOnCommand(): 
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      statePathsProvider: async () => [fixture.statePath],
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 250,
       commandPollCeilingMs: 1000,
       // Wide enough that the post-command snap-back to fast is reliably observable
@@ -522,7 +543,7 @@ async function assertPairedIdleCadenceBacksOffToCeilingAndSnapsBackOnCommand(): 
 // Item 1598: revoking the last active device stops the poll loop and drops the bridge
 // to idle — no further relay traffic — instead of holding the old flat cadence.
 async function assertRevokingLastDeviceStopsPollingAndGoesIdle(): Promise<void> {
-  const fixture = await writeSprintEngineFixture()
+  const fixture = await writeBridgeFixture()
   const relay = new ProgrammableRelayTransport()
   const bridge = new MobileBridge(
     async () => ({
@@ -534,7 +555,7 @@ async function assertRevokingLastDeviceStopsPollingAndGoesIdle(): Promise<void> 
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      statePathsProvider: async () => [fixture.statePath],
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 500,
     }
   )
@@ -561,7 +582,7 @@ async function assertRevokingLastDeviceStopsPollingAndGoesIdle(): Promise<void> 
 // find no device/challenge yet, dropping to idle; the challenge then arms polling and
 // the retained session must be restored to connected. A delayed challenge forces the race.
 async function assertPairingFromIdleKeepsConnectionAfterRaceWithConnectPoll(): Promise<void> {
-  const fixture = await writeSprintEngineFixture({ pairDevice: false })
+  const fixture = await writeBridgeFixture({ pairDevice: false })
   const relay = new SlowPairingChallengeRelayTransport()
   const bridge = new MobileBridge(
     async () => ({
@@ -573,7 +594,7 @@ async function assertPairingFromIdleKeepsConnectionAfterRaceWithConnectPoll(): P
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      statePathsProvider: async () => [fixture.statePath],
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 500,
     }
   )
@@ -594,7 +615,7 @@ async function assertPairingFromIdleKeepsConnectionAfterRaceWithConnectPoll(): P
 // CPU load stretched the poll past shutdown. The process then never exited and
 // the runner had no per-file timeout, so verify:app sat until an outer cap.
 async function assertShutdownDoesNotReschedulePolling(): Promise<void> {
-  const fixture = await writeSprintEngineFixture()
+  const fixture = await writeBridgeFixture()
   const relay = new ProgrammableRelayTransport()
   const bridge = new MobileBridge(
     async () => ({
@@ -606,7 +627,7 @@ async function assertShutdownDoesNotReschedulePolling(): Promise<void> {
       storePath: join(fixture.workspaceRoot, 'mobile-bridge.json'),
       accessTokenProvider: async () => 'desktop-access-token',
       relayTransport: relay,
-      statePathsProvider: async () => [fixture.statePath],
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 50,
     }
   )
@@ -766,57 +787,42 @@ class LegacyPairingChallengeRelayTransport extends FakeRelayTransport {
   }
 }
 
-async function writeSprintEngineFixture(
-  options: { extraTaskCount?: number; nonAsciiPayload?: string; pairDevice?: boolean } = {}
-): Promise<{ workspaceRoot: string; statePath: string }> {
+// A workspace root the bridge serves, plus the paired-device store the command
+// poller needs. `backlogItems` inflates the snapshot for the size tests;
+// `nonAsciiPayload` rides one item's title so the byte cap (not the character
+// cap) is what the relay sizing measures.
+async function writeBridgeFixture(
+  options: { backlogItems?: number; nonAsciiPayload?: string; pairDevice?: boolean } = {}
+): Promise<{ workspaceRoot: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-'))
-  const teamDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine', 'relay-team')
-  await mkdir(join(teamDirectory, 'documents'), { recursive: true })
-  await writeFile(join(teamDirectory, 'documents', 'requirements.md'), '# Requirements\n', 'utf8')
-  const statePath = join(teamDirectory, 'run.yaml')
-  await writeFile(statePath, 'managed sprintengine fixture\n', 'utf8')
-  await writeFile(join(teamDirectory, 'projection.json'), `${JSON.stringify({
-    ok: true,
-    projectionVersion: 1,
-    source: 'folder_store',
-    updatedAt: now.toISOString(),
-    run: {
-      id: 'relay-team',
-      name: 'relay-team',
+  const itemCount = options.backlogItems ?? 1
+  await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
+  await mkdir(join(workspaceRoot, '.sprintengine', 'backlog'), { recursive: true })
+  const items: Record<string, unknown>[] = []
+  for (let index = 0; index < itemCount; index += 1) {
+    const itemId = `backlog_${String(index).padStart(4, '0')}`
+    const title = index === 0 && options.nonAsciiPayload ? options.nonAsciiPayload : `Backlog item ${index}`
+    await writeFile(
+      join(workspaceRoot, 'backlog', `${itemId}.md`),
+      `---\ntype: feature\n---\n\n# ${title}\n\nBody text.\n`,
+      'utf8'
+    )
+    items.push({
+      id: itemId,
+      source: { type: 'file', relativePath: `backlog/${itemId}.md` },
+      status: 'ready',
+      type: 'feature',
+      metadata: {},
+      links: [],
+      createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
-    },
-    tasks: [
-      {
-        id: 'T1',
-        title: options.nonAsciiPayload ?? 'Ready task',
-        role: 'developer',
-        status: 'ready',
-        stateStatus: 'todo',
-        ownerAgentId: null,
-        dependsOn: [],
-      },
-      ...Array.from({ length: options.extraTaskCount ?? 0 }, (_, index) => ({
-        id: `TS${index}`,
-        title: `Snapshot sizing task ${index}`,
-        role: 'developer',
-        status: 'ready',
-        stateStatus: 'todo',
-        ownerAgentId: null,
-        dependsOn: [],
-      })),
-    ],
-    artifacts: [
-      {
-        id: 'A1',
-        kind: 'requirements',
-        title: 'Requirements',
-        path: '.sprintengine/sprintengine/relay-team/documents/requirements.md',
-        status: 'ready_for_review',
-        taskId: 'T1',
-      },
-    ],
-    roster: {},
-  }, null, 2)}\n`, 'utf8')
+    })
+  }
+  await writeFile(
+    join(workspaceRoot, '.sprintengine', 'backlog', 'items.json'),
+    JSON.stringify({ schemaVersion: 1, items }),
+    'utf8'
+  )
   // Command polling is now gated on an active paired device, so fixtures that drive
   // the bridge through connect/poll seed one by default. Pairing-flow tests pass
   // `pairDevice: false` to exercise the idle → connect-on-demand path.
@@ -837,7 +843,7 @@ async function writeSprintEngineFixture(
       pushRegistrations: [],
     }, null, 2)}\n`, 'utf8')
   }
-  return { workspaceRoot, statePath }
+  return { workspaceRoot }
 }
 
 function createNonAsciiPayloadBelowCharacterCapAboveByteCap(): string {
@@ -851,7 +857,7 @@ function commandDelivery(
   commandId: string,
   input: {
     desktopRelaySessionId: string
-    commandType: 'snapshot.request' | 'artifact.read' | 'artifact.approve' | 'artifact.requestChanges' | 'task.start' | 'device.revoke'
+    commandType: 'snapshot.request' | 'artifact.read' | 'artifact.approve' | 'task.start' | 'device.revoke' | 'backlog.update'
     payload: Record<string, unknown>
     device: MobileRelayAuthenticatedDevice | null
   }

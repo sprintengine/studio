@@ -189,7 +189,6 @@ async function main(): Promise<void> {
     await assertHeadlessSpawnAttachesToLaterWindow(runtimeModule)
     await assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule)
     await assertDescriptorSpawnSucceedsWithNoWindows(runtimeModule)
-    await assertMobileAgentSpawnSucceedsWithNoWindows(runtimeModule)
     await assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule)
     await assertPendingWakeupFrameHoldsIdleReaper(runtimeModule)
     await assertObservedCheckoutFollowsHookCwd(runtimeModule)
@@ -1126,70 +1125,6 @@ async function assertDescriptorSpawnSucceedsWithNoWindows(runtimeModule: Runtime
     assert.ok(replay, 'reopening a window replays the headless descriptor session')
     assert.ok(
       String(replay?.payload ?? '').includes('descriptor output before any window'),
-      'replay carries output produced while headless'
-    )
-  } finally {
-    await runtime.shutdown()
-  }
-}
-
-// The mobile `task.start` spawn used to refuse outright with "No desktop window
-// is available to host a mobile-started agent terminal." It now spawns against
-// the headless sender, so the phone can start an agent with the desktop UI
-// closed and a window opened later picks up the session with replay.
-async function assertMobileAgentSpawnSucceedsWithNoWindows(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-headless-mobile-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
-  })
-
-  try {
-    const result = await withNoWindows(() => runtimeModule.__spawnMobileAgentTerminalForTest({
-      sessionId: 'session-headless-mobile',
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      agentId: 'developer-1',
-      role: 'developer',
-      initialPrompt: 'Claim your task.',
-      cli: 'codex',
-      executionMode: 'current_workspace',
-    }))
-    assert.equal(result.ok, true, JSON.stringify(result))
-    assert.equal(mockPty.spawnCalls.length, 1, 'a windowless mobile spawn still creates the pty')
-    assert.equal(
-      (await runtime.ipcHandlers.getTerminalStatus('session-headless-mobile')).processAlive,
-      true,
-      'the returned session is live with no window open'
-    )
-
-    mockPty.spawnCalls[0]!.process.emitData('mobile output before any window\r\n')
-
-    const reattach = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session-headless-mobile',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      cli: 'codex',
-      kind: 'agent',
-      shellOnly: false,
-      agentId: 'developer-1',
-      visible: true,
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-    assert.equal(reattach.ok, true, JSON.stringify(reattach))
-    assert.equal(mockPty.spawnCalls.length, 1, 'reattach adopts the live session; no second pty')
-    const replay = mockSender.sent.find((event) => event.channel === 'terminal:replay:session-headless-mobile')
-    assert.ok(replay, 'reopening a window replays the headless mobile session')
-    assert.ok(
-      String(replay?.payload ?? '').includes('mobile output before any window'),
       'replay carries output produced while headless'
     )
   } finally {

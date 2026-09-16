@@ -1,22 +1,22 @@
 import { createHash } from 'crypto'
 import type {
   MobileControlCommand,
-  MobileSprintEngineCommandResult,
+  MobileControlCommandResult,
 } from './command'
 
 const maxRememberedIdempotencyKeys = 500
 
-type CachedMobileSprintEngineCommandResult = {
+type CachedMobileControlCommandResult = {
   requestHash: string
-  result: MobileSprintEngineCommandResult
+  result: MobileControlCommandResult
 }
 
-export type RememberedMobileSprintEngineCommandResult =
+export type RememberedMobileControlCommandResult =
   | { status: 'miss' }
   | { status: 'conflict' }
-  | { status: 'hit'; result: MobileSprintEngineCommandResult }
+  | { status: 'hit'; result: MobileControlCommandResult }
 
-const idempotencyResults = new Map<string, CachedMobileSprintEngineCommandResult>()
+const idempotencyResults = new Map<string, CachedMobileControlCommandResult>()
 
 export function requestHashFor(command: MobileControlCommand): string {
   const hashInput = stableJsonStringify({
@@ -28,15 +28,15 @@ export function requestHashFor(command: MobileControlCommand): string {
   return createHash('sha256').update(hashInput).digest('hex')
 }
 
-function cloneCommandResult(result: MobileSprintEngineCommandResult): MobileSprintEngineCommandResult {
-  return JSON.parse(JSON.stringify(result)) as MobileSprintEngineCommandResult
+function cloneCommandResult(result: MobileControlCommandResult): MobileControlCommandResult {
+  return JSON.parse(JSON.stringify(result)) as MobileControlCommandResult
 }
 
 export function idempotencyKeyForCommand(workspaceRoot: string, command: MobileControlCommand): string {
   return `${workspaceRoot}:${command.deviceId}:${command.idempotencyKey}`
 }
 
-export function rememberedCommandResult(key: string, requestHash: string): RememberedMobileSprintEngineCommandResult {
+export function rememberedCommandResult(key: string, requestHash: string): RememberedMobileControlCommandResult {
   const cached = idempotencyResults.get(key)
   if (!cached) return { status: 'miss' }
 
@@ -53,7 +53,7 @@ export function rememberedCommandResult(key: string, requestHash: string): Remem
 export function rememberCommandResult(
   key: string,
   requestHash: string,
-  result: MobileSprintEngineCommandResult
+  result: MobileControlCommandResult
 ): void {
   idempotencyResults.set(key, {
     requestHash,

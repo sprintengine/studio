@@ -113,7 +113,7 @@ itself passes no matter which version got installed.
 **4. Ship, and only then retire the desktop guard.** Until a released phone
 build depends on the package, the phone's `protocol.ts` is still live on every
 installed handset, and the drift guard in
-`src/main/mobile/sprintengine/snapshot.test.ts` is still the only thing standing
+`src/main/mobile/control/snapshot.test.ts` is still the only thing standing
 between it and this desktop. Leave it alone until the store build is out.
 
 The extraction kept the file byte-identical on purpose — the pinned hash is the

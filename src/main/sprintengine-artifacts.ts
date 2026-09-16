@@ -977,9 +977,8 @@ async function runReadOnlyMcpTool(
 // user_root. Omit them and the read silently degrades to bundled-only, which is
 // precisely the role set a caller asking for the registry does not want.
 //
-// Shared by the renderer IPC (settings, wizard) and the mobile snapshot producer
-// (src/main/mobile/sprintengine/role-catalog.ts) so the phone's launch picker and
-// the desktop's wizard can never disagree about which roles exist.
+// Read by the renderer IPC (settings, wizard). The mobile snapshot used to be a
+// second consumer; the phone's launch picker left with the engine (MC-2575).
 async function readSprintEngineRegistryRolesWith(
   runMcpTool: SprintEngineMcpToolRunner,
   payload: SprintEngineRegistryRolesReadInput | undefined,

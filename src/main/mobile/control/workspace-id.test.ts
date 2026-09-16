@@ -6,7 +6,6 @@ import {
   deriveWorkspaceId,
   isWorkspaceIdToken,
   resolveWorkspaceIdToRoot,
-  workspaceRootFromStatePath,
 } from './workspace-id'
 import { sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from './snapshot'
 import { validateMobileWorkspacePath } from './workspace'
@@ -22,7 +21,6 @@ void main()
 
 async function main(): Promise<void> {
   assertTokenRoundTrips()
-  assertStateRootDerivation()
   assertSanitizerStripsLocalPaths()
   await assertOnDemandSnapshotIsSanitized()
   await assertValidateResolvesToken()
@@ -34,47 +32,10 @@ function buildSnapshotFixture(root: string): MobileControlSnapshot {
     protocolVersion: 2,
     generatedAt: '2026-06-27T00:00:00.000Z',
     desktopSessionId: 'sess',
-    sprintEngines: [
-      {
-        sprintEngineId: 'team-1',
-        name: 'Team One',
-        workspacePath: root,
-        statePath: join(root, '.sprintengine', 'sprintengine', 'team-1', 'run.yaml'),
-        planPath: join(root, '.sprintengine', 'sprintengine', 'team-1', 'plan.md'),
-        snapshotVersion: 'v1',
-        updatedAt: '2026-06-27T00:00:00.000Z',
-        board: {
-          todo: 0, ready: 0, inProgress: 0, changesRequested: 0, review: 0,
-          testing: 0, product: 0, needsInput: 0, blocked: 0, done: 0,
-        },
-        tasks: [],
-        artifacts: [],
-        vcs: {
-          worktree: true,
-          branch: 'sprintengine/team-1',
-          // MC-1613: a multi-repo run's projects. Their roots are workspace-RELATIVE,
-          // so the sanitizer must leave them intact — redacting `../multicode-mobile`
-          // would cost the phone the only field naming where a project lives.
-          repos: [
-            { id: 'primary', root: '.', branch: 'sprintengine/team-1', status: 'ready' },
-            { id: 'multicode-mobile', root: '../multicode-mobile', branch: 'sprintengine/team-1', status: 'ready' },
-          ],
-        },
-      },
-    ],
-    workspaces: [
-      {
-        workspaceId: `sprintengine:${root}`,
-        kind: 'sprintengine',
-        name: 'Sprint Engine',
-        workspacePath: root,
-        statePath: join(root, '.sprintengine', 'sprintengine'),
-        updatedAt: '2026-06-27T00:00:00.000Z',
-        capabilities: ['summary.read'],
-        detailVersion: 2,
-        summary: { status: 'idle' },
-      },
-    ],
+    // MC-2575: the desktop never produces a sprint engine any more; the required
+    // wire key is the empty array.
+    sprintEngines: [],
+    workspaces: [],
     backlog: [
       {
         workspaceId: `backlog:${root}`,
@@ -101,12 +62,6 @@ function assertTokenRoundTrips(): void {
   assert.equal(resolveWorkspaceIdToRoot('ws_notarealtoken', [root]), null)
 }
 
-function assertStateRootDerivation(): void {
-  const root = '/Users/example/workspace/projA'
-  const statePath = join(root, '.sprintengine', 'sprintengine', 'team-1', 'run.yaml')
-  assert.equal(workspaceRootFromStatePath(statePath), resolve(root))
-}
-
 function assertSanitizerStripsLocalPaths(): void {
   const root = '/Users/example/workspace/projA'
   const safe = sanitizeMobileSnapshotForRelay(buildSnapshotFixture(root))
@@ -121,19 +76,7 @@ function assertSanitizerStripsLocalPaths(): void {
   const validation = validateMobileControlSnapshot(safe)
   assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : undefined)
 
-  // Sprint Engine paths are display-only / server-resolved, but must stay
-  // non-empty and relay-safe.
-  assert.equal(safe.sprintEngines[0].workspacePath, 'projA', 'board name comes from the folder basename')
-  assert.equal(isWorkspaceIdToken(safe.sprintEngines[0].statePath), true, 'statePath redacted to a non-empty relay-safe token')
-  assert.equal(localPathProbe.test(safe.sprintEngines[0].statePath), false)
-
-  // MC-1613: the multi-repo projects reach the phone through the same pass, and the
-  // sanitizer must neither reshape nor redact them — their roots are relative, so
-  // there is nothing local to strip and every field is what the phone renders.
-  assert.deepEqual(safe.sprintEngines[0].vcs?.repos, [
-    { id: 'primary', root: '.', branch: 'sprintengine/team-1', status: 'ready' },
-    { id: 'multicode-mobile', root: '../multicode-mobile', branch: 'sprintengine/team-1', status: 'ready' },
-  ], 'declared projects survive the relay copy intact')
+  assert.deepEqual(safe.sprintEngines, [])
 
   // Backlog workspacePath round-trips for create/start, so it must be a
   // resolvable token, and resolve back to the original root.
@@ -146,7 +89,7 @@ function assertSanitizerStripsLocalPaths(): void {
 // Guards the on-demand path (workspace open / backlog refresh -> snapshot.request
 // command) which builds its result outside the publish emit() chokepoint. This is
 // the exact path that surfaced "must not include local paths at
-// summary.data.sprintEngines[0].workspacePath".
+// summary.data.backlog[0].workspacePath".
 async function assertOnDemandSnapshotIsSanitized(): Promise<void> {
   const root = '/Users/example/workspace/projC'
   const fixture = buildSnapshotFixture(root)
@@ -154,7 +97,6 @@ async function assertOnDemandSnapshotIsSanitized(): Promise<void> {
     command: { type: 'snapshot.request', commandId: 'c1', deviceId: 'd1', payload: {} } as never,
     snapshotService: { readSnapshot: async () => fixture } as never,
     desktopSessionId: 'sess',
-    statePathsProvider: async () => [],
   })
   assert.equal(
     localPathProbe.test(JSON.stringify(result)),

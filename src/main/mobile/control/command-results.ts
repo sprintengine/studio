@@ -2,63 +2,31 @@ import { randomUUID } from 'crypto'
 import type {
   MobileControlCommand,
   MobileControlError,
-  MobileSprintEngineCommandAuditEntry,
-  MobileSprintEngineCommandResult,
+  MobileControlCommandAuditEntry,
+  MobileControlCommandResult,
 } from './command'
-import type { ValidSprintEngineStatePath } from './state-path'
 import { buildError } from './command-validation'
-import { redactToolArgs } from './tool-runner'
 
-type MobileSprintEngineCommandAuditStatus = 'accepted' | 'rejected' | 'failed'
+type MobileControlCommandAuditStatus = 'accepted' | 'rejected'
 
-type MobileSprintEngineCommandAuditInput = {
+type MobileControlCommandAuditInput = {
   command?: MobileControlCommand
-  status: MobileSprintEngineCommandAuditStatus
+  status: MobileControlCommandAuditStatus
   code?: MobileControlError['code']
   message: string
-  state?: ValidSprintEngineStatePath
-  artifactId?: string
   workspacePath?: string
-  toolArgs?: string[]
-  exitCode?: number | null
 }
 
-export class MobileSprintEngineCommandResultRecorder {
-  private readonly auditLog: MobileSprintEngineCommandAuditEntry[] = []
+export class MobileControlCommandResultRecorder {
+  private readonly auditLog: MobileControlCommandAuditEntry[] = []
 
   constructor(
     private readonly now: () => Date,
-    private readonly auditSink?: (entry: MobileSprintEngineCommandAuditEntry) => void
+    private readonly auditSink?: (entry: MobileControlCommandAuditEntry) => void
   ) {}
 
-  getAuditLog(): MobileSprintEngineCommandAuditEntry[] {
+  getAuditLog(): MobileControlCommandAuditEntry[] {
     return [...this.auditLog]
-  }
-
-  acceptSessionCommand(
-    command: MobileControlCommand,
-    data: unknown,
-    state: ValidSprintEngineStatePath,
-    message: string
-  ): MobileSprintEngineCommandResult {
-    const audit = this.recordAudit({
-      command,
-      status: 'accepted',
-      message,
-      state,
-    })
-
-    return {
-      ok: true,
-      commandId: command.commandId,
-      commandType: command.type,
-      idempotencyKey: command.idempotencyKey,
-      executedAt: audit.recordedAt,
-      data,
-      stdout: '',
-      stderr: '',
-      audit,
-    }
   }
 
   acceptWorkspaceCommand(
@@ -66,7 +34,7 @@ export class MobileSprintEngineCommandResultRecorder {
     data: unknown,
     workspacePath: string,
     message: string
-  ): MobileSprintEngineCommandResult {
+  ): MobileControlCommandResult {
     const audit = this.recordAudit({
       command,
       status: 'accepted',
@@ -92,22 +60,14 @@ export class MobileSprintEngineCommandResultRecorder {
     code: MobileControlError['code'],
     message: string,
     retryable: boolean,
-    state?: ValidSprintEngineStatePath,
-    artifactId?: string,
-    workspacePath?: string,
-    toolArgs?: string[],
-    exitCode?: number | null
-  ): MobileSprintEngineCommandResult {
+    workspacePath?: string
+  ): MobileControlCommandResult {
     const audit = this.recordAudit({
       command,
-      status: code === 'python_tool_failed' ? 'failed' : 'rejected',
+      status: 'rejected',
       code,
       message,
-      state,
-      artifactId,
       workspacePath,
-      toolArgs: toolArgs ? redactToolArgs(toolArgs) : undefined,
-      exitCode,
     })
 
     return {
@@ -120,7 +80,7 @@ export class MobileSprintEngineCommandResultRecorder {
     }
   }
 
-  rejectUnknown(error: MobileControlError): MobileSprintEngineCommandResult {
+  rejectUnknown(error: MobileControlError): MobileControlCommandResult {
     const audit = this.recordAudit({
       status: 'rejected',
       code: error.code,
@@ -136,8 +96,8 @@ export class MobileSprintEngineCommandResultRecorder {
     }
   }
 
-  recordAudit(input: MobileSprintEngineCommandAuditInput): MobileSprintEngineCommandAuditEntry {
-    const entry: MobileSprintEngineCommandAuditEntry = {
+  recordAudit(input: MobileControlCommandAuditInput): MobileControlCommandAuditEntry {
+    const entry: MobileControlCommandAuditEntry = {
       auditId: `msa_${randomUUID()}`,
       commandId: input.command?.commandId ?? 'unknown',
       commandType: input.command?.type ?? 'unknown',
@@ -147,11 +107,7 @@ export class MobileSprintEngineCommandResultRecorder {
       ...(input.code ? { code: input.code } : {}),
       message: input.message,
       recordedAt: this.now().toISOString(),
-      ...(input.state ? { statePath: input.state.statePath } : {}),
-      ...(input.artifactId ? { artifactId: input.artifactId } : {}),
       ...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
-      ...(input.toolArgs ? { toolArgs: input.toolArgs } : {}),
-      ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
     }
 
     this.auditLog.unshift(entry)

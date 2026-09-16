@@ -1055,6 +1055,6 @@ Use focused backend and app checks when changing this contract:
 ```bash
 python3 -m py_compile sprintengine_core/store.py sprintengine_core/tool/tasks.py sprintengine_core/tool/phase_prompts.py scripts/sprintengine_tool.py
 uv run --with pytest --with PyYAML python -m pytest tests/sprintengine_tool -q
-npx esbuild src/main/mobile/sprintengine/snapshot.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/mobile-sprintengine-snapshot.test.cjs && node node_modules/.cache/multicode/mobile-sprintengine-snapshot.test.cjs
+npx esbuild src/main/mobile/control/snapshot.test.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/mobile-control-snapshot.test.cjs && node node_modules/.cache/multicode/mobile-control-snapshot.test.cjs
 npx esbuild src/main/index.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/main-index.check.cjs
 ```
