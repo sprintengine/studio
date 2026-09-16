@@ -1,7 +1,7 @@
 import { stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 
-import { forEachJsonlRow } from '../sprintengine-token-usage/jsonl'
+import { forEachJsonlRow } from '../jsonl'
 
 /**
  * Derive an automation run summary from a Claude Code JSONL transcript: the text
