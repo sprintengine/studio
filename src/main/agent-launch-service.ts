@@ -307,10 +307,6 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
         // The PROJECT root, not the run worktree: a module's teardown matches
         // its sessions on the workspace root they were launched for.
         workspaceRoot: workspace.folderPath?.trim() || cwd,
-        workId: agentId,
-        // A caller that knows what this agent IS says so; every app-level
-        // launch is a general agent and says nothing.
-        role: request.role?.trim() || 'general',
         displayName: name,
       },
       agentRecord: record,

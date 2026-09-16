@@ -1011,8 +1011,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
             system: 'manual' satisfies AgentSessionSystem,
             workspaceId,
             workspaceRoot: folderReadyPath ?? finalContext.savedFolderPath ?? '',
-            workId: agentId,
-            role: 'manual',
             displayName: finalAgent.name ?? agentId,
           }
 

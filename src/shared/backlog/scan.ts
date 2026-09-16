@@ -387,7 +387,6 @@ export async function scanBacklog(
             relativePath,
             sourceContent,
             stats,
-            workspaceRoot: location.workspaceRoot,
           }),
         }
       } catch (error) {
@@ -436,8 +435,6 @@ export function createBacklogItem(input: {
   sourceContent: string
   stats: Pick<FileSystemStat, 'modifiedAtMs' | 'sizeBytes'>
   object?: BacklogItemObjectMetadata
-  /** The project this item belongs to, for resolving its durable run links. */
-  workspaceRoot?: string
 }): BacklogItem {
   const relativePath = normalizeRelativePath(input.relativePath)
   const { body, fields } = parseBacklogFrontmatter(input.sourceContent)

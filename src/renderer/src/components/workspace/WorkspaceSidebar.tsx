@@ -4375,7 +4375,7 @@ export default function WorkspaceSidebar({
                   title={`Close “${workspace?.name ?? 'workspace'}”?`}
                   subtitle={
                     activity === 'needs-input'
-                      ? 'A task is waiting for input. Closing will lose that prompt.'
+                      ? 'An agent is waiting for input. Closing will lose that prompt.'
                       : 'Running agents will be stopped. Workspace files on disk are kept.'
                   }
                   onClose={() => setConfirmClose(null)}

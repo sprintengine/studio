@@ -54,11 +54,6 @@ export type AgentLaunchRequest = {
    */
   cwd?: string
   /**
-   * Recorded as the session's agent-identity role. Absent records the agent as
-   * general, which is what every app-level launch wants.
-   */
-  role?: string
-  /**
    * Accept a workspace of any mode as the launch host. The default refuses
    * anything but standard/automations-host, because an `agent.launch` caller
    * that named a hidden workspace has almost certainly named the wrong one. A

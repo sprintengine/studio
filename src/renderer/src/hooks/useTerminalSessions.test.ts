@@ -7,7 +7,6 @@ import {
   deriveWorkspaceLastInputAt,
   deriveWorkspaceTerminalActivity,
   deriveWorkspaceWorkingSince,
-  describeExecutionTerminal,
   findLiveSession,
   getTerminalSessionsSignature,
   isLiveTerminal,
@@ -430,10 +429,6 @@ function assertProcessAliveHelpersUseLivenessOnly(): void {
   assert.equal(isLiveTerminal(exitedWorking), false)
   assert.equal(isLiveTerminal(liveIdle), true)
   assert.equal(findLiveSession([exitedWorking, liveIdle], () => true)?.sessionId, 'session_live_idle')
-  assert.deepEqual(
-    describeExecutionTerminal([liveIdle], 'workspace_1', 'exec_1'),
-    { kind: 'running', sessionId: 'session_live_idle', agentId: 'developer-1' }
-  )
 }
 
 function assertWorkspaceDisplayActivityPriority(): void {
@@ -448,23 +443,21 @@ function assertWorkspaceDisplayActivityPriority(): void {
     }),
   ]
 
-  assert.equal(deriveWorkspaceDisplayActivity('workspace_1', sessions, true), 'needs-input')
-  assert.equal(deriveWorkspaceDisplayActivity('workspace_1', sessions, false), 'working')
+  assert.equal(deriveWorkspaceDisplayActivity('workspace_1', sessions), 'working')
   assert.equal(
-    deriveWorkspaceDisplayActivity('workspace_1', [sessions[1]], false),
+    deriveWorkspaceDisplayActivity('workspace_1', [sessions[1]]),
     'failed'
   )
   assert.equal(
     deriveWorkspaceDisplayActivity('workspace_1', [
       session({ sessionId: 'session_idle', activity: { kind: 'idle', since: 300 } }),
-    ], false),
+    ]),
     'idle'
   )
 }
 
 // An agent whose lifecycle hooks report `awaiting_input` must surface as
-// `needs-input` even when SprintEngine's runtime needs-input flag is false and
-// its bridged activity is idle — and it must change the dedupe signature so the
+// `needs-input` even when its bridged activity is idle — and it must change the dedupe signature so the
 // sidebar re-renders on the phase flip.
 function assertAwaitingInputHookSurfacesAsNeedsInput(): void {
   const awaiting = session({
@@ -474,7 +467,7 @@ function assertAwaitingInputHookSurfacesAsNeedsInput(): void {
   })
   assert.equal(workspaceTerminalAwaitingInput('workspace_1', [awaiting]), true)
   // Wins over the idle activity, with the SprintEngine flag off.
-  assert.equal(deriveWorkspaceDisplayActivity('workspace_1', [awaiting], false), 'needs-input')
+  assert.equal(deriveWorkspaceDisplayActivity('workspace_1', [awaiting]), 'needs-input')
   // Scoped to the workspace: another workspace's awaiting agent does not leak in.
   assert.equal(workspaceTerminalAwaitingInput('workspace_2', [awaiting]), false)
   // Non-agent sessions are ignored.
@@ -495,7 +488,7 @@ function assertAwaitingInputHookSurfacesAsNeedsInput(): void {
     agentState: { phase: 'awaiting_input', since: 60, source: 'hook' },
   })
   assert.equal(workspaceTerminalAwaitingInput('workspace_1', [deadAwaiting]), false)
-  assert.equal(deriveWorkspaceDisplayActivity('workspace_1', [deadAwaiting], false), 'idle')
+  assert.equal(deriveWorkspaceDisplayActivity('workspace_1', [deadAwaiting]), 'idle')
 
   // Entering awaiting_input changes the signature so consumers re-render even
   // though the bridged `activity` (idle) is unchanged.
@@ -596,7 +589,7 @@ function assertSuspendedSessionNeverReadsAsWorking(): void {
     'a paused chat falls back to recency, not to a turn in flight'
   )
   assert.equal(
-    deriveWorkspaceDisplayActivity('workspace_1', [suspendedMidTurn], false),
+    deriveWorkspaceDisplayActivity('workspace_1', [suspendedMidTurn]),
     'idle',
     'the row that lights the sidebar and the peek card must go quiet'
   )
@@ -1064,8 +1057,6 @@ function session(
       system: 'manual',
       workspaceId: input.workspaceId ?? 'workspace_1',
       workspaceRoot: '/workspace',
-      workId: 'work_1',
-      role: 'manual',
       displayName: 'Agent',
     },
   }

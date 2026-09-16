@@ -8,7 +8,7 @@ import type { LifecycleState } from '../../../shared/lifecycle-state'
 // the shell only consumes the derived glyph.
 export type WorkspaceRunGlyph = { state: LifecycleState; live: boolean; label: string }
 
-export type WorkspaceRunGlyphProviderInput = Pick<Workspace, 'mode' | 'moduleState'>
+export type WorkspaceRunGlyphProviderInput = Pick<Workspace, 'mode'>
 
 function runGlyphProviderForWorkspace(workspace: WorkspaceRunGlyphProviderInput) {
   // Enablement is read off the host rather than the workspace store: the
@@ -17,18 +17,11 @@ function runGlyphProviderForWorkspace(workspace: WorkspaceRunGlyphProviderInput)
   // loaded first holding a half-evaluated one.
   const host = getRendererHost()
   const definitions = host.getWorkspaceTypes((moduleId) => host.isModuleEnabled(moduleId))
-  // The mode's own provider wins: the published module contract promises a
-  // type's provider is called for its own workspaces. A predicate-based claim
-  // — a module recognising its own state riding a workspace of another mode —
-  // applies only when the workspace's own mode ships no provider.
-  const modeOwner = definitions.find(
+  // A type's provider is asked about its own workspaces only: the published
+  // module contract promises exactly that.
+  return definitions.find(
     (definition) => definition.deriveRunGlyph && definition.id === workspace.mode
-  )
-  if (modeOwner) return modeOwner
-  return definitions.find((definition) => {
-    if (!definition.deriveRunGlyph) return false
-    return definition.isRunGlyphProviderForWorkspace?.(workspace) === true
-  }) ?? null
+  ) ?? null
 }
 
 // The sidebar row's one status slot. The owning module's provider derives the
@@ -42,13 +35,4 @@ export function deriveWorkspaceRunGlyph(
   const provider = runGlyphProviderForWorkspace(workspace)
   if (!provider) return null
   return provider.deriveRunGlyph?.(workspace) ?? null
-}
-
-// True when the workspace's mode owns a run-glyph provider — i.e. its status is
-// provider-derived, not terminal-derived. Callers use this to suppress the
-// terminal-driven attention idioms (e.g. the collapsed corner dot) on rows whose
-// status the provider already owns, so a stuck terminal can't light a resting
-// run.
-export function workspaceHasRunGlyphProvider(workspace: WorkspaceRunGlyphProviderInput): boolean {
-  return runGlyphProviderForWorkspace(workspace) !== null
 }

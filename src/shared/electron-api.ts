@@ -1661,8 +1661,6 @@ export type AgentSessionIdentity = {
   system: AgentSessionSystem
   workspaceId: string
   workspaceRoot: string
-  workId: string
-  role: string
   displayName: string
 }
 

@@ -24,7 +24,7 @@ export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
 // The automations-host shell persists and is reused, but its agents are
 // finalized automation runs — a full restart must not auto-resume them. Clear
 // the launch/resume GATE
-// (`cliHasLaunched`/`cliResumeAvailable`/`cliResumeRequested`/`cliStartRequested`
+// (`cliHasLaunched`/`cliResumeAvailable`/`cliStartRequested`
 // + the startup prompt), which is what `shouldResume` reads at mount, so cold
 // load never resumes or re-sends the automation directive.
 //
@@ -52,7 +52,6 @@ function clearAutomationsHostAgentLaunchState(workspace: Workspace): Workspace {
           cliHasLaunched: false,
           cliOnboardingPromptSent: false,
           cliResumeAvailable: false,
-          cliResumeRequested: false,
           cliStartupPrompt: undefined,
         }),
       ]),

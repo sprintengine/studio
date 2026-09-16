@@ -20,17 +20,15 @@ export type AgentColdLoadDecision =
   | 'inert'
 
 /**
- * The launch-intent fields a mounting terminal reads. Only these four say "the
- * user (or a supervisor) wants this agent running NOW"; everything else on the
+ * The launch-intent fields a mounting terminal reads. Only these three say "the
+ * user wants this agent running NOW"; everything else on the
  * agent is history.
  */
 export interface AgentLaunchIntentInput {
-  /** Set by every deliberate start path (AgentPanel, auto-run, board actions). */
+  /** Set by every deliberate start path (agent creation, AgentPanel). */
   cliStartRequested?: boolean
   /** Bumped by an explicit restart. */
   cliRestartNonce?: number
-  /** A board re-open asking to reattach a recorded conversation. */
-  cliResumeRequested?: boolean
   /** An onboarding directive still waiting to be delivered. */
   cliStartupPrompt?: string
 }
@@ -57,7 +55,6 @@ export interface AgentLaunchIntentInput {
 export function hasLiveAgentLaunchIntent(agent: AgentLaunchIntentInput | null | undefined): boolean {
   if (!agent) return false
   return Boolean(agent.cliStartRequested)
-    || Boolean(agent.cliResumeRequested)
     || Boolean(agent.cliStartupPrompt)
     || (agent.cliRestartNonce ?? 0) > 0
 }

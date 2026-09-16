@@ -113,8 +113,7 @@ function titleInkClass(selected: boolean): string {
 }
 
 // Hover card for a backlog list row: the full (unclipped) title, the status
-// word with the id (an epic's completion, and on a cross-project list the
-// project the item belongs to), and the file path. The Backlog
+// word with the id (and an epic's completion), and the file path. The Backlog
 // panel wraps each row in a Tooltip carrying this card, replacing the native
 // `title` path tooltip; since the card always shows the full title, the host
 // also sets `plainTitle` on the row content so the clipped-title tooltip
@@ -123,17 +122,12 @@ export function BacklogRowHoverCard({
   item,
   epicProgress,
   dependencyState,
-  projectName,
 }: {
   item: BacklogItem
   epicProgress?: BacklogEpicProgress
   /** Derived dependency marker (see backlogDependencies): 'blocked' replaces
    *  the status word so the card never claims Ready for a gated item. */
   dependencyState?: BacklogDependencyState | null
-  /** Which project's backlog this item lives in. Set only where rows from
-   *  several projects are mixed (the Backlog door on All projects) — inside one
-   *  project's panel the answer is the panel itself. */
-  projectName?: string
 }): JSX.Element {
   const statusLabel =
     dependencyState === 'blocked' ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status]
@@ -146,7 +140,6 @@ export function BacklogRowHoverCard({
         {statusLabel}
         {item.displayId ? ` · ${item.displayId}` : ''}
         {item.isEpic && epicProgress ? ` · ${epicProgress.done}/${epicProgress.total} complete` : ''}
-        {projectName ? ` · ${projectName}` : ''}
       </span>
       <span className="whitespace-normal break-all font-mono text-micro text-[color:var(--text-subtle)]">
         {item.relativePath}
@@ -164,7 +157,6 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   epicProgress,
   plainTitle = false,
   selected = false,
-  hideTouchedTime = false,
   onOpenEpic,
 }: {
   item: BacklogItem
@@ -199,10 +191,6 @@ export const BacklogRowContent = memo(function BacklogRowContent({
    *  list whose selection lives elsewhere (a picker feeding another pane)
    *  leaves it unset and every row reads as unpicked. */
   selected?: boolean
-  /** The host renders the touched-time in its own trailing column (the epic
-   *  list stacks it under the status cell so both share one right edge), so the
-   *  supporting line omits it — a row never shows the time twice. */
-  hideTouchedTime?: boolean
   /** Makes the parent-epic pill a jump: clicking it opens the epic instead of
    *  selecting the member row. Hosts with cross-item navigation pass it; a
    *  host without (the source picker) leaves the pill inert. */
@@ -213,10 +201,6 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   const blocked = dependencyState === 'blocked'
   const lifecycle = blocked ? 'blocked' : backlogStatusToLifecycle(item.status)
   const statusLabel = blocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status]
-  // A bare in_progress status renders the quarter arc static — per the
-  // glyph-system rule that in_progress animates "only when genuinely live",
-  // and the item file is a record, not a live signal.
-  const live = false
   const titleInk = titleInkClass(selected)
   // Every row leads with its status glyph (the glyph-system placement rule) —
   // an epic included, so in-progress/completed/archived epics read at a glance.
@@ -226,7 +210,9 @@ export const BacklogRowContent = memo(function BacklogRowContent({
     <>
       <div className="flex items-center gap-2">
         <Tooltip content={statusLabel} placement="top">
-          <LifecycleGlyph state={lifecycle} live={live} />
+          {/* Static even when in_progress: the glyph animates only when genuinely
+              live, and the item file is a record, not a live signal. */}
+          <LifecycleGlyph state={lifecycle} live={false} />
         </Tooltip>
         {item.isEpic ? (
           <Tooltip content="Epic" placement="top" wrapperClassName="inline-flex shrink-0">
@@ -309,13 +295,11 @@ export const BacklogRowContent = memo(function BacklogRowContent({
             <EpicPill epic={epicMeta} onOpen={onOpenEpic} />
           </div>
         ) : null}
-        {hideTouchedTime ? null : (
-          <span
-            className={`${epicMeta && !item.isEpic ? 'pl-2' : 'ml-auto'} shrink-0 tabular-nums text-[color:var(--text-subtle)]`}
-          >
-            {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
-          </span>
-        )}
+        <span
+          className={`${epicMeta && !item.isEpic ? 'pl-2' : 'ml-auto'} shrink-0 tabular-nums text-[color:var(--text-subtle)]`}
+        >
+          {formatRelativeMsAgo(item.modifiedAt, now) || 'unknown'}
+        </span>
       </div>
     </>
   )

@@ -12,7 +12,6 @@ import {
 } from './persistenceSlice'
 import { normalizeWorkspaceForPartialize } from './normalizers'
 import { normalizeAppSettings } from './settingsSlice'
-import { getWorkspaceModuleState } from './workspaceModuleState'
 import type { Workspace } from '../../types/workspace'
 
 // classifyPersistedWorkspaceState ----------------------------------------------
@@ -487,7 +486,7 @@ const v70WithModuleBag = {
 }
 const migratedBag = migratePersistedWorkspaceState(v70WithModuleBag, 70) as { workspaces: Workspace[] }
 assert.deepEqual(
-  getWorkspaceModuleState(migratedBag.workspaces[0], 'weather-deck'),
+  migratedBag.workspaces[0].moduleState?.['weather-deck'],
   { lastCity: 'Dublin' },
   'another module\'s bag entry rides the ladder untouched',
 )

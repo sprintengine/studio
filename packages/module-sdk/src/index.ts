@@ -1225,7 +1225,7 @@ export type ModuleAgentSpawnRequest = {
    * session under that id is disposed and replaced either way.
    */
   reuseLive?: boolean
-  /** Free-form role recorded on the session's agent identity ('review-guide'). */
+  /** Free-form role ('review-guide'). Accepted; the host does not record it today. */
   role?: string
 }
 

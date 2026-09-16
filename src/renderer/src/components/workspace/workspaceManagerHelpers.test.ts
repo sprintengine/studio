@@ -24,7 +24,7 @@ function main(): void {
   assertHookPhaseDrivesStatus()
   assertOutputRecencyFallback()
   assertFailedRetentionAndPrecedence()
-  assertRuntimeReportedNeedsInput()
+  
   assertLastActivityIsMaxOfOutputAndInput()
   assertAttentionFirstOrdering()
   assertAttentionToneNeverLies()
@@ -316,8 +316,7 @@ function assertHookPhaseDrivesStatus(): void {
     snap({
       activity: { kind: 'working', since: 10 },
       agentState: { phase: 'awaiting_input', since: 500, source: 'hook' },
-    }),
-    false,
+    })
   )
   assert.equal(awaiting.status, 'needs-input')
   assert.equal(awaiting.source, 'hook')
@@ -330,25 +329,13 @@ function assertHookPhaseDrivesStatus(): void {
       processAlive: false,
       activity: { kind: 'exited', at: 700, exitCode: 0 },
       agentState: { phase: 'awaiting_input', since: 500, source: 'hook' },
-    }),
-    false,
+    })
   )
   assert.notEqual(deadAwaiting.status, 'needs-input', 'dead awaiting_input does not surface as needs-input')
-  // But a runtime's own self-report stays ungated even when the pty is dead.
-  const deadButRuntime = deriveSessionStatus(
-    snap({
-      processAlive: false,
-      activity: { kind: 'exited', at: 700, exitCode: 0 },
-      agentState: { phase: 'awaiting_input', since: 500, source: 'hook' },
-    }),
-    true,
-  )
-  assert.equal(deadButRuntime.status, 'needs-input', 'runtimeNeedsInput is not gated on liveness')
 
   for (const phase of ['starting', 'thinking', 'tool_use'] as const) {
     const working = deriveSessionStatus(
       snap({ activity: { kind: 'idle', since: 1 }, agentState: { phase, since: 42, source: 'hook' } }),
-      false,
     )
     assert.equal(working.status, 'working', `${phase} -> working`)
     assert.equal(working.activitySince, 42)
@@ -358,7 +345,6 @@ function assertHookPhaseDrivesStatus(): void {
   for (const phase of ['idle', 'stalled'] as const) {
     const idle = deriveSessionStatus(
       snap({ activity: { kind: 'working', since: 1 }, agentState: { phase, since: 99, source: 'hook' } }),
-      false,
     )
     assert.equal(idle.status, 'idle', `${phase} -> idle even while bytes are flowing`)
     assert.equal(idle.source, 'hook')
@@ -367,12 +353,12 @@ function assertHookPhaseDrivesStatus(): void {
 
 // Without a hook frame, fall back to the output-timing heuristic, marked inferred.
 function assertOutputRecencyFallback(): void {
-  const working = deriveSessionStatus(snap({ activity: { kind: 'working', since: 7 } }), false)
+  const working = deriveSessionStatus(snap({ activity: { kind: 'working', since: 7 } }))
   assert.equal(working.status, 'working')
   assert.equal(working.source, 'lifecycle')
   assert.equal(working.activitySince, 7)
 
-  const idle = deriveSessionStatus(snap({ activity: { kind: 'idle', since: 8 } }), false)
+  const idle = deriveSessionStatus(snap({ activity: { kind: 'idle', since: 8 } }))
   assert.equal(idle.status, 'idle')
   assert.equal(idle.source, 'lifecycle')
 }
@@ -384,29 +370,21 @@ function assertFailedRetentionAndPrecedence(): void {
     snap({
       activity: { kind: 'failed', at: 1234, exitCode: 137 },
       agentState: { phase: 'thinking', since: 1, source: 'hook' },
-    }),
-    true,
+    })
   )
   assert.equal(failed.status, 'failed')
   assert.equal(failed.exitCode, 137)
   assert.equal(failed.activitySince, 1234, 'failed since comes from the exit timestamp')
 }
 
-// Needs-input also works for non-hook agents via a runtime's MCP self-report.
-function assertRuntimeReportedNeedsInput(): void {
-  const info = deriveSessionStatus(snap({ activity: { kind: 'idle', since: 3 } }), true)
-  assert.equal(info.status, 'needs-input')
-  assert.equal(info.source, 'lifecycle')
-}
-
 function assertLastActivityIsMaxOfOutputAndInput(): void {
   assert.equal(
-    deriveSessionStatus(snap({ activity: { kind: 'idle', since: 1 }, lastOutputAt: 100, lastInputAt: 250 }), false)
+    deriveSessionStatus(snap({ activity: { kind: 'idle', since: 1 }, lastOutputAt: 100, lastInputAt: 250 }))
       .lastActivityAt,
     250,
   )
   assert.equal(
-    deriveSessionStatus(snap({ activity: { kind: 'idle', since: 1 }, lastOutputAt: null, lastInputAt: null }), false)
+    deriveSessionStatus(snap({ activity: { kind: 'idle', since: 1 }, lastOutputAt: null, lastInputAt: null }))
       .lastActivityAt,
     null,
   )

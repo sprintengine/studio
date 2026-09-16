@@ -41,11 +41,6 @@ assert.equal(
   'an explicit restart bumps the nonce',
 )
 assert.equal(
-  hasLiveAgentLaunchIntent({ cliResumeRequested: true }),
-  true,
-  'a board re-open asks to reattach a recorded conversation',
-)
-assert.equal(
   hasLiveAgentLaunchIntent({ cliStartupPrompt: 'Work the auth revamp…' }),
   true,
   'an undelivered startup directive is live intent',
@@ -57,7 +52,6 @@ assert.equal(
     cliStartRequested: false,
     cliHasLaunched: false,
     cliResumeAvailable: false,
-    cliResumeRequested: false,
     cliRestartNonce: 0,
     cliStartupPrompt: undefined,
   } as Parameters<typeof hasLiveAgentLaunchIntent>[0]),

@@ -40,7 +40,6 @@ export type ModuleSurfaceRegistry = {
   getModuleCommands(moduleEnabled?: (moduleId: string) => boolean): ReadonlyArray<{ id: string; moduleId: string }>
   getTopBarItems(moduleEnabled?: (moduleId: string) => boolean): ReadonlyArray<{ id: string; moduleId: string }>
   getBacklogItemActions(): ReadonlyArray<{ id: string; moduleId: string }>
-  getWorkspaceAside(): { id: string; moduleId: string } | undefined
 }
 
 export function collectModuleSurfaces(registry: ModuleSurfaceRegistry): Record<string, ModuleContributedSurfaces> {
@@ -57,7 +56,6 @@ export function collectModuleSurfaces(registry: ModuleSurfaceRegistry): Record<s
       commands: [],
       topBarItems: [],
       backlogItemActions: [],
-      workspaceAsides: [],
     }
     byModule[moduleId] = created
     return created
@@ -76,8 +74,6 @@ export function collectModuleSurfaces(registry: ModuleSurfaceRegistry): Record<s
   collect('commands', registry.getModuleCommands())
   collect('topBarItems', registry.getTopBarItems())
   collect('backlogItemActions', registry.getBacklogItemActions())
-  const aside = registry.getWorkspaceAside()
-  if (aside) collect('workspaceAsides', [aside])
   return byModule
 }
 

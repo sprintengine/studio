@@ -2378,8 +2378,6 @@ function materializeAgentSessionIdentity(
     system: agentSession.system,
     workspaceId: agentSession.workspaceId || workspaceId || '',
     workspaceRoot: agentSession.workspaceRoot,
-    workId: agentSession.workId,
-    role: agentSession.role,
     displayName: agentSession.displayName,
   }
 }
