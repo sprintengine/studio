@@ -1,6 +1,0 @@
-{"method":"session/update","params":{"sessionId":"9a1b2c3d-e4f5-4a6b-8c7d-0e1f2a3b4c5d","update":{"sessionUpdate":"available_commands_update"},"_meta":{"totalTokens":100,"agentTimestampMs":1700000000000}}}
-{"method":"session/update","params":{"sessionId":"9a1b2c3d-e4f5-4a6b-8c7d-0e1f2a3b4c5d","update":{"sessionUpdate":"user_message_chunk","_meta":{"modelId":"grok-4.5"}},"_meta":{"agentTimestampMs":1700000001000}}}
-{"method":"session/update","params":{"sessionId":"9a1b2c3d-e4f5-4a6b-8c7d-0e1f2a3b4c5d","update":{"sessionUpdate":"agent_thought_chunk"},"_meta":{"totalTokens":150000,"agentTimestampMs":1700000002000}}}
-{not valid json — skip me}
-{"method":"session/update","params":{"sessionId":"9a1b2c3d-e4f5-4a6b-8c7d-0e1f2a3b4c5d","update":{"sessionUpdate":"agent_message_chunk"},"_meta":{"totalTokens":171056,"agentTimestampMs":1700000003000}}}
-{"method":"session/update","params":{"sessionId":"9a1b2c3d-e4f5-4a6b-8c7d-0e1f2a3b4c5d","update":{"sessionUpdate":"agent_message_chunk"},"_meta":{"totalTokens":120000,"agentTimestampMs":1700000004000}}}
