@@ -147,6 +147,8 @@ import {
 } from '../backlog/BacklogRow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { BacklogItemAction, BacklogItemActionContext, BacklogLinkProvider, WorkspacePanelProps } from '../../modules/renderer-host'
+import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
+
 
 // Backlog panel: capture / browse / triage / start surface for the lightweight
 // items (rough ideas, notes, feature sketches, imported markdown, mockups)
@@ -247,7 +249,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const sprintEngineWorkspaces = useWorkspaceStore(
     useShallow((state) =>
       state.workspaces.filter(
-        (workspace) => workspace.mode === 'sprintengine' || Boolean(workspace.sprintEngineContext),
+        (workspace) => workspace.mode === 'sprintengine' || Boolean(sprintEngineRunContext(workspace)),
       ),
     ),
   )
@@ -604,7 +606,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       const workspace = matchWorkspaceForBacklogRunLink(sprintEngineWorkspaces, folderPath, link)
       if (!workspace) continue
       const liveGlyph = deriveSprintEngineRunGlyph({
-        sprintEngineState: workspace.sprintEngineState,
+        sprintEngineState: sprintEngineRunState(workspace),
         autoState: workspace.sprintEngineAutoState,
       })
       if (liveGlyph) map.set(item.id, liveGlyph)

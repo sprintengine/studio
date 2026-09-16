@@ -7,6 +7,7 @@ import type {
 } from '../../../shared/sprintengine/runtime-bridge'
 import type { LayoutTemplate } from '../types/workspace'
 import { createInitialSprintEngineState } from './sprintengine'
+import { sprintEngineRunContext } from '../store/slices/workspaceModuleState'
 
 // ── Fake preload API, installed before the modules under test are imported so
 // the bridge sees `window.api` at init time (node has no `window`). Mirrors
@@ -53,6 +54,7 @@ const fakeApi = installFakeApi()
 
 // Imported AFTER the fake window is installed.
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import { useNotificationStore } from '../store/notificationStore'
 import { initSprintEngineRuntimeBridge } from './sprintengineRuntimeBridge'
 import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
@@ -87,7 +89,7 @@ async function settle(): Promise<void> {
 // from the run name, so read the effective statePath back.
 function addSprintWorkspace(name: string, folderPath: string): { workspaceId: string; statePath: string } {
   const workspaceId = useWorkspaceStore.getState().addWorkspace(template, { name, folderPath })
-  useWorkspaceStore.getState().setSprintEngineState(
+  useSprintEngineRunStore.getState().setSprintEngineState(
     workspaceId,
     createInitialSprintEngineState({
       goal: 'Validate the runtime bridge',
@@ -95,8 +97,8 @@ function addSprintWorkspace(name: string, folderPath: string): { workspaceId: st
       roleCounts: { architect: 1 },
     })
   )
-  const statePath = useWorkspaceStore.getState().workspaces
-    .find((ws) => ws.id === workspaceId)?.sprintEngineContext?.statePath
+  const found = useWorkspaceStore.getState().workspaces.find((ws) => ws.id === workspaceId)
+  const statePath = found ? sprintEngineRunContext(found)?.statePath : undefined
   assert.ok(statePath, 'sprint workspace fixture must expose a statePath')
   return { workspaceId, statePath }
 }
@@ -138,7 +140,7 @@ async function main(): Promise<void> {
   assert.equal(fakeApi.registerCalls.length, 1, 'agent churn does not re-register')
 
   // ── A config change (maxConcurrentAgents) re-registers.
-  useWorkspaceStore.getState().setSprintEngineMaxConcurrentAgents(workspaceId, 5)
+  useSprintEngineRunStore.getState().setSprintEngineMaxConcurrentAgents(workspaceId, 5)
   await settle()
   assert.equal(fakeApi.registerCalls.length, 2, 'config change re-registers')
   assert.equal(fakeApi.registerCalls[1].maxConcurrentAgents, 5)
@@ -175,7 +177,7 @@ async function main(): Promise<void> {
   assert.equal(workspace()?.agents['architect-1']?.cliOnboardingPromptSent, true)
 
   // stop_reason: same transitions as a renderer stop, and NO push-back echo.
-  useWorkspaceStore.getState().setSprintEngineAutomationMode(workspaceId, 'run_agents')
+  useSprintEngineRunStore.getState().setSprintEngineAutomationMode(workspaceId, 'run_agents')
   assert.equal(workspace()?.sprintEngineAutoState?.runtimeState, 'running')
   fakeApi.broadcastOp({
     kind: 'stop_reason',
@@ -208,7 +210,7 @@ async function main(): Promise<void> {
 
   // ── Lifecycle rides re-registrations: the blocked state above is visible to
   // the scheduler the next time identity/config re-registers.
-  useWorkspaceStore.getState().setSprintEngineMaxConcurrentAgents(workspaceId, 4)
+  useSprintEngineRunStore.getState().setSprintEngineMaxConcurrentAgents(workspaceId, 4)
   await settle()
   assert.equal(fakeApi.registerCalls.length, 3, 'config change re-registers')
   assert.equal(fakeApi.registerCalls[2].runtimeState, 'blocked', 'persisted lifecycle rides the registration')
@@ -223,28 +225,29 @@ async function main(): Promise<void> {
   await settle()
   assert.equal(fakeApi.stopReasonPushes.length, 0, 'a main-originated resume is never pushed back to main')
 
-  // ── Agent configs: explicit tombstones + last-write-wins stamp. A
-  // sprintengine agent registers with null tombstones for unset fields…
-  useWorkspaceStore.getState().updateAgent(workspaceId, 'architect-1', { kind: 'sprintengine' })
+  // ── Agent configs: a config-field edit on a roster agent re-registers with
+  // null tombstones for unset fields (roster membership marks the agent managed).
+  useWorkspaceStore.getState().updateAgent(workspaceId, 'architect', {
+    cliStartupPrompt: 'ship it',
+  })
   await settle()
-  assert.equal(fakeApi.registerCalls.length, 4, 'a materialized sprintengine agent re-registers configs')
-  const seededConfig = fakeApi.registerCalls[3].agentConfigs['architect-1']
+  assert.equal(fakeApi.registerCalls.length, 4, 'a config edit re-registers configs')
+  const seededConfig = fakeApi.registerCalls[3].agentConfigs['architect']
   assert.ok(seededConfig, 'sprintengine agents always carry a config entry')
   assert.equal(seededConfig.cliRuntimeOverride, null, 'unset override is an explicit tombstone')
-  assert.equal(seededConfig.cliStartupPrompt, null, 'unset startup prompt is an explicit tombstone')
-  assert.equal(seededConfig.name, 'Ada')
+  assert.equal(seededConfig.cliStartupPrompt, 'ship it', 'the edited startup prompt is registered')
 
   // …and a user config edit is stamped so main's merge is last-write-wins.
-  useWorkspaceStore.getState().updateAgent(workspaceId, 'architect-1', {
+  useWorkspaceStore.getState().updateAgent(workspaceId, 'architect', {
     cliRuntimeOverride: { cli: 'codex', model: null },
   })
   await settle()
   assert.equal(fakeApi.registerCalls.length, 5, 'a config edit re-registers')
-  const editedConfig = fakeApi.registerCalls[4].agentConfigs['architect-1']
+  const editedConfig = fakeApi.registerCalls[4].agentConfigs['architect']
   assert.deepEqual(editedConfig?.cliRuntimeOverride, { cli: 'codex', model: null })
   assert.ok(typeof editedConfig?.configEditedAt === 'number', 'the edit is stamped for last-write-wins')
   assert.equal(
-    workspace()?.agents['architect-1']?.configEditedAt,
+    workspace()?.agents['architect']?.configEditedAt,
     editedConfig.configEditedAt,
     'the stamp lives on the agent record',
   )

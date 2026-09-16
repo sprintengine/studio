@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { sprintEngineRunContext } from '../../../../store/slices/workspaceModuleState'
 
 import { JSDOM } from 'jsdom'
 import { bindSprintEngineIpc } from '../../../../modules/sprint-engine-ipc'
@@ -868,7 +869,7 @@ async function main(): Promise<void> {
   }
   await selectRailRun('wake-filter-sprint')
   assert.equal(
-    useWorkspaceStore.getState().workspaces.some((ws) => ws.sprintEngineContext?.statePath === doorStatePath),
+    useWorkspaceStore.getState().workspaces.some((ws) => sprintEngineRunContext(ws)?.statePath === doorStatePath),
     false,
     'the run has no resident workspace — this is the door mount',
   )
@@ -1072,16 +1073,20 @@ async function main(): Promise<void> {
         agents: {},
         openFiles: [],
         createdAt: 3,
-        sprintEngineContext: {
-          teamName: 'wake-filter-sprint',
-          teamSlug: 'wake-filter-sprint',
-          teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/wake-filter-sprint`,
-          statePath: doorStatePath,
+        moduleState: {
+          sprintengine: {
+            context: {
+              teamName: 'wake-filter-sprint',
+              teamSlug: 'wake-filter-sprint',
+              teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/wake-filter-sprint`,
+              statePath: doorStatePath,
+            },
+            state: normalizeSprintEngineProjection(
+              projections.get(doorStatePath),
+              'wake-filter-sprint',
+            ),
+          },
         },
-        sprintEngineState: normalizeSprintEngineProjection(
-          projections.get(doorStatePath),
-          'wake-filter-sprint',
-        ),
       },
     ],
     activeWorkspaceId: 'w1',
@@ -1256,7 +1261,7 @@ async function main(): Promise<void> {
   await settle()
   await selectRailRun('roleless-run')
   assert.equal(
-    useWorkspaceStore.getState().workspaces.some((ws) => ws.sprintEngineContext?.statePath === rolelessStatePath),
+    useWorkspaceStore.getState().workspaces.some((ws) => sprintEngineRunContext(ws)?.statePath === rolelessStatePath),
     false,
     'the roleless run has no resident workspace either — this is the door mount',
   )
@@ -1352,16 +1357,20 @@ async function main(): Promise<void> {
         agents: {},
         openFiles: [],
         createdAt: 4,
-        sprintEngineContext: {
-          teamName: 'roleless-resident',
-          teamSlug: 'roleless-resident',
-          teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/roleless-resident`,
-          statePath: residentRolelessStatePath,
+        moduleState: {
+          sprintengine: {
+            context: {
+              teamName: 'roleless-resident',
+              teamSlug: 'roleless-resident',
+              teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/roleless-resident`,
+              statePath: residentRolelessStatePath,
+            },
+            state: normalizeSprintEngineProjection(
+              projections.get(residentRolelessStatePath),
+              'roleless-resident',
+            ),
+          },
         },
-        sprintEngineState: normalizeSprintEngineProjection(
-          projections.get(residentRolelessStatePath),
-          'roleless-resident',
-        ),
       },
     ],
     activeWorkspaceId: 'w1',

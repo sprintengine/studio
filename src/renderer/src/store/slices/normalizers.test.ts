@@ -17,10 +17,7 @@ const baseWorkspace = (overrides: Partial<Workspace> = {}): Workspace => ({
   mode: 'standard',
   layoutModel: undefined as unknown as Workspace['layoutModel'],
   agents: {},
-  sprintEngineState: null,
-  sprintEngineContext: null,
   sprintEngineAutoState: undefined,
-  sprintEngineRoleCliDefaults: undefined,
   memory: undefined,
   worktreeState: undefined,
   editorState: { openFiles: [], activeFilePath: null },
@@ -90,16 +87,28 @@ assert.equal(initialSpawnCleaned.sprintEngineInitialSpawnAgentIds, undefined)
 // is stripped, so a Sprint Engine workspace stays classified as 'sprintengine'.
 const projectionCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
   mode: 'sprintengine',
-  sprintEngineContext: { statePath: '/p/.sprintengine/state', teamSlug: 'core' } as unknown as Workspace['sprintEngineContext'],
-  sprintEngineState: {
-    goal: 'Ship it',
-    tasks: [{ id: 'T1', status: 'done' }],
-    artifacts: [{ id: 'A1' }],
-  } as unknown as Workspace['sprintEngineState'],
+  moduleState: {
+    sprintengine: {
+      context: { statePath: '/p/.sprintengine/state', teamSlug: 'core' },
+      state: {
+        goal: 'Ship it',
+        tasks: [{ id: 'T1', status: 'done' }],
+        artifacts: [{ id: 'A1' }],
+      },
+    },
+  },
 }))
-assert.equal(projectionCleaned.sprintEngineState, null)
+assert.equal(
+  (projectionCleaned.moduleState?.sprintengine as { state?: unknown } | undefined)?.state,
+  undefined,
+  'partialize strips the live projection from the bag',
+)
 assert.equal(projectionCleaned.mode, 'sprintengine')
-assert.notEqual(projectionCleaned.sprintEngineContext, null)
+assert.deepEqual(
+  (projectionCleaned.moduleState?.sprintengine as { context?: { teamSlug?: string } } | undefined)?.context?.teamSlug,
+  'core',
+  'partialize keeps durable context in moduleState.sprintengine',
+)
 
 // normalizeWorkspaceForPartialize zeros the in-memory stream buffer + status on agents
 // that survive a save so they cold-load idle instead of streaming.
@@ -382,7 +391,7 @@ assert.deepEqual(
   normalizeWorkspaceForPartialize(baseWorkspace({
     mode: 'sprintengine',
     worktree: { branch: 'sprintengine/x' },
-    sprintEngineState: { goal: 'g', tasks: [], artifacts: [] } as unknown as Workspace['sprintEngineState'],
+    moduleState: { sprintengine: { state: { goal: 'g', tasks: [], artifacts: [] } } },
   })).worktree,
   { branch: 'sprintengine/x' },
   'sprint-engine launch-state clear preserves the worktree marker',

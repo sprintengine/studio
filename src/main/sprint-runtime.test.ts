@@ -713,7 +713,6 @@ async function testCompletionTeardownCoversSuspendedAndExitedAgents(): Promise<v
     execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
     messages: [],
     streamBuffer: '',
-    kind: 'sprintengine',
     cli: 'claude',
     cliSessionId: 'sess-a',
   }
@@ -1114,7 +1113,6 @@ async function testBlockedRunStillReconcilesStaleLaunchFlags(): Promise<void> {
     execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
     messages: [],
     streamBuffer: '',
-    kind: 'sprintengine',
     cli: 'claude',
     cliSessionId: 'dead-sess',
     cliStartRequested: true,
@@ -1245,7 +1243,6 @@ async function testRetirementRecordsSeatEffort(): Promise<void> {
     execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
     messages: [],
     streamBuffer: '',
-    kind: 'sprintengine',
     cli: 'claude',
     cliSessionId: 'sess-a',
     cliModel: 'claude-opus-5',

@@ -13,14 +13,9 @@ import type {
   AgentState,
   AgentId,
   SprintEngineAutoState,
-  SprintEngineAutomationEvent,
-  SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
-  SprintEngineState,
-  SprintEngineWorkspaceContext,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
-  SprintEngineRosterSession,
   SprintEngineRoleCounts,
   SprintEngineRoleModelOverrides,
   AgentCli,
@@ -84,11 +79,10 @@ import {
   pickWorkspaceAgentName,
 } from './slices/agentsSlice'
 import {
-  createRunStateSlice,
   normalizeSprintEngineAutoState,
   normalizeSprintEngineRoleCliDefaults,
   normalizeSprintEngineWorkspaceContext,
-} from './slices/runStateSlice'
+} from '../modules/sprint-engine-run-state'
 import {
   createWorktreesSlice,
   defaultWorkspaceWorktreeState,
@@ -126,7 +120,7 @@ import {
 } from './slices/normalizers'
 import { keepLaterWorkspaceClocks } from '../utils/workspaceRecency'
 import { applyWorkspaceFieldsPatch } from '../../../shared/workspace-sync'
-import { reconcileWorkspaceModuleState } from './slices/workspaceModuleState'
+import { reconcileWorkspaceModuleState, sprintEngineRunContext } from './slices/workspaceModuleState'
 import {
   configureWorkspaceSyncClient,
   workspaceSyncClient,
@@ -361,9 +355,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
       // Set for a chat created on a paired machine; see Workspace.remoteOrigin.
       remoteOrigin?: import('../types/workspace').WorkspaceRemoteOrigin | null
       worktree?: WorkspaceWorktree | null
-      sprintEngineState?: SprintEngineState | null
-      sprintEngineContext?: SprintEngineWorkspaceContext | null
-      sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
+      sprintEngineModule?: import('../../../shared/sprintengine/workspace-record').SprintEngineModuleState
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
       sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
       sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
@@ -383,7 +375,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setActiveWorkspace: (id: WorkspaceId) => void
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
-  setSprintEngineContext: (id: WorkspaceId, sprintEngineContext: SprintEngineWorkspaceContext | null) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
   setFileExplorerFolderRole: (id: WorkspaceId, folderPath: string, role: WorkspaceFolderRole | null) => void
@@ -398,7 +389,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   /**
    * Write one module's entry in a workspace's per-module state bag (MC-1573);
    * null/undefined removes it. False for an unknown workspace or the reserved
-   * `sprintengine` key (single writer: setSprintEngineState).
+   * `sprintengine` key (single writer: the Sprint Engine run store).
    */
   setWorkspaceModuleState: (workspaceId: WorkspaceId, moduleId: string, state: unknown) => boolean
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
@@ -424,40 +415,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   upsertWorktreeEntry: (workspaceId: WorkspaceId, entry: WorktreeEntry) => void
   markWorktreeMissing: (workspaceId: WorkspaceId, worktreeId: string, missingAt?: number) => void
   removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
-  setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
-  setSprintEngineAutomationMode: (
-    workspaceId: WorkspaceId,
-    mode: SprintEngineAutomationMode,
-    options?: {
-      suppressManualAudit?: boolean
-      reason?: string
-      details?: string
-      // Set by the automation-mode sync subscriber when adopting an
-      // authoritative main broadcast (MC-1567): no push back to main.
-      suppressMainSync?: boolean
-    }
-  ) => void
-  applySprintEngineAutomationEvent: (
-    workspaceId: WorkspaceId,
-    event: SprintEngineAutomationEvent
-  ) => void
-  setSprintEngineCliPermissionPreset: (
-    workspaceId: WorkspaceId,
-    cliPermissionPreset: SprintEngineCliPermissionPreset
-  ) => void
-  setSprintEngineMaxConcurrentAgents: (workspaceId: WorkspaceId, maxConcurrentAgents: number) => void
-  upsertSprintEngineRosterSession: (
-    workspaceId: WorkspaceId,
-    agentId: AgentId,
-    session: SprintEngineRosterSession
-  ) => void
-  setSprintEngineCompletionTeardownAt: (workspaceId: WorkspaceId, at: number | undefined) => void
-  markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
-  addSprintEngineMember: (
-    workspaceId: WorkspaceId,
-    role: SprintEngineRoleId
-  ) => { id: AgentId; label: string } | null
-  consumeSprintEngineInitialSpawns: (workspaceId: WorkspaceId, agentIds?: AgentId[]) => AgentId[]
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
   importWorkspace: (ws: Workspace) => void
@@ -1140,8 +1097,8 @@ async function attemptBackupRecovery(): Promise<void> {
     envelope.state.workspaces = dedupeAutomationsHostWorkspaces(
       envelope.state.workspaces as Workspace[],
     )
-    // Same migrate-ladder bypass for the MC-1573 module-state bag: reconcile
-    // the bag with the legacy sprintEngineState mirror before re-persisting.
+    // Same migrate-ladder bypass for the MC-2573 module-state bag: hoist
+    // top-level engine fields into moduleState.sprintengine before re-persisting.
     envelope.state.workspaces = (envelope.state.workspaces as Workspace[])
       .map(reconcileWorkspaceModuleState)
       .map(healRetiredRailLayout)
@@ -1275,7 +1232,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       ...createSettingsSlice(set),
       ...createLayoutSlice(set),
       ...createAgentsSlice(set),
-      ...createRunStateSlice(set),
       ...createWorktreesSlice(set),
       ...createMemorySlice(set),
       ...createPluginsSlice(set),
@@ -1313,12 +1269,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           dropRetiredModeWorkspaces(
             dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
           ),
-        // The MC-1573 lockstep invariant (moduleState.sprintengine === the
-        // legacy sprintEngineState mirror) is enforced here, not only in the
-        // v71 migration rung, for the same reason as the heals above: merge()
-        // runs on every hydration regardless of envelope version. Persisted
-        // rows carry a null run state (partialize strips both homes), so this
-        // is a reference-preserving no-op on the normal load path.
+        // The MC-2573 bag hoist (moduleState.sprintengine holds state/context/
+        // roleCliDefaults; top-level fields mirror until readers migrate) is
+        // enforced here, not only in the v76 migration rung, for the same
+        // reason as the heals above: merge() runs on every hydration regardless
+        // of envelope version. Persisted rows carry durable bag fields and a
+        // null run projection (partialize strips `state`), so this is a
+        // reference-preserving no-op on the normal load path.
         ).map(reconcileWorkspaceModuleState)
         // Files/Git rail tabs → pane tabs (browser-pane epic, store v73): the
         // enforcement half, for the same reason as the heals above.
@@ -1490,8 +1447,8 @@ function syncActiveSprintRunsToMain(): void {
   let lastSerialized = ''
   const push = (workspaces: Workspace[]): void => {
     const paths = workspaces
-      .filter((ws) => ws.sprintEngineContext?.statePath && sprintEngineAutomationShouldRun(ws.sprintEngineAutoState))
-      .map((ws) => ws.sprintEngineContext!.statePath)
+      .filter((ws) => sprintEngineRunContext(ws)?.statePath && sprintEngineAutomationShouldRun(ws.sprintEngineAutoState))
+      .map((ws) => sprintEngineRunContext(ws)!.statePath)
       .sort()
     const serialized = JSON.stringify(paths)
     if (serialized === lastSerialized) return
@@ -1592,9 +1549,9 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
           ? adoptLegacyBacklogTab(raw.layoutModel, existing.paneState)
           : incoming.paneState,
         // Live-only fields main never persists: the projection cache the
-        // supervisor re-reads from disk, and in-flight terminal metadata for
-        // agents this window owns.
-        sprintEngineState: existing.sprintEngineState,
+        // supervisor re-reads from disk lives in the sprintengine bag, and
+        // in-flight terminal metadata is for agents this window owns.
+        moduleState: existing.moduleState,
         agents: preserveAgentTerminalMetadata(incoming, existing).agents,
       })
     })

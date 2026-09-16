@@ -23,6 +23,7 @@ import 'flexlayout-react/style/combined.css'
 import { FLEX_LAYOUT_ICONS } from './flexLayoutIcons'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
@@ -39,11 +40,14 @@ import {
 } from '../../hooks/useTerminalSessions'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
-import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRuntimeAgentStatus, Workspace } from '../../types/workspace'
+import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRuntimeAgentStatus, SprintEngineState, Workspace } from '../../types/workspace'
 import { NEW_AGENT_TAB_COMPONENT, captureRailWidthFractions, consumePendingAgentFlash, deleteTabPreservingRails, registerModel, restoreRailWidthFractions, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
+import {
+  isSprintEngineManagedAgent,
+} from '../../../../shared/sprintengine/agent-identity'
 import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
@@ -162,7 +166,7 @@ const TAB_CHIP_CLASS = 'flex h-4 w-4 shrink-0 items-center justify-center rounde
 const TAB_CHIP_GLYPH_CLASS = 'h-3.5 w-3.5'
 const loadedPanelComponents = new Set<string>()
 const EMPTY_WORKSPACE_AGENTS: Workspace['agents'] = {}
-const EMPTY_SPRINTENGINE_AGENTS: NonNullable<Workspace['sprintEngineState']>['sprintEngineAgents'] = {}
+const EMPTY_SPRINTENGINE_AGENTS: SprintEngineState['sprintEngineAgents'] = {}
 // Sprint agent tab role comes from the projection's worker record
 // (`sprintEngineAgents[agentId].role`), never inferred from the id's string
 // shape (MC-1593a). A manually-minted agent has no record until it claims a
@@ -338,7 +342,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
     s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_WORKSPACE_AGENTS
   )
   const sprintEngineAgents = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents ?? EMPTY_SPRINTENGINE_AGENTS
+    sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents ?? EMPTY_SPRINTENGINE_AGENTS
   )
   const editorOpenFiles = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.editorState?.openFiles ?? EMPTY_OPEN_FILES
@@ -773,7 +777,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           void window.api.terminalKill(sessionId).catch(() => {})
         })
         if (agent) {
-          if (agent.kind === 'sprintengine') {
+          if (isSprintEngineManagedAgent(agent, {
+            agentId,
+            rosterIds: Object.keys(sprintEngineAgents),
+          })) {
             applySprintEngineAutomationStopReason(workspaceId, 'agent_terminal_closed', { agentId })
           }
           updateAgent(workspaceId, agentId, {
@@ -1263,7 +1270,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // sprint agents show their run lifecycle (in progress / blocked /
       // complete), never a live dot or recency. Everyone else uses the
       // working dot with recency while idle.
-      const isSprintEngineRun = agent?.kind === 'sprintengine'
+      const isSprintEngineRun = isSprintEngineManagedAgent(agent, {
+        agentId,
+        rosterIds: Object.keys(sprintEngineAgents),
+      })
       const sprintEngineLifecycle = isSprintEngineRun
         ? sprintEngineTabLifecycle(runtimeAgent?.status)
         : null
@@ -1279,7 +1289,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       const specialist = agent?.kind === 'specialist' && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
         : null
-      const sprintEngineRole = agent?.kind === 'sprintengine'
+      const sprintEngineRole = isSprintEngineRun
         ? runtimeAgent?.role ?? null
         : null
 

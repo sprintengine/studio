@@ -23,7 +23,7 @@ import type {
   SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
   SprintEngineRoster,
-} from '../../../types/workspace'
+} from '../../../modules/sprint-engine-workspace-types'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import {
   applyUserDisabledSprintEngineRoleCounts,

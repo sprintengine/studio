@@ -7,8 +7,11 @@ import {
   WORKTREE_CONTAINER_DIR,
   worktreeContainerPath,
 } from '../../../shared/worktree-paths'
-import { DEFAULT_SPRINTENGINE_TASK_REPO } from '../../../shared/sprintengine/run-types'
 import type { AgentExecutionMode, Workspace } from '../types/workspace'
+
+/** Generic default repo id when a workspace did not declare one. */
+export const DEFAULT_WORKSPACE_TASK_REPO = 'primary'
+import { sprintEngineRunState } from '../store/slices/workspaceModuleState'
 
 // Pure worktree path/branch derivation now lives in the node-free shared module
 // so the main process can reuse it (agent-at-launch worktrees over the App
@@ -99,7 +102,7 @@ export function resolveDeclaredPath(folderPath: string, value: string): string {
  * Every worktree this workspace is backed by, primary first (MC-1610).
  *
  * - Sprint runs in worktree mode: one entry per repo the run declared, derived
- *   from the already-persisted `sprintEngineState.vcs` block. `folderPath` is
+ *   from the already-persisted sprintengine bag `vcs` block. `folderPath` is
  *   the parent project root, so each git root is that repo's project-relative
  *   `worktreePath` joined onto it. A run declaring one repo yields exactly one
  *   entry — the same root and branch the singular resolver always returned. A
@@ -116,12 +119,12 @@ export function resolveDeclaredPath(folderPath: string, value: string): string {
  * via {@link resolveWorkspaceWorktree}.
  */
 export function resolveWorkspaceWorktrees(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
+  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
 ): ResolvedWorkspaceWorktree[] {
   const folderPath = workspace.folderPath
   if (!folderPath) return []
 
-  const vcs = workspace.sprintEngineState?.vcs
+  const vcs = sprintEngineRunState(workspace)?.vcs
   if (vcs?.mode === 'run_worktree') {
     const resolved = (vcs.repos ?? [])
       .filter((repo) => Boolean(repo.worktreePath))
@@ -139,7 +142,7 @@ export function resolveWorkspaceWorktrees(
       return [{
         gitRoot: resolveDeclaredPath(folderPath, vcs.worktreePath),
         branch: vcs.branchName,
-        repoId: DEFAULT_SPRINTENGINE_TASK_REPO,
+        repoId: DEFAULT_WORKSPACE_TASK_REPO,
         repoRoot: folderPath,
       }]
     }
@@ -166,7 +169,7 @@ export function resolveWorkspaceWorktrees(
  * not routed to a specific repo. Null for a regular workspace.
  */
 export function resolveWorkspaceWorktree(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
+  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
 ): ResolvedWorkspaceWorktree | null {
   return resolveWorkspaceWorktrees(workspace)[0] ?? null
 }
@@ -180,7 +183,7 @@ export function resolveWorkspaceWorktree(
  * the workspace has no resolvable root at all (folderless), never a fallback.
  */
 export function workspaceWorkingRoot(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
+  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
 ): string | null {
   return resolveWorkspaceWorktree(workspace)?.gitRoot ?? workspace.folderPath ?? null
 }
@@ -196,7 +199,7 @@ export function workspaceWorkingRoot(
  * the workspace) and for any cwd that matches no declared worktree.
  */
 export function resolveWorktreeFallbackRoot(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>,
+  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>,
   worktreeCwd: string | null | undefined
 ): string | null {
   const folderPath = workspace.folderPath ?? null
@@ -216,7 +219,7 @@ export type WorkspaceTerminalCwd =
  *
  * Taking the string, not the `Workspace`, is deliberate: it forces callers into
  * the churn-safe selector pattern so the value stays referentially stable across
- * the ~4s `sprintEngineState` re-projections that recreate the workspace object.
+ * the ~4s sprintengine bag re-projections that recreate the workspace object.
  *
  * - `null` gitRoot → not worktree-backed; no override (`{cwd:null, missing:false}`).
  * - gitRoot === folderPath → the workspace folder already IS the worktree

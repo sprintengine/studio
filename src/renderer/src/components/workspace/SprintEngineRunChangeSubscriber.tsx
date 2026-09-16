@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { Workspace } from '../../types/workspace'
@@ -7,6 +7,13 @@ import {
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
 import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
+import { sprintEngineRunContext } from '../../store/slices/workspaceModuleState'
+
+function isSprintEngineSyncDisabled(): boolean {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
+  return env?.VITE_SPRINTENGINE_SAFE_MODE === '1' || env?.VITE_SPRINTENGINE_DISABLE_SYNC === '1'
+}
+
 
 // The window's display subscriber for run state main changed on its own (MC-2155).
 //
@@ -32,23 +39,39 @@ export function collectQuiescedSprintWorkspaces(
   return workspaces.filter(
     (workspace) =>
       workspaceIds.has(workspace.id)
-      && (workspace.mode === 'sprintengine' || Boolean(workspace.sprintEngineContext))
-      && workspace.sprintEngineContext?.statePath === statePath
+      && (workspace.mode === 'sprintengine' || Boolean(sprintEngineRunContext(workspace)))
+      && sprintEngineRunContext(workspace)?.statePath === statePath
       && canStopPollingCompletedSprintEngineProjection(workspace),
   )
 }
 
-type Props = {
-  workspaceIds: string[]
+const FALLBACK_WINDOW_ID = 'primary'
+
+function workspaceWindowIdFromLocation(): string {
+  try {
+    const value = new URL(window.location.href).searchParams.get('windowId')?.trim()
+    return value || FALLBACK_WINDOW_ID
+  } catch {
+    return FALLBACK_WINDOW_ID
+  }
 }
 
-export default function SprintEngineRunChangeSubscriber({ workspaceIds }: Props) {
+export default function SprintEngineRunChangeSubscriber() {
+  const windowId = useMemo(() => workspaceWindowIdFromLocation(), [])
+  const assignedIds = useWorkspaceStore((s) => {
+    const current = s.workspaceWindows.find((entry) => entry.id === windowId)
+      ?? s.workspaceWindows.find((entry) => entry.id === s.primaryWorkspaceWindowId)
+    return current?.workspaceIds ?? null
+  })
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const workspaceIds = assignedIds ?? workspaces.map((workspace) => workspace.id)
   // Read the window's workspace set reactively without re-running the mount
   // effect, which would drop and re-open the IPC subscription on every change.
   const workspaceIdsRef = useRef(workspaceIds)
   workspaceIdsRef.current = workspaceIds
 
   useEffect(() => {
+    if (isSprintEngineSyncDisabled()) return
     let disposed = false
     // Forced reads, so a fresh token map here is not a second source of truth for
     // the supervisor's; it only means the first refresh after mount pays a read.

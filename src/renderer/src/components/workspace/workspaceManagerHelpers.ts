@@ -17,6 +17,7 @@ import type {
   ConversationSessionStatus,
   ConversationSessionSummary,
 } from '../../../../shared/conversation-runtime'
+import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 
 export type WorkspaceActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 type SessionStatus = 'needs-input' | 'working' | 'idle' | 'failed'
@@ -180,7 +181,7 @@ export function sessionsAttentionTone(items: SessionItem[]): 'good' | 'warn' | '
 }
 
 function workspaceNeedsInput(workspace: Workspace): boolean {
-  return Object.values(workspace.sprintEngineState?.sprintEngineAgents ?? {}).some(
+  return Object.values(sprintEngineRunState(workspace)?.sprintEngineAgents ?? {}).some(
     (agent) => agent.status === 'needs_input',
   )
 }
@@ -331,7 +332,7 @@ export function getSessionItems(
         if (session.agentId && conversationAgentKeys.has(`${group.id} ${session.agentId}`)) return []
         const agent = session.agentId ? workspace?.agents[session.agentId] : undefined
         const runtime = session.agentId
-          ? workspace?.sprintEngineState?.sprintEngineAgents[session.agentId]
+          ? (workspace ? sprintEngineRunState(workspace) : null)?.sprintEngineAgents[session.agentId]
           : undefined
         const statusInfo = deriveSessionStatus(session, runtime?.status === 'needs_input')
         const specialistId =

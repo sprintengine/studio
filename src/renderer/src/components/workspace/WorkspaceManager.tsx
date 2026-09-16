@@ -72,6 +72,10 @@ import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/ag
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
+import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from '../../../../shared/sprintengine/agent-identity'
 import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAutomationModeSync'
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
@@ -79,7 +83,7 @@ import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
 import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, removeAgentTab, removeNewAgentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
-import { DISABLE_SPRINTENGINE_AUTORUN, DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
+import { DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import {
@@ -87,8 +91,6 @@ import {
   type AgentComposerConnector,
   type AgentComposerSelection,
 } from './agentComposer/AgentComposer'
-import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
-import SprintEngineRunChangeSubscriber from './SprintEngineRunChangeSubscriber'
 // Always-on observer of background automation run events (raises run
 // notifications). Automations is no longer a workspace type, so the shell mounts
 // its global supervisor directly, gated on the automations module + primary
@@ -202,6 +204,8 @@ import {
 } from '../palette/paletteOpenRequest'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRoleRegistry, computeSprintEngineFocusAgentAvailability } from '../../utils/sprintengine'
 import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
+import { sprintEngineRunContext, sprintEngineRunState, sprintEngineRoleDefaults } from '../../store/slices/workspaceModuleState'
+
 
 // The pre-creation New Chat panel — agent + engine chooser that creates nothing
 // until the user starts the chat. Code-split out of the eager boot chunk;
@@ -353,15 +357,15 @@ function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace)
     && left.mode === right.mode
     && left.folderPath === right.folderPath
     && left.folderMissing === right.folderMissing
-    && left.sprintEngineContext === right.sprintEngineContext
+    && sprintEngineRunContext(left) === sprintEngineRunContext(right)
     && left.templateId === right.templateId
     && left.layoutModel === right.layoutModel
     && left.worktreeState === right.worktreeState
     && left.memory === right.memory
     && left.editorState === right.editorState
     && left.fileExplorerState === right.fileExplorerState
-    && left.sprintEngineState === right.sprintEngineState
-    && left.sprintEngineRoleCliDefaults === right.sprintEngineRoleCliDefaults
+    && sprintEngineRunState(left) === sprintEngineRunState(right)
+    && sprintEngineRoleDefaults(left) === sprintEngineRoleDefaults(right)
     && left.sprintEngineInitialSpawnAgentIds === right.sprintEngineInitialSpawnAgentIds
     && left.sprintEngineAutoState === right.sprintEngineAutoState
     && left.highlight === right.highlight
@@ -566,7 +570,6 @@ export default function WorkspaceManager() {
     (moduleId: string) => selectModuleEnabled(moduleEnablement, moduleId),
     [moduleEnablement],
   )
-  const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
   const firstRunCliCardDismissed = useWorkspaceStore((s) => s.appSettings.firstRunCliCardDismissed)
   const dismissFirstRunCliCard = useWorkspaceStore((s) => s.dismissFirstRunCliCard)
@@ -876,7 +879,7 @@ export default function WorkspaceManager() {
     const scopes: CommandScope[] = ['global']
     if (!workspaceActionsEnabled) return scopes
     scopes.push('workspace', 'workspace-navigation')
-    if (activeWorkspace.mode === 'sprintengine' || activeWorkspace.sprintEngineContext) {
+    if (activeWorkspace.mode === 'sprintengine' || sprintEngineRunContext(activeWorkspace)) {
       scopes.push('panel:sprintengine')
     }
     // Generic module panel scope: the active mode's owning module (via the
@@ -893,7 +896,7 @@ export default function WorkspaceManager() {
     return scopes
     // moduleRegistryGeneration: a late third-party load re-derives the
     // registry-backed panel scope for the already-active workspace.
-  }, [activeWorkspace?.mode, activeWorkspace?.sprintEngineContext, workspaceActionsEnabled, moduleRegistryGeneration])
+  }, [activeWorkspace?.mode, (activeWorkspace ? sprintEngineRunContext(activeWorkspace) : null), workspaceActionsEnabled, moduleRegistryGeneration])
   // The published context view module availability predicates evaluate
   // against — shared by the dispatcher and the palette so both agree.
   const moduleCommandContext = useMemo((): ModuleCommandContext => ({
@@ -927,7 +930,7 @@ export default function WorkspaceManager() {
     if (workflowRolesInstalled(sprintEngineRoleRegistry)) context.workflowRolesInstalled = true
     if (activeCommandScopes.includes('panel:sprintengine')) {
       context.sprintengineWorkspace = true
-      const sprintEngineState = commandWorkspace?.sprintEngineState ?? null
+      const sprintEngineState = (commandWorkspace ? sprintEngineRunState(commandWorkspace) : null) ?? null
       const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
       if (roster.some((agent) => agent.role === 'architect')) context.sprintengineHasArchitect = true
       const focusAvailability = computeSprintEngineFocusAgentAvailability(sprintEngineState, commandWorkspace?.agents ?? {})
@@ -2356,7 +2359,7 @@ export default function WorkspaceManager() {
       await terminateWorkspaceTerminals(workspace)
       const dirPath =
         workspace.mode === 'sprintengine'
-          ? workspace.sprintEngineContext?.teamDirectoryPath ?? null
+          ? sprintEngineRunContext(workspace)?.teamDirectoryPath ?? null
           : null
       if (dirPath) {
         try {
@@ -2364,7 +2367,7 @@ export default function WorkspaceManager() {
           // Same run, same debris risk as the door's own delete: the Sprints door
           // lists from disk, so a folder a surviving writer puts back must not
           // read as a run there either (item 1812).
-          const statePath = workspace.sprintEngineContext?.statePath
+          const statePath = sprintEngineRunContext(workspace)?.statePath
           if (statePath) noteSprintRunDeleted(statePath)
         } catch (error) {
           publishDiagnosticSync({
@@ -4518,23 +4521,6 @@ export default function WorkspaceManager() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-canvas)] text-[color:var(--text-strong)]">
-      {sprintEngineEnabled && !DISABLE_SPRINTENGINE_SYNC ? (
-        // Projection sync consumes active-window/workspace identity from the shell,
-        // so it remains the known propful exception to zero-prop supervisor contributions.
-        <SprintEngineProjectionSupervisor
-          activeWorkspaceId={windowActiveWorkspaceId}
-          workspaceIds={workspaces.map((workspace) => workspace.id)}
-        />
-      ) : null}
-      {sprintEngineEnabled && !DISABLE_SPRINTENGINE_SYNC ? (
-        // Merge-state polling itself is MAIN's (MC-2155): it spawns a `gh`
-        // subprocess, must run with no window open, and having one owner in main
-        // is what keeps a second window from doubling the probes. What is left
-        // here is display — pulling a run main re-probed into THIS window's store
-        // when the projection poll above has already quiesced on it. Per window,
-        // not a global-owner singleton: every window's store needs the read.
-        <SprintEngineRunChangeSubscriber workspaceIds={workspaces.map((workspace) => workspace.id)} />
-      ) : null}
       {workspaceTypeSupervisors.map((supervisor) => (
         <WorkspaceTypeSupervisorHost key={supervisor.key} supervisor={supervisor} />
       ))}
@@ -5090,7 +5076,10 @@ function killTerminalForLayoutTab(
     sessionIds.forEach((sessionId) => {
       void window.api.terminalKill(sessionId).catch(() => {})
     })
-    if (agent?.kind === 'sprintengine') {
+    if (isSprintEngineManagedAgent(agent, {
+      agentId,
+      rosterIds: sprintEngineRosterAgentIds(sprintEngineRunState(workspace)?.sprintEngineAgents),
+    })) {
       applySprintEngineAutomationStopReason(workspaceId, 'agent_terminal_closed', { agentId })
     }
     state.updateAgent(workspaceId, agentId, {

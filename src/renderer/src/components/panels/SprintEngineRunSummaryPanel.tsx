@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 import {
   CloseIconButton,
   EmptyState,
@@ -159,10 +160,10 @@ export default function SprintEngineRunSummaryPanel({
   onOpenTask,
 }: Props) {
   const sprintEngineState = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState ?? null
+    sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })
   )
   const statePath = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext?.statePath ?? null
+    (s) => sprintEngineRunContext(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.statePath ?? null
   )
   const autoState = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineAutoState ?? null

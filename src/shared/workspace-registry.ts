@@ -198,26 +198,63 @@ function normalizeWorkspaceRegistryAgent(agent: AgentState): AgentState {
   }
 }
 
-/** The `moduleState` entry that mirrors `sprintEngineState` and is stripped with it. */
 const SPRINT_ENGINE_MODULE_STATE_KEY = 'sprintengine'
+
+function partializeSprintEngineModuleBag(
+  bag: Workspace['moduleState'],
+): Workspace['moduleState'] {
+  if (!isRecord(bag)) return undefined
+  const raw = bag[SPRINT_ENGINE_MODULE_STATE_KEY]
+  const rest = Object.fromEntries(
+    Object.entries(bag).filter(([key]) => key !== SPRINT_ENGINE_MODULE_STATE_KEY),
+  )
+  const durable = durableSprintEngineModuleEntry(raw)
+  const next = durable
+    ? { ...rest, [SPRINT_ENGINE_MODULE_STATE_KEY]: durable }
+    : rest
+  return Object.keys(next).length > 0 ? next : undefined
+}
+
+function durableSprintEngineModuleEntry(raw: unknown): Record<string, unknown> | null {
+  if (!isRecord(raw)) return null
+  // A pre-MC-2573 bag entry was the live projection; nothing in it is durable.
+  if ('roleCounts' in raw || 'sprintEngineAgents' in raw || Array.isArray(raw.tasks)) {
+    return null
+  }
+  const durable: Record<string, unknown> = {}
+  if (isRecord(raw.context)) durable.context = raw.context
+  if (isRecord(raw.roleCliDefaults)) durable.roleCliDefaults = raw.roleCliDefaults
+  return Object.keys(durable).length > 0 ? durable : null
+}
 
 /**
  * Strip a workspace to the durable domain state main owns. The renderer keeps
  * per-window presentation (editor/file-explorer/backlog/git-panel view state)
  * in localStorage keyed by workspace id — two disjoint field sets, not two
- * copies of one fact, so this is not dual authority. `sprintEngineState` and
- * its `moduleState` mirror stay excluded on the same reasoning they are
- * excluded today: they cache `projection.json`, which the engine owns.
+ * copies of one fact, so this is not dual authority.
+ *
+ * The live run projection (bag `state`) is excluded: it caches
+ * `projection.json`, which the engine owns. Durable Sprint Engine identity
+ * (`context`, `roleCliDefaults`) lives in `moduleState.sprintengine` and is
+ * persisted there.
  */
 export function normalizeWorkspaceForRegistry(workspace: Workspace): Workspace {
-  const moduleState = workspace.moduleState
-    ? Object.fromEntries(
-      Object.entries(workspace.moduleState).filter(([key]) => key !== SPRINT_ENGINE_MODULE_STATE_KEY),
-    )
-    : undefined
+  const moduleState = partializeSprintEngineModuleBag(workspace.moduleState)
+  // Pre-MC-2573 persist rows still carry these top-level fields. Drop them
+  // here so the registry never re-homes them. Marked for deletion with the
+  // in-tree engine (extensions-installable-modules 2026-08-03; dated 2026-09-16).
+  const {
+    sprintEngineState: _legacyState,
+    sprintEngineContext: _legacyContext,
+    sprintEngineRoleCliDefaults: _legacyRoleCliDefaults,
+    ...durable
+  } = workspace as Workspace & {
+    sprintEngineState?: unknown
+    sprintEngineContext?: unknown
+    sprintEngineRoleCliDefaults?: unknown
+  }
   const normalized: Workspace = {
-    ...workspace,
-    sprintEngineState: null,
+    ...durable,
     sprintEngineInitialSpawnAgentIds: undefined,
     agents: Object.fromEntries(
       Object.entries(workspace.agents ?? {}).map(([id, agent]) => [id, normalizeWorkspaceRegistryAgent(agent)]),

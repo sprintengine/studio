@@ -40,20 +40,20 @@ const standardTemplate: LayoutTemplate = {
   },
 }
 
-const sprintEngineState = createInitialSprintEngineState({
+const runProjection = createInitialSprintEngineState({
   goal: 'Ship layout slice',
   name: 'Layout Team',
   roleCounts: {},
 })
 
-const sprintLayout = sprintEngineTabsLayoutModel(sprintEngineState, {}, { includeAgentTabs: false })
+const sprintLayout = sprintEngineTabsLayoutModel(runProjection, {}, { includeAgentTabs: false })
 assert.equal(modelContainsComponent(sprintLayout, 'sprintengine'), true)
 assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-inbox'), false)
 assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-roster'), false)
 assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-tasks'), false)
 assert.equal(modelContainsComponent(sprintLayout, 'agent'), false)
 
-const sprintLayoutWithAgents = sprintEngineTabsLayoutModel(sprintEngineState, {})
+const sprintLayoutWithAgents = sprintEngineTabsLayoutModel(runProjection, {})
 assert.equal(modelContainsComponent(sprintLayoutWithAgents, 'agent'), true)
 
 // The retired 3-tab Inbox / Roster / Tasks shape must migrate forward to the
@@ -80,24 +80,24 @@ const migratedFromThreeTab = migrateSprintEngineLayout({
   id: 'workspace-three-tab',
   mode: 'sprintengine',
   layoutModel: legacyThreeTabLayout,
-  sprintEngineState,
+  moduleState: { sprintengine: { state: runProjection } },
   agents: {},
-} as Workspace)
+} as unknown as Workspace)
 assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine'), true)
 assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine-inbox'), false)
 assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine-roster'), false)
 assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine-tasks'), false)
 
 // A layout that already has the canonical single 'sprintengine' tab is left alone.
-const canonicalLayout = sprintEngineTabsLayoutModel(sprintEngineState, {})
+const canonicalLayout = sprintEngineTabsLayoutModel(runProjection, {})
 assert.equal(isLegacySprintEngineLayout(canonicalLayout), false)
 const noopMigration = migrateSprintEngineLayout({
   id: 'workspace-canonical',
   mode: 'sprintengine',
   layoutModel: canonicalLayout,
-  sprintEngineState,
+  moduleState: { sprintengine: { state: runProjection } },
   agents: {},
-} as Workspace)
+} as unknown as Workspace)
 assert.equal(noopMigration.layoutModel, canonicalLayout)
 
 // Existing SE layouts that still carry a visible Sprint Engine tab strip
@@ -152,7 +152,7 @@ const agentTabset = findTabset(stripHidden, (record) => {
 assert.equal(seTabset.enableTabStrip, false)
 assert.equal(agentTabset.enableTabStrip, undefined)
 
-const canonicalSprintLayout = sprintEngineTabsLayoutModel(sprintEngineState, {})
+const canonicalSprintLayout = sprintEngineTabsLayoutModel(runProjection, {})
 const canonicalSeTabset = findTabset(canonicalSprintLayout, (record) => {
   const children = Array.isArray(record.children) ? record.children : []
   return children.some((child) => (child as Record<string, unknown>)?.component === 'sprintengine')

@@ -21,7 +21,7 @@ export type FollowedCheckout = {
   agent: { agentId: AgentId; name: string; cli: AgentCli | null } | null
 }
 
-export type FollowedCheckoutWorkspace = Pick<Workspace, 'id' | 'folderPath' | 'worktree' | 'sprintEngineState' | 'agents'>
+export type FollowedCheckoutWorkspace = Pick<Workspace, 'id' | 'folderPath' | 'worktree' | 'moduleState' | 'agents'>
 
 /** The session that speaks for an agent: a live one first, else the most recent parked one (its observation carries over). */
 function sessionOfAgent(

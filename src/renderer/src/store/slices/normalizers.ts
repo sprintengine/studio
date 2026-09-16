@@ -1,8 +1,12 @@
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, type Workspace } from '../../types/workspace'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
+import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from '../../../../shared/sprintengine/agent-identity'
 import { normalizeAgentState, pickWorkspaceAgentName } from './agentsSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
-import { normalizeSprintEngineAutoState } from './runStateSlice'
+import { normalizeSprintEngineAutoState } from '../../modules/sprint-engine-run-state'
 import {
   normalizeWorkspaceBacklogState,
   normalizeWorkspaceFileExplorerState,
@@ -11,7 +15,12 @@ import {
   workspaceFolderKey,
 } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
-import { partializeWorkspaceModuleState } from './workspaceModuleState'
+import {
+  legacySprintEngineRunState,
+  partializeWorkspaceModuleState,
+  reconcileWorkspaceModuleState,
+  type LegacySprintEnginePersistWorkspace,
+} from './workspaceModuleState'
 import { partializeWorkspacePaneState } from './workspacePaneSlice'
 
 // Workspace-mode strings whose features were retired. Kept as local literals
@@ -36,9 +45,9 @@ import { partializeWorkspacePaneState } from './workspacePaneSlice'
 //                 the review data on disk (`.sprintengine/review/`) is untouched.
 const RETIRED_WORKSPACE_MODES: readonly string[] = ['roadmap', 'multiloop', 'guided-brief', 'reviews-host']
 
-export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
+export function mapMigrationWorkspaces<T extends { workspaces: LegacySprintEnginePersistWorkspace[] }>(
   state: T,
-  migrate: (workspace: Workspace) => Workspace,
+  migrate: (workspace: LegacySprintEnginePersistWorkspace) => LegacySprintEnginePersistWorkspace,
 ): void {
   state.workspaces = state.workspaces.map(migrate)
 }
@@ -50,11 +59,12 @@ export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
 // painted screen; the gate flags are what auto-resume actually reads. The two
 // functions stay in step.
 export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspace {
-  if (workspace.mode !== 'sprintengine' && !workspace.sprintEngineState) return workspace
+  const run = legacySprintEngineRunState(workspace)
+  if (workspace.mode !== 'sprintengine' && !run) return workspace
 
-  const sprintEngineAgentIds = new Set(Object.keys(workspace.sprintEngineState?.sprintEngineAgents ?? {}))
+  const sprintEngineAgentIds = sprintEngineRosterAgentIds(run?.sprintEngineAgents)
   const hasSprintEngineAgents = Object.entries(workspace.agents).some(
-    ([id, agent]) => agent.kind === 'sprintengine' || sprintEngineAgentIds.has(id)
+    ([id, agent]) => isSprintEngineManagedAgent(agent, { agentId: id, rosterIds: sprintEngineAgentIds })
   )
   if (!hasSprintEngineAgents) return workspace
 
@@ -62,12 +72,11 @@ export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspa
     ...workspace,
     agents: Object.fromEntries(
       Object.entries(workspace.agents).map(([id, agent]) => {
-        if (agent.kind !== 'sprintengine' && !sprintEngineAgentIds.has(id)) return [id, agent]
+        if (!isSprintEngineManagedAgent(agent, { agentId: id, rosterIds: sprintEngineAgentIds })) return [id, agent]
         return [
           id,
           normalizeAgentState({
             ...agent,
-            kind: 'sprintengine',
             status: 'idle',
             streamBuffer: '',
             cliStartRequested: false,
@@ -245,24 +254,19 @@ export function preserveNewerSprintEngineAutomationState(
 
 export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace {
   const sprintEngineAutoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
-  const launchSafeWorkspace = clearAutomationsHostAgentLaunchState(
-    clearSprintEngineAgentLaunchState(workspace),
+  const launchSafeWorkspace = reconcileWorkspaceModuleState(
+    clearAutomationsHostAgentLaunchState(
+      clearSprintEngineAgentLaunchState(workspace),
+    ),
   )
   return {
     ...launchSafeWorkspace,
-    mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, launchSafeWorkspace.sprintEngineState),
-    // The Sprint Engine projection is a cache of the on-disk projection.json
-    // (the source of truth), re-read by SprintEngineProjectionSupervisor on its
-    // first tick after mount for every Sprint Engine workspace. Persisting it
-    // made the 4s projection poll serialize the full tasks+artifacts blob into
-    // localStorage on every run-progress update — the persist write-storm behind
-    // the renderer heap spikes. Drop it from the persisted registry so only
-    // durable identity (sprintEngineContext/mode) survives a restart; the live
+    mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, legacySprintEngineRunState(launchSafeWorkspace)),
+    // The live run projection is a cache of on-disk projection.json. Persisting
+    // it serialized the full tasks+artifacts blob into localStorage on every
+    // 4s poll. Durable identity (context, role CLI defaults) now lives in
+    // moduleState.sprintengine and is what survives a restart. The live
     // projection rehydrates from disk within one supervisor tick.
-    sprintEngineState: null,
-    // Same rationale for the canonical bag entry (MC-1573): the `sprintengine`
-    // key mirrors the field above and is stripped; every OTHER module's entry
-    // is durable state and persists verbatim.
     moduleState: partializeWorkspaceModuleState(launchSafeWorkspace.moduleState),
     memory: normalizeWorkspaceMemoryConfig(launchSafeWorkspace.memory),
     fileExplorerState: normalizeWorkspaceFileExplorerState(launchSafeWorkspace.fileExplorerState),

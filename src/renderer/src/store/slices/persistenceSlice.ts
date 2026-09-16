@@ -27,7 +27,7 @@ import {
   normalizeSprintEngineRoleCliDefaults,
   normalizeSprintEngineWorkspaceContext,
   reconcileSprintEngineAgents,
-} from './runStateSlice'
+} from '../../modules/sprint-engine-run-state'
 import {
   defaultAppSettings,
   normalizeAppSettings,
@@ -44,16 +44,16 @@ import {
   dropRetiredModeWorkspaces,
   mapMigrationWorkspaces,
 } from './normalizers'
-import { reconcileWorkspaceModuleState } from './workspaceModuleState'
+import { migrateSprintEngineFieldsIntoModuleBag, reconcileWorkspaceModuleState, legacySprintEngineRunContext, legacySprintEngineRunState, type LegacySprintEnginePersistWorkspace } from './workspaceModuleState'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 75
+export const WORKSPACE_STORE_VERSION = 76
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
-  workspaces: Workspace[]
+  workspaces: LegacySprintEnginePersistWorkspace[]
   activeWorkspaceId?: WorkspaceId | null
   workspaceWindows?: WorkspaceWindowState[]
   primaryWorkspaceWindowId?: WorkspaceWindowId
@@ -156,8 +156,8 @@ export function hydrateSprintEngineLocalRunSettings(
   const fallbackPermissionPreset = appSettings.lastAgentSpawnPermissionPreset
 
   for (const workspace of workspaces) {
-    if (!workspace.sprintEngineState) continue
-    const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+    if (!legacySprintEngineRunState(workspace)) continue
+    const key = sprintEngineRunSettingsKey(legacySprintEngineRunContext(workspace)?.statePath)
     if (!key || runSettings[key]) continue
     const derivedRunSettings = sprintEngineRunSettingsFromWorkspace(workspace, fallbackPermissionPreset)
     if (hasPersistableSprintEngineRunSettings(derivedRunSettings)) {
@@ -167,7 +167,7 @@ export function hydrateSprintEngineLocalRunSettings(
 
   return {
     workspaces: workspaces.map((workspace) => {
-      const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+      const key = sprintEngineRunSettingsKey(legacySprintEngineRunContext(workspace)?.statePath)
       return applySprintEngineRunSettingsToWorkspace(workspace, key ? runSettings[key] : undefined)
     }),
     appSettings: {
@@ -392,7 +392,7 @@ export function migratePersistedWorkspaceState(
   if (version < 7) {
     mapMigrationWorkspaces(migrationState, (ws) =>
       ws.mode === 'sprintengine' || ws.sprintEngineState
-        ? { ...ws, layoutModel: sprintEngineTabsLayoutModel(ws.sprintEngineState, ws.agents) }
+        ? { ...ws, layoutModel: sprintEngineTabsLayoutModel(ws.sprintEngineState ?? null, ws.agents) }
         : ws,
     )
   }
@@ -621,7 +621,7 @@ export function migratePersistedWorkspaceState(
     mapMigrationWorkspaces(migrationState, (ws) => {
       const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
       const mode = sprintEngineState ? 'sprintengine' : ws.mode ?? 'standard'
-      const nextWorkspace: Workspace = {
+      const nextWorkspace: LegacySprintEnginePersistWorkspace = {
         ...ws,
         mode,
         sprintEngineState,
@@ -1059,6 +1059,17 @@ export function migratePersistedWorkspaceState(
     ) {
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }
+  }
+  if (version < 76) {
+    // sprintEngineContext and sprintEngineRoleCliDefaults join
+    // moduleState.sprintengine (MC-2573). A HEAD-shaped row carries the three
+    // top-level fields and a stripped bag; this rung hoists them into the bag
+    // entry. Marked for deletion with the in-tree engine
+    // (extensions-installable-modules 2026-08-03; dated 2026-09-16). The
+    // enforcement half is reconcileWorkspaceModuleState in persist merge(),
+    // which runs on every hydration so a current-version envelope this ladder
+    // never revisits still heals.
+    mapMigrationWorkspaces(migrationState, migrateSprintEngineFieldsIntoModuleBag)
   }
 
   return state as never

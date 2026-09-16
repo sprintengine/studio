@@ -14,7 +14,12 @@ export { isPathOrChild }
 // Record construction moved to shared with MC-2160 (main composes sprint
 // workspaces headlessly and mints the same agent records). Re-exported so
 // existing renderer import sites are unchanged.
-import { defaultAgent, defaultAgentExecution } from '../../../../shared/sprintengine/agent-state'
+import { defaultAgent, defaultAgentExecution } from '../../../../shared/agent-state'
+import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from '../../../../shared/sprintengine/agent-identity'
+import { sprintEngineRunState } from './workspaceModuleState'
 
 export { defaultAgent }
 import {
@@ -108,6 +113,7 @@ export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): 
   const runtime = normalizeAgentRuntime(agent)
   return {
     ...agent,
+    kind: agent.kind === 'specialist' ? 'specialist' : 'general',
     cli: normalizeAgentCli(agent, fallbackCli),
     cliModel: normalizeAgentCliModel(agent.cliModel),
     execution: normalizeAgentExecution(agent.execution),
@@ -115,6 +121,13 @@ export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): 
     runtimeKind: runtime.runtimeKind,
     conversation: runtime.conversation,
   }
+}
+
+function isWorkspaceSprintEngineManagedAgent(ws: Workspace, agentId: string, agent: AgentState): boolean {
+  return isSprintEngineManagedAgent(agent, {
+    agentId,
+    rosterIds: sprintEngineRosterAgentIds(sprintEngineRunState(ws)?.sprintEngineAgents),
+  })
 }
 
 export function pickWorkspaceAgentName(agents: Workspace['agents']): string {
@@ -171,7 +184,7 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
         if (
           ('cliRuntimeOverride' in update || 'name' in update || 'cliStartupPrompt' in update)
           && update.configEditedAt === undefined
-          && ws.agents[agentId].kind === 'sprintengine'
+          && isWorkspaceSprintEngineManagedAgent(ws, agentId, ws.agents[agentId])
         ) {
           ws.agents[agentId].configEditedAt = Date.now()
         }
@@ -334,7 +347,7 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
             // off the id alone — `shouldResume` (TerminalView) reads the flags
             // cleared below. This is the same contract as
             // `clearSprintEngineAgentLaunchState`/`clearAutomationsHostAgentLaunchState`.
-            if (agent.kind === 'sprintengine') {
+            if (isWorkspaceSprintEngineManagedAgent(ws, agentId, agent)) {
               // MC-1444 window-disposal retention: the auto-run executor
               // deliberately parks a resume token (cliSessionId +
               // cliResumeAvailable with launch flags cleared) on a worker

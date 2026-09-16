@@ -33,6 +33,7 @@ import {
   type SprintEngineRepoMergeRollup,
 } from '../../../../utils/sprintengine'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
+import { useSprintEngineRunStore } from '../../../../modules/sprint-engine-run-store'
 // The handle helpers come from the store slice, and the board itself is lazy: the
 // board module is the heaviest in the renderer, and the door must open on the
 // repositories strip and the rollup without waiting for it. `SprintRunBoard.tsx`
@@ -80,6 +81,8 @@ import { sprintRunOpenFailureCopy, sprintRunShortDate } from './railState'
 import { requestCloseSprintWorkspace } from './sprintDoorRequests'
 import { deleteSprintRun } from './sprintRunDeletion'
 import { SprintsRepoStrip } from './SprintsRepoStrip'
+import { sprintEngineRunContext } from '../../../../store/slices/workspaceModuleState'
+
 
 const SprintRunBoard = React.lazy(async () => ({
   default: (await import('../../../panels/SprintRunBoard')).SprintRunBoard,
@@ -135,14 +138,14 @@ export function useSprintRunCanvas(run: SprintRunSummary | null): SprintRunCanva
     (store) =>
       store.workspaces.find(
         (workspace) =>
-          workspace.sprintEngineContext?.statePath
-          && normalizeStatePathKey(workspace.sprintEngineContext.statePath) === statePathKey,
+          sprintEngineRunContext(workspace)?.statePath
+          && normalizeStatePathKey(sprintEngineRunContext(workspace)?.statePath ?? '') === statePathKey,
       )?.id ?? null,
   )
   const residentWorkspace = useWorkspaceStore((store) =>
     residentWorkspaceId ? store.workspaces.find((w) => w.id === residentWorkspaceId) ?? null : null,
   )
-  const applyWorkspaceState = useWorkspaceStore((store) => store.setSprintEngineState)
+  const applyWorkspaceState = useSprintEngineRunStore((store) => store.setSprintEngineState)
   const workspaceHandle = useMemo(
     () => (residentWorkspace ? sprintRunHandleFromWorkspace(residentWorkspace, applyWorkspaceState) : null),
     [residentWorkspace, applyWorkspaceState],

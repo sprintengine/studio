@@ -14,6 +14,8 @@ import {
 } from '../../../shared/backlog/sprintengine-links'
 import type { BacklogLinkProviderInput } from '../modules/renderer-host'
 import type { SprintEngineState, Workspace } from '../types/workspace'
+import { sprintEngineRunContext } from '../store/slices/workspaceModuleState'
+
 
 // The link shapes, ids and builders live in src/shared/backlog/sprintengine-links.ts
 // so the main process can write the same links for a phone-driven run, where no
@@ -146,8 +148,8 @@ export function matchWorkspaceForBacklogRunLink(
   return (
     workspaces.find(
       (workspace) =>
-        workspace.sprintEngineContext?.statePath
-        && pathKey(workspace.sprintEngineContext.statePath) === targetKey,
+        sprintEngineRunContext(workspace)?.statePath
+        && pathKey(sprintEngineRunContext(workspace)?.statePath ?? '') === targetKey,
     ) ?? null
   )
 }

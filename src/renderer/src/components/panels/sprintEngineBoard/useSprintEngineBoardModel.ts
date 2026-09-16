@@ -103,8 +103,7 @@ export function useSprintEngineBoardModel(input: SprintEngineBoardModelInput): S
         const runtime = sprintEngineState?.sprintEngineAgents[agent.id]
         const localAgent = agents[agent.id]
         const localExited = Boolean(
-          localAgent?.kind === 'sprintengine'
-            && localAgent.cliLastExitedAt
+          localAgent?.cliLastExitedAt
             && !localAgent.cliStartRequested
             && !localAgent.cliHasLaunched,
         )

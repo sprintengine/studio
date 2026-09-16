@@ -13,6 +13,7 @@ import {
   fileExplorerSelectionRange,
 } from '../../utils/fileExplorerSelection'
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees, workspaceProjectRoot } from '../../utils/workspaceWorktree'
+import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import { EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, PrimaryButton, RefreshIcon, Select, Skeleton, StashGlyph, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type TabItem } from '../ui'
@@ -306,7 +307,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // the picker never appears.
   const workspaceWorktrees = useMemo(
     () => (workspace ? resolveWorkspaceWorktrees(workspace) : []),
-    [workspace?.folderPath, workspace?.worktree, workspace?.sprintEngineState?.vcs],
+    [workspace?.folderPath, workspace?.worktree, workspace ? sprintEngineRunState(workspace)?.vcs : undefined],
   )
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null)
   // Entry zero is the primary project: the default view, and the answer whenever a
@@ -2034,7 +2035,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       30,
       repoRoot,
       false,
-      workspace?.sprintEngineContext?.statePath,
+      workspace ? sprintEngineRunContext(workspace)?.statePath : undefined,
       undefined,
       undefined,
       undefined,

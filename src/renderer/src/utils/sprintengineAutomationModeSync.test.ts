@@ -3,6 +3,7 @@ import type { SprintEngineAutomationChangedEvent } from '../../../shared/sprinte
 import type { SprintEngineAutomationIntentRecord } from '../../../shared/sprintengine/automation-intent'
 import type { LayoutTemplate, SprintEngineAutomationMode } from '../types/workspace'
 import { createInitialSprintEngineState } from './sprintengine'
+import { sprintEngineRunContext } from '../store/slices/workspaceModuleState'
 import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 // ── Fake preload API (installed before the modules under test are imported so
@@ -122,6 +123,7 @@ const fakeApi = installFakeApi()
 
 // Imported AFTER the fake window is installed.
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import { initSprintEngineAutomationModeSync } from './sprintengineAutomationModeSync'
 import { resetSprintEngineAutomationRevisions } from './sprintengineAutomationIntentClient'
 
@@ -156,7 +158,7 @@ async function settle(): Promise<void> {
 // than asserting on a hand-written one.
 function addSprintWorkspace(name: string, folderPath: string): { workspaceId: string; statePath: string } {
   const workspaceId = useWorkspaceStore.getState().addWorkspace(template, { name, folderPath })
-  useWorkspaceStore.getState().setSprintEngineState(
+  useSprintEngineRunStore.getState().setSprintEngineState(
     workspaceId,
     createInitialSprintEngineState({
       goal: 'Validate automation-mode sync',
@@ -164,8 +166,8 @@ function addSprintWorkspace(name: string, folderPath: string): { workspaceId: st
       roleCounts: { architect: 1 },
     })
   )
-  const statePath = useWorkspaceStore.getState().workspaces
-    .find((ws) => ws.id === workspaceId)?.sprintEngineContext?.statePath
+  const found = useWorkspaceStore.getState().workspaces.find((ws) => ws.id === workspaceId)
+  const statePath = found ? sprintEngineRunContext(found)?.statePath : undefined
   assert.ok(statePath, 'sprint workspace fixture must expose a statePath')
   return { workspaceId, statePath }
 }
@@ -201,7 +203,7 @@ async function main(): Promise<void> {
 
   // Same-mode broadcast with a newer revision must not disturb runtime state:
   // a paused run stays paused (re-applying user_set_mode would restart it).
-  useWorkspaceStore.getState().applySprintEngineAutomationEvent(workspaceId, {
+  useSprintEngineRunStore.getState().applySprintEngineAutomationEvent(workspaceId, {
     type: 'runner_paused',
     reason: 'terminal_closed',
     message: 'An agent terminal was closed.',
@@ -214,8 +216,8 @@ async function main(): Promise<void> {
   // ── Echo ordering (review finding 1): the broadcast echo of a local push is
   // delivered BEFORE the push response resolves, and carries our clientToken.
   // A rapid double-toggle must not transiently revert the final mode.
-  useWorkspaceStore.getState().setSprintEngineAutomationMode(workspaceId, 'manual')
-  useWorkspaceStore.getState().setSprintEngineAutomationMode(workspaceId, 'run_agents')
+  useSprintEngineRunStore.getState().setSprintEngineAutomationMode(workspaceId, 'manual')
+  useSprintEngineRunStore.getState().setSprintEngineAutomationMode(workspaceId, 'run_agents')
   await settle()
   assert.equal(workspace()?.sprintEngineAutoState?.desiredMode, 'run_agents',
     'echoes of both pushes were dropped by client token; final mode is the second toggle')
@@ -226,7 +228,7 @@ async function main(): Promise<void> {
   // ── Cross-writer broadcast racing an outstanding local push is deferred and
   // superseded by the push response (main serializes; ours is newer).
   fakeApi.holdPushResponses = true
-  useWorkspaceStore.getState().setSprintEngineAutomationMode(workspaceId, 'manual')
+  useSprintEngineRunStore.getState().setSprintEngineAutomationMode(workspaceId, 'manual')
   await settle()
   // A phone write's broadcast arrives while our push response is held.
   fakeApi.broadcast({ statePath, record: record('run_agents_and_approve_artifacts', 9000) })
@@ -270,7 +272,7 @@ async function main(): Promise<void> {
     'no hydrate while reads fail')
   fakeApi.failReads = false
   // Any store change re-runs the sweep.
-  useWorkspaceStore.getState().setSprintEngineMaxConcurrentAgents(retry.workspaceId, 2)
+  useSprintEngineRunStore.getState().setSprintEngineMaxConcurrentAgents(retry.workspaceId, 2)
   await settle()
   assert.ok(fakeApi.hydrateCalls.some((call) => call.statePath === retry.statePath),
     'hydration retried after the read succeeds')

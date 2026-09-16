@@ -228,18 +228,22 @@ async function testAgentSpawn(): Promise<void> {
   ])
 }
 
-type WorkingRootInput = Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
+type WorkingRootInput = Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
 
 const worktreeBackedWorkspace: WorkingRootInput = {
   folderPath: '/Users/example/project',
   worktree: null,
-  sprintEngineState: {
-    vcs: {
-      mode: 'run_worktree',
-      worktreePath: '.sprintengine/sprintengine/auth/worktree',
-      branchName: 'sprintengine/auth',
+  moduleState: {
+    sprintengine: {
+      state: {
+        vcs: {
+          mode: 'run_worktree',
+          worktreePath: '.sprintengine/sprintengine/auth/worktree',
+          branchName: 'sprintengine/auth',
+        },
+      } as never,
     },
-  } as unknown as Workspace['sprintEngineState'],
+  },
 }
 
 async function testEffectiveWorkingRoot(): Promise<void> {
@@ -250,11 +254,11 @@ async function testEffectiveWorkingRoot(): Promise<void> {
   )
   // Plain workspace: the primary checkout IS the working root.
   assert.equal(
-    workspaceWorkingRoot({ folderPath: '/Users/example/project', worktree: null, sprintEngineState: null }),
+    workspaceWorkingRoot({ folderPath: '/Users/example/project', worktree: null, moduleState: undefined }),
     '/Users/example/project'
   )
   // Folderless: null, never a fallback.
-  assert.equal(workspaceWorkingRoot({ folderPath: null, worktree: null, sprintEngineState: null }), null)
+  assert.equal(workspaceWorkingRoot({ folderPath: null, worktree: null, moduleState: undefined }), null)
 
   // File watch resolves workspace-relative paths against the working root, so
   // a worktree-backed workspace's watch attaches under the worktree — the same

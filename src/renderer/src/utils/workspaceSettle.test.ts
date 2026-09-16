@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import type { Workspace } from '../types/workspace'
+import type { SprintEngineState, Workspace } from '../types/workspace'
 import {
   WORKSPACE_AUTO_SETTLE_AFTER_MS,
   decideWorkspaceSettlement,
@@ -22,7 +22,6 @@ function ws(fields: Partial<Workspace>): Workspace {
     mode: 'standard',
     createdAt: NOW - 10 * DAY,
     lastTerminalActivityAt: null,
-    sprintEngineState: null,
     sprintEngineAutoState: {},
     ...fields,
   } as unknown as Workspace
@@ -96,10 +95,10 @@ assert.equal(
 
 // Sprints with pending work never settle; finished merged runs do.
 const sprintState = (tasks: { status: string }[], vcs?: { pullRequestState: string }) =>
-  ({ tasks, vcs } as unknown as Workspace['sprintEngineState'])
+  ({ tasks, vcs } as unknown as SprintEngineState)
 assert.equal(
   shouldAutoSettleWorkspace(
-    ws({ mode: 'sprintengine' as Workspace['mode'], sprintEngineState: sprintState([{ status: 'in_progress' }]) }),
+    ws({ mode: 'sprintengine' as Workspace['mode'], moduleState: { sprintengine: { state: sprintState([{ status: 'in_progress' }]) } } }),
     NOW
   ),
   false,
@@ -109,7 +108,7 @@ assert.equal(
   shouldAutoSettleWorkspace(
     ws({
       mode: 'sprintengine' as Workspace['mode'],
-      sprintEngineState: sprintState([{ status: 'done' }], { pullRequestState: 'open' }),
+      moduleState: { sprintengine: { state: sprintState([{ status: 'done' }], { pullRequestState: 'open' }) } },
     }),
     NOW
   ),
@@ -120,7 +119,7 @@ assert.equal(
   shouldAutoSettleWorkspace(
     ws({
       mode: 'sprintengine' as Workspace['mode'],
-      sprintEngineState: sprintState([{ status: 'done' }], { pullRequestState: 'merged' }),
+      moduleState: { sprintengine: { state: sprintState([{ status: 'done' }], { pullRequestState: 'merged' }) } },
     }),
     NOW
   ),

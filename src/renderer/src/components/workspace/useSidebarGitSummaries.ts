@@ -56,7 +56,7 @@ const CONCURRENCY = 4
  * What resolving a workspace's checkout needs off it. Callers pass whole
  * `Workspace` records.
  */
-type SummaryInput = Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
+type SummaryInput = Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
 
 /**
  * The checkout a workspace's row reports on: its worktree when it has one, its

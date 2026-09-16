@@ -2041,8 +2041,7 @@ export function computeSprintEngineFocusAgentAvailability(
     const runtime = sprintEngineState.sprintEngineAgents[agent.id]
     const local = agents[agent.id]
     const localExited = Boolean(
-      local?.kind === 'sprintengine'
-      && local.cliLastExitedAt
+      local?.cliLastExitedAt
       && !local.cliStartRequested
       && !local.cliHasLaunched
     )
@@ -3269,7 +3268,8 @@ export function resolveSprintEngineArtifactEditorPath(
  * `--model` flag (the CLI's own default, deliberately), and an entry without a
  * reasoning level resolves `cliReasoning: undefined` = no effort flag.
  *
- * Moved verbatim from `store/slices/runStateSlice.ts` (which re-exports it)
+ * Moved verbatim from the Sprint Engine run-state module
+ * (`modules/sprint-engine-run-state.ts`, which re-exports it)
  * so the shared auto-run planner path can resolve runtimes without the store.
  */
 export function resolveSprintEngineRoleRuntime(
@@ -3303,7 +3303,8 @@ export function resolveSprintEngineRoleRuntime(
  * configures a level, and a role config with no level resolves
  * `cliReasoning: undefined` = no effort flag.
  *
- * Moved verbatim from `store/slices/runStateSlice.ts` (which re-exports it)
+ * Moved verbatim from the Sprint Engine run-state module
+ * (`modules/sprint-engine-run-state.ts`, which re-exports it)
  * so the shared auto-run planner path can resolve runtimes without the store.
  */
 export function resolveSprintEngineAgentRuntime(

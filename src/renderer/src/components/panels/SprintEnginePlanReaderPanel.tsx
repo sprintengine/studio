@@ -15,6 +15,8 @@ import {
   getSprintEngineRootDirectoryPath,
 } from '../../utils/sprintengineStateFile'
 import { SIDECAR_DIR_NAME } from '../../../../shared/workspace-sidecar'
+import { sprintEngineRunContext } from '../../store/slices/workspaceModuleState'
+
 
 type Props = {
   workspaceId: string
@@ -30,7 +32,7 @@ export default function SprintEnginePlanReaderPanel({ workspaceId, onClose }: Pr
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId))
   const openFile = useWorkspaceStore((s) => s.openFile)
   const folderPath = workspace?.folderPath ?? null
-  const sprintEngineContext = workspace?.sprintEngineContext ?? null
+  const sprintEngineContext = (workspace ? sprintEngineRunContext(workspace) : null) ?? null
 
   const planFilePath = useMemo(
     () =>

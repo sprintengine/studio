@@ -306,7 +306,7 @@ export type TerminalLine = {
   idleLabel: string
 }
 
-export type TerminalLinesWorkspace = Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState' | 'agents' | 'remoteOrigin'>
+export type TerminalLinesWorkspace = Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState' | 'agents' | 'remoteOrigin'>
 
 function launchIntentOf(workspace: TerminalLinesWorkspace, session: TerminalSessionSnapshot) {
   const worktree = resolveWorkspaceWorktree(workspace)

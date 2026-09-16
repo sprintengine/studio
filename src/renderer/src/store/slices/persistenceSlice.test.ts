@@ -10,8 +10,9 @@ import {
   nonEmptyPersistedWorkspaceState,
   readPersistedWorkspaceState,
 } from './persistenceSlice'
+import { normalizeWorkspaceForPartialize } from './normalizers'
 import { normalizeAppSettings, sprintEngineRunSettingsKey } from './settingsSlice'
-import { reconcileWorkspaceModuleState } from './workspaceModuleState'
+import { getSprintEngineModuleState, reconcileWorkspaceModuleState } from './workspaceModuleState'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import type { Workspace } from '../../types/workspace'
 
@@ -199,12 +200,11 @@ const migratedSprintEnginePermission = migratePersistedWorkspaceState(v60SprintE
     sprintEngineRunSettings: Record<string, { cliPermissionPreset?: string }>
   }
   workspaces: Array<{
-    sprintEngineContext: { statePath: string }
     sprintEngineAutoState: { cliPermissionPreset: string }
   }>
 }
 const migratedSprintEnginePermissionKey = sprintEngineRunSettingsKey(
-  migratedSprintEnginePermission.workspaces[0].sprintEngineContext.statePath,
+  getSprintEngineModuleState(migratedSprintEnginePermission.workspaces[0] as Workspace)?.context?.statePath,
 )
 assert.equal(
   migratedSprintEnginePermission.appSettings.sprintEngineRunSettings[migratedSprintEnginePermissionKey]
@@ -315,12 +315,11 @@ const migratedSprintEngineLaunch = migratePersistedWorkspaceState(v56SprintEngin
       status: string
       streamBuffer: string
     }>
-    sprintEngineState: { sprintEngineAgents: Record<string, unknown> }
   }>
 }
 const migratedArchitect = migratedSprintEngineLaunch.workspaces[0].agents.architect
-assert.ok(migratedSprintEngineLaunch.workspaces[0].sprintEngineState.sprintEngineAgents.architect)
-assert.equal(migratedArchitect.kind, 'sprintengine')
+assert.ok(getSprintEngineModuleState(migratedSprintEngineLaunch.workspaces[0] as Workspace)?.state?.sprintEngineAgents.architect)
+assert.equal(migratedArchitect.kind, 'general')
 assert.equal(migratedArchitect.cliStartRequested, false)
 assert.equal(migratedArchitect.cliHasLaunched, false)
 // The v57 migration clears the launch/resume gate so a restart never auto-resumes
@@ -520,7 +519,7 @@ assert.equal(
 // v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile
 // still carries the persisted `sprintEngineModelCatalog` array of hand-set
 // scores; the ladder drops it and leaves every other setting alone.
-assert.equal(WORKSPACE_STORE_VERSION, 75, 'the reviews-host retirement is the newest step, at store v75')
+assert.equal(WORKSPACE_STORE_VERSION, 76, 'the module-bag hoist of sprintEngineContext and roleCliDefaults is the newest step, at store v76')
 
 // v74: the workspace Backlog left the FlexLayout rail for the pane. A v73
 // envelope — which already carries a pane record — still docking `backlog`
@@ -724,12 +723,11 @@ assert.deepEqual(
   'normalizeAppSettings drops a blank level and a selection naming no CLI, regardless of store version',
 )
 
-// v71: the per-module workspace-state bag arrives (MC-1573). Persisted rows
-// normally carry a null run state and no bag (partialize strips both homes),
-// so the rung's real work is the odd row that carries ONE representation: an
-// ancient pre-strip profile with a populated top-level sprintEngineState, or a
-// hand-written bag entry with no mirror. Either way both homes must agree
-// after the ladder, and a row already in the normal shape must load unchanged.
+// v71: the per-module workspace-state bag arrives (MC-1573). Later rungs
+// (v76) hoist any remaining top-level engine fields into that bag and drop
+// them, so a v70 persist that carried a populated top-level projection lands
+// with the value in moduleState.sprintengine and no top-level field. A
+// third-party module's durable entry rides the ladder untouched.
 const v70SprintState = createInitialSprintEngineState({
   goal: 'Validate module-state rung',
   name: 'Bag Team',
@@ -760,53 +758,154 @@ const migratedBag = migratePersistedWorkspaceState(v70WithLegacyField, 70) as {
   workspaces: Workspace[]
 }
 const legacyFieldRow = migratedBag.workspaces[0]
-assert.ok(legacyFieldRow.sprintEngineState, 'v71 keeps the populated legacy mirror')
 assert.equal(
-  legacyFieldRow.moduleState?.sprintengine,
-  legacyFieldRow.sprintEngineState,
-  'v71 adopts a populated legacy field into the bag; both homes hold the same state',
+  getSprintEngineModuleState(legacyFieldRow)?.state?.goal,
+  'Validate module-state rung',
+  'a populated legacy field is adopted into the bag by the time the ladder finishes',
+)
+assert.equal(
+  getSprintEngineModuleState(legacyFieldRow)?.state?.name,
+  'Bag Team',
+)
+assert.equal(
+  'sprintEngineState' in legacyFieldRow,
+  false,
+  'the hoist drops the top-level field once the bag holds the projection',
 )
 const nullStateRow = migratedBag.workspaces[1]
-assert.equal(nullStateRow.sprintEngineState, null, 'v71 leaves a null run state null')
+assert.equal(
+  'sprintEngineState' in nullStateRow,
+  false,
+  'a null top-level run state is omitted rather than kept as a live field',
+)
 assert.equal(
   nullStateRow.moduleState && 'sprintengine' in nullStateRow.moduleState,
   false,
-  'v71 never mints a sprintengine bag entry for a null run state',
+  'a null run state never mints a sprintengine bag entry',
 )
 assert.deepEqual(
   nullStateRow.moduleState,
   { 'weather-deck': { lastCity: 'Dublin' } },
-  'v71 leaves another module\'s bag entry untouched',
+  'another module\'s bag entry rides the ladder untouched',
 )
-// Enforcement half, same split as v67-v70: reconcileWorkspaceModuleState runs
-// in persist merge() on every hydration, so a bag/mirror disagreement cannot
-// survive inside a current-version envelope the ladder never revisits. The bag
-// entry is canonical when both homes are present.
+// Enforcement half: reconcileWorkspaceModuleState runs in persist merge() on
+// every hydration, so a bag/top-level disagreement cannot survive inside a
+// current-version envelope the ladder never revisits. The bag is canonical.
 const bagOnlyRow = reconcileWorkspaceModuleState({
   id: 'ws-bag-only',
   mode: 'sprintengine',
   folderPath: '/repo/app',
   agents: {},
-  sprintEngineState: null,
   moduleState: { sprintengine: v70SprintState },
 } as never)
-assert.ok(bagOnlyRow.sprintEngineState, 'merge-level reconcile hoists a bag-only entry onto the mirror')
 assert.equal(
-  bagOnlyRow.moduleState?.sprintengine,
-  bagOnlyRow.sprintEngineState,
-  'merge-level reconcile leaves both homes holding the same state',
+  'sprintEngineState' in bagOnlyRow,
+  false,
+  'reconcile never re-mirrors the bag onto a top-level field',
+)
+assert.equal(
+  getSprintEngineModuleState(bagOnlyRow)?.state?.goal,
+  'Validate module-state rung',
+  'reconcile unwraps a bag-only entry as the canonical projection',
 )
 const normalRow = {
   id: 'ws-normal',
   mode: 'standard',
   folderPath: '/repo/app',
   agents: {},
-  sprintEngineState: null,
 } as never as Workspace
 assert.equal(
   reconcileWorkspaceModuleState(normalRow),
   normalRow,
   'a row already in the normal persisted shape loads unchanged, reference and all',
+)
+
+// v76: sprintEngineContext and sprintEngineRoleCliDefaults join the bag
+// (MC-2573). A HEAD-shaped persist carries all three top-level fields and a
+// stripped sprintengine bag; after the ladder the values live in
+// moduleState.sprintengine, and the next write omits the top-level fields.
+const headContext = {
+  teamName: 'Head Team',
+  teamSlug: 'head-team',
+  teamDirectoryPath: '/Users/dev/app/.sprintengine/sprintengine/head-team',
+  statePath: '/Users/dev/app/.sprintengine/sprintengine/head-team/run.yaml',
+}
+const headRoleCliDefaults = { architect: 'codex' as const, developer: 'claude-code' as const }
+const headSprintState = createInitialSprintEngineState({
+  goal: 'Hoist top-level engine fields into the bag',
+  name: 'Head Team',
+  roleCounts: { architect: 1 },
+})
+const headShapedPersist = {
+  workspaces: [
+    {
+      id: 'ws-head-shaped',
+      name: 'Head Team',
+      mode: 'sprintengine',
+      folderPath: '/Users/dev/app',
+      agents: {},
+      sprintEngineState: headSprintState,
+      sprintEngineContext: headContext,
+      sprintEngineRoleCliDefaults: headRoleCliDefaults,
+      moduleState: { 'weather-deck': { lastCity: 'Cork' } },
+    },
+  ],
+  activeWorkspaceId: 'ws-head-shaped',
+}
+const migratedHead = migratePersistedWorkspaceState(headShapedPersist, 75) as {
+  workspaces: Workspace[]
+}
+const headRow = migratedHead.workspaces[0]
+const headBag = getSprintEngineModuleState(headRow)
+assert.equal(headBag?.state?.goal, headSprintState.goal, 'v76 hoists the run projection into the bag')
+assert.deepEqual(headBag?.context, headContext, 'v76 hoists sprintEngineContext into the bag')
+assert.deepEqual(
+  headBag?.roleCliDefaults,
+  headRoleCliDefaults,
+  'v76 hoists sprintEngineRoleCliDefaults into the bag',
+)
+assert.equal('sprintEngineState' in headRow, false, 'v76 drops the top-level run projection field')
+assert.equal('sprintEngineContext' in headRow, false, 'v76 drops the top-level context field')
+assert.equal(
+  'sprintEngineRoleCliDefaults' in headRow,
+  false,
+  'v76 drops the top-level role CLI defaults field',
+)
+assert.deepEqual(
+  headRow.moduleState?.['weather-deck'],
+  { lastCity: 'Cork' },
+  'v76 leaves another module\'s bag entry untouched',
+)
+const headWritten = normalizeWorkspaceForPartialize(headRow)
+assert.equal(
+  'sprintEngineState' in headWritten,
+  false,
+  'the next write omits the top-level run projection field',
+)
+assert.equal(
+  'sprintEngineContext' in headWritten,
+  false,
+  'the next write drops the top-level context field',
+)
+assert.equal(
+  'sprintEngineRoleCliDefaults' in headWritten,
+  false,
+  'the next write drops the top-level role CLI defaults field',
+)
+assert.deepEqual(
+  getSprintEngineModuleState(headWritten)?.context,
+  headContext,
+  'the next write keeps context in moduleState.sprintengine',
+)
+assert.deepEqual(
+  getSprintEngineModuleState(headWritten)?.roleCliDefaults,
+  headRoleCliDefaults,
+  'the next write keeps role CLI defaults in moduleState.sprintengine',
+)
+assert.equal(
+  getSprintEngineModuleState(headWritten)?.state,
+  undefined,
+  'the next write still strips the live projection from the bag',
 )
 
 console.log('persistenceSlice.test.ts: ok')

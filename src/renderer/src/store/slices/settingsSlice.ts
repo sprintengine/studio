@@ -42,6 +42,7 @@ import type {
   VoiceDictationSettings,
   Workspace,
 } from '../../types/workspace'
+import { sprintEngineRunContext, sprintEngineRunState } from './workspaceModuleState'
 import type {
   DiscoveredCliModel,
   DiscoveredCliModelCatalog,
@@ -365,7 +366,7 @@ export function normalizeProjectColors(value: unknown): Record<string, ProjectCo
 
 // Relocated to shared with MC-2160 (main normalizes the preset when it composes
 // a sprint run); re-exported so every existing renderer import site is unchanged.
-import { normalizeCliPermissionPreset } from '../../../../shared/sprintengine/automation-lifecycle'
+import { normalizeCliPermissionPreset } from '../../../../shared/cli-permission-preset'
 
 export { normalizeCliPermissionPreset }
 
@@ -1802,8 +1803,8 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.sprintEngineRunSettings = runSettings
         const changedAt = Date.now()
         for (const workspace of state.workspaces) {
-          if (!workspace.sprintEngineState || !workspace.sprintEngineAutoState) continue
-          const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+          if (!sprintEngineRunState(workspace) || !workspace.sprintEngineAutoState) continue
+          const key = sprintEngineRunSettingsKey(sprintEngineRunContext(workspace)?.statePath)
           if (!key || runSettings[key]) continue
           workspace.sprintEngineAutoState = {
             ...workspace.sprintEngineAutoState,

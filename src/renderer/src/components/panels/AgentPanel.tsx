@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 import { useSession } from '../../hooks/useTerminalSessions'
 import type {
   AgentCli,
@@ -12,6 +13,7 @@ import type {
   WorkspaceMode,
 } from '../../types/workspace'
 import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
+import { isSprintEngineManagedAgent } from '../../../../shared/sprintengine/agent-identity'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { DISABLE_SPRINTENGINE_TERMINALS, SAFE_MODE } from '../../utils/runtimeFlags'
 import {
@@ -61,7 +63,7 @@ export function resolveAgentRuntimeKind(
   if (!agent) return 'terminal'
   if (context.isSprintEngineAgent) return 'terminal'
   if (context.workspaceMode === 'sprintengine') return 'terminal'
-  if (agent.kind === 'sprintengine') return 'terminal'
+  if (isSprintEngineManagedAgent(agent)) return 'terminal'
   return normalizeAgentRuntime(agent).runtimeKind
 }
 
@@ -81,10 +83,10 @@ export default function AgentPanel({
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.name
   )
   const sprintEngineRuntimeRole = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.role
+    (s) => sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.role
   )
   const sprintEngineRuntimeStatus = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.status
+    (s) => sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.status
   )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)

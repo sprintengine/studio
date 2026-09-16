@@ -5,6 +5,7 @@ import type { WorkspaceBackupPayload } from '../../../shared/electron-api'
 import { defaultAuthState } from './slices/authSlice'
 import { defaultAgent } from './slices/agentsSlice'
 import { normalizeWorkspaceForPartialize } from './slices/normalizers'
+import { sprintEngineRunState } from './slices/workspaceModuleState'
 import { normalizeWorkspaceForRegistry } from '../../../shared/workspace-registry'
 import { workspaceProjectRoot } from '../utils/workspaceWorktree'
 
@@ -1008,25 +1009,25 @@ assert.equal(
   const hydrated = useWorkspaceStore.getState().workspaces
   const plain = hydrated.find((ws) => ws.id === 'ws-plain')
   assert.ok(plain, 'the normal-shape row hydrates')
-  assert.equal(plain!.sprintEngineState, null, 'a null run state stays null through merge')
+  assert.equal(sprintEngineRunState(plain!), null, 'a null run state stays absent through merge')
   assert.equal(
     Boolean(plain!.moduleState && 'sprintengine' in plain!.moduleState),
     false,
     'merge never mints a sprintengine bag entry for a null run state',
   )
   const mirrorOnly = hydrated.find((ws) => ws.id === 'ws-mirror-only')
-  assert.ok(mirrorOnly?.sprintEngineState, 'a populated legacy field survives merge')
+  assert.ok(sprintEngineRunState(mirrorOnly!), 'a populated legacy field is adopted into the bag')
   assert.equal(
-    mirrorOnly!.moduleState?.sprintengine,
-    mirrorOnly!.sprintEngineState,
-    'merge adopts the legacy field into the bag — both homes hold the same state',
+    (mirrorOnly!.moduleState?.sprintengine as { state?: unknown } | undefined)?.state,
+    sprintEngineRunState(mirrorOnly!),
+    'merge adopts the legacy field into the bag as the only home',
   )
   const bagOnly = hydrated.find((ws) => ws.id === 'ws-bag-only')
-  assert.ok(bagOnly?.sprintEngineState, 'merge hoists a bag-only entry onto the mirror')
+  assert.ok(sprintEngineRunState(bagOnly!), 'merge unwraps a bag-only entry as the canonical projection')
   assert.equal(
-    bagOnly!.moduleState?.sprintengine,
-    bagOnly!.sprintEngineState,
-    'the hoisted mirror and the bag entry are the same state',
+    (bagOnly!.moduleState?.sprintengine as { state?: unknown } | undefined)?.state,
+    sprintEngineRunState(bagOnly!),
+    'the bag entry is the canonical projection',
   )
   assert.deepEqual(
     bagOnly!.moduleState?.['weather-deck'],
@@ -1034,14 +1035,18 @@ assert.equal(
     'a third-party module bag entry hydrates verbatim',
   )
 
-  // Partialize: the sprintengine entry is a projection cache and is stripped
-  // from BOTH homes at persist; other modules' entries persist verbatim.
+  // Partialize: the live projection is stripped from the bag; durable
+  // identity stays; other modules' entries persist verbatim.
   const partialized = normalizeWorkspaceForPartialize(bagOnly!)
-  assert.equal(partialized.sprintEngineState, null, 'partialize nulls the legacy mirror')
+  assert.equal(
+    'sprintEngineState' in partialized,
+    false,
+    'partialize omits the deleted top-level field',
+  )
   assert.equal(
     Boolean(partialized.moduleState && 'sprintengine' in partialized.moduleState),
     false,
-    'partialize strips the sprintengine bag entry',
+    'partialize strips the live projection from the sprintengine bag when nothing durable remains',
   )
   assert.deepEqual(
     partialized.moduleState,
@@ -1087,16 +1092,16 @@ assert.equal(
     'workspace-sync round-trips the module-state bag intact',
   )
   assert.equal(
-    syncedWorkspace?.sprintEngineState,
-    bagOnly!.sprintEngineState,
-    'workspace-sync round-trips the legacy mirror alongside the bag',
+    sprintEngineRunState(syncedWorkspace!),
+    sprintEngineRunState(bagOnly!),
+    'workspace-sync round-trips the bag projection',
   )
 }
 
 // ── MC-1573: the store's generic module-state writer ────────────────────────
 // setWorkspaceModuleState is the SDK setter's backing action: entries write
 // into the bag, null removes, unknown workspaces and the reserved sprintengine
-// key report false (that entry's single writer stays setSprintEngineState).
+// key report false (that entry's single writer is the Sprint Engine run store).
 {
   const targetId = useWorkspaceStore.getState().addWorkspace(
     { ...raceTemplate, id: 'bag-writer' },
@@ -1131,7 +1136,7 @@ assert.equal(
   assert.equal(
     store.setWorkspaceModuleState(targetId, 'sprintengine', {}),
     false,
-    'the reserved sprintengine key is refused — its single writer is setSprintEngineState',
+    'the reserved sprintengine key is refused — its single writer is the Sprint Engine run store',
   )
 }
 

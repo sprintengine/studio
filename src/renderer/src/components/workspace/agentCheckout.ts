@@ -1,6 +1,6 @@
 import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import { observedCheckoutKind } from '../../../../shared/observed-checkout'
-import type { AgentExecution } from '../../../../shared/sprintengine/agent-state'
+import type { AgentExecution } from '../../../../shared/agent-runtime'
 
 /**
  * The shapes a checkout can take, before a git root is attached. Named for the

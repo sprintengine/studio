@@ -2,34 +2,38 @@ import {
   buildSprintEngineAgentRosterForState,
   getNextSprintEngineAgentId,
   normalizeSprintEngineState,
-} from '../../utils/sprintengine'
-import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
+} from '../utils/sprintengine'
+import { deriveSprintEngineAutomationMode } from '../utils/sprintengineAutomation'
 // Relocated to shared with MC-2160 so a main-composed sprint run carries the
 // identical automation block; re-exported below for existing import sites.
-import { normalizeSprintEngineAutoState } from '../../../../shared/sprintengine/automation-lifecycle'
-import { transitionSprintEngineAutomation } from '../../utils/sprintengineAutomationLifecycle'
-import { auditSprintEngineLifecycleTransition } from '../../utils/sprintengineAutomationAudit'
+import { normalizeSprintEngineAutoState } from '../../../shared/sprintengine/automation-lifecycle'
+import { transitionSprintEngineAutomation } from '../utils/sprintengineAutomationLifecycle'
+import { auditSprintEngineLifecycleTransition } from '../utils/sprintengineAutomationAudit'
 import {
   pushSprintEngineAutomationModeIntent,
   pushSprintEngineCliPermissionPresetIntent,
-} from '../../utils/sprintengineAutomationIntentClient'
+} from '../utils/sprintengineAutomationIntentClient'
 import {
   getSprintEngineDirectoryPath,
   getSprintEngineStateFilePath,
   slugifySprintEngineName,
-} from '../../utils/sprintengineStateFile'
+} from '../utils/sprintengineStateFile'
 import {
   defaultAgent,
   normalizeAgentState,
   pickWorkspaceAgentName,
-} from './agentsSlice'
-import { sprintEngineTabsLayoutModel } from './layoutSlice'
-import { SPRINT_ENGINE_MODULE_ID, withWorkspaceModuleState } from './workspaceModuleState'
+} from '../store/slices/agentsSlice'
+import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from '../../../shared/sprintengine/agent-identity'
+import { sprintEngineTabsLayoutModel } from '../store/slices/layoutSlice'
+import { patchSprintEngineModuleState, sprintEngineRunContext, sprintEngineRunState, sprintEngineRoleDefaults } from '../store/slices/workspaceModuleState'
 import {
   normalizeCliPermissionPreset,
   normalizeSprintEngineRunSettings,
   sprintEngineRunSettingsKey,
-} from './settingsSlice'
+} from '../store/slices/settingsSlice'
 import type {
   AgentState,
   AgentId,
@@ -45,7 +49,7 @@ import type {
   SprintEngineWorkspaceContext,
   Workspace,
   WorkspaceId,
-} from '../../types/workspace'
+} from '../types/workspace'
 
 export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
   desiredMode: 'manual',
@@ -64,11 +68,11 @@ export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
 // The role -> CLI map moved to shared with MC-2160 (main composes sprint
 // workspaces headlessly and normalizes the same map); re-exported so every
 // existing renderer import site is unchanged.
-import { normalizeSprintEngineRoleCliDefaults } from '../../../../shared/sprintengine/role-cli-defaults'
+import { normalizeSprintEngineRoleCliDefaults } from '../../../shared/sprintengine/role-cli-defaults'
 // One role -> CLI resolver for the whole app (MC-2160): creation and
 // roster-member addition used to hold near-identical copies that differed on
 // how a roleless seat keys.
-import { resolveSprintEngineRoleCli } from '../../../../shared/sprintengine/workspace-record'
+import { resolveSprintEngineRoleCli } from '../../../shared/sprintengine/workspace-record'
 
 export { normalizeSprintEngineRoleCliDefaults }
 
@@ -77,7 +81,7 @@ export { normalizeSprintEngineRoleCliDefaults }
 // to the shared Sprint Engine state module (sprint-runtime-ownership Phase 2:
 // the main-process auto-run planner resolves runtimes too); these re-exports
 // keep every existing import site working unchanged.
-import { resolveSprintEngineAgentRuntime } from '../../../../shared/sprintengine/state'
+import { resolveSprintEngineAgentRuntime } from '../../../shared/sprintengine/state'
 export { normalizeSprintEngineAutoState }
 
 function createSprintEngineWorkspaceContext(
@@ -99,15 +103,15 @@ function createSprintEngineWorkspaceContext(
 export function normalizeSprintEngineWorkspaceContext(
   input: Partial<SprintEngineWorkspaceContext> | null | undefined,
   folderPath: string | null | undefined,
-  sprintEngineState: SprintEngineState | null
+  runProjection: SprintEngineState | null
 ): SprintEngineWorkspaceContext | null {
-  if (!sprintEngineState) return null
+  if (!runProjection) return null
 
   if (input?.teamSlug && input.teamName) {
     return createSprintEngineWorkspaceContext(folderPath, input.teamName, input.teamSlug)
   }
 
-  return createSprintEngineWorkspaceContext(folderPath, sprintEngineState?.name)
+  return createSprintEngineWorkspaceContext(folderPath, runProjection?.name)
 }
 
 function isDefaultSprintEngineAgentName(name: string | undefined, fallbackLabel: string): boolean {
@@ -180,13 +184,14 @@ function reuseAgentsMapIfUnchanged(
 
 export function reconcileSprintEngineAgents(
   currentAgents: Workspace['agents'],
-  sprintEngineState: SprintEngineState | null
+  runProjection: SprintEngineState | null
 ): Workspace['agents'] {
-  if (!sprintEngineState) return {}
+  if (!runProjection) return {}
 
   const nextAgents: Workspace['agents'] = {}
+  const rosterIds = sprintEngineRosterAgentIds(runProjection.sprintEngineAgents)
   const rosterAgents = Object.fromEntries(
-    buildSprintEngineAgentRosterForState(sprintEngineState).map((agent) => {
+    buildSprintEngineAgentRosterForState(runProjection).map((agent) => {
       const current = currentAgents[agent.id]
       const nextName = isDefaultSprintEngineAgentName(current?.name, agent.label)
         ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
@@ -197,18 +202,17 @@ export function reconcileSprintEngineAgents(
       // with no model, so replenishment-minted agents launched on the CLI's
       // default model). An explicit per-agent `cliRuntimeOverride` outranks the
       // role config; a role absent from the map preserves the record's values.
-      const resolved = resolveSprintEngineAgentRuntime(sprintEngineState.roleRuntimes, agent.role, current)
+      const resolved = resolveSprintEngineAgentRuntime(runProjection.roleRuntimes, agent.role, current)
       const normalizedAgent = current
         ? normalizeAgentState({
           ...current,
           name: nextName,
-          kind: 'sprintengine' as const,
           cli: resolved.cli ?? current.cli,
           cliModel: resolved.cliModel,
           cliReasoning: resolved.cliReasoning,
         }, 'claude-code')
         : {
-          ...defaultAgent(agent.id, nextName, 'sprintengine'),
+          ...defaultAgent(agent.id, nextName),
           cli: resolved.cli ?? ('claude-code' as const),
           ...(resolved.cliModel ? { cliModel: resolved.cliModel } : {}),
           ...(resolved.cliReasoning ? { cliReasoning: resolved.cliReasoning } : {}),
@@ -226,7 +230,7 @@ export function reconcileSprintEngineAgents(
   )
   const transientSprintEngineAgents = Object.fromEntries(
     Object.entries(currentAgents).filter(([id, agent]) =>
-      agent.kind === 'sprintengine'
+      isSprintEngineManagedAgent(agent, { agentId: id, rosterIds })
       && !rosterAgents[id]
       && Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId)
     ).map(([id, agent]) => [id, reuseAgentIfUnchanged(agent, normalizeAgentState(agent, 'claude-code'))])
@@ -240,29 +244,25 @@ export function reconcileSprintEngineAgents(
 }
 
 export function migrateSprintEngineAgentNames(ws: Workspace): Workspace {
-  const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-  if (ws.mode !== 'sprintengine' && !sprintEngineState) return ws
+  const runProjection = normalizeSprintEngineState(sprintEngineRunState(ws))
+  if (ws.mode !== 'sprintengine' && !runProjection) return ws
 
-  const agents = reconcileSprintEngineAgents(ws.agents ?? {}, sprintEngineState)
-  // The freshly normalized state is canonical here; write it to the bag AND
-  // the mirror so the MC-1573 lockstep invariant survives this migration.
-  return withWorkspaceModuleState(
+  const agents = reconcileSprintEngineAgents(ws.agents ?? {}, runProjection)
+  return patchSprintEngineModuleState(
     {
       ...ws,
-      sprintEngineState,
       agents,
-      layoutModel: sprintEngineTabsLayoutModel(sprintEngineState, agents),
+      layoutModel: sprintEngineTabsLayoutModel(runProjection, agents),
     },
-    SPRINT_ENGINE_MODULE_ID,
-    sprintEngineState,
+    { state: runProjection },
   )
 }
 
 interface RunStateSliceState {}
 
 interface RunStateSliceActions {
-  setSprintEngineContext: (id: WorkspaceId, sprintEngineContext: SprintEngineWorkspaceContext | null) => void
-  setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
+  setSprintEngineContext: (id: WorkspaceId, runContext: SprintEngineWorkspaceContext | null) => void
+  setSprintEngineState: (workspaceId: WorkspaceId, runProjection: SprintEngineState | null) => void
   setSprintEngineAutomationMode: (
     workspaceId: WorkspaceId,
     mode: SprintEngineAutomationMode,
@@ -347,7 +347,7 @@ function sprintEngineRunSettingsForWorkspace(
   state: RunStateSliceCarrier,
   workspace: Workspace,
 ): SprintEngineRunSettings | undefined {
-  const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+  const key = sprintEngineRunSettingsKey(sprintEngineRunContext(workspace)?.statePath)
   if (!key || !state.appSettings) return undefined
   return normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)[key]
 }
@@ -364,7 +364,7 @@ function rememberSprintEngineRunSettings(
   workspace: Workspace,
   patch: SprintEngineRunSettings,
 ): void {
-  const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+  const key = sprintEngineRunSettingsKey(sprintEngineRunContext(workspace)?.statePath)
   if (!key || !state.appSettings) return
   const current = normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)
   state.appSettings.sprintEngineRunSettings = {
@@ -400,20 +400,25 @@ function shouldAuditSprintEngineLifecycleState(
 
 export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
   return {
-    setSprintEngineContext: (id, sprintEngineContext) =>
+    setSprintEngineContext: (id, runContext) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
-        if (ws) ws.sprintEngineContext = sprintEngineContext
+        if (!ws) return
+        const next = patchSprintEngineModuleState(ws, { context: runContext })
+        if (!isDeepEqual(ws.moduleState, next.moduleState)) {
+          if (next.moduleState) ws.moduleState = next.moduleState
+          else delete ws.moduleState
+        }
       }),
 
-    setSprintEngineState: (workspaceId, sprintEngineState) =>
+    setSprintEngineState: (workspaceId, runProjection) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
-        const normalized = normalizeSprintEngineState(sprintEngineState)
+        const normalized = normalizeSprintEngineState(runProjection)
         const nextMode = normalized ? 'sprintengine' : 'standard'
         const nextContext = normalizeSprintEngineWorkspaceContext(
-          ws.sprintEngineContext,
+          sprintEngineRunContext(ws),
           ws.folderPath,
           normalized
         )
@@ -441,20 +446,15 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         // draft (and therefore the array) stays untouched on no-op ticks, and so
         // per-field `useShallow` selectors also stay stable when only some
         // fields move.
-        if (!isDeepEqual(ws.sprintEngineState, normalized)) ws.sprintEngineState = normalized
-        // Mirror the write into the canonical bag entry (MC-1573) under the
-        // same no-op guard, so quiet projection ticks leave the draft alone.
-        const bagEntry = ws.moduleState?.[SPRINT_ENGINE_MODULE_ID] ?? null
-        if (normalized === null) {
-          if (ws.moduleState && SPRINT_ENGINE_MODULE_ID in ws.moduleState) {
-            delete ws.moduleState[SPRINT_ENGINE_MODULE_ID]
-            if (Object.keys(ws.moduleState).length === 0) delete ws.moduleState
-          }
-        } else if (!isDeepEqual(bagEntry, normalized)) {
-          ;(ws.moduleState ??= {})[SPRINT_ENGINE_MODULE_ID] = normalized
+        const patched = patchSprintEngineModuleState(ws, {
+          state: normalized,
+          context: nextContext,
+        })
+        if (!isDeepEqual(ws.moduleState, patched.moduleState)) {
+          if (patched.moduleState) ws.moduleState = patched.moduleState
+          else delete ws.moduleState
         }
         if (ws.mode !== nextMode) ws.mode = nextMode
-        if (!isDeepEqual(ws.sprintEngineContext, nextContext)) ws.sprintEngineContext = nextContext
         if (ws.agents !== nextAgents) ws.agents = nextAgents
         if (!isDeepEqual(ws.sprintEngineAutoState, nextAutoState)) ws.sprintEngineAutoState = nextAutoState
       }),
@@ -470,7 +470,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         if (!ws) return
         const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
         ws.sprintEngineAutoState = transitionSprintEngineAutomation(current, { type: 'user_set_mode', mode })
-        const statePath = ws.sprintEngineContext?.statePath
+        const statePath = sprintEngineRunContext(ws)?.statePath
         if (statePath && !options?.suppressMainSync) {
           push.current = { statePath, workspaceName: ws.name }
         }
@@ -538,7 +538,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           changedAt: Date.now(),
         }
         rememberSprintEngineRunSettings(state, ws, { cliPermissionPreset: nextPreset })
-        const statePath = ws.sprintEngineContext?.statePath
+        const statePath = sprintEngineRunContext(ws)?.statePath
         if (statePath) push.current = { statePath, preset: nextPreset, workspaceName: ws.name }
       })
       if (push.current) {
@@ -605,7 +605,9 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
 
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws?.sprintEngineState) return
+        if (!ws) return
+        const run = sprintEngineRunState(ws)
+        if (!run) return
 
         // Mint the display id against the canonical workers view when present
         // (MC-1593a) so it never collides with a live worker; the bridge is the
@@ -613,9 +615,9 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         // row resolve their role from the worker record before it first claims.
         const agentId = getNextSprintEngineAgentId(
           role,
-          ws.sprintEngineState.workers ?? ws.sprintEngineState.sprintEngineAgents,
+          run.workers ?? run.sprintEngineAgents,
         )
-        ws.sprintEngineState.sprintEngineAgents[agentId] = {
+        run.sprintEngineAgents[agentId] = {
           role,
           status: 'idle',
           currentTaskId: null,
@@ -623,30 +625,30 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         // No roleCounts bump (MC-1450): counts are an enabled-set encoding,
         // not a headcount — mark the role enabled and let the runtime roster
         // carry the actual membership.
-        ws.sprintEngineState.roleCounts[role] = 1
+        run.roleCounts[role] = 1
 
-        const rosterAgent = buildSprintEngineAgentRosterForState(ws.sprintEngineState).find(
+        const rosterAgent = buildSprintEngineAgentRosterForState(run).find(
           (agent) => agent.id === agentId
         )
         const agentRoleLabel = rosterAgent?.label ?? agentId
         const agentLabel = pickWorkspaceAgentName(ws.agents)
-        const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults)
+        const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(sprintEngineRoleDefaults(ws))
         // Role config from run.yaml (via the projection) wins for CLI, model and
         // reasoning effort; the workspace-level CLI defaults are the
         // pre-projection fallback. No model in either place ⇒ no `--model` flag,
         // and no level ⇒ no effort flag. A brand-new member has no per-agent
         // override yet.
-        const runtime = resolveSprintEngineAgentRuntime(ws.sprintEngineState.roleRuntimes, role, undefined)
+        const runtime = resolveSprintEngineAgentRuntime(run.roleRuntimes, role, undefined)
         const memberCli = runtime.cli ?? resolveSprintEngineRoleCli(roleCliDefaults, role)
         ws.agents[agentId] = {
-          ...defaultAgent(agentId, agentLabel, 'sprintengine'),
+          ...defaultAgent(agentId, agentLabel),
           cli: memberCli,
           ...(runtime.cliModel ? { cliModel: runtime.cliModel } : {}),
           ...(runtime.cliReasoning ? { cliReasoning: runtime.cliReasoning } : {}),
         }
-        ws.agents = reconcileSprintEngineAgents(ws.agents, ws.sprintEngineState)
-        ws.sprintEngineState.events.push({
-          id: `EVT-${String(ws.sprintEngineState.events.length + 1).padStart(3, '0')}`,
+        ws.agents = reconcileSprintEngineAgents(ws.agents, run)
+        run.events.push({
+          id: `EVT-${String(run.events.length + 1).padStart(3, '0')}`,
           timestamp: new Date().toISOString(),
           type: 'member_added',
           actor: 'user',

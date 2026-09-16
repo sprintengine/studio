@@ -217,7 +217,6 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
     worktreeState: { containerPath: null, entries: {}, updatedAt: null },
     memory: { relativeRoot: '' },
     editorState: { openFiles: [], activeFilePath: null },
-    sprintEngineState: null,
     sprintEngineAutoState: {
       desiredMode: 'run_agents_and_approve_artifacts',
       runtimeState: 'running',
@@ -232,7 +231,7 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
 
 function sprintAgent(id: string, name: string, cli: AgentCli = 'codex'): Workspace['agents'][string] {
   return {
-    ...defaultAgent(id, name, 'sprintengine'),
+    ...defaultAgent(id, name),
     cli,
   }
 }

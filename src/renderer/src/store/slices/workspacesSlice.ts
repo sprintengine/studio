@@ -6,7 +6,7 @@ import {
   normalizeSprintEngineState,
 } from '../../utils/sprintengine'
 import { moveEditorBuffer } from '../../utils/editorBuffers'
-import { composeSprintEngineWorkspaceRecord } from '../../../../shared/sprintengine/workspace-record'
+import { composeSprintEngineWorkspaceFromModule } from '../../../../shared/sprintengine/workspace-record'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
 import {
   decideWorkspaceSettlement,
@@ -64,7 +64,14 @@ import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
 } from '../../types/workspace'
 import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../../../../shared/workspace-title'
-import { SPRINT_ENGINE_MODULE_ID, reconcileWorkspaceModuleState } from './workspaceModuleState'
+import {
+  SPRINT_ENGINE_MODULE_ID,
+  patchSprintEngineModuleState,
+  reconcileWorkspaceModuleState,
+  sprintEngineRunContext,
+  sprintEngineRunState,
+  sprintEngineRoleDefaults,
+} from './workspaceModuleState'
 
 // How far the person's last-input clock may run ahead of main's copy before
 // the next report is sent as a field patch (recordWorkspaceTerminalActivity).
@@ -106,9 +113,9 @@ export function workspaceFolderKey(value: string | null | undefined): string | n
 
 export function normalizeWorkspaceMode(
   input: unknown,
-  sprintEngineState?: SprintEngineState | null
+  runProjection?: SprintEngineState | null
 ): WorkspaceMode {
-  if (sprintEngineState) return 'sprintengine'
+  if (runProjection) return 'sprintengine'
   if (typeof input === 'string' && input.trim().length > 0) return input
   return 'standard'
 }
@@ -301,9 +308,7 @@ interface WorkspacesSliceActions {
       // Set for a chat created on a paired machine; see Workspace.remoteOrigin.
       remoteOrigin?: import('../../types/workspace').WorkspaceRemoteOrigin | null
       worktree?: WorkspaceWorktree | null
-      sprintEngineState?: SprintEngineState | null
-      sprintEngineContext?: SprintEngineWorkspaceContext | null
-      sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
+      sprintEngineModule?: import('../../../../shared/sprintengine/workspace-record').SprintEngineModuleState
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
       // Explicit per-role launch model from the new-workspace roster. String =
       // explicit model id, null or absent = CLI default with no model flag.
@@ -409,7 +414,7 @@ export interface WorkspacesSliceDependencies {
   normalizeSprintEngineWorkspaceContext: (
     input: Partial<SprintEngineWorkspaceContext> | null | undefined,
     folderPath: string | null | undefined,
-    sprintEngineState: SprintEngineState | null
+    runProjection: SprintEngineState | null
   ) => SprintEngineWorkspaceContext | null
   normalizeSprintEngineAutoState: (
     input:
@@ -423,7 +428,7 @@ export interface WorkspacesSliceDependencies {
     input: SprintEngineRoleCliDefaults | null | undefined
   ) => Required<SprintEngineRoleCliDefaults>
   sprintEngineTabsLayoutModel: (
-    sprintEngineState: SprintEngineState,
+    runProjection: SprintEngineState,
     agents: Workspace['agents'],
     options?: { includeAgentTabs?: boolean }
   ) => IJsonModel
@@ -1212,7 +1217,8 @@ export function createWorkspacesSlice(
         const folderPath = options?.folderPath ?? null
         const fallbackName = `${template.name} ${state.workspaces.length + 1}`
         const explicitMode = options?.mode
-        const isSprintEngine = template.id === 'sprintengine-mode' || Boolean(options?.sprintEngineState)
+        const createdModule = options?.sprintEngineModule
+        const isSprintEngine = template.id === 'sprintengine-mode' || Boolean(createdModule?.state)
         const isAutomationsHost = explicitMode === AUTOMATIONS_HOST_WORKSPACE_MODE
         const targetWindowId =
           options?.windowId
@@ -1261,16 +1267,16 @@ export function createWorkspacesSlice(
           // check can hold ACROSS windows.
           return
         }
-        const sprintEngineState = isSprintEngine
-          ? normalizeSprintEngineState(options?.sprintEngineState)
+        const runProjection = isSprintEngine
+          ? normalizeSprintEngineState(createdModule?.state)
             ?? createInitialSprintEngineState({
-              goal: options?.sprintEngineState?.goal ?? 'Launch Sprint Engine mode',
-              name: options?.sprintEngineState?.name ?? options?.name ?? 'Sprint Roster',
-              roleCounts: options?.sprintEngineState?.roleCounts ?? createEmptySprintEngineRoleCounts(),
+              goal: createdModule?.state?.goal ?? 'Launch Sprint Engine mode',
+              name: createdModule?.state?.name ?? options?.name ?? 'Sprint Roster',
+              roleCounts: createdModule?.state?.roleCounts ?? createEmptySprintEngineRoleCounts(),
             })
           : null
-        const workspaceName = sprintEngineState
-          ? sprintEngineState.name
+        const workspaceName = runProjection
+          ? runProjection.name
           : options?.name?.trim() || fallbackName
         // Only a workspace on an app-minted name ("Chat 44", "Solo 3") is a
         // candidate for auto-titling. A sprint roster name, a wizard-typed name,
@@ -1281,8 +1287,8 @@ export function createWorkspacesSlice(
         // every new chat at birth and the first prompt never named anything.
         const titleLocked = !isDefaultWorkspaceName(workspaceName, template.name)
         const agents: Workspace['agents'] = {}
-        const sprintEngineRoleCliDefaults = sprintEngineState
-          ? deps.normalizeSprintEngineRoleCliDefaults(options?.sprintEngineRoleCliDefaults)
+        const roleCliDefaults = runProjection
+          ? deps.normalizeSprintEngineRoleCliDefaults(createdModule?.roleCliDefaults)
           : undefined
         // A sprint's roster agents and board layout are composed by the shared
         // builder below (MC-2160), which main runs too — a second copy here
@@ -1291,8 +1297,8 @@ export function createWorkspacesSlice(
         // creation runs AFTER initializeSprintEngineState has written run.yaml
         // and (in worktree mode) created the git worktree, so failing later
         // would orphan a real on-disk run.
-        if (sprintEngineState) {
-          if (!sprintEngineRoleCliDefaults) {
+        if (runProjection) {
+          if (!roleCliDefaults) {
             throw new Error('Missing Sprint Engine CLI defaults for workspace creation.')
           }
         } else if (options?.seedAgent?.terminal || options?.seedAgent?.fleet) {
@@ -1337,17 +1343,17 @@ export function createWorkspacesSlice(
           options?.seedAgent && (options.seedAgent.tabName || options.seedAgent.terminal || options.seedAgent.fleet)
             ? applySoloChatSeed(baseStandardLayout, options.seedAgent)
             : baseStandardLayout
-        const sprintEngineContext = deps.normalizeSprintEngineWorkspaceContext(
-          options?.sprintEngineContext,
+        const runContext = deps.normalizeSprintEngineWorkspaceContext(
+          createdModule?.context,
           folderPath,
-          sprintEngineState
+          runProjection
         )
-        const savedSprintEngineRunSettings = sprintEngineContext
+        const savedSprintEngineRunSettings = runContext
           ? normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)[
-            sprintEngineRunSettingsKey(sprintEngineContext.statePath)
+            sprintEngineRunSettingsKey(runContext.statePath)
           ]
           : undefined
-        const sprintEngineAutoState = sprintEngineState
+        const sprintEngineAutoState = runProjection
           ? deps.normalizeSprintEngineAutoState({
             cliPermissionPreset: state.appSettings.lastAgentSpawnPermissionPreset,
             ...savedSprintEngineRunSettings,
@@ -1355,15 +1361,17 @@ export function createWorkspacesSlice(
           })
           : deps.normalizeSprintEngineAutoState(options?.sprintEngineAutoState)
         // A sprint workspace is composed by the shared builder (MC-2160): its
-        // roster-seeded agents, board layout, and the canonical/legacy run-state
-        // pair are the same record main mints for a headless `sprint.create`.
-        const sprintWorkspace = sprintEngineState && sprintEngineRoleCliDefaults
-          ? composeSprintEngineWorkspaceRecord({
+        // roster-seeded agents, board layout, and module bag are the same
+        // record main mints for a headless `sprint.create`.
+        const sprintWorkspace = runProjection && roleCliDefaults
+          ? composeSprintEngineWorkspaceFromModule({
             workspaceId: id,
-            sprintEngineState,
-            sprintEngineContext,
+            module: {
+              state: runProjection,
+              context: runContext,
+              roleCliDefaults,
+            },
             folderPath,
-            roleCliDefaults: sprintEngineRoleCliDefaults,
             agentCliOverrides: options?.sprintEngineAgentCliOverrides ?? null,
             roleModelOverrides: options?.sprintEngineRoleModelOverrides ?? null,
             initialSpawnRoles: options?.sprintEngineInitialSpawnRoles ?? null,
@@ -1395,7 +1403,6 @@ export function createWorkspacesSlice(
           folderMissing: false,
           ...(options?.remoteOrigin ? { remoteOrigin: options.remoteOrigin } : {}),
           ...(options?.worktree ? { worktree: options.worktree } : {}),
-          sprintEngineContext,
           templateId: template.id,
           layoutModel: standardLayout,
           agents,
@@ -1403,8 +1410,6 @@ export function createWorkspacesSlice(
           memory: deps.defaultWorkspaceMemoryConfig(),
           editorState: deps.defaultEditorState(),
           fileExplorerState: defaultWorkspaceFileExplorerState(),
-          sprintEngineState,
-          sprintEngineRoleCliDefaults,
           sprintEngineAutoState,
           createdAt: Date.now(),
         }
@@ -1597,11 +1602,14 @@ export function createWorkspacesSlice(
               state.appSettings.recentWorkspaceFolders
             )
           }
-          ws.sprintEngineContext = deps.normalizeSprintEngineWorkspaceContext(
-            ws.sprintEngineContext,
+          const nextContext = deps.normalizeSprintEngineWorkspaceContext(
+            sprintEngineRunContext(ws),
             folderPath,
-            normalizeSprintEngineState(ws.sprintEngineState)
+            sprintEngineRunState(ws)
           )
+          const patched = patchSprintEngineModuleState(ws, { context: nextContext })
+          if (patched.moduleState) ws.moduleState = patched.moduleState
+          else delete ws.moduleState
         }
       }),
 
@@ -1724,8 +1732,8 @@ export function createWorkspacesSlice(
     importWorkspace: (ws) =>
       set((state) => {
         const id = nanoid()
-        const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-        const mode = sprintEngineState ? 'sprintengine' : ws.mode ?? 'standard'
+        const runProjection = normalizeSprintEngineState(sprintEngineRunState(ws))
+        const mode = runProjection ? 'sprintengine' : ws.mode ?? 'standard'
         const agents = Object.fromEntries(
           Object.entries(ws.agents).map(([k, v]) => [
             k,
@@ -1737,9 +1745,7 @@ export function createWorkspacesSlice(
             }),
           ])
         )
-        // Reconcile the imported bag with the normalized mirror (an imported
-        // payload can carry either representation) before it enters the store.
-        state.workspaces.push(reconcileWorkspaceModuleState({
+        state.workspaces.push(reconcileWorkspaceModuleState(patchSprintEngineModuleState({
           ...ws,
           id,
           name: `${ws.name} (imported)`,
@@ -1752,11 +1758,16 @@ export function createWorkspacesSlice(
           fileExplorerState: normalizeWorkspaceFileExplorerState(ws.fileExplorerState),
           backlogState: normalizeWorkspaceBacklogState(ws.backlogState),
           gitPanelState: normalizeWorkspaceGitPanelState(ws.gitPanelState),
-          sprintEngineState,
-          sprintEngineContext: deps.normalizeSprintEngineWorkspaceContext(ws.sprintEngineContext, ws.folderPath, sprintEngineState),
-          sprintEngineRoleCliDefaults: deps.normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults),
           sprintEngineAutoState: deps.normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-        } satisfies Workspace))
+        }, {
+          state: runProjection,
+          context: deps.normalizeSprintEngineWorkspaceContext(
+            sprintEngineRunContext(ws),
+            ws.folderPath,
+            runProjection,
+          ),
+          roleCliDefaults: deps.normalizeSprintEngineRoleCliDefaults(sprintEngineRoleDefaults(ws)),
+        })))
         const imported = state.workspaces.at(-1)
         if (imported) {
           Object.assign(imported, deps.migrateSprintEngineLayout(imported))

@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict'
 import { deriveWorkspaceRunGlyph, workspaceHasRunGlyphProvider } from './workspaceRunGlyph'
 import { useWorkspaceStore } from '../store/workspaceStore'
-import type { SprintEngineTask, Workspace } from '../types/workspace'
+import type { SprintEngineState, SprintEngineTask, SprintEngineWorkspaceContext, Workspace } from '../types/workspace'
 
-type WorkspaceLike = Pick<
-  Workspace,
-  'mode' | 'sprintEngineState' | 'sprintEngineContext' | 'sprintEngineAutoState'
->
+type WorkspaceLike = Pick<Workspace, 'mode' | 'moduleState' | 'sprintEngineAutoState'>
 
 function task(overrides: Partial<SprintEngineTask>): SprintEngineTask {
   return {
@@ -33,8 +30,6 @@ function task(overrides: Partial<SprintEngineTask>): SprintEngineTask {
 function sprintWorkspace(overrides: Partial<WorkspaceLike> = {}): WorkspaceLike {
   return {
     mode: 'sprintengine',
-    sprintEngineState: null,
-    sprintEngineContext: undefined,
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
       runtimeState: 'running',
@@ -46,7 +41,7 @@ function sprintWorkspace(overrides: Partial<WorkspaceLike> = {}): WorkspaceLike 
   }
 }
 
-function sprintEngineContext(): NonNullable<Workspace['sprintEngineContext']> {
+function sprintEngineContext(): SprintEngineWorkspaceContext {
   return {
     teamName: 'Run',
     teamSlug: 'run',
@@ -65,7 +60,7 @@ function manualAutoState(): NonNullable<WorkspaceLike['sprintEngineAutoState']> 
   }
 }
 
-function sprintState(tasks: SprintEngineTask[]): NonNullable<WorkspaceLike['sprintEngineState']> {
+function sprintState(tasks: SprintEngineTask[]): SprintEngineState {
   return {
     name: 'Run',
     goal: '',
@@ -83,13 +78,13 @@ useWorkspaceStore.getState().setModuleEnabled('sprint-engine', true)
 // idiom stays theirs.
 assert.equal(
   deriveWorkspaceRunGlyph(
-    { mode: 'standard', sprintEngineState: null, sprintEngineContext: undefined, sprintEngineAutoState: undefined } as unknown as WorkspaceLike,
+    { mode: 'standard', moduleState: undefined, sprintEngineAutoState: undefined } as unknown as WorkspaceLike,
   ),
   null,
 )
 assert.equal(
   workspaceHasRunGlyphProvider({
-    mode: 'standard', sprintEngineState: null, sprintEngineContext: undefined, sprintEngineAutoState: undefined,
+    mode: 'standard', moduleState: undefined, sprintEngineAutoState: undefined,
   } as unknown as WorkspaceLike),
   false,
 )
@@ -112,7 +107,7 @@ assert.deepEqual(
   deriveWorkspaceRunGlyph(
     sprintWorkspace({
       mode: 'standard',
-      sprintEngineContext: sprintEngineContext(),
+      moduleState: { sprintengine: { context: sprintEngineContext() } },
     }),
   ),
   {
@@ -128,7 +123,7 @@ assert.deepEqual(
 // an agent terminal is sitting at (or stuck at) an awaiting-input prompt; the
 // caller no longer passes terminal activity in at all.
 assert.equal(
-  deriveWorkspaceRunGlyph(sprintWorkspace({ sprintEngineState: sprintState([task({ status: 'in_progress' })]) }))?.state,
+  deriveWorkspaceRunGlyph(sprintWorkspace({ moduleState: { sprintengine: { state: sprintState([task({ status: 'in_progress' })]) } } }))?.state,
   'in_progress',
   'a running sprint with a clean board is in_progress, not needs_input, regardless of terminal phase',
 )
@@ -171,10 +166,10 @@ assert.deepEqual(deriveWorkspaceRunGlyph(completedWorkspace()), {
 // A manually-driven run (runner never reaches `complete`) whose tasks all
 // finished reads as done too.
 const manualDone = sprintWorkspace({
-  sprintEngineState: sprintState([
+  moduleState: { sprintengine: { state: sprintState([
     task({ id: 'T1', completedAt: '2026-06-08T09:00:00Z' }),
     task({ id: 'T2', completedAt: '2026-06-08T10:00:00Z' }),
-  ]),
+  ]) } },
   sprintEngineAutoState: manualAutoState(),
 })
 assert.equal(deriveWorkspaceRunGlyph(manualDone)?.state, 'done')
@@ -182,10 +177,10 @@ assert.equal(deriveWorkspaceRunGlyph(manualDone)?.state, 'done')
 // A manual run with an in-flight task now reads in_progress (static — no live
 // runner is asserted) instead of null: progress is derived from the board.
 const manualInFlight = sprintWorkspace({
-  sprintEngineState: sprintState([
+  moduleState: { sprintengine: { state: sprintState([
     task({ id: 'T1', completedAt: '2026-06-08T09:00:00Z' }),
     task({ id: 'T2', status: 'in_progress' }),
-  ]),
+  ]) } },
   sprintEngineAutoState: manualAutoState(),
 })
 assert.deepEqual(deriveWorkspaceRunGlyph(manualInFlight), {
@@ -199,14 +194,14 @@ assert.deepEqual(deriveWorkspaceRunGlyph(manualInFlight), {
 
 // A started run (some done) with nothing running reads paused.
 const pausedRun = sprintWorkspace({
-  sprintEngineState: sprintState([task({ id: 'T1', completedAt: '2026-06-08T09:00:00Z' }), task({ id: 'T2', status: 'todo' })]),
+  moduleState: { sprintengine: { state: sprintState([task({ id: 'T1', completedAt: '2026-06-08T09:00:00Z' }), task({ id: 'T2', status: 'todo' })]) } },
   sprintEngineAutoState: manualAutoState(),
 })
 assert.equal(deriveWorkspaceRunGlyph(pausedRun)?.state, 'paused')
 
 // A never-started run (all todo, idle runner) has no run signal yet.
 const notStarted = sprintWorkspace({
-  sprintEngineState: sprintState([task({ id: 'T1', status: 'todo' }), task({ id: 'T2', status: 'todo' })]),
+  moduleState: { sprintengine: { state: sprintState([task({ id: 'T1', status: 'todo' }), task({ id: 'T2', status: 'todo' })]) } },
   sprintEngineAutoState: manualAutoState(),
 })
 assert.equal(deriveWorkspaceRunGlyph(notStarted), null)

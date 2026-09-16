@@ -37,7 +37,6 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
     worktreeState: { containerPath: null, entries: {}, updatedAt: null },
     memory: { relativeRoot: null },
     editorState: { openFiles: [], activeFilePath: null },
-    sprintEngineState: null,
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
@@ -166,9 +165,10 @@ test('durability normalization strips renderer-owned view state and live agent n
 
   assert.deepEqual(normalized.editorState, { openFiles: [], activeFilePath: null })
   assert.equal(normalized.fileExplorerState, undefined)
-  assert.equal(normalized.sprintEngineState, null, 'the projection cache is engine-owned, never registry state')
+  assert.equal('sprintEngineState' in normalized, false, 'the projection cache is engine-owned, never registry state')
   assert.equal(normalized.sprintEngineInitialSpawnAgentIds, undefined, 'session-only spawn intent never persists')
-  assert.deepEqual(normalized.moduleState, { backlog: { lens: 'all' } }, 'only the sprintengine bag entry is stripped')
+  assert.equal('sprintEngineContext' in normalized, false, 'top-level context is dropped; the bag is the store')
+  assert.deepEqual(normalized.moduleState, { backlog: { lens: 'all' } }, 'a projection-shaped sprintengine bag entry is stripped; other modules stay')
 
   const agent = normalized.agents['agent-1']!
   assert.equal(agent.streamBuffer, '')
@@ -177,6 +177,48 @@ test('durability normalization strips renderer-owned view state and live agent n
   assert.equal(agent.cliStartupPrompt, undefined, 'a sent onboarding prompt is not re-armed')
   assert.equal(agent.cliSessionId, 'session-1', 'durable resume identity survives — claude --resume reads it')
   assert.equal(agent.cliResumeAvailable, true)
+})
+
+test('durability normalization keeps durable sprintengine bag fields and drops the live projection', () => {
+  const normalized = normalizeWorkspaceForRegistry(workspace({
+    sprintEngineContext: {
+      teamName: 'Head Team',
+      teamSlug: 'head-team',
+      teamDirectoryPath: '/Users/dev/app/.sprintengine/sprintengine/head-team',
+      statePath: '/Users/dev/app/.sprintengine/sprintengine/head-team/run.yaml',
+    },
+    sprintEngineRoleCliDefaults: { architect: 'codex' },
+    sprintEngineState: { name: 'Head Team', goal: 'x', roleCounts: {}, sprintEngineAgents: {}, events: [], tasks: [], artifacts: [] },
+    moduleState: {
+      sprintengine: {
+        state: { name: 'Head Team', goal: 'x' },
+        context: {
+          teamName: 'Head Team',
+          teamSlug: 'head-team',
+          teamDirectoryPath: '/Users/dev/app/.sprintengine/sprintengine/head-team',
+          statePath: '/Users/dev/app/.sprintengine/sprintengine/head-team/run.yaml',
+        },
+        roleCliDefaults: { architect: 'codex' },
+      },
+      backlog: { lens: 'all' },
+    },
+  } as unknown as Partial<Workspace>))
+
+  assert.equal('sprintEngineState' in normalized, false)
+  assert.equal('sprintEngineContext' in normalized, false)
+  assert.equal('sprintEngineRoleCliDefaults' in normalized, false)
+  assert.deepEqual(normalized.moduleState, {
+    sprintengine: {
+      context: {
+        teamName: 'Head Team',
+        teamSlug: 'head-team',
+        teamDirectoryPath: '/Users/dev/app/.sprintengine/sprintengine/head-team',
+        statePath: '/Users/dev/app/.sprintengine/sprintengine/head-team/run.yaml',
+      },
+      roleCliDefaults: { architect: 'codex' },
+    },
+    backlog: { lens: 'all' },
+  })
 })
 
 test('per-field last-write-wins accepts equal and newer stamps, drops older ones', () => {

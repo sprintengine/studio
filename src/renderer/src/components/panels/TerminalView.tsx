@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
-import type { AgentExecution, AgentExecutionMode, AgentKind } from '../../types/workspace'
+import type { AgentExecution, AgentExecutionMode, AgentState } from '../../types/workspace'
 import type { AgentSessionSystem, TerminalSpawnMetadata, TerminalSpawnResult } from '../../../../shared/electron-api'
 import { useSession } from '../../hooks/useTerminalSessions'
 import {
@@ -63,6 +63,11 @@ import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
+import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
+import {
+  isSprintEngineManagedAgent,
+} from '../../../../shared/sprintengine/agent-identity'
+
 
 interface Props {
   workspaceId: string
@@ -136,8 +141,11 @@ async function resolveMemoryLaunchContext(
   return knowledgeLaunchContext(status)
 }
 
-function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
-  if (kind === 'sprintengine') return 'sprintengine'
+function agentSessionSystem(
+  agent: AgentState | undefined,
+  rosterIds?: Iterable<string>,
+): AgentSessionSystem {
+  if (isSprintEngineManagedAgent(agent, { agentId: agent?.id, rosterIds })) return 'sprintengine'
   return 'manual'
 }
 
@@ -207,18 +215,18 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     message: folderStatusMessage,
   } = useWorkspaceFolderStatus(workspaceId)
   const sprintEngineContext = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext ?? null
+    sprintEngineRunContext(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })
   )
   const sprintEngineRuntimeRole = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.role ?? null
+    sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.role ?? null
   )
   const sprintEngineRuntimeCurrentTaskId = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.currentTaskId ?? null
+    sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.currentTaskId ?? null
   )
   const sprintEngineRosterRole = useWorkspaceStore((s) => {
-    const sprintEngineState = s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState
-    if (!sprintEngineState) return null
-    return buildSprintEngineAgentRosterForState(sprintEngineState).find((candidate) => candidate.id === agentId)?.role ?? null
+    const run = sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })
+    if (!run) return null
+    return buildSprintEngineAgentRosterForState(run).find((candidate) => candidate.id === agentId)?.role ?? null
   })
   const workspaceFolderPath = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.folderPath
@@ -261,9 +269,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const currentAgent = workspace?.agents[agentId]
     if (currentAgent?.cliStartupPrompt) return currentAgent.cliStartupPrompt
 
-    if (workspace?.mode !== 'sprintengine' || !workspace.sprintEngineState) return null
+    const run = workspace ? sprintEngineRunState(workspace) : null
+    if (workspace?.mode !== 'sprintengine' || !run) return null
 
-    const rosterAgent = buildSprintEngineAgentRosterForState(workspace.sprintEngineState).find(
+    const rosterAgent = buildSprintEngineAgentRosterForState(run).find(
       (candidate) => candidate.id === agentId
     )
 
@@ -272,14 +281,14 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const basePrompt = buildSprintEngineStartupPrompt(
       rosterAgent.role,
       agentId,
-      workspace.sprintEngineState.goal,
+      run.goal,
       {
         executionCwd: resolveAgentExecutionRoot(currentAgent?.execution, storedExecutionWorktreePath, folderReadyPath, null).cwd,
         workspaceRoot: folderReadyPath ?? undefined,
-        sprintEngineStatePath: workspace.sprintEngineContext?.statePath,
-        rosterArgs: buildSprintEngineRosterCommandArgs(workspace.sprintEngineState),
-        configuredRoles: workspace.sprintEngineState.configuredRoles,
-        commandMode: getSprintEngineStartupCommandMode(rosterAgent.role, agentId, workspace.sprintEngineState),
+        sprintEngineStatePath: sprintEngineRunContext(workspace)?.statePath,
+        rosterArgs: buildSprintEngineRosterCommandArgs(run),
+        configuredRoles: run.configuredRoles,
+        commandMode: getSprintEngineStartupCommandMode(rosterAgent.role, agentId, run),
         autonomousPlanningOverride:
           rosterAgent.role === 'architect'
           && deriveSprintEngineAutomationDesiredMode(workspace.sprintEngineAutoState) === 'run_agents_and_approve_artifacts',
@@ -416,7 +425,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
     const sessionId = attachedSessionId ?? initialContext.agent?.cliSessionId
     if (!sessionId) return
-    const isSprintEngineAgent = initialContext.agent?.kind === 'sprintengine'
+    const isSprintEngineAgent = isSprintEngineManagedAgent(initialContext.agent, {
+      agentId,
+      rosterIds: initialContext.sprintEngineRuntimeRole ? [agentId] : [],
+    })
     // Sprint agents are normally spawned fresh (auto-run re-dispatches roles),
     // but an explicit board re-open of a completed run's recorded session sets
     // `cliResumeRequested` so we resume that conversation instead.
@@ -1117,7 +1129,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const finalCli = finalContext.cli
       if (!finalAgent || !finalCli) return
       const finalResumeCaps = resumeCapabilitiesForCli(finalCli, useWorkspaceStore.getState().pluginCatalogEntries)
-      const sessionSystem = agentSessionSystem(finalAgent.kind)
+      const sessionSystem = agentSessionSystem(
+        finalAgent,
+        finalContext.sprintEngineRuntimeRole ? [agentId] : [],
+      )
       const sessionRole = sessionSystem === 'sprintengine'
         ? finalContext.sprintEngineRuntimeRole ?? finalContext.sprintEngineRosterRole
         : finalAgent.kind ?? 'manual'

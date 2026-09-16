@@ -1,4 +1,4 @@
-import { createSprintEngineTemplate } from '../../../../modules/sprint-engine-workspace-types'
+import { createSprintEngineTemplate, sprintEngineModuleFromCreatedRun } from '../../../../modules/sprint-engine-workspace-types'
 import {
   PlanSourcedSprintEngineWorkspaceError,
   createPlanSourcedSprintEngineWorkspace,
@@ -20,7 +20,7 @@ import type {
   SprintEngineNewTeamPorts,
   SprintEnginePlanSourcedInput,
   SprintEnginePlanSourcedPorts,
-} from './types'
+} from '../../../../modules/sprint-engine-workspace-types'
 
 export { buildSprintEngineEffectiveSpawnAtStartRoles }
 
@@ -53,9 +53,7 @@ function toOnCreateArgs(created: SprintEngineNewTeamCreation): OnCreateArgs {
     }),
     name: created.name,
     folderPath: created.folderPath,
-    sprintEngineState: created.sprintEngineState,
-    sprintEngineContext: created.sprintEngineContext,
-    sprintEngineRoleCliDefaults: created.roleCliDefaults,
+    sprintEngineModule: sprintEngineModuleFromCreatedRun(created),
     sprintEngineRoleModelOverrides: created.roleModelOverrides,
     sprintEngineInitialSpawnRoles: created.initialSpawnRoles,
     sprintEngineAutoState: created.sprintEngineAutoState,

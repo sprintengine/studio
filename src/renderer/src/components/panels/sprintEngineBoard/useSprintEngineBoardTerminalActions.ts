@@ -15,6 +15,8 @@ import { getSprintEngineRoleLabel, willResumeRecordedRosterSession, type SprintE
 import { prependAgentIdentifier } from '../../../utils/agentPrompt'
 import { publishDiagnostic } from '../../../utils/diagnostics'
 import { buildSprintEngineRecoveryAuditPrompt } from '../../../utils/sprintengineAgentPrompts'
+import { sprintEngineRoleDefaults } from '../../../store/slices/workspaceModuleState'
+
 
 type RecoveryDialogState = {
   cli: AgentCli
@@ -178,7 +180,6 @@ export function useSprintEngineBoardTerminalActions(
         cliStartupPrompt: undefined,
         cliLastExitCode: undefined,
         cliLastExitedAt: undefined,
-        kind: 'sprintengine',
       })
       revealAgentTerminalTab({ workspaceId, agentId, name: label })
       return true
@@ -220,7 +221,6 @@ export function useSprintEngineBoardTerminalActions(
       cli: selectedCli,
       ...(options?.cliModel !== undefined ? { cliModel: options.cliModel ?? undefined } : {}),
       cliStartupPrompt: startupPrompt,
-      kind: 'sprintengine',
     })
     if (options?.reveal === 'background') {
       // Materialise the tab docked-but-unfocused. Only when it's missing — an
@@ -293,7 +293,6 @@ export function useSprintEngineBoardTerminalActions(
         cliOnboardingPromptSent: true,
         cliSessionId: liveSession.sessionId,
         ...(effectiveCli ? { cli: effectiveCli } : {}),
-        kind: 'sprintengine',
       })
       revealAgentTerminalTab({
         workspaceId,
@@ -310,7 +309,6 @@ export function useSprintEngineBoardTerminalActions(
       cliSessionId: undefined,
       cliOnboardingPromptSent: false,
       cliResumeAvailable: false,
-      kind: 'sprintengine',
     })
     revealAgentTerminalTab({ workspaceId, agentId, name: label })
   }
@@ -362,7 +360,6 @@ export function useSprintEngineBoardTerminalActions(
       cliSessionId: undefined,
       cliOnboardingPromptSent: false,
       cliResumeAvailable: false,
-      kind: 'sprintengine',
     })
     return true
   }
@@ -425,7 +422,7 @@ export function useSprintEngineBoardTerminalActions(
 
     const role = rosterById[agentId]?.role
     const roleDefaultCli = role
-      ? workspace?.sprintEngineRoleCliDefaults?.[role] ?? lastSelectedCli
+      ? (workspace ? sprintEngineRoleDefaults(workspace) : undefined)?.[role] ?? lastSelectedCli
       : lastSelectedCli
     const cli = agentState?.cli ?? roleDefaultCli
 

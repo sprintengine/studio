@@ -64,19 +64,30 @@ const HYDRATED_STATE = {
   artifacts: [],
 } as unknown as SprintEngineState
 
-function sprintWorkspace(id: string, overrides: Partial<Workspace>): Workspace {
+function sprintWorkspace(id: string, overrides: Partial<Workspace> = {}): Workspace {
+  const { moduleState: overrideBag, ...rest } = overrides
+  const overrideEntry =
+    overrideBag && typeof overrideBag.sprintengine === 'object' && overrideBag.sprintengine !== null
+      ? overrideBag.sprintengine as Record<string, unknown>
+      : {}
   return {
     id,
     name: id,
     folderPath: `/tmp/${id}`,
     mode: 'sprintengine',
     agents: {},
-    sprintEngineContext: {
-      statePath: `/tmp/${id}/.sprintengine/sprintengine/${id}/run.yaml`,
-      teamSlug: id,
-      teamName: id,
+    ...rest,
+    moduleState: {
+      ...overrideBag,
+      sprintengine: {
+        context: {
+          statePath: `/tmp/${id}/.sprintengine/sprintengine/${id}/run.yaml`,
+          teamSlug: id,
+          teamName: id,
+        },
+        ...overrideEntry,
+      },
     },
-    ...overrides,
   } as unknown as Workspace
 }
 
@@ -129,11 +140,11 @@ async function testRepeatEntryTeardownRunsExactlyOnce(): Promise<void> {
 function testDormantRunSkippedByBothSupervisorGates(): void {
   const dormant = sprintWorkspace('dormant', {
     sprintEngineAutoState: autoState({ runtimeState: 'complete', completionTeardownAt: 500 }),
-    sprintEngineState: HYDRATED_STATE,
+    moduleState: { sprintengine: { state: HYDRATED_STATE } },
   })
   const live = sprintWorkspace('live', {
     sprintEngineAutoState: autoState({ runtimeState: 'running' }),
-    sprintEngineState: HYDRATED_STATE,
+    moduleState: { sprintengine: { state: HYDRATED_STATE } },
   })
 
   assert.equal(isSprintEngineWorkspaceDormant(dormant), true, 'complete run is dormant')
@@ -154,7 +165,7 @@ function testDormantRunSkippedByBothSupervisorGates(): void {
   // keep polling for its one hydration read.
   const coldDormant = sprintWorkspace('cold', {
     sprintEngineAutoState: autoState({ runtimeState: 'complete', completionTeardownAt: 500 }),
-    sprintEngineState: null,
+    moduleState: { sprintengine: {} },
   })
   assert.equal(
     canStopPollingCompletedSprintEngineProjection(coldDormant),
@@ -192,7 +203,7 @@ async function testForcedRefreshIsDisplayOnlyOnDormantRun(): Promise<void> {
   const backlogMutations: string[] = []
   const dormant = sprintWorkspace('dormant-refresh', {
     sprintEngineAutoState: autoState({ runtimeState: 'complete', completionTeardownAt: 500 }),
-    sprintEngineState: HYDRATED_STATE,
+    moduleState: { sprintengine: { state: HYDRATED_STATE } },
   })
   const projectionData = {
     ok: true,
@@ -258,11 +269,11 @@ function testAllDormantEmptiesBothTimerRegistrations(): void {
   const runs: Workspace[] = [
     sprintWorkspace('r1', {
       sprintEngineAutoState: autoState({ runtimeState: 'complete', completionTeardownAt: 500 }),
-      sprintEngineState: HYDRATED_STATE,
+      moduleState: { sprintengine: { state: HYDRATED_STATE } },
     }),
     sprintWorkspace('r2', {
       sprintEngineAutoState: autoState({ runtimeState: 'complete', completionTeardownAt: 500 }),
-      sprintEngineState: HYDRATED_STATE,
+      moduleState: { sprintengine: { state: HYDRATED_STATE } },
     }),
   ]
   const ids = new Set(runs.map((run) => run.id))
@@ -320,7 +331,7 @@ async function testInterruptedTeardownHealsOnReload(): Promise<void> {
   const autoStateRef = autoState({ runtimeState: 'complete', completionTeardownAt: undefined })
   const interrupted = sprintWorkspace('interrupted', {
     sprintEngineAutoState: autoStateRef,
-    sprintEngineState: null,
+    moduleState: { sprintengine: {} },
   })
   const projectionData = {
     ok: true,
@@ -337,7 +348,11 @@ async function testInterruptedTeardownHealsOnReload(): Promise<void> {
   const ports: SprintEngineProjectionRefreshPorts = {
     readSprintEngineProjection: async () => ({ ok: true, data: projectionData, token: 'tok-1' }),
     setSprintEngineState: (_workspaceId, state) => {
-      if (state) interrupted.sprintEngineState = state
+      if (state) {
+        const current = interrupted.moduleState?.sprintengine
+        const currentEntry = current && typeof current === 'object' ? current as Record<string, unknown> : {}
+        interrupted.moduleState = { sprintengine: { ...currentEntry, state } }
+      }
     },
     applySprintEngineAutomationEvent: (_workspaceId, event) => {
       events.push(event)

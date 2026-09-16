@@ -28,14 +28,25 @@ const HYDRATED_STATE = {
   artifacts: [],
 } as unknown as SprintEngineState
 
-function sprintWorkspace(id: string, overrides: Partial<Workspace>): Workspace {
+function sprintWorkspace(id: string, overrides: Partial<Workspace> = {}): Workspace {
+  const { moduleState: overrideBag, ...rest } = overrides
+  const overrideEntry =
+    overrideBag && typeof overrideBag.sprintengine === 'object' && overrideBag.sprintengine !== null
+      ? overrideBag.sprintengine as Record<string, unknown>
+      : {}
   return {
     id,
     name: id,
     mode: 'sprintengine',
     agents: {},
-    sprintEngineContext: { statePath: `/tmp/${id}/run.yaml`, teamSlug: id, teamName: id },
-    ...overrides,
+    ...rest,
+    moduleState: {
+      ...overrideBag,
+      sprintengine: {
+        context: { statePath: `/tmp/${id}/run.yaml`, teamSlug: id, teamName: id },
+        ...overrideEntry,
+      },
+    },
   } as unknown as Workspace
 }
 
@@ -43,7 +54,7 @@ function sprintWorkspace(id: string, overrides: Partial<Workspace>): Workspace {
 // An actively-running sprint run always needs polling.
 const activeRun = sprintWorkspace('active', {
   sprintEngineAutoState: { runtimeState: 'running' } as Workspace['sprintEngineAutoState'],
-  sprintEngineState: HYDRATED_STATE,
+  moduleState: { sprintengine: { state: HYDRATED_STATE } },
 })
 // A finished, hydrated, torn-down run is skippable (dormant quiescent).
 const dormantSkippable = sprintWorkspace('dormant', {
@@ -51,7 +62,7 @@ const dormantSkippable = sprintWorkspace('dormant', {
     runtimeState: 'complete',
     completionTeardownAt: 1000,
   } as Workspace['sprintEngineAutoState'],
-  sprintEngineState: HYDRATED_STATE,
+  moduleState: { sprintengine: { state: HYDRATED_STATE } },
 })
 // A cold-restart dormant run (complete + torn down but board not yet rehydrated)
 // still needs the one hydration read, so it must keep polling until hydrated.
@@ -60,7 +71,7 @@ const coldDormant = sprintWorkspace('cold', {
     runtimeState: 'complete',
     completionTeardownAt: 1000,
   } as Workspace['sprintEngineAutoState'],
-  sprintEngineState: null,
+  moduleState: { sprintengine: {} },
 })
 const plainWorkspace = { id: 'plain', name: 'plain', mode: 'standard', agents: {} } as unknown as Workspace
 

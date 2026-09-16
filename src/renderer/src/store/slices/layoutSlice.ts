@@ -13,6 +13,7 @@ import type {
   Workspace,
   WorkspaceId,
 } from '../../types/workspace'
+import { legacySprintEngineRunState } from './workspaceModuleState'
 
 export function modelContainsComponent(value: unknown, component: string): boolean {
   if (!value) return false
@@ -42,13 +43,14 @@ export function isLegacySprintEngineLayout(model: IJsonModel): boolean {
 }
 
 export function migrateSprintEngineLayout(ws: Workspace): Workspace {
-  if (ws.mode !== 'sprintengine' && !ws.sprintEngineState) return ws
+  const run = legacySprintEngineRunState(ws)
+  if (ws.mode !== 'sprintengine' && !run) return ws
 
   if (!isLegacySprintEngineLayout(ws.layoutModel)) return ws
 
   return {
     ...ws,
-    layoutModel: sprintEngineTabsLayoutModel(ws.sprintEngineState, ws.agents),
+    layoutModel: sprintEngineTabsLayoutModel(run, ws.agents),
   }
 }
 

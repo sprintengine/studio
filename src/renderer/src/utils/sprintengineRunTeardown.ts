@@ -13,6 +13,7 @@
  * teardown regardless of automation mode.
  */
 
+import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { removeAgentTab, removeAgentTabFromLayoutModel } from './modelRegistry'
 import { publishDiagnostic } from './diagnostics'
@@ -26,13 +27,19 @@ import type {
   Workspace,
   WorkspaceId,
 } from '../types/workspace'
+import { sprintEngineRunContext, sprintEngineRunState } from '../store/slices/workspaceModuleState'
+import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from '../../../shared/sprintengine/agent-identity'
 
 /** Roster agent ids whose panels the completion teardown should remove. */
 export function selectSprintEngineTeardownAgentIds(
   agents: Record<string, AgentState>,
+  rosterIds?: Iterable<string>,
 ): AgentId[] {
   return Object.entries(agents)
-    .filter(([, agent]) => agent.kind === 'sprintengine')
+    .filter(([id, agent]) => isSprintEngineManagedAgent(agent, { agentId: id, rosterIds }))
     .map(([id]) => id)
 }
 
@@ -96,7 +103,7 @@ function defaultPorts(): SprintEngineRunTeardownPorts {
     getWorkspace: (workspaceId) =>
       useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspaceId),
     upsertRosterSession: (workspaceId, agentId, session) =>
-      useWorkspaceStore.getState().upsertSprintEngineRosterSession(workspaceId, agentId, session),
+      useSprintEngineRunStore.getState().upsertSprintEngineRosterSession(workspaceId, agentId, session),
     removeAgent: (workspaceId, agentId) => useWorkspaceStore.getState().removeAgent(workspaceId, agentId),
     removeAgentTab: (workspaceId, agentId) => removeAgentTab(workspaceId, agentId),
     updateLayout: (workspaceId, model) => useWorkspaceStore.getState().updateLayout(workspaceId, model),
@@ -125,10 +132,13 @@ export async function tearDownCompletedSprintRunAgents(
   const workspace = ports.getWorkspace(workspaceId)
   if (!workspace) return empty
 
-  const agentIds = selectSprintEngineTeardownAgentIds(workspace.agents)
+  const agentIds = selectSprintEngineTeardownAgentIds(
+    workspace.agents,
+    sprintEngineRosterAgentIds(sprintEngineRunState(workspace)?.sprintEngineAgents),
+  )
   if (agentIds.length === 0) return empty
 
-  const statePath = workspace.sprintEngineContext?.statePath
+  const statePath = sprintEngineRunContext(workspace)?.statePath
   let sessions: TerminalSessionSnapshot[] = []
   try {
     sessions = await ports.terminalList()
@@ -246,9 +256,12 @@ export async function tearDownDepartedTaskScopedWorker(
   }
   const workspace = ports.getWorkspace(workspaceId)
   const agent = workspace?.agents[agentId]
-  if (!workspace || !agent || agent.kind !== 'sprintengine') return miss
+  if (!workspace || !agent || !isSprintEngineManagedAgent(agent, {
+    agentId,
+    rosterIds: sprintEngineRosterAgentIds(sprintEngineRunState(workspace)?.sprintEngineAgents),
+  })) return miss
 
-  const statePath = workspace.sprintEngineContext?.statePath
+  const statePath = sprintEngineRunContext(workspace)?.statePath
   let sessions = preloadedSessions
   if (!sessions) {
     try {
@@ -334,7 +347,7 @@ async function recordAndRemoveSprintAgent(
   const { workspace, ports, result } = ctx
   const agent = workspace.agents[agentId]
   if (!agent) return { removedLiveTab: false }
-  const role = workspace.sprintEngineState?.sprintEngineAgents?.[agentId]?.role
+  const role = sprintEngineRunState(workspace)?.sprintEngineAgents?.[agentId]?.role
   const live = ctx.liveByAgentId.get(agentId)
 
   const rosterSession = buildRosterSessionFromAgent(agent, role, live?.cliSessionId, ctx.now)

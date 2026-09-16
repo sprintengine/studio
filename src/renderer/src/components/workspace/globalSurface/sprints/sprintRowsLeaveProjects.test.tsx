@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { sprintEngineRunContext } from '../../../../store/slices/workspaceModuleState'
 
 import { JSDOM } from 'jsdom'
 import { bindSprintEngineIpc } from '../../../../modules/sprint-engine-ipc'
@@ -168,11 +169,15 @@ async function main(): Promise<void> {
     agents: {},
     openFiles: [],
     createdAt: 2,
-    sprintEngineContext: {
-      teamName: runName,
-      teamSlug: runSlug,
-      teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/${runSlug}`,
-      statePath,
+    moduleState: {
+      sprintengine: {
+        context: {
+          teamName: runName,
+          teamSlug: runSlug,
+          teamDirectoryPath: `${projectRoot}/.sprintengine/sprintengine/${runSlug}`,
+          statePath,
+        },
+      },
     },
   }
   useWorkspaceStore.setState({
@@ -459,7 +464,7 @@ async function main(): Promise<void> {
   const stored = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === 'w-sprint')
   assert.ok(stored, 'the sprint workspace is still in the store')
   assert.equal(
-    stored?.sprintEngineContext?.statePath,
+    sprintEngineRunContext(stored)?.statePath,
     statePath,
     'with its run binding intact — hiding the row migrates nothing',
   )

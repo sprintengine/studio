@@ -3,9 +3,8 @@
  *
  * A sprint workspace is not a plain workspace: its agent map is seeded from the
  * run's lazy roster (one record per seat, each carrying the CLI/model/effort the
- * roster picked), its layout is the board tab rather than the template's, and it
- * carries the run state twice — once canonically in `moduleState`, once on the
- * legacy `sprintEngineState` mirror, in lockstep.
+ * roster picked), its layout is the board tab rather than the template's, and
+ * its engine identity lives in `moduleState.sprintengine`.
  *
  * That composition used to live inside the renderer store's `addWorkspace`.
  * Main mints sprint workspaces itself now (a headless `sprint.create`), so a
@@ -36,6 +35,19 @@ import {
 
 /** The module id the canonical `moduleState` entry is keyed by. */
 export const SPRINT_ENGINE_WORKSPACE_MODULE_ID = 'sprintengine'
+
+/**
+ * The `moduleState.sprintengine` bag entry (MC-2573). Durable identity
+ * (`context`, `roleCliDefaults`) lives here and persists; the live run
+ * projection (`state`) is a cache of on-disk `projection.json` and is
+ * stripped at persist. Re-exported from the renderer workspace-type module
+ * so MC-2577 can consume the same shape.
+ */
+export type SprintEngineModuleState = {
+  state?: SprintEngineState | null
+  context?: SprintEngineWorkspaceContext | null
+  roleCliDefaults?: SprintEngineRoleCliDefaults
+}
 
 /** The template id every sprint workspace records, and the picker entry's id. */
 const SPRINT_ENGINE_TEMPLATE_ID = 'sprintengine-mode'
@@ -168,7 +180,7 @@ function buildSprintEngineWorkspaceAgents(
       agent.role,
     )?.cliReasoning
     agents[agent.id] = {
-      ...defaultAgent(agent.id, input.pickAgentName(agents), 'sprintengine'),
+      ...defaultAgent(agent.id, input.pickAgentName(agents)),
       cli: rosterCli,
       cliModel: rosterModel,
       ...(rosterReasoning ? { cliReasoning: rosterReasoning } : {}),
@@ -248,7 +260,6 @@ export function composeSprintEngineWorkspaceRecord(
     folderPath: input.folderPath,
     folderMissing: false,
     ...(input.worktree ? { worktree: input.worktree } : {}),
-    sprintEngineContext: input.sprintEngineContext,
     templateId: SPRINT_ENGINE_TEMPLATE_ID,
     layoutModel: sprintEngineTabsLayoutModel(input.sprintEngineState, agents, { includeAgentTabs: false }),
     agents,
@@ -256,13 +267,40 @@ export function composeSprintEngineWorkspaceRecord(
     memory: input.defaults.memory,
     editorState: input.defaults.editorState,
     fileExplorerState: input.defaults.fileExplorerState,
-    // Canonical bag entry + legacy mirror together (MC-1573 lockstep).
-    moduleState: { [SPRINT_ENGINE_WORKSPACE_MODULE_ID]: input.sprintEngineState },
-    sprintEngineState: input.sprintEngineState,
-    sprintEngineRoleCliDefaults: input.roleCliDefaults,
+    moduleState: {
+      [SPRINT_ENGINE_WORKSPACE_MODULE_ID]: {
+        state: input.sprintEngineState,
+        context: input.sprintEngineContext,
+        roleCliDefaults: input.roleCliDefaults,
+      } satisfies SprintEngineModuleState,
+    },
     ...(initialSpawnAgentIds.length > 0 ? { sprintEngineInitialSpawnAgentIds: initialSpawnAgentIds } : {}),
     sprintEngineAutoState: input.sprintEngineAutoState,
     createdAt: input.createdAt,
   }
   return { workspace, agents, initialSpawnAgentIds }
+}
+
+export type SprintEngineWorkspaceModuleComposeInput = Omit<
+  SprintEngineWorkspaceRecordInput,
+  'sprintEngineState' | 'sprintEngineContext' | 'roleCliDefaults'
+> & {
+  module: {
+    state: SprintEngineState
+    context: SprintEngineWorkspaceContext | null
+    roleCliDefaults: SprintEngineRoleCliDefaults
+  }
+}
+
+/** Compose a sprint workspace from the module bag shape (MC-2573). */
+export function composeSprintEngineWorkspaceFromModule(
+  input: SprintEngineWorkspaceModuleComposeInput,
+): SprintEngineWorkspaceRecord {
+  const { module, ...rest } = input
+  return composeSprintEngineWorkspaceRecord({
+    ...rest,
+    sprintEngineState: module.state,
+    sprintEngineContext: module.context,
+    roleCliDefaults: module.roleCliDefaults,
+  })
 }

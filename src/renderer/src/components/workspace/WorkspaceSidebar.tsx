@@ -117,6 +117,8 @@ import {
 } from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 import { ensureProjectSidecarDirName } from '../../utils/projectSidecar'
+import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
+
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -662,7 +664,7 @@ function didWorkspaceDragLeaveSidebar(event: React.DragEvent, sidebar: HTMLEleme
 }
 
 function workspaceHasOnDiskState(workspace: Workspace): boolean {
-  if (workspace.mode === 'sprintengine') return Boolean(workspace.sprintEngineContext?.teamDirectoryPath)
+  if (workspace.mode === 'sprintengine') return Boolean(sprintEngineRunContext(workspace)?.teamDirectoryPath)
   return false
 }
 
@@ -679,8 +681,8 @@ function workspaceHasOnDiskState(workspace: Workspace): boolean {
 // it must bring the rows back whole.
 function isCancelableSprintEngineWorkspace(workspace: Workspace): boolean {
   if (workspace.mode !== 'sprintengine') return false
-  if (!workspace.sprintEngineContext?.statePath) return false
-  const state = workspace.sprintEngineState
+  if (!sprintEngineRunContext(workspace)?.statePath) return false
+  const state = sprintEngineRunState(workspace)
   if (state && (isCanceledSprintEngineRun(state) || isCompletedSprintEngineRun(state))) return false
   const runtimeState = workspace.sprintEngineAutoState?.runtimeState
   return runtimeState !== 'canceled' && runtimeState !== 'complete'
@@ -2425,7 +2427,7 @@ export default function WorkspaceSidebar({
   const cancelSprintForWorkspace = useCallback(
     async (workspaceId: WorkspaceId) => {
       const workspace = workspaceById.get(workspaceId)
-      const statePath = workspace?.sprintEngineContext?.statePath
+      const statePath = (workspace ? sprintEngineRunContext(workspace) : null)?.statePath
       if (!workspace || !statePath || cancelSprintBusy) return
       setCancelSprintBusy(true)
       try {
@@ -4492,7 +4494,7 @@ export default function WorkspaceSidebar({
               if (!workspace) return null
               const dirPath =
                 workspace.mode === 'sprintengine'
-                  ? workspace.sprintEngineContext?.teamDirectoryPath ?? null
+                  ? sprintEngineRunContext(workspace)?.teamDirectoryPath ?? null
                   : null
               const typedOk = deleteTypedName.trim() === workspace.name.trim()
               return (
