@@ -94,7 +94,7 @@ function compareDefinitionsNewestFirst(left: AutomationDefinition, right: Automa
 
 // Cadence is pre-rendered here because trigger `config` is provider-owned `unknown`
 // and the phone must never parse it. Only a schedule trigger has a cadence at all;
-// a repo-event or webhook trigger fires on an event, so it carries none and the
+// a webhook trigger fires on an event, so it carries none and the
 // phone renders the trigger kind alone.
 //
 // A schedule whose config the engine itself rejects (`validateScheduleTriggerConfig`

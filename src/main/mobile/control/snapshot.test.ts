@@ -91,7 +91,7 @@ async function main(): Promise<void> {
 // no second copy to compare and the phone's own pin becomes an assertion about
 // which package version it resolved. docs/mobile-protocol-package.md has the
 // order of operations.
-const mobileProtocolSourceSha256 = '6bd7c460ad7f26b6a353b8ea99ba4dca049a832f92ef377938e3c780bd2237a3'
+const mobileProtocolSourceSha256 = '445ae2c2a577b829168daca27bf6ffdccb0d9e41acd6fcb79899b11cff93a5fc'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'packages/mobile-control-protocol/src/index.ts'))

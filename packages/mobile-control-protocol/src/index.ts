@@ -366,7 +366,7 @@ export interface MobileControlAutomationSnapshot {
    * `AutomationDefinition.trigger.kind`. An OPEN string, mirroring `TriggerKind`
    * (contracts.ts) — trigger kinds are provider-registered, so a closed union here
    * would make any third-party trigger unreadable to the phone. Known kinds today:
-   * `schedule`, `repo-event`, `webhook`. Anything else renders generically.
+   * `schedule`, `webhook`. Anything else renders generically.
    */
   triggerKind: string;
   /**
