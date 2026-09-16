@@ -123,9 +123,13 @@ const fakeApi = installFakeApi()
 
 // Imported AFTER the fake window is installed.
 import { useWorkspaceStore } from '../store/workspaceStore'
-import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
+import { bindSprintEngineRunStore, useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import { initSprintEngineAutomationModeSync } from './sprintengineAutomationModeSync'
 import { resetSprintEngineAutomationRevisions } from './sprintengineAutomationIntentClient'
+
+bindSprintEngineRunStore((recipe) => {
+  useWorkspaceStore.setState(recipe as never)
+})
 
 const template: LayoutTemplate = {
   id: 'automation-sync-standard',

@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import type { RendererHost } from './renderer-host'
+import type { RendererHost, WorkspaceTypeCreateHost, WorkspaceTypeCreateRequest } from './renderer-host'
 import type {
   AgentCli,
   AgentId,
@@ -41,6 +41,12 @@ export type {
   SprintEngineRoleRegistry,
 } from '../types/workspace'
 import { SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
+import {
+  SprintEngineRowMark,
+  sprintEngineCancelRowAction,
+  sprintEngineHasOnDiskState,
+  sprintEngineOnDiskStateDirectory,
+} from './sprint-engine-sidebar'
 import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
 import { isSprintEngineWorkspace } from '../utils/sprintEngineWorkspace'
 import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
@@ -76,6 +82,21 @@ function deriveSprintEngineWorkspaceRunGlyph(
   })
 }
 
+async function createSprintEngineWorkspace(
+  request: WorkspaceTypeCreateRequest,
+  _host: WorkspaceTypeCreateHost,
+): Promise<void> {
+  // Picking this type anywhere — the hub, a type picker — opens the New sprint
+  // dialog rather than minting an empty board. The dialog writes
+  // `OnCreateArgs.sprintEngineModule` when the operator confirms; resolving
+  // here without `host.createWorkspace()` is the create affordance, not a
+  // failed mint.
+  const { openSprintEngineNewSprint } = await import('./sprint-engine-new-sprint')
+  openSprintEngineNewSprint({
+    folderPath: request.folderPath.trim() ? request.folderPath : null,
+  })
+}
+
 export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
   host.registerWorkspaceType({
     id: 'sprintengine',
@@ -85,6 +106,12 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
     accentToken: '--tool-sprintengine',
     searchTerms: ['sprint engine', 'sprintengine', 'roster', 'kanban', 'evidence'],
     createTemplate: () => createSprintEngineTemplate(defaultSprintEngineTemplateConfig),
+    createWorkspace: createSprintEngineWorkspace,
+    createLabel: 'New sprint',
+    RowMark: SprintEngineRowMark,
+    hasOnDiskState: sprintEngineHasOnDiskState,
+    onDiskStateDirectory: sprintEngineOnDiskStateDirectory,
+    rowActions: [sprintEngineCancelRowAction],
     isRunGlyphProviderForWorkspace: isSprintEngineWorkspace,
     deriveRunGlyph: deriveSprintEngineWorkspaceRunGlyph,
     // Projection refresh and the quiesced-run change subscriber used to be
@@ -97,11 +124,9 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
       { Component: SprintEngineProjectionSupervisor, scope: 'all-windows' },
       { Component: SprintEngineRunChangeSubscriber, scope: 'all-windows' },
     ],
-    // Sprint creation left the wizard (MC-2062): picking this type anywhere —
-    // the hub rail, the sidebar "+" menu — opens the New sprint dialog, never
-    // a wizard flow. There is no sprint creation flow, so no creationStepsId:
-    // the type registers for the sake of existing sprint workspaces, and the
-    // hub reroutes any selection of it to the dialog.
+    // Sprint creation left the wizard (MC-2062): picking this type anywhere
+    // runs `createWorkspace`, which opens the New sprint dialog. There is no
+    // wizard step, so no creationStepsId.
     pickerOrder: 20,
   })
   // The `roadmap` workspace type retired (MC-1692) and its door was deleted on

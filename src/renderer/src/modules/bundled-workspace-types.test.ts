@@ -123,6 +123,13 @@ for (const [id, expectedTemplate] of Object.entries(expectedTemplates)) {
   assert.deepEqual(host.getWorkspaceType(id)?.createTemplate(), expectedTemplate, `${id} template stays unchanged`)
 }
 
+const sprintType = host.getWorkspaceType('sprintengine')
+assert.equal(typeof sprintType?.createWorkspace, 'function', 'the type owns createWorkspace (New sprint dialog)')
+assert.equal(sprintType?.createLabel, 'New sprint', 'the type names its create control')
+assert.equal(typeof sprintType?.RowMark, 'function', 'the type ships a sidebar row mark')
+assert.equal(typeof sprintType?.hasOnDiskState, 'function', 'the type owns on-disk-state delete')
+assert.equal(sprintType?.rowActions?.map((action) => action.id).join(','), 'cancel-sprint', 'cancel sprint is a type row action')
+
 // Projection refresh and the quiesced-run change subscriber are the Sprint
 // Engine type's WorkspaceTypeDefinition.supervisors (all-windows). Auto-run
 // scheduling still lives in the main-process scheduler; these only keep this

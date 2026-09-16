@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A workspace type can own its sidebar row and its create control.**
+  `WorkspaceTypeDefinition` gains `createLabel` (the picker/hub create
+  control; defaults to `label`), `RowMark` (glyph beside the row title),
+  `hasOnDiskState` / `onDiskStateDirectory` (the Delete-with-on-disk-state
+  confirm), and `rowActions` (`{ id, label, variant?, isVisible, confirm,
+  run }`, extra context-menu items on that type's rows). The shell draws
+  those from the registration; they are absent with the module, never a
+  disabled core row. New types: `WorkspaceTypeRowAction`,
+  `WorkspaceTypeRowActionConfirm`, `WorkspaceTypeSidebarWorkspace`.
+
 - **A module can contribute Files-tree context-menu actions**
   (`host.registerFileAction`). The function receives `{ id, label, order?,
   getLabel?, isVisible(context), getState(context), run(context) }` where

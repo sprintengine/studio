@@ -1518,6 +1518,39 @@ export type WorkspaceRunGlyphInput = {
   mode: string
 }
 
+/** Confirm copy for a type-contributed sidebar row action. */
+export type WorkspaceTypeRowActionConfirm = {
+  title: string
+  body: string
+  confirmLabel: string
+  cancelLabel?: string
+}
+
+/**
+ * The workspace fields a type's sidebar status hooks may read. The shell
+ * passes a richer row; this is identity plus the module bag.
+ */
+export type WorkspaceTypeSidebarWorkspace = {
+  id: string
+  name: string
+  mode: string
+  moduleState?: Record<string, unknown>
+}
+
+/**
+ * Extra context-menu item on a sidebar row of this type. Gone with the
+ * module; never a disabled core row. `confirm` opens the shell's confirm
+ * modal before `run`.
+ */
+export type WorkspaceTypeRowAction = {
+  id: string
+  label: string
+  variant?: 'danger'
+  isVisible?: (workspace: WorkspaceTypeSidebarWorkspace) => boolean
+  confirm?: (workspace: { name: string }) => WorkspaceTypeRowActionConfirm
+  run: (workspaceId: string) => void | Promise<void>
+}
+
 /**
  * A module-owned config step in the workspace-creation hub. One step per type
  * (v1): the hub renders it as the flow's one config page after the shared
@@ -1644,6 +1677,20 @@ export type WorkspaceTypeDefinition = {
    * from module state you already hold, not from IPC.
    */
   deriveRunGlyph?(workspace: WorkspaceRunGlyphInput): WorkspaceRunGlyph | null
+  /**
+   * Label for this type's create control (picker, hub). Absent ⇒ `label`.
+   * When `createWorkspace` is present, that control runs the hook instead of
+   * minting from `createTemplate`.
+   */
+  createLabel?: string
+  /** Glyph beside the sidebar row title for workspaces of this type. */
+  RowMark?: WorkspaceTypeIconComponent
+  /** Whether Delete must trash on-disk state for this workspace. */
+  hasOnDiskState?(workspace: WorkspaceTypeSidebarWorkspace): boolean
+  /** Path named in the delete confirmation; null when there is none. */
+  onDiskStateDirectory?(workspace: WorkspaceTypeSidebarWorkspace): string | null
+  /** Extra context-menu items on this type's sidebar rows. */
+  rowActions?: WorkspaceTypeRowAction[]
   /** The type's config step in the creation hub (one per type in v1). */
   creationStep?: WorkspaceTypeCreationStep
   creationStepsId?: string

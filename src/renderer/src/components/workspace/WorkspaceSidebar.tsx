@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { FolderTypeIcon, GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, SprintEngineMarkIcon } from '../AppIcons'
+import { FolderTypeIcon, GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, resolveEnabledWorkspaceType } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
@@ -23,6 +23,7 @@ import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMa
 import type { RepositoryIdentity } from '../../../../shared/repository-identity'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
+import type { WorkspaceTypeRowAction } from '../../modules/renderer-host'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import { startColumnResizeDrag } from './columnResizeDrag'
 import {
@@ -70,7 +71,6 @@ import {
   type ProjectColorSetting,
 } from '../../utils/projectColor'
 import { useProjectColors } from '../../hooks/useProjectColors'
-import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
 import {
   addTabAsNewColumn,
   appendTabAsNewColumnInJson,
@@ -101,9 +101,6 @@ import { useChangePulse } from '../../hooks/useChangePulse'
 import { formatElapsedMs, formatRelativeMs, formatRelativeMsAgo, relativeFromNow } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
 import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
-import { isCanceledSprintEngineRun, isCompletedSprintEngineRun } from '../../utils/sprintengine'
-import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
-import { publishDiagnostic } from '../../utils/diagnostics'
 import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { isSettledWorkspace } from '../../utils/workspaceSettle'
@@ -117,7 +114,6 @@ import {
 } from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 import { ensureProjectSidecarDirName } from '../../utils/projectSidecar'
-import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
@@ -663,29 +659,45 @@ function didWorkspaceDragLeaveSidebar(event: React.DragEvent, sidebar: HTMLEleme
   return clientOutside || screenOutside
 }
 
-function workspaceHasOnDiskState(workspace: Workspace): boolean {
-  if (workspace.mode === 'sprintengine') return Boolean(sprintEngineRunContext(workspace)?.teamDirectoryPath)
-  return false
+function sidebarWorkspaceOf(workspace: Workspace): {
+  id: string
+  name: string
+  mode: Workspace['mode']
+  moduleState: Workspace['moduleState']
+  sprintEngineAutoState: Workspace['sprintEngineAutoState']
+} {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    mode: workspace.mode,
+    moduleState: workspace.moduleState,
+    sprintEngineAutoState: workspace.sprintEngineAutoState,
+  }
 }
 
-// A Cancel-sprint action is offered only for a live Sprint Engine run: the
-// right mode, a resolved run file to target, and not already in a terminal
-// state. Terminality is read from whichever signal is hydrated — the projection
-// flags when present, else the persisted automation runtime state — so a
-// canceled/completed run in the sidebar never re-offers Cancel.
-//
-// Sprint runs left the Projects list in item 1767, so no row reaches this today:
-// Cancel sprint lives on the run board's own command menu, which the Sprints
-// door canvas mounts. This row path is kept intact — not deleted — because
-// hiding the rows is one revertible predicate (`isHiddenFromRail`), and reverting
-// it must bring the rows back whole.
-function isCancelableSprintEngineWorkspace(workspace: Workspace): boolean {
-  if (workspace.mode !== 'sprintengine') return false
-  if (!sprintEngineRunContext(workspace)?.statePath) return false
-  const state = sprintEngineRunState(workspace)
-  if (state && (isCanceledSprintEngineRun(state) || isCompletedSprintEngineRun(state))) return false
-  const runtimeState = workspace.sprintEngineAutoState?.runtimeState
-  return runtimeState !== 'canceled' && runtimeState !== 'complete'
+function workspaceHasOnDiskState(
+  workspace: Workspace,
+  moduleOverrides: Parameters<typeof resolveEnabledWorkspaceType>[1],
+): boolean {
+  return resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)
+    ?.hasOnDiskState?.(sidebarWorkspaceOf(workspace)) === true
+}
+
+function workspaceOnDiskStateDirectory(
+  workspace: Workspace,
+  moduleOverrides: Parameters<typeof resolveEnabledWorkspaceType>[1],
+): string | null {
+  return resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)
+    ?.onDiskStateDirectory?.(sidebarWorkspaceOf(workspace)) ?? null
+}
+
+function workspaceTypeRowActions(
+  workspace: Workspace,
+  moduleOverrides: Parameters<typeof resolveEnabledWorkspaceType>[1],
+): WorkspaceTypeRowAction[] {
+  const type = resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)
+  const row = sidebarWorkspaceOf(workspace)
+  return (type?.rowActions ?? []).filter((action) => action.isVisible?.(row) !== false)
 }
 
 // A shelf's fold row (settled-chats, 2026-09-07): the one line a folder shows
@@ -1685,8 +1697,11 @@ export default function WorkspaceSidebar({
   const [folderMenu, setFolderMenu] = useState<{ folderKey: string; x: number; y: number } | null>(null)
   const [confirmClose, setConfirmClose] = useState<WorkspaceId | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<WorkspaceId | null>(null)
-  const [confirmCancelSprint, setConfirmCancelSprint] = useState<WorkspaceId | null>(null)
-  const [cancelSprintBusy, setCancelSprintBusy] = useState(false)
+  const [pendingTypeAction, setPendingTypeAction] = useState<{
+    workspaceId: WorkspaceId
+    action: WorkspaceTypeRowAction
+  } | null>(null)
+  const [typeActionBusy, setTypeActionBusy] = useState(false)
   const [confirmForget, setConfirmForget] = useState<string | null>(null)
   const [deleteTypedName, setDeleteTypedName] = useState('')
 
@@ -2418,41 +2433,17 @@ export default function WorkspaceSidebar({
     [workspaceById, activityByWorkspaceId, onCloseWorkspace]
   )
 
-  // Cancel a Sprint Engine run from the sidebar: run the engine cancel op, then
-  // force a projection refresh so the run glyph and the Backlog run-link settle
-  // on the canceled state immediately (the poller's routine ticks are display-
-  // only once the run turns dormant, so the forced refresh is what recolors the
-  // link chip). A failure surfaces as a diagnostic rather than silently leaving
-  // a half-canceled run.
-  const cancelSprintForWorkspace = useCallback(
-    async (workspaceId: WorkspaceId) => {
-      const workspace = workspaceById.get(workspaceId)
-      const statePath = (workspace ? sprintEngineRunContext(workspace) : null)?.statePath
-      if (!workspace || !statePath || cancelSprintBusy) return
-      setCancelSprintBusy(true)
+  const runWorkspaceTypeRowAction = useCallback(
+    async (workspaceId: WorkspaceId, action: WorkspaceTypeRowAction) => {
+      if (typeActionBusy) return
+      setTypeActionBusy(true)
       try {
-        const result = await sprintEngineIpc.cancelSprintEngineRun({ statePath })
-        if (!result.ok) throw new Error(result.message ?? 'Canceling the sprint failed.')
-        await refreshSprintEngineWorkspaceProjection({
-          workspace,
-          tokens: new Map(),
-          cause: 'manual',
-          force: true,
-        })
-      } catch (error) {
-        await publishDiagnostic({
-          level: 'warning',
-          source: 'sprintengine',
-          title: 'Cancel sprint failed',
-          message: error instanceof Error ? error.message : String(error),
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-        })
+        await action.run(workspaceId)
       } finally {
-        setCancelSprintBusy(false)
+        setTypeActionBusy(false)
       }
     },
-    [workspaceById, cancelSprintBusy]
+    [typeActionBusy]
   )
 
   const handleRowDragStart = (event: React.DragEvent, workspace: Workspace, fKey: string) => {
@@ -3196,9 +3187,10 @@ export default function WorkspaceSidebar({
             label="Starred"
           />
         ) : null}
-        {workspace.mode === 'sprintengine' ? (
-          <SprintEngineMarkIcon className="icon-xs shrink-0 text-[color:var(--tool-sprintengine-ink)]" />
-        ) : null}
+        {(() => {
+          const RowMark = resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)?.RowMark
+          return RowMark ? <RowMark /> : null
+        })()}
         {hasPeek ? (
           <span className={`${titleClass} truncate`}>{rowTitle}</span>
         ) : (
@@ -4226,6 +4218,7 @@ export default function WorkspaceSidebar({
           x={contextMenu.x}
           y={contextMenu.y}
           workspace={workspaceById.get(contextMenu.workspaceId) ?? null}
+          moduleOverrides={moduleOverrides}
           isDetachedWindow={isDetachedWindow}
           now={now}
           onClose={() => setContextMenu(null)}
@@ -4233,6 +4226,19 @@ export default function WorkspaceSidebar({
             const workspace = workspaceById.get(contextMenu.workspaceId)
             if (!workspace) {
               setContextMenu(null)
+              return
+            }
+            if (action.startsWith('type-action:')) {
+              const actionId = action.slice('type-action:'.length)
+              const typeAction = workspaceTypeRowActions(workspace, moduleOverrides)
+                .find((candidate) => candidate.id === actionId)
+              setContextMenu(null)
+              if (!typeAction) return
+              if (typeAction.confirm) {
+                setPendingTypeAction({ workspaceId: workspace.id, action: typeAction })
+                return
+              }
+              void runWorkspaceTypeRowAction(workspace.id, typeAction)
               return
             }
             if (action === 'open') {
@@ -4278,11 +4284,6 @@ export default function WorkspaceSidebar({
             if (action === 'delete') {
               setDeleteTypedName('')
               setConfirmDelete(workspace.id)
-              setContextMenu(null)
-              return
-            }
-            if (action === 'cancel-sprint') {
-              setConfirmCancelSprint(workspace.id)
               setContextMenu(null)
               return
             }
@@ -4400,44 +4401,46 @@ export default function WorkspaceSidebar({
         ) : null}
       </Modal>
 
-      {/* Cancel-sprint confirm */}
+      {/* Type-contributed row-action confirm */}
       <Modal
-        open={confirmCancelSprint !== null}
-        onClose={() => setConfirmCancelSprint(null)}
-        labelledBy="ws-cancel-sprint-title"
+        open={pendingTypeAction !== null}
+        onClose={() => setPendingTypeAction(null)}
+        labelledBy="ws-type-action-title"
         size="confirm"
       >
-        {confirmCancelSprint ? (
-          (() => {
-            const workspace = workspaceById.get(confirmCancelSprint)
-            return (
-              <>
-                <ModalHeader
-                  titleId="ws-cancel-sprint-title"
-                  title={`Cancel sprint “${workspace?.name ?? 'workspace'}”?`}
-                  subtitle="Running agents stop and every unfinished task is marked canceled. Finished work and the run branch are kept. This cannot be undone."
-                  onClose={() => setConfirmCancelSprint(null)}
-                />
-                <ModalFooter>
-                  <ModalButton onClick={() => setConfirmCancelSprint(null)} disabled={cancelSprintBusy}>
-                    Keep running
-                  </ModalButton>
-                  <ModalButton
-                    variant="danger"
-                    disabled={cancelSprintBusy}
-                    onClick={() => {
-                      const id = confirmCancelSprint
-                      setConfirmCancelSprint(null)
-                      if (id) void cancelSprintForWorkspace(id)
-                    }}
-                  >
-                    Cancel sprint
-                  </ModalButton>
-                </ModalFooter>
-              </>
-            )
-          })()
-        ) : null}
+        {pendingTypeAction
+          ? (() => {
+              const workspace = workspaceById.get(pendingTypeAction.workspaceId)
+              const copy = pendingTypeAction.action.confirm?.({ name: workspace?.name ?? 'workspace' })
+              if (!copy) return null
+              return (
+                <>
+                  <ModalHeader
+                    titleId="ws-type-action-title"
+                    title={copy.title}
+                    subtitle={copy.body}
+                    onClose={() => setPendingTypeAction(null)}
+                  />
+                  <ModalFooter>
+                    <ModalButton onClick={() => setPendingTypeAction(null)} disabled={typeActionBusy}>
+                      {copy.cancelLabel ?? 'Cancel'}
+                    </ModalButton>
+                    <ModalButton
+                      variant="danger"
+                      disabled={typeActionBusy}
+                      onClick={() => {
+                        const pending = pendingTypeAction
+                        setPendingTypeAction(null)
+                        if (pending) void runWorkspaceTypeRowAction(pending.workspaceId, pending.action)
+                      }}
+                    >
+                      {copy.confirmLabel}
+                    </ModalButton>
+                  </ModalFooter>
+                </>
+              )
+            })()
+          : null}
       </Modal>
 
       {/* Forget folder confirm */}
@@ -4492,10 +4495,7 @@ export default function WorkspaceSidebar({
           ? (() => {
               const workspace = workspaceById.get(confirmDelete)
               if (!workspace) return null
-              const dirPath =
-                workspace.mode === 'sprintengine'
-                  ? sprintEngineRunContext(workspace)?.teamDirectoryPath ?? null
-                  : null
+              const dirPath = workspaceOnDiskStateDirectory(workspace, moduleOverrides)
               const typedOk = deleteTypedName.trim() === workspace.name.trim()
               return (
                 <>
@@ -4550,7 +4550,6 @@ type ContextMenuAction =
   | 'move-to-main-window'
   | 'close'
   | 'delete'
-  | 'cancel-sprint'
   | 'toggle-star'
   | 'toggle-settle'
   // Snooze presets dispatch as `snooze:<presetId>` so the union stays closed
@@ -4559,6 +4558,7 @@ type ContextMenuAction =
   | `snooze:${SnoozePresetId}`
   | 'wake'
   | 'clear-color'
+  | `type-action:${string}`
 
 // Workspace-row context menu. Generic menu chrome (surface, clamped
 // positioning, items, dividers, swatch row, dismissal, focus handling) lives
@@ -4567,6 +4567,7 @@ function WorkspaceContextMenu({
   x,
   y,
   workspace,
+  moduleOverrides,
   isDetachedWindow,
   now,
   onClose,
@@ -4576,6 +4577,7 @@ function WorkspaceContextMenu({
   x: number
   y: number
   workspace: Workspace | null
+  moduleOverrides: Parameters<typeof resolveEnabledWorkspaceType>[1]
   isDetachedWindow: boolean
   /** The clock the wake times and the asleep/awake reading are resolved against. */
   now: number
@@ -4584,8 +4586,8 @@ function WorkspaceContextMenu({
   onPickColor: (color: HighlightColor) => void
 }) {
   if (!workspace) return null
-  const showDelete = workspaceHasOnDiskState(workspace)
-  const showCancelSprint = isCancelableSprintEngineWorkspace(workspace)
+  const showDelete = workspaceHasOnDiskState(workspace, moduleOverrides)
+  const typeActions = workspaceTypeRowActions(workspace, moduleOverrides)
   // Reveal is about THIS row's folder, so a missing one takes it away. New
   // chat is about the project the row files under, which a pruned worktree
   // does not touch — hence the two predicates rather than one.
@@ -4666,11 +4668,15 @@ function WorkspaceContextMenu({
         onClear={() => onSelect('clear-color')}
       />
       <MenuDivider />
-      {showCancelSprint ? (
-        <MenuItem variant="danger" onClick={() => onSelect('cancel-sprint')}>
-          Cancel sprint…
+      {typeActions.map((action) => (
+        <MenuItem
+          key={action.id}
+          variant={action.variant}
+          onClick={() => onSelect(`type-action:${action.id}`)}
+        >
+          {action.label}
         </MenuItem>
-      ) : null}
+      ))}
       <MenuItem onClick={() => onSelect('close')}>Close workspace</MenuItem>
       {showDelete ? (
         <MenuItem variant="danger" onClick={() => onSelect('delete')}>

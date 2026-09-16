@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import type { LayoutTemplate, Workspace } from '../types/workspace'
 import { buildSprintEngineAgentRosterForState, createInitialSprintEngineState } from '../utils/sprintengine'
 import { useWorkspaceStore } from '../store/workspaceStore'
-import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
+import { bindSprintEngineRunStore, useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import { defaultAgent, defaultEditorState } from '../store/slices/agentsSlice'
 import {
   createRunStateSlice,
@@ -14,6 +14,10 @@ import {
 } from './sprint-engine-run-state'
 import { sprintEngineRunSettingsKey } from '../store/slices/settingsSlice'
 import { getSprintEngineModuleState, sprintEngineRunContext, sprintEngineRunState } from '../store/slices/workspaceModuleState'
+
+bindSprintEngineRunStore((recipe) => {
+  useWorkspaceStore.setState(recipe as never)
+})
 
 const standardTemplate: LayoutTemplate = {
   id: 'run-state-standard',

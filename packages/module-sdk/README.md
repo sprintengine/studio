@@ -83,7 +83,13 @@ contracts, so a published version always matches the app version it ships with.
   open; `host.createWorkspace()` mints the row and `host.removeWorkspace(id)`
   takes it back, so a create that fails after minting leaves nothing behind,
   and `request.setStepValue` is where the failure goes — your step owns that
-  page's body. Absent ⇒ the hub creates from `createTemplate` directly),
+  page's body. Absent ⇒ the hub creates from `createTemplate` directly;
+  `createLabel` names the create control (picker, hub) and defaults to
+  `label`; `RowMark` is the glyph beside a sidebar row of this type;
+  `hasOnDiskState` / `onDiskStateDirectory` drive the shell's Delete-with-
+  on-disk-state confirm; `rowActions` are extra context-menu items on those
+  rows (`{ id, label, variant?, isVisible, confirm, run }`), gone with the
+  module, never a disabled core row),
   `registerBacklogItemAction`, `registerBacklogLinkProvider`,
   `registerFileAction` (a Files-tree context-menu action — sibling of
   `registerBacklogItemAction` — `{ id, label, order?, getLabel?,

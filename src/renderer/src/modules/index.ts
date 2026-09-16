@@ -140,6 +140,13 @@ if (typeof window !== 'undefined') {
       rendererHost.setModuleEnablementResolver((moduleId) =>
         selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
       )
+      // Shell binds the live run store onto the workspace setter (MC-2577).
+      // The module file does not import the core store.
+      void import('./sprint-engine-run-store').then(({ bindSprintEngineRunStore }) => {
+        bindSprintEngineRunStore((recipe) => {
+          useWorkspaceStore.setState(recipe as never)
+        })
+      })
       const currentWindowId = new URL(window.location.href).searchParams.get('windowId')?.trim() || 'primary'
       const workspaceOpener = createWorkspaceOpener({
         ready: Promise.all([workspaceRegistryReady, __workspaceStoreBackupRecoveryPromise]).then(() => undefined),
