@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict'
 
-// The Extensions drawer (Extensions drawer ruling, 2026-09-05): SIX built-in
-// rows in a fixed order — Workflows · Sprints · Design · Plugins · Skills · Agent CLIs —
-// six since item 2470 split the one run door in two, and where the last three
-// are three views of the ONE `extensions` surface. This renders the
+// The Extensions drawer (Extensions drawer ruling, 2026-09-05): FOUR built-in
+// rows in a fixed order — Design · Plugins · Skills · Agent CLIs — where the
+// last three are three views of the ONE `extensions` surface. This renders the
 // real drawer against the real module registry because the contract is the
 // WIRING: the ruling's order survives whatever `order` the modules declared, a
 // row opens a DOOR (Stage 2 — the rows stopped opening modals) latched to its
@@ -20,7 +19,6 @@ import assert from 'node:assert/strict'
 // GlobalSurfaceShell's contract for a surface that brings none is that the host
 // keeps its own column).
 import { JSDOM } from 'jsdom'
-import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true })
 const anyGlobal = globalThis as unknown as Record<string, unknown>
@@ -45,8 +43,6 @@ dom.window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventLis
 // drawer does now, for the counts its run-door rows wear — so the stubs answer
 // with no runs rather than throwing on a missing bridge.
 domWindow.api = {
-  onSprintRunsChanged: () => () => {},
-  listSprintRuns: async () => [],
 }
 
 import React from 'react'
@@ -65,7 +61,6 @@ import {
   dispatchExtensionsSurfaceTarget,
 } from './globalSurface/extensions/extensionsSurfaceTarget'
 
-bindSprintEngineIpc(domWindow.api as never)
 
 // Every root, so the end of the file can unmount them all: the drawer's rows
 // now subscribe to the run index and the design arrivals store, whose hourly
@@ -97,7 +92,7 @@ const badgeOf = (label: string) => row(label)?.querySelector('[role="status"]') 
 // absurd: the drawer's order is the ruling's, not the registry's.
 const registerDoorEntry = (id: string, order: number, label: string): void => {
   getRendererHost()
-    .hostFor('sprint-engine')
+    .hostFor('automations')
     .registerSidebarNavEntry({
       id,
       order,
@@ -112,9 +107,9 @@ const registerDoorEntry = (id: string, order: number, label: string): void => {
         }),
     })
 }
-// Sprints is the sprint-engine module's own row and is already on the host;
-// only the decoy needs registering. Its `order` of 1 would put it first if the
-// drawer took the registry's order — it does not.
+// A decoy nav entry with no surface behind it. Its `order` of 1 would put it
+// first if the drawer took the registry's order — it does not, and a nav entry
+// with no destination is not a row at all.
 registerDoorEntry('roadmap', 1, 'Roadmap')
 
 // ── The registry says what a view row IS ─────────────────────────────────────
@@ -155,7 +150,7 @@ assert.equal(
   'Automations takes the sidebar column (the default), because it is not a drawer row',
 )
 
-// ── The six rows, in the ruled order ─────────────────────────────────────────
+// ── The four rows, in the ruled order ────────────────────────────────────────
 // Every module on, explicitly: the resolver filters nav entries by live
 // enablement, and a test store that has never been written to is not the same
 // thing as a machine with the modules turned on.
@@ -174,14 +169,9 @@ assert.ok(
 )
 assert.equal(
   dom.window.document.querySelectorAll('[role="listitem"]').length,
-  6,
-  'the drawer starts with the ruling’s six rows — a nav entry without a surface is not a destination',
+  4,
+  'the drawer starts with the ruling’s four rows — a nav entry without a surface is not a destination',
 )
-// Four labels, not six: the Workflows and Sprints slots render the
-// sprint-engine module's OWN row component (item 2470 gave both doors the same
-// one), which is lazy, and a Suspense boundary in this bundle has nothing to
-// show for it. Their slots are the first two listitems above; the order of the
-// four the shell draws is what this asserts.
 assert.deepEqual(
   rowLabels(),
   ['Design', 'Plugins', 'Skills', 'Agent CLIs'],
@@ -301,15 +291,15 @@ const notice = (id: string, over: Record<string, unknown>) => ({
 })
 act(() => {
   useNotificationStore.getState().addNotification(notice('drift', { source: 'marketplace', extensionsRow: 'plugins' }))
-  useNotificationStore.getState().addNotification(notice('run', { source: 'sprintengine' }))
+  useNotificationStore.getState().addNotification(notice('skill-news', { source: 'marketplace', extensionsRow: 'skills' }))
   useNotificationStore.getState().addNotification(notice('crash', { source: 'terminal', level: 'error' }))
 })
 assert.equal(badgeOf('Plugins')?.textContent, '1', 'the drift notice counts on the Plugins row')
 assert.equal(badgeOf('Plugins')?.getAttribute('aria-label'), '1 new', 'what is counted; the row beside it already names the place')
-assert.equal(badgeOf('Skills'), null, 'and on no other row')
-assert.equal(badgeOf('Design'), null)
+assert.equal(badgeOf('Skills')?.textContent, '1', 'and the skill notice counts on its own row, not on the one beside it')
+assert.equal(badgeOf('Design'), null, 'a row with no news wears no count')
 assert.equal(badgeOf('Agent CLIs'), null)
-assert.equal(squareCount(), 2, 'the square is the sum of its rows — the run notice counts under Sprints, the terminal crash nowhere')
+assert.equal(squareCount(), 2, 'the square is the sum of its rows — the terminal crash counts nowhere')
 
 // Opening the SECTION does not read a row: the drawer is on screen and the
 // counts are still there to be found.
@@ -333,7 +323,7 @@ act(() => {
 })
 assert.equal(badgeOf('Plugins'), null, 'the row on screen has read its news')
 assert.equal(useNotificationStore.getState().notifications.find((n) => n.id === 'drift')?.read, true)
-assert.equal(useNotificationStore.getState().notifications.find((n) => n.id === 'run')?.read, false, 'another row’s news is untouched')
+assert.equal(useNotificationStore.getState().notifications.find((n) => n.id === 'skill-news')?.read, false, 'another row’s news is untouched')
 assert.equal(squareCount(), 1, 'the square drops by exactly what was read')
 act(() => {
   readingRoot.unmount()
@@ -405,13 +395,6 @@ dom.window.document.body.innerHTML = ''
 act(() => {
   useWorkspaceStore.setState((state) => ({
     appSettings: { ...state.appSettings, modules: { ...state.appSettings.modules, design: false } },
-  }))
-})
-// No Sprints door either: the resolver filters nav entries by their own
-// module's live enablement, so turning sprint-engine off takes its row with it.
-act(() => {
-  useWorkspaceStore.setState((state) => ({
-    appSettings: { ...state.appSettings, modules: { ...state.appSettings.modules, 'sprint-engine': false } },
   }))
 })
 render()

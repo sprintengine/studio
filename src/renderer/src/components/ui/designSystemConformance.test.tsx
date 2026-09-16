@@ -1097,9 +1097,9 @@ async function main(): Promise<void> {
     trapRoot.unmount()
   })
 
-  // The New sprint dialog stacks its New-item capture as a SIBLING of the
-  // dialog it traps. A trap that read its parent element would fold the two
-  // into one cycle; this fixture is that shape, reduced.
+  // A dialog that stacks a second capture as a SIBLING of the dialog it traps.
+  // A trap that read its parent element would fold the two into one cycle;
+  // this fixture is that shape, reduced.
   const siblingRoot = createRoot(trapContainer)
   act(() => {
     siblingRoot.render(
@@ -1137,8 +1137,8 @@ async function main(): Promise<void> {
 
   // --- MC-2109: one z ladder, and overlays read it by name -----------------
   // Read from source, not from the tree: the overlay shells this rule polices
-  // are whole app screens (the New sprint dialog, the diagnostics overlay, the
-  // roster manager) that cannot be mounted here, and the rule is about the
+  // are whole app screens (the command palette, the diagnostics overlay) that
+  // cannot be mounted here, and the rule is about the
   // literal a developer types. The renderer used to run a private ladder
   // (10/20/30/35/40/50) beside the design system's `--sem-z-*`, and the two
   // disagreed about the top of the stack — a `z-50` modal sat BELOW the z-60
@@ -1185,8 +1185,8 @@ async function main(): Promise<void> {
 
   // --- MC-2108: selection never borrows the hover fill ---------------------
   // Read from source for the same reason as the z rule above: the surfaces this
-  // polices are whole app screens (the file tree, the git graph, the sprint
-  // board's pickers) that cannot be mounted here, and the rule is about the
+  // polices are whole app screens (the file tree, the git graph, the Backlog
+  // list) that cannot be mounted here, and the rule is about the
   // literal a developer types.
   //
   // Selection answers "what did I pick?" and hover answers "what is the pointer
@@ -1345,10 +1345,10 @@ async function main(): Promise<void> {
     // through the rebound `--radius-sm`, which is the kit's spelling), or as
     // the px value each carries. Control joined overlay on 7px on 2026-09-02. What this rejects
     // is the band BETWEEN the steps, which is where every overlay in the product
-    // had landed: `rounded-[8px]` (Modal, the new-workspace hub), `rounded-lg`
-    // (the New sprint dialog, the roster manager), `rounded-xl` (the palette,
-    // the diagnostics overlay), `rounded-[14px]` (the canvas conversation
-    // card). `rounded-full` is absent on purpose: a pill is its own idiom.
+    // had landed: `rounded-[8px]` (Modal, the new-workspace hub), `rounded-xl`
+    // (the palette, the diagnostics overlay), `rounded-[14px]` (the canvas
+    // conversation card). `rounded-full` is absent on purpose: a pill is its
+    // own idiom.
     const OVERLAY_ELEVATION = /shadow-\[var\(--shadow-(?:popover|modal|drawer)\)\]/
     const RADIUS = /(?:^|\s)(-?rounded(?:-(?:[tblr]|[tb][lr]))?(?:-\S+)?)(?=\s|$)/g
     const ON_RAMP =
@@ -1420,9 +1420,7 @@ async function main(): Promise<void> {
       // Popover makes with OVERLAY_CHROME_CLASS. Radius, border and elevation
       // are still the shell's.
       'components/ui/CommandPalette.tsx': /OVERLAY_SHELL_CHROME_CLASS\b[\s\S]*surface-glass/,
-      // Migrated onto Modal outright — no shell of their own left to check.
-      'components/workspace/newSprint/NewSprintDialog.tsx': /<Modal\b/,
-      // RosterManagerModal left with its door (2026-09-05); nothing replaced it.
+      // Migrated onto Modal outright — no shell of its own left to check.
       'components/diagnostics/DiagnosticsOverlay.tsx': /<Modal\b/,
       // The modal-surface host: Settings and Reviews mount through this one
       // Modal. Plugins, Automations and Design were modals here from
@@ -1637,7 +1635,6 @@ async function main(): Promise<void> {
       'components/ui',
       'components/htmlArtifact',
       'components/workspace/agentComposer',
-      'components/workspace/newSprint',
       'components/workspace/topbar',
     ]
     // `<header>` is the tag every one of the eleven dialects reached for, and it
@@ -1717,8 +1714,8 @@ async function main(): Promise<void> {
   //
   // MC-2103 put the menu's material in `ui/menuClasses` and converged the five
   // kit hosts onto it. What survived was every menu row the kit does not own:
-  // the roster popover, both in-app menubar fallbacks, the account
-  // menu, the reasoning selector. Each was the same hand-roll — `rounded px-2`
+  // both in-app menubar fallbacks, the account menu, the reasoning
+  // selector. Each was the same hand-roll — `rounded px-2`
   // or `px-3`, its own type step, no disabled state, an OUTSET focus ring — and
   // each was internally consistent, so nothing read as wrong until two of them
   // were opened side by side. The menubar pair is the clearest case: the same
@@ -1726,8 +1723,8 @@ async function main(): Promise<void> {
   //
   // Scope is the same growing prefix list the band rule keeps, for the same
   // reason: a rule over the whole renderer would assert a convergence that has
-  // not happened (the composer, the roster panel and the sprint dialog still
-  // hand-roll rows). Four entries name a FILE rather than a directory, and that
+  // not happened (the composer still hand-rolls rows). Four entries name a
+  // FILE rather than a directory, and that
   // is a statement about their neighbourhood, not a dodge — `components/
   // workspace` and `.../agentComposer` still hold unconverged rows, so the ones
   // that converged are named until their neighbours follow and the entry
@@ -1777,9 +1774,9 @@ async function main(): Promise<void> {
   const ALLOW_MARKER = /design-tokens-allow:\s*\S/
 
   // The canon reaches a row either by name or through a local alias the file
-  // declares from it — `RosterMenu`'s `itemClass`, which is one const shared by
-  // five rows. A rule that only accepted the bare identifier would push files
-  // into re-typing it per row, which is the failure it exists to prevent.
+  // declares from it — an `itemClass` const shared by several rows. A rule that
+  // only accepted the bare identifier would push files into re-typing it per
+  // row, which is the failure it exists to prevent.
   const canonAliases = (source: string): RegExp => {
     const names = ['MENU_ITEM_CLASS', 'MENU_ITEM_STACKED_CLASS', 'MENU_ROW_CLASS']
     for (const declaration of source.matchAll(
@@ -1922,13 +1919,10 @@ async function main(): Promise<void> {
     'components/panels/BacklogCreateDialog.tsx',
     'components/panels/ConnectorsPanel/CustomMcpServerForm.tsx',
     'components/panels/FileExplorer.tsx',
-    'components/panels/SprintEngineInspectorPanel.tsx',
     'components/settings/MobileSettingsTab.tsx',
     'components/settings/ProjectKnowledgeList.tsx',
     'components/settings/ProviderSettingsTab.tsx',
     'components/settings/SettingsPanel.tsx',
-    'components/workspace/newSprint/NewSprintDialog.tsx',
-    'components/workspace/newWorkspace/SprintEngineRosterPanel.tsx',
     'modules/voice-dictation/VoiceDictationSettingsSection.tsx',
   ]
 

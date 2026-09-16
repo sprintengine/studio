@@ -89,64 +89,50 @@ assert.equal(
 )
 
 // --- runtime kind routing --------------------------------------------------
+// Which runtime a tab mounts is the agent's own stored selection, and nothing
+// else: a provider-backed conversation, or the terminal.
 
 const conversationAgent = {
   runtimeKind: 'conversation',
   conversation: { providerId: 'openai-compatible', modelId: 'gpt-4o' },
-  kind: 'general',
-} as Pick<AgentState, 'runtimeKind' | 'conversation' | 'kind'>
+} as Pick<AgentState, 'runtimeKind' | 'conversation'>
+
+assert.equal(resolveAgentRuntimeKind(undefined), 'terminal', 'a missing agent defaults to terminal')
 
 assert.equal(
-  resolveAgentRuntimeKind(undefined, { isSprintEngineAgent: false, workspaceMode: 'standard' }),
-  'terminal',
-  'a missing agent defaults to terminal',
-)
-
-assert.equal(
-  resolveAgentRuntimeKind({ kind: 'general' }, { isSprintEngineAgent: false, workspaceMode: 'standard' }),
+  resolveAgentRuntimeKind({} as Pick<AgentState, 'runtimeKind' | 'conversation'>),
   'terminal',
   'an agent with no runtimeKind (legacy persisted) is terminal',
 )
 
 assert.equal(
-  resolveAgentRuntimeKind(conversationAgent, { isSprintEngineAgent: false, workspaceMode: 'standard' }),
+  resolveAgentRuntimeKind(conversationAgent),
   'conversation',
-  'a standard agent with a valid conversation selection routes to the conversation runtime',
+  'an agent with a valid conversation selection routes to the conversation runtime',
 )
 
 assert.equal(
   resolveAgentRuntimeKind(
-    { runtimeKind: 'conversation', conversation: { providerId: '', modelId: '' }, kind: 'general' },
-    { isSprintEngineAgent: false, workspaceMode: 'standard' },
+    { runtimeKind: 'conversation', conversation: { providerId: '', modelId: '' } } as Pick<
+      AgentState,
+      'runtimeKind' | 'conversation'
+    >,
   ),
   'terminal',
   'a conversation kind without a valid provider/model pair falls back to terminal',
 )
 
-assert.equal(
-  resolveAgentRuntimeKind(conversationAgent, { isSprintEngineAgent: true, workspaceMode: 'sprintengine' }),
-  'terminal',
-  'Sprint Engine agents stay terminal even with a stored conversation selection',
-)
-
 // End-to-end spawn contract: the exact payload the spawn action writes must
-// route to the conversation runtime in a standard workspace, and must still be
-// forced back to terminal inside Sprint Engine workspaces.
+// route to the conversation runtime.
 const spawnedConversationAgent = conversationAgentRuntimePatch('openai-compatible', 'gpt-4o') as Pick<
   AgentState,
-  'runtimeKind' | 'conversation' | 'kind'
+  'runtimeKind' | 'conversation'
 >
 
 assert.equal(
-  resolveAgentRuntimeKind(spawnedConversationAgent, { isSprintEngineAgent: false, workspaceMode: 'standard' }),
+  resolveAgentRuntimeKind(spawnedConversationAgent),
   'conversation',
-  'a spawned conversation agent routes to AgentChatView in a standard workspace',
-)
-
-assert.equal(
-  resolveAgentRuntimeKind(spawnedConversationAgent, { isSprintEngineAgent: false, workspaceMode: 'sprintengine' }),
-  'terminal',
-  'the same spawned payload stays terminal in a Sprint Engine workspace',
+  'a spawned conversation agent routes to AgentChatView',
 )
 
 console.log('AgentPanel.test.ts: ok')

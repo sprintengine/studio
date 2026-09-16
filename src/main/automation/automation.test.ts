@@ -20,23 +20,12 @@ import { createWorkspaceSyncService } from '../workspace-sync-service'
 import { createFakeIpcMain } from '../module-host/ipc-main-fake.test-helper'
 import { loadMainModules, type CapabilityModule } from '../module-host/load-modules'
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
-import { createSprintGatewayTools, type SprintGatewayBackends } from '../modules/sprint-engine-gateway-tools'
 import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME } from './gateway-audit'
 import { createStudioGatewayTools, isStudioGatewayMutation } from './studio-gateway-tools'
 import { requiredScopeForTool } from './tailnet/tailnet-scopes'
 import { DEFAULT_MCP_PROTOCOL_VERSION, SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../shared/mcp/protocol'
-import { SPRINTENGINE_TOOL_NAMES } from '../../shared/sprintengineToolNames.generated'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import type {
-  SprintEngineTaskCommentInput,
-  SprintEngineTaskCreateInput,
-  SprintEngineTaskResolveInput,
-  SprintEngineTaskStatusSetInput,
-  SprintEngineTaskUpdateInput,
-  TerminalSessionSnapshot,
-} from '../../shared/electron-api'
-import type { SprintEngineArtifactReviewPayload } from '../ipc/sprintengine-ipc'
-import type { SprintCreateRequest, SprintCreateResult } from '../../shared/sprint-create'
+import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { AgentLaunchRequest } from '../../shared/agent-launch'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import type { MarketplaceRegistryReadInput } from '../../shared/electron-api'
@@ -61,13 +50,6 @@ function testWorkspace(id: string, overrides: Partial<Workspace> = {}): Workspac
     worktreeState: { containerPath: null, entries: {}, updatedAt: null },
     memory: { relativeRoot: null },
     editorState: { openFiles: [], activeFilePath: null },
-    sprintEngineAutoState: {
-      desiredMode: 'manual',
-      runtimeState: 'idle',
-      cliPermissionPreset: 'manual',
-      maxConcurrentAgents: 0,
-      deliveredAgentNotificationEventKeys: [],
-    },
     createdAt: 1,
     ...overrides,
   }
@@ -100,7 +82,6 @@ function snapshotOf(workspaces: Workspace[]): WorkspaceSyncSnapshot {
 type BackendsOverrides = {
   workspaces?: Workspace[]
   sessions?: TerminalSessionSnapshot[]
-  createSprint?: (request: SprintCreateRequest) => Promise<SprintCreateResult>
   createWorkspace?: AutomationBackends['createWorkspace']
   launchAgent?: AutomationBackends['launchAgent']
   getAgentSpawnPermissionDefault?: AutomationBackends['getAgentSpawnPermissionDefault']
@@ -112,22 +93,7 @@ type BackendsOverrides = {
   listAutomationRuns?: AutomationBackends['listAutomationRuns']
   backlogWrite?: Partial<AutomationBackends['backlogWrite']>
   getAutomationsFrontDoor?: AutomationBackends['getAutomationsFrontDoor']
-  listSprintRunStatePaths?: SprintGatewayBackends['listSprintRunStatePaths']
   mobileControl?: AutomationBackends['mobileControl']
-  readSprintEngineProjection?: SprintGatewayBackends['readSprintEngineProjection']
-  readSprintAutomationMode?: SprintGatewayBackends['readSprintAutomationMode']
-  setSprintAutomationMode?: SprintGatewayBackends['setSprintAutomationMode']
-  resumeSprintRun?: SprintGatewayBackends['resumeSprintRun']
-  cancelSprintRun?: SprintGatewayBackends['cancelSprintRun']
-  reviewSprintArtifact?: SprintGatewayBackends['reviewSprintArtifact']
-  commentSprintTask?: SprintGatewayBackends['commentSprintTask']
-  resolveSprintTaskInput?: SprintGatewayBackends['resolveSprintTaskInput']
-  setSprintTaskStatus?: SprintGatewayBackends['setSprintTaskStatus']
-  createSprintTask?: SprintGatewayBackends['createSprintTask']
-  updateSprintTask?: SprintGatewayBackends['updateSprintTask']
-  createSprintPullRequest?: SprintGatewayBackends['createSprintPullRequest']
-  refreshSprintPullRequestStatus?: SprintGatewayBackends['refreshSprintPullRequestStatus']
-  readSprintTokenUsage?: SprintGatewayBackends['readSprintTokenUsage']
   createAgentWorktree?: AutomationBackends['createAgentWorktree']
   readWorkspaceCheckout?: AutomationBackends['readWorkspaceCheckout']
   readRepositoryIdentity?: AutomationBackends['readRepositoryIdentity']
@@ -145,7 +111,7 @@ function unexpectedCall(name: string): () => never {
   }
 }
 
-function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends & SprintGatewayBackends {
+function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
   // `workspace.create` mints in main now (MC-2158), so the backend is a real
   // registry rather than a delegated renderer call the test has to stub answering.
   let createdIds = 0
@@ -159,9 +125,6 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends & Spr
     getWorkspaceSyncSnapshot: () => snapshotOf(overrides.workspaces ?? []),
     createWorkspace: overrides.createWorkspace ?? ((input, actor) => workspaceSync.createWorkspace(input, actor)),
     listTerminalSessions: () => overrides.sessions ?? [],
-    createSprint:
-      overrides.createSprint
-      ?? (async () => ({ ok: false, code: 'no_sprint_create_service', message: 'no sprint create service in test' })),
     // Default: no launch port wired. A test that reaches a launch without
     // stubbing one gets an explicit failure, not a silent success.
     launchAgent:
@@ -198,70 +161,6 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends & Spr
       ...overrides.backlogWrite,
     },
     getAutomationsFrontDoor: overrides.getAutomationsFrontDoor ?? (() => null),
-    listSprintRunStatePaths: overrides.listSprintRunStatePaths ?? (async () => []),
-    readSprintEngineProjection:
-      overrides.readSprintEngineProjection ?? (async () => ({ ok: false, message: 'no projection in test' })),
-    readSprintAutomationMode: overrides.readSprintAutomationMode ?? (async () => ({ ok: true, record: null })),
-    setSprintAutomationMode:
-      overrides.setSprintAutomationMode
-      ?? (async () => {
-        throw new Error('unexpected setSprintAutomationMode call')
-      }),
-    resumeSprintRun:
-      overrides.resumeSprintRun
-      ?? (() => {
-        throw new Error('unexpected resumeSprintRun call')
-      }),
-    cancelSprintRun:
-      overrides.cancelSprintRun
-      ?? (async () => {
-        throw new Error('unexpected cancelSprintRun call')
-      }),
-    reviewSprintArtifact:
-      overrides.reviewSprintArtifact
-      ?? (async () => {
-        throw new Error('unexpected reviewSprintArtifact call')
-      }),
-    commentSprintTask:
-      overrides.commentSprintTask
-      ?? (async () => {
-        throw new Error('unexpected commentSprintTask call')
-      }),
-    resolveSprintTaskInput:
-      overrides.resolveSprintTaskInput
-      ?? (async () => {
-        throw new Error('unexpected resolveSprintTaskInput call')
-      }),
-    setSprintTaskStatus:
-      overrides.setSprintTaskStatus
-      ?? (async () => {
-        throw new Error('unexpected setSprintTaskStatus call')
-      }),
-    createSprintTask:
-      overrides.createSprintTask
-      ?? (async () => {
-        throw new Error('unexpected createSprintTask call')
-      }),
-    updateSprintTask:
-      overrides.updateSprintTask
-      ?? (async () => {
-        throw new Error('unexpected updateSprintTask call')
-      }),
-    createSprintPullRequest:
-      overrides.createSprintPullRequest
-      ?? (async () => {
-        throw new Error('unexpected createSprintPullRequest call')
-      }),
-    refreshSprintPullRequestStatus:
-      overrides.refreshSprintPullRequestStatus
-      ?? (async () => {
-        throw new Error('unexpected refreshSprintPullRequestStatus call')
-      }),
-    readSprintTokenUsage:
-      overrides.readSprintTokenUsage
-      ?? (async () => {
-        throw new Error('unexpected readSprintTokenUsage call')
-      }),
     createAgentWorktree:
       overrides.createAgentWorktree
       ?? (async ({ workspaceRoot, name }) => ({
@@ -811,14 +710,12 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
     prompt: 'go',
     cliModel: 'opus',
     permissionPreset: 'auto',
-    specialistId: 'security-reviewer',
   })
   assert.equal(okConfig.isError, undefined, JSON.stringify(okConfig.structuredContent))
   assert.equal(configured.worktreeCalls.length, 0, 'no worktree requested ⇒ createAgentWorktree not called')
   const req = configured.requests[0]
   assert.equal(req.cliModel, 'opus')
   assert.equal(req.permissionPreset, 'auto')
-  assert.equal(req.specialistId, 'security-reviewer')
   assert.equal(req.worktreePath, undefined)
   assert.equal((okConfig.structuredContent as { worktreePath?: string }).worktreePath, undefined)
 
@@ -1225,11 +1122,9 @@ async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): P
     !SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(unsupported),
     'this test needs a version we do NOT serve'
   )
-  // The Python engine pins the same literal (tests/sprintengine_tool/test_mcp_server.py);
-  // that pair is what keeps the two servers' declared maximum from drifting apart again.
   // The maximum rose to 2026-07-28 in the commit that earned it: handshake-optional
   // framing, per-request `_meta.protocolVersion`, and `ttlMs` (the two tests below).
-  assert.equal(DEFAULT_MCP_PROTOCOL_VERSION, '2026-07-28', 'both servers must answer the same default/maximum')
+  assert.equal(DEFAULT_MCP_PROTOCOL_VERSION, '2026-07-28', 'the declared default is the declared maximum')
 
   const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-negotiate-'))
   const socketPath = join(dir, 'automation.sock')
@@ -2261,307 +2156,8 @@ async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise
   assert.equal((ran.structuredContent as { error: { code: string } }).error.code, 'unsupported_trigger')
 }
 
-async function testSprintReadToolsAnswerFromDisk(): Promise<void> {
-  const tools = createSprintGatewayTools(
-    backendsOf({
-      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-      listSprintRunStatePaths: async (root) => [
-        `${root}/.sprintengine/sprintengine/checkout-flow/run.yaml`,
-        `${root}/.sprintengine/sprintengine/older-run/run.yaml`,
-      ],
-      readSprintEngineProjection: async (statePath) =>
-        statePath === '/tmp/project-a/.sprintengine/sprintengine/checkout-flow/run.yaml'
-          ? { ok: true, data: { goal: 'Ship checkout', tasks: [] }, token: '123:456' }
-          : { ok: false, message: `no projection at ${statePath}` },
-      // sprint.status now discloses the main-owned automation mode; a run with a
-      // sidecar record reports its desiredMode.
-      readSprintAutomationMode: async (input) =>
-        input.statePath === '/tmp/project-a/.sprintengine/sprintengine/checkout-flow/run.yaml'
-          ? {
-              ok: true,
-              record: {
-                schemaVersion: 1,
-                revision: 3,
-                desiredMode: 'run_agents',
-                changedAt: 10,
-                lastWrite: { actor: 'automation', deviceId: null, at: '' },
-              },
-            }
-          : { ok: true, record: null },
-    })
-  )
-
-  const listed = await tool(tools, 'sprint.list').handler({ workspaceId: 'ws-1' })
-  assert.deepEqual(listed.structuredContent, {
-    runs: [
-      { slug: 'checkout-flow', statePath: '.sprintengine/sprintengine/checkout-flow/run.yaml' },
-      { slug: 'older-run', statePath: '.sprintengine/sprintengine/older-run/run.yaml' },
-    ],
-  })
-
-  const status = await tool(tools, 'sprint.status').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
-  assert.deepEqual(status.structuredContent, {
-    slug: 'checkout-flow',
-    projection: { goal: 'Ship checkout', tasks: [] },
-    changeToken: '123:456',
-    automationMode: 'run_agents',
-  })
-
-  const missing = await tool(tools, 'sprint.status').handler({ workspaceId: 'ws-1', slug: 'gone' })
-  assert.equal(missing.isError, true)
-  assert.equal((missing.structuredContent as { error: { code: string } }).error.code, 'sprint_status_failed')
-
-  for (const slug of ['..', 'a/b', 'a\\b', '.']) {
-    const denied = await tool(tools, 'sprint.status').handler({ workspaceId: 'ws-1', slug })
-    assert.equal(denied.isError, true, `slug "${slug}" is rejected`)
-    assert.equal((denied.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  }
-}
-
-async function testSprintCreateComposesInMainAndConfirms(): Promise<void> {
-  const requests: SprintCreateRequest[] = []
-  let workspaceVisible = false
-  let architectAlive = false
-  // What the next creation sets the live-session flag to — lets the timeout path
-  // model a run whose architect never comes up.
-  let nextArchitectAlive = true
-  const workspace = testWorkspace('ws-sprint', { folderPath: '/tmp/project-a', mode: 'sprintengine' as never })
-  const session: TerminalSessionSnapshot = {
-    sessionId: 'pty-1',
-    kind: 'agent',
-    workspaceId: 'ws-sprint',
-    agentId: 'agent-architect',
-    processAlive: true,
-    startedAt: 1,
-    lastOutputAt: 1,
-  } as never
-  const tools = createSprintGatewayTools({
-    ...backendsOf(),
-    getWorkspaceSyncSnapshot: () => snapshotOf(workspaceVisible ? [workspace] : []),
-    listTerminalSessions: () => (architectAlive ? [session] : []),
-    createSprint: async (request) => {
-      requests.push(request)
-      workspaceVisible = true
-      architectAlive = nextArchitectAlive
-      return { ok: true, workspaceId: 'ws-sprint' }
-    },
-  })
-
-  const started = await tool(tools, 'sprint.create').handler({
-    folderPath: '/tmp/project-a',
-    goal: 'Ship checkout',
-    startRunner: true,
-  })
-  assert.equal(started.isError, undefined, JSON.stringify(started.structuredContent))
-  assert.deepEqual(started.structuredContent, { workspaceId: 'ws-sprint', started: true })
-  assert.deepEqual(requests, [
-    {
-      folderPath: '/tmp/project-a',
-      goal: 'Ship checkout',
-      name: undefined,
-      startRunner: true,
-      autoApproveArtifacts: false,
-      // MC-2136 flipped this default from false: a sprint runs in one worktree
-      // per sprint unless asked otherwise, on every creation surface. A caller
-      // that wants the main working tree says so (`useWorktrees: false` /
-      // `isolation: "none"`), which is checked below.
-      useWorktrees: true,
-    },
-  ])
-
-  // A started run with no live agent session inside the budget is an explicit
-  // launch_confirmation_timeout, never a fake success.
-  nextArchitectAlive = false
-  const unconfirmed = await tool(tools, 'sprint.create').handler({
-    folderPath: '/tmp/project-a',
-    goal: 'Ship checkout',
-    startRunner: true,
-  })
-  assert.equal(unconfirmed.isError, true)
-  assert.equal(
-    (unconfirmed.structuredContent as { error: { code: string } }).error.code,
-    'launch_confirmation_timeout'
-  )
-
-  // A manual run confirms on the workspace alone — nothing was launched.
-  const manual = await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'Ship checkout' })
-  assert.deepEqual(manual.structuredContent, { workspaceId: 'ws-sprint', started: false })
-
-  // MC-2077 — the plural form. A multi-ref launch hands the full deduped list to
-  // the service as `sourceRelativePaths`, and `goal` may be absent (the
-  // selection derives one).
-  requests.length = 0
-  nextArchitectAlive = true
-  const multi = await tool(tools, 'sprint.create').handler({
-    folderPath: '/tmp/project-a',
-    sourceRefs: ['backlog/epics/one.md', 'backlog/two.md', 'backlog/two.md'],
-  })
-  assert.equal(multi.isError, undefined, JSON.stringify(multi.structuredContent))
-  assert.deepEqual(
-    (requests[0] as { sourceRelativePaths?: string[] }).sourceRelativePaths,
-    ['backlog/epics/one.md', 'backlog/two.md']
-  )
-  assert.equal((requests[0] as { sourceRelativePath?: string }).sourceRelativePath, undefined)
-
-  // A single entry collapses onto the singular contract, byte-identical.
-  requests.length = 0
-  const singleton = await tool(tools, 'sprint.create').handler({
-    folderPath: '/tmp/project-a',
-    sourceRefs: ['backlog/two.md'],
-  })
-  assert.equal(singleton.isError, undefined, JSON.stringify(singleton.structuredContent))
-  assert.equal((requests[0] as { sourceRelativePath?: string }).sourceRelativePath, 'backlog/two.md')
-  assert.equal((requests[0] as { sourceRelativePaths?: string[] }).sourceRelativePaths, undefined)
-
-  // Both forms together are ambiguous; empty arrays and blank entries are refused.
-  for (const args of [
-    { folderPath: '/tmp/project-a', sourceRef: 'backlog/a.md', sourceRefs: ['backlog/b.md'] },
-    { folderPath: '/tmp/project-a', sourceRefs: [] },
-    { folderPath: '/tmp/project-a', sourceRefs: ['  '] },
-  ]) {
-    const bad = await tool(tools, 'sprint.create').handler(args as never)
-    assert.equal(bad.isError, true, JSON.stringify(args))
-    assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  }
-
-  // MC-2136 — the isolation ladder. `isolation` is the whole thing; the older
-  // `useWorktrees` boolean stays accepted and means its first two rungs, so a
-  // caller written before this creates the byte-identical run it always did.
-  requests.length = 0
-  const perTask = await tool(tools, 'sprint.create').handler({
-    folderPath: '/tmp/project-a',
-    goal: 'Ship checkout',
-    isolation: 'task',
-  })
-  assert.equal(perTask.isError, undefined, JSON.stringify(perTask.structuredContent))
-  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, true, 'per-task rides on run worktrees')
-  assert.equal((requests[0] as { taskIsolation?: boolean }).taskIsolation, true)
-
-  requests.length = 0
-  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', isolation: 'sprint' })
-  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, true)
-  assert.equal(
-    'taskIsolation' in (requests[0] as object),
-    false,
-    'the per-sprint rung sends no isolation field at all — the pre-2136 payload',
-  )
-
-  requests.length = 0
-  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', useWorktrees: false })
-  assert.equal(
-    (requests[0] as { useWorktrees?: boolean }).useWorktrees,
-    false,
-    'an explicit false still means the project folder — only OMITTING both takes the new default',
-  )
-
-  requests.length = 0
-  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', isolation: 'none' })
-  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, false)
-
-  requests.length = 0
-  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g', useWorktrees: true })
-  assert.equal((requests[0] as { useWorktrees?: boolean }).useWorktrees, true, 'the old spelling still means one worktree')
-  assert.equal('taskIsolation' in (requests[0] as object), false)
-
-  // Two spellings that disagree are refused rather than silently resolved either
-  // way — an unreadable request must not quietly create the weaker run.
-  for (const args of [
-    { folderPath: '/tmp/project-a', goal: 'g', isolation: 'task', useWorktrees: false },
-    { folderPath: '/tmp/project-a', goal: 'g', isolation: 'none', useWorktrees: true },
-    { folderPath: '/tmp/project-a', goal: 'g', isolation: 'per-task' },
-  ]) {
-    const bad = await tool(tools, 'sprint.create').handler(args as never)
-    assert.equal(bad.isError, true, JSON.stringify(args))
-    assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  }
-
-  // Service failures pass through verbatim (name collisions, controller errors).
-  const failing = createSprintGatewayTools({
-    ...backendsOf(),
-    createSprint: async () => ({ ok: false, code: 'sprint_team_exists', message: 'That team already exists.' }),
-  })
-  const failed = await tool(failing, 'sprint.create').handler({ folderPath: '/tmp/p', goal: 'g' })
-  assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'sprint_team_exists')
-}
-
-// MC-2120 — the execution runtime the wizard has and the gateway did not: the
-// pool/run-level `runtime`, the per-role model/effort maps, and the run's agent
-// ceiling. Each one reaches the renderer verbatim, and a malformed one is
-// refused at the boundary rather than forwarded for the renderer to interpret.
-async function testSprintCreateCarriesTheRunRuntime(): Promise<void> {
-  const requests: SprintCreateRequest[] = []
-  const workspace = testWorkspace('ws-sprint', { folderPath: '/tmp/project-a', mode: 'sprintengine' as never })
-  const tools = createSprintGatewayTools({
-    ...backendsOf(),
-    getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
-    createSprint: async (request) => {
-      requests.push(request)
-      return { ok: true, workspaceId: 'ws-sprint' }
-    },
-  })
-
-  // The roleless shape (the default sprint kind): one `runtime` block, no roles.
-  const roleless = await tool(tools, 'sprint.create').handler({
-    folderPath: '/tmp/project-a',
-    goal: 'Ship checkout',
-    runtime: { cli: 'claude-code', model: 'claude-opus-5', effort: 'high' },
-    maxConcurrentAgents: 6,
-  })
-  assert.equal(roleless.isError, undefined, JSON.stringify(roleless.structuredContent))
-  assert.deepEqual((requests[0] as { runtime?: unknown }).runtime, {
-    cli: 'claude-code',
-    model: 'claude-opus-5',
-    effort: 'high',
-  })
-  assert.equal((requests[0] as { maxConcurrentAgents?: number }).maxConcurrentAgents, 6)
-
-  // The role-based shape: per-role maps, `null` preserved as the explicit
-  // "this role takes its CLI default" it is.
-  requests.length = 0
-  const roles = await tool(tools, 'sprint.create').handler({
-    folderPath: '/tmp/project-a',
-    goal: 'Ship checkout',
-    roster: { architect: 1, developer: 1 },
-    roleClis: { developer: 'codex' },
-    roleModels: { architect: 'claude-opus-5', developer: null },
-    roleEfforts: { architect: 'high' },
-  })
-  assert.equal(roles.isError, undefined, JSON.stringify(roles.structuredContent))
-  assert.deepEqual((requests[0] as { roleClis?: unknown }).roleClis, { developer: 'codex' })
-  assert.deepEqual((requests[0] as { roleModels?: unknown }).roleModels, {
-    architect: 'claude-opus-5',
-    developer: null,
-  })
-  assert.deepEqual((requests[0] as { roleEfforts?: unknown }).roleEfforts, { architect: 'high' })
-
-  // Every field is omitted when unset, so a caller written before MC-2120
-  // produces the byte-identical payload it always did.
-  requests.length = 0
-  await tool(tools, 'sprint.create').handler({ folderPath: '/tmp/project-a', goal: 'g' })
-  for (const key of ['runtime', 'roleClis', 'roleModels', 'roleEfforts', 'maxConcurrentAgents']) {
-    assert.equal(key in (requests[0] as object), false, `${key} is absent when unset`)
-  }
-
-  for (const args of [
-    { folderPath: '/tmp/project-a', goal: 'g', runtime: 'claude-code' },
-    { folderPath: '/tmp/project-a', goal: 'g', runtime: { cli: '' } },
-    { folderPath: '/tmp/project-a', goal: 'g', runtime: { reasoning: 'high' } },
-    { folderPath: '/tmp/project-a', goal: 'g', roleModels: ['architect'] },
-    { folderPath: '/tmp/project-a', goal: 'g', roleClis: { architect: 7 } },
-    { folderPath: '/tmp/project-a', goal: 'g', roleModels: { architect: 42 } },
-    { folderPath: '/tmp/project-a', goal: 'g', roleEfforts: { architect: '' } },
-    { folderPath: '/tmp/project-a', goal: 'g', maxConcurrentAgents: 0 },
-    { folderPath: '/tmp/project-a', goal: 'g', maxConcurrentAgents: 11 },
-    { folderPath: '/tmp/project-a', goal: 'g', maxConcurrentAgents: 2.5 },
-  ]) {
-    const bad = await tool(tools, 'sprint.create').handler(args as never)
-    assert.equal(bad.isError, true, JSON.stringify(args))
-    assert.equal((bad.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  }
-}
-
-// MC-2120 — `cli`, `cliModel`, and the sprint runtime fields were blind strings
-// until an agent could enumerate them over MCP alone.
+// MC-2120 — `cli` and `cliModel` were blind strings until an agent could
+// enumerate them over MCP alone.
 async function testCliRuntimeListReportsTheRegistry(): Promise<void> {
   const plugin = (id: string, overrides: Partial<LoadedPlugin['manifest']> = {}): LoadedPlugin => ({
     manifest: {
@@ -2641,467 +2237,6 @@ async function testCliRuntimeListReportsTheRegistry(): Promise<void> {
   assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_cli')
 }
 
-// MC-2137 — starting a sprint from an epic whose ordering was never declared
-// finished. The gate INFORMS: the run is always created, and the response says
-// what happened to the intake.
-async function testSprintCreateWarnsOnAnUnmarkedEpic(): Promise<void> {
-  const workspace = testWorkspace('ws-sprint', { folderPath: '/tmp/project-a', mode: 'sprintengine' as never })
-  const epics: Record<string, { isEpic: boolean; dependenciesPlanned?: boolean }> = {
-    'backlog/epics/unmarked.md': { isEpic: true },
-    'backlog/epics/marked.md': { isEpic: true, dependenciesPlanned: true },
-    'backlog/plain-item.md': { isEpic: false },
-    // `type: epic` outside backlog/epics/: a real epic to the panel, but not an
-    // epic LAUNCH — the run plans regardless, so there is nothing to warn about.
-    'backlog/stray-epic.md': { isEpic: true },
-  }
-  const tools = createSprintGatewayTools({
-    ...backendsOf(),
-    getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
-    createSprint: async () => ({ ok: true, workspaceId: 'ws-sprint' }),
-    readBacklogItem: async (_root, relativePath) => {
-      const item = epics[relativePath]
-      return item
-        ? { ok: true, item: { relativePath, title: 'x', status: 'ready', ...item }, body: '' }
-        : { ok: false, message: `no item ${relativePath}` }
-    },
-  })
-  const warningsOf = async (args: Record<string, unknown>): Promise<string[]> => {
-    const result = await tool(tools, 'sprint.create').handler(args as never)
-    assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent))
-    return ((result.structuredContent as { warnings?: string[] }).warnings ?? [])
-  }
-
-  const explicitDirect = await warningsOf({
-    folderPath: '/tmp/project-a',
-    sourceRef: 'backlog/epics/unmarked.md',
-    intake: 'direct',
-  })
-  assert.equal(explicitDirect.length, 1, 'an explicit direct over an unmarked epic is warned about, not refused')
-  assert.match(explicitDirect[0], /dependenciesPlanned/)
-  assert.match(explicitDirect[0], /unordered/)
-
-  const omitted = await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/epics/unmarked.md' })
-  assert.equal(omitted.length, 1, 'omitting intake on an unmarked epic no longer takes the epic default silently')
-  assert.match(omitted[0], /"planned"/)
-
-  // The states with nothing to say: a marked epic, an explicit planned request,
-  // a non-epic source, and a source that cannot be read at all.
-  assert.deepEqual(await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/epics/marked.md' }), [])
-  assert.deepEqual(
-    await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/epics/unmarked.md', intake: 'planned' }),
-    [],
-  )
-  assert.deepEqual(await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/plain-item.md' }), [])
-  assert.deepEqual(
-    await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/stray-epic.md', intake: 'direct' }),
-    [],
-    'a file outside backlog/epics/ never launches as an epic source, marked or not',
-  )
-  assert.deepEqual(
-    await warningsOf({ folderPath: '/tmp/project-a', sourceRef: 'backlog/gone.md' }),
-    [],
-    'an unreadable source costs the warning, never the run',
-  )
-}
-
-async function testSprintLifecycleToolsMutateViaMainServices(): Promise<void> {
-  const statePath = '/tmp/project-a/.sprintengine/sprintengine/checkout-flow/run.yaml'
-  const setModeInputs: Array<{ statePath: string; mode: string; actor: string; reason?: string }> = []
-  let resumed: string | null = null
-  const cancelPayloads: string[] = []
-  const projectionRuns = new Set([statePath])
-
-  function toolsFor(cancelResult: () => Promise<unknown>): McpToolRegistration[] {
-    return createSprintGatewayTools(
-      backendsOf({
-        workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-        readSprintEngineProjection: async (path) =>
-          projectionRuns.has(path)
-            ? { ok: true, data: { goal: 'Ship checkout', tasks: [] }, token: '1:2' }
-            : { ok: false, message: `no run at ${path}` },
-        setSprintAutomationMode: async (input) => {
-          setModeInputs.push({ statePath: input.statePath, mode: input.mode, actor: input.actor, reason: input.reason })
-          // Model idempotence: manual on a manual run is unchanged.
-          const changed = input.mode !== 'manual'
-          return {
-            ok: true,
-            changed,
-            record: {
-              schemaVersion: 1,
-              revision: 2,
-              desiredMode: input.mode,
-              changedAt: 5,
-              lastWrite: { actor: input.actor, deviceId: null, at: '' },
-            },
-          } as never
-        },
-        resumeSprintRun: (path) => {
-          resumed = path
-        },
-        cancelSprintRun: async (payload) => {
-          cancelPayloads.push(payload.statePath)
-          return cancelResult() as never
-        },
-      })
-    )
-  }
-
-  const tools = toolsFor(async () => ({ ok: true, data: {} }))
-
-  // set_mode forwards the exact SetSprintEngineAutomationModeInput shape:
-  // reconstructed statePath, actor 'automation', reason, and never a caller path.
-  const set = await tool(tools, 'sprint.set_mode').handler({ workspaceId: 'ws-1', slug: 'checkout-flow', mode: 'run_agents' })
-  assert.equal(set.isError, undefined, JSON.stringify(set.structuredContent))
-  assert.deepEqual(set.structuredContent, { mode: 'run_agents', changed: true })
-  assert.deepEqual(setModeInputs, [{ statePath, mode: 'run_agents', actor: 'automation', reason: 'automation-server' }])
-
-  // Same-mode (manual) write is idempotent: changed:false echoed through.
-  const paused = await tool(tools, 'sprint.set_mode').handler({ workspaceId: 'ws-1', slug: 'checkout-flow', mode: 'manual' })
-  assert.deepEqual(paused.structuredContent, { mode: 'manual', changed: false })
-
-  // 'paused' is not a real mode — rejected before any backend call.
-  const badMode = await tool(tools, 'sprint.set_mode').handler({ workspaceId: 'ws-1', slug: 'checkout-flow', mode: 'paused' })
-  assert.equal(badMode.isError, true)
-  assert.equal((badMode.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-
-  // Unknown run → sprint_not_found (projection read fails).
-  const unknown = await tool(tools, 'sprint.set_mode').handler({ workspaceId: 'ws-1', slug: 'gone', mode: 'run_agents' })
-  assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'sprint_not_found')
-
-  // Path-traversal slug rejected by SPRINT_SLUG_RE before resolution.
-  for (const slug of ['../evil', 'a/b', '..']) {
-    const denied = await tool(tools, 'sprint.set_mode').handler({ workspaceId: 'ws-1', slug, mode: 'manual' })
-    assert.equal((denied.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments', slug)
-  }
-
-  // resume is fire-and-forget: reports requested:true and re-arms the exact statePath.
-  const resume = await tool(tools, 'sprint.resume').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
-  assert.deepEqual(resume.structuredContent, { resumed: { slug: 'checkout-flow', requested: true } })
-  assert.equal(resumed, statePath)
-
-  // cancel invokes the composed backend once and echoes the slug on success.
-  const canceled = await tool(tools, 'sprint.cancel').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
-  assert.deepEqual(canceled.structuredContent, { canceled: { slug: 'checkout-flow' } })
-  assert.deepEqual(cancelPayloads, [statePath])
-
-  // A backend failure surfaces sprint_cancel_failed with the message plus stderr.
-  const failingTools = toolsFor(async () => ({ ok: false, message: 'cancel op failed', stderr: 'git: index locked' }))
-  const failedCancel = await tool(failingTools, 'sprint.cancel').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
-  assert.equal(failedCancel.isError, true)
-  const cancelError = (failedCancel.structuredContent as { error: { code: string; message: string } }).error
-  assert.equal(cancelError.code, 'sprint_cancel_failed')
-  assert.match(cancelError.message, /cancel op failed/)
-  assert.match(cancelError.message, /index locked/)
-}
-
-async function testSprintSteeringToolsMutateViaMainServices(): Promise<void> {
-  const statePath = '/tmp/project-a/.sprintengine/sprintengine/checkout-flow/run.yaml'
-  const reviewCalls: Array<{ payload: SprintEngineArtifactReviewPayload; action: string }> = []
-  const commentCalls: SprintEngineTaskCommentInput[] = []
-  const resolveCalls: SprintEngineTaskResolveInput[] = []
-  const statusCalls: SprintEngineTaskStatusSetInput[] = []
-  const createCalls: SprintEngineTaskCreateInput[] = []
-  const updateCalls: SprintEngineTaskUpdateInput[] = []
-  const okData = { ok: true as const, data: {} }
-
-  const tools = createSprintGatewayTools(
-    backendsOf({
-      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-      readSprintEngineProjection: async (path) =>
-        path === statePath
-          ? { ok: true, data: { goal: 'Ship', tasks: [] }, token: '1:2' }
-          : { ok: false, message: `no run at ${path}` },
-      reviewSprintArtifact: async (payload, action) => {
-        reviewCalls.push({ payload, action })
-        return okData
-      },
-      commentSprintTask: async (payload) => {
-        commentCalls.push(payload)
-        return okData
-      },
-      resolveSprintTaskInput: async (payload) => {
-        resolveCalls.push(payload)
-        return okData
-      },
-      setSprintTaskStatus: async (payload) => {
-        statusCalls.push(payload)
-        return okData
-      },
-      createSprintTask: async (payload) => {
-        createCalls.push(payload)
-        return okData
-      },
-      updateSprintTask: async (payload) => {
-        updateCalls.push(payload)
-        return okData
-      },
-    })
-  )
-
-  // approve forwards the reconstructed statePath + artifactId (+ optional
-  // feedback); the wiring pins mode 'user', so the tool passes only the payload.
-  const approved = await tool(tools, 'sprint.artifact.approve').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    artifactId: 'ART-1',
-    feedback: 'looks good',
-  })
-  assert.equal(approved.isError, undefined, JSON.stringify(approved.structuredContent))
-  assert.deepEqual(approved.structuredContent, { approved: { slug: 'checkout-flow', artifactId: 'ART-1' } })
-  assert.deepEqual(reviewCalls, [
-    { payload: { statePath, artifactId: 'ART-1', feedback: 'looks good' }, action: 'approve' },
-  ])
-
-  // request_changes requires non-empty feedback at the boundary — rejected
-  // before any mutation backend runs.
-  const noFeedback = await tool(tools, 'sprint.artifact.request_changes').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    artifactId: 'ART-1',
-  })
-  assert.equal((noFeedback.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  assert.equal(reviewCalls.length, 1, 'a missing-feedback request never reaches the backend')
-
-  const requested = await tool(tools, 'sprint.artifact.request_changes').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    artifactId: 'ART-1',
-    feedback: 'redo the plan',
-  })
-  assert.equal(requested.isError, undefined)
-  assert.deepEqual(reviewCalls[1], {
-    payload: { statePath, artifactId: 'ART-1', feedback: 'redo the plan' },
-    action: 'request-changes',
-  })
-
-  const commented = await tool(tools, 'sprint.task.comment').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    taskId: 'T2',
-    body: 'ping',
-  })
-  assert.equal(commented.isError, undefined)
-  assert.deepEqual(commentCalls, [{ statePath, taskId: 'T2', body: 'ping' }])
-
-  // resolve_input forwards complete only when the boolean is true.
-  const resolved = await tool(tools, 'sprint.task.resolve_input').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    taskId: 'T2',
-    resolution: 'use option B',
-    complete: true,
-  })
-  assert.equal(resolved.isError, undefined)
-  assert.deepEqual(resolveCalls, [{ statePath, taskId: 'T2', resolution: 'use option B', complete: true }])
-  const badComplete = await tool(tools, 'sprint.task.resolve_input').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    taskId: 'T2',
-    resolution: 'x',
-    complete: 'yes',
-  })
-  assert.equal((badComplete.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-
-  // set_status validates against the task-status union.
-  const statusSet = await tool(tools, 'sprint.task.set_status').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    taskId: 'T2',
-    status: 'in_progress',
-  })
-  assert.equal(statusSet.isError, undefined)
-  assert.deepEqual(statusCalls, [{ statePath, taskId: 'T2', status: 'in_progress' }])
-  const badStatus = await tool(tools, 'sprint.task.set_status').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    taskId: 'T2',
-    status: 'archived',
-  })
-  assert.equal((badStatus.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-
-  // create forwards title + role + array fields verbatim.
-  const created = await tool(tools, 'sprint.task.create').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    title: 'New task',
-    role: 'developer',
-    description: 'do it',
-    acceptanceCriteria: ['passes tests'],
-    implementationNotes: ['touch the handler'],
-  })
-  assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
-  assert.deepEqual(createCalls, [
-    {
-      statePath,
-      title: 'New task',
-      role: 'developer',
-      description: 'do it',
-      acceptanceCriteria: ['passes tests'],
-      implementationNotes: ['touch the handler'],
-    },
-  ])
-
-  // A role outside the mutation-role union is rejected before the backend.
-  const badRole = await tool(tools, 'sprint.task.create').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    title: 'x',
-    role: 'reviewer',
-  })
-  assert.equal((badRole.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  assert.equal(createCalls.length, 1, 'a bad role never reaches the backend')
-
-  // A bare string where an array is required is rejected, never spread.
-  const bareArray = await tool(tools, 'sprint.task.create').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    title: 'x',
-    role: 'developer',
-    acceptanceCriteria: 'one string',
-  })
-  assert.equal((bareArray.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  assert.equal(createCalls.length, 1, 'a bare-string array field never reaches the backend')
-
-  const updated = await tool(tools, 'sprint.task.update').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    taskId: 'T2',
-    title: 'Renamed',
-    role: 'frontend',
-    notes: ['see thread'],
-  })
-  assert.equal(updated.isError, undefined)
-  assert.deepEqual(updateCalls, [{ statePath, taskId: 'T2', title: 'Renamed', role: 'frontend', notes: ['see thread'] }])
-
-  // Unknown run → sprint_not_found (projection read fails) before the mutation.
-  const unknownRun = await tool(tools, 'sprint.task.comment').handler({
-    workspaceId: 'ws-1',
-    slug: 'gone',
-    taskId: 'T2',
-    body: 'hi',
-  })
-  assert.equal((unknownRun.structuredContent as { error: { code: string } }).error.code, 'sprint_not_found')
-
-  // A backend {ok:false} surfaces the tool's _failed code with the message and
-  // any stderr intact.
-  const failing = createSprintGatewayTools(
-    backendsOf({
-      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-      readSprintEngineProjection: async () => ({ ok: true, data: { goal: 'g', tasks: [] }, token: '1:2' }),
-      reviewSprintArtifact: async () => ({ ok: false, message: 'artifact already approved', stderr: 'engine: conflict' }),
-    })
-  )
-  const failed = await tool(failing, 'sprint.artifact.approve').handler({
-    workspaceId: 'ws-1',
-    slug: 'checkout-flow',
-    artifactId: 'ART-1',
-  })
-  assert.equal(failed.isError, true)
-  const error = (failed.structuredContent as { error: { code: string; message: string } }).error
-  assert.equal(error.code, 'sprint_artifact_approve_failed')
-  assert.match(error.message, /already approved/)
-  assert.match(error.message, /engine: conflict/)
-}
-
-async function testSprintVcsAndUsageToolsReadViaMainServices(): Promise<void> {
-  const statePath = '/tmp/project-a/.sprintengine/sprintengine/checkout-flow/run.yaml'
-  const prCreateCalls: string[] = []
-  const prStatusCalls: string[] = []
-  const usageCalls: string[] = []
-  const vcsBlock = {
-    mode: 'run_worktree',
-    worktreePath: '.multicode-worktrees/checkout-flow',
-    branchName: 'sprint/checkout-flow',
-    pullRequestUrl: 'https://github.com/x/y/pull/1',
-    pullRequestState: 'open',
-    repos: [],
-  }
-  const usageReport = {
-    run: {
-      perModel: [],
-      total: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0, split: true },
-      coverage: { measuredAgents: 1, unmeasuredAgents: 0, unmeasured: [] },
-    },
-    perAgent: [],
-    perTask: {},
-    computedAt: 'test-time',
-  }
-
-  const tools = createSprintGatewayTools(
-    backendsOf({
-      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-      readSprintEngineProjection: async (path) =>
-        path === statePath
-          ? { ok: true, data: { goal: 'g', tasks: [] }, token: '1:2' }
-          : { ok: false, message: `no run at ${path}` },
-      createSprintPullRequest: async (payload) => {
-        prCreateCalls.push(payload.statePath)
-        return { ok: true, data: { projectionContent: JSON.stringify({ goal: 'g', vcs: vcsBlock }), projectionToken: '3:4' } }
-      },
-      refreshSprintPullRequestStatus: async (payload) => {
-        prStatusCalls.push(payload.statePath)
-        return {
-          ok: true,
-          data: { projectionContent: JSON.stringify({ vcs: { ...vcsBlock, pullRequestState: 'merged' } }), projectionToken: '5:6' },
-        }
-      },
-      readSprintTokenUsage: async (path) => {
-        usageCalls.push(path)
-        return usageReport
-      },
-    })
-  )
-
-  // pr.create forwards the reconstructed statePath and hands back the refreshed
-  // vcs block parsed from the command result's re-read projection.
-  const created = await tool(tools, 'sprint.pr.create').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
-  assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
-  assert.deepEqual(created.structuredContent, { slug: 'checkout-flow', vcs: vcsBlock })
-  assert.deepEqual(prCreateCalls, [statePath])
-
-  // pr.status refreshes then returns the merge state from the re-read projection.
-  const status = await tool(tools, 'sprint.pr.status').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
-  assert.equal(status.isError, undefined, JSON.stringify(status.structuredContent))
-  assert.equal((status.structuredContent as { vcs: { pullRequestState: string } }).vcs.pullRequestState, 'merged')
-  assert.deepEqual(prStatusCalls, [statePath])
-
-  // token_usage returns the report verbatim under tokenUsage.
-  const usage = await tool(tools, 'sprint.token_usage').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
-  assert.equal(usage.isError, undefined, JSON.stringify(usage.structuredContent))
-  assert.deepEqual(usage.structuredContent, { slug: 'checkout-flow', tokenUsage: usageReport })
-  assert.deepEqual(usageCalls, [statePath])
-
-  // Unknown run → sprint_not_found before the usage compute (no invented empty report).
-  const unknown = await tool(tools, 'sprint.token_usage').handler({ workspaceId: 'ws-1', slug: 'gone' })
-  assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'sprint_not_found')
-  assert.equal(usageCalls.length, 1, 'a missing run never reaches the usage compute')
-
-  // Path-traversal slug rejected by SPRINT_SLUG_RE before any resolution.
-  const denied = await tool(tools, 'sprint.pr.create').handler({ workspaceId: 'ws-1', slug: '../evil' })
-  assert.equal((denied.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  assert.equal(prCreateCalls.length, 1, 'a bad slug never reaches the PR backend')
-
-  // A non-worktree run's refusal is the engine's ({ok:false}); the tool surfaces
-  // sprint_pr_failed with the message + stderr, never pre-empting it at the tool layer.
-  const refusing = createSprintGatewayTools(
-    backendsOf({
-      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-      readSprintEngineProjection: async () => ({ ok: true, data: { goal: 'g', tasks: [] }, token: '1:2' }),
-      createSprintPullRequest: async () => ({
-        ok: false,
-        message: 'This run has no worktree to open a pull request from.',
-        stderr: 'engine: no worktree',
-      }),
-    })
-  )
-  const refused = await tool(refusing, 'sprint.pr.create').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
-  assert.equal(refused.isError, true)
-  const prError = (refused.structuredContent as { error: { code: string; message: string } }).error
-  assert.equal(prError.code, 'sprint_pr_failed')
-  assert.match(prError.message, /no worktree/)
-  assert.match(prError.message, /engine: no worktree/)
-}
-
 async function testReadToolsPassServiceFailuresThrough(): Promise<void> {
   const tools = createAutomationTools(
     backendsOf({
@@ -3131,8 +2266,7 @@ async function testReadToolsPassServiceFailuresThrough(): Promise<void> {
   assert.equal((missing.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
 }
 
-async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promise<void> {
-  const calls: Array<{ runId: string; toolName: string; arguments?: Record<string, unknown> }> = []
+async function testStudioGatewayRejectsDuplicatesAndClassifiesMutations(): Promise<void> {
   const appTool: McpToolRegistration = {
     name: 'workspace.list',
     description: 'list workspaces',
@@ -3141,38 +2275,15 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
   }
   const tools = createStudioGatewayTools({
     appTools: [appTool],
-    sprintEngineMcpHub: {
-      callRunTool: async (input) => {
-        calls.push(input)
-        return {
-          content: [{ type: 'text', text: 'canonical' }],
-          structuredContent: { ok: true, taskId: 'task-7' },
-        }
-      },
-    },
     resolveModuleTools: () => [],
     isModuleEnabled: () => true,
   })()
-  assert.equal(tools.length, SPRINTENGINE_TOOL_NAMES.length + 1)
-  assert.equal(SPRINTENGINE_TOOL_NAMES.every((name) => tools.some((candidate) => candidate.name === name)), true)
-
-  const runTool = tool(tools, 'sprintengine.task.next')
-  const noRun = await runTool.handler({}, { metadata: { kind: 'studio-agent', agentId: 'agent-a' } })
-  assert.equal(noRun.isError, true)
-  assert.equal((noRun.structuredContent as { error: { code: string } }).error.code, 'no_active_sprint')
-
-  const proxied = await runTool.handler(
-    { role: 'developer' },
-    { metadata: { kind: 'studio-agent', agentId: 'agent-a', sprintRunId: 'run-a' } }
-  )
-  assert.deepEqual(proxied.structuredContent, { ok: true, taskId: 'task-7' })
-  assert.deepEqual(calls, [{ runId: 'run-a', toolName: 'sprintengine.task.next', arguments: { role: 'developer' } }])
+  assert.deepEqual(tools.map((entry) => entry.name), ['workspace.list'])
 
   assert.throws(
     () =>
       createStudioGatewayTools({
         appTools: [appTool, appTool],
-        sprintEngineMcpHub: { callRunTool: async () => ({}) },
         resolveModuleTools: () => [],
         isModuleEnabled: () => true,
       }),
@@ -3181,10 +2292,6 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
   assert.equal(isStudioGatewayMutation('backlog.update'), true)
   assert.equal(isStudioGatewayMutation('backlog.repair'), true)
   assert.equal(isStudioGatewayMutation('backlog.list'), false)
-  assert.equal(isStudioGatewayMutation('sprintengine.task.publish'), true)
-  assert.equal(isStudioGatewayMutation('sprintengine.vcs.commit'), true)
-  assert.equal(isStudioGatewayMutation('sprintengine.plan.add_task'), true)
-  assert.equal(isStudioGatewayMutation('sprintengine.task.list'), false)
   // browser-pane child 6: acting on the page is a mutation, looking at it is not.
   assert.equal(isStudioGatewayMutation('browser.click'), true)
   assert.equal(isStudioGatewayMutation('browser.open'), true)
@@ -3209,7 +2316,6 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
   }
   const resolveWidgetTools = createStudioGatewayTools({
     appTools: [],
-    sprintEngineMcpHub: { callRunTool: async () => ({}) },
     resolveModuleTools: () => [
       { moduleId: 'widgets', moduleDisplayName: 'Widgets', registration: moduleWrites },
       { moduleId: 'widgets', moduleDisplayName: 'Widgets', registration: moduleReads },
@@ -3276,7 +2382,6 @@ async function testModuleMcpToolContributionOwnershipAndCollisions(): Promise<vo
   const warnings: string[] = []
   const resolveGatewayTools = createStudioGatewayTools({
     appTools: [],
-    sprintEngineMcpHub: { callRunTool: async () => ({}) },
     resolveModuleTools: () => kernel.mcpToolRegistrations(),
     isModuleEnabled: () => true,
     warn: (text) => warnings.push(text),
@@ -3298,7 +2403,6 @@ async function testModuleMcpToolContributionOwnershipAndCollisions(): Promise<vo
   const coreTool = registrationOf('workspace.list', 'core')
   const resolveShadowed = createStudioGatewayTools({
     appTools: [coreTool],
-    sprintEngineMcpHub: { callRunTool: async () => ({}) },
     resolveModuleTools: () => [
       { moduleId: 'first-owner', moduleDisplayName: 'first-owner', registration: registrationOf('workspace.list', 'shadow') },
     ],
@@ -3347,7 +2451,6 @@ async function testModuleContributedToolIsLiveOnAConnectedSession(): Promise<voi
   let moduleEnabled = true
   const resolveGatewayTools = createStudioGatewayTools({
     appTools: createAutomationTools(backendsOf()),
-    sprintEngineMcpHub: { callRunTool: async () => ({}) },
     resolveModuleTools: () => kernel.mcpToolRegistrations(),
     isModuleEnabled: () => moduleEnabled,
   })
@@ -3444,7 +2547,6 @@ async function testStudioGatewayAuditIsRedactedAndRotated(): Promise<void> {
           workspaceId: 'ws-1',
           agentId: 'agent-a',
           cliId: 'codex',
-          sprintRunId: 'run-a',
         },
         tool: 'backlog.create',
         durationMs: 7,
@@ -3516,18 +2618,17 @@ async function testModuleToolsReportTheRegistryTheUserSees(): Promise<void> {
   const snapshot = registrySnapshot([
     registryEntry(
       {
-        id: 'sprint-engine',
-        displayName: 'Sprint Engine',
+        id: 'backlog',
+        displayName: 'Backlog',
         version: 1,
-        category: 'orchestration',
+        category: 'core',
         defaultEnabled: true,
         dependsOn: ['agent-runtime'],
       },
       {
         surfaces: {
           ...EMPTY_MODULE_SURFACES,
-          globalSurfaces: ['sprints'],
-          workspaceTypes: ['sprintengine'],
+          globalSurfaces: ['backlog'],
         },
       }
     ),
@@ -3568,7 +2669,7 @@ async function testModuleToolsReportTheRegistryTheUserSees(): Promise<void> {
   }).modules
   assert.deepEqual(
     modules.map((module) => module.id).sort(),
-    ['git', 'sketchy', 'sprint-engine', 'weather'],
+    ['backlog', 'git', 'sketchy', 'weather'],
     'every module the user could see is listed, including an installed-but-untrusted one'
   )
   const git = modules.find((module) => module.id === 'git')
@@ -3593,7 +2694,7 @@ async function testModuleToolsReportTheRegistryTheUserSees(): Promise<void> {
   const enabledOnly = await tool(tools, 'module.list').handler({ enabled: true })
   assert.deepEqual(
     (enabledOnly.structuredContent as { modules: Array<{ id: string }> }).modules.map((module) => module.id),
-    ['sprint-engine', 'weather']
+    ['backlog', 'weather']
   )
   assert.equal(
     (await tool(tools, 'module.list').handler({ source: 'nope' })).isError,
@@ -3601,14 +2702,14 @@ async function testModuleToolsReportTheRegistryTheUserSees(): Promise<void> {
     'an unknown source is rejected rather than filtered to nothing'
   )
 
-  const status = await tool(tools, 'module.status').handler({ id: 'sprint-engine' })
+  const status = await tool(tools, 'module.status').handler({ id: 'backlog' })
   const detail = (status.structuredContent as {
     module: { manifest: { id: string }; dependsOn: string[]; surfaces: { globalSurfaces: string[] }; contributedTools: string[] }
   }).module
-  assert.equal(detail.manifest.id, 'sprint-engine')
+  assert.equal(detail.manifest.id, 'backlog')
   assert.deepEqual(detail.dependsOn, ['agent-runtime'])
-  assert.deepEqual(detail.surfaces.globalSurfaces, ['sprints'], 'contributed surfaces are reported, not guessed')
-  assert.deepEqual(detail.contributedTools, [], 'sprint-engine contributes no gateway tool in this fixture')
+  assert.deepEqual(detail.surfaces.globalSurfaces, ['backlog'], 'contributed surfaces are reported, not guessed')
+  assert.deepEqual(detail.contributedTools, [], 'backlog contributes no gateway tool in this fixture')
   const weatherStatus = await tool(tools, 'module.status').handler({ id: 'weather' })
   assert.deepEqual(
     (weatherStatus.structuredContent as { module: { contributedTools: string[]; permissions: string[] } }).module,
@@ -3687,8 +2788,7 @@ async function testModuleStatusAgreesWithTheToolsTheGatewayServes(): Promise<voi
     serverVersion: '0.0.0-test',
     resolveTools: createStudioGatewayTools({
       appTools,
-      sprintEngineMcpHub: { callRunTool: async () => ({}) },
-      resolveModuleTools: () => kernel.mcpToolRegistrations(),
+        resolveModuleTools: () => kernel.mcpToolRegistrations(),
       isModuleEnabled: () => moduleEnabled,
     }),
   })
@@ -3744,9 +2844,7 @@ async function testModuleStatusAgreesWithTheToolsTheGatewayServes(): Promise<voi
       (await rpc('tools/list')) as { result: { tools: Array<{ name: string }> } }
     ).result.tools
       .map((entry) => entry.name)
-      .filter(
-        (name) => !coreNames.has(name) && !(SPRINTENGINE_TOOL_NAMES as readonly string[]).includes(name),
-      )
+      .filter((name) => !coreNames.has(name))
     assert.deepEqual(servedByModule, ['weather_deck_forecast'], 'the session is served exactly one module tool')
 
     const status = (await callTool('module.status', { id: 'weather-deck' })) as {
@@ -4033,69 +3131,6 @@ async function testMobileCommandToolDispatchesOnlyTheServedEnvelopes(): Promise<
   assert.equal(dispatched.length, 2)
 }
 
-async function testSprintGatewayToolsRegisterFromTheModule(): Promise<void> {
-  const expected = [
-    'sprint.artifact.approve',
-    'sprint.artifact.request_changes',
-    'sprint.cancel',
-    'sprint.create',
-    'sprint.list',
-    'sprint.pr.create',
-    'sprint.pr.status',
-    'sprint.resume',
-    'sprint.set_mode',
-    'sprint.status',
-    'sprint.task.comment',
-    'sprint.task.create',
-    'sprint.task.resolve_input',
-    'sprint.task.set_status',
-    'sprint.task.update',
-    'sprint.token_usage',
-  ]
-  const moduleTools = createSprintGatewayTools(backendsOf())
-  assert.deepEqual(moduleTools.map((entry) => entry.name).sort(), expected)
-  assert.equal(createAutomationTools(backendsOf()).some((entry) => entry.name.startsWith('sprint.')), false)
-
-  const resolveEnabled = createStudioGatewayTools({
-    appTools: createAutomationTools(backendsOf()),
-    sprintEngineMcpHub: { callRunTool: async () => ({}) },
-    resolveModuleTools: () =>
-      moduleTools.map((registration) => ({
-        moduleId: 'sprint-engine',
-        moduleDisplayName: 'Sprint Engine',
-        registration,
-      })),
-    isModuleEnabled: () => true,
-  })
-  const enabledNames = new Set(resolveEnabled().map((entry) => entry.name))
-  for (const name of expected) assert.equal(enabledNames.has(name), true, `${name} is listed while the module is enabled`)
-
-  const resolveDisabled = createStudioGatewayTools({
-    appTools: createAutomationTools(backendsOf()),
-    sprintEngineMcpHub: { callRunTool: async () => ({}) },
-    resolveModuleTools: () =>
-      moduleTools.map((registration) => ({
-        moduleId: 'sprint-engine',
-        moduleDisplayName: 'Sprint Engine',
-        registration,
-      })),
-    isModuleEnabled: () => false,
-  })
-  const disabled = await tool(resolveDisabled(), 'sprint.create').handler({ folderPath: '/tmp/project-a' })
-  assert.equal(
-    (disabled.structuredContent as { error?: { code?: string } })?.error?.code,
-    'sprint-engine_module_disabled'
-  )
-
-  const resolveAbsent = createStudioGatewayTools({
-    appTools: createAutomationTools(backendsOf()),
-    sprintEngineMcpHub: { callRunTool: async () => ({}) },
-    resolveModuleTools: () => [],
-    isModuleEnabled: () => true,
-  })
-  assert.equal(resolveAbsent().some((entry) => entry.name === 'sprint.create'), false)
-}
-
 const tests = [
   testSettingsDefaultOnAndRoundTrip,
   testStudioGatewayStartsDespiteLegacyDisabledSetting,
@@ -4118,13 +3153,6 @@ const tests = [
   testAutomationMutationToolsGateOnPresetAndModule,
   testBypassStaysRefusedAtTheExternalToolBoundary,
   testAutomationMutationToolsPassPipelineFailuresThrough,
-  testSprintReadToolsAnswerFromDisk,
-  testSprintCreateComposesInMainAndConfirms,
-  testSprintCreateWarnsOnAnUnmarkedEpic,
-  testSprintLifecycleToolsMutateViaMainServices,
-  testSprintSteeringToolsMutateViaMainServices,
-  testSprintVcsAndUsageToolsReadViaMainServices,
-  testSprintGatewayToolsRegisterFromTheModule,
   testAgentLaunchWidensConfigAndIsolation,
   testTerminalCreateSpawnsAndReturnsTheAttachableSession,
   testTerminalCreateTakesThisMachinesLaunchDefaults,
@@ -4141,10 +3169,9 @@ const tests = [
   testConcurrentBridgesKeepResponsesAndAttributionIsolated,
   testBridgeFailsClearlyWithoutDiscoveryFile,
   testBridgeReportsStaleDiscoveryFile,
-  testStudioGatewayMergesCanonicalRunToolsAndRoutesContext,
+  testStudioGatewayRejectsDuplicatesAndClassifiesMutations,
   testModuleMcpToolContributionOwnershipAndCollisions,
   testModuleContributedToolIsLiveOnAConnectedSession,
-  testSprintCreateCarriesTheRunRuntime,
   testCliRuntimeListReportsTheRegistry,
   testStudioGatewayAuditIsRedactedAndRotated,
   testModuleToolsReportTheRegistryTheUserSees,

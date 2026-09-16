@@ -10,9 +10,9 @@ export type ModuleWorkspaceView = {
   name: string
   /**
    * Absolute folder the workspace opened (the primary checkout); null for
-   * folderless workspaces. Sprint-run worktree-backed workspaces do their
-   * live work in a worktree under this folder — a live-runtime surface, not
-   * this snapshot, is where that resolution belongs.
+   * folderless workspaces. A worktree-backed workspace does its live work in
+   * a worktree under this folder — a live-runtime surface, not this snapshot,
+   * is where that resolution belongs.
    */
   folderPath: string | null
   /** Workspace type id ('standard' or a module-registered type). */

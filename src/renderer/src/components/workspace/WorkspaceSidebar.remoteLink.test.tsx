@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
-import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // What the sidebar shows of another machine once THIS one is off the tailnet
 // (owner, 2026-09-13: "when studio has disconnected from the tailnet, it
@@ -89,8 +88,6 @@ const remoteTerminal = (sessionId: string, agentName: string, over: Record<strin
 
 domWindow.api = {
   platform: 'darwin',
-  onSprintRunsChanged: () => () => {},
-  listSprintRuns: async () => [],
   detectProjectLogo: async () => null,
   getGitRepositoryIdentity: async () => null,
   // The tailnet presence bridge, complete — without every one of these the
@@ -130,7 +127,6 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
-  bindSprintEngineIpc(domWindow.api as never)
 
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   const workspaces = [

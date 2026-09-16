@@ -19,9 +19,9 @@ const AGENT_RUNTIME: CapabilityManifest = {
   defaultEnabled: true,
   core: true,
 }
-const SPRINT_ENGINE: CapabilityManifest = {
-  id: 'sprint-engine',
-  displayName: 'Sprint Engine',
+const ATLAS: CapabilityManifest = {
+  id: 'atlas',
+  displayName: 'Atlas',
   version: 1,
   defaultEnabled: true,
   dependsOn: ['agent-runtime'],
@@ -67,33 +67,33 @@ function registryOf(entries: Array<{ kind: SurfaceKind; id: string; moduleId: st
 function testSurfacesAreGroupedByOwningModule(): void {
   const surfaces = collectModuleSurfaces(
     registryOf([
-      { kind: 'globalSurfaces', id: 'sprints', moduleId: 'sprint-engine' },
-      { kind: 'workspaceTypes', id: 'sprintengine', moduleId: 'sprint-engine' },
-      { kind: 'commands', id: 'sprint-engine.open-board', moduleId: 'sprint-engine' },
+      { kind: 'globalSurfaces', id: 'charts', moduleId: 'atlas' },
+      { kind: 'workspaceTypes', id: 'atlas-chart', moduleId: 'atlas' },
+      { kind: 'commands', id: 'atlas.open-board', moduleId: 'atlas' },
       { kind: 'sidebarNavEntries', id: 'design', moduleId: 'design' },
       { kind: 'workspaceAsides', id: 'skills', moduleId: 'agent-runtime' },
     ])
   )
-  assert.deepEqual(surfaces['sprint-engine'].globalSurfaces, ['sprints'])
-  assert.deepEqual(surfaces['sprint-engine'].commands, ['sprint-engine.open-board'])
+  assert.deepEqual(surfaces['atlas'].globalSurfaces, ['charts'])
+  assert.deepEqual(surfaces['atlas'].commands, ['atlas.open-board'])
   assert.deepEqual(surfaces['design'].sidebarNavEntries, ['design'])
   assert.deepEqual(surfaces['agent-runtime'].workspaceAsides, ['skills'])
-  assert.equal(surfaces['sprint-engine'].settingsSections.length, 0, 'a kind nobody registered stays empty')
+  assert.equal(surfaces['atlas'].settingsSections.length, 0, 'a kind nobody registered stays empty')
 }
 
 function testEnablementMatchesWhatTheAppResolves(): void {
   const snapshot = buildModuleRegistrySnapshot({
-    manifests: [AGENT_RUNTIME, SPRINT_ENGINE, GIT, WEATHER],
+    manifests: [AGENT_RUNTIME, ATLAS, GIT, WEATHER],
     // Git off by hand; Weather depends on it, so it cannot resolve either.
     overrides: { git: false },
-    surfaces: collectModuleSurfaces(registryOf([{ kind: 'globalSurfaces', id: 'sprints', moduleId: 'sprint-engine' }])),
+    surfaces: collectModuleSurfaces(registryOf([{ kind: 'globalSurfaces', id: 'charts', moduleId: 'atlas' }])),
     channel: 'development',
     now: 1_000,
   })
   const byId = new Map(snapshot.modules.map((module) => [module.id, module]))
-  assert.equal(byId.get('sprint-engine')?.enabled, true)
-  assert.equal(byId.get('sprint-engine')?.absence, null)
-  assert.deepEqual(byId.get('sprint-engine')?.surfaces.globalSurfaces, ['sprints'])
+  assert.equal(byId.get('atlas')?.enabled, true)
+  assert.equal(byId.get('atlas')?.absence, null)
+  assert.deepEqual(byId.get('atlas')?.surfaces.globalSurfaces, ['charts'])
   assert.equal(byId.get('git')?.enabled, false)
   assert.equal(byId.get('git')?.absence?.reason, 'disabled', "the user's own switch reads as disabled")
   assert.equal(byId.get('weather')?.enabled, false)

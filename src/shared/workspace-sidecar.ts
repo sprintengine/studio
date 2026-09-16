@@ -1,8 +1,8 @@
 import { pathJoin } from './paths'
 
 /**
- * The app-owned directory inside a workspace: worktrees, sprint run stores,
- * automation state, the backlog link cache, browser captures, review data.
+ * The app-owned directory inside a workspace: worktrees, automation state, the
+ * backlog link cache, browser captures, review data.
  *
  * It was called `.multi-code` before the app was renamed (2026-09-08) and is
  * called `.sprintengine` now, but the old name is on every existing user's disk

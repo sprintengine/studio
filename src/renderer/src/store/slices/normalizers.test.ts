@@ -6,7 +6,6 @@ import {
   dropRetiredModeWorkspaces,
   mapMigrationWorkspaces,
   normalizeWorkspaceForPartialize,
-  preserveNewerSprintEngineAutomationState,
 } from './normalizers'
 
 const baseWorkspace = (overrides: Partial<Workspace> = {}): Workspace => ({
@@ -17,7 +16,6 @@ const baseWorkspace = (overrides: Partial<Workspace> = {}): Workspace => ({
   mode: 'standard',
   layoutModel: undefined as unknown as Workspace['layoutModel'],
   agents: {},
-  sprintEngineAutoState: undefined,
   memory: undefined,
   worktreeState: undefined,
   editorState: { openFiles: [], activeFilePath: null },
@@ -54,75 +52,17 @@ for (const file of cleanedFiles) {
 }
 assert.equal(cleaned.editorState?.activeFilePath, '/a.ts')
 
-const autoRunCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
-  sprintEngineAutoState: {
-    desiredMode: 'run_agents_and_approve_artifacts',
-    runtimeState: 'running',
-    cliPermissionPreset: 'bypass',
-    maxConcurrentAgents: 4,
-    // Legacy pending-spawn residue from an older build: dropped on partialize.
-    pendingSpawns: [{ taskId: 'T1', agentId: 'developer-1', startedAt: 1 }],
-    deliveredAgentNotificationEventKeys: ['EVT-1'],
-  } as never,
-}))
-assert.equal(autoRunCleaned.sprintEngineAutoState.desiredMode, 'run_agents_and_approve_artifacts')
-assert.equal(autoRunCleaned.sprintEngineAutoState.runtimeState, 'running')
-assert.equal(
-  'pendingSpawns' in autoRunCleaned.sprintEngineAutoState,
-  false,
-  'legacy pending-spawn residue never survives partialize (MC-1592: no persisted spawn ledger)',
-)
-assert.equal(autoRunCleaned.sprintEngineAutoState.maxConcurrentAgents, 4)
-
-// Creation "start now" launch intent is session-only: persisting it would
-// replay the initial spawns on the next app start.
-const initialSpawnCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
-  sprintEngineInitialSpawnAgentIds: ['frontend'],
-}))
-assert.equal(initialSpawnCleaned.sprintEngineInitialSpawnAgentIds, undefined)
-
-// The Sprint Engine projection is a disk-backed cache (projection.json), so it
-// is dropped from the persisted registry to avoid the 4s projection-poll write
-// storm. Durable identity (mode) is still derived from the live state before it
-// is stripped, so a Sprint Engine workspace stays classified as 'sprintengine'.
-const projectionCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
-  mode: 'sprintengine',
-  moduleState: {
-    sprintengine: {
-      context: { statePath: '/p/.sprintengine/state', teamSlug: 'core' },
-      state: {
-        goal: 'Ship it',
-        tasks: [{ id: 'T1', status: 'done' }],
-        artifacts: [{ id: 'A1' }],
-      },
-    },
-  },
-}))
-assert.equal(
-  (projectionCleaned.moduleState?.sprintengine as { state?: unknown } | undefined)?.state,
-  undefined,
-  'partialize strips the live projection from the bag',
-)
-assert.equal(projectionCleaned.mode, 'sprintengine')
-assert.deepEqual(
-  (projectionCleaned.moduleState?.sprintengine as { context?: { teamSlug?: string } } | undefined)?.context?.teamSlug,
-  'core',
-  'partialize keeps durable context in moduleState.sprintengine',
-)
-
 // normalizeWorkspaceForPartialize zeros the in-memory stream buffer + status on agents
 // that survive a save so they cold-load idle instead of streaming.
 const withAgent = baseWorkspace({
   agents: {
     'agent-1': {
       id: 'agent-1',
-      name: 'Specialist',
-      kind: 'specialist',
-      specialistId: 'architect',
+      name: 'Ada',
       status: 'streaming',
       streamBuffer: 'partial chunk',
       cliOnboardingPromptSent: false,
-      cliStartupPrompt: 'kept',
+      cliStartupPrompt: 'launch intent',
     },
   } as unknown as Workspace['agents'],
 })
@@ -130,8 +70,9 @@ const withAgentCleaned = normalizeWorkspaceForPartialize(withAgent)
 const persistedAgent = (withAgentCleaned.agents as Record<string, { status: string; streamBuffer: string; cliStartupPrompt?: string }>)['agent-1']
 assert.equal(persistedAgent.status, 'idle')
 assert.equal(persistedAgent.streamBuffer, '')
-// Specialist agents that have not yet sent their onboarding prompt keep cliStartupPrompt.
-assert.equal(persistedAgent.cliStartupPrompt, 'kept')
+// A prompt that has not reached the CLI yet is launch intent, not durable
+// state: a restart starts the agent at its own prompt rather than replaying it.
+assert.equal(persistedAgent.cliStartupPrompt, undefined)
 
 // Durable resume identity survives the persist normalize so a cold restart can
 // resume without waiting on the async plugin catalog (MC-1465): the stamped
@@ -141,7 +82,6 @@ const withResumableAgent = baseWorkspace({
     'claude-1': {
       id: 'claude-1',
       name: 'Claude',
-      kind: 'general',
       cli: 'claude-code',
       status: 'idle',
       streamBuffer: '',
@@ -158,13 +98,12 @@ assert.equal(persistedResumable.cliHasLaunched, true, 'cliHasLaunched survives p
 assert.equal(persistedResumable.cliResumeAvailable, true, 'cliResumeAvailable survives persist')
 assert.equal(persistedResumable.cliUsesStableSessionId, true, 'cliUsesStableSessionId survives persist (cold-restart resume gate)')
 
+// And an agent whose prompt HAS reached the CLI drops it for the same reason.
 const withAgentAlreadyOnboarded = baseWorkspace({
   agents: {
     'agent-2': {
       id: 'agent-2',
-      name: 'Specialist',
-      kind: 'specialist',
-      specialistId: 'architect',
+      name: 'Grace',
       status: 'idle',
       streamBuffer: '',
       cliOnboardingPromptSent: true,
@@ -175,52 +114,6 @@ const withAgentAlreadyOnboarded = baseWorkspace({
 const onboardedCleaned = normalizeWorkspaceForPartialize(withAgentAlreadyOnboarded)
 const onboardedAgent = (onboardedCleaned.agents as Record<string, { cliStartupPrompt?: string }>)['agent-2']
 assert.equal(onboardedAgent.cliStartupPrompt, undefined)
-
-const newerLocalAutomation = preserveNewerSprintEngineAutomationState(
-  baseWorkspace({
-    id: 'ws-sync',
-    sprintEngineAutoState: {
-      desiredMode: 'manual',
-      runtimeState: 'idle',
-      changedAt: 100,
-    } as Workspace['sprintEngineAutoState'],
-  }),
-  baseWorkspace({
-    id: 'ws-sync',
-    sprintEngineAutoState: {
-      desiredMode: 'run_agents',
-      runtimeState: 'blocked',
-      reason: 'blocked_on_input',
-      reasonTaskId: 'T3',
-      reasonMessage: 'Task T3 is waiting on input.',
-      changedAt: 200,
-    } as Workspace['sprintEngineAutoState'],
-  }),
-)
-assert.equal(newerLocalAutomation.sprintEngineAutoState?.desiredMode, 'run_agents')
-assert.equal(newerLocalAutomation.sprintEngineAutoState?.runtimeState, 'blocked')
-assert.equal(newerLocalAutomation.sprintEngineAutoState?.reasonTaskId, 'T3')
-
-const newerIncomingAutomation = preserveNewerSprintEngineAutomationState(
-  baseWorkspace({
-    id: 'ws-sync',
-    sprintEngineAutoState: {
-      desiredMode: 'run_agents_and_approve_artifacts',
-      runtimeState: 'running',
-      changedAt: 300,
-    } as Workspace['sprintEngineAutoState'],
-  }),
-  baseWorkspace({
-    id: 'ws-sync',
-    sprintEngineAutoState: {
-      desiredMode: 'run_agents',
-      runtimeState: 'blocked',
-      changedAt: 200,
-    } as Workspace['sprintEngineAutoState'],
-  }),
-)
-assert.equal(newerIncomingAutomation.sprintEngineAutoState?.desiredMode, 'run_agents_and_approve_artifacts')
-assert.equal(newerIncomingAutomation.sprintEngineAutoState?.runtimeState, 'running')
 
 // Backlog + Git panel view state survives partialize, with malformed fields
 // coerced rather than dropped, and absent state stays undefined (no per-workspace
@@ -283,7 +176,6 @@ assert.equal(noViewState.gitPanelState, undefined, 'absent git panel state stays
 const persistedHostAgentFields = {
   id: 'agent-1',
   name: 'Automation',
-  kind: 'general',
   status: 'streaming',
   streamBuffer: 'partial chunk',
   cliSessionId: 'sess-123',
@@ -332,28 +224,6 @@ assert.equal(automationsHostAgent.cliRestartNonce, 0)
 // automation directive. Keep it cleared.
 assert.equal(automationsHostAgent.cliStartupPrompt, undefined, 'the automation directive is never re-sent')
 
-// The sprintengine normalizer must be identical in every respect — 374 sprint
-// agents ride on the same defect, and the comment ties the two functions
-// together. Same fixture, same assertions.
-const sprintPersisted = normalizeWorkspaceForPartialize(baseWorkspace({
-  mode: 'sprintengine',
-  agents: {
-    'agent-1': { ...persistedHostAgentFields, kind: 'sprintengine' },
-  } as unknown as Workspace['agents'],
-}))
-const sprintAgent = (sprintPersisted.agents as Record<string, PersistedLaunchAgent>)['agent-1']
-assert.equal(sprintAgent.cliSessionId, 'sess-123', 'sprint agents keep session identity too')
-assert.equal(sprintAgent.harnessSessionId, 'harness-123', 'sprint agents keep the harness resume token')
-assert.equal(sprintAgent.cliStartRequested, false)
-assert.equal(sprintAgent.cliHasLaunched, false)
-assert.equal(sprintAgent.cliResumeAvailable, false)
-assert.equal(sprintAgent.cliResumeRequested, false)
-assert.equal(sprintAgent.cliOnboardingPromptSent, false)
-assert.equal(sprintAgent.cliRestartNonce, 0)
-assert.equal(sprintAgent.cliStartupPrompt, undefined)
-assert.equal(sprintAgent.status, 'idle')
-assert.equal(sprintAgent.streamBuffer, '')
-
 // A standard workspace's agent keeps its durable resume identity (regression
 // guard that the automations-host clear does not leak into other modes).
 const standardResumePersisted = normalizeWorkspaceForPartialize(baseWorkspace({
@@ -361,7 +231,6 @@ const standardResumePersisted = normalizeWorkspaceForPartialize(baseWorkspace({
     'agent-1': {
       id: 'agent-1',
       name: 'Dev',
-      kind: 'general',
       status: 'idle',
       streamBuffer: '',
       cliSessionId: 'sess-keep',
@@ -381,20 +250,11 @@ assert.equal(standardResumeAgent.cliResumeAvailable, true)
 
 // The worktree marker (set when a worktree is opened as a workspace) must
 // survive partialize so the Git view + tab glyph still resolve after a restart,
-// including through the sprint-engine and automations-host launch-state clears.
+// including through the automations-host launch-state clear.
 assert.deepEqual(
   normalizeWorkspaceForPartialize(baseWorkspace({ worktree: { branch: 'spike/parser', baseRef: 'main' } })).worktree,
   { branch: 'spike/parser', baseRef: 'main' },
   'worktree marker survives partialize',
-)
-assert.deepEqual(
-  normalizeWorkspaceForPartialize(baseWorkspace({
-    mode: 'sprintengine',
-    worktree: { branch: 'sprintengine/x' },
-    moduleState: { sprintengine: { state: { goal: 'g', tasks: [], artifacts: [] } } },
-  })).worktree,
-  { branch: 'sprintengine/x' },
-  'sprint-engine launch-state clear preserves the worktree marker',
 )
 assert.deepEqual(
   normalizeWorkspaceForPartialize(baseWorkspace({ mode: 'automations-host', worktree: { branch: 'auto/y' } })).worktree,
@@ -450,23 +310,25 @@ assert.equal(
 }
 
 // dropRetiredModeWorkspaces — the `roadmap` (v65, MC-1692), `multiloop` (v66),
-// `guided-brief` (2026-09-08, the deleted Design Wizard) and `reviews-host`
-// (v75, Reviews extracted to an installable module) workspace modes retired. Every list-entry path (migration, merge, recovery, cross-window
-// sync) filters them so a dev-HMR version-stamp cannot resurrect a row in a
-// mode nothing can render.
+// `guided-brief` (2026-09-08, the deleted Design Wizard), `reviews-host`
+// (v75, Reviews extracted to an installable module) and `sprintengine` (the
+// in-tree engine's deletion) workspace modes retired. Every list-entry path
+// (migration, merge, recovery, cross-window sync) filters them so a dev-HMR
+// version-stamp cannot resurrect a row in a mode nothing can render.
 {
   const roadmap = baseWorkspace({ id: 'ws-roadmap', mode: 'roadmap', folderPath: '/Users/example/project' })
   const multiloop = baseWorkspace({ id: 'ws-multiloop', mode: 'multiloop', folderPath: '/Users/example/other' })
   const guidedBrief = baseWorkspace({ id: 'ws-guided', mode: 'guided-brief', folderPath: '/Users/example/design' })
   const reviewsHost = baseWorkspace({ id: 'ws-reviews', mode: 'reviews-host', folderPath: '/Users/example/repo' })
   const standard = baseWorkspace({ id: 'ws-standard', mode: 'standard' })
-  const sprint = baseWorkspace({ id: 'ws-sprint', mode: 'sprintengine' })
+  const retiredEngine = baseWorkspace({ id: 'ws-engine', mode: 'sprintengine' })
+  const automationsHost = baseWorkspace({ id: 'ws-auto', mode: 'automations-host' })
   assert.deepEqual(
-    dropRetiredModeWorkspaces([standard, roadmap, multiloop, guidedBrief, reviewsHost, sprint]).map((w) => w.id),
-    ['ws-standard', 'ws-sprint'],
+    dropRetiredModeWorkspaces([standard, roadmap, multiloop, guidedBrief, reviewsHost, retiredEngine, automationsHost]).map((w) => w.id),
+    ['ws-standard', 'ws-auto'],
     'every retired-mode row is dropped, others kept in order',
   )
-  const noRetired = [standard, sprint]
+  const noRetired = [standard, automationsHost]
   assert.equal(
     dropRetiredModeWorkspaces(noRetired),
     noRetired,

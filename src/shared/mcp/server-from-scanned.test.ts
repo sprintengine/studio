@@ -150,9 +150,7 @@ run('an entry removed mid-sync is not resurrected', () => {
 // agent-state module, which the renderer re-exports. They are structurally
 // identical on purpose, and a provenance field added to one and not the other
 // is a config that loses its source somewhere between the two. This guard is
-// cheap; the drift it catches is not. The twin moved out of the engine folder
-// with AgentKind (MC-2573); `src/shared/sprintengine/agent-state.ts` is a
-// re-export shim.
+// cheap; the drift it catches is not.
 
 run('the MCP provenance types are identical in both declarations', () => {
   const read = (path: string): string => readFileSync(join(process.cwd(), path), 'utf8')

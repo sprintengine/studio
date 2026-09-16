@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
-import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // Where a chat born on a paired machine files (owner, 2026-09-11, REVERSING
 // the 2026-09-05 band ruling): under its PROJECT, like every other chat.
@@ -54,11 +53,9 @@ const detected: string[] = []
 const identityReads: string[] = []
 domWindow.api = {
   platform: 'darwin',
-  // The Sprints nav entry subscribes to the run index on mount; a silent
+  // A module's nav entry may subscribe to its own index on mount; a silent
   // subscription keeps the sidebar's later renders (the identity reads
   // resolving) from throwing inside a passive effect.
-  onSprintRunsChanged: () => () => {},
-  listSprintRuns: async () => [],
   detectProjectLogo: async (folderPath: string) => {
     detected.push(folderPath)
     return null
@@ -78,7 +75,6 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
-  bindSprintEngineIpc(domWindow.api as never)
 
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   const workspace = (id: string, name: string, folderPath: string | null, extra?: Record<string, unknown>) =>

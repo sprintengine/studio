@@ -53,9 +53,8 @@ export type WorkspaceRegistryActor =
  * This generalizes a per-field edit stamp rather than inventing a second
  * mechanism — per-agent edits keep using `AgentState.configEditedAt` itself.
  *
- * Fields written by main's own subsystems (session assignment, launch flags,
- * scheduler-owned roster records) are deliberately absent: they are not LWW and
- * carry no stamp.
+ * Fields written by main's own subsystems (session assignment, launch flags)
+ * are deliberately absent: they are not LWW and carry no stamp.
  */
 export type WorkspaceRegistryFieldStamps = {
   name: number

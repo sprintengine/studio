@@ -1,209 +1,127 @@
 import assert from 'node:assert/strict'
 import { deriveWorkspaceRunGlyph, workspaceHasRunGlyphProvider } from './workspaceRunGlyph'
+import type { WorkspaceRunGlyphProviderInput } from './workspaceRunGlyph'
+import { getRendererHost, selectModuleEnabled } from '../modules'
 import { useWorkspaceStore } from '../store/workspaceStore'
-import type { SprintEngineState, SprintEngineTask, SprintEngineWorkspaceContext, Workspace } from '../types/workspace'
 
-type WorkspaceLike = Pick<Workspace, 'mode' | 'moduleState' | 'sprintEngineAutoState'>
+// The sidebar row's one status slot is DISPATCHED, not computed here: the
+// module that owns a workspace's type derives its own glyph, and this file only
+// decides which provider is asked. No bundled type ships one today, so the
+// contract is exercised against types registered here — the same registry the
+// shell reads.
+//
+// Three rules, and they are the whole of it:
+//   · the workspace's own MODE wins, whatever else claims it;
+//   · a predicate claim applies only when the mode ships no provider;
+//   · a disabled module's provider is not asked at all.
 
-function task(overrides: Partial<SprintEngineTask>): SprintEngineTask {
-  return {
-    id: 'T1',
-    title: 'Task',
-    description: '',
-    role: 'developer',
-    repo: 'primary',
-    status: 'done',
-    ownerAgentId: null,
-    dependsOn: [],
-    ownedPaths: [],
-    acceptanceCriteria: [],
-    implementationNotes: [],
-    evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
-    notes: [],
-    comments: [],
-    startedAt: null,
-    completedAt: null,
-    ...overrides,
-  }
-}
+const PROBE_MODULE = 'automations'
+const host = getRendererHost()
 
-function sprintWorkspace(overrides: Partial<WorkspaceLike> = {}): WorkspaceLike {
-  return {
-    mode: 'sprintengine',
-    sprintEngineAutoState: {
-      desiredMode: 'run_agents',
-      runtimeState: 'running',
-      cliPermissionPreset: 'manual',
-      maxConcurrentAgents: 3,
-      deliveredAgentNotificationEventKeys: [],
-    },
-    ...overrides,
-  }
-}
-
-function sprintEngineContext(): SprintEngineWorkspaceContext {
-  return {
-    teamName: 'Run',
-    teamSlug: 'run',
-    teamDirectoryPath: '/workspace/.sprintengine/sprintengine/run',
-    statePath: '/workspace/.sprintengine/sprintengine/run/run.yaml',
-  }
-}
-
-function manualAutoState(): NonNullable<WorkspaceLike['sprintEngineAutoState']> {
-  return {
-    desiredMode: 'manual',
-    runtimeState: 'idle',
-    cliPermissionPreset: 'manual',
-    maxConcurrentAgents: 3,
-    deliveredAgentNotificationEventKeys: [],
-  }
-}
-
-function sprintState(tasks: SprintEngineTask[]): SprintEngineState {
-  return {
-    name: 'Run',
-    goal: '',
-    roleCounts: {},
-    sprintEngineAgents: {},
-    events: [],
-    artifacts: [],
-    tasks,
-  }
-}
-
-useWorkspaceStore.getState().setModuleEnabled('sprint-engine', true)
-
-// Non-sprint workspaces never get a run glyph — the shell's dot + recency
-// idiom stays theirs.
-assert.equal(
-  deriveWorkspaceRunGlyph(
-    { mode: 'standard', moduleState: undefined, sprintEngineAutoState: undefined } as unknown as WorkspaceLike,
-  ),
-  null,
-)
-assert.equal(
-  workspaceHasRunGlyphProvider({
-    mode: 'standard', moduleState: undefined, sprintEngineAutoState: undefined,
-  } as unknown as WorkspaceLike),
-  false,
+// Enablement reaches the dispatcher through the host's resolver, which
+// `modules/index.ts` wires from the workspace store at boot. Wire the same
+// thing here, so toggling the module in the store is what the dispatcher sees.
+host.setModuleEnablementResolver((moduleId) =>
+  selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
 )
 
+function registerProbeType(id: string, options: {
+  deriveRunGlyph?: (workspace: WorkspaceRunGlyphProviderInput) => ReturnType<typeof deriveWorkspaceRunGlyph>
+  isRunGlyphProviderForWorkspace?: (workspace: WorkspaceRunGlyphProviderInput) => boolean
+}): void {
+  host.hostFor(PROBE_MODULE).registerWorkspaceType({
+    id,
+    label: id,
+    description: 'Test-only workspace type.',
+    icon: () => null,
+    hiddenFromPicker: true,
+    createTemplate: () => ({
+      id,
+      name: id,
+      description: 'Test-only workspace type.',
+      previewSlots: [],
+      layout: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+    }),
+    ...options,
+  } as never)
+}
+
+// The mode owner, and a second type that claims workspaces by recognising its
+// own entry in the module-state bag.
+registerProbeType('run-glyph-probe', {
+  deriveRunGlyph: () => ({ state: 'in_progress', live: true, label: 'Running' }),
+})
+registerProbeType('run-glyph-claimer', {
+  deriveRunGlyph: () => ({ state: 'paused', live: false, label: 'Paused' }),
+  isRunGlyphProviderForWorkspace: (workspace) =>
+    Boolean(workspace.moduleState && 'run-glyph-claimer' in workspace.moduleState),
+})
+
+useWorkspaceStore.getState().setModuleEnabled(PROBE_MODULE, true)
+
+const workspace = (
+  overrides: Partial<WorkspaceRunGlyphProviderInput> = {},
+): WorkspaceRunGlyphProviderInput => ({
+  mode: 'standard',
+  moduleState: undefined,
+  ...overrides,
+})
+
+// A workspace whose mode nothing claims gets no run glyph — the shell's dot +
+// recency idiom stays its own.
+assert.equal(deriveWorkspaceRunGlyph(workspace()), null)
+assert.equal(workspaceHasRunGlyphProvider(workspace()), false)
 assert.equal(
-  deriveWorkspaceRunGlyph({ ...sprintWorkspace(), mode: 'acme.compass' }),
+  deriveWorkspaceRunGlyph(workspace({ mode: 'no-such-type' })),
   null,
   'a workspace type without a run-glyph provider falls back to the dot/recency idiom',
 )
 
-// Running runner → the one live spinner.
-assert.deepEqual(deriveWorkspaceRunGlyph(sprintWorkspace()), {
+// The mode's own provider answers.
+assert.deepEqual(deriveWorkspaceRunGlyph(workspace({ mode: 'run-glyph-probe' })), {
   state: 'in_progress',
   live: true,
   label: 'Running',
 })
-assert.equal(workspaceHasRunGlyphProvider(sprintWorkspace()), true)
+assert.equal(workspaceHasRunGlyphProvider(workspace({ mode: 'run-glyph-probe' })), true)
 
+// A predicate claim reaches a workspace of another mode…
+assert.deepEqual(
+  deriveWorkspaceRunGlyph(workspace({ moduleState: { 'run-glyph-claimer': {} } })),
+  { state: 'paused', live: false, label: 'Paused' },
+  'a module recognising its own state claims a workspace whose mode ships no provider',
+)
+// …but never outranks the mode's own provider.
 assert.deepEqual(
   deriveWorkspaceRunGlyph(
-    sprintWorkspace({
-      mode: 'standard',
-      moduleState: { sprintengine: { context: sprintEngineContext() } },
-    }),
+    workspace({ mode: 'run-glyph-probe', moduleState: { 'run-glyph-claimer': {} } }),
   ),
-  {
-    state: 'in_progress',
-    live: true,
-    label: 'Running',
-  },
-  'sprintEngineContext membership dispatches to the Sprint Engine provider even when mode is standard',
+  { state: 'in_progress', live: true, label: 'Running' },
+  'the mode owner wins: the published contract promises a type is asked about its own workspaces',
 )
 
-// Regression — the whole point of this change: terminals do NOT drive a sprint's
-// glyph. A clean board (no needs_input task) reads from sprint state even though
-// an agent terminal is sitting at (or stuck at) an awaiting-input prompt; the
-// caller no longer passes terminal activity in at all.
+// A provider is free to answer "no run signal" for a workspace it owns.
+registerProbeType('run-glyph-quiet', { deriveRunGlyph: () => null })
+assert.equal(deriveWorkspaceRunGlyph(workspace({ mode: 'run-glyph-quiet' })), null)
 assert.equal(
-  deriveWorkspaceRunGlyph(sprintWorkspace({ moduleState: { sprintengine: { state: sprintState([task({ status: 'in_progress' })]) } } }))?.state,
-  'in_progress',
-  'a running sprint with a clean board is in_progress, not needs_input, regardless of terminal phase',
+  workspaceHasRunGlyphProvider(workspace({ mode: 'run-glyph-quiet' })),
+  true,
+  'the provider exists even when it has nothing to report — the row still suppresses the terminal idioms',
 )
 
-useWorkspaceStore.getState().setModuleEnabled('sprint-engine', false)
+// Module enablement gates the provider: a disabled module is not asked.
+useWorkspaceStore.getState().setModuleEnabled(PROBE_MODULE, false)
 assert.equal(
-  deriveWorkspaceRunGlyph(sprintWorkspace()),
+  deriveWorkspaceRunGlyph(workspace({ mode: 'run-glyph-probe' })),
   null,
-  'disabled sprint-engine module disables its run-glyph provider',
+  'a disabled module’s run-glyph provider is not consulted',
 )
-assert.equal(workspaceHasRunGlyphProvider(sprintWorkspace()), false)
-useWorkspaceStore.getState().setModuleEnabled('sprint-engine', true)
-
-// Idle/manual runner with no observable work → no run signal; the surface keeps
-// its own resting rendering. Terminals can no longer manufacture a glyph here.
-const idleAuto = sprintWorkspace({ sprintEngineAutoState: manualAutoState() })
-assert.equal(deriveWorkspaceRunGlyph(idleAuto), null)
-
-// A completed run keeps the done glyph for good — viewing the workspace no
-// longer fades it back to recency text. Recency survives in the glyph tooltip.
-const completedAt = Date.parse('2026-06-08T10:00:00Z')
-function completedWorkspace(): WorkspaceLike {
-  return sprintWorkspace({
-    sprintEngineAutoState: {
-      desiredMode: 'run_agents',
-      runtimeState: 'complete',
-      changedAt: completedAt,
-      cliPermissionPreset: 'manual',
-      maxConcurrentAgents: 3,
-      deliveredAgentNotificationEventKeys: [],
-    },
-  })
-}
-assert.deepEqual(deriveWorkspaceRunGlyph(completedWorkspace()), {
-  state: 'done',
-  live: false,
-  label: 'Complete',
-})
-
-// A manually-driven run (runner never reaches `complete`) whose tasks all
-// finished reads as done too.
-const manualDone = sprintWorkspace({
-  moduleState: { sprintengine: { state: sprintState([
-    task({ id: 'T1', completedAt: '2026-06-08T09:00:00Z' }),
-    task({ id: 'T2', completedAt: '2026-06-08T10:00:00Z' }),
-  ]) } },
-  sprintEngineAutoState: manualAutoState(),
-})
-assert.equal(deriveWorkspaceRunGlyph(manualDone)?.state, 'done')
-
-// A manual run with an in-flight task now reads in_progress (static — no live
-// runner is asserted) instead of null: progress is derived from the board.
-const manualInFlight = sprintWorkspace({
-  moduleState: { sprintengine: { state: sprintState([
-    task({ id: 'T1', completedAt: '2026-06-08T09:00:00Z' }),
-    task({ id: 'T2', status: 'in_progress' }),
-  ]) } },
-  sprintEngineAutoState: manualAutoState(),
-})
-assert.deepEqual(deriveWorkspaceRunGlyph(manualInFlight), {
-  state: 'in_progress',
-  live: false,
-  label: 'In progress',
-})
-
-// Removed: the changes_requested run-glyph case tested deleted gate machinery
-// (MC-1542 single-owner tasks — `changes_requested` is no longer a task status).
-
-// A started run (some done) with nothing running reads paused.
-const pausedRun = sprintWorkspace({
-  moduleState: { sprintengine: { state: sprintState([task({ id: 'T1', completedAt: '2026-06-08T09:00:00Z' }), task({ id: 'T2', status: 'todo' })]) } },
-  sprintEngineAutoState: manualAutoState(),
-})
-assert.equal(deriveWorkspaceRunGlyph(pausedRun)?.state, 'paused')
-
-// A never-started run (all todo, idle runner) has no run signal yet.
-const notStarted = sprintWorkspace({
-  moduleState: { sprintengine: { state: sprintState([task({ id: 'T1', status: 'todo' }), task({ id: 'T2', status: 'todo' })]) } },
-  sprintEngineAutoState: manualAutoState(),
-})
-assert.equal(deriveWorkspaceRunGlyph(notStarted), null)
+assert.equal(workspaceHasRunGlyphProvider(workspace({ mode: 'run-glyph-probe' })), false)
+assert.equal(
+  deriveWorkspaceRunGlyph(workspace({ moduleState: { 'run-glyph-claimer': {} } })),
+  null,
+  'and neither is its predicate claim',
+)
+useWorkspaceStore.getState().setModuleEnabled(PROBE_MODULE, true)
 
 console.log('workspaceRunGlyph tests passed')

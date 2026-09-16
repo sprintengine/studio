@@ -52,7 +52,7 @@ function assertSinglePolicyBlockPermitsPublishing(): void {
 }
 
 const TRIGGER_PAYLOAD = {
-  kind: 'sprint-engine.run-needs-input',
+  kind: 'weather-deck.forecast-ready',
   taskId: 'T3',
   question: 'Which database should the migration target?',
 }
@@ -279,10 +279,10 @@ async function assertExecutorThreadsPayloadWhenOptedIn(): Promise<void> {
 async function assertRunSkillLoopPassesFlagThrough(): Promise<void> {
   const captured = { prompt: '' }
   await runSkillLoopAction(
-    { prompt: 'Answer the question.', skill: 'sprint-steward', includeTriggerContext: true },
-    stubRuntime({ kind: 'sprint-engine.run-needs-input', taskId: 'T3' }, captured),
+    { prompt: 'Answer the question.', skill: 'backlog-steward', includeTriggerContext: true },
+    stubRuntime({ kind: 'weather-deck.forecast-ready', taskId: 'T3' }, captured),
   )
-  assert.ok(captured.prompt.includes('/loop sprint-steward'), 'skill loop prompt built')
+  assert.ok(captured.prompt.includes('/loop backlog-steward'), 'skill loop prompt built')
   assert.ok(captured.prompt.includes('## Trigger event'), 'run-skill-loop threads includeTriggerContext through')
   assert.ok(captured.prompt.includes('"taskId": "T3"'), 'run-skill-loop carries the payload')
 }

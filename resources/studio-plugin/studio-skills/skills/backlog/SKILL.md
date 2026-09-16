@@ -40,16 +40,15 @@ finding without evidence that refutes it; fix or record every one that stands.
 Without a subagent mechanism, review from a fresh session. Judge the result
 against what the epic said it was for.
 
-**Plan an epic's order.** Planning happens here, not in the sprint engine — the
-engine executes tasks in the dependency order the epic declares. When authoring
+**Plan an epic's order.** Planning happens here, in the backlog. When authoring
 or finishing an epic: add `dependsOn:` edges between children wherever order
 matters (comma-separated sibling slugs), and when the ordering is deliberate and
 complete — including "no edges, these run in parallel" — set
 `dependenciesPlanned: true` on the epic's frontmatter as the last act, by hand or
-with `backlog.update {path, dependenciesPlanned: true}`. That flag is what lets a
-sprint start from the epic with no planning agent; without it, a sprint plans the
-epic again before any work starts. Nothing recomputes it, so changing which items
-belong to the epic is your cue to re-check the order and the flag.
+with `backlog.update {path, dependenciesPlanned: true}`. That flag is what lets
+work start from the epic with no planning agent; without it, whoever picks the
+epic up has to plan it again first. Nothing recomputes it, so changing which
+items belong to the epic is your cue to re-check the order and the flag.
 
 **Create.** Write the file yourself — no tool needed. Put it in its epic's
 folder, or `backlog/unfiled/` if it has none. Choose a slug unused anywhere in

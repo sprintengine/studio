@@ -120,7 +120,7 @@ assignment appears on its next refresh rather than instantly.
 agent whose first input is the target CLI's backlog invocation, then records the
 link. It never changes status — the item's lifecycle belongs to whoever works
 it, exactly as if a person had dragged the item onto a terminal. It takes the
-same launch fields as `agent_launch` minus specialist and connector, and
+same launch fields as `agent_launch` minus the connector, and
 `bypass` is refused here as everywhere on this surface. Use it when you are
 dispatching, not when you are the one doing the work.
 

@@ -369,7 +369,7 @@ async function main(): Promise<void> {
   })
 
   await run('a key the field consumes never reaches the host around it', async () => {
-    // Two hosts of this surface are MENUS (the roster's right-click picker and
+    // Two hosts of this surface are MENUS (a row's right-click picker and
     // its MenuFlyoutItem), and a menu answers ArrowUp/Down/Home/End by moving
     // real focus onto one of ITS OWN items. A bubbling arrow would take focus
     // off the field on the first press — the exact failure the ruling ends.

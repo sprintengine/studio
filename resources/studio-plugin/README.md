@@ -64,7 +64,7 @@ installer already rewrites its own absolute script path.
    app at all.
 2. **One resolver already exists.** `resolveStudioMcpBridgeScriptPath` in
    `src/main/app-services.ts` resolves the packaged and the development layout,
-   and `syncManagedSprintEngineMcpConfig` already writes exactly this command
+   and `syncStudioMcpConfig` already writes exactly this command
    into every CLI's own config. The plugin's `.mcp.json` now names the same
    path from the same resolver, so the two cannot disagree.
 3. **`${CLAUDE_PLUGIN_ROOT}` cannot reach it.** That variable expands to the
@@ -103,7 +103,7 @@ Until then `STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT` in
 `src/main/skills/studio-plugin.ts` is `false` and the app delivers the same
 three things itself: the skills are copied into every harness's skill directory,
 the MCP server is written into each CLI's config by
-`syncManagedSprintEngineMcpConfig`, and the hook is merged into
+`syncStudioMcpConfig`, and the hook is merged into
 `.claude/settings.local.json` from the command and event set this plugin's own
 `hooks/hooks.json` declares.
 

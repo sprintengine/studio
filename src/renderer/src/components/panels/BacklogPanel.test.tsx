@@ -37,10 +37,6 @@ const agentRuntimeSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/modules/agent-runtime-module.ts'),
   'utf8',
 )
-const sprintEngineSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/modules/sprint-engine-module.ts'),
-  'utf8',
-)
 
 function moduleAction(
   id: string,
@@ -57,7 +53,7 @@ const fourExecuteActions = [
   moduleAction('weather-deck.forecast', 'Forecast weather', 30),
   moduleAction('docs.publish', 'Publish notes', 10),
   moduleAction('qa.replay', 'Replay session', 10),
-  moduleAction('sprint-engine.start-from-backlog', 'Run a Sprint', 20),
+  moduleAction('atlas.chart-item', 'Chart this item', 20),
 ]
 
 function menuLabels(actions: ReadonlyArray<BacklogModuleActionEntry>): string[] {
@@ -101,47 +97,39 @@ run('with four execute module actions the More menu and the row menu list them i
   assert.equal(grouped[0]?.heading, null)
   assert.deepEqual(
     grouped[0]?.actions.map((action) => action.label),
-    ['Publish notes', 'Replay session', 'Run a Sprint', 'Forecast weather'],
+    ['Publish notes', 'Replay session', 'Chart this item', 'Forecast weather'],
   )
   assert.deepEqual(
     menuLabels(fourExecuteActions),
-    ['Publish notes', 'Replay session', 'Run a Sprint', 'Forecast weather'],
+    ['Publish notes', 'Replay session', 'Chart this item', 'Forecast weather'],
   )
   assert.match(panelSource, /overflowItemsForBacklogModuleActions\(/, 'the More menu consumes that sequence')
   assert.match(contextMenuSource, /groupBacklogModuleActions\(itemActions\)/, 'the row menu consumes the same grouping')
-  assert.match(
-    sprintEngineSource,
-    /id: 'sprint-engine\.start-from-backlog'/,
-    'Sprint Engine stays an ordinary registrant among them',
-  )
+  // Every row in the menu comes from the registry: the panel names no module's
+  // action id of its own.
   assert.equal(
-    panelSource.includes("id: 'sprint-engine.start-from-backlog'"),
+    /id: '[a-z-]+\.(start|open)-[a-z-]+'/.test(panelSource),
     false,
-    'the shell does not special-case Sprint Engine in the panel',
+    'the shell special-cases no module action in the panel',
   )
 })
 
-run('an item with a sprint-run link offers Open Sprint in both menus and nowhere else as a button', () => {
-  const openSprint = moduleAction('sprint-engine.open-linked-run', 'Open Sprint', 10)
-  const overflow = overflowItemsForBacklogModuleActions([openSprint])
-  const item = overflow.find((entry) => entry.kind !== 'separator' && 'label' in entry && entry.label === 'Open Sprint')
-  assert.ok(item, 'Open Sprint is a More-menu item')
+run('a module action offers itself in both menus and nowhere else as a button', () => {
+  const chartItem = moduleAction('atlas.chart-item', 'Chart this item', 10)
+  const overflow = overflowItemsForBacklogModuleActions([chartItem])
+  const item = overflow.find((entry) => entry.kind !== 'separator' && 'label' in entry && entry.label === 'Chart this item')
+  assert.ok(item, 'the action is a More-menu item')
   assert.notEqual(item?.kind, 'heading')
   assert.match(contextMenuSource, /<BacklogModuleActionMenuItems/, 'the row menu lists the same module actions')
-  assert.match(
-    sprintEngineSource,
-    /id: 'sprint-engine\.open-linked-run',\s*label: 'Open Sprint'/s,
-    'Open Sprint remains a registered module action',
+  assert.equal(
+    /<(PrimaryButton|GhostButton)[^>]*>\s*Chart this item/.test(panelSource),
+    false,
+    'the detail pane draws no module action as a header button',
   )
   assert.equal(
-    /<(PrimaryButton|GhostButton)[^>]*>\s*Open Sprint/.test(panelSource),
+    handToAgentSource.includes('Chart this item'),
     false,
-    'the detail pane does not draw Open Sprint as a header button',
-  )
-  assert.equal(
-    handToAgentSource.includes('Open Sprint'),
-    false,
-    'the shell header controls do not include Open Sprint',
+    'and neither do the shell header controls',
   )
 })
 

@@ -10,8 +10,8 @@ import assert from 'node:assert/strict'
 
 import type { TerminalSessionSnapshot, TerminalSpawnResult } from '../shared/electron-api'
 import type { AgentSessionExitEvent } from '../shared/agent-runtime'
-import { emptyAgentLaunchSettings } from '../shared/sprintengine/launch-settings'
-import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
+import { emptyAgentLaunchSettings } from '../shared/launch-settings'
+import type { AgentLaunchSettings } from '../shared/launch-settings'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
@@ -339,7 +339,7 @@ run('a workspace that is not open, and a relative cwd, both refuse before spawni
 
 run('a workspace of any mode can host a module session', async () => {
   const harness = makeHarness({
-    workspaces: [{ id: WORKSPACE_ID, folderPath: PROJECT_ROOT, mode: 'sprint-run' }],
+    workspaces: [{ id: WORKSPACE_ID, folderPath: PROJECT_ROOT, mode: 'weather-deck' }],
   })
   const result = await harness.registry.spawn(MODULE_ID, spawnInput())
   assert.ok(result.ok, 'the workspace the surface was opened from is the right host, whatever its mode')

@@ -15,6 +15,26 @@
   under that id, and the reservation is what stops anything else claiming the
   name.
 
+- **`CommandAvailability` loses `sprintengineWorkspace`,
+  `sprintengineHasArchitect`, `sprintengineFocusAgentVisible`,
+  `sprintEngineEnabled` and `workflowRolesInstalled`.** The shell no longer
+  computes any of them, so a command gating on one could never become
+  available. The union is open at the type level, so a module that still names
+  one compiles — and reads as unsatisfied, which is what it already was. Gate on
+  a `panel:<moduleId>` scope or an availability predicate instead.
+
+- **`LaunchContributionRequest` loses `statePath`.** It carried a run file the
+  host had already resolved, and the host resolves none: a contributor received
+  `undefined` on every launch. A module that owns such a path resolves it
+  itself from `workspaceRoot`.
+
+- **`CliManifest` loses `souls` and `CliSoulsSpec`.** The app no longer reads a
+  CLI plugin's role directory, because it has no concept of a role.
+
+- **`McpConnectionMetadata` loses `sprintRunId`.** Nothing set it once the
+  in-tree run engine left; an out-of-tree module identifies its own connections
+  through `agentId`.
+
 - **A workspace type can hide its workspaces from the rail.**
   `WorkspaceTypeDefinition.hiddenFromRail` withholds workspaces of that type
   from the Projects list, keyboard switch targets, and command-palette

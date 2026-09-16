@@ -11,7 +11,6 @@ import assert from 'node:assert/strict'
 // a hand-written expectation would keep passing on the day a view's deep-link
 // latch changed under it and only the drawer was updated.
 import { JSDOM } from 'jsdom'
-import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true })
 const anyGlobal = globalThis as unknown as Record<string, unknown>
@@ -55,8 +54,6 @@ dom.window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventLis
 // purpose: every reader is guarded, and a missing one must leave its tile
 // standing with no count line rather than taking the tile down with it.
 domWindow.api = {
-  listSprintRuns: async () => [],
-  onSprintRunsChanged: () => () => {},
 }
 
 import React from 'react'
@@ -82,12 +79,11 @@ import {
   setModelPermissionPreset,
 } from '../ui/modelPermissionPresets'
 
-bindSprintEngineIpc(domWindow.api as never)
 
 /** A model id this machine "has", added the way Settings adds one. */
 const MODEL = 'claude-opus-5'
 
-const RULED_ORDER = ['Workflows', 'Sprints', 'Design', 'Plugins', 'Skills', 'Agent CLIs']
+const RULED_ORDER = ['Design', 'Plugins', 'Skills', 'Agent CLIs']
 
 function mount(element: React.ReactElement): { host: HTMLElement; unmount: () => void } {
   const host = dom.window.document.createElement('div')
@@ -112,12 +108,12 @@ const tilesIn = (host: HTMLElement) => [...host.querySelectorAll('ul button')] a
 const nameOf = (tile: HTMLElement) =>
   tile.querySelector(':scope > span:not([aria-hidden])')?.textContent?.trim() ?? ''
 
-// ── Five tiles, in the drawer's order ────────────────────────────────────────
+// ── The tiles, in the drawer's order ─────────────────────────────────────────
 const home = mount(React.createElement(ExtensionsHomeSurface))
 assert.deepEqual(
   tilesIn(home.host).map(nameOf),
   RULED_ORDER,
-  'the home is the ruling’s five parts in the ruling’s order — the same list the drawer holds, resolved by the same function',
+  'the home is the ruling’s four parts in the ruling’s order — the same list the drawer holds, resolved by the same function',
 )
 
 // Each tile is a real button carrying its own name as text, so it is in the tab
@@ -138,8 +134,6 @@ for (const tile of tilesIn(home.host)) {
 // Each tile carries the summary its id was given, on the tile it belongs to —
 // a copy table keyed by the wrong id would swap two sentences silently.
 const summaryFor: Record<string, string> = {
-  Workflows: EXTENSIONS_HOME_TILE_SUMMARIES.workflows,
-  Sprints: EXTENSIONS_HOME_TILE_SUMMARIES.sprints,
   Design: EXTENSIONS_HOME_TILE_SUMMARIES.design,
   Plugins: EXTENSIONS_HOME_TILE_SUMMARIES.plugins,
   Skills: EXTENSIONS_HOME_TILE_SUMMARIES.skills,
@@ -204,27 +198,20 @@ assert.equal(
 )
 
 // ── A tile opens EXACTLY what the drawer row opens ───────────────────────────
-// The drawer's Sprints row is the sprint-engine module's OWN lazy component,
-// which a Suspense boundary in this bundle has nothing to show for — so the
-// drawer draws four of the five rows here and the home draws all five (a tile
-// is built from the door's declared label and glyph, with no component to
-// load). The four the shell draws are the real ones, resolved from the real
-// registry by the function both surfaces call.
+// Every row the drawer draws is the shell's own, resolved from the real
+// registry by the function both surfaces call — so the two lists are the same
+// list in the same order.
 const drawer = mount(React.createElement(ExtensionsRail, { collapsed: false }))
 const drawerRows = () => [...drawer.host.querySelectorAll('[role="listitem"] button')] as HTMLElement[]
-// The two run doors draw their OWN rows (one lazy component, item 2470), so
-// the shell has nothing to paint for either — their slots are there, empty.
-const MODULE_DRAWN_ROWS = ['Workflows', 'Sprints']
-const SHELL_DRAWN = RULED_ORDER.filter((label) => !MODULE_DRAWN_ROWS.includes(label))
 assert.deepEqual(
   drawerRows().map((row) => row.textContent?.trim()),
-  SHELL_DRAWN,
+  RULED_ORDER,
   'the drawer and the home are the same rows in the same order — they are resolved by one function',
 )
 assert.equal(
   drawer.host.querySelectorAll('[role="listitem"]').length,
   RULED_ORDER.length,
-  'and the Workflows and Sprints slots are there, holding their module’s own rows',
+  'and there is one slot per row, no more',
 )
 
 /** What clicking left behind: the routed surface, and the view it was latched to. */
@@ -240,7 +227,7 @@ function landing(click: () => void): { surface: string | null; view: ExtensionsS
   }
 }
 
-for (const label of SHELL_DRAWN) {
+for (const label of RULED_ORDER) {
   const row = drawerRows().find((candidate) => candidate.textContent?.trim() === label)
   const tile = tilesIn(home.host).find((candidate) => nameOf(candidate) === label)
   assert.ok(row && tile, `${label}: both the drawer row and the tile exist`)
@@ -254,11 +241,11 @@ for (const label of SHELL_DRAWN) {
   assert.ok(fromTile.surface, `${label}: and clicking it actually routes the card region somewhere`)
 }
 
-// A sprint door already open does not change what the next tile does: the view
+// A door already open does not change what the next tile does: the view
 // latches before the shell opens, exactly as a drawer row does, so an
 // already-open surface and a cold one both land on the tile that was clicked.
 act(() => {
-  useWorkspaceStore.getState().openGlobalSurface('sprints')
+  useWorkspaceStore.getState().openGlobalSurface('automations')
 })
 consumePendingExtensionsSurfaceTarget()
 act(() => {
@@ -282,12 +269,12 @@ act(() => {
 })
 assert.deepEqual(
   tilesIn(home.host).map(nameOf),
-  ['Workflows', 'Sprints', 'Plugins', 'Skills', 'Agent CLIs'],
+  ['Plugins', 'Skills', 'Agent CLIs'],
   'a tile for a module that is off is absent rather than dead, and the rest keep their order',
 )
 assert.deepEqual(
   drawerRows().map((row) => row.textContent?.trim()),
-  tilesIn(home.host).map(nameOf).filter((label) => !MODULE_DRAWN_ROWS.includes(label)),
+  tilesIn(home.host).map(nameOf),
   'and the drawer says the same thing at the same moment',
 )
 
@@ -311,7 +298,7 @@ const FEED: HostedCard[] = [
     kind: 'workflow',
     title: 'Big task? No problem.',
     dek: 'Hand it something too big for one sitting and watch the board.',
-    credit: 'Sprint engine',
+    credit: 'Automations',
     art: 'board',
     publishedAt: '2026-09-01T00:00:00.000Z',
     hero: true,
@@ -414,7 +401,7 @@ assert.ok(
 
 // The stamp, the sentences and the credit — Frame 2’s anatomy, in the DOM.
 for (const [title, stamp, credit] of [
-  ['Big task? No problem.', 'Workflow', 'Sprint engine'],
+  ['Big task? No problem.', 'Workflow', 'Automations'],
   ['Let an agent drive your browser', 'MCP server', 'Playwright'],
   ['Build a 3D apocalypse of your own street', 'Showcase', 'Unreal Engine'],
 ]) {
@@ -792,6 +779,10 @@ async function main(): Promise<void> {
 
   {
     const ran: Array<{ slug: string; launch: CardLaunchChoice }> = []
+    // The remembered New-chat engine, as it stood before anything on a card was
+    // touched. Nothing below may move it.
+    const rememberedCli = useWorkspaceStore.getState().appSettings.lastSelectedCli
+    const rememberedModel = useWorkspaceStore.getState().appSettings.lastSelectedAgentModel
     setExtensionsSurfaceHost({
       onLaunchConnector: () => {},
       onUseInAutomation: () => {},
@@ -862,9 +853,9 @@ async function main(): Promise<void> {
       step('ArrowRight')
     }
     assert.equal(ramp()?.getAttribute('aria-valuetext'), 'high', 'the ramp reached the declared level')
-    assert.equal(
-      useWorkspaceStore.getState().appSettings.specialistModelDefaults?.__general__?.reasoning,
-      undefined,
+    assert.deepEqual(
+      useWorkspaceStore.getState().appSettings.lastSelectedAgentModel,
+      rememberedModel,
       'touching effort on a card writes NOTHING to the engine the person’s next New chat opens on',
     )
     act(() => {
@@ -881,13 +872,13 @@ async function main(): Promise<void> {
     // The whole point of holding the choice locally: a card is how to run ONE
     // card, not a new default for everything after it.
     assert.equal(
-      useWorkspaceStore.getState().appSettings.specialistCliDefaults?.__general__,
-      undefined,
+      useWorkspaceStore.getState().appSettings.lastSelectedCli,
+      rememberedCli,
       'and choosing a row leaves the remembered New-chat engine exactly where it was',
     )
-    assert.equal(
-      useWorkspaceStore.getState().appSettings.specialistModelDefaults?.__general__,
-      undefined,
+    assert.deepEqual(
+      useWorkspaceStore.getState().appSettings.lastSelectedAgentModel,
+      rememberedModel,
       'model included',
     )
     setExtensionsSurfaceHost(null)

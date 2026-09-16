@@ -7,7 +7,6 @@ import type {
 } from '../../../../../shared/automations/contracts'
 import {
   EMPTY_REPO_EVENT_FORM,
-  EMPTY_SPRINT_LANDED_FORM,
   EMPTY_WEBHOOK_FORM,
   buildRepoEventConfig,
   buildWebhookConfig,
@@ -32,7 +31,6 @@ function triggerForm(overrides: Partial<SubmitTriggerForm>): SubmitTriggerForm {
     atDatetime: '',
     repoEvent: { ...EMPTY_REPO_EVENT_FORM },
     webhook: { ...EMPTY_WEBHOOK_FORM },
-    sprintLanded: { ...EMPTY_SPRINT_LANDED_FORM },
     ...overrides,
   }
 }
@@ -318,10 +316,10 @@ console.log('AutomationEditor family render tests passed')
 
 // ---------------------------------------------------------------------------
 // Agent block — the reused spawn picker (select mode) replaces the old flat
-// Specialist / CLI / Model selects. A spawn-agent action whose schema carries a
+// CLI / Model selects. A spawn-agent action whose schema carries a
 // `cli` field renders the embedded picker trigger (default: no role), the
 // CliModelPickerButton runtime row, and the permission summary; it must NOT
-// render the retired flat Specialist/Model select help text.
+// render the retired flat Model select help text.
 // ---------------------------------------------------------------------------
 
 const spawnAgentProviders: AutomationsProviders = {
@@ -352,12 +350,6 @@ const agentBlockMarkup = renderToStaticMarkup(
   />,
 )
 
-assert.match(agentBlockMarkup, /No role/, 'the agent block defaults to no role (no specialist) in the picker trigger')
-assert.doesNotMatch(agentBlockMarkup, /General agent/, 'there is no "General agent" — an agent either has a role or does not')
-// The trigger carries the identity; what a roleless agent IS is the aside's own
-// "Agent — Plain — no role, no soul" fact rather than a second line saying it
-// again beside the control (MC-2035 trim).
-assert.match(agentBlockMarkup, /Plain — no role, no soul/, 'the aside states the agent as a fact of the run')
 assert.match(agentBlockMarkup, /Agent runtime and model/, 'the model control reuses CliModelPickerButton')
 assert.doesNotMatch(
   agentBlockMarkup,
@@ -378,7 +370,6 @@ assert.doesNotMatch(
   /Default — asks before acting<\/span>\s*<svg/,
   'the trigger does not read "Default" for an automation that will run on bypass',
 )
-assert.doesNotMatch(agentBlockMarkup, /Run as a specialist agent, or a general agent\./, 'the retired flat Specialist select is gone')
 assert.doesNotMatch(agentBlockMarkup, /Model passed at launch/, 'the retired flat Model select is gone')
 
 console.log('AutomationEditor agent-block render tests passed')

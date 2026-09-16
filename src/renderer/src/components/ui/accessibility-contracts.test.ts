@@ -41,17 +41,6 @@ function expectMatches(source: string, pattern: RegExp, message: string): void {
   assert.match(source, pattern, message)
 }
 
-function sliceFunction(source: string, name: string): string {
-  const start = source.indexOf(`function ${name}`)
-  assert.ok(start >= 0, `${name} exists`)
-  const candidates = ['\nfunction ', '\nexport default function ', '\n// ='].flatMap((marker) => {
-    const index = source.indexOf(marker, start + 1)
-    return index >= 0 ? [index] : []
-  })
-  const next = candidates.length > 0 ? Math.min(...candidates) : -1
-  return source.slice(start, next >= 0 ? next : source.length)
-}
-
 const overflowMenu = read('src/renderer/src/components/ui/OverflowMenu.tsx')
 const popover = read('src/renderer/src/components/ui/Popover.tsx')
 const tabs = read('src/renderer/src/components/ui/Tabs.tsx')
@@ -67,11 +56,8 @@ const tooltip = read('src/renderer/src/components/ui/Tooltip.tsx')
 const taskCard = read('src/renderer/src/components/ui/TaskCard.tsx')
 const panelHeader = read('src/renderer/src/components/ui/PanelHeader.tsx')
 const kbdChord = read('src/renderer/src/components/ui/KbdChord.tsx')
-const roleGlyph = read('src/renderer/src/components/ui/RoleGlyph.tsx')
 const rendererCss = read('src/renderer/src/assets/index.css')
-const sprintEnginePanel = read('src/renderer/src/components/panels/SprintEngineBoardPanel.tsx')
 const settingsPanel = read('src/renderer/src/components/settings/SettingsPanel.tsx')
-const sprintEngineSettingsPopover = sliceFunction(sprintEnginePanel, 'SprintEngineSettingsPopover')
 
 // Popover — shared anchored surface contract for app-shell dropdowns.
 expectIncludes(popover, "popupRole: 'menu' | 'listbox' | 'dialog'", 'Popover exposes a thin popup role API')
@@ -316,24 +302,6 @@ expectMatches(
 expectIncludes(select, 'handleTypeahead', 'Select supports printable-character type-ahead')
 expectIncludes(select, 'triggerRef.current?.focus()', 'Select restores focus to the trigger on close')
 expectIncludes(select, 'var(--accent-primary)', 'Select uses the accent token for selected state')
-assert.ok(
-  !/window\.addEventListener\('keydown'/.test(sprintEngineSettingsPopover),
-  'Sprint Engine settings delegates Escape dismissal to Popover',
-)
-assert.ok(
-  !/window\.addEventListener\('mousedown'/.test(sprintEngineSettingsPopover),
-  'Sprint Engine settings delegates outside-click dismissal to Popover',
-)
-// Run configuration: the chrome status chip is the popover trigger (one click),
-// and the popover's automation modes are a real radio group.
-expectIncludes(sprintEnginePanel, 'aria-label={`Run configuration: ${runConfigLabel}`}', 'Run configuration chip names itself and the current run state')
-expectIncludes(sprintEnginePanel, 'aria-haspopup="dialog"', 'Run configuration chip advertises its dialog popover')
-expectIncludes(sprintEngineSettingsPopover, 'role="radiogroup"', 'Sprint Engine automation modes form a radio group')
-// The rows are `ui/MenuOption role="radio"` since MC-2115, and the primitive is
-// what emits `aria-checked` for a checkable role (asserted per role in
-// buttonSpecies.test.tsx) — so what the panel owes is the state it hands over.
-expectIncludes(sprintEngineSettingsPopover, 'selected={checked}', 'Sprint Engine automation mode radios expose checked state')
-
 // Drawer — right-slide-in primitive with focus trap, ESC close, focus restoration, scroll-lock, reduced-motion.
 expectIncludes(drawer, 'role="dialog"', 'Drawer surface exposes the dialog role')
 expectIncludes(drawer, 'aria-label={ariaLabel}', 'Drawer requires an accessible name on the dialog surface')
@@ -463,24 +431,6 @@ assert.ok(
   !/role="button"|onClick=/.test(kbdChord),
   'KbdChord has no interactive role or click handler',
 )
-
-// RoleGlyph — the documented exception to the one-accent rule. Wrapper is
-// role="img" with an accessible name including the role label; the tone
-// and label both come from the canonical safe accessors (getSprintEngineRoleLabel
-// and getSprintEngineRoleAccent) so registry-keyed custom roles render
-// safely instead of indexing static bundled-role maps. The documentation
-// reference is required in-file.
-expectIncludes(roleGlyph, 'role="img"', 'RoleGlyph exposes role="img" on its wrapper')
-expectIncludes(roleGlyph, 'aria-label={label}', 'RoleGlyph attaches an accessible name')
-expectIncludes(roleGlyph, 'getSprintEngineRoleLabel(role, registry)', 'RoleGlyph names the role via the registry-aware label accessor')
-expectIncludes(roleGlyph, 'getSprintEngineRoleAccent(role, registry)', 'RoleGlyph reads tone via the registry-aware accent accessor')
-expectIncludes(roleGlyph, 'design-system/foundations/principles.md', 'RoleGlyph documents itself against the design system contract')
-
-expectIncludes(sprintEnginePanel, '[aria-label^="Run configuration"]', 'Sprint Engine run configuration restores focus to its chip trigger')
-expectIncludes(sprintEnginePanel, 'role="tabpanel"', 'Sprint Engine views expose tabpanel semantics')
-expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-inbox"', 'Sprint Engine inbox panel is labelled by its tab')
-expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-roster"', 'Sprint Engine roster panel is labelled by its tab')
-expectIncludes(sprintEnginePanel, 'aria-labelledby="sprintengine-view-tab-tasks"', 'Sprint Engine tasks panel is labelled by its tab')
 
 expectIncludes(settingsPanel, 'role="tablist"', 'Settings categories expose tablist semantics')
 expectIncludes(settingsPanel, 'role="tabpanel"', 'Settings content exposes tabpanel semantics')

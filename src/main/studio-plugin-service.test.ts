@@ -64,8 +64,7 @@ async function openingAWorkspaceInstallsThePlugin(): Promise<void> {
   assert.equal(record?.version, '1.0.0')
   assert.equal(record?.claudePluginKey, 'sprintengine-studio@sprintengine-studio')
   assert.equal(record?.skillDirNames.length, 4)
-  assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-sprints', 'SKILL.md')), false)
-  assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-backlog', 'SKILL.md')), true)
+    assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-backlog', 'SKILL.md')), true)
   assert.equal(existsSync(join(workspace, '.multicode', 'studio-plugin')), true)
   assert.equal(existsSync(join(workspace, '.multicode', 'hooks', 'agent-state.mjs')), true)
   assert.equal(record?.hookSettingsPath, resolve(workspace, '.claude/settings.local.json'))
@@ -161,7 +160,7 @@ async function aFailingInstallNeverEscapes(): Promise<void> {
   })
   const service = createStudioPluginService(built.options)
   // An app that refused to open a workspace because a skill could not be copied
-  // would be worse than an app whose agent has to call sprintengine_help once.
+  // would be worse than an app whose agent is missing one skill.
   await service.ensureInstalled(built.workspace)
   assert.equal(
     built.warnings.some((warning) => /fell over/.test(warning)),

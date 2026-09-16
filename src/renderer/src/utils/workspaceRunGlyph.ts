@@ -1,5 +1,4 @@
-import { getRendererHost, selectModuleEnabled } from '../modules'
-import { useWorkspaceStore } from '../store/workspaceStore'
+import { getRendererHost } from '../modules'
 import type { Workspace } from '../types/workspace'
 import type { LifecycleState } from '../../../shared/lifecycle-state'
 
@@ -11,12 +10,13 @@ export type WorkspaceRunGlyph = { state: LifecycleState; live: boolean; label: s
 
 export type WorkspaceRunGlyphProviderInput = Pick<Workspace, 'mode' | 'moduleState'>
 
-function isModuleEnabledForRunGlyph(moduleId: string): boolean {
-  return selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
-}
-
 function runGlyphProviderForWorkspace(workspace: WorkspaceRunGlyphProviderInput) {
-  const definitions = getRendererHost().getWorkspaceTypes(isModuleEnabledForRunGlyph)
+  // Enablement is read off the host rather than the workspace store: the
+  // store's own slices reach this module through `workspaceSettle`, so
+  // importing the store here would close a cycle and leave whichever module
+  // loaded first holding a half-evaluated one.
+  const host = getRendererHost()
+  const definitions = host.getWorkspaceTypes((moduleId) => host.isModuleEnabled(moduleId))
   // The mode's own provider wins: the published module contract promises a
   // type's provider is called for its own workspaces. A predicate-based claim
   // — a module recognising its own state riding a workspace of another mode —

@@ -176,7 +176,7 @@ async function main(): Promise<void> {
     const service = createAnalyticsService(deps(dir, { fetchImpl: stubFetch(captures) }))
     service.record('app.boot', { seq: 1 })
     service.record('agent.launched', { seq: 2 })
-    service.record('sprint.run.created', { seq: 3 })
+    service.record('app.boot', { seq: 3 })
     await service.flush()
 
     assert.equal(captures.length, 2, 'three events at a batch size of two is two requests')

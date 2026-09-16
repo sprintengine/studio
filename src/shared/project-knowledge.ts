@@ -2,11 +2,9 @@
  * Project Knowledge root resolution, shared by the renderer and the main
  * process.
  *
- * Relocated verbatim from `src/renderer/src/utils/projectKnowledge.ts`
- * (sprint-runtime-ownership Phase 2: the main process shares the pure Sprint
- * Engine corpus), following the established shim pattern
- * (`sprintengineAutomationLifecycle.ts`). The renderer file remains as a
- * re-export shim, so every existing import site and test keeps working
+ * Relocated verbatim from `src/renderer/src/utils/projectKnowledge.ts` when the
+ * main process began composing launches of its own. The renderer file remains
+ * as a re-export shim, so every existing import site and test keeps working
  * unchanged.
  */
 import type { MemoryRootStatus } from './electron-api'
@@ -169,9 +167,9 @@ export function relativePathBetween(fromPath: string, toPath: string): string | 
 
 /**
  * Distinct projects across the given open workspaces, deduped by resolved
- * project root. Sprint Engine workspaces that inherit a configured
- * ancestor collapse onto that ancestor; unconfigured workspaces stand as their
- * own project. Sorted by display name.
+ * project root. A workspace that inherits a configured ancestor collapses onto
+ * that ancestor; an unconfigured workspace stands as its own project. Sorted by
+ * display name.
  */
 export function listOpenProjectKnowledge(
   workspaces: ReadonlyArray<{

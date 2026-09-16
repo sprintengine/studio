@@ -27,7 +27,6 @@ import {
   STUDIO_PLUGIN_SOURCE_ID,
   STUDIO_PLUGIN_WORKSPACE_DIR,
   STUDIO_SKILLS_PLUGIN_ID,
-  WORKFLOW_ROLES_PLUGIN_ID,
   studioClaudePluginKey,
   substituteStudioPluginTokens,
   type StudioPluginTokens,
@@ -108,7 +107,7 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
     )
   }
   const dirs = await listStudioPluginSkillDirs(read.template)
-  assert.equal(dirs.length >= 4, true, 'one skill per area: sprints, backlog, automations, workspaces')
+  assert.equal(dirs.length >= 4, true, 'one skill per area: backlog, automations, workspaces, design system')
   // …and ONLY those. The workflow skills live in the marketplace beside this
   // plugin, not inside it, precisely so a workspace open does not install
   // twelve general-purpose skills nobody asked for — and so `builtin-skills.ts`
@@ -116,14 +115,6 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
   const workflowIds = new Set(workflow.filter((entry) => entry.isDirectory()).map((entry) => entry.name))
   for (const dirName of dirs) {
     assert.equal(workflowIds.has(dirName), false, `${dirName} is a workflow skill and must not install with the plugin`)
-  }
-  // Same rule for the role pack: listed beside this plugin, never copied by
-  // this installer. A workspace that has never installed it stays without it.
-  const roles = await readdir(join(TEMPLATE_ROOT, WORKFLOW_ROLES_PLUGIN_ID, 'skills'), { withFileTypes: true })
-  const roleIds = new Set(roles.filter((entry) => entry.isDirectory()).map((entry) => entry.name))
-  assert.equal(roleIds.has('architect'), true, 'the pack is in the bundled marketplace')
-  for (const dirName of dirs) {
-    assert.equal(roleIds.has(dirName), false, `${dirName} is a workflow role and must not install with the plugin`)
   }
 }
 
@@ -230,7 +221,6 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
 
   // 2. The skills, in every harness, each carrying provenance.
   assert.equal(result.skillDirNames.length >= 4, true)
-  assert.equal(result.skillDirNames.includes('studio-sprints'), false, 'studio-sprints installs from the Sprint Engine module, not the plugin')
   for (const harness of ['agents', 'claude'] as const) {
     for (const dirName of result.skillDirNames) {
       const dir = join(workspace, SKILL_HARNESS_DIR[harness], 'skills', dirName)
@@ -240,16 +230,6 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
       assert.equal(provenance?.commitSha, result.version, 'the version is what a later sync compares')
     }
   }
-  // The role pack sits in the materialised marketplace as bytes the catalogue
-  // can seed from, but none of its skills land in a harness directory. A
-  // fresh workspace ships no role skills (owner ruling 2026-09-07).
-  assert.equal(result.skillDirNames.includes('architect'), false)
-  assert.equal(
-    existsSync(join(workspace, SKILL_HARNESS_DIR.agents, 'skills', 'architect')),
-    false,
-    'opening a workspace does not install workflow-roles',
-  )
-
   // 3. The hook, registered from the plugin's own declaration, into the file
   //    the claude-code manifest names — and pointing at a reporter that exists.
   assert.equal(result.hookSettingsPath, resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH))
@@ -369,7 +349,6 @@ async function anUnacknowledgedInstallStillShipsTheSkills(): Promise<void> {
   assert.ok(result.ok, result.ok ? '' : result.message)
   assert.equal(result.hookSettingsPath, '', 'no hook is registered without the acknowledgement')
   assert.equal(result.skillDirNames.length >= 4, true, 'the skills are not held hostage by the hook')
-  assert.equal(result.skillDirNames.includes('studio-sprints'), false)
   const local = resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
   const parsed = JSON.parse(await readFile(local, 'utf8')) as Record<string, unknown>
   assert.equal('hooks' in parsed, false)

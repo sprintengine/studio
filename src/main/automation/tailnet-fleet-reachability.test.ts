@@ -352,14 +352,14 @@ check('a request may carry the reverse half: approving on one side pairs both, a
   try {
     const asked = await laptop.fleet.requestPairing({
       endpoint: `127.0.0.1:${mini.port}`,
-      reverseScopes: ['workspace:read', 'sprint:read'],
+      reverseScopes: ['workspace:read', 'backlog:read'],
     })
     assert.ok(asked.ok, asked.ok ? '' : asked.message)
     assert.equal(asked.request.reverseOffered, true)
     const reverseDevices = laptop.devices.listDevices()
     assert.equal(reverseDevices.length, 1, 'the reverse device is minted here at the ask')
     assert.deepEqual(reverseDevices[0].origin, { kind: 'reverse', by: '127.0.0.1' })
-    assert.deepEqual(reverseDevices[0].scopes, ['workspace:read', 'sprint:read'], 'with the scopes the asker chose for its own machine')
+    assert.deepEqual(reverseDevices[0].scopes, ['workspace:read', 'backlog:read'], 'with the scopes the asker chose for its own machine')
 
     const pending = mini.devices.listPairRequests()[0]
     assert.ok(mini.devices.approvePairRequest({ id: pending.id, scopes: ['workspace:read'], code: pending.comparisonCode }).ok)
@@ -370,7 +370,7 @@ check('a request may carry the reverse half: approving on one side pairs both, a
     const reverse = await waitFor(() => mini.fleet.listConnections()[0], 'the reverse connection on the mini')
     assert.equal(reverse.pairedVia, 'reverse')
     assert.equal(reverse.endpoint, `127.0.0.1:${laptop.port}`)
-    assert.deepEqual(reverse.scopes, ['workspace:read', 'sprint:read'])
+    assert.deepEqual(reverse.scopes, ['workspace:read', 'backlog:read'])
     assert.ok(mini.events.some((event) => event.kind === 'machine-paired'), 'the mini announces it without anyone there pressing anything')
     const browse = await mini.fleet.browse(reverse.id)
     assert.equal(browse.reachable, true, 'the mini can drive the laptop with the reverse token')

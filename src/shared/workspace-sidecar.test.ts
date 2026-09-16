@@ -50,12 +50,12 @@ run('a sidecar defaults to the new name and takes the old one when asked', () =>
 // platforms, so the absolute form is the only one that may take a backslash.
 run('an absolute path keeps the separator its workspace root is written with', () => {
   assert.equal(
-    sidecarPath(sidecarFor(WORKSPACE), 'sprintengine', 'team', 'run.yaml'),
-    `${WORKSPACE}/.sprintengine/sprintengine/team/run.yaml`,
+    sidecarPath(sidecarFor(WORKSPACE), 'automations', 'team', 'run.json'),
+    `${WORKSPACE}/.sprintengine/automations/team/run.json`,
   )
   assert.equal(
-    sidecarPath(sidecarFor(WINDOWS_WORKSPACE), 'sprintengine', 'team', 'run.yaml'),
-    `${WINDOWS_WORKSPACE}\\.sprintengine\\sprintengine\\team\\run.yaml`,
+    sidecarPath(sidecarFor(WINDOWS_WORKSPACE), 'automations', 'team', 'run.json'),
+    `${WINDOWS_WORKSPACE}\\.sprintengine\\automations\\team\\run.json`,
   )
   assert.equal(sidecarPath(sidecarFor(WORKSPACE)), `${WORKSPACE}/.sprintengine`)
 })
@@ -69,8 +69,8 @@ run('a relative sidecar path is POSIX under either name', () => {
 // The reading half of the fallback: a path written by any version of the app,
 // on either platform, has to be recognised as a sidecar path.
 run('a path is recognised under either name and either separator', () => {
-  assert.equal(sidecarDirNameOfPath(`${WORKSPACE}/.sprintengine/sprintengine/t/run.yaml`), '.sprintengine')
-  assert.equal(sidecarDirNameOfPath(`${WORKSPACE}/.multi-code/sprintengine/t/run.yaml`), '.multi-code')
+  assert.equal(sidecarDirNameOfPath(`${WORKSPACE}/.sprintengine/automations/t/run.json`), '.sprintengine')
+  assert.equal(sidecarDirNameOfPath(`${WORKSPACE}/.multi-code/automations/t/run.json`), '.multi-code')
   assert.equal(sidecarDirNameOfPath('C:\\repo\\.multi-code\\browser'), '.multi-code')
   assert.equal(sidecarDirNameOfPath('.sprintengine/backlog/config.json'), '.sprintengine')
   assert.equal(sidecarDirNameOfPath(`${WORKSPACE}/src/main/index.ts`), null)
@@ -79,17 +79,17 @@ run('a path is recognised under either name and either separator', () => {
 })
 
 run('the pattern fragment matches both names and nothing adjacent', () => {
-  const pattern = new RegExp(`^${SIDECAR_DIR_PATTERN_SOURCE}/sprintengine/([^/]+)/run\\.yaml$`, 'u')
-  assert.equal(pattern.exec('.sprintengine/sprintengine/alpha/run.yaml')?.[1], 'alpha')
-  assert.equal(pattern.exec('.multi-code/sprintengine/alpha/run.yaml')?.[1], 'alpha')
-  assert.equal(pattern.test('xsprintengine/sprintengine/alpha/run.yaml'), false)
+  const pattern = new RegExp(`^${SIDECAR_DIR_PATTERN_SOURCE}/automations/([^/]+)/run\\.json$`, 'u')
+  assert.equal(pattern.exec('.sprintengine/automations/alpha/run.json')?.[1], 'alpha')
+  assert.equal(pattern.exec('.multi-code/automations/alpha/run.json')?.[1], 'alpha')
+  assert.equal(pattern.test('xsprintengine/automations/alpha/run.json'), false)
   // The dot is escaped, so it matches a literal dot rather than any character.
-  assert.equal(pattern.test('Xsprintengine/sprintengine/alpha/run.yaml'), false)
+  assert.equal(pattern.test('Xsprintengine/automations/alpha/run.json'), false)
 })
 
 run('the sidecar prefix comes off under either name, and only when it is there', () => {
-  assert.deepEqual(withoutSidecarPrefix(['.sprintengine', 'sprintengine', 't', 'plan.md']), ['sprintengine', 't', 'plan.md'])
-  assert.deepEqual(withoutSidecarPrefix(['.multi-code', 'sprintengine', 't', 'plan.md']), ['sprintengine', 't', 'plan.md'])
+  assert.deepEqual(withoutSidecarPrefix(['.sprintengine', 'automations', 't', 'plan.md']), ['automations', 't', 'plan.md'])
+  assert.deepEqual(withoutSidecarPrefix(['.multi-code', 'automations', 't', 'plan.md']), ['automations', 't', 'plan.md'])
   assert.deepEqual(withoutSidecarPrefix(['.sprintengine']), [])
   assert.equal(withoutSidecarPrefix(['plan.md']), null)
   assert.equal(withoutSidecarPrefix([]), null)

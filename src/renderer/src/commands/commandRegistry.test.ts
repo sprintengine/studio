@@ -19,8 +19,6 @@ for (const id of [
   'search.everywhere',
   'panel.files.toggle',
   'panel.knowledge-graph.toggle',
-  'specialist.spawn.architect',
-  'specialist.spawn.performance',
   'git.worktrees.open',
   'git.refresh',
   'git.fetch',

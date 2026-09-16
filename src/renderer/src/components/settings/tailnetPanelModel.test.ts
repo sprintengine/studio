@@ -120,7 +120,7 @@ check('a code the panel cannot re-show is still admitted to, not hidden', () => 
   // code exists and what to do about it.
   const now = Date.parse('2026-08-07T12:00:00Z')
   const note = outstandingPairingNote(
-    { scopes: ['sprint:read', 'sprint:operate'], expiresAt: '2026-08-07T12:07:00Z' },
+    { scopes: ['workspace:read', 'backlog:read'], expiresAt: '2026-08-07T12:07:00Z' },
     now
   )
   assert.match(note, /already active/u)

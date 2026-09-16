@@ -32,15 +32,15 @@ run('percentile uses nearest-rank and returns null for empty', () => {
 run('groups by scope·event and computes p50/p95/max/count', () => {
   const rows = aggregatePerfEvents(
     [
-      sample('SprintEngineProjection', 'refresh', 0, NOW - 5),
-      sample('SprintEngineProjection', 'refresh', 0, NOW - 4),
-      sample('SprintEngineProjection', 'refresh', 40, NOW - 3),
-      sample('SprintEngineProjection', 'refresh', 120, NOW - 2),
-      sample('SprintEngineAutoRun', 'tick-end', 8, NOW - 1),
+      sample('BacklogScan', 'refresh', 0, NOW - 5),
+      sample('BacklogScan', 'refresh', 0, NOW - 4),
+      sample('BacklogScan', 'refresh', 40, NOW - 3),
+      sample('BacklogScan', 'refresh', 120, NOW - 2),
+      sample('AutomationsScheduler', 'tick-end', 8, NOW - 1),
     ],
     { now: NOW }
   )
-  const projection = rows.find((row) => row.scope === 'SprintEngineProjection' && row.event === 'refresh')!
+  const projection = rows.find((row) => row.scope === 'BacklogScan' && row.event === 'refresh')!
   assert.equal(projection.count, 4)
   assert.equal(projection.maxMs, 120)
   // Nearest-rank p50 of [0,0,40,120] is 0 — meaningful here: half the ticks are

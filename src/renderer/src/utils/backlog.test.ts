@@ -669,10 +669,6 @@ const linksSectionSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/backlog/BacklogLinksSection.tsx'),
   'utf8',
 )
-const sprintEngineModuleSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/modules/sprint-engine-module.ts'),
-  'utf8',
-)
 
 run('the link state machine and renderer are extracted out of BacklogPanel', () => {
   assert.ok(!backlogPanelSource.includes('function BacklogLinkControl'), 'the link renderer no longer lives in the panel')
@@ -703,7 +699,6 @@ run('every Backlog link shows a visible status word and a Tooltip detail', () =>
 
 run('Backlog links can be detached without deleting their targets', () => {
   assert.match(linksSectionSource, /aria-label=\{`Unlink \$\{model\.label\}`\}/, 'each secondary link exposes an accessible unlink control')
-  assert.match(backlogPanelSource, /id: 'unlink-sprint', label: 'Unlink sprint…'/, 'the promoted primary sprint link remains removable from item actions')
   assert.match(backlogPanelSource, /window\.api\.removeBacklogLink\(/, 'unlink persists through the dedicated Backlog IPC')
   assert.match(backlogPanelSource, /The run itself will not be deleted/, 'manual status override explains that unlinking preserves the run')
 })
@@ -722,49 +717,7 @@ run('Backlog scan/refresh resolves visible links and persists status through the
   )
 })
 
-run('the primary Sprint Engine run link is the Open action, not a duplicate Links-list button', () => {
-  // The panel only de-dups the primary run link when the primary Open action is
-  // actually present: an enabled provider owns it and the item is not archived.
-  assert.match(backlogPanelSource, /const primaryRunLink = sprintEngineRunLinkForItem\(selected\)/, 'the primary run link is identified')
-  assert.match(backlogPanelSource, /selected\.status !== 'archived'/, 'archived items keep the run link visible (no Open action)')
-  assert.match(backlogPanelSource, /providerForBacklogLink\(linkProviders, primaryRunLink\)/, 'de-dup only applies when an enabled provider represents the link')
-  assert.match(backlogPanelSource, /excludeLinkId=\{primaryRunLinkId\}/, 'the panel hands the primary link to the section to exclude')
-  // The section excludes exactly the link the caller promoted to a primary action.
-  assert.match(linksSectionSource, /\.filter\(\(link\) => link\.id !== excludeLinkId\)/, 'the section excludes the promoted primary link')
-})
-
-run('Sprint Engine contributes Start/Open Backlog actions for run-linked items', () => {
-  assert.match(
-    sprintEngineModuleSource,
-    /host\.registerBacklogLinkProvider\(\{\s*moduleId: SPRINT_ENGINE_MODULE_ID,\s*targetKinds: \[SPRINT_ENGINE_RUN_TARGET_KIND\]/s,
-    'the Sprint Engine module registers the built-in run link provider',
-  )
-  assert.match(
-    sprintEngineModuleSource,
-    /id: 'sprint-engine\.start-from-backlog',\s*label: 'Run a Sprint'/s,
-    'the module registers the Run a Sprint Backlog action',
-  )
-  assert.match(
-    sprintEngineModuleSource,
-    /id: 'sprint-engine\.open-linked-run',\s*label: 'Open Sprint'/s,
-    'the module registers the Open Sprint Backlog action',
-  )
-  // MC-2060 made Start selection-aware: the same eligibility runs over every
-  // member of the selection (falling back to the single item), so no linked or
-  // terminal row can ride into the bundle silently.
-  assert.match(
-    sprintEngineModuleSource,
-    /\(selection\?\.items \?\? \[item\]\)\.every\(\s*\(candidate\) =>\s*candidate\.status !== 'archived'\s*&&\s*candidate\.status !== 'completed'\s*&&\s*!hasSprintEngineRunLink\(candidate\)\s*&&\s*!hasAgentLink\(candidate\),?\s*\)/,
-    'Start is visible only when every selected item is runnable, without a Sprint Engine run link and without an agent already working it',
-  )
-  assert.match(
-    sprintEngineModuleSource,
-    /item\.status !== 'archived' && hasSprintEngineRunLink\(item\)/,
-    'Open is visible for non-archived items with a Sprint Engine run link',
-  )
-})
-
-run('completed Backlog items can be marked done manually and do not offer Sprint Engine start', () => {
+run('a Backlog item can be marked done manually', () => {
   assert.match(
     backlogPanelSource,
     /id: 'mark-completed', label: 'Mark completed'/,
@@ -774,11 +727,6 @@ run('completed Backlog items can be marked done manually and do not offer Sprint
     backlogPanelSource,
     /window\.api\.updateBacklogStatus/,
     'manual completion persists through the Backlog object service',
-  )
-  assert.match(
-    sprintEngineModuleSource,
-    /candidate\.status !== 'archived'\s*&&\s*candidate\.status !== 'completed'\s*&&\s*!hasSprintEngineRunLink\(candidate\)\s*&&\s*!hasAgentLink\(candidate\)/,
-    'completed items without a run link hide Start Sprint Engine',
   )
 })
 

@@ -19,7 +19,7 @@ function run(name: string, body: () => void): void {
   }
 }
 
-// MC-1766 retired the Sprint Engines aside but kept the column it lived in as a
+// MC-1766 retired the aside that lived here but kept the column as a
 // mount seam. No module claims the column today, so these are the tests that
 // keep the chrome a future tenant inherits — the labelled landmark, the width,
 // and the keyboard-reachable resize edge — from rotting while it is empty.

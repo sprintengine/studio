@@ -1,15 +1,13 @@
 // The MCP protocol versions the TypeScript side can honestly serve.
 //
 // One table, imported by the socket gateway (`src/main/automation/mcp-socket-server.ts`)
-// and by main's HTTP client of the Python engine (`src/main/sprintengine-mcp-hub.ts`),
-// because the previous inline constants are exactly how the two studio MCP
-// servers drifted apart — this gateway fell back to `2025-03-26` while the
-// engine defaulted to `2024-11-05`.
+// and by every other MCP speaker in the app, because inline constants are
+// exactly how two MCP servers in one product drift apart — one fell back to
+// `2025-03-26` while the other defaulted to `2024-11-05`.
 //
 // A version belongs here only once the semantics behind it exist: answering
 // `initialize` with a version we do not implement is the lie this module was
-// created to remove. The Python half is `sprintengine_mcp/protocol.py` and
-// carries the same set. Lives in `shared` — no node-only imports — beside
+// created to remove. Lives in `shared` — no node-only imports — beside
 // `normalize-server.ts`, because a main-process server and a main-process
 // client both need it.
 
@@ -42,8 +40,7 @@ export function isSupportedMcpProtocolVersion(value: unknown): value is string {
  * Answering the unknown ask with our MAXIMUM is what broke Claude Code: it
  * offers a revision between `2025-06-18` and `2026-07-28`, so handing back
  * `2026-07-28` names a version newer than the client can parse and the
- * handshake is rejected outright — every agent the sprint spawned lost its
- * tools. Downgrading instead lands on `2025-06-18`, which both sides speak.
+ * handshake is rejected outright — every agent we spawned lost its tools. Downgrading instead lands on `2025-06-18`, which both sides speak.
  * Versions are ISO dates, so lexicographic order is chronological order.
  */
 export function negotiateMcpProtocolVersion(requested: unknown): string {

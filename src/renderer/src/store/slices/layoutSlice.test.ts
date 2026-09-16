@@ -2,21 +2,15 @@ import assert from 'node:assert/strict'
 
 import type { IJsonModel } from 'flexlayout-react'
 import type { LayoutTemplate, Workspace } from '../../types/workspace'
-import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
 import {
   createLayoutSlice,
   healRetiredRailLayout,
   stripRetiredModuleTabsFromLayout,
   hideNavRailTabStrip,
-  hideSprintEngineBoardTabStrip,
-  isLegacySprintEngineLayout,
-  migrateSprintEngineLayout,
   modelContainsComponent,
-  sprintEngineTabsLayoutModel,
   stripRetiredRailTabsFromLayout,
   stripSettingsTabsFromLayout,
-  stripSprintEnginesNavFromLayout,
 } from './layoutSlice'
 
 const standardTemplate: LayoutTemplate = {
@@ -40,93 +34,6 @@ const standardTemplate: LayoutTemplate = {
   },
 }
 
-const runProjection = createInitialSprintEngineState({
-  goal: 'Ship layout slice',
-  name: 'Layout Team',
-  roleCounts: {},
-})
-
-const sprintLayout = sprintEngineTabsLayoutModel(runProjection, {}, { includeAgentTabs: false })
-assert.equal(modelContainsComponent(sprintLayout, 'sprintengine'), true)
-assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-inbox'), false)
-assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-roster'), false)
-assert.equal(modelContainsComponent(sprintLayout, 'sprintengine-tasks'), false)
-assert.equal(modelContainsComponent(sprintLayout, 'agent'), false)
-
-const sprintLayoutWithAgents = sprintEngineTabsLayoutModel(runProjection, {})
-assert.equal(modelContainsComponent(sprintLayoutWithAgents, 'agent'), true)
-
-// The retired 3-tab Inbox / Roster / Tasks shape must migrate forward to the
-// single board tab — internal segmented chrome now handles the view switching.
-const legacyThreeTabLayout: IJsonModel = {
-  global: {},
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        children: [
-          { type: 'tab', name: 'Inbox', component: 'sprintengine-inbox' },
-          { type: 'tab', name: 'Roster', component: 'sprintengine-roster' },
-          { type: 'tab', name: 'Tasks', component: 'sprintengine-tasks' },
-        ],
-      },
-    ],
-  },
-}
-assert.equal(isLegacySprintEngineLayout(legacyThreeTabLayout), true)
-const migratedFromThreeTab = migrateSprintEngineLayout({
-  id: 'workspace-three-tab',
-  mode: 'sprintengine',
-  layoutModel: legacyThreeTabLayout,
-  moduleState: { sprintengine: { state: runProjection } },
-  agents: {},
-} as unknown as Workspace)
-assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine'), true)
-assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine-inbox'), false)
-assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine-roster'), false)
-assert.equal(modelContainsComponent(migratedFromThreeTab.layoutModel!, 'sprintengine-tasks'), false)
-
-// A layout that already has the canonical single 'sprintengine' tab is left alone.
-const canonicalLayout = sprintEngineTabsLayoutModel(runProjection, {})
-assert.equal(isLegacySprintEngineLayout(canonicalLayout), false)
-const noopMigration = migrateSprintEngineLayout({
-  id: 'workspace-canonical',
-  mode: 'sprintengine',
-  layoutModel: canonicalLayout,
-  moduleState: { sprintengine: { state: runProjection } },
-  agents: {},
-} as unknown as Workspace)
-assert.equal(noopMigration.layoutModel, canonicalLayout)
-
-// Existing SE layouts that still carry a visible Sprint Engine tab strip
-// migrate to enableTabStrip: false on the tabset that hosts the board, while
-// other tabsets keep their tab handles intact.
-const sprintEngineLayoutForStripMigration: IJsonModel = {
-  global: {},
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        weight: 58,
-        children: [
-          { type: 'tab', name: 'Sprint', component: 'sprintengine', enableClose: false },
-        ],
-      },
-      {
-        type: 'tabset',
-        weight: 42,
-        children: [
-          { type: 'tab', name: 'Agent 1', component: 'agent', config: { agentId: 'a-1' } },
-        ],
-      },
-    ],
-  },
-}
-const stripHidden = hideSprintEngineBoardTabStrip(sprintEngineLayoutForStripMigration) as IJsonModel
 function findTabset(model: IJsonModel, predicate: (record: Record<string, unknown>) => boolean): Record<string, unknown> | null {
   let found: Record<string, unknown> | null = null
   const walk = (node: unknown) => {
@@ -141,24 +48,6 @@ function findTabset(model: IJsonModel, predicate: (record: Record<string, unknow
   walk(model.layout)
   return found
 }
-const seTabset = findTabset(stripHidden, (record) => {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'sprintengine')
-})!
-const agentTabset = findTabset(stripHidden, (record) => {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'agent')
-})!
-assert.equal(seTabset.enableTabStrip, false)
-assert.equal(agentTabset.enableTabStrip, undefined)
-
-const canonicalSprintLayout = sprintEngineTabsLayoutModel(runProjection, {})
-const canonicalSeTabset = findTabset(canonicalSprintLayout, (record) => {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => (child as Record<string, unknown>)?.component === 'sprintengine')
-})!
-assert.equal(canonicalSeTabset.enableTabStrip, false)
-
 // Layout tabs whose owning module was retired are stripped on hydration, the
 // same way the rail-to-pane move strips its tabs: the model registry no longer
 // resolves the component, so a surviving tab would render an empty surface.
@@ -200,7 +89,7 @@ assert.equal(modelContainsComponent(strippedRetired, 'switchboard-workspace'), f
 assert.equal(modelContainsComponent(strippedRetired, 'guided-brief'), false)
 assert.ok(findTab(strippedRetired, 'editor'), 'the rest of the layout survives the strip')
 // Nothing to strip is a no-op by reference, so it is safe on every hydration.
-assert.equal(stripRetiredModuleTabsFromLayout(canonicalLayout), canonicalLayout)
+assert.equal(stripRetiredModuleTabsFromLayout(standardTemplate.layout), standardTemplate.layout)
 
 // Nav-rail strip migration: a tabset holding only the Knowledge Graph switch
 // loses its strip; a tabset mixing a nav switch with the editor keeps its
@@ -275,57 +164,6 @@ const stripped = stripSettingsTabsFromLayout({
 assert.equal(modelContainsComponent(stripped, 'settings'), false)
 assert.equal(modelContainsComponent(stripped, 'editor'), true)
 
-// The Sprint Engines survey moved to the app-level right aside; the v60
-// migration strips its retired nav tab and drops the tabset it emptied,
-// leaving the rest of the layout untouched.
-const sprintEnginesStripped = stripSprintEnginesNavFromLayout({
-  global: {},
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        enableTabStrip: false,
-        children: [
-          { type: 'tab', name: 'Sprint Engines', component: 'sprint-engines' },
-        ],
-      },
-      {
-        type: 'tabset',
-        children: [
-          { type: 'tab', name: 'Agent', component: 'agent' },
-        ],
-      },
-    ],
-  },
-}) as IJsonModel
-assert.equal(modelContainsComponent(sprintEnginesStripped, 'sprint-engines'), false)
-assert.equal(modelContainsComponent(sprintEnginesStripped, 'agent'), true)
-assert.equal((sprintEnginesStripped.layout as { children?: unknown[] }).children?.length, 1)
-
-// A layout that held ONLY the retired nav tab falls back to an empty root row
-// (WorkspaceLayout's zero-tab empty state), never the original layout with the
-// stale tab restored.
-const sprintEnginesOnlyStripped = stripSprintEnginesNavFromLayout({
-  global: {},
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        enableTabStrip: false,
-        children: [
-          { type: 'tab', name: 'Sprint Engines', component: 'sprint-engines' },
-        ],
-      },
-    ],
-  },
-}) as IJsonModel
-assert.equal(modelContainsComponent(sprintEnginesOnlyStripped, 'sprint-engines'), false)
-assert.deepEqual(sprintEnginesOnlyStripped.layout, { type: 'row', children: [] })
-
 const carrier = {
   workspaces: [
     {
@@ -334,15 +172,28 @@ const carrier = {
     } as Workspace,
   ],
 }
+// The layout a drag leaves behind: updateLayout writes it through, on the bare
+// carrier and through the real store alike.
+const draggedLayout: IJsonModel = {
+  global: {},
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      { type: 'tabset', weight: 60, children: [{ type: 'tab', name: 'Editor', component: 'editor' }] },
+      { type: 'tabset', weight: 40, children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }] },
+    ],
+  },
+}
 const layoutSlice = createLayoutSlice((mutator) => mutator(carrier))
-layoutSlice.updateLayout('carrier-workspace', sprintLayout)
-assert.deepEqual(carrier.workspaces[0].layoutModel, sprintLayout)
+layoutSlice.updateLayout('carrier-workspace', draggedLayout)
+assert.deepEqual(carrier.workspaces[0].layoutModel, draggedLayout)
 
 const workspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, { name: 'Layout Workspace' })
-useWorkspaceStore.getState().updateLayout(workspaceId, sprintLayout)
+useWorkspaceStore.getState().updateLayout(workspaceId, draggedLayout)
 assert.deepEqual(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.layoutModel,
-  sprintLayout,
+  draggedLayout,
 )
 
 // The rail-to-pane heal (store v73 Files/Git, v74 Backlog): a persisted layout

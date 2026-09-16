@@ -46,7 +46,7 @@ assert.equal(
   'a board re-open asks to reattach a recorded conversation',
 )
 assert.equal(
-  hasLiveAgentLaunchIntent({ cliStartupPrompt: 'You are a specialist…' }),
+  hasLiveAgentLaunchIntent({ cliStartupPrompt: 'Work the auth revamp…' }),
   true,
   'an undelivered startup directive is live intent',
 )

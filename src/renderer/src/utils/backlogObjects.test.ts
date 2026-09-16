@@ -24,14 +24,14 @@ const store: BacklogObjectStore = {
       difficulty: 'm',
       criticality: 'high',
       highlight: { starred: true, color: 'amber' },
-      metadata: { 'sprint-engine': { lastRunId: 'checkout' } },
+      metadata: { atlas: { lastRunId: 'checkout' } },
       links: [
         {
-          id: 'sprint-engine:checkout',
-          moduleId: 'sprint-engine',
+          id: 'atlas:checkout',
+          moduleId: 'atlas',
           type: 'execution',
-          label: 'Sprint Engine run',
-          target: { kind: 'sprintengine.run', id: 'checkout', path: '.sprintengine/sprintengine/checkout/run.yaml' },
+          label: 'Atlas run',
+          target: { kind: 'atlas.run', id: 'checkout', path: '.atlas/checkout/run.yaml' },
           status: 'active',
         },
       ],
@@ -50,8 +50,8 @@ assert.equal(hydrated.items[0]?.type, undefined)
 assert.equal(hydrated.items[0]?.difficulty, undefined)
 assert.equal(hydrated.items[0]?.criticality, undefined)
 // App churn still merges from the sidecar: links, module metadata, and highlight.
-assert.equal(hydrated.items[0]?.links[0]?.target.path, '.sprintengine/sprintengine/checkout/run.yaml')
-assert.deepEqual(hydrated.items[0]?.metadata, { 'sprint-engine': { lastRunId: 'checkout' } })
+assert.equal(hydrated.items[0]?.links[0]?.target.path, '.atlas/checkout/run.yaml')
+assert.deepEqual(hydrated.items[0]?.metadata, { atlas: { lastRunId: 'checkout' } })
 assert.equal(item.highlight, undefined)
 assert.deepEqual(hydrated.items[0]?.highlight, { starred: true, color: 'amber' })
 

@@ -5,8 +5,8 @@ import type {
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
-import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
-import { emptyAgentLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/launch-settings'
+import { emptyAgentLaunchSettings } from '../shared/launch-settings'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   createAgentLaunchService,
@@ -62,7 +62,6 @@ function harness(options: {
   spawnResult?: TerminalSpawnResult
   resolveKnowledgeRoot?: AgentLaunchServiceDeps['resolveKnowledgeRoot']
   isAgentSelectableCli?: AgentLaunchServiceDeps['isAgentSelectableCli']
-  listInstalledRoleIds?: AgentLaunchServiceDeps['listInstalledRoleIds']
 } = {}) {
   const spawns: TerminalSpawnPayload[] = []
   const kills: string[] = []
@@ -72,7 +71,6 @@ function harness(options: {
     getLaunchSettings: () => options.settings ?? settings(),
     ...(options.isAgentSelectableCli ? { isAgentSelectableCli: options.isAgentSelectableCli } : {}),
     ...(options.resolveKnowledgeRoot ? { resolveKnowledgeRoot: options.resolveKnowledgeRoot } : {}),
-    ...(options.listInstalledRoleIds ? { listInstalledRoleIds: options.listInstalledRoleIds } : {}),
     terminal: {
       list: () => sessions,
       spawn: async (payload) => {
@@ -177,13 +175,13 @@ run('an unknown or unsupported workspace refuses before spawning', async () => {
   const unknown = await missing.service.launch({ workspaceId: 'nope' })
   assert.equal(!unknown.ok && unknown.code, 'unknown_workspace')
 
-  const sprintHost = harness({
-    workspaces: [workspace({ mode: 'sprintengine' })],
+  const moduleHost = harness({
+    workspaces: [workspace({ mode: 'weather-deck' })],
     settings: settings({ lastSelectedCli: 'codex' }),
   })
-  const refused = await sprintHost.service.launch({ workspaceId: 'ws-1' })
+  const refused = await moduleHost.service.launch({ workspaceId: 'ws-1' })
   assert.equal(!refused.ok && refused.code, 'unsupported_workspace_mode')
-  assert.equal(sprintHost.spawns.length, 0)
+  assert.equal(moduleHost.spawns.length, 0)
 
   // An automations host IS a valid launch target — the default route resolves one.
   const automationsHost = harness({
@@ -201,57 +199,6 @@ run('a folderless workspace refuses rather than spawning into the app directory'
   })
   const launched = await app.service.launch({ workspaceId: 'ws-1' })
   assert.equal(!launched.ok && launched.code, 'workspace_folder_missing')
-  assert.equal(app.spawns.length, 0)
-})
-
-run('an automation-launched specialist gets the same role directive as a person', async () => {
-  const app = harness({
-    settings: settings({ lastSelectedCli: 'claude-code' }),
-    listInstalledRoleIds: async () => ['security'],
-  })
-  const launched = await app.service.launch({
-    workspaceId: 'ws-1',
-    specialistId: 'security',
-    prompt: 'Audit the auth flow.',
-  })
-
-  assert.equal(launched.ok, true, JSON.stringify(launched))
-  const prompt = app.spawns[0]!.initialPrompt ?? ''
-  assert.doesNotMatch(prompt, /acting as the/)
-  assert.doesNotMatch(prompt, /souls\s+get/)
-  assert.match(prompt, /autonomous run/, 'and is told nobody will answer it')
-  assert.match(prompt, /Audit the auth flow\./, 'the caller directive is carried verbatim')
-  assert.equal(app.spawns[0]!.specialistId, 'security', 'so host-context can attach the same Role section a person gets')
-  assert.equal(app.spawns[0]!.agentRecord?.kind, 'specialist')
-  assert.equal(app.spawns[0]!.agentRecord?.specialistId, 'security')
-})
-
-run('a specialist launch with no installed roles refuses rather than spawning a general agent', async () => {
-  const app = harness({
-    settings: settings({ lastSelectedCli: 'claude-code' }),
-    listInstalledRoleIds: async () => [],
-  })
-  const launched = await app.service.launch({
-    workspaceId: 'ws-1',
-    specialistId: 'security',
-    prompt: 'Audit the auth flow.',
-  })
-  assert.equal(!launched.ok && launched.code, 'unknown_role')
-  assert.match(!launched.ok ? launched.message : '', /no workflow roles are installed/)
-  assert.equal(app.spawns.length, 0)
-})
-
-run('a specialist launch for an unknown id names the known set and does not spawn', async () => {
-  const app = harness({
-    settings: settings({ lastSelectedCli: 'claude-code' }),
-    listInstalledRoleIds: async () => ['architect', 'developer'],
-  })
-  const launched = await app.service.launch({
-    workspaceId: 'ws-1',
-    specialistId: 'security',
-  })
-  assert.equal(!launched.ok && launched.code, 'unknown_role')
-  assert.match(!launched.ok ? launched.message : '', /Known roles: architect, developer/)
   assert.equal(app.spawns.length, 0)
 })
 
@@ -344,7 +291,6 @@ run('the launch record rides the spawn so the renderer can project a tab', async
     cli: 'claude-code',
     cliModel: 'opus',
     cliPermissionPreset: 'auto',
-    kind: 'general',
   })
 })
 
@@ -482,7 +428,7 @@ run('a caller that knows what its agent IS records that role', async () => {
 })
 
 run('anyWorkspaceMode accepts the workspace the caller named, whatever its mode', async () => {
-  const app = harness({ workspaces: [workspace({ mode: 'sprint-run' })] })
+  const app = harness({ workspaces: [workspace({ mode: 'weather-deck' })] })
 
   const refused = await app.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
   assert.equal(refused.ok, false)

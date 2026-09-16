@@ -29,7 +29,6 @@ import {
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
 import { createAutomationsEngine } from '../automations/engine'
-import { SPRINT_ENGINE_RUN_ACTION_KIND, createSprintEngineRunActionProvider } from '../automations/actions/sprint-engine'
 import { REPO_TASK_SOURCE_INTEGRATION_ID } from '../automations/repo-task-source'
 import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
 import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
@@ -243,7 +242,6 @@ async function testProviderList(): Promise<void> {
               type: 'string',
               enum: ['none', 'manual', 'auto', 'bypass', 'default', 'auto_workspace', 'bypass_all'],
             },
-            specialistId: { type: 'string', minLength: 1 },
             name: { type: 'string', minLength: 1 },
             prompt: { type: 'string', minLength: 1 },
             connectorId: { type: 'string', minLength: 1 },
@@ -298,24 +296,6 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
       },
     },
   })
-  providerRegistry.registerActionProvider(
-    'sprint-engine',
-    createSprintEngineRunActionProvider({
-      setRunnerMode: async () => {
-        throw new Error('not used')
-      },
-      readProjection: async () => {
-        throw new Error('not used')
-      },
-      refreshPullRequestStatus: async () => {
-        throw new Error('not used')
-      },
-      mergePullRequest: async () => {
-        throw new Error('not used')
-      },
-    }),
-  )
-
   registerAutomationsIpc(
     {
       registerIpc(channel, handler) {
@@ -350,11 +330,6 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
   assert.deepEqual(repoEvent?.requiredIntegrations, [REPO_TASK_SOURCE_INTEGRATION_ID])
   assert.deepEqual(repoEvent?.missingIntegrations, [REPO_TASK_SOURCE_INTEGRATION_ID])
   assert.deepEqual((repoEvent?.configSchema as { required?: unknown }).required, ['kind'])
-
-  const sprintEngine = providers.value.actions.find((provider) => provider.kind === SPRINT_ENGINE_RUN_ACTION_KIND)
-  assert.deepEqual(sprintEngine?.requiredIntegrations, ['module:sprint-engine'])
-  assert.deepEqual(sprintEngine?.missingIntegrations, [])
-  assert.deepEqual((sprintEngine?.configSchema as { required?: unknown }).required, ['team'])
 }
 
 async function testDefinitionRoundTripAndRunNow(): Promise<void> {

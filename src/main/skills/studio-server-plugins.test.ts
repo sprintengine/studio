@@ -29,7 +29,7 @@ import { join, resolve } from 'node:path'
 
 import { parseSkillFrontmatter, SKILL_ENTRY_FILE } from '../../shared/skills'
 import { parseMcpServers } from './scan-plugins'
-import { STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID, WORKFLOW_ROLES_PLUGIN_ID } from './studio-plugin'
+import { STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID } from './studio-plugin'
 
 // Bundled into node_modules/.cache before it runs, so `__dirname` says nothing
 // about where the source lives; `npm run` sets the cwd to the package root.
@@ -61,10 +61,9 @@ type Entry = { name: string; source: string }
 /**
  * Plugins that are not servers. Everything else the marketplace lists is one
  * of ours packaging somebody else's MCP server, and gets the server rules
- * below as well as the skill rule. `workflow-roles` is the role-skill pack:
- * sixteen SKILL.md files, no MCP server.
+ * below as well as the skill rule.
  */
-const NOT_SERVERS = new Set<string>([STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID, WORKFLOW_ROLES_PLUGIN_ID])
+const NOT_SERVERS = new Set<string>([STUDIO_PLUGIN_ID, STUDIO_SKILLS_PLUGIN_ID])
 
 async function skillDirsOf(pluginDir: string): Promise<string[]> {
   const entries = await readdir(join(pluginDir, 'skills'), { withFileTypes: true }).catch(() => null)
@@ -105,12 +104,6 @@ async function main(): Promise<void> {
   // adds rows to that list, and the order is what the catalogues draw.
   assert.equal(manifest.plugins[0]?.name, STUDIO_PLUGIN_ID, 'ours leads the listing')
   assert.equal(manifest.plugins[1]?.name, STUDIO_SKILLS_PLUGIN_ID, 'the workflow skills come second')
-  assert.equal(
-    manifest.plugins.some((entry) => entry.name === WORKFLOW_ROLES_PLUGIN_ID),
-    true,
-    'workflow-roles is listed so the SprintEngine Studio tab can offer Install',
-  )
-
   let serverPlugins = 0
   for (const entry of manifest.plugins) {
     const dir = entry.source.slice(2)

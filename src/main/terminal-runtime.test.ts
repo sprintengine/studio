@@ -1,29 +1,23 @@
 import assert from 'node:assert/strict'
 import Module from 'node:module'
-import { realpathSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
 
 import type { WebContents } from 'electron'
 import type { McpSettings, TerminalSpawnResult } from '../shared/electron-api'
-import { MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR } from './sprintengine-managed-mcp-sync'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { TERMINAL_REMOTE_FRAME_CHUNK_CHARS } from './terminal-remote-attach'
 import { createAgentLaunchService } from './agent-launch-service'
 import { createPullRequestRecord } from './pull-request-record'
 import { readPullRequestState } from './github/branch-pull-request'
 import type { GhResult, GhRunner } from './github/gh'
-import { emptyAgentLaunchSettings } from '../shared/sprintengine/launch-settings'
+import { emptyAgentLaunchSettings } from '../shared/launch-settings'
 
 type RuntimeModule = typeof import('./terminal-runtime')
 type SyncMcpConfig = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['syncMcpConfig']>
 type SyncInput = Parameters<SyncMcpConfig>[0]
 type SyncResult = Awaited<ReturnType<SyncMcpConfig>>
-type ReleaseManagedSprintEngineRun = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['releaseManagedSprintEngineRun']>
-type ReleaseInput = Parameters<ReleaseManagedSprintEngineRun>[0]
-type CallManagedSprintEngineTool = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['callManagedSprintEngineTool']>
-type ToolCallInput = Parameters<CallManagedSprintEngineTool>[0]
 type TerminalRuntime = ReturnType<RuntimeModule['createTerminalRuntime']>
 type AgentSpawnInput = Parameters<TerminalRuntime['spawnAgentSession']>[0]
 type AgentSpawnDescriptor = AgentSpawnInput['descriptor']
@@ -128,9 +122,6 @@ moduleWithLoad._load = function loadWithMainProcessMocks(
 async function main(): Promise<void> {
   try {
     const runtimeModule = require('./terminal-runtime') as RuntimeModule
-    const { addLaunchContribution } = require('./module-host/launch-contributions') as typeof import('./module-host/launch-contributions')
-    const { createSprintEngineLaunchContribution } = require('./modules/sprint-engine-launch-contribution') as typeof import('./modules/sprint-engine-launch-contribution')
-    addLaunchContribution('sprint-engine', createSprintEngineLaunchContribution())
     // The gate-behavior sweeps below spawn only a handful of agents, which the
     // default recency floor (keep the N most recent alive) would spare wholesale.
     // Disable the floor so each per-session gate is exercised in isolation; the
@@ -147,22 +138,8 @@ async function main(): Promise<void> {
     })
     await assertIdleSweepRecencyFloorSparesMostRecent(runtimeModule)
     await assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(runtimeModule)
-    await assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModule)
     await assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeModule)
-    await assertSprintEngineSpawnKeepsEnabledConnectorMcpSettings(runtimeModule)
-    assertSprintEngineLaunchMcpSettingsDerivation(runtimeModule)
-    await assertWorktreeSpawnRegistersProjectRootNotWorktreeCwd(runtimeModule)
-    await assertMultiRepoSpawnAllowsEveryDeclaredProjectAndNothingElse(runtimeModule)
-    assertRegistrationRootDerivation(runtimeModule)
-    await assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule)
-    await assertSprintEngineSpawnReportsThrownHttpMcpSetupFailureWithoutPtySpawn(runtimeModule)
-    await assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtimeModule)
-    await assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule)
-    await assertSprintEngineAgentHeartbeatAndLeaveUseManagedMcp(runtimeModule)
-    await assertSprintEngineShutdownWaitsForLeaveBeforeRelease(runtimeModule)
-    await assertSprintEngineTeardownIsSessionObjectScoped(runtimeModule)
-    await assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule)
-    await assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule)
+    await assertAgentSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule)
     await assertAgentSpawnExposesAgentIdentityEnv(runtimeModule)
     await assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule)
     await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
@@ -180,12 +157,10 @@ async function main(): Promise<void> {
     await assertSuspendSettlesAWorkingAgentToRest(runtimeModule)
     await assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule)
     await assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule)
-    await assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule)
     await assertDebugModeEnsureInstallsDebugSkill(runtimeModule)
     await assertSpawnSkillInstallIsOrthogonalToMcpIsolation(runtimeModule)
     await assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(runtimeModule)
     await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
-    await assertLaunchRegistryRootsIncludeUserRolesWhenPresent(runtimeModule)
     await assertHeadlessSpawnAttachesToLaterWindow(runtimeModule)
     await assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule)
     await assertDescriptorSpawnSucceedsWithNoWindows(runtimeModule)
@@ -240,35 +215,6 @@ function pinAgentCliPreflight(
   })
 }
 
-// F1 regression: the managed spawn path must surface the user-authored role
-// registry root (~/.multicode/sprintengine-roles) so agent.join can resolve
-// rostered authored roles. The list mirrors the read path, appending the root
-// only when the directory exists. HOME is redirected so the assertion exercises
-// real defaultUserRoleRegistryRoot()/existsSync logic against a temp home.
-async function assertLaunchRegistryRootsIncludeUserRolesWhenPresent(
-  runtimeModule: RuntimeModule
-): Promise<void> {
-  const tempHome = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-user-roles-'))
-  const userRolesRoot = join(tempHome, '.multicode', 'sprintengine-roles')
-  const originalHome = process.env.HOME
-  process.env.HOME = tempHome
-  try {
-    assert.ok(
-      !runtimeModule.sprintEngineRegistryRootsForLaunch().includes(userRolesRoot),
-      'absent user-roles dir must not be added to launch registry roots'
-    )
-
-    await mkdir(userRolesRoot, { recursive: true })
-    assert.ok(
-      runtimeModule.sprintEngineRegistryRootsForLaunch().includes(userRolesRoot),
-      'present user-roles dir must be on the launch registry roots'
-    )
-  } finally {
-    if (originalHome === undefined) delete process.env.HOME
-    else process.env.HOME = originalHome
-  }
-}
-
 // A ScheduleWakeup hook frame must hold the idle reaper until the wake time:
 // the timer lives inside the CLI process, and the agent reads as 'idle' while
 // waiting — the exact state the reaper hunts. The hold rides the PURE policy
@@ -281,7 +227,6 @@ async function assertPendingWakeupFrameHoldsIdleReaper(runtimeModule: RuntimeMod
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -357,7 +302,6 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
   let gone = true
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     resolveObservedCheckout: async (cwd) => {
       resolveCalls.push(cwd)
@@ -631,7 +575,6 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -867,12 +810,11 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
   }
 }
 
-// Headless spawn + window attach (sprint-runtime-ownership Phase 3): the main
-// scheduler spawns sprint agents with no window using the headless sender —
-// the PTY runs and retains scrollback while every outbound send no-ops — and
-// a window that opens later reattaches through the spawnTerminal
-// existing-session branch, adopting the real WebContents and replaying the
-// buffered output.
+// Headless spawn + window attach: main spawns an agent with no window using the
+// headless sender — the PTY runs and retains scrollback while every outbound
+// send no-ops — and a window that opens later reattaches through the
+// spawnTerminal existing-session branch, adopting the real WebContents and
+// replaying the buffered output.
 async function assertHeadlessSpawnAttachesToLaterWindow(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-headless-'))
   mockPty.spawnCalls = []
@@ -880,7 +822,6 @@ async function assertHeadlessSpawnAttachesToLaterWindow(runtimeModule: RuntimeMo
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -940,7 +881,7 @@ async function assertHeadlessSpawnAttachesToLaterWindow(runtimeModule: RuntimeMo
 // point of the item: `agent.launch` used to fail with no window open because the
 // COMPOSITION lived in a React hook, even though the spawn below never needed a
 // window. This drives the real service over the real runtime, so it proves the
-// composed CLI, permission preset, MCP config, and specialist prompt reach an
+// composed CLI, permission preset, MCP config, and initial prompt reach an
 // actual pty with every window closed — and that a window opened afterwards
 // adopts that same session with its scrollback rather than starting a second one.
 async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: RuntimeModule): Promise<void> {
@@ -951,7 +892,6 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
   const syncInputs: SyncInput[] = []
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     syncMcpConfig: async (input): Promise<SyncResult> => {
       syncInputs.push(input)
@@ -973,13 +913,11 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
       spawn: (payload) => runtime.ipcHandlers.spawnTerminal(runtimeModule.resolveSpawnEventSink(), payload),
       kill: (sessionId) => runtime.ipcHandlers.killTerminal(sessionId),
     },
-    listInstalledRoleIds: async () => ['security'],
   })
 
   try {
     const launched = await withNoWindows(() => service.launch({
       workspaceId: 'ws-headless-launch',
-      specialistId: 'security',
       prompt: 'Audit the auth flow.',
     }))
     assert.equal(launched.ok, true, JSON.stringify(launched))
@@ -993,14 +931,10 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
 
     // The composition main did, read off the real launch: the user's CLI and
     // permission preset rendered into the startup script, their MCP settings
-    // handed to the config sync, and the specialist directive wrapped in the
-    // soul-fetch preamble.
+    // handed to the config sync, and the caller's prompt carried verbatim.
     const startupScript = await readFile(String(mockPty.spawnCalls[0]!.args.at(-1)), 'utf8')
     assert.match(startupScript, /claude/, 'the last-selected CLI is what launched')
     assert.match(startupScript, /--permission-mode auto/, 'the app-level spawn preset reached the argv')
-    assert.match(startupScript, /autonomous run/)
-    assert.doesNotMatch(startupScript, /acting as the/)
-    assert.doesNotMatch(startupScript, /souls\s+get/)
     assert.match(startupScript, /Audit the auth flow\./, 'and carries the caller directive')
     assert.deepEqual(syncInputs.at(-1)?.settings, { syncEnabled: true, servers: {} }, "the user's MCP settings synced")
 
@@ -1010,7 +944,6 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
     assert.equal(snapshot?.agentRecord?.agentId, launched.agentId)
     assert.equal(snapshot?.agentRecord?.cli, 'claude-code')
     assert.equal(snapshot?.agentRecord?.cliPermissionPreset, 'auto')
-    assert.equal(snapshot?.agentRecord?.kind, 'specialist')
 
     // The run's correlation key. An agent-backed automation finalizes on its
     // agent's exit, and the runtime only reports that exit for a session with an
@@ -1073,7 +1006,6 @@ async function assertDescriptorSpawnSucceedsWithNoWindows(runtimeModule: Runtime
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
   })
@@ -1084,7 +1016,7 @@ async function assertDescriptorSpawnSucceedsWithNoWindows(runtimeModule: Runtime
       workspaceRoot,
       descriptor: {
         executionId: 'exec-headless-desc',
-        system: 'sprintengine',
+        system: 'weather-deck',
         workId: 'work-headless-desc',
         role: 'developer',
         displayName: 'Headless Dev',
@@ -1146,7 +1078,6 @@ async function assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule:
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -1230,7 +1161,6 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -1345,7 +1275,6 @@ async function assertSuspendSettlesAWorkingAgentToRest(runtimeModule: RuntimeMod
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -1415,7 +1344,6 @@ async function assertIdleSweepRecencyFloorSparesMostRecent(runtimeModule: Runtim
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -1509,7 +1437,6 @@ async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -1611,7 +1538,6 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -1645,7 +1571,7 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
   }
 
   try {
-    // A manual session and a sprintengine session prove the runtime is
+    // A manual session and a module-owned session prove the runtime is
     // system-agnostic: both must surface in the inventory and both must fire
     // the exit listener. The runtime knows nothing about either system.
     const manualPty = await spawnAgent({
@@ -1653,10 +1579,10 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
       system: 'manual',
       workspaceId: 'ws-manual',
     })
-    const sprintEnginePty = await spawnAgent({
-      executionId: 'exec-sprintengine',
-      system: 'sprintengine',
-      workspaceId: 'ws-sprintengine',
+    const modulePty = await spawnAgent({
+      executionId: 'exec-module',
+      system: 'weather-deck',
+      workspaceId: 'ws-module',
     })
 
     const liveById = new Map(
@@ -1666,13 +1592,13 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
       liveById,
       new Map([
         ['exec-manual', 'manual'],
-        ['exec-sprintengine', 'sprintengine'],
+        ['exec-module', 'weather-deck'],
       ]),
       'getLiveAgentExecutionIds must return system-tagged entries for every live agent session, not a single-system id list'
     )
 
     manualPty.emitExit({ exitCode: 7 })
-    sprintEnginePty.emitExit({ exitCode: 0 })
+    modulePty.emitExit({ exitCode: 0 })
     await delay(20)
 
     const byExecution = new Map(events.map((event) => [event.executionId, event]))
@@ -1691,13 +1617,13 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
       'a manual session exit must fire the generic listener with the full system-tagged payload'
     )
     assert.deepEqual(
-      byExecution.get('exec-sprintengine'),
+      byExecution.get('exec-module'),
       {
-        system: 'sprintengine',
+        system: 'weather-deck',
         workspaceRoot,
-        workspaceId: 'ws-sprintengine',
-        agentId: 'exec-sprintengine',
-        executionId: 'exec-sprintengine',
+        workspaceId: 'ws-module',
+        agentId: 'exec-module',
+        executionId: 'exec-module',
         exitCode: 0,
       },
       'a second system must also fire the listener: filtering is the caller’s job, not the runtime’s'
@@ -1732,7 +1658,6 @@ async function assertResolveAgentExecutionIdMatchesLiveSession(
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -1804,7 +1729,6 @@ async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: Run
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -1855,13 +1779,6 @@ async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: Run
   }
 }
 
-// SprintEngine agents are no longer exempt from the idle reaper, AND the reaper
-// DISPOSES them (not suspend/freeze-the-view): dispose fires `agent.leave`,
-// which releases the agent's targets and resets it to `idle` (liveness is
-// derived, not stored — no `left`/`dead` status), leaving its retained
-// `lastOwnedTaskId` for the dispatch's ownership-keyed revival to respawn it
-// when work returns. A frozen-but-not-disposed sprint agent would instead break
-// the dispatch.
 // Durable freeze-the-view: a suspended agent's painted screen must survive an
 // app restart. Suspend writes a snapshot sidecar; quit (runtime shutdown) dumps
 // each live agent's raw retained stream; a fresh runtime — the terminals map is
@@ -1888,7 +1805,6 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
 
   const runtimeOptions = {
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     snapshotSidecars: sidecarStore,
   }
@@ -2075,7 +1991,6 @@ async function assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     snapshotSidecars: sidecarStore,
   })
@@ -2144,360 +2059,6 @@ async function assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule
   }
 }
 
-async function assertIdleSweepDisposesIdleSprintEngineAgent(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-idle-dispose-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const toolCalls: ToolCallInput[] = []
-  const reapDiagnostics: Array<{ message: string; sessionId?: string }> = []
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logDiagnostic: (diagnostic) => reapDiagnostics.push(diagnostic),
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => ({
-      ok: true,
-      managedSprintEngineRunId: 'idle-dispose-run',
-      runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'idle-dispose-token' },
-    }),
-    callManagedSprintEngineTool: async (input) => {
-      toolCalls.push(input)
-      return { ok: true }
-    },
-    releaseManagedSprintEngineRun: async () => undefined,
-  })
-
-  try {
-    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_sprint_idle',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      workspaceId: 'ws-sprint',
-      agentId: 'frontend-9',
-      cli: 'codex',
-      kind: 'agent',
-      shellOnly: false,
-      visible: false,
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-    assert.equal(result.ok, true, JSON.stringify(result))
-
-    // A hookless sprint agent (no lifecycle frame → phase null) is NOT reaped,
-    // even well past the threshold: a long autonomous turn has no keystrokes, and
-    // disposing it would drop its in-flight work. Only an AUTHORITATIVELY idle
-    // sprint agent is reapable.
-    const wellPastIdle = Date.now() + 30 * 60 * 1000 + 1_000
-    assert.deepEqual(
-      runtimeModule.runIdleAgentReapSweep(wellPastIdle),
-      [],
-      'a hookless (null-phase) sprint agent is protected from the reaper',
-    )
-    // The skip audit persists WHICH gate held a rested agent (once per hour).
-    assert.equal(reapDiagnostics.length, 1, 'a rested-but-held agent logs exactly one skip entry')
-    assert.ok(
-      reapDiagnostics[0].message.includes('in_active_run'),
-      `skip entry names the holding gate: ${reapDiagnostics[0].message}`,
-    )
-
-    // Now an authoritative `idle` hook frame marks it genuinely at-rest.
-    runtime.ingestAgentStateFrame({
-      type: 'agent_state',
-      agentId: 'frontend-9',
-      workspaceId: 'ws-sprint',
-      sessionId: null,
-      phase: 'idle',
-      event: null,
-      ts: Date.now(),
-    })
-
-    // Fresh after the frame: not yet past the threshold relative to going idle.
-    assert.deepEqual(runtimeModule.runIdleAgentReapSweep(Date.now()), [], 'a freshly-idle sprint agent is not reaped')
-
-    // While its run's dispatch loop is ACTIVELY running, the idle sprint agent is
-    // protected even past the threshold — active runs are owned by the claim-aware
-    // 5-min AutoRun retirement; disposing from here would race the dispatch.
-    runtimeModule.setActiveSprintRunStatePaths([sprintEngineStatePath])
-    assert.deepEqual(
-      runtimeModule.runIdleAgentReapSweep(wellPastIdle),
-      [],
-      'an idle sprint agent whose run is actively dispatching is protected',
-    )
-    // Same holding gate within the rate window: not re-logged (volume bound).
-    assert.equal(reapDiagnostics.length, 1, 'an unchanged hold within the hour is deduped')
-
-    // Once its run is no longer active (completed/stopped), the agent is
-    // reclaimable past the threshold (the parked-until-teardown gap this closes).
-    runtimeModule.setActiveSprintRunStatePaths([])
-    assert.deepEqual(
-      runtimeModule.runIdleAgentReapSweep(wellPastIdle),
-      ['session_sprint_idle'],
-      'an authoritatively-idle sprint agent of an INACTIVE run past the threshold is reaped',
-    )
-    // The reap ACTION is persisted alongside the in-memory ring buffer.
-    assert.equal(reapDiagnostics.length, 2, 'the reap action lands in the diagnostics trail')
-    assert.ok(
-      reapDiagnostics[1].message.includes('disposed a sprint agent'),
-      `action entry describes the dispose: ${reapDiagnostics[1].message}`,
-    )
-
-    mockPty.spawnCalls[0]?.process.emitExit({ exitCode: 0 })
-    await delay(20)
-
-    // Reclaimed by DISPOSE, not suspend: the session is gone (not frozen+retained).
-    assert.deepEqual(
-      await runtime.ipcHandlers.getTerminalStatus('session_sprint_idle'),
-      { processAlive: false, suspended: false },
-      'a reaped sprint agent is disposed (gone), not suspended (frozen + retained)',
-    )
-    assert.ok(
-      !runtime.ipcHandlers.listTerminals().some((session) => session.sessionId === 'session_sprint_idle'),
-      'a disposed sprint session is not retained in the terminal list',
-    )
-
-    // Dispose fired agent.leave, which marks the agent `left` so the dispatch
-    // revival path can bring it back when its role next has claimable work.
-    const leaveCalls = toolCalls.filter((call) => call.toolName === 'sprintengine.agent.leave')
-    assert.equal(leaveCalls.length, 1, 'disposing the idle sprint agent fires sprintengine.agent.leave (→ left → revivable)')
-    assert.equal(leaveCalls[0]?.arguments?.agentId, 'frontend-9')
-  } finally {
-    await runtime.shutdown()
-  }
-}
-
-async function assertSprintEngineAgentHeartbeatAndLeaveUseManagedMcp(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-liveness-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const toolCalls: ToolCallInput[] = []
-  const releasedRuns: ReleaseInput[] = []
-  const order: string[] = []
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => ({
-      ok: true,
-      managedSprintEngineRunId: 'liveness-run-1',
-      runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'liveness-token' },
-    }),
-    callManagedSprintEngineTool: async (input) => {
-      toolCalls.push(input)
-      order.push(input.toolName)
-      return { ok: true }
-    },
-    releaseManagedSprintEngineRun: async (input) => {
-      releasedRuns.push(input)
-      order.push('release')
-    },
-  })
-
-  try {
-    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_liveness',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      agentId: 'frontend-2',
-      cli: 'codex',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-    assert.equal(result.ok, true, JSON.stringify(result))
-
-    const heartbeats = await runtimeModule.sendSprintEngineAgentHeartbeats()
-    assert.deepEqual(heartbeats, ['frontend-2'])
-    assert.deepEqual(toolCalls[0], {
-      runId: 'liveness-run-1',
-      toolName: 'sprintengine.agent.heartbeat',
-      arguments: {
-        agentId: 'frontend-2',
-        role: 'frontend',
-      },
-    })
-
-    runtime.ipcHandlers.killTerminal('session_liveness')
-    mockPty.spawnCalls[0]?.process.emitExit({ exitCode: 0 })
-    await delay(20)
-
-    const leaveCalls = toolCalls.filter((call) => call.toolName === 'sprintengine.agent.leave')
-    assert.deepEqual(leaveCalls, [{
-      runId: 'liveness-run-1',
-      toolName: 'sprintengine.agent.leave',
-      arguments: {
-        agentId: 'frontend-2',
-        role: 'frontend',
-        reason: 'terminal disposed',
-      },
-    }])
-    assert.deepEqual(releasedRuns, [{
-      runId: 'liveness-run-1',
-      workspaceRoot,
-      clients: ['codex', 'claude-code'],
-      cleanupMcpConfig: true,
-    }])
-    assert.deepEqual(order, ['sprintengine.agent.heartbeat', 'sprintengine.agent.leave', 'release'])
-  } finally {
-    await runtime.shutdown()
-  }
-}
-
-async function assertSprintEngineShutdownWaitsForLeaveBeforeRelease(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-shutdown-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const releasedRuns: ReleaseInput[] = []
-  const order: string[] = []
-  let resolveLeave: (() => void) | undefined
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => ({
-      ok: true,
-      managedSprintEngineRunId: 'shutdown-run-1',
-      runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'shutdown-token' },
-    }),
-    callManagedSprintEngineTool: async (input) => {
-      order.push(input.toolName)
-      if (input.toolName === 'sprintengine.agent.leave') {
-        await new Promise<void>((resolve) => {
-          resolveLeave = resolve
-        })
-      }
-      return { ok: true }
-    },
-    releaseManagedSprintEngineRun: async (input) => {
-      releasedRuns.push(input)
-      order.push('release')
-    },
-  })
-
-  const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-    sessionId: 'session_shutdown_liveness',
-    cols: 120,
-    rows: 30,
-    cwd: workspaceRoot,
-    sprintEngineStatePath,
-    agentId: 'developer-1',
-    cli: 'codex',
-    kind: 'agent',
-    shellOnly: false,
-    mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-  })
-  assert.equal(result.ok, true, JSON.stringify(result))
-
-  const shutdown = runtime.shutdown()
-  mockPty.spawnCalls[0]?.process.emitExit({ exitCode: 0 })
-  await delay(20)
-  assert.deepEqual(releasedRuns, [], 'shutdown must not release the MCP run before agent.leave settles')
-
-  resolveLeave?.()
-  await shutdown
-  assert.deepEqual(releasedRuns, [{
-    runId: 'shutdown-run-1',
-    workspaceRoot,
-    clients: ['codex', 'claude-code'],
-    cleanupMcpConfig: true,
-  }])
-  assert.deepEqual(order, ['sprintengine.agent.leave', 'release'])
-}
-
-async function assertSprintEngineTeardownIsSessionObjectScoped(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprintengine-respawn-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const toolCalls: ToolCallInput[] = []
-  const releasedRuns: ReleaseInput[] = []
-  const leaveResolvers: Array<() => void> = []
-  let registrationCount = 0
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => {
-      registrationCount += 1
-      return {
-        ok: true,
-        managedSprintEngineRunId: `respawn-run-${registrationCount}`,
-        runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: `respawn-token-${registrationCount}` },
-      }
-    },
-    callManagedSprintEngineTool: async (input) => {
-      toolCalls.push(input)
-      if (input.toolName === 'sprintengine.agent.leave') {
-        await new Promise<void>((resolve) => {
-          leaveResolvers.push(resolve)
-        })
-      }
-      return { ok: true }
-    },
-    releaseManagedSprintEngineRun: async (input) => {
-      releasedRuns.push(input)
-    },
-  })
-
-  try {
-    const first = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_respawn',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      agentId: 'developer-1',
-      cli: 'codex',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-    assert.equal(first.ok, true, JSON.stringify(first))
-
-    runtime.ipcHandlers.killTerminal('session_respawn')
-    await delay(20)
-    assert.equal(leaveResolvers.length, 1)
-
-    const second = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_respawn',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      agentId: 'developer-1',
-      cli: 'codex',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-    assert.equal(second.ok, true, JSON.stringify(second))
-
-    runtime.ipcHandlers.killTerminal('session_respawn')
-    await delay(20)
-    assert.equal(leaveResolvers.length, 2, 'new session object with same id must get its own leave')
-
-    leaveResolvers.forEach((resolve) => resolve())
-    await delay(20)
-    assert.deepEqual(
-      toolCalls.filter((call) => call.toolName === 'sprintengine.agent.leave').map((call) => call.runId),
-      ['respawn-run-1', 'respawn-run-2']
-    )
-    assert.deepEqual(releasedRuns.map((run) => run.runId), ['respawn-run-1', 'respawn-run-2'])
-  } finally {
-    leaveResolvers.forEach((resolve) => resolve())
-    await runtime.shutdown()
-  }
-}
-
 async function assertTerminalReattachUsesReplayChannel(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-replay-'))
   mockPty.spawnCalls = []
@@ -2505,7 +2066,6 @@ async function assertTerminalReattachUsesReplayChannel(runtimeModule: RuntimeMod
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -2562,7 +2122,6 @@ async function assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeM
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -2629,7 +2188,6 @@ async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -2805,7 +2363,6 @@ async function assertRemoteFramesNeverExceedTheWireCap(runtimeModule: RuntimeMod
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -2884,523 +2441,6 @@ function createRecordingViewer(viewerId: string): {
   return viewer
 }
 
-async function assertSprintEngineSpawnReleasesUnusedRunWhenPtySpawnFails(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-release-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const releasedRuns: ReleaseInput[] = []
-  mockPty.spawnCalls = []
-  mockPty.spawnError = new Error('pty spawn failed')
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true, managedSprintEngineRunId: 'registered-run-failed-spawn' }),
-    releaseManagedSprintEngineRun: async (input) => {
-      releasedRuns.push(input)
-    },
-  })
-
-  try {
-    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_spawn_failure',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      agentId: 'developer-1',
-      cli: 'codex',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-
-    assert.equal(result.ok, false)
-    assert.deepEqual(releasedRuns, [{
-      runId: 'registered-run-failed-spawn',
-      workspaceRoot,
-      clients: ['codex', 'claude-code'],
-      cleanupMcpConfig: true,
-    }])
-    assert.equal(mockPty.spawnCalls.length, 0)
-  } finally {
-    mockPty.spawnError = null
-    await runtime.shutdown()
-  }
-}
-
-async function assertSprintEngineRunCleanupWaitsForLastTerminal(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-shared-run-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const releasedRuns: ReleaseInput[] = []
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => ({
-      ok: true,
-      managedSprintEngineRunId: 'shared-run-1',
-      runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'shared-run-token' },
-    }),
-    releaseManagedSprintEngineRun: async (input) => {
-      releasedRuns.push(input)
-    },
-  })
-
-  try {
-    for (const sessionId of ['session_shared_a', 'session_shared_b']) {
-      const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-        sessionId,
-        cols: 120,
-        rows: 30,
-        cwd: workspaceRoot,
-        sprintEngineStatePath,
-        agentId: sessionId === 'session_shared_a' ? 'developer-1' : 'reviewer-1',
-        cli: 'codex',
-        kind: 'agent',
-        shellOnly: false,
-        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-      })
-      assert.equal(result.ok, true, JSON.stringify(result))
-    }
-
-    runtime.ipcHandlers.killTerminal('session_shared_a')
-    assert.deepEqual(releasedRuns, [])
-    runtime.ipcHandlers.killTerminal('session_shared_b')
-    assert.deepEqual(releasedRuns, [{
-      runId: 'shared-run-1',
-      workspaceRoot,
-      clients: ['codex', 'claude-code'],
-      cleanupMcpConfig: true,
-    }])
-  } finally {
-    await runtime.shutdown()
-  }
-}
-
-async function assertSprintEngineConcurrentSpawnFailureKeepsReservedRun(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-reserved-run-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const releasedRuns: ReleaseInput[] = []
-  let secondSpawn: Promise<TerminalSpawnResult> | undefined
-  mockPty.spawnCalls = []
-  mockPty.spawnError = null
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => ({
-      ok: true,
-      managedSprintEngineRunId: 'reserved-shared-run',
-      runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'reserved-run-token' },
-    }),
-    releaseManagedSprintEngineRun: async (input) => {
-      releasedRuns.push(input)
-    },
-  })
-
-  try {
-    mockPty.beforeSpawn = () => {
-      mockPty.spawnError = new Error('second pty spawn failed')
-      secondSpawn = runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-        sessionId: 'session_reserved_failure',
-        cols: 120,
-        rows: 30,
-        cwd: workspaceRoot,
-        sprintEngineStatePath,
-        agentId: 'reviewer-1',
-        cli: 'codex',
-        kind: 'agent',
-        shellOnly: false,
-        mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-      })
-    }
-
-    const successfulFirst = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_reserved_success',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      agentId: 'developer-1',
-      cli: 'codex',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-    const failedSecond = await secondSpawn
-
-    assert.equal(successfulFirst.ok, true, JSON.stringify(successfulFirst))
-    assert.equal(failedSecond?.ok, false)
-    assert.deepEqual(releasedRuns, [], 'failed concurrent spawn must not release a run reserved by another launch')
-
-    runtime.ipcHandlers.killTerminal('session_reserved_success')
-    assert.deepEqual(releasedRuns, [{
-      runId: 'reserved-shared-run',
-      workspaceRoot,
-      clients: ['codex', 'claude-code'],
-      cleanupMcpConfig: true,
-    }])
-  } finally {
-    mockPty.spawnError = null
-    mockPty.beforeSpawn = null
-    await runtime.shutdown()
-  }
-}
-
-async function assertSprintEngineSpawnReportsThrownHttpMcpSetupFailureWithoutPtySpawn(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-thrown-setup-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const failureMessage = 'Timed out starting Sprint Engine MCP HTTP hub.'
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => {
-      throw new Error(failureMessage)
-    },
-  })
-
-  try {
-    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_thrown_setup_failure',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      agentId: 'developer-1',
-      cli: 'codex',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-    const failedSnapshot = runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'session_thrown_setup_failure')
-
-    assert.deepEqual(result, {
-      ok: false,
-      sessionId: 'session_thrown_setup_failure',
-      message: failureMessage,
-      exitCode: 1,
-    })
-    assert.equal(mockPty.spawnCalls.length, 0)
-    assert.deepEqual(failedSnapshot?.activity, {
-      kind: 'failed',
-      at: failedSnapshot?.activity.kind === 'failed' ? failedSnapshot.activity.at : undefined,
-      exitCode: 1,
-      message: failureMessage,
-    })
-  } finally {
-    await runtime.shutdown()
-  }
-}
-
-function assertSprintEngineLaunchMcpSettingsDerivation(runtimeModule: RuntimeModule): void {
-  const settings = createOptionalMcpSettings()
-
-  // A roster CLI outside a server's client list is added for the sprint
-  // launch: the sprint provisions whichever CLIs actually run in the worktree.
-  const cursorLaunch = runtimeModule.mcpSettingsForManagedSprintEngineLaunch(settings, 'cursor')
-  assert.equal(cursorLaunch.syncEnabled, true)
-  assert.deepEqual(cursorLaunch.servers.playwright?.clients, ['codex', 'claude-code', 'cursor'])
-  assert.deepEqual(cursorLaunch.servers.github?.clients, ['claude-code', 'cursor'])
-  assert.deepEqual(
-    settings.servers.playwright?.clients,
-    ['codex', 'claude-code'],
-    'derivation must not mutate app MCP settings'
-  )
-
-  // Sync toggled off: connectors stay known-but-disabled so stale managed
-  // entries are pruned, and only the managed Sprint Engine server is written.
-  const syncOff = runtimeModule.mcpSettingsForManagedSprintEngineLaunch(
-    { ...settings, syncEnabled: false },
-    'claude-code'
-  )
-  assert.equal(syncOff.syncEnabled, false)
-  assert.equal(syncOff.servers.playwright?.enabled, false)
-  assert.equal(syncOff.servers.github?.enabled, false)
-
-  // A server the user disabled stays disabled and keeps its client list.
-  const withDisabled = createOptionalMcpSettings()
-  withDisabled.servers.playwright = { ...withDisabled.servers.playwright!, enabled: false }
-  const disabledLaunch = runtimeModule.mcpSettingsForManagedSprintEngineLaunch(withDisabled, 'cursor')
-  assert.equal(disabledLaunch.servers.playwright?.enabled, false)
-  assert.deepEqual(disabledLaunch.servers.playwright?.clients, ['codex', 'claude-code'])
-  assert.equal(disabledLaunch.servers.github?.enabled, true)
-}
-
-function assertRegistrationRootDerivation(runtimeModule: RuntimeModule): void {
-  const root = join(tmpdir(), 'project-root')
-  const statePath = join(root, '.sprintengine', 'sprintengine', 'team', 'run.yaml')
-  const worktreeCwd = join(root, '.sprintengine', 'sprintengine', 'team', 'worktree')
-  assert.equal(
-    runtimeModule.deriveSprintEngineRegistrationRoot(statePath, worktreeCwd),
-    root,
-    'worktree launches register the project root (parent of .sprintengine), not the worktree cwd'
-  )
-  assert.equal(
-    runtimeModule.deriveSprintEngineRegistrationRoot(statePath, root),
-    root,
-    'standard launches keep registering the project root'
-  )
-  const exoticStatePath = join(tmpdir(), 'elsewhere', 'run.yaml')
-  assert.equal(
-    runtimeModule.deriveSprintEngineRegistrationRoot(exoticStatePath, root),
-    root,
-    'state paths outside a .sprintengine layout fall back to the launch cwd'
-  )
-}
-
-async function assertWorktreeSpawnRegistersProjectRootNotWorktreeCwd(runtimeModule: RuntimeModule): Promise<void> {
-  // Live-reproduced regression: a worktree-mode agent launches with
-  // cwd <root>/.sprintengine/sprintengine/<run>/worktree while run.yaml lives
-  // in that directory's parent. Registering the cwd as workspaceRoot and the
-  // sole allowed root made every worktree spawn fail run registration with
-  // HTTP 400 invalid_run_registration: statePath is outside allowedRoots.
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-worktree-'))
-  const runDir = join(workspaceRoot, '.sprintengine', 'sprintengine', 'v2-5-capture-everywhere')
-  const sprintEngineStatePath = join(runDir, 'run.yaml')
-  const worktreeCwd = join(runDir, 'worktree')
-  await mkdir(worktreeCwd, { recursive: true })
-  const syncInputs: SyncInput[] = []
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (input): Promise<SyncResult> => {
-      syncInputs.push(input)
-      return {
-        ok: true,
-        managedSprintEngineRunId: 'registered-run-worktree',
-        runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'run-token-worktree' },
-      }
-    },
-    releaseManagedSprintEngineRun: async () => undefined,
-  })
-
-  try {
-    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_worktree',
-      cols: 120,
-      rows: 30,
-      cwd: worktreeCwd,
-      sprintEngineStatePath,
-      agentId: 'architect',
-      cli: 'claude-code',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: true, servers: {} } satisfies McpSettings,
-    })
-
-    assert.equal(result.ok, true, JSON.stringify(result))
-    assert.equal(syncInputs.length, 1)
-    assert.equal(
-      syncInputs[0]?.workspaceRoot,
-      worktreeCwd,
-      'MCP config files still sync into the launch cwd (the worktree)'
-    )
-    assert.equal(
-      syncInputs[0]?.managedSprintEngine?.workspaceRoot,
-      workspaceRoot,
-      'run registration uses the project root so the statePath is inside it'
-    )
-    assert.deepEqual(
-      syncInputs[0]?.managedSprintEngine?.allowedRoots,
-      [workspaceRoot],
-      'allowed roots cover the run store and the worktree beneath the project root'
-    )
-    runtime.ipcHandlers.killTerminal('session_worktree')
-  } finally {
-    await runtime.shutdown()
-  }
-}
-
-async function assertMultiRepoSpawnAllowsEveryDeclaredProjectAndNothingElse(runtimeModule: RuntimeModule): Promise<void> {
-  // An agent working a task in a project the run declared must be able to reach that
-  // project's files; a project the run never declared stays outside its surface.
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-multi-repo-'))
-  const declared = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-declared-'))
-  const undeclared = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-undeclared-'))
-  const runDir = join(workspaceRoot, '.sprintengine', 'sprintengine', 'multi-repo')
-  const sprintEngineStatePath = join(runDir, 'run.yaml')
-  const worktreeCwd = join(runDir, 'worktree')
-  const mobileWorktreeCwd = join(runDir, 'worktree-mobile')
-  await mkdir(worktreeCwd, { recursive: true })
-  await mkdir(mobileWorktreeCwd, { recursive: true })
-  await writeFile(
-    join(runDir, 'projection.json'),
-    JSON.stringify({
-      run: {
-        vcs: {
-          mode: 'run_worktree',
-          repos: [
-            { id: 'primary', root: '.', worktreePath: relative(workspaceRoot, worktreeCwd), branchName: 'sprintengine/multi-repo' },
-            { id: 'mobile', root: relative(workspaceRoot, declared), worktreePath: relative(workspaceRoot, mobileWorktreeCwd), branchName: 'sprintengine/multi-repo' },
-          ],
-        },
-      },
-    }),
-    'utf-8'
-  )
-  const syncInputs: SyncInput[] = []
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (input): Promise<SyncResult> => {
-      syncInputs.push(input)
-      return {
-        ok: true,
-        managedSprintEngineRunId: 'registered-run-multi-repo',
-        runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'run-token-multi-repo' },
-      }
-    },
-    releaseManagedSprintEngineRun: async () => undefined,
-  })
-
-  try {
-    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_multi_repo',
-      cols: 120,
-      rows: 30,
-      cwd: worktreeCwd,
-      sprintEngineStatePath,
-      agentId: 'developer-1',
-      cli: 'claude-code',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: true, servers: {} } satisfies McpSettings,
-    })
-
-    assert.equal(result.ok, true, JSON.stringify(result))
-    const allowedRoots = syncInputs[0]?.managedSprintEngine?.allowedRoots ?? []
-    assert.deepEqual(
-      allowedRoots,
-      [workspaceRoot, realpathSync(declared)],
-      'allowed roots are exactly the projects the run declared: its own plus each declared sibling'
-    )
-    assert.ok(!allowedRoots.includes(undeclared), 'a project the run never declared is not authorized')
-    // MC-1613: the session's repo is bound from the worktree it launched in, so
-    // its `task.next` only ever offers work living in that tree.
-    assert.equal(
-      syncInputs[0]?.managedSprintEngine?.repo,
-      'primary',
-      'a session launched in the primary worktree binds to the primary repo'
-    )
-    runtime.ipcHandlers.killTerminal('session_multi_repo')
-
-    const mobileResult = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_multi_repo_mobile',
-      cols: 120,
-      rows: 30,
-      cwd: mobileWorktreeCwd,
-      sprintEngineStatePath,
-      agentId: 'developer-2',
-      cli: 'claude-code',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: true, servers: {} } satisfies McpSettings,
-    })
-    assert.equal(mobileResult.ok, true, JSON.stringify(mobileResult))
-    assert.equal(
-      syncInputs[1]?.managedSprintEngine?.repo,
-      'mobile',
-      'the same run spawning into the mobile worktree binds that session to the mobile repo'
-    )
-    runtime.ipcHandlers.killTerminal('session_multi_repo_mobile')
-  } finally {
-    await runtime.shutdown()
-    await rm(workspaceRoot, { recursive: true, force: true })
-    await rm(declared, { recursive: true, force: true })
-    await rm(undeclared, { recursive: true, force: true })
-  }
-}
-
-async function assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-success-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const order: string[] = []
-  const syncInputs: SyncInput[] = []
-  const releasedRuns: ReleaseInput[] = []
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (input): Promise<SyncResult> => {
-      order.push('sync')
-      syncInputs.push(input)
-      return {
-        ok: true,
-        managedSprintEngineRunId: 'registered-run-1',
-        runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'run-token-1' },
-      }
-    },
-    releaseManagedSprintEngineRun: async (input) => {
-      releasedRuns.push(input)
-    },
-  })
-
-  try {
-    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_success',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      agentId: 'developer-1',
-      cli: 'codex',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: true, servers: {} } satisfies McpSettings,
-    })
-
-    assert.equal(result.ok, true, JSON.stringify(result))
-    assert.deepEqual(order, ['sync'], JSON.stringify({ result, spawnCalls: mockPty.spawnCalls.length, sent: mockSender.sent }))
-    assert.equal(mockPty.spawnCalls.length, 1)
-    assert.equal(
-      (mockPty.spawnCalls[0]?.options.env as Record<string, string> | undefined)?.[MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR],
-      'run-token-1'
-    )
-    assert.equal(syncInputs.length, 1)
-    assert.deepEqual(syncInputs[0]?.clients, ['codex'])
-    assert.equal(syncInputs[0]?.workspaceRoot, workspaceRoot)
-    assert.equal(syncInputs[0]?.managedSprintEngine?.statePath, sprintEngineStatePath)
-    assert.equal(syncInputs[0]?.managedSprintEngine?.workspaceRoot, workspaceRoot)
-    assert.deepEqual(syncInputs[0]?.managedSprintEngine?.allowedRoots, [workspaceRoot])
-    assert.equal(syncInputs[0]?.managedSprintEngine?.agentId, 'developer-1')
-    assert.equal(syncInputs[0]?.managedSprintEngine?.role, 'developer')
-    assert.equal(syncInputs[0]?.managedSprintEngine?.cli, 'codex')
-    assert.equal((await runtime.ipcHandlers.getTerminalStatus('session_success')).processAlive, true)
-    assert.deepEqual(releasedRuns, [])
-    runtime.ipcHandlers.killTerminal('session_success')
-    assert.deepEqual(releasedRuns, [{
-      runId: 'registered-run-1',
-      workspaceRoot,
-      clients: ['codex', 'claude-code'],
-      cleanupMcpConfig: true,
-    }])
-  } finally {
-    await runtime.shutdown()
-  }
-}
-
 // Phase 2 of the Backlog item ↔ agent link: a launched agent terminal carries
 // its durable identity (workspaceId + agentId) and name as MULTICODE_* env vars
 // so a typed handoff can record the same link the drag-drop path writes. Only
@@ -3417,7 +2457,6 @@ async function assertAgentSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeMod
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
   })
@@ -3478,7 +2517,6 @@ async function assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule: Runti
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
   })
@@ -3582,7 +2620,6 @@ async function assertContextUsageFollowsStatusLineFrames(runtimeModule: RuntimeM
 
   const runtimeOptions = {
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     snapshotSidecars: sidecarStore,
   }
@@ -3743,7 +2780,6 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
 
   const runtimeOptions = {
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     snapshotSidecars: sidecarStore,
   }
@@ -4031,7 +3067,6 @@ async function assertAgentChangelistSeamsFire(runtimeModule: RuntimeModule): Pro
   const exited: Array<string | undefined> = []
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     onAgentLaunched: (session) => {
       launched.push({ agentId: session.agentId, agentName: session.agentName, cwd: session.cwd })
@@ -4252,7 +3287,6 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
   })
@@ -4408,8 +3442,8 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
   }
 }
 
-// The descriptor (SprintEngine) launch path must also expose the
-// agent's identity so the agent-state reporter can map hook frames to the
+// The descriptor launch path — a module spawning its own agent — must also
+// expose the agent's identity so the agent-state reporter can map hook frames to the
 // session: MULTICODE_AGENT_ID is set to the executionId (=== session.agentId),
 // and any stale id inherited by the app process is overridden.
 async function assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeModule): Promise<void> {
@@ -4422,7 +3456,6 @@ async function assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule: Runti
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
   })
@@ -4433,7 +3466,7 @@ async function assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule: Runti
       workspaceRoot,
       descriptor: {
         executionId: 'exec-desc-1',
-        system: 'sprintengine',
+        system: 'weather-deck',
         workId: 'work-1',
         role: 'developer',
         displayName: 'Dev One',
@@ -4465,7 +3498,6 @@ async function assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeMo
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     syncMcpConfig: async (input): Promise<SyncResult> => {
       syncInputs.push(input)
@@ -4488,7 +3520,6 @@ async function assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeMo
     assert.equal(result.ok, true, JSON.stringify(result))
     assert.equal(syncInputs.length, 1)
     assert.deepEqual(syncInputs[0]?.settings, mcpSettings)
-    assert.equal(syncInputs[0]?.managedSprintEngine, undefined)
     assert.equal(syncInputs[0]?.settings.servers.playwright?.enabled, true)
     assert.equal(mockPty.spawnCalls.length, 1)
   } finally {
@@ -4496,84 +3527,14 @@ async function assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeMo
   }
 }
 
-async function assertSprintEngineSpawnKeepsEnabledConnectorMcpSettings(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprint-mcp-filter-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const syncInputs: SyncInput[] = []
-  const mcpSettings = createOptionalMcpSettings()
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (input): Promise<SyncResult> => {
-      syncInputs.push(input)
-      return {
-        ok: true,
-        managedSprintEngineRunId: 'registered-run-filtered-mcp',
-        runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'filtered-run-token' },
-      }
-    },
-    releaseManagedSprintEngineRun: async () => undefined,
-  })
-
-  try {
-    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_sprint_optional_mcp',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      agentId: 'reviewer-1',
-      cli: 'claude-code',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings,
-    })
-
-    assert.equal(result.ok, true, JSON.stringify(result))
-    assert.equal(syncInputs.length, 1)
-    assert.deepEqual(syncInputs[0]?.clients, ['claude-code'])
-    assert.equal(syncInputs[0]?.settings.syncEnabled, true)
-    assert.equal(
-      syncInputs[0]?.settings.servers.playwright?.enabled,
-      true,
-      'sprint agents get the connectors the user enabled, not a stripped set'
-    )
-    assert.equal(syncInputs[0]?.settings.servers.github?.enabled, true)
-    assert.deepEqual(syncInputs[0]?.settings.servers.playwright?.clients, ['codex', 'claude-code'])
-    assert.equal(mcpSettings.servers.playwright?.enabled, true, 'launch filtering must not mutate app MCP settings')
-    assert.equal(syncInputs[0]?.managedSprintEngine?.statePath, sprintEngineStatePath)
-    assert.equal(syncInputs[0]?.managedSprintEngine?.agentId, 'reviewer-1')
-    assert.equal(syncInputs[0]?.managedSprintEngine?.cli, 'claude-code')
-    assert.equal(mockPty.spawnCalls.length, 1)
-    const spawnedEnv = mockPty.spawnCalls[0]?.options.env as Record<string, string> | undefined
-    assert.equal(
-      spawnedEnv?.[MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR],
-      'filtered-run-token'
-    )
-    assert.equal(spawnedEnv?.SPRINTENGINE_STATE_PATH, sprintEngineStatePath)
-    assert.ok(
-      (spawnedEnv?.PATH ?? '').includes('tool-bin'),
-      `sprintengine shim directory is on PATH: ${spawnedEnv?.PATH}`
-    )
-  } finally {
-    await runtime.shutdown()
-  }
-}
-
-async function assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule: RuntimeModule): Promise<void> {
+async function assertAgentSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-failure-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const failureMessage = 'MCP sync writer for format "generic" is not implemented yet; cannot launch a Sprint Engine agent.'
+  const failureMessage = 'MCP sync writer for format "generic" is not implemented yet; cannot launch an agent.'
   mockPty.spawnCalls = []
   mockSender.sent = []
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     syncMcpConfig: async (): Promise<SyncResult> => ({ ok: false, message: failureMessage }),
   })
@@ -4584,7 +3545,6 @@ async function assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeM
       cols: 120,
       rows: 30,
       cwd: workspaceRoot,
-      sprintEngineStatePath,
       agentId: 'developer-1',
       cli: 'codex',
       kind: 'agent',
@@ -4613,53 +3573,6 @@ async function assertSprintEngineSpawnReportsSyncFailureWithoutPtySpawn(runtimeM
         { channel: 'terminal:error:session_failure', payload: failureMessage },
         { channel: 'terminal:exit:session_failure', payload: 1 },
       ]
-    )
-  } finally {
-    await runtime.shutdown()
-  }
-}
-
-async function assertSprintEngineSpawnDerivesFallbackAgentIdBeforeMcpSync(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-missing-identity-'))
-  const sprintEngineStatePath = join(workspaceRoot, '.sprintengine', 'sprintengine', 'run.yaml')
-  const syncInputs: SyncInput[] = []
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (input): Promise<SyncResult> => {
-      syncInputs.push(input)
-      return {
-        ok: true,
-        managedSprintEngineRunId: 'registered-run-fallback',
-        runTokenEnv: { [MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR]: 'fallback-run-token' },
-      }
-    },
-  })
-
-  try {
-    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'session_missing_identity',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      sprintEngineStatePath,
-      cli: 'codex',
-      kind: 'agent',
-      shellOnly: false,
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-
-    assert.equal(result.ok, true, JSON.stringify(result))
-    assert.equal(syncInputs[0]?.managedSprintEngine?.agentId, 'session_missing_identity')
-    assert.equal(syncInputs[0]?.managedSprintEngine?.role, undefined)
-    assert.equal(mockPty.spawnCalls.length, 1)
-    assert.equal(
-      (mockPty.spawnCalls[0]?.options.env as Record<string, string> | undefined)?.[MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR],
-      'fallback-run-token'
     )
   } finally {
     await runtime.shutdown()
@@ -4769,7 +3682,6 @@ async function assertDebugModeEnsureInstallsDebugSkill(runtimeModule: RuntimeMod
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     ensureBuiltinSkillInstalled: async (root, skillId) => {
       ensureCalls.push({ workspaceRoot: root, skillId })
@@ -4822,7 +3734,6 @@ async function assertSpawnSkillInstallIsOrthogonalToMcpIsolation(
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     ensureBuiltinSkillInstalled: async (root, skillId) => {
       ensureCalls.push({ workspaceRoot: root, skillId })
@@ -4908,7 +3819,6 @@ async function assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-preflight-'))
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
 
@@ -4987,7 +3897,6 @@ async function assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-nocli-'))
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
   mockPty.spawnCalls = []
@@ -5085,7 +3994,6 @@ async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeM
 
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
     onPullRequestCaptured: (input) => record.noteCaptured(input),
   })
@@ -5203,7 +4111,6 @@ async function assertSpawnRefusesAgentCliWithoutAgentStateSpec(
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-nohooks-'))
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
   mockPty.spawnCalls = []

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
-import { getRendererHost, selectModuleEnabled } from './index'
-import { createSprintEngineTemplate } from './sprint-engine-workspace-types'
+import { getRendererHost } from './index'
+import { createRendererHost } from './renderer-host'
 import { collectWorkspaceTypeSupervisors } from './workspace-type-supervisors'
 import {
   AUTOMATIONS_DOOR_TARGET_KIND,
@@ -13,61 +13,20 @@ import {
 } from '../components/automations/runTarget'
 import type { DiagnosticLogInput } from '../types/workspace'
 import type { AutomationsRunEvent } from '../../../shared/automations/contracts'
-import type { LayoutTemplate, SprintEngineMockConfig } from '../types/workspace'
-
-const sprintEngineConfig: SprintEngineMockConfig = {
-  name: 'Sprint Engine',
-  goal: '',
-  roleCounts: {} as SprintEngineMockConfig['roleCounts'],
-}
-
-const expectedTemplates: Record<string, LayoutTemplate> = {
-  sprintengine: {
-    id: 'sprintengine-mode',
-    name: 'Sprint',
-    description: 'Inbox, Agents, and Tasks together in one stable board.',
-    previewSlots: [
-      { label: 'Sprint', x: 4, y: 4, w: 292, h: 102, type: 'editor' },
-    ],
-    layout: {
-      global: { tabSetEnableDrop: true, tabEnableClose: true },
-      borders: [],
-      layout: {
-        type: 'row',
-        children: [
-          {
-            type: 'tabset',
-            weight: 100,
-            children: [
-              { type: 'tab', name: 'Sprint', component: 'sprintengine', enableClose: false },
-            ],
-          },
-        ],
-      },
-    },
-  },
-}
-
-assert.deepEqual(createSprintEngineTemplate(sprintEngineConfig), expectedTemplates.sprintengine)
 
 const host = getRendererHost()
 
 assert.deepEqual(
   host.getWorkspaceTypes().map((definition) => definition.id),
-  ['sprintengine', 'automations-host'],
+  ['automations-host'],
   'bundled workspace types keep picker order; the review workspace type retired (MC-1708 — reviews are an instance-level surface), the roadmap type retired (MC-1692), and the guided-brief type retired with the Design Wizard (2026-09-08)',
 )
 assert.deepEqual(
-  host.getWorkspaceTypes((moduleId) => selectModuleEnabled({ 'sprint-engine': false }, moduleId)).map((definition) => definition.id),
-  ['automations-host'],
-  'disabling sprint-engine removes its workspace type',
-)
-assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'automations').map((definition) => definition.id),
-  ['sprintengine'],
+  [],
   'disabling the automations module removes the automations-host workspace type from the picker',
 )
-assert.equal(host.getWorkspaceTypeModule('sprintengine'), 'sprint-engine')
+assert.equal(host.getWorkspaceTypeModule('sprintengine'), undefined, 'the in-tree sprint workspace type retired with the engine')
 assert.equal(host.getWorkspaceTypeModule('review'), undefined, 'the review workspace type retired (MC-1708); the review module owns the instance-level Reviews surface + panel, not a workspace type')
 assert.equal(host.getWorkspaceTypeModule('roadmap'), undefined, 'the roadmap workspace type retired (MC-1692); the roadmap module owns the sidebar door, not a workspace type')
 assert.equal(host.getWorkspaceTypeModule('guided-brief'), undefined, 'the guided-brief workspace type retired with the Design Wizard (2026-09-08); its module id stays reserved but registers nothing')
@@ -82,7 +41,7 @@ assert.equal(host.getWorkspaceTypeModule('automations'), undefined, "the type id
 assert.equal(host.getWorkspaceType('automations-host')?.hiddenFromPicker, true, 'automations-host is hidden from the creation picker')
 
 assert.deepEqual(
-  ['sprintengine', 'automations-host'].map((id) => {
+  ['automations-host'].map((id) => {
     const definition = host.getWorkspaceType(id)
     assert.ok(definition, `expected ${id} registration`)
     return {
@@ -96,18 +55,6 @@ assert.deepEqual(
   }),
   [
     {
-      id: 'sprintengine',
-      moduleId: 'sprint-engine',
-      label: 'Sprint',
-      // The old sprint-card marketing line died with the wizard page (MC-2062);
-      // the rail row now describes the board, and selecting it opens the New
-      // sprint dialog rather than a wizard flow. There is no sprint creation
-      // flow, so the registration names no creationStepsId.
-      description: 'Inbox, Agents, and Tasks together in one stable board.',
-      accentToken: '--tool-sprintengine',
-      creationStepsId: undefined,
-    },
-    {
       id: 'automations-host',
       moduleId: 'automations',
       label: 'Automations',
@@ -119,36 +66,48 @@ assert.deepEqual(
   'registered metadata matches the existing mode picker and top-bar copy',
 )
 
-for (const [id, expectedTemplate] of Object.entries(expectedTemplates)) {
-  assert.deepEqual(host.getWorkspaceType(id)?.createTemplate(), expectedTemplate, `${id} template stays unchanged`)
+// Which of a type's supervisors a window mounts. `all-windows` mounts
+// everywhere; `global` mounts only on the window that owns the global ones, so
+// a single-instance watcher never runs twice. No bundled type contributes a
+// supervisor today — Automations mounts its observer directly — so the seam is
+// exercised against a type registered here.
+{
+  const supervisorHost = createRendererHost()
+  const Noop = () => null
+  supervisorHost.hostFor('tide-tables').registerWorkspaceType({
+    id: 'tide-tables',
+    label: 'Tide tables',
+    description: 'A workspace type registered for this check alone.',
+    icon: () => null,
+    createTemplate: () => ({
+      id: 'tide-tables',
+      name: 'Tide tables',
+      description: 'A workspace type registered for this check alone.',
+      previewSlots: [],
+      layout: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+    }),
+    supervisors: [
+      { scope: 'all-windows', Component: Noop },
+      { scope: 'global', Component: Noop },
+    ],
+  } as never)
+  const types = supervisorHost.getWorkspaceTypes()
+  assert.deepEqual(
+    collectWorkspaceTypeSupervisors(types, true).map((supervisor) => supervisor.key),
+    ['tide-tables:all-windows:0', 'tide-tables:global:1'],
+    'the window that owns the global supervisors mounts both',
+  )
+  assert.deepEqual(
+    collectWorkspaceTypeSupervisors(types, false).map((supervisor) => supervisor.key),
+    ['tide-tables:all-windows:0'],
+    'a secondary window mounts only the all-windows supervisors',
+  )
+  assert.deepEqual(
+    collectWorkspaceTypeSupervisors(getRendererHost().getWorkspaceTypes(), true),
+    [],
+    'no bundled workspace type contributes a supervisor',
+  )
 }
-
-const sprintType = host.getWorkspaceType('sprintengine')
-assert.equal(typeof sprintType?.createWorkspace, 'function', 'the type owns createWorkspace (New sprint dialog)')
-assert.equal(sprintType?.createLabel, 'New sprint', 'the type names its create control')
-assert.equal(typeof sprintType?.RowMark, 'function', 'the type ships a sidebar row mark')
-assert.equal(typeof sprintType?.hasOnDiskState, 'function', 'the type owns on-disk-state delete')
-assert.equal(sprintType?.rowActions?.map((action) => action.id).join(','), 'cancel-sprint', 'cancel sprint is a type row action')
-
-// Projection refresh and the quiesced-run change subscriber are the Sprint
-// Engine type's WorkspaceTypeDefinition.supervisors (all-windows). Auto-run
-// scheduling still lives in the main-process scheduler; these only keep this
-// window's bag projection current. Automations mounts its observer directly.
-assert.deepEqual(
-  host.getWorkspaceType('sprintengine')?.supervisors?.map((supervisor) => supervisor.scope),
-  ['all-windows', 'all-windows'],
-  'Sprint Engine contributes projection + run-change supervisors on every window',
-)
-assert.deepEqual(
-  collectWorkspaceTypeSupervisors(host.getWorkspaceTypes(), true).map((supervisor) => supervisor.key),
-  ['sprintengine:all-windows:0', 'sprintengine:all-windows:1'],
-  'primary windows mount the Sprint Engine all-windows supervisors',
-)
-assert.deepEqual(
-  collectWorkspaceTypeSupervisors(host.getWorkspaceTypes(), false).map((supervisor) => supervisor.key),
-  ['sprintengine:all-windows:0', 'sprintengine:all-windows:1'],
-  'secondary windows still mount all-windows Sprint Engine supervisors',
-)
 
 // The always-mounted observer's per-event decision. A timer
 // failed/blocked run yields a source-'automations' notification with a run

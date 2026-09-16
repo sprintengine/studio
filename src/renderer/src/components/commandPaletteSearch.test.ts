@@ -31,8 +31,8 @@ function run(name: string, body: () => void): void {
 
 run('workspaceKeywordsFromDefinition joins label + curated search terms', () => {
   assert.equal(
-    workspaceKeywordsFromDefinition({ label: 'Sprint Engine', searchTerms: ['roster', 'kanban'] }, 'sprintengine'),
-    'Sprint Engine roster kanban',
+    workspaceKeywordsFromDefinition({ label: 'Notebook', searchTerms: ['pages', 'kanban'] }, 'notebook'),
+    'Notebook pages kanban',
   )
 })
 
@@ -51,13 +51,13 @@ run('workspaceKeywordsFromDefinition falls back to the raw mode id when unregist
 const kanbanRow = {
   label: 'Switch to: API cleanup',
   description: '/Users/dev/work/acme-platform',
-  keywords: workspaceKeywordsFromDefinition({ label: 'Sprint Engine', searchTerms: ['roster', 'kanban', 'inbox'] }, 'sprintengine'),
+  keywords: workspaceKeywordsFromDefinition({ label: 'Notebook', searchTerms: ['pages', 'kanban', 'inbox'] }, 'notebook'),
 }
 
 run('commandMatchesQuery matches a mode search term carried in keywords', () => {
   assert.equal(commandMatchesQuery(kanbanRow, 'kanban'), true)
   assert.equal(commandMatchesQuery(kanbanRow, 'inbox'), true)
-  assert.equal(commandMatchesQuery(kanbanRow, 'sprint engine'), true)
+  assert.equal(commandMatchesQuery(kanbanRow, 'notebook'), true)
 })
 
 run('commandMatchesQuery matches on the visible name and folder path too', () => {
@@ -240,7 +240,7 @@ run('the visible name outranks every hidden field', () => {
   const inDetail = { label: 'Something else', description: 'deploy notes for the release' }
   assert.ok(scored(inName, 'deploy') > scored(inDetail, 'deploy'))
   assert.equal(scored(inDetail, 'deploy'), PALETTE_SCORE.detailPrefix)
-  assert.equal(scored({ label: 'x', keywords: 'kanban roster' }, 'roster'), PALETTE_SCORE.detailWord)
+  assert.equal(scored({ label: 'x', keywords: 'kanban pages' }, 'pages'), PALETTE_SCORE.detailWord)
 })
 
 run('no match scores zero, and that is exactly what the matcher reads', () => {

@@ -67,18 +67,18 @@ run('maps every known action kind to a sentence-case label', () => {
 
 run('reads an action label from the registered provider when one is supplied', () => {
   assert.equal(
-    actionLabel('sprint-engine-run', {
+    actionLabel('atlas-chart', {
       triggers: [],
       actions: [{
-        kind: 'sprint-engine-run',
-        moduleId: 'sprint-engine',
-        label: 'Run a sprint',
+        kind: 'atlas-chart',
+        moduleId: 'atlas',
+        label: 'Chart a project',
         configSchema: {},
         requiredIntegrations: [],
         missingIntegrations: [],
       }],
     }),
-    'Run a sprint',
+    'Chart a project',
   )
 })
 
@@ -87,8 +87,10 @@ run('falls back to the raw kind for an unknown third-party action', () => {
 })
 
 run('names the owning module when a saved kind has no registered provider', () => {
-  assert.match(missingProviderReason('sprint-engine-start', 'action'), /Sprint Engine module/)
-  assert.match(missingProviderReason('sprint-engine.run-landed', 'trigger'), /Sprint Engine module/)
+  // Two spellings of "which module owns this kind": the bundled-id prefix, and
+  // the dotted form any module may use.
+  assert.match(missingProviderReason('memory-graph-snapshot', 'action'), /Memory Graph module/)
+  assert.match(missingProviderReason('weather-deck.storm-warning', 'trigger'), /Weather Deck module/)
 })
 
 // --- Non-schedule trigger summaries (T2 AC#4) ------------------------------

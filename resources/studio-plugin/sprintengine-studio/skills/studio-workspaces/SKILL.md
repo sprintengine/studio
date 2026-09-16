@@ -35,7 +35,7 @@ holds. Read it before launching an agent on a worktree, because
 
 `agent_launch` with `{workspaceId}` adds a fully configured agent and starts its
 CLI through the same renderer flow the UI uses. It can select the model,
-permission preset, specialist and connector, and can isolate the agent in a git
+permission preset and connector, and can isolate the agent in a git
 worktree. Success is confirmed by the agent's terminal session registering with
 the main process — a call that returns success has a live session behind it.
 

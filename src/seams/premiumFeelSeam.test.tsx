@@ -1,4 +1,3 @@
-import { bindSprintEngineIpc } from '../renderer/src/modules/sprint-engine-ipc'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -487,12 +486,8 @@ async function main(): Promise<void> {
     platform: 'darwin',
     isDevelopment: false,
     isDiagnosticsEnabled: false,
-    // The sidebar's Sprints row reads the run index on mount. Empty, not
-    // refused: an empty machine is a real state, and a refusal here would test
-    // the sidebar's degraded path rather than the rail swap.
-    listSprintRuns: async () => [],
     // The tailnet/fleet presence bridge is ABSENT here, deliberately, rather
-    // than stubbed — the same ruling `sprintRowsLeaveProjects.test.tsx` records.
+    // than stubbed.
     // `hasTailnetPresenceBridge` (topbar/useTailnetPresence.ts) needs all six to
     // be functions and otherwise leaves the sidebar's Remote band empty. Without
     // this, the inert fallback answered `fleetListConnections()` with its
@@ -1206,7 +1201,6 @@ async function main(): Promise<void> {
     const { default: WorkspaceSidebar } = await import(
       '../renderer/src/components/workspace/WorkspaceSidebar'
     )
-    bindSprintEngineIpc(domWindow.api as never)
     const { ContextRailColumn, ContextRailSlotContext } = await import(
       '../renderer/src/components/workspace/globalSurface/contextRail'
     )

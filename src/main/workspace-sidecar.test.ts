@@ -37,15 +37,15 @@ run('a workspace that already has the new directory keeps it', () => {
 })
 
 // The fallback that keeps every workspace created before the rename working:
-// its worktrees, sprint runs and automation state are all under the old name
+// its worktrees, backlog cache and automation state are all under the old name
 // and nothing moves them.
 run('a workspace that only has the old directory keeps reading the old one', () => {
   const root = workspace('.multi-code')
   assert.equal(resolveWorkspaceSidecar(root).dirName, '.multi-code')
   assert.equal(workspaceSidecarRoot(root), join(root, '.multi-code'))
   assert.equal(
-    workspaceSidecarPath(root, 'sprintengine', 'alpha', 'run.yaml'),
-    join(root, '.multi-code', 'sprintengine', 'alpha', 'run.yaml'),
+    workspaceSidecarPath(root, 'automations', 'alpha', 'run.json'),
+    join(root, '.multi-code', 'automations', 'alpha', 'run.json'),
   )
 })
 

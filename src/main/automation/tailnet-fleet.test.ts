@@ -168,7 +168,6 @@ function remoteTools(): McpToolRegistration[] {
         },
       ],
     }),
-    tool('sprint.list', { runs: [{ slug: 'nightly', statePath: '.sprintengine/sprintengine/nightly/run.yaml' }] }),
     tool('workspace.checkout', {
       workspaceId: 'ws-1',
       git: true,
@@ -384,7 +383,7 @@ test('a link that is not a pairing link is refused before anything is dialled', 
 test('browsing a machine reads its workspaces and terminals', async () => {
   const harness = await startHarness()
   try {
-    const connectionId = await harness.pair(['workspace:read', 'sprint:read', 'terminal:control'])
+    const connectionId = await harness.pair(['workspace:read', 'backlog:read', 'terminal:control'])
     const browse = await harness.fleet.browse(connectionId)
     assert.equal(browse.reachable, true)
     assert.equal(browse.unauthorized, false)
@@ -399,9 +398,6 @@ test('browsing a machine reads its workspaces and terminals', async () => {
     assert.equal(browse.terminals[0].phase, 'working')
     assert.deepEqual(browse.gaps, [])
 
-    const runs = await harness.fleet.listRuns(connectionId, 'ws-1')
-    assert.ok(runs.ok)
-    assert.deepEqual(runs.runs.map((run) => run.slug), ['nightly'])
     // one-project-across-machines: the identity the remote served is kept,
     // and its absence is kept as null rather than invented.
     assert.equal(browse.workspaces.find((entry) => entry.id === 'ws-1')?.repository?.canonicalKey, 'github.com/acme/atlas')

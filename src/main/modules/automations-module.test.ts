@@ -26,12 +26,9 @@ import type { AutomationProviderPermissionChecker } from '../automations/provide
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { loadMainModules } from '../module-host/load-modules'
-import type { SprintCreateRequest, SprintCreateResult } from '../../shared/sprint-create'
 import {
   AgentLaunchServiceToken,
   AutomationsProviderRegistryToken,
-  SprintCreateServiceToken,
-  SprintEngineAutomationFrontDoorsToken,
   RepoTaskSourceFrontDoorsToken,
   TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
@@ -41,15 +38,7 @@ import {
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_EVENT_CHANNEL,
 } from '../../shared/automations/contracts'
-import { SPRINT_ENGINE_RUN_ACTION_KIND, SPRINT_ENGINE_START_ACTION_KIND, createSprintEngineRunActionProvider, createSprintEngineStartActionProvider } from '../automations/actions/sprint-engine'
 import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
-import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND, createSprintEngineRunLandedTriggerProvider } from '../automations/triggers/sprint-engine-run-landed'
-import {
-  SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
-  SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
-  createSprintEngineRunCompletedTriggerProvider,
-  createSprintEngineRunNeedsInputTriggerProvider,
-} from '../automations/triggers/sprint-engine-run-events'
 import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import { broadcastAutomationsRunEvent, createAutomationsModule } from './automations-module'
 
@@ -122,7 +111,6 @@ function createFakeTerminalRuntime(options: { liveExecutionIds?: string[] } = {}
 
 function fakeAgentRuntimeModule(options: {
   launchAgent?: (request: AgentLaunchRequest) => Promise<AgentLaunchResult>
-  createSprint?: (request: SprintCreateRequest) => Promise<SprintCreateResult>
   workspaceSnapshot?: unknown
   terminalRuntime?: unknown
 } = {}): CapabilityModule {
@@ -150,13 +138,6 @@ function fakeAgentRuntimeModule(options: {
         TerminalRuntimeToken,
         () => (options.terminalRuntime ?? createFakeTerminalRuntime().runtime) as never
       )
-      // Sprint creation is a main-process service since MC-2160, and the
-      // `sprint-engine-start` action is registered only when the module can
-      // resolve it — so the fake core must seed it or the module fails to load.
-      host.provideService(SprintCreateServiceToken, () => ({
-        createSprint: options.createSprint
-          ?? (async () => ({ ok: false, code: 'not_used', message: 'not used in module registration tests' })),
-      } as never))
       // Agent launch is its own main-process service since MC-2159; the module
       // resolves it separately.
       host.provideService(AgentLaunchServiceToken, () => ({
@@ -185,37 +166,6 @@ function fakeRepoTaskSourceModule(): CapabilityModule {
           tasks: [],
         }),
       }))
-    },
-  }
-}
-
-function fakeSprintEngineAutomationFrontDoorModule(): CapabilityModule {
-  return {
-    manifest: {
-      id: 'sprint-engine',
-      displayName: 'Sprint Engine',
-      version: 1,
-      defaultEnabled: true,
-      dependsOn: ['agent-runtime', 'automations'],
-    },
-    registerMain(host) {
-      const frontDoors = {
-        setRunnerMode: async () => ({ ok: true as const, data: {} }),
-        readProjection: async () => ({ ok: false as const, message: 'not used' }),
-        refreshPullRequestStatus: async () => ({ ok: true as const, data: {} }),
-        mergePullRequest: async () => ({ ok: true as const, data: {} }),
-      }
-      host.provideService(SprintEngineAutomationFrontDoorsToken, () => frontDoors)
-      const registry = host.requireService(AutomationsProviderRegistryToken)
-      registry.registerActionProvider(host.moduleId, createSprintEngineRunActionProvider(frontDoors))
-      registry.registerTriggerProvider(host.moduleId, createSprintEngineRunLandedTriggerProvider(frontDoors))
-      registry.registerTriggerProvider(host.moduleId, createSprintEngineRunNeedsInputTriggerProvider(frontDoors))
-      registry.registerTriggerProvider(host.moduleId, createSprintEngineRunCompletedTriggerProvider(frontDoors))
-      const sprintCreate = host.requireService(SprintCreateServiceToken)
-      registry.registerActionProvider(
-        host.moduleId,
-        createSprintEngineStartActionProvider({ createSprint: (request) => sprintCreate.createSprint(request) })
-      )
     },
   }
 }
@@ -639,7 +589,7 @@ async function testAgentExitListenerRoutesExitsAndWiresLiveExecutions(): Promise
     executionId: 'exec-live-1',
     exitCode: 0,
   })
-  await terminal.emitExit({ system: 'sprintengine', workspaceRoot: '/repo', executionId: 'exec-x', exitCode: 7 })
+  await terminal.emitExit({ system: 'weather-deck', workspaceRoot: '/repo', executionId: 'exec-x', exitCode: 7 })
   assert.deepEqual(captured.engine?.agentExitCalls, [
     { executionId: 'exec-live-1', workspaceId: 'ws-1', agentId: 'agent-1', exitCode: 0 },
     { executionId: 'exec-x', workspaceId: undefined, agentId: undefined, exitCode: 7 },
@@ -785,7 +735,6 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
     modules: [
       fakeAgentRuntimeModule(),
       fakeRepoTaskSourceModule(),
-      fakeSprintEngineAutomationFrontDoorModule(),
       createAutomationsModule(),
     ],
   })
@@ -805,9 +754,6 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
       'schedule',
       WEBHOOK_TRIGGER_KIND,
       REPO_EVENT_TRIGGER_KIND,
-      SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
-      SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
-      SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
     ]
   )
   assert.deepEqual(
@@ -816,7 +762,7 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
   )
   assert.deepEqual(
     providers.value.actions.map((provider) => provider.kind),
-    ['spawn-agent', 'run-skill-loop', SPRINT_ENGINE_RUN_ACTION_KIND, SPRINT_ENGINE_START_ACTION_KIND]
+    ['spawn-agent', 'run-skill-loop']
   )
   assert.deepEqual(
     providers.value.actions.flatMap((provider) => provider.missingIntegrations),

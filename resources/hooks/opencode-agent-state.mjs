@@ -464,18 +464,16 @@ function extractPullRequestUrl(output, depth = 0) {
 /**
  * The pull request one `tool.execute.after` opened, or null. Gated on the tool
  * and its ARGUMENTS first — the bash tool running a command containing
- * `gh pr create`, or an MCP tool whose name ends in `vcs_pr` (the sprint tool) —
- * so an ordinary `cat` of a file that happens to hold a pull request URL
- * captures nothing. `gh pr view` and `gh pr list` do not match the literal.
+ * `gh pr create` — so an ordinary `cat` of a file that happens to hold a pull
+ * request URL captures nothing. `gh pr view` and `gh pr list` do not match the
+ * literal.
  */
 function derivePullRequest(toolName, args, output) {
   const tool = typeof toolName === 'string' ? toolName.trim().toLowerCase() : ''
-  if (!PULL_REQUEST_TOOL_NAMES.has(tool) && !tool.endsWith('vcs_pr')) return null
-  if (PULL_REQUEST_TOOL_NAMES.has(tool)) {
-    const input = isPlainObject(args) ? args : {}
-    const command = typeof input.command === 'string' ? input.command : null
-    if (!command || !GH_PR_CREATE_RE.test(command)) return null
-  }
+  if (!PULL_REQUEST_TOOL_NAMES.has(tool)) return null
+  const input = isPlainObject(args) ? args : {}
+  const command = typeof input.command === 'string' ? input.command : null
+  if (!command || !GH_PR_CREATE_RE.test(command)) return null
   const url = extractPullRequestUrl(output)
   return url ? { url } : null
 }

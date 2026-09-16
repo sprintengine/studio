@@ -136,8 +136,7 @@ export function applyWorkspaceFieldsPatch(record: Record<string, unknown>, patch
 /**
  * The registry fields a user edits through `workspace.update_fields`. An absent
  * key means "this window has no opinion" and never clears main's copy; an
- * explicit `null` is a tombstone meaning "the user cleared this" — the same
- * distinction `SprintRuntimeAgentConfig` already draws.
+ * explicit `null` is a tombstone meaning "the user cleared this".
  */
 export type WorkspaceFieldsPatch = {
   folderPath?: string | null

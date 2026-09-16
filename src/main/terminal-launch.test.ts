@@ -5,8 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { buildHostContextDocument } from '../shared/host-context/document'
-import { buildSpecialistDirectiveStartupPrompt, getSpecialistAction } from '../shared/specialists/specialist-actions'
-import { readRoleBrief } from './role-brief'
 import {
   OSC7_BASH_PROMPT_COMMAND,
   applyAgentIdentityEnv,
@@ -49,8 +47,6 @@ async function main(): Promise<void> {
   testPromptModeWritesNoFileAndWrapsTheRequest()
   testPromptModeLeavesAnEmptyComposerAlone()
   testWslAndWindowsNormalizeTheContextPaths()
-  testSpecialistSpawnCarriesRoleInHostContextNotThePrompt()
-  testEmptyPackEmitsNoRoleSection()
   await testCleanupRemovesAFileOrAPluginDirectory()
   testWindowsPowerShellHandsTheExeEveryArgumentIntact()
   testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning()
@@ -333,88 +329,6 @@ function testPromptModeLeavesAnEmptyComposerAlone(): void {
   const prompt = delivery({ mode: 'prompt', filePath: null })
   assert.equal(applyHostContextToPrompt(prompt, undefined), undefined)
   assert.equal(applyHostContextToPrompt(prompt, '   '), '   ')
-}
-
-function testSpecialistSpawnCarriesRoleInHostContextNotThePrompt(): void {
-  // resolveHostContextDelivery looks up the CLI plugin (needs Electron). This
-  // test composes the same Role input that function passes to the document
-  // builder — a workspace-local skill, never a bundled last-layer pointer.
-  const workspace = mkdtempSync(join(tmpdir(), 'host-context-role-'))
-  try {
-    const skillDir = join(workspace, '.claude', 'skills', 'architect')
-    mkdirSync(skillDir, { recursive: true })
-    writeFileSync(
-      join(skillDir, 'SKILL.md'),
-      [
-        '---',
-        'name: architect',
-        'description: Use when planning.',
-        'metadata:',
-        '  sprintengine-role: architect',
-        '  role-label: Architect',
-        '---',
-        'Plan first.\n',
-      ].join('\n'),
-      'utf8',
-    )
-
-    const brief = readRoleBrief(workspace, 'architect')
-    assert.equal(brief.ok, true)
-    assert.equal(brief.ok ? brief.workspaceRel : null, '.claude/skills/architect/SKILL.md')
-    const document = brief.ok && brief.workspaceRel
-      ? buildHostContextDocument({ role: { id: brief.roleId, skillPath: brief.workspaceRel } })
-      : null
-    assert.ok(document)
-    assert.match(document ?? '', /## Role/)
-    assert.match(document ?? '', /`architect` role/)
-    assert.match(document ?? '', /`.claude\/skills\/architect\/SKILL\.md`/)
-
-    const hosted: HostContextDelivery = { mode: 'prompt', document, filePath: null }
-    assert.equal(
-      applyHostContextToPrompt(hosted, undefined),
-      undefined,
-      'interactive specialist waits; role is not the first user prompt',
-    )
-
-    const headlessPrompt = buildSpecialistDirectiveStartupPrompt(
-      getSpecialistAction('architect'),
-      'Draft the plan.',
-    )
-    assert.match(headlessPrompt, /autonomous run/)
-    assert.match(headlessPrompt, /Draft the plan\./)
-    assert.doesNotMatch(headlessPrompt, /acting as the/)
-    assert.doesNotMatch(headlessPrompt, /## Role/)
-
-    const missing = readRoleBrief(workspace, 'qa-test')
-    assert.equal(missing.ok, false)
-    assert.ok(
-      !(buildHostContextDocument({}) ?? '').includes('## Role'),
-      'a missing role produces no section',
-    )
-  } finally {
-    rmSync(workspace, { recursive: true, force: true })
-  }
-}
-
-function testEmptyPackEmitsNoRoleSection(): void {
-  // No roles installed: readRoleBrief is the missing-role state, and the
-  // host-context document emits no ## Role — the same gate resolveRoleHostContext
-  // uses (owner ruling 2026-09-08).
-  const workspace = mkdtempSync(join(tmpdir(), 'host-context-empty-pack-'))
-  try {
-    const brief = readRoleBrief(workspace, 'architect')
-    assert.equal(brief.ok, false)
-    if (brief.ok) return
-    assert.match(brief.message, /no workflow roles are installed/)
-    // resolveRoleHostContext returns undefined when !brief.ok, so the document
-    // is built with no role input — the same path a specialist launch takes.
-    assert.ok(
-      !(buildHostContextDocument({}) ?? '').includes('## Role'),
-      'an empty pack emits no Role section',
-    )
-  } finally {
-    rmSync(workspace, { recursive: true, force: true })
-  }
 }
 
 // The document names the design-system folder absolutely and the file itself is

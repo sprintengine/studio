@@ -1,7 +1,7 @@
 {
   "name": "sprintengine-studio",
   "version": "0.4.0",
-  "description": "Agent-first desktop IDE and sprint command centre that runs coding agent CLIs across parallel workspaces.",
+  "description": "Agent-first desktop IDE that runs coding agent CLIs across parallel workspaces.",
   "author": "Conal Smith",
   "license": "MIT",
   "private": true,

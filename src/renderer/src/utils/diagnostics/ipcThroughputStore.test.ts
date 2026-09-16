@@ -33,7 +33,7 @@ run('diffs monotonic counters into per-second rates', () => {
 run('first snapshot (no prev) yields zero rates, not NaN', () => {
   const current: IpcStatsSnapshot = {
     sampledAt: NOW,
-    channels: [{ name: 'readSprintEngineProjection', calls: 5, outBytes: 100, inEvents: 0, inBytes: 0 }],
+    channels: [{ name: 'readBacklogScan', calls: 5, outBytes: 100, inEvents: 0, inBytes: 0 }],
   }
   const throughput = diffIpcSnapshots(null, current)
   assert.equal(throughput.channels[0].callsPerSec, 0)

@@ -43,7 +43,7 @@ const SECONDS_AGO_30 = new Date(Date.now() - 30_000).toISOString()
 const DEVICE = {
   id: 'tnd_1',
   name: 'DESKTOP-A1B2C3D',
-  scopes: ['workspace:read', 'workspace:operate', 'sprint:read', 'sprint:operate', 'backlog:read', 'backlog:operate'],
+  scopes: ['workspace:read', 'workspace:operate', 'backlog:read', 'backlog:operate'],
   createdAt: '2026-09-01T09:00:00.000Z',
   lastSeenAt: SECONDS_AGO_30,
   lastPeerNode: 'desktop-a1b2c3d.example.ts.net',
@@ -202,7 +202,7 @@ run('the tab is a header, one switch, and one list of machines', async () => {
   assert.equal(host.querySelectorAll('[data-machine]').length, 3, 'this machine, the paired desktop, the phone')
   assert.match(markup, /This device/, 'the self row carries the chip')
   assert.match(markup, /Windows/)
-  assert.match(markup, /6 scopes/, 'the scope count is the row’s one link')
+  assert.match(markup, /4 scopes/, 'the scope count is the row’s one link')
   assert.match(markup, /Live/)
   // Never the word "offline": an asleep machine is not in an error state.
   assert.doesNotMatch(markup, /Offline/)
@@ -214,7 +214,7 @@ run('the tab is a header, one switch, and one list of machines', async () => {
 
 run('the scopes popover names what is missing, and Grant widens the device', async () => {
   const { host, unmount } = await mount()
-  const trigger = buttonNamed(host, /^6 scopes$/)
+  const trigger = buttonNamed(host, /^4 scopes$/)
   assert.ok(trigger, 'the count is a button')
   await act(async () => {
     trigger?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -242,8 +242,6 @@ run('the scopes popover names what is missing, and Grant widens the device', asy
   assert.deepEqual(bridge.scopeCalls.at(-1)?.scopes, [
     'workspace:read',
     'workspace:operate',
-    'sprint:read',
-    'sprint:operate',
     'backlog:read',
     'backlog:operate',
     'terminal:observe',
@@ -278,14 +276,14 @@ run('Pair a device opens the modal, and Create link mints the chosen set', async
   assert.match(text, /Pair a device/)
   assert.match(text, /Read only/)
   assert.match(text, /Standard/)
-  // All eight rows, named for what they reveal.
+  // Every row, named for what it reveals.
   assert.match(text, /Watch chats & terminals/)
   assert.match(text, /Drive chats & terminals/)
   assert.match(text, /Arbitrary shell on this machine/)
-  assert.equal(dialog?.querySelectorAll('input[type="checkbox"]').length, 8)
+  assert.equal(dialog?.querySelectorAll('input[type="checkbox"]').length, 6)
   // Standard is the default preset, terminal:control included (owner ruling
   // 2026-09-10) — so every box is ticked when the dialog opens.
-  assert.equal(dialog?.querySelectorAll('input[type="checkbox"]:checked').length, 8)
+  assert.equal(dialog?.querySelectorAll('input[type="checkbox"]:checked').length, 6)
 
   const create = [...dom.window.document.body.querySelectorAll('button')].find(
     (button) => (button.textContent ?? '').trim() === 'Create link'
@@ -296,8 +294,6 @@ run('Pair a device opens the modal, and Create link mints the chosen set', async
   assert.deepEqual(bridge.offerCalls.at(-1), [
     'workspace:read',
     'workspace:operate',
-    'sprint:read',
-    'sprint:operate',
     'backlog:read',
     'backlog:operate',
     'terminal:observe',

@@ -2,14 +2,8 @@ import assert from 'node:assert/strict'
 
 import type { LayoutTemplate, Workspace, WorkspaceWindowState } from '../../types/workspace'
 import { getEditorBuffer } from '../../utils/editorBuffers'
-import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
-import { bindSprintEngineRunStore, useSprintEngineRunStore } from '../../modules/sprint-engine-run-store'
 import { applySoloChatSeed, normalizeWorkspaceMode, workspaceFolderKey } from './workspacesSlice'
-
-bindSprintEngineRunStore((recipe) => {
-  useWorkspaceStore.setState(recipe as never)
-})
 
 const standardTemplate: LayoutTemplate = {
   id: 'standard-test',
@@ -63,7 +57,7 @@ assert.equal(normalizeWorkspaceMode('automations-host'), 'automations-host')
 assert.equal(normalizeWorkspaceMode(''), 'standard')
 assert.equal(normalizeWorkspaceMode('   '), 'standard')
 assert.equal(normalizeWorkspaceMode(null), 'standard')
-assert.equal(normalizeWorkspaceMode('standard', { goal: 'ship' } as never), 'sprintengine')
+assert.equal(normalizeWorkspaceMode(undefined), 'standard')
 
 const store = useWorkspaceStore.getState()
 const firstId = store.addWorkspace(standardTemplate, {
@@ -101,7 +95,7 @@ assert.deepEqual(state.appSettings.recentWorkspaceFolders, [
 assert.equal(state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.cli, 'claude-code')
 // A generic template tab label ("Agent") is a slot placeholder, never an
 // identity: the seeded general agent gets a real picked name, like a
-// specialist. The layout tab renames itself to agent.name on render.
+// picked name. The layout tab renames itself to agent.name on render.
 const soloDevAgentName =
   state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.name ?? ''
 assert.notEqual(soloDevAgentName, 'Agent')
@@ -433,119 +427,6 @@ assert.notEqual(secondFolderHostId, firstHostId)
 useWorkspaceStore.getState().removeWorkspace(firstHostId)
 useWorkspaceStore.getState().removeWorkspace(secondFolderHostId)
 
-const runtimeChoiceState = createInitialSprintEngineState({
-  name: 'Runtime Choice Team',
-  goal: 'Preserve agent runtime choices.',
-  // Legacy count > 1 collapses to the enabled set (MC-1450): one roster agent
-  // per enabled role; same-role capacity grows on demand at run time.
-  roleCounts: { architect: 1, developer: 2 },
-})
-const sprintEngineId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-  name: 'Runtime Choice Team',
-  folderPath: '/Users/example/runtime-choice',
-  sprintEngineModule: {
-    state: runtimeChoiceState,
-    roleCliDefaults: {
-      architect: 'claude-code',
-      developer: 'claude-code',
-    },
-  },
-  sprintEngineAgentCliOverrides: {
-    'developer-1': 'codex',
-  },
-})
-state = useWorkspaceStore.getState()
-const sprintEngineWorkspace = state.workspaces.find((workspace) => workspace.id === sprintEngineId)
-// Lazy roster: creation seeds only the architect. Worker seats — and their
-// per-agent CLI overrides — are minted on demand at run time, never here.
-assert.deepEqual(
-  Object.keys(sprintEngineWorkspace?.agents ?? {}),
-  ['architect'],
-  'no worker seat is materialized at creation under the lazy roster (task-scoped ids)',
-)
-assert.equal(sprintEngineWorkspace?.agents.architect?.cli, 'claude-code')
-assert.equal(
-  sprintEngineWorkspace?.sprintEngineInitialSpawnAgentIds,
-  undefined,
-  'no launch intent is recorded when no roles are marked spawn-at-start',
-)
-
-// Lazy roster: only the architect seeds, so a spawn-at-start role that is not
-// the architect materializes no seat and records no launch intent. Worker model
-// overrides ride run.yaml `roleRuntimes` and apply when the worker is minted.
-const launchIntentState = createInitialSprintEngineState({
-  name: 'Launch Intent Team',
-  goal: 'Preserve roster launch intent.',
-  roleCounts: { architect: 1, developer: 1, frontend: 1 },
-})
-const launchIntentId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-  name: 'Launch Intent Team',
-  folderPath: '/Users/example/launch-intent',
-  sprintEngineModule: {
-    state: launchIntentState,
-    roleCliDefaults: {
-      architect: 'claude-code',
-      developer: 'claude-code',
-      frontend: 'codex',
-    },
-  },
-  sprintEngineRoleModelOverrides: {
-    developer: 'sonnet-test-model',
-    frontend: null,
-  },
-  sprintEngineInitialSpawnRoles: ['frontend'],
-})
-state = useWorkspaceStore.getState()
-const launchIntentWorkspace = state.workspaces.find((workspace) => workspace.id === launchIntentId)
-assert.deepEqual(
-  Object.keys(launchIntentWorkspace?.agents ?? {}),
-  ['architect'],
-  'enabled worker roles do not seed at creation; only the architect does',
-)
-assert.equal(
-  launchIntentWorkspace?.sprintEngineInitialSpawnAgentIds,
-  undefined,
-  'a non-architect spawn-at-start role materializes no seat, so no launch intent is recorded',
-)
-
-// When the architect is marked spawn-at-start it is the only seat materialized,
-// even if the wizard also names worker/reviewer roles that no longer seed.
-const architectLaunchState = createInitialSprintEngineState({
-  name: 'Architect Launch Team',
-  goal: 'Launch the architect at open.',
-  roleCounts: { architect: 1, developer: 1, tester: 1 },
-})
-const architectLaunchId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-  name: 'Architect Launch Team',
-  folderPath: '/Users/example/architect-launch',
-  sprintEngineModule: {
-    state: architectLaunchState,
-    roleCliDefaults: {
-      architect: 'claude-code',
-      developer: 'claude-code',
-      tester: 'claude-code',
-    },
-  },
-  sprintEngineInitialSpawnRoles: ['architect', 'developer', 'tester'],
-})
-assert.deepEqual(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === architectLaunchId)
-    ?.sprintEngineInitialSpawnAgentIds,
-  ['architect'],
-  'only the architect seat is materialized from spawn-at-start intent',
-)
-// Consumed atomically — one spawn pass clears the intent.
-assert.deepEqual(
-  useSprintEngineRunStore.getState().consumeSprintEngineInitialSpawns(architectLaunchId, ['architect']),
-  ['architect'],
-)
-assert.equal(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === architectLaunchId)
-    ?.sprintEngineInitialSpawnAgentIds,
-  undefined,
-  'consuming the architect clears all remaining launch intent',
-)
-
 // A second workspace in the same folder inserts directly above the first
 // (top of that folder's block), not at the global head and not at the tail.
 const blockFolder = '/Users/example/insert-order'
@@ -793,9 +674,9 @@ const firstTab = (ws: Workspace | undefined): SeededTab | undefined => {
   return found
 }
 
-// Specialist seed: the lone agent record is initialized as a specialist and the
-// lone layout tab is renamed, all at creation time.
-const specialistChatId = useWorkspaceStore.getState().addWorkspace(soloDevTemplate, {
+// Named seed: the lone agent record takes the patch and the lone layout tab is
+// renamed, all at creation time.
+const namedChatId = useWorkspaceStore.getState().addWorkspace(soloDevTemplate, {
   folderPath: '/Users/example/seed',
   templateAgentCli: 'codex',
   seedAgent: {
@@ -803,21 +684,17 @@ const specialistChatId = useWorkspaceStore.getState().addWorkspace(soloDevTempla
     agentPatch: {
       name: 'Ada',
       cli: 'codex',
-      kind: 'specialist',
-      specialistId: 'architect',
-      cliStartupPrompt: 'SOUL_PROMPT',
+      cliStartupPrompt: 'START_PROMPT',
     },
   },
 })
 state = useWorkspaceStore.getState()
-const specialistChat = state.workspaces.find((workspace) => workspace.id === specialistChatId)
-assert.equal(specialistChat?.agents['agent-1']?.kind, 'specialist')
-assert.equal(specialistChat?.agents['agent-1']?.specialistId, 'architect')
-assert.equal(specialistChat?.agents['agent-1']?.cli, 'codex')
-assert.equal(specialistChat?.agents['agent-1']?.name, 'Ada')
-assert.equal(specialistChat?.agents['agent-1']?.cliStartupPrompt, 'SOUL_PROMPT')
-assert.equal(firstTab(specialistChat)?.component, 'agent')
-assert.equal(firstTab(specialistChat)?.name, 'Ada')
+const namedChat = state.workspaces.find((workspace) => workspace.id === namedChatId)
+assert.equal(namedChat?.agents['agent-1']?.cli, 'codex')
+assert.equal(namedChat?.agents['agent-1']?.name, 'Ada')
+assert.equal(namedChat?.agents['agent-1']?.cliStartupPrompt, 'START_PROMPT')
+assert.equal(firstTab(namedChat)?.component, 'agent')
+assert.equal(firstTab(namedChat)?.name, 'Ada')
 
 // Conversation seed: runtime patch lands on the lone agent record.
 const conversationChatId = useWorkspaceStore.getState().addWorkspace(soloDevTemplate, {
@@ -877,48 +754,6 @@ assert.equal(remoteTab?.id, 'fleet-terminal:conn-1:session%20two')
 assert.equal(remoteTab?.name, 'Air · Rook')
 assert.deepEqual(remoteTab?.config, { connectionId: 'conn-1', machineName: 'Air', remoteSessionId: 'session two' })
 assert.equal(firstTab({ layoutModel: seedSource } as never)?.component, 'agent', 'the source template is never mutated')
-
-// Regression: a Sprint Engine roster role missing from the CLI-defaults map
-// must NOT throw in addWorkspace. addWorkspace runs AFTER
-// initializeSprintEngineState has already written run.yaml and (in worktree
-// mode) created the git worktree+branch, so a throw orphaned a real on-disk run
-// with no workspace — observed with plans whose roster included a custom role
-// (which was absent from the defaults map). An open-ended/custom role
-// (SprintEngineRoleId is `string`) falls back to the team's architect CLI
-// instead of aborting creation.
-const openRoleState = createInitialSprintEngineState({
-  name: 'Open Role Team',
-  goal: 'Roster includes roles outside the CLI-defaults map.',
-  roleCounts: { architect: 1, growth_engineer: 1, qa_lead: 1 },
-})
-let openRoleId: string | undefined
-assert.doesNotThrow(() => {
-  openRoleId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
-    name: 'Open Role Team',
-    folderPath: '/Users/example/open-role',
-    sprintEngineModule: {
-      state: openRoleState,
-      // Deliberately supply only the architect default; the custom growth_engineer
-      // and qa_lead roles are left to the fallback respectively.
-      roleCliDefaults: { architect: 'codex' },
-    },
-  })
-}, 'a roster role missing from the CLI-defaults map never throws in addWorkspace')
-state = useWorkspaceStore.getState()
-const openRoleWorkspace = state.workspaces.find((workspace) => workspace.id === openRoleId)
-assert.ok(openRoleWorkspace, 'the workspace is created despite an unmapped roster role')
-// Lazy roster: only the architect seeds, so an unmapped roster role never
-// reaches a throwing seat at creation. The architect resolves its supplied CLI.
-assert.deepEqual(
-  Object.keys(openRoleWorkspace?.agents ?? {}),
-  ['architect'],
-  'a roster with unmapped roles still seeds only the architect',
-)
-assert.equal(
-  openRoleWorkspace?.agents.architect?.cli,
-  'codex',
-  'the architect seat resolves its supplied CLI default',
-)
 
 // --- Explicit automations-host mode (T2) ------------------------------------
 // An explicit non-standard `mode` is honored at creation so the automations

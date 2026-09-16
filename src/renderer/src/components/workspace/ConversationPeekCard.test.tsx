@@ -17,7 +17,7 @@ import type { ConversationPeek, ConversationPeekMessage } from '../../../../shar
 // surface both anchors share. What matters here is what the card SAYS: which of
 // the four runtime shapes it is in, what it does with one message versus forty,
 // that the files and the images are real controls, and that the things the
-// design cut (a footer, a keyboard hint, a message count, the roster, the two
+// design cut (a footer, a keyboard hint, a message count, the agent list, the two
 // section headings) stayed cut.
 //
 // The kit's Tooltip runs a useLayoutEffect the static renderer no-ops; React
@@ -62,7 +62,7 @@ const IDENTITY: ConversationPeekIdentity = {
 }
 
 const change = (over: Partial<SessionFileChange> = {}): SessionFileChange => ({
-  path: '/repo/src/main/sprintengine/run/scheduler.ts',
+  path: '/repo/src/main/automations/run/scheduler.ts',
   additions: 14,
   deletions: 6,
   edits: 2,
@@ -136,13 +136,13 @@ run('a model the agent never chose reads as the CLI default, never blank', () =>
   assert.equal(markup.includes('claude-opus-5'), false, 'no stale model string when unset')
 })
 
-run('a sprint task rides the meta row when there is one', () => {
+run('a claimed task rides the meta row when there is one', () => {
   assert.match(card({ identity: { taskId: 'MC-2488' } }), /MC-2488/, 'shows the claimed task id')
   assert.equal(card().includes('MC-2488'), false, 'and nothing when there is none')
 })
 
-// --- One agent per card: the roster is gone (mockup frame 3) ---------------
-run('there is no roster, no disc and no selector — the sidebar already lays the agents out', () => {
+// --- One agent per card: the agent list is gone (mockup frame 3) -----------
+run('there is no agent list, no disc and no selector — the sidebar already lays the agents out', () => {
   const markup = card()
   assert.equal(/role="radiogroup"/.test(markup), false, 'no selector')
   assert.equal(/role="radio"/.test(markup), false, 'no discs')

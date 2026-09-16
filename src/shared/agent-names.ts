@@ -227,7 +227,7 @@ const AGENT_NAME_COUNT = AGENT_FIRST_NAMES.length * AGENT_SURNAMES.length
 
 // Generic layout-template tab labels ("Agent", "Agent 2", "A1"…) are slot
 // placeholders, not identities. Workspace creation treats them as unnamed so
-// every agent — general included — gets a real name like the specialists do;
+// every agent gets a real name;
 // any other template name (a user-saved template's "Reviewer") is kept.
 export function isPlaceholderAgentName(name: string): boolean {
   return /^(agent(\s+\d+)?|a\d+)$/i.test(name.trim())

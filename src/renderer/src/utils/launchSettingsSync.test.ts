@@ -4,7 +4,7 @@
  * change must reach main without a restart.
  */
 import assert from 'node:assert/strict'
-import type { AgentLaunchSettings } from '../../../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../../../shared/launch-settings'
 
 type FakeApi = {
   hydrateCalls: AgentLaunchSettings[]
@@ -36,7 +36,6 @@ function installFakeApi(): FakeApi {
     },
   }
   ;(globalThis as { window?: unknown }).window = { api }
-  bindSprintEngineIpc(api as never)
   return fake
 }
 
@@ -44,11 +43,10 @@ const fakeApi = installFakeApi()
 
 // Imported AFTER the fake window is installed.
 import { useWorkspaceStore } from '../store/workspaceStore'
-import { initAgentLaunchSettingsSync } from './sprintengineLaunchSettingsSync'
-import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
+import { initLaunchSettingsSync } from './launchSettingsSync'
 
 function main(): void {
-  const dispose = initAgentLaunchSettingsSync()
+  const dispose = initLaunchSettingsSync()
   try {
     assertMountSeedsAndPushesEveryLaunchInput()
     assertSettingsChangesReachMainWithoutRestart()
@@ -56,7 +54,7 @@ function main(): void {
   } finally {
     dispose()
   }
-  console.log('sprintengine-launch-settings-sync tests passed')
+  console.log('launch-settings-sync tests passed')
 }
 
 // (1) Mount seeds main's store once and pushes the whole launch surface — a
@@ -74,7 +72,6 @@ function assertMountSeedsAndPushesEveryLaunchInput(): void {
       'lastSelectedCli',
       'mcp',
       'projectKnowledgeRoots',
-      'sprintEngineRoleSettings',
     ],
   )
 }

@@ -16,14 +16,11 @@ import {
   surfaceTakesSidebarColumn,
 } from './extensionsDrawer'
 
-// ── The six rows, in the ruled order ─────────────────────────────────────────
-// Five until item 2470 split the run doors in two (owner ruling R7): Workflows
-// and Sprints are separate rows leading to separate lists, and Workflows leads
-// because it is where a goal starts.
+// ── The four rows, in the ruled order ────────────────────────────────────────
 assert.deepEqual(
   DRAWER_ROWS.map((row) => (row.kind === 'nav' ? row.entryId : row.kind === 'surface' ? row.surfaceId : row.viewId)),
-  ['workflows', 'sprints', 'design', 'plugins', 'skills', 'agent-clis'],
-  'the drawer is Workflows · Sprints · Design · Plugins · Skills · Agent CLIs, and the shell holds that order',
+  ['design', 'plugins', 'skills', 'agent-clis'],
+  'the drawer is Design · Plugins · Skills · Agent CLIs, and the shell holds that order',
 )
 assert.deepEqual(
   DRAWER_ROWS.filter((row) => row.kind === 'view').map((row) => (row.kind === 'view' ? row.surfaceId : '')),
@@ -35,7 +32,7 @@ assert.deepEqual(
 // What a row's unread count is keyed by, and what a notification names to say
 // which row it belongs to (owner, 2026-09-08). Not a surface id: three of the
 // rows are views of one surface, and a count keyed on it would light all three.
-assert.deepEqual([...EXTENSIONS_DRAWER_ROW_IDS], ['workflows', 'sprints', 'design', 'plugins', 'skills', 'agent-clis'])
+assert.deepEqual([...EXTENSIONS_DRAWER_ROW_IDS], ['design', 'plugins', 'skills', 'agent-clis'])
 assert.equal(isExtensionsDrawerRowId('plugins'), true)
 assert.equal(isExtensionsDrawerRowId('extensions'), false, 'the surface three rows share is not a row')
 assert.equal(isExtensionsDrawerRowId(undefined), false)
@@ -44,8 +41,6 @@ assert.equal(isExtensionsDrawerRowId(undefined), false)
 assert.equal(openExtensionsDrawerRow(null, null), null, 'a chat on screen opens no row')
 assert.equal(openExtensionsDrawerRow(EXTENSIONS_HOME_SURFACE_ID, null), null, 'the home is not a row; it reads its own cards')
 assert.equal(openExtensionsDrawerRow('automations', null), null)
-assert.equal(openExtensionsDrawerRow('workflows', null), 'workflows')
-assert.equal(openExtensionsDrawerRow('sprints', null), 'sprints')
 assert.equal(openExtensionsDrawerRow('design', null), 'design')
 assert.equal(openExtensionsDrawerRow('extensions', 'plugins'), 'plugins')
 assert.equal(openExtensionsDrawerRow('extensions', 'skills'), 'skills')
@@ -57,7 +52,7 @@ assert.equal(openExtensionsDrawerRow('extensions', null), null, 'the surface wit
 // and leaving lands back on the drawer rather than on the workspaces tree.
 assert.deepEqual(
   [...EXTENSIONS_DRAWER_SURFACE_IDS].sort(),
-  ['design', 'extensions', 'extensions-home', 'sprints', 'workflows'],
+  ['design', 'extensions', 'extensions-home'],
   'the home the glyph opens, plus every surface a row leads to',
 )
 assert.equal(EXTENSIONS_HOME_SURFACE_ID, 'extensions-home')
@@ -68,7 +63,7 @@ for (const id of EXTENSIONS_DRAWER_SURFACE_IDS) {
 // than something added to it. Opening it used to flip the sidebar into the
 // Extensions drawer, which swapped the column for a section the operator had
 // not asked for and lit the Extensions glyph for a surface that is not one of
-// its five rows.
+// its rows.
 assert.equal(
   isExtensionsDrawerSurface('automations'),
   false,

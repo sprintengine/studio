@@ -5,11 +5,8 @@ import {
   isCommandEnabled,
   isCommandIdEnabled,
   isCommandInScope,
-  type CommandAvailabilityContext,
 } from './availability'
 import type { CommandScope } from './types'
-import { createRendererHost } from '../modules/renderer-host'
-import { registerSprintEngineCommands } from '../modules/sprint-engine-commands'
 
 function def(id: string) {
   const command = getCommandDefinition(id)
@@ -17,73 +14,22 @@ function def(id: string) {
   return command
 }
 
-const sprintKernel = createRendererHost()
-registerSprintEngineCommands(sprintKernel.hostFor('sprint-engine'))
-function sprintDef(id: string) {
-  const command = sprintKernel.getModuleCommand(id)
-  assert.ok(command, `expected sprint-engine module command ${id}`)
-  return command
-}
-
 // Commands with no preconditions are always available regardless of context.
-assert.equal(isCommandAvailable(sprintDef('sprint-engine.goto.inbox'), { sprintengineWorkspace: true }), true)
 assert.equal(isCommandAvailable({ availability: undefined }, {}), true)
 assert.equal(isCommandAvailable({ availability: [] }, {}), true)
+assert.equal(isCommandAvailable({ availability: ['always'] }, {}), true)
 
 // ANDed preconditions: every declared condition must hold.
-assert.equal(
-  isCommandAvailable(sprintDef('sprint-engine.verify.progress'), { sprintengineWorkspace: true }),
-  false,
-)
-assert.equal(
-  isCommandAvailable(sprintDef('sprint-engine.verify.progress'), {
-    sprintengineWorkspace: true,
-    sprintengineHasArchitect: true,
-  }),
-  true,
-)
+const twoConditions = { availability: ['activeWorkspace', 'gitPanelActive'] as const }
+assert.equal(isCommandAvailable(twoConditions, { activeWorkspace: true }), false)
+assert.equal(isCommandAvailable(twoConditions, { gitPanelActive: true }), false)
+assert.equal(isCommandAvailable(twoConditions, { activeWorkspace: true, gitPanelActive: true }), true)
 
 // Scope membership gate (open panel:* family — module-derived scopes match
 // by string identity like the named ones).
 assert.equal(isCommandInScope({ scopes: ['panel:notebook'] }, ['panel:notebook']), true)
 assert.equal(isCommandInScope({ scopes: ['panel:notebook'] }, ['panel:calendar']), false)
 assert.equal(isCommandInScope({ scopes: ['panel:calendar'] }, ['panel:calendar']), true)
-
-// Sprint Engine: verify-progress needs an architect; navigation needs only the
-// module panel scope. The scope gate refuses the command outside a Sprint Engine
-// panel even when preconditions are otherwise met.
-const sprintEngineScopes: CommandScope[] = ['global', 'workspace', 'workspace-navigation', 'panel:sprint-engine']
-const sprintEngineContext: CommandAvailabilityContext = { activeWorkspace: true, sprintengineWorkspace: true }
-assert.equal(
-  isCommandEnabled(sprintDef('sprint-engine.verify.progress'), sprintEngineScopes, sprintEngineContext),
-  false,
-)
-assert.equal(
-  isCommandEnabled(sprintDef('sprint-engine.verify.progress'), sprintEngineScopes, {
-    ...sprintEngineContext,
-    sprintengineHasArchitect: true,
-  }),
-  true,
-)
-assert.equal(
-  isCommandEnabled(sprintDef('sprint-engine.goto.roster'), sprintEngineScopes, sprintEngineContext),
-  true,
-)
-assert.equal(
-  isCommandEnabled(sprintDef('sprint-engine.goto.roster'), ['global', 'workspace'], sprintEngineContext),
-  false,
-)
-assert.equal(
-  isCommandEnabled(sprintDef('sprint-engine.focus.agent'), sprintEngineScopes, sprintEngineContext),
-  false,
-)
-assert.equal(
-  isCommandEnabled(sprintDef('sprint-engine.focus.agent'), sprintEngineScopes, {
-    ...sprintEngineContext,
-    sprintengineFocusAgentVisible: true,
-  }),
-  true,
-)
 
 // A capability module's commands ride module command contributions, not the
 // shell registry (MC-1533). Those contribution shapes are exercised here
@@ -146,30 +92,7 @@ for (const id of ['terminal.focus', 'terminal.stop']) {
 }
 
 // Unknown ids never enable.
-assert.equal(isCommandIdEnabled('does.not.exist', sprintEngineScopes, sprintEngineContext), false)
-
-assert.equal(
-  isCommandIdEnabled('specialist.spawn.architect', workspaceScopes, { activeWorkspace: true }),
-  false,
-)
-assert.equal(
-  isCommandIdEnabled('specialist.spawn.architect', workspaceScopes, {
-    activeWorkspace: true,
-    workflowRolesInstalled: true,
-  }),
-  true,
-)
-assert.equal(
-  isCommandEnabled(sprintDef('sprint-engine.add.role'), sprintEngineScopes, sprintEngineContext),
-  false,
-)
-assert.equal(
-  isCommandEnabled(sprintDef('sprint-engine.add.role'), sprintEngineScopes, {
-    ...sprintEngineContext,
-    workflowRolesInstalled: true,
-  }),
-  true,
-)
+assert.equal(isCommandIdEnabled('does.not.exist', workspaceScopes, { activeWorkspace: true }), false)
 
 // isCommandEnabled mirrors isCommandIdEnabled for a resolved definition.
 assert.equal(

@@ -163,12 +163,11 @@ export type AgentState = {
   // from a stale snapshot and would revert the pick on the next projection.
   cliRuntimeOverride?: { cli?: AgentCli; model?: string | null; reasoning?: string | null }
   // The runtime the live terminal was actually launched with, stamped at spawn
-  // success (TerminalView). The record's `cli`/`cliModel` are re-stamped from
-  // the run's `roleRuntimes` on every reconcile, so after a mid-run role edit
-  // they reflect the NEW config while the running session still uses the old
-  // one; this stamp preserves what the session is really on, powering the
-  // roster's "on <old model>" divergence label and restart offer. Never
-  // cleared on exit — consumers must gate on terminal liveness.
+  // success (TerminalView). The record's `cli`/`cliModel` can be re-stamped by
+  // a later config edit, so they reflect the NEW config while the running
+  // session still uses the old one; this stamp preserves what the session is
+  // really on, powering the "on <old model>" divergence label and restart
+  // offer. Never cleared on exit — consumers must gate on terminal liveness.
   cliLaunchedRuntime?: { cli?: AgentCli; model?: string | null }
   // Orthogonal Debug Mode toggle (the agent picker). Set per-spawn from the
   // transient spawn-UI state; the launch boundary prepends the debug directive

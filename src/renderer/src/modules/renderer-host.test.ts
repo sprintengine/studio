@@ -45,17 +45,17 @@ function workspaceType(id: string, pickerOrder?: number): WorkspaceTypeDefinitio
 }
 
 const host = createRendererHost()
-const sprintType = workspaceType('sprintengine', 20)
+const calendarType = workspaceType('calendar', 20)
 const notesType = workspaceType('notes', 10)
 const notebookType = workspaceType('notebook', 10)
 
-host.hostFor('sprint-engine').registerWorkspaceType(sprintType)
+host.hostFor('calendar').registerWorkspaceType(calendarType)
 host.hostFor('notes').registerWorkspaceType(notesType)
 host.hostFor('notebook').registerWorkspaceType(notebookType)
 
 assert.throws(
-  () => host.hostFor('other').registerWorkspaceType(workspaceType('sprintengine')),
-  /Workspace type "sprintengine" is already registered/,
+  () => host.hostFor('other').registerWorkspaceType(workspaceType('calendar')),
+  /Workspace type "calendar" is already registered/,
   'duplicate workspace type ids fail clearly',
 )
 assert.throws(
@@ -74,20 +74,20 @@ assert.throws(
   'whitespace-only workspace type ids are rejected before registration',
 )
 
-assert.equal(host.getWorkspaceType('sprintengine')?.moduleId, 'sprint-engine')
-assert.equal(host.getWorkspaceType('sprintengine')?.createTemplate(), template)
+assert.equal(host.getWorkspaceType('calendar')?.moduleId, 'calendar')
+assert.equal(host.getWorkspaceType('calendar')?.createTemplate(), template)
 assert.equal(host.getWorkspaceTypeModule('notes'), 'notes')
 assert.equal(host.getWorkspaceType('missing'), undefined)
 assert.equal(host.getWorkspaceTypeModule('missing'), undefined)
 
 assert.deepEqual(
   host.getWorkspaceTypes().map((definition) => definition.id),
-  ['notebook', 'notes', 'sprintengine'],
+  ['notebook', 'notes', 'calendar'],
   'workspace types sort by pickerOrder, then id',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'notes').map((definition) => definition.id),
-  ['notebook', 'sprintengine'],
+  ['notebook', 'calendar'],
   'disabled modules are filtered from workspace type listings',
 )
 
@@ -401,40 +401,40 @@ console.log('renderer host sidebar nav entry tests passed')
 // --- Door / nav-entry badge contributions (MC-2577) --------------------------
 
 const doorBadgeHost = createRendererHost()
-doorBadgeHost.hostFor('sprint-engine').registerDoorBadge({
-  rowId: 'sprints',
-  notificationSource: 'sprintengine',
+doorBadgeHost.hostFor('calendar').registerDoorBadge({
+  rowId: 'calendar',
+  notificationSource: 'agents',
   getWaitingCount: () => 2,
   subscribe: () => () => undefined,
 })
-doorBadgeHost.hostFor('sprint-engine').registerDoorBadge({
-  rowId: 'workflows',
+doorBadgeHost.hostFor('calendar').registerDoorBadge({
+  rowId: 'agenda',
   getWaitingCount: () => 1,
   subscribe: () => () => undefined,
 })
 assert.deepEqual(
   doorBadgeHost.getDoorBadges().map((badge) => [badge.rowId, badge.moduleId, badge.getWaitingCount()]),
-  [['sprints', 'sprint-engine', 2], ['workflows', 'sprint-engine', 1]],
+  [['calendar', 'calendar', 2], ['agenda', 'calendar', 1]],
   'both doors contribute waiting counts under the owning module',
 )
 assert.equal(
-  doorBadgeHost.getDoorBadges().find((badge) => badge.rowId === 'sprints')?.notificationSource,
-  'sprintengine',
-  'an unnamed sprintengine notice falls to the Sprints row via the contribution, not a core mapping',
+  doorBadgeHost.getDoorBadges().find((badge) => badge.rowId === 'calendar')?.notificationSource,
+  'agents',
+  'an unnamed notice of that source falls to the row via the contribution, not a core mapping',
 )
 assert.throws(
   () =>
     doorBadgeHost.hostFor('other').registerDoorBadge({
-      rowId: 'sprints',
+      rowId: 'calendar',
       getWaitingCount: () => 0,
       subscribe: () => () => undefined,
     }),
-  /already registered by module "sprint-engine"/,
+  /already registered by module "calendar"/,
   'one badge per row — a duplicate rowId fails with the holder named',
 )
 assert.throws(
   () =>
-    createRendererHost().hostFor('sprint-engine').registerDoorBadge({
+    createRendererHost().hostFor('calendar').registerDoorBadge({
       rowId: '  ',
       getWaitingCount: () => 0,
       subscribe: () => () => undefined,
@@ -442,7 +442,7 @@ assert.throws(
   /row id must be a non-empty string/,
 )
 assert.deepEqual(
-  doorBadgeHost.getDoorBadges((moduleId) => moduleId !== 'sprint-engine').map((badge) => badge.rowId),
+  doorBadgeHost.getDoorBadges((moduleId) => moduleId !== 'calendar').map((badge) => badge.rowId),
   [],
   'a disabled module\'s door badges are filtered out reactively',
 )
@@ -541,7 +541,7 @@ const surfaceComponent = () => {
   throw new Error('surface component should not be evaluated during registration')
 }
 // A first-party surface and a third-party module's surface register through the
-// same contract — the seam that lets Sprints/Automations (and SDK
+// same contract — the seam that lets Automations (and SDK
 // modules) contribute a full page without editing WorkspaceManager. ('roadmap'
 // below is an arbitrary module id; the door of that name is long gone.)
 surfaceHost.hostFor('roadmap').registerGlobalSurface({ id: 'roadmap', Component: surfaceComponent })
@@ -585,8 +585,8 @@ assert.deepEqual(
 // A door carries the chrome that OFFERS it (Extensions drawer ruling,
 // 2026-09-05): a name and a glyph for the drawer row or rail square that opens
 // it, `views` when one surface is several destinations to the person, and where
-// its own rail goes. All optional — Sprints names itself through its own
-// nav-entry row — and validated here, where a module can see the failure,
+// its own rail goes. All optional — a module that draws its own nav-entry row
+// names itself there — and validated here, where a module can see the failure,
 // rather than silently producing a row nothing can select.
 {
   const chromeIcon = () => {
@@ -857,8 +857,8 @@ console.log('renderer host modal surface tests passed')
 
 // --- Workspace aside (single-slot right column seam, MC-1766) -----------------
 
-// The Sprint Engines aside retired with MC-1766 and no module claims the column
-// today, so this registry is exercised only here — that is deliberate: it keeps
+// No module claims the right column today, so this registry is exercised only
+// here — that is deliberate: it keeps
 // the seam a future tenant (an embedded browser, a drag-in skills list) mounts
 // into from rotting while it is empty.
 {
@@ -915,7 +915,7 @@ function notification(overrides: Partial<AppNotification> = {}): AppNotification
     id: 'n1',
     timestamp: '2026-06-16T00:00:00.000Z',
     level: 'warning',
-    source: 'sprintengine',
+    source: 'agents',
     title: 'Needs input',
     message: 'A task is waiting.',
     read: false,
@@ -933,8 +933,8 @@ const context: NotificationActionContext = {
   },
 }
 
-notificationHost.hostFor('sprint-engine').registerNotificationActionProvider({
-  source: 'sprintengine',
+notificationHost.hostFor('calendar').registerNotificationActionProvider({
+  source: 'agents',
   resolveActions: ({ notification: entry, revealWorkspace }) => {
     const target = entry.navigationTarget
     if (!entry.workspaceId || target?.kind !== 'task' || !target.ref) return []
@@ -951,16 +951,16 @@ notificationHost.hostFor('sprint-engine').registerNotificationActionProvider({
 assert.throws(
   () =>
     notificationHost.hostFor('other').registerNotificationActionProvider({
-      source: 'sprintengine',
+      source: 'agents',
       resolveActions: () => [],
     }),
-  /Notification action provider for source "sprintengine" is already registered by module "sprint-engine"/,
+  /Notification action provider for source "agents" is already registered by module "calendar"/,
   'one provider per source — a duplicate source registration fails clearly',
 )
 
 const providers = notificationHost.getNotificationActionProviders()
 assert.equal(providers.length, 1, 'the registered provider is returned')
-assert.equal(providers[0]?.moduleId, 'sprint-engine', 'the provider records its owning module')
+assert.equal(providers[0]?.moduleId, 'calendar', 'the provider records its owning module')
 
 const actions = providers[0]!.resolveActions(context)
 assert.deepEqual(
@@ -981,7 +981,7 @@ assert.deepEqual(
 )
 
 assert.deepEqual(
-  notificationHost.getNotificationActionProviders((moduleId) => moduleId !== 'sprint-engine'),
+  notificationHost.getNotificationActionProviders((moduleId) => moduleId !== 'calendar'),
   [],
   'a disabled module\'s provider is filtered out reactively',
 )

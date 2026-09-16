@@ -9,7 +9,6 @@ import {
   type AgentComposerSelection,
   type ComposerRow,
 } from './useAgentComposer'
-import type { SpecialistAction } from '../../../specialists/specialistActions'
 
 let failures = 0
 function run(name: string, fn: () => void): void {
@@ -25,55 +24,52 @@ function run(name: string, fn: () => void): void {
 
 // resolveInitialSelection is the pure seam behind every composer surface's
 // preselected row: given the live roster and the remembered agent, it returns
-// the remembered selection when its row exists, else falls back to the
-// roleless row — never a specialist. Exercising it directly (no store, no DOM) covers the
-// restore-from-lastSelected contract and the disabled-pack fallback the pickers
-// rely on. It replaces SpawnAgentMenu's rememberedHighlight index seam.
-function specialistRow(id: string): ComposerRow {
-  return { key: `specialist:${id}`, kind: 'specialist', action: { id, shortLabel: id, label: id, description: '' } as SpecialistAction }
-}
-const quickRows: ComposerRow[] = [
+// the remembered selection when its row exists, else falls back to the agent
+// row. Exercising it directly (no store, no DOM) covers the
+// restore-from-lastSelected contract and the cold-install fallback the pickers
+// rely on.
+const fullRoster: ComposerRow[] = [
   { key: 'terminal', kind: 'terminal' },
   { key: 'general', kind: 'general' },
-]
-const specialistRoster: ComposerRow[] = [
-  ...quickRows,
-  specialistRow('architect'),
-  specialistRow('developer'),
-  specialistRow('frontend-design-review'),
+  { key: 'conversation', kind: 'conversation' },
 ]
 
-run('restores the remembered specialist when its row is present', () => {
-  const result = resolveInitialSelection(specialistRoster, { kind: 'specialist', specialistId: 'developer' })
-  assert.deepEqual(result, { kind: 'specialist', specialistId: 'developer' }, 'the remembered Developer row is preselected')
-})
-
-run('preselects a remembered quick row (General) when present', () => {
-  const result = resolveInitialSelection(specialistRoster, { kind: 'general' })
-  assert.deepEqual(result, { kind: 'general' }, 'a remembered roleless agent stays selected, not overridden by a specialist')
-})
-
-run('falls back to the roleless row when the remembered specialist is absent (disabled pack)', () => {
-  const result = resolveInitialSelection(specialistRoster, { kind: 'specialist', specialistId: 'security' })
+run('restores the remembered row when it is present', () => {
   assert.deepEqual(
-    result,
-    { kind: 'general' },
-    'a remembered specialist whose pack is now disabled falls back to the roleless row — a role is never a fallback',
+    resolveInitialSelection(fullRoster, { kind: 'conversation' }),
+    { kind: 'conversation' },
+    'the remembered Conversation row is preselected',
+  )
+  assert.deepEqual(
+    resolveInitialSelection(fullRoster, { kind: 'terminal' }),
+    { kind: 'terminal' },
+    'and so is a remembered Terminal',
   )
 })
 
-run('never falls back to a specialist even when the roleless row is missing', () => {
-  const cliLessRoster: ComposerRow[] = [{ key: 'terminal', kind: 'terminal' }, specialistRow('architect')]
-  const result = resolveInitialSelection(cliLessRoster, { kind: 'specialist', specialistId: 'security' })
+run('falls back to the agent row when the remembered one is absent', () => {
+  const noConversation: ComposerRow[] = [
+    { key: 'terminal', kind: 'terminal' },
+    { key: 'general', kind: 'general' },
+  ]
   assert.deepEqual(
-    result,
+    resolveInitialSelection(noConversation, { kind: 'conversation' }),
+    { kind: 'general' },
+    'a remembered row that no longer exists falls back to the agent row, never an unselectable phantom',
+  )
+})
+
+run('falls back to the first row when the agent row is missing too', () => {
+  const cliLessRoster: ComposerRow[] = [{ key: 'terminal', kind: 'terminal' }]
+  assert.deepEqual(
+    resolveInitialSelection(cliLessRoster, { kind: 'conversation' }),
     { kind: 'terminal' },
-    'with no roleless row the fallback is the first quick row, not the first specialist',
+    'with no agent row the fallback is the first row that is actually there',
   )
 })
 
 run('returns the preferred selection unchanged for an empty roster', () => {
-  const preferred: AgentComposerSelection = { kind: 'specialist', specialistId: 'developer' }
+  const preferred: AgentComposerSelection = { kind: 'general' }
   assert.deepEqual(resolveInitialSelection([], preferred), preferred, 'an empty roster never yields an out-of-range fallback')
 })
 
@@ -94,22 +90,21 @@ run('the composer hook seeds its selection via resolveInitialSelection in a lazy
   )
 })
 
-// Source-contract for the other half of "a role is never a fallback" (MC-2222):
-// the manager seeds every New chat with the roleless selection, unconditionally.
-// It used to derive it from the remembered top-bar specialist — whose factory
-// default was 'architect' — so Enter on a plain message fetched a soul nobody
-// asked for. The remembered-specialist state is gone with the picker; nothing
-// in the manager may read it back.
+// Source-contract for the other half of the New-chat seed (MC-2222): the
+// manager seeds every New chat with the plain agent row, unconditionally. It
+// used to derive it from a remembered top-bar pick, so Enter on a plain message
+// fetched an identity nobody asked for. That remembered state is gone with the
+// picker; nothing in the manager may read it back.
 const managerSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/workspace/WorkspaceManager.tsx'),
   'utf8',
 )
 
-run('New chat opens roleless: the manager seeds { kind: general } and remembers no specialist', () => {
+run('New chat opens on the plain agent row: the manager seeds { kind: general }', () => {
   assert.match(
     managerSource,
     /const composerInitialSelection: AgentComposerSelection = \{ kind: 'general' \}/,
-    'the composer seed is the roleless row, not a remembered or first specialist',
+    'the composer seed is the agent row, not a remembered identity',
   )
   assert.match(
     managerSource,
@@ -127,25 +122,19 @@ run('New chat opens roleless: the manager seeds { kind: general } and remembers 
 // uninstalled CLIs, each of which spawned a bare shell.
 // ---------------------------------------------------------------------------
 
-const SPECIALISTS = [
-  { id: 'architect', shortLabel: 'Architect', label: 'Architect', description: '' },
-  { id: 'developer', shortLabel: 'Developer', label: 'Developer', description: '' },
-] as SpecialistAction[]
-
 run('with no CLI installed the roster keeps only what needs no CLI', () => {
   const rows = composerRosterRows({
     showTerminal: true,
     conversationAvailable: true,
-    specialistActions: SPECIALISTS,
     noAgentCliInstalled: true,
   })
   assert.deepEqual(
     rows.map((row) => row.kind),
     ['terminal', 'conversation'],
-    'Terminal (a plain shell) and Conversation (provider-backed) stay; the roleless and specialist rows go',
+    'Terminal (a plain shell) and Conversation (provider-backed) stay; the agent row goes',
   )
   assert.equal(
-    rows.some((row) => row.kind === 'general' || row.kind === 'specialist'),
+    rows.some((row) => row.kind === 'general'),
     false,
     'no row that launches a CLI is reachable by click, Enter, or search',
   )
@@ -156,11 +145,10 @@ run('a select-mode picker with no CLI installed offers no agent at all', () => {
     composerRosterRows({
       showTerminal: false,
       conversationAvailable: false,
-      specialistActions: SPECIALISTS,
       noAgentCliInstalled: true,
     }),
     [],
-    'the Automations soul picker empties rather than persisting an agent that cannot run',
+    'the picker empties rather than persisting an agent that cannot run',
   )
 })
 
@@ -169,19 +157,18 @@ run('an installed CLI leaves the roster exactly as it was', () => {
     composerRosterRows({
       showTerminal: true,
       conversationAvailable: true,
-      specialistActions: SPECIALISTS,
       noAgentCliInstalled: false,
     }).map((row) => row.key),
-    ['terminal', 'general', 'conversation', 'specialist:architect', 'specialist:developer'],
+    ['terminal', 'general', 'conversation'],
     'the normal roster, in order',
   )
 })
 
 // ---------------------------------------------------------------------------
-// The roleless row is named by its bound engine (MC-2059). It has no role, so
-// the model it launches — or the CLI, when no model is picked — is the only
-// honest name for it. It used to read the constant "General agent", which never
-// changed when the owner picked Fable 5 on it.
+// The agent row is named by its bound engine (MC-2059): the model it launches —
+// or the CLI, when no model is picked — is the only honest name for it. It used
+// to read the constant "General agent", which never changed when the owner
+// picked Fable 5 on it.
 // ---------------------------------------------------------------------------
 
 const CATALOG = [
@@ -234,28 +221,31 @@ run('an unlabelled model keeps its id, and an unknown CLI keeps its own', () => 
 })
 
 // Source-contract: the wiring a pure test cannot reach — that the panel names
-// the roleless row from THAT row's engine. The icon already did this; the label
+// the agent row from THAT row's engine. The icon already did this; the label
 // was a constant, so picking a model repainted the icon and not the text.
-//
-// The popover-density sibling that shared this contract is gone: the spawn
-// surface has no roster and therefore no roleless row (MC-2122). What replaced
-// it is driven for real in `src/seams/spawnPickerSeam.test.tsx`.
 const panelSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/AgentComposer.tsx'),
   'utf8',
 )
 
-run('the composer panel labels the roleless row from its own engine, never a constant', () => {
+run('the composer panel labels the agent row from its own engine, never a constant', () => {
   assert.match(
     panelSource,
     /composer\.engineNamesFor\(\{ kind: 'general' \}\)/,
-    "the roleless row's name is resolved against its own engine key, not the highlighted row's",
+    "the agent row's name is resolved against its own engine key, not the highlighted row's",
   )
-  assert.equal(panelSource.includes('General agent'), false, '"General agent" is not a name the app uses')
+  // Quoted or in JSX text — the rendered name. The prose above the helper may
+  // still call it the General agent; what must never come back is the constant
+  // label that ignored the engine bound to the row.
+  assert.equal(
+    /['"`>]General agent/.test(panelSource),
+    false,
+    '"General agent" is not a name the app renders',
+  )
   assert.equal(
     panelSource.includes('general-purpose agent'),
     false,
-    'the roleless agent is not described as general-purpose',
+    'the agent is not described as general-purpose',
   )
   assert.match(panelSource, /Runs your instructions as written\./, 'keeps the description that is actually true')
 })

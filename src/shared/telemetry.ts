@@ -6,7 +6,7 @@
  * loads an analytics SDK and never holds the project key — it owns exactly one
  * value, the user's consent, which it pushes to main the same one-way way it
  * pushes background mode and window material. Everything measured is measured
- * where it actually happens (a launch, a run, a boot), which is main anyway.
+ * where it actually happens (a launch, a boot), which is main anyway.
  *
  * Nothing ships until a project key is configured. `DEFAULT_POSTHOG_PROJECT_KEY`
  * is empty on purpose: an unkeyed build records into a buffer that is never
@@ -17,7 +17,7 @@
  * `src/main/telemetry/analytics-service.ts` rather than by reviewer memory:
  *
  *   Sent      product metadata and normalized measurements. Counts, durations,
- *             enum-ish identifiers we ship ourselves (a CLI id, a run outcome),
+ *             enum-ish identifiers we ship ourselves (a CLI id, a build channel),
  *             platform, arch, app version.
  *   Never     prompt or agent text, file contents, file or folder PATHS,
  *             workspace/project/run names, repository or branch names, tokens,

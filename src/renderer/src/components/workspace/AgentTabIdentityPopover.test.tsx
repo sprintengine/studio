@@ -146,7 +146,7 @@ run('the space they freed is the conversation', () => {
   assert.match(markup, /Drop the role row from the tab card/, 'and everything sent since')
 })
 
-run('a sprint agent still names the task it is claimed on', () => {
+run('an agent claimed on a task still names it', () => {
   const markup = tabCard({ ...TAB, taskId: 'MC-1444' })
   assert.match(markup, /MC-1444/, 'the task id survived the cull')
 })

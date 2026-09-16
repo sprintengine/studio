@@ -10,7 +10,6 @@
  */
 import assert from 'node:assert/strict'
 import { createBackgroundPresence, type BackgroundTrayHandle } from './background-presence'
-import { createSprintPowerManager, type PowerSaveBlockerLike } from './sprint-power-manager'
 import type { BackgroundStatus, BackgroundTrayItem } from '../shared/background-mode'
 
 type FakeTray = BackgroundTrayHandle & {
@@ -55,7 +54,7 @@ function harness(platform: string, enabled: boolean): Harness {
   const trays: FakeTray[] = []
   const intervals: Array<() => void> = []
   const diagnostics: string[] = []
-  let status: BackgroundStatus = { runs: [], agentSessions: 0, gateway: { running: true } }
+  let status: BackgroundStatus = { agentSessions: 0, gateway: { running: true } }
   let backgroundMode = enabled
   let trayAvailable = true
   let statusThrows = false
@@ -147,13 +146,13 @@ for (const platform of ['win32', 'linux']) {
 // background mode ON: the process stays up on every platform, tray and all
 for (const platform of ['win32', 'linux', 'darwin']) {
   const h = harness(platform, true)
-  h.setStatus({ runs: [{ name: 'Headless Core', autoRunning: true }], agentSessions: 2, gateway: { running: true } })
+  h.setStatus({ agentSessions: 2, gateway: { running: true } })
   assert.equal(h.presence.onWindowAllClosed(), 'stay', `${platform} keeps running with the setting on`)
   assert.equal(h.trays.length, 1)
   assert.equal(h.presence.isTrayVisible(), true)
   const tray = h.trays[0]!
-  assert.match(tray.tooltips.at(-1) ?? '', /1 of 1 sprint run auto-running · 2 agent sessions running/)
-  assert.ok(labels(tray).includes('    Headless Core — auto-running'))
+  assert.match(tray.tooltips.at(-1) ?? '', /2 agent sessions running · Studio gateway listening/)
+  assert.ok(labels(tray).includes('2 agent sessions running'))
   assert.ok(labels(tray).includes('Studio gateway listening'))
 }
 
@@ -162,12 +161,12 @@ for (const platform of ['win32', 'linux', 'darwin']) {
   const h = harness('darwin', true)
   h.presence.onWindowAllClosed()
   const tray = h.trays[0]!
-  h.setStatus({ runs: [{ name: 'Alpha', autoRunning: false }], agentSessions: 0, gateway: { running: false } })
+  h.setStatus({ agentSessions: 0, gateway: { running: false } })
   tray.listeners.get('click')?.()
-  assert.ok(labels(tray).includes('    Alpha — idle'))
+  assert.ok(labels(tray).includes('No agent sessions running'))
   assert.ok(labels(tray).includes('Studio gateway not listening'))
   // and the slow tick refreshes it where click events never arrive (Linux)
-  h.setStatus({ runs: [], agentSessions: 4, gateway: { running: true } })
+  h.setStatus({ agentSessions: 4, gateway: { running: true } })
   h.intervals[0]?.()
   assert.ok(labels(tray).includes('4 agent sessions running'))
 }
@@ -222,7 +221,7 @@ for (const platform of ['win32', 'linux', 'darwin']) {
   assert.equal(h.presence.onWindowAllClosed(), 'stay')
 }
 
-// no tray available: stay running (live runs outrank the missing icon), say so
+// no tray available: stay running (live agents outrank the missing icon), say so
 {
   const h = harness('linux', true)
   h.failTray()
@@ -248,27 +247,27 @@ for (const platform of ['win32', 'linux', 'darwin']) {
   )
   // and it recovers on its own once the reader comes back
   h.failStatus(false)
-  h.setStatus({ runs: [], agentSessions: 7, gateway: { running: true } })
+  h.setStatus({ agentSessions: 7, gateway: { running: true } })
   h.intervals[0]?.()
   assert.ok(labels(tray).includes('7 agent sessions running'))
 }
 
 // The chain that matters end to end: `window-all-closed` calling `app.quit()`
-// is the ONLY thing that runs the shutdown legs (scheduler, gateway, PTYs), so
-// staying in the background must leave every one of them untouched. This mirrors
-// the handler in app-lifecycle.ts verbatim.
+// is the ONLY thing that runs the shutdown legs (automations, agent state,
+// PTYs), so staying in the background must leave every one of them untouched.
+// This mirrors the handler in app-lifecycle.ts verbatim.
 {
   const torndown: string[] = []
   const services = {
-    sprintRuntime: { shutdown: () => torndown.push('scheduler') },
-    automationService: { shutdown: () => torndown.push('gateway') },
+    automationService: { shutdown: () => torndown.push('automations') },
+    agentStateService: { shutdown: () => torndown.push('agent-state') },
     terminalRuntime: { shutdown: () => torndown.push('ptys') },
   }
   const h = harness('win32', true)
   const appQuit = (): void => {
     // The real before-quit legs, in the order app-lifecycle runs them.
-    services.sprintRuntime.shutdown()
     services.automationService.shutdown()
+    services.agentStateService.shutdown()
     services.terminalRuntime.shutdown()
   }
   const onWindowAllClosed = (): void => {
@@ -276,40 +275,12 @@ for (const platform of ['win32', 'linux', 'darwin']) {
   }
 
   onWindowAllClosed()
-  assert.deepEqual(torndown, [], 'the scheduler, gateway and PTYs all survive the last window')
+  assert.deepEqual(torndown, [], 'automations, agent state and the PTYs all survive the last window')
 
   // …and with the setting off, the same handler tears them all down as before.
   const off = harness('win32', false)
   if (off.presence.onWindowAllClosed() === 'quit') appQuit()
-  assert.deepEqual(torndown, ['scheduler', 'gateway', 'ptys'])
-}
-
-// power-save blocker: closing the last window is not a run going idle
-{
-  const started = new Set<number>()
-  let nextId = 1
-  const blocker: PowerSaveBlockerLike = {
-    start: () => {
-      const id = nextId++
-      started.add(id)
-      return id
-    },
-    stop: (id) => started.delete(id),
-    isStarted: (id) => started.has(id),
-  }
-  const power = createSprintPowerManager({ powerSaveBlocker: blocker })
-  power.markRunActive('/runs/headless-core/run.yaml')
-  assert.equal(power.isHolding(), true)
-
-  const h = harness('darwin', true)
-  h.setStatus({ runs: [{ name: 'Headless Core', autoRunning: true }], agentSessions: 1, gateway: { running: true } })
-  h.presence.onWindowAllClosed()
-  assert.equal(power.isHolding(), true, 'the machine still may not sleep out from under a live run')
-
-  // …and the blocker releases on the run itself going idle, window or not.
-  power.markRunInactive('/runs/headless-core/run.yaml')
-  assert.equal(power.isHolding(), false)
-  assert.equal(started.size, 0)
+  assert.deepEqual(torndown, ['automations', 'agent-state', 'ptys'])
 }
 
 console.log('background-presence tests passed')

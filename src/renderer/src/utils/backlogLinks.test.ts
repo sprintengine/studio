@@ -33,21 +33,23 @@ const baseItem: BacklogItem = {
   sourceContent: '# Run',
 }
 
-const sprintRunLink: BacklogItemLink = {
-  id: 'sprint-engine:run',
-  moduleId: 'sprint-engine',
+// A capability module's two link shapes: an EXECUTION link, which drives the
+// item's status, and an EXTERNAL one, which never does.
+const executionLink: BacklogItemLink = {
+  id: 'atlas:run',
+  moduleId: 'atlas',
   type: 'execution',
-  label: 'Sprint Engine run',
-  target: { kind: 'sprintengine.run', id: 'run', path: '.sprintengine/sprintengine/run/run.yaml' },
+  label: 'Atlas run',
+  target: { kind: 'atlas.run', id: 'run', path: '.atlas/run/run.yaml' },
   status: 'active',
 }
 
-const sprintArtifactLink: BacklogItemLink = {
-  id: 'sprint-engine:artifact',
-  moduleId: 'sprint-engine',
+const externalLink: BacklogItemLink = {
+  id: 'atlas:chart',
+  moduleId: 'atlas',
   type: 'external',
-  label: 'Sprint Engine artifact',
-  target: { kind: 'sprintengine.artifact', id: 'artifact', path: '.sprintengine/sprintengine/artifacts/a.md' },
+  label: 'Atlas chart',
+  target: { kind: 'atlas.chart', id: 'chart', path: '.atlas/charts/a.md' },
   status: 'unknown',
 }
 
@@ -64,15 +66,15 @@ function provider(moduleId: string, targetKinds: string[], status: BacklogResolv
 
 async function main(): Promise<void> {
   const host = createRendererHost()
-  host.hostFor('sprint-engine').registerBacklogLinkProvider(provider('sprint-engine', ['sprintengine.run'], 'completed'))
-  host.hostFor('sprint-engine').registerBacklogLinkProvider(provider('sprint-engine', ['sprintengine.artifact'], 'active'))
+  host.hostFor('atlas').registerBacklogLinkProvider(provider('atlas', ['atlas.run'], 'completed'))
+  host.hostFor('atlas').registerBacklogLinkProvider(provider('atlas', ['atlas.chart'], 'active'))
   assert.throws(
-    () => host.hostFor('other').registerBacklogLinkProvider(provider('other', ['sprintengine.run'], 'active')),
-    /already owned by module "sprint-engine"/,
+    () => host.hostFor('other').registerBacklogLinkProvider(provider('other', ['atlas.run'], 'active')),
+    /already owned by module "atlas"/,
     'duplicate target kind ownership fails clearly',
   )
   assert.throws(
-    () => host.hostFor('sprint-engine').registerBacklogLinkProvider(provider('wrong-owner', ['other.target'], 'active')),
+    () => host.hostFor('atlas').registerBacklogLinkProvider(provider('wrong-owner', ['other.target'], 'active')),
     /must be registered by its owning module/,
     'provider moduleId must match the scoped renderer host',
   )
@@ -88,20 +90,20 @@ async function main(): Promise<void> {
   )
 
   assert.deepEqual(
-    host.getBacklogLinkProviders((moduleId) => moduleId !== 'sprint-engine'),
+    host.getBacklogLinkProviders((moduleId) => moduleId !== 'atlas'),
     [],
     'disabled modules do not return providers',
   )
-  const enabledProviders = host.getBacklogLinkProviders((moduleId) => moduleId === 'sprint-engine')
+  const enabledProviders = host.getBacklogLinkProviders((moduleId) => moduleId === 'atlas')
   assert.equal(enabledProviders.length, 2, 'same-module providers for different target kinds are preserved')
-  assert.equal(providerForBacklogLink(enabledProviders, sprintRunLink)?.moduleId, 'sprint-engine')
-  assert.equal(providerForBacklogLink(enabledProviders, sprintArtifactLink)?.moduleId, 'sprint-engine')
+  assert.equal(providerForBacklogLink(enabledProviders, executionLink)?.moduleId, 'atlas')
+  assert.equal(providerForBacklogLink(enabledProviders, externalLink)?.moduleId, 'atlas')
   assert.equal(
     await openBacklogLink({
       workspaceId: 'ws',
       workspaceRoot: '/repo',
       item: baseItem,
-      link: sprintRunLink,
+      link: executionLink,
       providers: host.getBacklogLinkProviders(() => false),
     }),
     false,
@@ -112,7 +114,7 @@ async function main(): Promise<void> {
       workspaceId: 'ws',
       workspaceRoot: '/repo',
       item: baseItem,
-      link: sprintRunLink,
+      link: executionLink,
       providers: enabledProviders,
     }),
     true,
@@ -123,7 +125,7 @@ async function main(): Promise<void> {
       workspaceId: 'ws',
       workspaceRoot: '/repo',
       item: baseItem,
-      link: sprintArtifactLink,
+      link: externalLink,
       providers: enabledProviders,
     }),
     true,
@@ -131,7 +133,7 @@ async function main(): Promise<void> {
   )
 
   const unknown = unknownBacklogResolvedLink({
-    ...sprintRunLink,
+    ...executionLink,
     target: { kind: 'missing.kind', id: 'missing' },
   })
   assert.equal(unknown.status, 'unknown')
@@ -147,11 +149,11 @@ async function main(): Promise<void> {
   })
   assert.equal(resolvedUnknown.status, 'unknown', 'unknown target kinds resolve safely without throwing')
 
-  const itemWithLinks = { ...baseItem, links: [sprintRunLink] }
+  const itemWithLinks = { ...baseItem, links: [executionLink] }
   const resolved = await resolveBacklogLinks({
     workspaceId: 'ws',
     workspaceRoot: '/repo',
-    item: { ...itemWithLinks, links: [sprintRunLink, sprintArtifactLink] },
+    item: { ...itemWithLinks, links: [executionLink, externalLink] },
     providers: enabledProviders,
   })
   assert.equal(resolved[0]?.status, 'completed')
@@ -159,21 +161,21 @@ async function main(): Promise<void> {
 
   assert.equal(nextBacklogItemStatusFromLinks('idea', resolved), 'completed')
   assert.equal(
-    nextBacklogItemStatusFromLinks('idea', [{ ...sprintRunLink, status: 'active' }]),
+    nextBacklogItemStatusFromLinks('idea', [{ ...executionLink, status: 'active' }]),
     'in_progress',
   )
   assert.equal(
-    nextBacklogItemStatusFromLinks('ready', [{ ...sprintRunLink, status: 'unknown' }]),
+    nextBacklogItemStatusFromLinks('ready', [{ ...executionLink, status: 'unknown' }]),
     'ready',
     'unknown execution status leaves item status unchanged',
   )
   assert.equal(
-    nextBacklogItemStatusFromLinks('ready', [{ ...sprintRunLink, type: 'external', status: 'completed' }]),
+    nextBacklogItemStatusFromLinks('ready', [{ ...executionLink, type: 'external', status: 'completed' }]),
     'ready',
     'non-execution link status does not complete the item',
   )
   assert.equal(
-    nextBacklogItemStatusFromLinks('archived', [{ ...sprintRunLink, status: 'active' }]),
+    nextBacklogItemStatusFromLinks('archived', [{ ...executionLink, status: 'active' }]),
     'archived',
     'link refresh does not unarchive items',
   )
@@ -182,7 +184,7 @@ async function main(): Promise<void> {
   // (needs_input > in_progress > ready > idea > completed), never the epic's own
   // run link. The live incident — a completed run link on an epic with open
   // children — reads in_progress, healing the wrongly-completed epic.
-  const completedRun = { ...sprintRunLink, status: 'completed' as const }
+  const completedRun = { ...executionLink, status: 'completed' as const }
   assert.equal(
     nextBacklogItemStatusFromLinks('completed', [completedRun], ['ready', 'completed', 'in_progress']),
     'in_progress',
@@ -194,7 +196,7 @@ async function main(): Promise<void> {
     'an epic auto-completes only when every child is completed or archived',
   )
   assert.equal(
-    nextBacklogItemStatusFromLinks('in_progress', [{ ...sprintRunLink, status: 'active' }], ['completed']),
+    nextBacklogItemStatusFromLinks('in_progress', [{ ...executionLink, status: 'active' }], ['completed']),
     'in_progress',
     "the epic's own still-active run keeps it in_progress even with all children done",
   )
@@ -264,15 +266,15 @@ async function main(): Promise<void> {
 
   // backlogLinkControlModel: an openable resolved link becomes an actionable
   // control with a visible status word and target detail.
-  const openableControl = backlogLinkControlModel({ ...sprintRunLink, status: 'completed', canOpen: true })
+  const openableControl = backlogLinkControlModel({ ...executionLink, status: 'completed', canOpen: true })
   assert.equal(openableControl.canOpen, true)
   assert.equal(openableControl.statusText, 'Completed')
-  assert.equal(openableControl.detail, sprintRunLink.target.path)
+  assert.equal(openableControl.detail, executionLink.target.path)
 
   // An unavailable resolved link is non-actionable, reads "Unavailable", and
   // surfaces the unavailable reason as its detail.
   const unavailableControl = backlogLinkControlModel(
-    unknownBacklogResolvedLink({ ...sprintRunLink, target: { kind: 'missing.kind', id: 'm' } }),
+    unknownBacklogResolvedLink({ ...executionLink, target: { kind: 'missing.kind', id: 'm' } }),
   )
   assert.equal(unavailableControl.canOpen, false)
   assert.equal(unavailableControl.statusText, 'Unavailable')
@@ -281,13 +283,13 @@ async function main(): Promise<void> {
   // syncBacklogItemLinks: a run that resolves active persists the changed link
   // status and drives the item to in_progress in one write.
   const syncHost = createRendererHost()
-  syncHost.hostFor('sprint-engine').registerBacklogLinkProvider(provider('sprint-engine', ['sprintengine.run'], 'active'))
+  syncHost.hostFor('atlas').registerBacklogLinkProvider(provider('atlas', ['atlas.run'], 'active'))
   const activeProviders = syncHost.getBacklogLinkProviders(() => true)
   const persistedActive: Array<{ status?: string; linkStatus?: string }> = []
   const activeSync = await syncBacklogItemLinks({
     workspaceId: 'ws',
     workspaceRoot: '/repo',
-    item: { ...baseItem, status: 'ready', links: [{ ...sprintRunLink, status: 'unknown' }] },
+    item: { ...baseItem, status: 'ready', links: [{ ...executionLink, status: 'unknown' }] },
     providers: activeProviders,
     persistLink: async (args) => {
       persistedActive.push({ status: args.status, linkStatus: args.link.status })
@@ -302,11 +304,11 @@ async function main(): Promise<void> {
   // (an epic child whose task has not claimed). It refreshes the stored chip and
   // is as lifecycle-neutral as an `unknown` one — the item is left alone. The
   // link's `priorStatus` must survive that write: it is the only record of what
-  // to put the child back to if the sprint is canceled, and stripping it here
+  // to put the child back to if the run is canceled, and stripping it here
   // would disarm the restore the moment someone opened the Backlog surface.
   const pendingHost = createRendererHost()
-  pendingHost.hostFor('sprint-engine').registerBacklogLinkProvider(
-    provider('sprint-engine', ['sprintengine.run'], 'pending'),
+  pendingHost.hostFor('atlas').registerBacklogLinkProvider(
+    provider('atlas', ['atlas.run'], 'pending'),
   )
   const persistedPending: BacklogItemLink[] = []
   const pendingSync = await syncBacklogItemLinks({
@@ -315,7 +317,7 @@ async function main(): Promise<void> {
     item: {
       ...baseItem,
       status: 'ready',
-      links: [{ ...sprintRunLink, status: 'active', priorStatus: 'ready' }],
+      links: [{ ...executionLink, status: 'active', priorStatus: 'ready' }],
     },
     providers: pendingHost.getBacklogLinkProviders(() => true),
     persistLink: async (args) => {
@@ -338,7 +340,7 @@ async function main(): Promise<void> {
   const unknownSync = await syncBacklogItemLinks({
     workspaceId: 'ws',
     workspaceRoot: '/repo',
-    item: { ...baseItem, status: 'in_progress', links: [{ ...sprintRunLink, status: 'active' }] },
+    item: { ...baseItem, status: 'in_progress', links: [{ ...executionLink, status: 'active' }] },
     providers: unknownProviders,
     persistLink: async () => {
       unknownPersistCalls += 1
@@ -351,12 +353,12 @@ async function main(): Promise<void> {
 
   // An unchanged status skips persistence entirely.
   const completedHost = createRendererHost()
-  completedHost.hostFor('sprint-engine').registerBacklogLinkProvider(provider('sprint-engine', ['sprintengine.run'], 'completed'))
+  completedHost.hostFor('atlas').registerBacklogLinkProvider(provider('atlas', ['atlas.run'], 'completed'))
   let unchangedPersistCalls = 0
   await syncBacklogItemLinks({
     workspaceId: 'ws',
     workspaceRoot: '/repo',
-    item: { ...baseItem, status: 'completed', links: [{ ...sprintRunLink, status: 'completed' }] },
+    item: { ...baseItem, status: 'completed', links: [{ ...executionLink, status: 'completed' }] },
     providers: completedHost.getBacklogLinkProviders(() => true),
     persistLink: async () => {
       unchangedPersistCalls += 1
@@ -369,7 +371,7 @@ async function main(): Promise<void> {
   const failSync = await syncBacklogItemLinks({
     workspaceId: 'ws',
     workspaceRoot: '/repo',
-    item: { ...baseItem, status: 'ready', links: [{ ...sprintRunLink, status: 'unknown' }] },
+    item: { ...baseItem, status: 'ready', links: [{ ...executionLink, status: 'unknown' }] },
     providers: activeProviders,
     persistLink: async () => ({ ok: false, message: 'disk full' }),
   })
@@ -381,7 +383,7 @@ async function main(): Promise<void> {
   // sync tick refreshes the link chip only. Here the stored link is already
   // `completed`, so nothing persists at all.
   const epicHealHost = createRendererHost()
-  epicHealHost.hostFor('sprint-engine').registerBacklogLinkProvider(provider('sprint-engine', ['sprintengine.run'], 'completed'))
+  epicHealHost.hostFor('atlas').registerBacklogLinkProvider(provider('atlas', ['atlas.run'], 'completed'))
   const persistedEpic: Array<{ status?: string; linkStatus?: string }> = []
   const epicSync = await syncBacklogItemLinks({
     workspaceId: 'ws',
@@ -391,7 +393,7 @@ async function main(): Promise<void> {
       isEpic: true,
       relativePath: 'backlog/epics/relay.md',
       status: 'completed',
-      links: [{ ...sprintRunLink, status: 'completed' }],
+      links: [{ ...executionLink, status: 'completed' }],
     },
     epicChildStatuses: ['in_progress', 'completed'],
     providers: epicHealHost.getBacklogLinkProviders(() => true),
@@ -406,7 +408,7 @@ async function main(): Promise<void> {
   // An epic whose run-link chip is stale still refreshes the chip (link status
   // changes) but persists NO item status — the write carries `status: undefined`.
   const epicChipHost = createRendererHost()
-  epicChipHost.hostFor('sprint-engine').registerBacklogLinkProvider(provider('sprint-engine', ['sprintengine.run'], 'completed'))
+  epicChipHost.hostFor('atlas').registerBacklogLinkProvider(provider('atlas', ['atlas.run'], 'completed'))
   const persistedEpicChip: Array<{ status?: string; linkStatus?: string }> = []
   await syncBacklogItemLinks({
     workspaceId: 'ws',
@@ -416,7 +418,7 @@ async function main(): Promise<void> {
       isEpic: true,
       relativePath: 'backlog/epics/relay.md',
       status: 'in_progress',
-      links: [{ ...sprintRunLink, status: 'active' }],
+      links: [{ ...executionLink, status: 'active' }],
     },
     epicChildStatuses: ['completed', 'completed'],
     providers: epicChipHost.getBacklogLinkProviders(() => true),
@@ -474,18 +476,6 @@ function runSourceContracts(): void {
     panelSource,
     /const derived = nextBacklogItemStatusFromLinks\(\s*item\.status,\s*item\.links,\s*childStatusesBySlug\.get\(epicSlug\(item\)\) \?\? \[\],\s*\)/,
     'the panel derives every epic status at read time over the full scan',
-  )
-
-  const projectionSource = readFileSync(join(process.cwd(), 'src/renderer/src/utils/sprintengineProjectionRefresh.ts'), 'utf8')
-  assert.match(
-    projectionSource,
-    /const isEpic = isBacklogEpicPath\(record\.source\.relativePath\)/,
-    'the store-only run-link reconcile detects an epic by its path',
-  )
-  assert.match(
-    projectionSource,
-    /status: canceled \|\| isEpic \|\| record\.status === 'archived' \? undefined : 'completed',/,
-    'a finished run never drives an epic (or any item, when canceled) status to completed from the projection tick',
   )
 }
 

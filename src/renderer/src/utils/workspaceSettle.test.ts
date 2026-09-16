@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import type { SprintEngineState, Workspace } from '../types/workspace'
+import type { Workspace } from '../types/workspace'
+import { getRendererHost } from '../modules'
 import {
   WORKSPACE_AUTO_SETTLE_AFTER_MS,
   decideWorkspaceSettlement,
@@ -22,7 +23,6 @@ function ws(fields: Partial<Workspace>): Workspace {
     mode: 'standard',
     createdAt: NOW - 10 * DAY,
     lastTerminalActivityAt: null,
-    sprintEngineAutoState: {},
     ...fields,
   } as unknown as Workspace
 }
@@ -93,39 +93,56 @@ assert.equal(
   'automations host never settles'
 )
 
-// Sprints with pending work never settle; finished merged runs do.
-const sprintState = (tasks: { status: string }[], vcs?: { pullRequestState: string }) =>
-  ({ tasks, vcs } as unknown as SprintEngineState)
-assert.equal(
-  shouldAutoSettleWorkspace(
-    ws({ mode: 'sprintengine' as Workspace['mode'], moduleState: { sprintengine: { state: sprintState([{ status: 'in_progress' }]) } } }),
-    NOW
-  ),
-  false,
-  'in-progress sprint never settles'
-)
-assert.equal(
-  shouldAutoSettleWorkspace(
-    ws({
-      mode: 'sprintengine' as Workspace['mode'],
-      moduleState: { sprintengine: { state: sprintState([{ status: 'done' }], { pullRequestState: 'open' }) } },
-    }),
-    NOW
-  ),
-  false,
-  'finished-but-unmerged sprint never settles'
-)
-assert.equal(
-  shouldAutoSettleWorkspace(
-    ws({
-      mode: 'sprintengine' as Workspace['mode'],
-      moduleState: { sprintengine: { state: sprintState([{ status: 'done' }], { pullRequestState: 'merged' }) } },
-    }),
-    NOW
-  ),
-  true,
-  'merged sprint settles once idle'
-)
+// A row whose MODULE reports a run still in flight never settles on its own,
+// however old it is; a run the module reports finished settles like any other
+// quiet row. The status comes from the owning workspace type's run-glyph
+// provider, so the rule is exercised against types registered here — no bundled
+// type ships a provider.
+{
+  const settleHost = getRendererHost()
+  const registerSettleProbe = (id: string, state: string | null): void => {
+    settleHost.hostFor('automations').registerWorkspaceType({
+      id,
+      label: id,
+      description: 'Test-only workspace type.',
+      icon: () => null,
+      hiddenFromPicker: true,
+      createTemplate: () => ({
+        id,
+        name: id,
+        description: 'Test-only workspace type.',
+        previewSlots: [],
+        layout: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+      }),
+      deriveRunGlyph: () => (state ? { state, live: false, label: state } : null),
+    } as never)
+  }
+  registerSettleProbe('settle-probe-running', 'in_progress')
+  registerSettleProbe('settle-probe-unmerged', 'done_unmerged')
+  registerSettleProbe('settle-probe-done', 'done')
+  registerSettleProbe('settle-probe-quiet', null)
+
+  assert.equal(
+    shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-running' as Workspace['mode'] }), NOW),
+    false,
+    'a run still in flight never settles'
+  )
+  assert.equal(
+    shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-unmerged' as Workspace['mode'] }), NOW),
+    false,
+    'a finished-but-unmerged run never settles'
+  )
+  assert.equal(
+    shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-done' as Workspace['mode'] }), NOW),
+    true,
+    'a finished run settles once idle'
+  )
+  assert.equal(
+    shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-quiet' as Workspace['mode'] }), NOW),
+    true,
+    'a provider reporting no run signal pins nothing'
+  )
+}
 
 // The sweep's decision, given what only the caller knows.
 const decide = (workspace: Workspace, flags: { active?: boolean; busy?: boolean; held?: boolean } = {}) =>

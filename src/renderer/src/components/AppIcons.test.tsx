@@ -9,9 +9,8 @@ import { FolderTypeIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '
 // icon identity rather than just "an svg renders".
 const EXPECTED_ICON_PATH: Record<string, string> = {
   standard: 'M7.25 10L10 12.5L7.25 15',
-  // The frond's stem — SprintEngine's mode wears the product's own mark
-  // (`brand/SprintEngineFrond`), the same one the mobile app carries.
-  sprintengine: 'M 303.12,855.85',
+  // The automations host's dial-and-bolt mark, from its own module.
+  'automations-host': 'M19.5 12a7.5 7.5 0 1 1-3.4-6.28',
 }
 
 function iconHtml(mode: Workspace['mode']): string {
@@ -30,34 +29,41 @@ assert.ok(
 
 // AC4: with moduleOverrides disabling the module, WorkspaceTypeIcon degrades to
 // the generic standard glyph instead of the type's icon.
-const sprintEngineOffIcon = renderToStaticMarkup(
-  <WorkspaceTypeIcon mode="sprintengine" moduleOverrides={{ 'sprint-engine': false }} className="icon-sm" />,
+const automationsOffIcon = renderToStaticMarkup(
+  <WorkspaceTypeIcon mode="automations-host" moduleOverrides={{ automations: false }} className="icon-sm" />,
 )
-assert.ok(sprintEngineOffIcon.includes(EXPECTED_ICON_PATH.standard), 'disabled sprint-engine renders the generic glyph')
-assert.ok(!sprintEngineOffIcon.includes(EXPECTED_ICON_PATH.sprintengine), 'disabled sprint-engine drops the sprintengine glyph')
-const sprintEngineOnIcon = renderToStaticMarkup(
-  <WorkspaceTypeIcon mode="sprintengine" moduleOverrides={{}} className="icon-sm" />,
+assert.ok(automationsOffIcon.includes(EXPECTED_ICON_PATH.standard), 'a disabled module renders the generic glyph')
+assert.ok(
+  !automationsOffIcon.includes(EXPECTED_ICON_PATH['automations-host']),
+  'a disabled module drops its own glyph',
 )
-assert.ok(sprintEngineOnIcon.includes(EXPECTED_ICON_PATH.sprintengine), 'enabled sprint-engine renders its glyph')
+const automationsOnIcon = renderToStaticMarkup(
+  <WorkspaceTypeIcon mode="automations-host" moduleOverrides={{}} className="icon-sm" />,
+)
+assert.ok(automationsOnIcon.includes(EXPECTED_ICON_PATH['automations-host']), 'an enabled module renders its glyph')
 
 // AC4: enablement gating — a disabled module resolves to no definition, so the
 // caller degrades to the generic icon/default accent. resolveEnabledWorkspaceType
 // is the pure seam both WorkspaceTypeIcon and workspaceTabIconClass use.
 const allEnabled: ModuleEnablementOverrides = {}
-assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.id, 'sprintengine')
-assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.accentToken, '--tool-sprintengine')
+assert.equal(resolveEnabledWorkspaceType('automations-host', allEnabled)?.id, 'automations-host')
+assert.equal(resolveEnabledWorkspaceType('automations-host', allEnabled)?.accentToken, '--accent-primary')
 assert.equal(resolveEnabledWorkspaceType('standard', allEnabled), undefined, 'standard is shell-owned, not registered')
 assert.equal(resolveEnabledWorkspaceType('future-x' as Workspace['mode'], allEnabled), undefined, 'unknown id resolves to undefined')
 
 assert.equal(
-  resolveEnabledWorkspaceType('sprintengine', { 'sprint-engine': false }),
+  resolveEnabledWorkspaceType('automations-host', { automations: false }),
   undefined,
-  'disabled sprint-engine module resolves to no definition (generic degradation)',
+  'a disabled module resolves to no definition (generic degradation)',
 )
 
 // AC1: top-bar view sets live on the registry; no bundled type contributes one
 // today, and a disabled module exposes none.
-assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.topBarViews, undefined, 'sprintengine has no top-bar views')
+assert.equal(
+  resolveEnabledWorkspaceType('automations-host', allEnabled)?.topBarViews,
+  undefined,
+  'automations-host has no top-bar views',
+)
 
 // MC-2135, re-sited by the owner on 2026-09-02: the FOLDER header's icon slot
 // carries the project's own logo when its repo has one, and every way out of

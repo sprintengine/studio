@@ -1187,6 +1187,14 @@ export type RendererKernel = {
    */
   setModuleEnablementResolver(resolver: (moduleId: string) => boolean): void
   /**
+   * Read that same resolver, for the few shell helpers that need "is this
+   * module on?" but must not import the workspace store — importing it from a
+   * module the store's own slices reach would close a cycle. Absent a resolver
+   * (early boot, tests) every module reads as enabled, matching the
+   * `!moduleEnabled ||` rule every registry lookup already applies.
+   */
+  isModuleEnabled(moduleId: string): boolean
+  /**
    * Workspace-view source for `RendererHost.getWorkspace`. Wired once at boot
    * by modules/index.ts from the workspace store; absent (early boot, tests)
    * every lookup resolves to null.
@@ -1985,6 +1993,9 @@ export function createRendererHost(): RendererKernel {
     },
     setModuleEnablementResolver(resolver) {
       moduleEnabledResolver = resolver
+    },
+    isModuleEnabled(moduleId) {
+      return moduleEnabledResolver ? moduleEnabledResolver(moduleId) : true
     },
     setWorkspaceModuleStateStore(store) {
       workspaceModuleStateStore = store

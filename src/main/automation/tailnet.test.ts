@@ -61,7 +61,7 @@ import { createAutomationTools } from './automation-tools'
 // real TCP socket on loopback — the transport, the auth, and the audit are the
 // thing under test, so a fake would prove nothing about any of them.
 
-const MUTATIONS = new Set(['sprint.cancel', 'backlog.update', 'terminal.create', 'agent.launch', 'tailnet.offer_pairing'])
+const MUTATIONS = new Set(['backlog.update', 'terminal.create', 'agent.launch', 'tailnet.offer_pairing'])
 
 function testTools(calls: string[] = []): McpToolRegistration[] {
   const tool = (name: string): McpToolRegistration => ({
@@ -74,8 +74,6 @@ function testTools(calls: string[] = []): McpToolRegistration[] {
     },
   })
   return [
-    'sprint.status',
-    'sprint.cancel',
     'backlog.list',
     'backlog.update',
     'workspace.list',
@@ -885,16 +883,16 @@ export async function testUnpairedClientsGet401AndPairedClientsDriveTheGateway()
     const tools = (listed.body as { result: { tools: Array<{ name: string }>; ttlMs: number } }).result
     assert.deepEqual(
       tools.tools.map((tool) => tool.name).sort(),
-      ['agent.launch', 'backlog.list', 'backlog.update', 'sprint.cancel', 'sprint.status', 'workspace.checkout', 'workspace.list']
+      ['agent.launch', 'backlog.list', 'backlog.update', 'workspace.checkout', 'workspace.list']
     )
     assert.equal(tools.ttlMs, 300_000, 'the tailnet transport carries the same tools/list TTL as the socket')
 
     const called = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
       token: device.deviceToken,
-      body: rpc(3, 'tools/call', { name: 'sprint.status', arguments: { workspaceId: 'w1' } }),
+      body: rpc(3, 'tools/call', { name: 'workspace.list', arguments: { workspaceId: 'w1' } }),
     })
     assert.equal(called.status, 200)
-    assert.deepEqual(harness.calls, ['sprint.status'])
+    assert.deepEqual(harness.calls, ['workspace.list'])
     assert.equal(
       (called.body as { result: { structuredContent: { workspaceId: string } } }).result.structuredContent.workspaceId,
       'w1'
@@ -998,10 +996,10 @@ export async function testHealthEndpointLeaksNothingBeyondProductAndProtocol(): 
 // ── Scopes ───────────────────────────────────────────────────────────────────
 
 export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void> {
-  assert.equal(requiredScopeForTool('sprint.cancel', true), 'sprint:operate')
-  assert.equal(requiredScopeForTool('sprint.status', false), 'sprint:read')
-  assert.equal(requiredScopeForTool('sprintengine.task.next', true), 'sprint:operate')
   assert.equal(requiredScopeForTool('backlog.update', true), 'backlog:operate')
+  assert.equal(requiredScopeForTool('backlog.list', false), 'backlog:read')
+  assert.equal(requiredScopeForTool('terminal.create', true), 'terminal:control')
+  assert.equal(requiredScopeForTool('terminal.list', false), 'terminal:observe')
   // The catch-all family, including a tool this mapping has never seen.
   assert.equal(requiredScopeForTool('review_submit_brief', true), 'workspace:operate')
   assert.equal(requiredScopeForTool('some.future.tool', true), 'workspace:operate')
@@ -1020,17 +1018,17 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
 
   const harness = await startHarness()
   try {
-    // Read-only on sprints, nothing else.
-    const device = await pairDevice(harness, { scopes: ['sprint:read'] })
+    // Read-only on the backlog, nothing else.
+    const device = await pairDevice(harness, { scopes: ['backlog:read'] })
     const listed = await call(harness.port, 'POST', TAILNET_MCP_PATH, { token: device.deviceToken, body: rpc(1, 'tools/list') })
     assert.deepEqual(
       (listed.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name),
-      ['sprint.status']
+      ['backlog.list']
     )
 
     const refused = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
       token: device.deviceToken,
-      body: rpc(2, 'tools/call', { name: 'sprint.cancel', arguments: {} }),
+      body: rpc(2, 'tools/call', { name: 'backlog.update', arguments: {} }),
     })
     assert.equal(refused.status, 200, 'an authorization refusal is a tool result, not a transport failure')
     const result = (refused.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } }).result
@@ -1041,7 +1039,7 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
     // A refused MUTATION is still audited: an attempt is a security event.
     const audited = harness.auditRecords()
     assert.equal(audited.length, 1)
-    assert.equal(audited[0].tool, 'sprint.cancel')
+    assert.equal(audited[0].tool, 'backlog.update')
     assert.equal(audited[0].outcome, 'failure')
     assert.equal(audited[0].errorCode, 'tailnet_scope_required')
 
@@ -1074,14 +1072,14 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
     assert.ok(!harness.auditRecords().some((record) => record.tool === 'workspace.checkout'), 'the checkout read is not a mutation and is not audited')
 
     // operate implies read within its family, and never across families.
-    const operator = await pairDevice(harness, { scopes: ['sprint:operate'], name: 'operator' })
+    const operator = await pairDevice(harness, { scopes: ['backlog:operate'], name: 'operator' })
     const operatorTools = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
       token: operator.deviceToken,
       body: rpc(3, 'tools/list'),
     })
     assert.deepEqual(
       (operatorTools.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name).sort(),
-      ['sprint.cancel', 'sprint.status']
+      ['backlog.list', 'backlog.update']
     )
   } finally {
     await harness.close()
@@ -1096,7 +1094,7 @@ export async function testTailnetConfigurationToolsAreNeverServedOverTheTailnet(
   const names = createTailnetTools({ resolveTailnet: () => null }).map((tool) => tool.name)
   assert.ok(names.length > 0)
   assert.deepEqual(names.filter((name) => !isLocalOnlyGatewayTool(name)), [])
-  assert.equal(isLocalOnlyGatewayTool('sprint.status'), false)
+  assert.equal(isLocalOnlyGatewayTool('backlog.list'), false)
 
   const calls: string[] = []
   const stubs: McpToolRegistration[] = names.map((name) => ({
@@ -1119,7 +1117,7 @@ export async function testTailnetConfigurationToolsAreNeverServedOverTheTailnet(
     })
     const served = (listed.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name)
     assert.deepEqual(served.filter((name) => name.startsWith('tailnet.')), [], 'the family is invisible to a paired device')
-    assert.ok(served.includes('sprint.cancel'), 'everything else a full grant covers is still served')
+    assert.ok(served.includes('backlog.update'), 'everything else a full grant covers is still served')
 
     const refused = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
       token: device.deviceToken,
@@ -1230,15 +1228,15 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
 
   // A misspelled scope is refused with the vocabulary rather than silently
   // falling back to the default grant, which is what normalization would do.
-  const badScopes = await run('tailnet.offer_pairing', { scopes: ['sprint:read', 'terminal:full'] })
+  const badScopes = await run('tailnet.offer_pairing', { scopes: ['backlog:read', 'terminal:full'] })
   assert.equal(errorCode(badScopes), 'invalid_scopes')
   assert.match(firstText(badScopes), /terminal:full/)
   assert.match(firstText(badScopes), /terminal:control/)
   assert.deepEqual(minted, [])
 
-  const ok = await run('tailnet.offer_pairing', { scopes: ['sprint:read'] })
+  const ok = await run('tailnet.offer_pairing', { scopes: ['backlog:read'] })
   assert.notEqual(ok.isError, true)
-  assert.deepEqual(minted, [{ scopes: ['sprint:read'], origin: { kind: 'agent', by: null } }])
+  assert.deepEqual(minted, [{ scopes: ['backlog:read'], origin: { kind: 'agent', by: null } }])
   const pairing = (ok.structuredContent as { pairing: { token: string; pairingUrl: string } }).pairing
   assert.equal(pairing.token, 'mcpair_test')
   assert.match(pairing.pairingUrl, /^multicode-tailnet:\/\/pair\?/)
@@ -1249,7 +1247,7 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
   assert.equal(errorCode(await run('tailnet.revoke_device', { deviceId: '  ' })), 'invalid_device_id')
 
   // Status carries the offer's scopes and expiry, never anything redeemable.
-  status = { ...status, pairing: { scopes: ['sprint:read'], expiresAt: '2026-09-09T00:00:00.000Z' } }
+  status = { ...status, pairing: { scopes: ['backlog:read'], expiresAt: '2026-09-09T00:00:00.000Z' } }
   const read = await run('tailnet.status')
   assert.notEqual(read.isError, true)
   assert.ok(!firstText(read).includes('mcpair_'), 'no pairing code is re-readable from status')
@@ -1267,7 +1265,7 @@ export async function testRemoteMutationsAreAuditedWithDeviceAndPeerIdentity(): 
     const device = await pairDevice(harness, { name: 'kitchen-laptop' })
     await call(harness.port, 'POST', TAILNET_MCP_PATH, {
       token: device.deviceToken,
-      body: rpc(1, 'tools/call', { name: 'sprint.status', arguments: { workspaceId: 'w1' } }),
+      body: rpc(1, 'tools/call', { name: 'workspace.list', arguments: { workspaceId: 'w1' } }),
     })
     assert.deepEqual(harness.auditRecords(), [], 'reads stay unaudited (existing gateway policy)')
 
@@ -1287,7 +1285,7 @@ export async function testRemoteMutationsAreAuditedWithDeviceAndPeerIdentity(): 
 
     // The stateless endpoint refuses a connection-scoped declaration outright
     // rather than accepting it and dropping it — otherwise the caller would
-    // believe it had declared a run and never learn why run tools refuse.
+    // believe it had declared an identity the audit would never carry.
     const declared = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
       token: device.deviceToken,
       body: { jsonrpc: '2.0', method: 'sprintengine.studio/connect', params: { agentId: 'developer-1' } },
@@ -1354,7 +1352,6 @@ export async function testADeclaredIdentityCannotOverwriteTheProvenDeviceIdentit
       agentId: 'developer-1',
       agentName: 'Trusted Local Agent',
       workspaceId: 'w9',
-      sprintRunId: 'run-1',
     }))
     assert.equal((await stream.nextMessage()).id, 1)
 
@@ -1429,7 +1426,7 @@ export async function testWebSocketTicketsAreSingleUseAndTokensNeverRideTheUrl()
     const ticket = (ticketed.body as { ticket: string }).ticket
 
     const stream = await openWebSocket(harness.port, ticket)
-    stream.send(rpc(1, 'tools/call', { name: 'sprint.status', arguments: { workspaceId: 'ws' } }))
+    stream.send(rpc(1, 'tools/call', { name: 'workspace.list', arguments: { workspaceId: 'ws' } }))
     const answer = await stream.nextMessage()
     assert.equal((answer as { id: number }).id, 1)
     assert.equal(
@@ -2019,7 +2016,7 @@ export async function testTheBridgePairsThenDrivesTheGatewayFromAnotherMachine()
       const listed = byId.get(2) as { result: { tools: Array<{ name: string }> } }
       assert.deepEqual(
         listed.result.tools.map((tool) => tool.name).sort(),
-        ['agent.launch', 'backlog.list', 'backlog.update', 'sprint.cancel', 'sprint.status', 'workspace.checkout', 'workspace.list'],
+        ['agent.launch', 'backlog.list', 'backlog.update', 'workspace.checkout', 'workspace.list'],
         'the remote client sees the same tool surface a local one does'
       )
       const read = byId.get(3) as { result: { structuredContent: { tool: string } } }
@@ -2326,7 +2323,7 @@ async function testWideningADevicesScopesPersistsAndAnUnknownIdThrows(): Promise
 
     const widened = store.updateDeviceScopes(minted.device.id, [...TAILNET_SCOPES])
     assert.deepEqual(widened.scopes, [...TAILNET_SCOPES])
-    assert.equal(widened.scopes.length, 8)
+    assert.equal(widened.scopes.length, 6)
     assert.deepEqual(store.listDevices()[0]?.scopes, [...TAILNET_SCOPES])
 
     // A second store over the same directory is what the next launch sees.

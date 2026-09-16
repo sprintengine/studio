@@ -14,7 +14,6 @@ import {
   normalizeAgentState,
 } from './agentsSlice'
 import { defaultWorkspaceMemoryConfig } from './memorySlice'
-import { defaultSprintEngineAutoState } from '../../modules/sprint-engine-run-state'
 import { defaultWorkspaceWorktreeState } from './worktreesSlice'
 
 const standardTemplate: LayoutTemplate = {
@@ -48,7 +47,6 @@ function terminalSession(input: Partial<TerminalSessionSnapshot> & { sessionId: 
     terminalId: input.terminalId,
     cli: input.cli,
     cwd: input.cwd,
-    sprintEngineStatePath: input.sprintEngineStatePath,
     executionMode: input.executionMode,
     worktreeId: input.worktreeId,
     worktreePath: input.worktreePath,
@@ -123,7 +121,6 @@ const carrier: { workspaces: Workspace[] } = {
       worktreeState: defaultWorkspaceWorktreeState(),
       memory: defaultWorkspaceMemoryConfig(),
       editorState: defaultEditorState(),
-      sprintEngineAutoState: defaultSprintEngineAutoState(),
       createdAt: 1,
     },
   ],
@@ -194,22 +191,15 @@ carrier.workspaces[0].agents['claude-code-agent'] = {
   cliSessionId: 'stable-claude-code',
   cliResumeAvailable: true,
 }
-carrier.workspaces[0].moduleState = {
-  sprintengine: {
-    state: {
-      sprintEngineAgents: {
-        'sprintengine-agent': { role: 'architect', status: 'idle', currentTaskId: null },
-      },
-    },
-  },
-}
-carrier.workspaces[0].agents['sprintengine-agent'] = {
-  ...defaultAgent('sprintengine-agent'),
+// A launched agent whose CLI cannot resume: no live session means the gate is
+// cleared outright, because there is nothing to resume into.
+carrier.workspaces[0].agents['parked-agent'] = {
+  ...defaultAgent('parked-agent'),
   cli: 'codex',
   cliStartRequested: true,
   cliHasLaunched: true,
-  cliSessionId: 'stale-sprintengine',
-  cliResumeAvailable: true,
+  cliSessionId: 'stale-parked',
+  cliResumeAvailable: false,
 }
 directSlice.reconcileWorkspaceAgentLaunchFlags([
   terminalSession({
@@ -231,20 +221,20 @@ assert.equal(carrier.workspaces[0].agents['claude-code-agent'].cliStartRequested
 assert.equal(carrier.workspaces[0].agents['claude-code-agent'].cliResumeAvailable, true)
 assert.equal(carrier.workspaces[0].agents['claude-code-agent'].cliSessionId, 'stable-claude-code')
 // No live session: the launch/resume GATE is cleared (nothing auto-resumes)...
-assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliStartRequested, false)
-assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliHasLaunched, false)
-assert.equal(carrier.workspaces[0].agents['sprintengine-agent'].cliResumeAvailable, false)
+assert.equal(carrier.workspaces[0].agents['parked-agent'].cliStartRequested, false)
+assert.equal(carrier.workspaces[0].agents['parked-agent'].cliHasLaunched, false)
+assert.equal(carrier.workspaces[0].agents['parked-agent'].cliResumeAvailable, false)
 // ...but the session IDENTITY survives. This reconcile runs at hydration
 // (WorkspaceManager) and used to wipe cliSessionId here, which re-orphaned the
 // painted snapshot the persist normalizers now preserve — a second, independent
 // route back to the mint-fresh-uuid → spawn bug.
 assert.equal(
-  carrier.workspaces[0].agents['sprintengine-agent'].cliSessionId,
-  'stale-sprintengine',
+  carrier.workspaces[0].agents['parked-agent'].cliSessionId,
+  'stale-parked',
   'reconcile clears the resume gate but never the session identity',
 )
 
-// A cold-loaded automations-host agent (kind 'general', identity kept by
+// A cold-loaded automations-host agent (identity kept by
 // partialize, every gate flag already false) survives the same reconcile with its
 // id intact — this is the shape that reaches TerminalView on cold load, and it is
 // what lets it resolve a sidecar and pause instead of spawning.
@@ -315,7 +305,7 @@ assert.equal(carrier.workspaces[0].agents['event-agent'].cliSessionId, undefined
 assert.equal(carrier.workspaces[0].agents['event-agent'].cliHasLaunched, false)
 
 // Launch-state events never materialize a missing agent: a reset dispatched for
-// an agent that was since removed (e.g. sprint completion teardown) must not
+// an agent that was since removed (a workspace teardown) must not
 // re-create it as a ghost record.
 directSlice.applyAgentTerminalLaunchStateEvent({
   workspaceId: 'ws-direct',
