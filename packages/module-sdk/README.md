@@ -109,8 +109,9 @@ contracts, so a published version always matches the app version it ships with.
   `panel:<moduleId>` activates while a workspace of your module's mode is
   active, and `availability` accepts a predicate over the published
   `ModuleCommandContext` view or a list of shell `CommandAvailability`
-  strings (`workflowRolesInstalled` when the active workspace has at least
-  one installed workflow-role skill; unknown strings fail closed);
+  strings (`activeWorkspace`, `activeFile`, `terminalActive`, … — unknown
+  strings fail closed, so a condition a newer shell added never breaks a
+  module compiled against an older one);
   panel-targeted dispatch is a
   `multicode:panel-command` CustomEvent from your `run()`),
   `registerSettingsSection` (values persist in the module's own
@@ -249,9 +250,9 @@ valid for the app):
 - `MainHost.ipcMain` is typed `unknown` to keep the SDK Electron-free.
 - `BacklogItemActionContext` omits the shell-internal `startSourcePlan` hook.
 - `FileActionContext` omits the same shell-internal `startSourcePlan` hook
-  (the explorer passes it in-app so an in-tree consumer can open the
-  new-sprint flow; an extracted module opens that flow through its own
-  `registerModalSurface` / `createWorkspace` instead).
+  (the explorer passes it in-app so a built-in consumer can hand a plan
+  document straight to a workspace-creating flow; an extracted module opens
+  its own flow through `registerModalSurface` / `createWorkspace` instead).
 - `NotificationActionContext.notification` is the published
   `{ workspaceId?, navigationTarget? }` view; the shell passes a richer
   in-app notification.

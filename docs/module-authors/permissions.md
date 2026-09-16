@@ -57,8 +57,8 @@ the `window.api` areas they call:
   spawn/write/kill and terminal event streams, conversation provider sessions.
 - **`ipc:settings`** — reading and changing the studio's settings and
   integrations: module enablement, third-party module install/trust, MCP
-  catalog and sync, Skills, the plugin and role registries, GitHub
-  token, app updates, mobile bridge settings, voice transcription settings.
+  catalog and sync, Skills, the plugin registry, GitHub token, app updates,
+  mobile bridge settings, voice transcription settings.
 
 A few surfaces (window controls, native dialogs, clipboard, auth/session,
 external-URL opening) sit outside every tier today; only the legacy

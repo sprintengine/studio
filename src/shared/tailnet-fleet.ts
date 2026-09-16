@@ -106,13 +106,6 @@ type FleetCreatedCheckout = {
   worktreePath: string | null
 }
 
-/** A Sprint Engine run on the remote machine, as `sprint.list` reports it. */
-export type FleetRun = {
-  slug: string
-  /** Project-relative path of the run state, exactly as the remote disclosed it. */
-  statePath: string
-}
-
 /** A terminal session on the remote machine, as `terminal.list` reports it. */
 export type FleetTerminal = {
   sessionId: string

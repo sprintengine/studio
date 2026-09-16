@@ -19,15 +19,18 @@ resources/studio-plugin/
       scripts/render-swap-report.mjs  the before/after page renderer
   studio-skills/
     skills/*/SKILL.md                 the workflow skills the app ships
-  workflow-roles/
-    skills/<kebab-id>/SKILL.md        the sixteen Sprint Engine workflow roles
 ```
 
-`workflow-roles` is a marketplace plugin like any other: the catalogue offers
-Install and Remove, and a workspace that has never installed it stays without
-it. `sprintengine-studio` is the built-in. The two must not be confused —
-force-installing the role pack would reinstate the forcing that was removed on
-2026-09-07.
+`sprintengine-studio` is the built-in: it is installed into every workspace the
+app opens, because the bridge and the agent-state hook are how an agent reaches
+the running app at all. `studio-skills` is a marketplace plugin like any other —
+the catalogue offers Install and Remove, and a workspace that never installed it
+stays without it. The two must not be confused; force-installing an optional
+plugin would reinstate the forcing that was removed on 2026-09-07.
+
+Anything published to `sprintengine/studio-releases` and installed from the
+catalogue lives in that repository, not here. This directory carries only what
+the app itself authors.
 
 Installer: `src/main/skills/studio-plugin.ts` (what it writes) and
 `src/main/studio-plugin-service.ts` (when).
@@ -111,29 +114,27 @@ the flag; the flag is the whole change.
 
 ## The skills
 
-One per area, as the item asks: `studio-sprints`, `studio-backlog`,
-`studio-automations`, `studio-workspaces`, and `studio-design-system` — five.
-(`studio-review` left with the Reviews module, which ships it itself.) The last
-one is the odd shape of the set: the other four are manuals for a tool surface,
-and it is the manual for the *repository's* design system. It sits here rather than with the workflow skills
-because it teaches the studio's own kit, spec trio and lint gates by path, which
-is knowledge about this product and not a general technique. It ships one
-executable of its own, `skills/studio-design-system/scripts/`, which the other
-four do not. Each is written to
-the Agent Skills specification — `name` equal to its directory, a `description`
-under 1024 characters that says **when** to use it, a body under 500 lines — and
-`src/main/skills/studio-plugin-skills.test.ts` checks all three against the same
-frontmatter parser the app's own skill reader uses.
+One per area: `studio-backlog`, `studio-automations`, `studio-workspaces`, and
+`studio-design-system` — four. (`studio-review` left with the Reviews module,
+which ships it itself.) The last one is the odd shape of the set: the other three
+are manuals for a tool surface, and it is the manual for the *repository's*
+design system. It sits here rather than with the workflow skills because it
+teaches the studio's own kit, spec trio and lint gates by path, which is
+knowledge about this product and not a general technique. It ships one executable
+of its own, `skills/studio-design-system/scripts/`, which the other three do not.
+Each is written to the Agent Skills specification — `name` equal to its
+directory, a `description` under 1024 characters that says **when** to use it, a
+body under 500 lines — and `src/main/skills/studio-plugin-skills.test.ts` checks
+them against the same frontmatter parser the app's own skill reader uses.
 
-The five tool-surface skills are distilled from `sprintengine_help`'s five
-topics, the tool descriptions in `src/main/automation/automation-tools.ts` and
-the sprint-engine tool schemas, and the review gateway tools.
+The three tool-surface skills are distilled from the tool descriptions in
+`src/main/automation/automation-tools.ts` and the review gateway tools.
 `studio-design-system` is distilled from a different set — `design-system/`'s
 own `USAGE.md`, `AGENTS.md` and `foundations/principles.md`, the kit under
 `src/renderer/src/components/ui/`, and the lint gates under `scripts/` that
-enforce both. `sprintengine_help` stays — an agent that
-arrives without the plugin still has it — but the skills are the manual: they
-cost nothing until invoked and carry the workflow, not just the tool list.
+enforce both. The tool descriptions stay authoritative — an agent that arrives
+without the plugin still has them — but the skills are the manual: they cost
+nothing until invoked and carry the workflow, not just the tool list.
 
 They deliberately do **not** restate tool schemas. `tools/list` is the listing
 surface and every parameter description is authoritative; a skill that copied

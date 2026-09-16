@@ -6,7 +6,6 @@ import { writeAttachmentImageFile } from '../attachment-image-file'
 import type { AttachmentImageInput } from '../attachment-image-file'
 
 type FilesystemMutationIpcDependencies = {
-  assertNotDirectSprintEngineStateMutation(targetPath: string): Promise<void>
   getUniqueCopyPath(destinationDir: string, sourceName: string, sourcePath: string): Promise<string>
   pathExists(targetPath: string): Promise<boolean>
   trashItem(targetPath: string): Promise<void>
@@ -38,7 +37,6 @@ function isPathInsideOrEqual(childPath: string, parentPath: string): boolean {
 
 export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: FilesystemMutationIpcDependencies): void {
   ipcMain.handle('fs:writefile', async (_, filePath: string, content: string): Promise<void> => {
-    await deps.assertNotDirectSprintEngineStateMutation(filePath)
     await writeFile(filePath, content, 'utf-8')
   })
 
@@ -64,7 +62,6 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
 
   ipcMain.handle('fs:create-file', async (_, parentDir: string, name: string): Promise<string> => {
     const filePath = join(parentDir, name)
-    await deps.assertNotDirectSprintEngineStateMutation(filePath)
     await writeFile(filePath, '', { encoding: 'utf-8', flag: 'wx' })
     return filePath
   })
@@ -86,8 +83,6 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
 
     const targetPath = join(dirname(sourcePath), normalizedName)
     if (targetPath === sourcePath) return targetPath
-    await deps.assertNotDirectSprintEngineStateMutation(sourcePath)
-    await deps.assertNotDirectSprintEngineStateMutation(targetPath)
 
     if (await deps.pathExists(targetPath)) {
       throw new Error(`A file or folder named "${normalizedName}" already exists.`)
@@ -100,8 +95,6 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
   ipcMain.handle('fs:copy', async (_, sourcePath: string, destinationDir: string): Promise<string> => {
     const sourceName = basename(sourcePath)
     const destinationPath = await deps.getUniqueCopyPath(destinationDir, sourceName, sourcePath)
-    await deps.assertNotDirectSprintEngineStateMutation(sourcePath)
-    await deps.assertNotDirectSprintEngineStateMutation(destinationPath)
 
     await cp(sourcePath, destinationPath, {
       errorOnExist: true,
@@ -115,8 +108,6 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
   ipcMain.handle('fs:copy-into', async (_, sourcePath: string, destinationDir: string, options?: { overwrite?: boolean }): Promise<string> => {
     const destinationPath = join(destinationDir, basename(sourcePath))
     const overwrite = options?.overwrite === true
-    await deps.assertNotDirectSprintEngineStateMutation(sourcePath)
-    await deps.assertNotDirectSprintEngineStateMutation(destinationPath)
 
     if (!overwrite && await deps.pathExists(destinationPath)) {
       throw new Error(`A file or folder named "${basename(sourcePath)}" already exists.`)
@@ -140,8 +131,6 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
     const destinationPath = join(destinationDir, sourceName)
     if (destinationPath === sourcePath) return sourcePath
 
-    await deps.assertNotDirectSprintEngineStateMutation(sourcePath)
-    await deps.assertNotDirectSprintEngineStateMutation(destinationPath)
 
     if (await deps.pathExists(destinationPath)) {
       throw new Error(`A file or folder named "${sourceName}" already exists.`)

@@ -373,13 +373,6 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       worktreeState: { containerPath: null, entries: {}, updatedAt: null },
       memory: { relativeRoot: null },
       editorState: { openFiles: [], activeFilePath: null },
-      sprintEngineAutoState: {
-        desiredMode: 'manual',
-        runtimeState: 'idle',
-        cliPermissionPreset: 'manual',
-        maxConcurrentAgents: 0,
-        deliveredAgentNotificationEventKeys: [],
-      },
       createdAt,
     }
     return {
@@ -391,11 +384,10 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
   }
 
   /**
-   * Adopt a full record composed elsewhere — the renderer's creation path for
-   * a Sprint Engine roster, the one mode it still composes, which carries
-   * roster/layout logic that lives in the window. Main stays the only
-   * WRITER: the record is normalized to what the registry owns, stamped, and
-   * persisted here. The renderer proposes; main decides and persists.
+   * Adopt a full record composed elsewhere — a creation path that carries
+   * layout logic living in the window. Main stays the only WRITER: the record
+   * is normalized to what the registry owns, stamped, and persisted here. The
+   * renderer proposes; main decides and persists.
    */
   function adoptRecord(workspace: Workspace): WorkspaceRegistryRecord {
     const existing = getRecord(workspace.id)
@@ -578,7 +570,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
     getRevision,
     /**
      * Mint an id for a record a caller composes itself and then hands to
-     * `adoptRecord` (a sprint run's roster workspace, MC-2160). One generator
+     * `adoptRecord` (a record composed in a window). One generator
      * for both creation shapes, so a composed record's id is indistinguishable
      * from a `prepareCreate` one.
      */

@@ -108,36 +108,9 @@
       <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="M12.5 15H16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
     </symbol>
-    <symbol id="g-ws-sprintengine" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="6" r="2.4" stroke="currentColor" stroke-width="1.7"/>
-      <circle cx="6.5" cy="16.5" r="2.4" stroke="currentColor" stroke-width="1.7"/>
-      <circle cx="17.5" cy="16.5" r="2.4" stroke="currentColor" stroke-width="1.7"/>
-      <path d="M10.85 8.2L7.65 14.35M13.15 8.2L16.35 14.35M9 16.5H15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-    </symbol>
     <symbol id="g-ws-automations" viewBox="0 0 24 24" fill="none">
       <path d="M19.5 12a7.5 7.5 0 1 1-3.4-6.28" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
       <path d="M12.6 7.3 9 12.4h2.7l-.7 4 3.6-5.1h-2.7l.7-4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="currentColor" fill-opacity="0.18"/>
-    </symbol>
-
-    <!-- 24-grid role drawings (behind the SprintEngineRoleIcon dispatcher) -->
-    <symbol id="g-role-generic" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="6.4" stroke="currentColor" stroke-width="1.7"/>
-      <circle cx="12" cy="12" r="2.4" stroke="currentColor" stroke-width="1.4" opacity="0.55"/>
-    </symbol>
-    <symbol id="g-role-developer" viewBox="0 0 24 24" fill="none">
-      <path d="M9.25 8L5.25 12L9.25 16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M14.75 8L18.75 12L14.75 16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M13 5.75L11 18.25" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="g-role-architect" viewBox="0 0 24 24" fill="none">
-      <rect x="5" y="4.75" width="5.5" height="5.5" rx="1.4" stroke="currentColor" stroke-width="1.7"/>
-      <rect x="13.5" y="13.75" width="5.5" height="5.5" rx="1.4" stroke="currentColor" stroke-width="1.7"/>
-      <path d="M10.5 7.5H13.5C15.15 7.5 16.5 8.85 16.5 10.5V13.75" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-      <path d="M7.75 10.25V13.5C7.75 15.15 9.1 16.5 10.75 16.5H13.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="g-role-security" viewBox="0 0 24 24" fill="none">
-      <path d="M12 3.75L18.75 6.25V11.15C18.75 15.35 16.08 19.08 12 20.25C7.92 19.08 5.25 15.35 5.25 11.15V6.25L12 3.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
-      <path d="M9 12.05L11.05 14.1L15.25 9.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
 
     <!-- 16-grid lifecycle vocabulary (LifecycleGlyph) -->
@@ -370,7 +343,6 @@
     <h2 class="demo-heading">Workspace-type identity — registry-resolved</h2>
     <div class="demo-row">
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">standard</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-sprintengine"/></svg><span class="demo-name">sprintengine</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-automations"/></svg><span class="demo-name">automations</span></span>
     </div>
   </div>
@@ -394,16 +366,6 @@
       <span class="demo-cell demo-tone-merged"><svg class="ds-glyph" role="img" aria-label="Merged"><use href="#g-lc-branch"/></svg><span class="demo-name">merged</span></span>
       <span class="demo-cell demo-tone-disabled"><svg class="ds-glyph" role="img" aria-label="Archived"><use href="#g-lc-archived"/></svg><span class="demo-name">archived</span></span>
       <span class="demo-cell demo-tone-danger"><svg class="ds-glyph" role="img" aria-label="Failed"><use href="#g-lc-failed"/></svg><span class="demo-name">failed</span></span>
-    </div>
-  </div>
-
-  <div class="demo-section">
-    <h2 class="demo-heading">Role — dispatcher drawings; tone applied only by RoleGlyph / RoleAvatar</h2>
-    <div class="demo-row">
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-generic"/></svg><span class="demo-name">no role</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-developer"/></svg><span class="demo-name">developer</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-architect"/></svg><span class="demo-name">architect</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-security"/></svg><span class="demo-name">security</span></span>
     </div>
   </div>
 
@@ -508,9 +470,7 @@
   <div class="demo-section">
     <h2 class="demo-heading">Identity &amp; utility</h2>
     <div class="demo-row">
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-sprintengine"/></svg><span class="demo-name">sprintengine</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-automations"/></svg><span class="demo-name">automations</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-developer"/></svg><span class="demo-name">developer</span></span>
       <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="Starred"><use href="#g-star-filled"/></svg><span class="demo-name">star</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-refresh"/></svg><span class="demo-name">refresh</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-cli-terminal"/></svg><span class="demo-name">terminal</span></span>

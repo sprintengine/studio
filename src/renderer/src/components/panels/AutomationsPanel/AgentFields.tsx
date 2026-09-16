@@ -12,13 +12,13 @@ import type { AgentCliCatalogOption } from '../../workspace/newWorkspace/cliRunt
 import { useSpecialistRoster } from '../../workspace/agentComposer/useAgentComposer'
 import { SpecialistActionIcon } from '../../AppIcons'
 import type { SpecialistAction } from '../../../specialists/specialistActions'
-import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
+import type { AgentCli, SpecialistActionId, CliPermissionPreset } from '../../../types/workspace'
 
 // The permission field's options. Each label states the preset and what it means
 // for a run nobody is watching — the control text is the state, so an automation
 // on the unattended default reads "Bypass all — runs unattended" without a
 // caption explaining it. Bypass carries the warn tone, as it does everywhere else.
-const PERMISSION_PRESET_ITEMS: SelectItem<SprintEngineCliPermissionPreset>[] = [
+const PERMISSION_PRESET_ITEMS: SelectItem<CliPermissionPreset>[] = [
   { value: 'none', label: 'CLI default — whatever the CLI does' },
   { value: 'manual', label: 'Manual — asks before acting' },
   { value: 'auto', label: 'Auto — fewer prompts, CLI-supervised' },
@@ -179,8 +179,8 @@ export function PermissionField({
   onChange,
 }: {
   show: boolean
-  value: SprintEngineCliPermissionPreset
-  onChange: (preset: SprintEngineCliPermissionPreset) => void
+  value: CliPermissionPreset
+  onChange: (preset: CliPermissionPreset) => void
 }): JSX.Element | null {
   if (!show) return null
   return (

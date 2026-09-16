@@ -22,7 +22,6 @@ import {
   AutomationsEngineToken,
   AutomationsModuleServiceToken,
   AutomationsProviderRegistryToken,
-  SprintEngineAutomationFrontDoorsToken,
   RepoTaskSourceFrontDoorsToken,
   AgentLaunchServiceToken,
   TerminalRuntimeToken,
@@ -104,7 +103,6 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       )
       const isIntegrationAvailable = createFirstPartyAutomationIntegrationResolver({
         hasRepoTaskSource: () => Boolean(host.getService(RepoTaskSourceFrontDoorsToken)),
-        hasSprintEngine: () => Boolean(host.getService(SprintEngineAutomationFrontDoorsToken)),
       })
       const providerRegistry = createBuiltInAutomationProviderRegistry({
         repoTasks: repoTaskFrontDoors,
@@ -267,11 +265,9 @@ export const automationsModule = createAutomationsModule()
 
 function createFirstPartyAutomationIntegrationResolver(input: {
   hasRepoTaskSource(): boolean
-  hasSprintEngine(): boolean
 }): (id: string) => boolean | undefined {
   return (id) => {
     if (id === REPO_TASK_SOURCE_INTEGRATION_ID) return input.hasRepoTaskSource()
-    if (id === 'module:sprint-engine') return input.hasSprintEngine()
     return undefined
   }
 }

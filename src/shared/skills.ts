@@ -23,6 +23,17 @@ type SkillSourceKind = 'github' | 'local'
  * `SKILL_HARNESS_DIR` in src/shared/skill-harnesses.ts; this is the identity
  * alone, so renderer code can name a harness without importing a node module.
  */
+/**
+ * The plus-menu item that adds a folder on this machine as a skill source.
+ *
+ * The control opens a folder picker. The previous "Add from file…" copy named
+ * the wrong object (owner ruling 2026-09-08).
+ */
+export const ADD_LOCAL_SKILL_SOURCE_LABEL = 'Add from folder…'
+
+/** The skill-page accent that copies a catalogue skill into this workspace. */
+export const INSTALL_SKILL_LABEL = 'Install skill'
+
 export type SkillHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'grok' | 'agents'
 
 /**

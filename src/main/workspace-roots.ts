@@ -9,8 +9,7 @@ import type { WorkspaceSyncSnapshot } from '../shared/workspace-sync'
  * this answers at app ready — before any renderer mounts, and with every
  * workspace's real folder rather than the subset a routing snapshot used to
  * carry. It is the roots source for every main-owned disk scan that must not
- * wait for a window: boot-time sprint run discovery
- * (`sprintengine-boot-discovery.ts`) and the mobile relay's run snapshot.
+ * wait for a window: the mobile relay's snapshot, for one.
  *
  * Bounded by construction: only workspaces this studio has open contribute a
  * root, so a scan over them is never a walk of the user's home directory.

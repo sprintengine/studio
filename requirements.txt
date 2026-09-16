@@ -1,9 +1,0 @@
-# Runtime dependencies for the Python sidecars (sprintengine_core,
-# sprintengine_mcp, souls). Install into the project venv before starting the
-# desktop app's embedded backend:
-#     python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-#
-# PyYAML: hard runtime dependency of sprintengine_core (role registry + store).
-# sprintengine_core.store raises SystemExit when it is missing, so the bundled
-# CPython runtime must ship it.
-PyYAML>=6.0,<7

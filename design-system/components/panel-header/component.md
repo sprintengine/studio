@@ -74,7 +74,7 @@ loading bar, and not a second accent — it is the accent-as-hairline marking
 real progress, which the accent budget permits.
 
 **No status chips, no counts line, no subtitle sentence.** The panel under
-the band already shows its own state. A scope word ("This sprint") is the
+the band already shows its own state. A scope word ("This project") is the
 ceiling; a sentence is a redesign signal.
 
 ## Accessibility

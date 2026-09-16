@@ -1,7 +1,7 @@
 import React from 'react'
 
 import { modelFavouriteKey } from './modelFavourites'
-import type { AgentCli, SprintEngineCliPermissionPreset } from '../../types/workspace'
+import type { AgentCli, CliPermissionPreset } from '../../types/workspace'
 
 // The permission preset a model row spawns on, remembered PER ROW rather than
 // once for the whole app (owner, 2026-09-05).
@@ -27,18 +27,18 @@ const STORAGE_KEY = 'multicode.model-permission-presets'
 
 // Exhaustive over the union, so a preset added to the type fails the build here
 // rather than being silently dropped on read as an unknown value.
-const VALID: Record<SprintEngineCliPermissionPreset, true> = {
+const VALID: Record<CliPermissionPreset, true> = {
   none: true,
   manual: true,
   auto: true,
   bypass: true,
 }
 
-function isPreset(value: unknown): value is SprintEngineCliPermissionPreset {
+function isPreset(value: unknown): value is CliPermissionPreset {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(VALID, value)
 }
 
-type PresetMap = Readonly<Record<string, SprintEngineCliPermissionPreset>>
+type PresetMap = Readonly<Record<string, CliPermissionPreset>>
 
 const EMPTY: PresetMap = {}
 
@@ -48,7 +48,7 @@ function read(): PresetMap {
     if (!raw) return EMPTY
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return EMPTY
-    const next: Record<string, SprintEngineCliPermissionPreset> = {}
+    const next: Record<string, CliPermissionPreset> = {}
     for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
       // A value this build does not recognise is dropped rather than carried:
       // an unknown preset would resolve to no flag at all at spawn time, which
@@ -94,7 +94,7 @@ function subscribe(listener: () => void): () => void {
 export function storedModelPermissionPreset(
   cli: AgentCli | null | undefined,
   model: string | null | undefined,
-): SprintEngineCliPermissionPreset | undefined {
+): CliPermissionPreset | undefined {
   // No CLI is no row: a terminal and a conversation launch nothing that reads a
   // permission flag, so there is nothing stored against them.
   if (!cli) return undefined
@@ -109,15 +109,15 @@ export function storedModelPermissionPreset(
 export function resolveModelPermissionPreset(
   cli: AgentCli | null | undefined,
   model: string | null | undefined,
-  fallback: SprintEngineCliPermissionPreset,
-): SprintEngineCliPermissionPreset {
+  fallback: CliPermissionPreset,
+): CliPermissionPreset {
   return storedModelPermissionPreset(cli, model) ?? fallback
 }
 
 export function setModelPermissionPreset(
   cli: AgentCli | null | undefined,
   model: string | null | undefined,
-  preset: SprintEngineCliPermissionPreset,
+  preset: CliPermissionPreset,
 ): void {
   if (!cli) return
   publish({ ...snapshot(), [modelFavouriteKey(cli, model)]: preset })
@@ -137,8 +137,8 @@ export function __resetModelPermissionPresetsForTest(): void {
 export function useModelPermissionPreset(
   cli: AgentCli | null | undefined,
   model: string | null | undefined,
-  fallback: SprintEngineCliPermissionPreset,
-): SprintEngineCliPermissionPreset {
+  fallback: CliPermissionPreset,
+): CliPermissionPreset {
   const map = React.useSyncExternalStore(subscribe, snapshot, snapshot)
   if (!cli) return fallback
   return map[modelFavouriteKey(cli, model)] ?? fallback

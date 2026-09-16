@@ -5,7 +5,7 @@ import type {
   AgentSessionMetadata,
   CliRuntimeSettings,
   McpSettings,
-  SprintEngineCliPermissionPreset,
+  CliPermissionPreset,
   TerminalKind,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
@@ -18,7 +18,6 @@ export type TerminalSpawnPayload = {
   rows: number
   cwd?: string
   resume?: boolean
-  sprintEngineStatePath?: string
   cli?: AgentCli
   initialPrompt?: string
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>
@@ -36,7 +35,7 @@ export type TerminalSpawnPayload = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
-  cliPermissionPreset?: SprintEngineCliPermissionPreset
+  cliPermissionPreset?: CliPermissionPreset
   debugMode?: boolean
   cliModel?: string
   // Reasoning-effort level for CLIs declaring reasoningSelection; travels with
@@ -57,14 +56,6 @@ export type TerminalSpawnPayload = {
   // hardcodes 'debug'); best-effort, non-blocking, and carries none of the
   // connector MCP coupling. Unset for ordinary spawns.
   spawnSkillId?: string
-  /**
-   * Specialist role id for this spawn. Host-context delivery reads the matching
-   * workspace skill and, when it resolves, adds the Role section. Unset for
-   * general agents. Same field as TerminalSpawnMetadata.specialistId: in-process
-   * callers set it on the payload, renderer callers spread it via the metadata
-   * bag.
-   */
-  specialistId?: string
   // Set only by the main-process AgentLaunchService (MC-2159): the launch
   // decisions it made, retained on the session and surfaced on its snapshot so
   // the renderer can project an AgentState for an agent it never composed. Never
@@ -72,9 +63,9 @@ export type TerminalSpawnPayload = {
   // and projecting over it would fight the store.
   agentRecord?: AgentLaunchRecord
   // The payload is flat. Renderer callers hand `metadata` to preload, which
-  // spreads it in; in-process callers (the sprint runtime) must flatten it
-  // themselves. Typed `never` so handing over a still-nested TerminalSpawnArgs
-  // fails to compile instead of silently dropping every field in the bag.
+  // spreads it in; in-process callers must flatten it themselves. Typed `never`
+  // so handing over a still-nested TerminalSpawnArgs fails to compile instead of
+  // silently dropping every field in the bag.
   metadata?: never
 }
 
@@ -94,7 +85,6 @@ type TerminalIpcDependencies = {
   setIdleSuspendThresholdMs(value: unknown): void
   setKeepRecentTerminalsAlive(value: unknown): void
   setTerminalReapExempt(sessionId: string, exempt: boolean): void
-  setActiveSprintRunStatePaths(value: unknown): void
 }
 
 export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependencies): void {
@@ -166,12 +156,5 @@ export function registerTerminalIpc(ipcMain: IpcMain, deps: TerminalIpcDependenc
   // policy clamps it; out-of-range or non-numeric falls back to the default.
   ipcMain.handle('terminal:set-keep-recent-alive-count', (_, value: unknown): void => {
     deps.setKeepRecentTerminalsAlive(value)
-  })
-
-  // Renderer pushes the set of SprintEngine run statePaths whose dispatch loop is
-  // actively running, so the idle reaper protects those runs' agents (the
-  // claim-aware 5-min retirement owns them) and only reclaims inactive-run agents.
-  ipcMain.handle('terminal:set-active-sprint-runs', (_, value: unknown): void => {
-    deps.setActiveSprintRunStatePaths(value)
   })
 }

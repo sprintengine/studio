@@ -43,7 +43,7 @@ function isDirectory(pathValue: string): boolean {
  * repairing them is a git operation that can itself fail halfway. On top of
  * that the same workspace can be open in a second app instance — a dev build
  * beside a release build is the normal case here — which would keep writing to
- * the old path it resolved at ITS open, splitting a live sprint run's state
+ * the old path it resolved at ITS open, splitting a live workspace's state
  * across two directories. A workspace therefore keeps the name it has until
  * someone renames it themselves, and the app reads whichever it finds.
  *

@@ -5,8 +5,8 @@ import { bracketedTerminalPaste } from '../shared/terminal-paste'
 /**
  * The one main-process path that drives an agent session (MC-102).
  *
- * Every interaction — a Sprint Engine dispatch prompt, the review guide's
- * brief, an Automations action, a future composer or CLI — goes through this
+ * Every interaction — the review guide's brief, an Automations action, a
+ * future composer or CLI — goes through this
  * service instead of reaching for `pty.write()` on its own. What that buys:
  *
  * - **Single writer per session.** Concurrent callers are serialized on a

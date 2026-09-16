@@ -379,7 +379,7 @@ per-component test could not have caught it.
 
 **Reconciled 2026-08-05, again (MC-2138).** The class pair above had converged
 the five components the kit owns; every menu row *outside* them was still
-hand-rolled — the sprint roster popover, both in-app menubar fallbacks, the
+hand-rolled — the model picker popover, both in-app menubar fallbacks, the
 account menu, the reasoning selector — each with its own inset, its own type
 step and no disabled state. Two of them were the same menu drawn at two sizes.
 They consume `MENU_ITEM_CLASS` now, their surfaces consume `MENU_LIST_CLASS`

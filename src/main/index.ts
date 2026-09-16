@@ -96,15 +96,6 @@ const activeMainModules = activeForChannel(
     automations: {
       checkProviderPermission: checkAutomationProviderPermission,
     },
-    sprintEngine: {
-      sprintEngineArtifacts: services.sprintEngineArtifacts,
-      sprintEngineAutomation: services.sprintEngineAutomation,
-      sprintEngineLaunchSettings: services.sprintEngineLaunchSettings,
-      sprintEngineMcpHub: services.sprintEngineMcpHub,
-      sprintCreateService: services.sprintCreateService,
-      sprintPullRequestMergePoller: services.sprintPullRequestMergePoller,
-      sprintRuntime: services.sprintRuntime,
-    },
   }),
   (module) => module.manifest.id,
   includeDevModules
@@ -142,8 +133,8 @@ const moduleLoad = loadMainModules({
   },
 })
 // The manifest universe the enablement gate resolves against — every main module
-// present on this channel, so a module and its dependencies (sprint-engine,
-// automations, agent-runtime) all resolve. Recompute mirrors the renderer's
+// present on this channel, so a module and its dependencies (automations,
+// agent-runtime) all resolve. Recompute mirrors the renderer's
 // resolution so the gate's answer matches what the user sees in Settings.
 const mainModuleManifests = [
   agentRuntimeModule.manifest,
@@ -163,11 +154,6 @@ applyModuleEnablementLive = async (overrides) => {
   // A module with no live-loadable main half takes its toggle through the
   // enablement gate rather than module load/unload — refresh the resolved set.
   recomputeMainEnablement(overrides)
-  // Sprint Engine's raw IPC registrations are not live-unloaded yet, but its
-  // Python sidecar must honor the toggle immediately: close the spawn gate and
-  // stop any live hub. Re-enabling can reopen an already-registered module;
-  // enabling one that was disabled at startup still takes effect after restart.
-  await services.sprintEngineMcpHub.setModuleEnabled(enabledMainModuleIds.has('sprint-engine'))
   // Module-contributed gateway tools follow enablement live (MC-1855): the
   // gateway re-reads the registry and enablement per request, so only the
   // connected MCP clients need a nudge to refresh their tool lists.
@@ -326,7 +312,6 @@ registerAppLifecycle({
   agentStateService: services.agentStateService,
   workspaceSyncService: services.workspaceSyncService,
   pullRequestRecord: services.pullRequestRecord,
-  sprintRuntime: services.sprintRuntime,
   analytics: services.analytics,
   moduleKernel: moduleLoad.kernel,
   updateService: services.updateService,

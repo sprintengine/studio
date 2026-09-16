@@ -134,7 +134,7 @@ consumer's business, and a rebuild keeps all three:
   its content, so a stack of three reads as one column rather than as a ragged
   edge.
 
-**Report the result, not the inventory.** "Sprint archived" — not the branch,
+**Report the result, not the inventory.** "Automation archived" — not the branch,
 the commit count, and the layout the archiver chose. The description line is
 for the one fact the person cannot see from where they are (where a file was
 written, which workspace adopted the change).

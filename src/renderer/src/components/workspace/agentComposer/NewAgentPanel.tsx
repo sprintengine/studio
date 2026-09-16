@@ -1,7 +1,7 @@
 import React from 'react'
 import type {
   AgentCli,
-  SprintEngineCliPermissionPreset,
+  CliPermissionPreset,
   WorkspaceSkill,
 } from '../../../../../shared/electron-api'
 import type {
@@ -117,7 +117,7 @@ export type NewAgentPanelProps = {
   initialSelection: AgentComposerSelection
   /** The app-wide default a model row nobody has set still resolves to; the
    *  picker's footer writes per-row, so this is a fallback, never what it edits. */
-  permissionPreset: SprintEngineCliPermissionPreset
+  permissionPreset: CliPermissionPreset
   debugMode: boolean
   onChangeDebugMode: (next: boolean) => void
   /** Host performs the spawn and retypes this tab into the agent's terminal. */
@@ -169,7 +169,7 @@ export type RemoteNewChatLaunch = {
   prompt: string
   cli?: AgentCli
   cliModel?: string | null
-  permissionPreset: SprintEngineCliPermissionPreset
+  permissionPreset: CliPermissionPreset
   /**
    * Where the chat runs there (checkout-and-branch-on-remote-create): the
    * workspace's current checkout, or a fresh worktree branched from `baseRef`.

@@ -59,7 +59,7 @@ label when the column is expanded and docked on the icon's corner — ringed in
 `bg.canvas`, the column's ground — when it is collapsed. It replaces the row's
 status dot while it shows (one status idiom per surface; the count is the one
 that says how much), and its accessible name carries the row's name and what
-is counted ("Sprints: 1 waiting on you, 2 new"), because the row beside it
+is counted ("Agent CLIs: 1 waiting on you, 2 new"), because the row beside it
 names a place, not the news. The app rail's square above the drawer is the sum
 of its rows: same primitive, same tone precedence, and the two cannot
 disagree because one derivation feeds both (principles.md, "The app rail",

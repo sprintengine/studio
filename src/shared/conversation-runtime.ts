@@ -60,7 +60,7 @@ export type ConversationCliRuntimeOverrides = Record<
 >
 
 // Mirrors the terminal-side `cliPermissionPreset` vocabulary
-// (SprintEngineCliPermissionPreset) without importing electron-api types. The
+// (CliPermissionPreset) without importing electron-api types. The
 // value tuple is exported so the IPC boundary validates against one list.
 export const CONVERSATION_PERMISSION_PRESETS = ['none', 'manual', 'auto', 'bypass'] as const
 

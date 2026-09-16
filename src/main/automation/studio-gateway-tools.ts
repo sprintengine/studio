@@ -1,18 +1,9 @@
 import { BROWSER_MUTATION_TOOL_NAMES } from './browser-tools'
-import {
-  SPRINTENGINE_MUTATING_TOOL_NAMES,
-  SPRINTENGINE_TOOL_DEFINITIONS,
-} from '../../shared/sprintengineToolNames.generated'
-import type { SprintEngineMcpHubService } from '../sprintengine-mcp-hub'
 import type { McpToolContribution } from '../module-host/main-host'
 import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
 import {
-  isMcpToolResult,
-  isRecord,
   toolError,
-  type McpConnectionContext,
   type McpToolRegistration,
-  type McpToolResult,
 } from '../../shared/modules/mcp-tools'
 
 const APP_MUTATION_TOOLS = new Set([
@@ -45,18 +36,15 @@ const APP_MUTATION_TOOLS = new Set([
   // model and maps to `workspace:read` like every other read.
   'workspace.mobile_command',
 ])
-const RUN_MUTATION_TOOLS = new Set<string>(SPRINTENGINE_MUTATING_TOOL_NAMES)
 
-// Builds the gateway's per-request tool resolver. Core tools (the app tools
-// plus the canonical Sprint Engine run tools) are merged once, failing fast at
-// construction on a duplicate. Module-contributed tools are read from the host
-// kernel on EVERY call — the gateway is constructed before modules load, and
-// availability must follow module enablement live (MC-1855) — and each one is
-// gated on its owner's enablement: a disabled module's tools stay listed and
-// answer an actionable enable error instead of running (MC-1805 re-homed).
+// Builds the gateway's per-request tool resolver. The app tools are merged once,
+// failing fast at construction on a duplicate. Module-contributed tools are read
+// from the host kernel on EVERY call — the gateway is constructed before modules
+// load, and availability must follow module enablement live (MC-1855) — and each
+// one is gated on its owner's enablement: a disabled module's tools stay listed
+// and answer an actionable enable error instead of running (MC-1805 re-homed).
 export function createStudioGatewayTools(options: {
   appTools: McpToolRegistration[]
-  sprintEngineMcpHub: Pick<SprintEngineMcpHubService, 'callRunTool'>
   /** Module-contributed tools, from the host kernel; empty until modules load. */
   resolveModuleTools: () => ReadonlyArray<McpToolContribution>
   /** Live enablement of a contributing module; resolved per call, never captured. */
@@ -71,18 +59,6 @@ export function createStudioGatewayTools(options: {
     coreNames.add(name)
   }
   for (const registration of options.appTools) requireUnique(registration.name)
-  const runTools: McpToolRegistration[] = SPRINTENGINE_TOOL_DEFINITIONS.map((definition) => ({
-    name: definition.name,
-    description: definition.description,
-    inputSchema: definition.inputSchema as unknown as Record<string, unknown>,
-    handler: (args, context) => callRunTool(
-      options.sprintEngineMcpHub,
-      definition.name,
-      args,
-      context ?? { metadata: { kind: 'external-local' } }
-    ),
-  }))
-  for (const registration of runTools) requireUnique(registration.name)
   // The resolver runs per request; a persistent shadowing module would emit the
   // same collision warning on every tools/list without this once-guard.
   const warnedCollisions = new Set<string>()
@@ -108,7 +84,6 @@ export function createStudioGatewayTools(options: {
       names.add(registration.name)
       merged.push(gateOnModuleEnablement(contribution, options.isModuleEnabled))
     }
-    merged.push(...runTools)
     return merged
   }
 }
@@ -138,51 +113,18 @@ function gateOnModuleEnablement(
 // remote caller must hold (`<family>:operate` rather than `<family>:read`) and
 // whether the call lands in the gateway audit.
 //
-// Core tools are classified by the tables above. A module-contributed tool
+// Core tools are classified by the table above. A module-contributed tool
 // classifies itself, by declaring `mutates: true` on its registration — core
 // cannot know what a module's tool does, and a module that ships after this
 // build must still be able to say. `resolveTools` is the gateway's own live
 // tool resolver, called per question and never captured: a module enabled
-// mid-session changes the answer. Callers with no resolver to hand (tests, and
-// the run-tool tables) get the core classification alone.
+// mid-session changes the answer. Callers with no resolver to hand (tests) get
+// the core classification alone.
 export function isStudioGatewayMutation(
   toolName: string,
   resolveTools?: () => ReadonlyArray<Pick<McpToolRegistration, 'name' | 'mutates'>>
 ): boolean {
-  if (APP_MUTATION_TOOLS.has(toolName) || RUN_MUTATION_TOOLS.has(toolName)) return true
+  if (APP_MUTATION_TOOLS.has(toolName)) return true
   if (!resolveTools) return false
   return resolveTools().some((tool) => tool.name === toolName && tool.mutates === true)
 }
-async function callRunTool(
-  hub: Pick<SprintEngineMcpHubService, 'callRunTool'>,
-  toolName: string,
-  args: Record<string, unknown>,
-  context: McpConnectionContext
-): Promise<McpToolResult> {
-  const runId = context.metadata.sprintRunId
-  if (!runId) {
-    return toolError(
-      'no_active_sprint',
-      'This MCP connection has no active Sprint Engine run. Launch or enter a sprint in SprintEngine Studio, then use that sprint agent connection.'
-    )
-  }
-  try {
-    const result = await hub.callRunTool({ runId, toolName, arguments: args })
-    if (isMcpToolResult(result)) return result
-    return {
-      content: [{ type: 'text', text: JSON.stringify(result) }],
-      structuredContent: isRecord(result) ? result : { result },
-    }
-  } catch (error) {
-    const text = error instanceof Error ? error.message : String(error)
-    const code = /module is disabled|module is unavailable/i.test(text)
-      ? 'sprintengine_module_disabled'
-      : /not registered|not ready/i.test(text)
-        ? 'no_active_sprint'
-        : 'sprintengine_proxy_error'
-    return toolError(code, text)
-  }
-}
-
-
-

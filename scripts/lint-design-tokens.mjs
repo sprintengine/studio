@@ -49,8 +49,8 @@
 //     naming the number to write; and an entry whose file no longer exists
 //     stops the guard (exit 2). Each entry MUST carry an inline comment that
 //     names the exception category (terminal ANSI / memory graph atmosphere
-//     / brand SVG) and the file's role. Per the T12 implementation note, if
-//     this list grows beyond `ALLOW_LIST_CEILING` entries, the script emits
+//     / brand SVG) and what the file does. If this list grows beyond
+//     `ALLOW_LIST_CEILING` entries, the script emits
 //     a meta-finding rather than expanding silently — the redesign drains
 //     hex from chrome, it does not catalogue it.
 //
@@ -59,8 +59,8 @@
 //   node scripts/lint-design-tokens.mjs --report   # never fails; report only
 //
 // The script prints `file:line:col  rule  matched text` for each finding plus
-// a per-file summary so the Sprint Engine work logs can reference precise
-// counts without re-running the script.
+// a per-file summary, so a review or a work log can quote precise counts
+// without re-running the script.
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { resolve, join, sep } from 'node:path'
@@ -116,9 +116,9 @@ const PATH_EXEMPTIONS = [
 // was visible while the exemption was blanket, which is the argument for the
 // counts above and for the two checks below.
 
-// Implementation-note guardrail: when the file-level allow-list exceeds this
-// ceiling we emit a meta-finding so the architect sees the catalogue growth
-// instead of silently shipping more exceptions. T12 calls this out by name.
+// Guardrail on the guardrail: when the file-level allow-list exceeds this
+// ceiling we emit a meta-finding so a reviewer sees the catalogue growing
+// instead of silently shipping more exceptions.
 const ALLOW_LIST_CEILING = 10
 
 const ALLOW_MARKER = 'design-tokens-allow:'
@@ -800,8 +800,8 @@ for (const relativePath of TARGET_FILES) {
   }
 }
 
-// Per T12 implementation note: when the file-level allow-list outgrows the
-// documented ceiling, surface it as a meta-finding so the architect notices.
+// When the file-level allow-list outgrows the documented ceiling, surface it as
+// a meta-finding so a reviewer notices.
 let metaViolations = 0
 if (PATH_EXEMPTIONS.length > ALLOW_LIST_CEILING) {
   metaViolations = 1

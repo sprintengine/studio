@@ -5,10 +5,9 @@
  * The spawn mechanics were already main-owned (`terminal-launch.ts` renders the
  * argv and env; the runtime's spawn handler takes the whole payload as data).
  * What lived in the renderer was the DECISION layer: which CLI when the caller
- * named none, which permission preset, how a connector resolves, what the agent
- * is called, and how a specialist directive is wrapped. It lived in a React
- * hook, so `agent.launch`, `backlog.work`, and agent-backed `automation.run`
- * actions all failed headless — not because they needed a window, but because
+ * named none, which permission preset, how a connector resolves, and what the
+ * agent is called. It lived in a React hook, so `agent.launch`, `backlog.work`,
+ * and agent-backed `automation.run` actions all failed headless — not because they needed a window, but because
  * the composition did.
  *
  * This service is that layer, with every input injected:
@@ -18,9 +17,6 @@
  *   so a headless launch uses the user's real defaults instead of guessing.
  * - **Connector resolution** is the shared rule (`src/shared/connector-launch.ts`)
  *   over main's own MCP catalog — the same answer the connector chat gets.
- * - **Specialist prompt composition** is the shared builder
- *   (`src/shared/specialists/specialist-actions.ts`), so a specialist launched
- *   by an automation fetches its Soul exactly like one launched by a person.
  * - **The spawn** is the terminal runtime's own handler. Nothing here writes to
  *   a pty or knows what Electron is.
  *
@@ -49,7 +45,7 @@ import type {
   AgentCli,
   MemoryRootStatus,
   McpSettings,
-  SprintEngineCliPermissionPreset,
+  CliPermissionPreset,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
@@ -60,7 +56,7 @@ import type {
   AgentLaunchRequest,
   AgentLaunchResult,
 } from '../shared/agent-launch'
-import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/launch-settings'
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
 import { pickRandomAgentName } from '../shared/agent-names'
 import {
@@ -68,12 +64,7 @@ import {
   resolveProjectKnowledgeConfig,
   type KnowledgeLaunchContext,
 } from '../shared/project-knowledge'
-import {
-  buildSpecialistDirectiveStartupPrompt,
-  getSpecialistAction,
-} from '../shared/specialists/specialist-actions'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../shared/workspace-mode'
-import { missingRoleMessage } from '../shared/workflow-roles'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 
 /**
@@ -91,7 +82,7 @@ const UNBOUND_TERMINAL_ROWS = 30
  * settings name one. Deliberately the most restrictive: an unattended caller
  * that named no preset must not inherit an escalation nobody chose (MC-1900).
  */
-const DEFAULT_PERMISSION_PRESET: SprintEngineCliPermissionPreset = 'manual'
+const DEFAULT_PERMISSION_PRESET: CliPermissionPreset = 'manual'
 
 /** A workspace as the launch service needs to see it. */
 export type AgentLaunchWorkspace = {
@@ -141,12 +132,6 @@ export type AgentLaunchServiceDeps = {
   newSessionId?: () => string
   /** Agent id suffix. Injected for the same reason. */
   newAgentSuffix?: () => string
-  /**
-   * Installed workflow-role ids in this workspace. A specialist launch must
-   * resolve against this set; a missing pack or unknown id is refused rather
-   * than launched as a general agent (owner ruling 2026-09-08).
-   */
-  listInstalledRoleIds?: (workspaceRoot: string) => Promise<readonly string[]>
 }
 
 export type AgentLaunchService = {
@@ -239,32 +224,6 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
 
     const agentId = request.agentId?.trim() || `agent-${cli}-${newAgentSuffix()}`
     const name = request.name?.trim() || pickRandomAgentName(takenAgentNames(workspace, deps.terminal.list()))
-    // An already-saved automation may name a specialistId nothing currently
-    // backs. Refuse rather than launching a general agent (owner ruling
-    // 2026-09-08).
-    const specialistId = request.specialistId?.trim() || undefined
-    if (specialistId) {
-      const known = deps.listInstalledRoleIds
-        ? await deps.listInstalledRoleIds(workspace.folderPath?.trim() || cwd)
-        : []
-      const normalized = specialistId.toLowerCase().replace(/-/g, '_')
-      const knownNormalized = known.map((id) => id.toLowerCase().replace(/-/g, '_'))
-      if (!knownNormalized.includes(normalized)) {
-        return {
-          ok: false,
-          code: 'unknown_role',
-          message: missingRoleMessage(specialistId, known),
-        }
-      }
-    }
-    // A specialist run must take its role before acting, just like an
-    // interactively-spawned specialist. Composed here rather than by the caller,
-    // so a directive sent by the gateway, an automation, or a plan step is
-    // wrapped identically; a non-specialist run sends the prompt unchanged.
-    const specialistPrompt = specialistId
-      ? buildSpecialistDirectiveStartupPrompt(getSpecialistAction(specialistId), request.prompt ?? '')
-      : request.prompt
-
     // The project's Knowledge Graph, resolved the same way the interactive
     // launch resolves it: the per-project setting from the main-owned store,
     // falling back to the workspace's own override. Without this a
@@ -273,12 +232,11 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     // from — it would then either ignore the project's recorded context or guess
     // at a folder.
     const knowledge = await resolveKnowledgeLaunch(workspace, settings.projectKnowledgeRoots)
-    // The prompt is the user's (or the specialist directive's) alone. The
-    // sentence about the graph, and the one about an attached design system, are
-    // built into the host-context document by `terminal-launch.ts` from the
-    // root/relativeRoot pair below — which is how a headless launch now receives
-    // exactly what an interactive one does.
-    const initialPrompt = specialistPrompt
+    // The prompt is the user's alone. The sentence about the graph, and the one
+    // about an attached design system, are built into the host-context document
+    // by `terminal-launch.ts` from the root/relativeRoot pair below — which is
+    // how a headless launch now receives exactly what an interactive one does.
+    const initialPrompt = request.prompt
 
     const record: AgentLaunchRecord = {
       agentId,
@@ -292,8 +250,6 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
         request.permissionPreset
         ?? settings.lastAgentSpawnPermissionPreset
         ?? DEFAULT_PERMISSION_PRESET,
-      kind: specialistId ? 'specialist' : 'general',
-      ...(specialistId ? { specialistId } : {}),
       ...(connector?.ok ? { connectorMcpSettings: connector.resolved.mcpSettings } : {}),
       ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
       ...(worktreePath ? { worktreePath } : {}),
@@ -331,7 +287,6 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       // the worktree config. Ordinary agents fall through to the user's MCP.
       ...(connectorLaunchMcp(record, settings.mcp)),
       ...(record.spawnSkillId ? { spawnSkillId: record.spawnSkillId } : {}),
-      ...(specialistId ? { specialistId } : {}),
       // Nothing is bound to this session yet. A window open right now projects
       // and reveals it within a session-snapshot tick; a window opened later
       // does the same on its first tick.
@@ -345,18 +300,17 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       // main supplies exactly the same shape now.
       agentSession: {
         executionId: sessionId,
-        // 'manual' is what a general/specialist agent has always been here —
-        // sprintengine sessions come from their own spawn paths,
-        // never from this service.
+        // 'manual' is an agent this app launched itself; a capability module
+        // that runs its own agents names itself instead.
         system: 'manual',
         workspaceId: workspace.id,
-        // The PROJECT root, not the run worktree: the engine's teardown matches
-        // a run's sessions on the workspace root it was launched for.
+        // The PROJECT root, not the run worktree: a module's teardown matches
+        // its sessions on the workspace root they were launched for.
         workspaceRoot: workspace.folderPath?.trim() || cwd,
         workId: agentId,
         // A caller that knows what this agent IS says so; every app-level
-        // launch is a general or specialist agent and says nothing.
-        role: request.role?.trim() || record.kind,
+        // launch is a general agent and says nothing.
+        role: request.role?.trim() || 'general',
         displayName: name,
       },
       agentRecord: record,

@@ -1,7 +1,7 @@
 // Capability module system — shared contracts.
 //
 // A "capability module" is a self-describing unit that owns one feature end to
-// end (git, the editor, Sprint Engine, the memory graph, …) and contributes to
+// end (git, the editor, the backlog, the memory graph, …) and contributes to
 // the extension surfaces it needs. This file holds the process-agnostic types so
 // the main, preload, and renderer hosts all speak the same vocabulary.
 //
@@ -30,6 +30,8 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'memory-graph',
   // RETIRED, still reserved (see 'design-wizard' above).
   'switchboard',
+  // RESERVED for the out-of-tree Sprint Engine module, which installs under
+  // this id. Reserved rather than bundled so nothing else can claim the name.
   'sprint-engine',
   'review',
   'automations',

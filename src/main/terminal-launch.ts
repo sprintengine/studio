@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync 
 import { rm, stat, unlink } from 'fs/promises'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
-import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
+import type { AgentCli, CliRuntimeSettings, CliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 import type { PluginContextInjectionMode } from '../shared/plugin-manifest'
 import { applyDebugDirective } from '../shared/debug-directive'
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../shared/design-system/bundle-scaffold'
@@ -24,14 +24,11 @@ import {
   getPluginById,
   getPluginManifest,
 } from './plugin-registry-instance'
-import { withMulticodeCliPath } from './cli-install'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
-import { productionChildEnv } from './production-child-env'
 import { compatStudioEnvEntry, studioEnvNames, withoutStudioEnv } from '../shared/studio-env'
 import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
-import { readRoleBrief } from './role-brief'
 
 export type ShellLaunchConfig = {
   command: string
@@ -59,7 +56,7 @@ export type ShellLaunchConfig = {
 
 export function getTerminalEnv(): Record<string, string> {
   const env = Object.fromEntries(
-    Object.entries(productionChildEnv(process.env)).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
   )
 
   delete env.ELECTRON_RUN_AS_NODE
@@ -81,11 +78,7 @@ export function getTerminalEnv(): Record<string, string> {
   // launched agent sessions can find them. The shims themselves stay out of the
   // user shell — they exist for our install commands, not interactive use.
   const shims = ensureManagedRuntimeShims()
-  const withManagedBins = shims
-    ? withManagedRuntimePath(env, shims.prefixBinDir, process.platform)
-    : env
-
-  return withMulticodeCliPath(withManagedBins)
+  return shims ? withManagedRuntimePath(env, shims.prefixBinDir, process.platform) : env
 }
 
 // Per-agent identity exposed to the launched session so a typed handoff ("work
@@ -357,7 +350,6 @@ function collectLaunchContributionMerge(input: {
   cwd: string
   sessionId: string
   resume?: boolean
-  statePath?: string
   cli?: AgentCli
   knowledgeRoot?: string
   pathStyle: LaunchContributionPathStyle
@@ -371,7 +363,6 @@ function collectLaunchContributionMerge(input: {
       sessionId: input.sessionId,
       resume: input.resume,
       pathStyle: input.pathStyle,
-      ...(input.statePath ? { statePath: input.statePath } : {}),
       ...(input.knowledgeRoot ? { knowledgeRoot: input.knowledgeRoot } : {}),
       ...(input.agentId ? { agentId: input.agentId } : {}),
       ...(input.agentKind ? { agentKind: input.agentKind } : {}),
@@ -581,7 +572,7 @@ function nativeWindowsCodexPromptArg(value: string | undefined): string | undefi
 // fail-safe the ladder takes for an undeclared preset: never invent a flag.
 function getCliPermissionArgs(
   cli: AgentCli,
-  preset: SprintEngineCliPermissionPreset = 'manual'
+  preset: CliPermissionPreset = 'manual'
 ): string[] {
   const manifest = getPluginManifest(cli)
   return manifest ? resolvePermissionArgs(manifest, preset) : []
@@ -1095,13 +1086,11 @@ export function resolveHostContextDelivery(input: {
   memoryRootPath?: string
   memoryRelativeRoot?: string
   moduleSections?: Array<{ heading: string; body: string }>
-  specialistId?: string
 }): HostContextDelivery {
   const injection = getPluginManifest(input.cli)?.contextInjection
   const mode = injection?.mode ?? 'prompt'
   const bundlePath = join(input.cwd, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)
   const attached = designSystemAttached(bundlePath)
-  const role = resolveRoleHostContext(input.cwd, input.specialistId)
   const document = buildHostContextDocument({
     ...(attached ? { designSystem: { bundlePath } } : {}),
     // `memoryRootPath` is set only when the configured root actually resolved,
@@ -1116,7 +1105,6 @@ export function resolveHostContextDelivery(input: {
           },
         }
       : {}),
-    ...(role ? { role } : {}),
     ...(input.moduleSections && input.moduleSections.length > 0
       ? { moduleSections: input.moduleSections }
       : {}),
@@ -1126,23 +1114,6 @@ export function resolveHostContextDelivery(input: {
     ? writeHostContextCursorPlugin(input.sessionId, input.cwd, document)
     : writeHostContextFile(input.sessionId, input.cwd, document)
   return { mode, document, filePath }
-}
-
-/**
- * Resolve a specialist id to a host-context Role section. Only a skill that
- * lives in this workspace produces a section — never a pointer at a bundled
- * file the CLI cannot load, and never a section for a role that did not
- * resolve.
- */
-function resolveRoleHostContext(
-  workspaceRoot: string,
-  specialistId: string | undefined,
-): { id: string; skillPath: string } | undefined {
-  const requested = specialistId?.trim()
-  if (!requested) return undefined
-  const brief = readRoleBrief(workspaceRoot, requested)
-  if (!brief.ok || !brief.workspaceRel) return undefined
-  return { id: brief.roleId, skillPath: brief.workspaceRel }
 }
 
 /**
@@ -1271,11 +1242,10 @@ function buildWslShellScript(
   cwd: string,
   sessionId: string,
   resume = false,
-  sprintEngineStatePath?: string,
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
+  cliPermissionPreset: CliPermissionPreset = 'manual',
   cliModel?: string,
   memoryRootPath?: string,
   managedMcpEnv?: Record<string, string>,
@@ -1284,12 +1254,11 @@ function buildWslShellScript(
   cliReasoning?: string,
   hostContext: HostContextRenderInputs = {}
 ): string {
-  const shellInitialPrompt = normalizeTextPaths(initialPrompt, 'wsl', [cwd, sprintEngineStatePath, memoryRootPath])
+  const shellInitialPrompt = normalizeTextPaths(initialPrompt, 'wsl', [cwd, memoryRootPath])
   const merged = collectLaunchContributionMerge({
     cwd,
     sessionId,
     resume,
-    statePath: sprintEngineStatePath,
     cli,
     knowledgeRoot: memoryRootPath,
     pathStyle: 'wsl',
@@ -1307,11 +1276,10 @@ export function getShellLaunchConfig(
   cwd: string,
   sessionId: string,
   resume = false,
-  sprintEngineStatePath?: string,
   cli: AgentCli = 'codex',
   initialPrompt?: string,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
+  cliPermissionPreset: CliPermissionPreset = 'manual',
   cliModel?: string,
   memoryRootPath?: string,
   memoryRelativeRoot?: string,
@@ -1322,8 +1290,7 @@ export function getShellLaunchConfig(
   // Absolute binary path resolved by the spawn pre-flight; see
   // AgentLaunchRenderInput.resolvedBinaryPath. Undefined leaves the launch on
   // the manifest binary name (Windows/WSL, or an undecided probe).
-  resolvedBinaryPath?: string,
-  specialistId?: string
+  resolvedBinaryPath?: string
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
@@ -1334,10 +1301,6 @@ export function getShellLaunchConfig(
     cwd: contributionPathStyle === 'windows' ? toWindowsPath(cwd) : cwd,
     sessionId,
     resume,
-    statePath:
-      contributionPathStyle === 'windows' && sprintEngineStatePath
-        ? toWindowsPath(sprintEngineStatePath)
-        : sprintEngineStatePath,
     cli,
     knowledgeRoot:
       contributionPathStyle === 'windows' && memoryRootPath ? toWindowsPath(memoryRootPath) : memoryRootPath,
@@ -1357,7 +1320,6 @@ export function getShellLaunchConfig(
     ...(memoryRootPath ? { memoryRootPath } : {}),
     ...(memoryRelativeRoot ? { memoryRelativeRoot } : {}),
     ...(merged.hostContext.length > 0 ? { moduleSections: merged.hostContext } : {}),
-    ...(specialistId ? { specialistId } : {}),
   })
   const launchPrompt = applyHostContextToPrompt(hostContext, initialPrompt)
   const hostContextPath = hostContext.filePath ?? undefined
@@ -1380,13 +1342,13 @@ export function getShellLaunchConfig(
     debugMode,
     colorScheme: getColorScheme(),
     secretToken: cliAuthToken,
-    ...hostContextRenderInputs(hostContext, process.platform === 'win32' ? (cliRuntime.useWsl ? 'wsl' : 'windows') : null, [cwd, sprintEngineStatePath, memoryRootPath]),
+    ...hostContextRenderInputs(hostContext, process.platform === 'win32' ? (cliRuntime.useWsl ? 'wsl' : 'windows') : null, [cwd, memoryRootPath]),
   })
 
   if (process.platform === 'win32' && !cliRuntime.useWsl) {
     const windowsCwd = toWindowsPath(cwd)
-    const windowsHostContext = hostContextRenderInputs(hostContext, 'windows', [cwd, sprintEngineStatePath, memoryRootPath])
-    const shellInitialPrompt = normalizeTextPaths(launchPrompt, 'windows', [cwd, sprintEngineStatePath, memoryRootPath, hostContext.filePath ?? undefined])
+    const windowsHostContext = hostContextRenderInputs(hostContext, 'windows', [cwd, memoryRootPath])
+    const shellInitialPrompt = normalizeTextPaths(launchPrompt, 'windows', [cwd, memoryRootPath, hostContext.filePath ?? undefined])
     if (!isNativeWindowsPath(windowsCwd)) {
       throw new Error(
         `Workspace path "${cwd}" is not available as a Windows path. Turn on "Run through WSL" for ${cli}.`
@@ -1438,7 +1400,6 @@ export function getShellLaunchConfig(
         cwd,
         sessionId,
         resume,
-        sprintEngineStatePath,
         cli,
         launchPrompt,
         cliRuntime,
@@ -1449,7 +1410,7 @@ export function getShellLaunchConfig(
         debugMode,
         providerLaunchEnv,
         cliReasoning,
-        hostContextRenderInputs(hostContext, 'wsl', [cwd, sprintEngineStatePath, memoryRootPath])
+        hostContextRenderInputs(hostContext, 'wsl', [cwd, memoryRootPath])
       )
     )
     return {
@@ -1510,20 +1471,17 @@ export function getShellLaunchConfig(
 
 export function getPlainShellLaunchConfig(
   cwd: string,
-  sprintEngineStatePath?: string,
   sessionId = 'plain-terminal'
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
   if (process.platform === 'win32') {
     const windowsCwd = toWindowsPath(cwd)
-    const windowsStatePath = sprintEngineStatePath ? toWindowsPath(sprintEngineStatePath) : undefined
 
     if (isNativeWindowsPath(windowsCwd)) {
       const merged = collectLaunchContributionMerge({
         cwd: windowsCwd,
         sessionId,
-        statePath: windowsStatePath,
         pathStyle: 'windows',
         agentKind: 'terminal',
       })
@@ -1540,7 +1498,6 @@ export function getPlainShellLaunchConfig(
     const merged = collectLaunchContributionMerge({
       cwd,
       sessionId,
-      statePath: sprintEngineStatePath,
       pathStyle: 'wsl',
       agentKind: 'terminal',
     })
@@ -1574,7 +1531,6 @@ export function getPlainShellLaunchConfig(
   const merged = collectLaunchContributionMerge({
     cwd,
     sessionId,
-    statePath: sprintEngineStatePath,
     pathStyle: 'posix',
     agentKind: 'terminal',
   })
@@ -1613,7 +1569,7 @@ function buildNativeAgentLaunchPowerShellScript(
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
+  cliPermissionPreset: CliPermissionPreset = 'manual',
   cliModel?: string,
   debugMode = false,
   cliReasoning?: string,
@@ -1679,7 +1635,7 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   cwd: string,
   initialPrompt: string | undefined,
   cliRuntime: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
+  cliPermissionPreset: CliPermissionPreset = 'manual',
   cliModel?: string,
   debugMode = false,
   cliReasoning?: string
@@ -1745,7 +1701,7 @@ function buildAgentLaunchCommand(
   resume = false,
   initialPrompt?: string,
   cliRuntime?: CliRuntimeSettings,
-  cliPermissionPreset: SprintEngineCliPermissionPreset = 'manual',
+  cliPermissionPreset: CliPermissionPreset = 'manual',
   cliModel?: string,
   debugMode = false,
   cliReasoning?: string,

@@ -16,7 +16,7 @@
  *   3. The user's Settings toggle, mirrored into `consent-store.ts`.
  *
  * `record` is synchronous, returns nothing, and never throws — it sits on the
- * agent-launch and sprint paths, which must not get slower or more failure-prone
+ * agent-launch paths, which must not get slower or more failure-prone
  * because a metric was added. Everything after it is best effort: a failed flush
  * costs a batch, never a user action.
  */

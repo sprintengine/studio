@@ -6,12 +6,13 @@ SprintEngine Studio is a desktop application for working with coding agents. It
 runs the agent CLIs you already have — Claude Code, Codex, Cursor, OpenCode and
 others — as terminals inside workspaces, keeps their sessions and history when
 you close the window, and lets you run several of them at once against the same
-repository. On top of that it adds sprints, which plan and carry a piece of work
-through build and review, scheduled and triggered automations, an extension
+repository. On top of that it adds a file-backed backlog, code review, a design
+system door, a memory graph, scheduled and triggered automations, an extension
 marketplace, and a companion for driving the whole thing from a phone.
 
-The app is an Electron desktop app with a React renderer, a TypeScript main
-process, and a set of Python services for the sprint runtime.
+The app is an Electron desktop app with a React renderer and a TypeScript main
+process. It also ships a self-contained CPython, which capability modules run
+their Python sidecars on so a feature never depends on the user having Python.
 
 <!-- SCREENSHOT: replace this block with an image of the workspace view, e.g. ![SprintEngine Studio](docs/images/screenshot.png) -->
 
@@ -74,31 +75,17 @@ npm run verify:app     # the full gate: typecheck, lints, tests, SDK and feed ch
 The `dist:*` scripts fetch the bundled agent runtimes first, so the first run of
 one needs network access and takes a while.
 
-`npm run verify:app` spawns the Python services for real, so it also needs a
-virtualenv:
-
-```
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
-
-Python 3.12 is what CI uses, matching the CPython the app bundles. Plain
-`npm run dev` does not need it.
-
 ## How the pieces are laid out
 
 | Path | What is in it |
 | --- | --- |
-| `src/main` | The Electron main process: agent launch and state, terminal and conversation runtimes, the sprint runtime, the plugin registry, CLI detection and installation, MCP configuration, the workspace registry, and the IPC handlers. |
+| `src/main` | The Electron main process: agent launch and state, terminal and conversation runtimes, the capability-module host, the plugin registry, CLI detection and installation, MCP configuration, the workspace registry, and the IPC handlers. |
 | `src/preload` | The preload bridge — the typed API surface the renderer is allowed to call. |
 | `src/renderer` | The React user interface. |
 | `src/shared` | Types and contracts shared across processes, including the IPC contract and the plugin and skill manifest schemas. Deliberately free of Node APIs. |
 | `packages/module-sdk` | The published SDK for building capability modules and BYO-CLI plugins: manifest and permission types, host contribution points, and bundle signing. MIT licensed. |
-| `sprintengine_core` | The Python sprint runtime — the local execution authority for task claiming, status changes, evidence and artifacts. |
-| `sprintengine_mcp` | A Python MCP server over that runtime, so an agent can drive a sprint the same way a person can. |
-| `resources/` | Everything bundled with the app rather than compiled into it: the agent CLI plugin manifests, the marketplace registry, MCP definitions, hooks, the studio plugin, the specialist role pack, the fetched agent runtimes, and the app icons. |
+| `resources/` | Everything bundled with the app rather than compiled into it: the agent CLI plugin manifests, the marketplace registry, MCP definitions, hooks, the studio plugin and its skills, the fetched agent runtimes, and the app icons. |
 | `design-system/` | A self-contained, framework-neutral design system — tokens, components, patterns and a catalog — with its own lint that the app's build gates enforce. |
-| `souls/` | The `souls` CLI: it renders a role's prompt from the Sprint Engine role registry. The roles themselves ship in `resources/specialist-pack/`. Being retired in favour of role skills — see [docs/souls.md](docs/souls.md). |
 
 ## Extending it
 
@@ -115,8 +102,10 @@ The app is meant to be built on rather than only used.
   to tell when a turn is finished.
   [docs/plugin-authors/README.md](docs/plugin-authors/README.md) covers manifests
   and signed bundles.
-- **The sprint CLI and its MCP server** are documented in
-  [docs/sprintengine-cli.md](docs/sprintengine-cli.md).
+- **The studio's own agent-facing surface** — the `sprintengine-studio` plugin
+  the app installs into every workspace it opens, the stdio bridge to the
+  running app, and the skills that teach an agent to drive it — is documented in
+  [resources/studio-plugin/README.md](resources/studio-plugin/README.md).
 
 Both kinds of extension are built against
 [`packages/module-sdk`](packages/module-sdk).

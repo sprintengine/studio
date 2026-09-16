@@ -1,5 +1,5 @@
 import { existsSync } from 'fs'
-import { join, resolve } from 'path'
+import { join } from 'path'
 
 import type {
   ConversationProviderListEntry,
@@ -16,7 +16,6 @@ import {
   type PluginRegistryLoadReport,
 } from './plugin-registry'
 import { readTrustedModulesSync } from './modules/trust-store'
-import { isPathInsideOrEqual } from './path-containment'
 
 // Lazy require so this module can be imported in node-only test bundles
 // that never reach the `ensureRegistry()` call. The electron `app` module
@@ -115,21 +114,6 @@ export function getConversationProviderById(id: string): LoadedConversationProvi
 export function getPluginRegistryUserRoot(): string {
   ensureRegistry()
   return configuredUserRoot ?? defaultUserPluginRoot()
-}
-
-export type PluginSprintEngineRegistryRoot = {
-  id: string
-  root: string
-}
-
-export function getPluginSprintEngineRegistryRoots(): PluginSprintEngineRegistryRoot[] {
-  return ensureRegistry().loaded().flatMap((plugin): PluginSprintEngineRegistryRoot[] => {
-    const soulsDirectory = plugin.manifest.souls?.directory
-    if (!soulsDirectory) return []
-    const root = resolve(plugin.pluginRoot, soulsDirectory)
-    if (!isPathInsideOrEqual(plugin.pluginRoot, root)) return []
-    return [{ id: plugin.manifest.id, root }]
-  })
 }
 
 // Test-only: lets unit tests substitute a registry built from a fixture root.

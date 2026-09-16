@@ -140,7 +140,7 @@ sections in an order the eye cannot predict is a list nobody can drive.
 **The resting page is a page, not a preview.** With no query on All, the
 palette shows what a person opens it for before they have typed: the five
 actions, then the live chats they were most recently in. Five actions, not
-every verb the product has: the specialist spawn rows that used to sit here
+every verb the product has: the agent spawn rows that used to sit here
 belong to the spawn menu and its chords, and "Add project" is the New chat
 panel's job (owner, 2026-09-11). "New chat" opens that panel — the one way to
 start — never a workspace on the spot. "Go to file" and "Search project

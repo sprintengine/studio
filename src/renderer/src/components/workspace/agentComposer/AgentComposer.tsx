@@ -5,7 +5,7 @@ import { ChipButton, CliModelPickerButton, CloseIconButton, EmptyState, FOCUS_RI
 import { NoWorkflowRolesNotice } from '../../NoWorkflowRolesNotice'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../types/workspace'
+import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
 import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
@@ -43,8 +43,8 @@ type AgentComposerProps = {
   initialMcpServers?: AgentComposerConnector[] | null
   // Shared permission preset (owned by the host so spawn handlers read it at
   // spawn time). Debug mode is transient and defaulted off per spawn.
-  permissionPreset: SprintEngineCliPermissionPreset
-  onChangePermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  permissionPreset: CliPermissionPreset
+  onChangePermissionPreset: (preset: CliPermissionPreset) => void
   debugMode: boolean
   onChangeDebugMode: (next: boolean) => void
   // Confirm creates the chat (host maps to its spawn handlers); close discards.
@@ -605,8 +605,8 @@ function ComposerConfig({
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
   onSelectReasoning: (cli: AgentCli, reasoning: string | null) => void
-  permissionPreset: SprintEngineCliPermissionPreset
-  onChangePermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  permissionPreset: CliPermissionPreset
+  onChangePermissionPreset: (preset: CliPermissionPreset) => void
   debugMode: boolean
   onChangeDebugMode: (next: boolean) => void
 }) {

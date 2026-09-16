@@ -172,8 +172,8 @@ question without mounting a dialog of its own.
 - ~~`Modal.tsx` ships shadowless, `rounded-[8px]`, and a 20px inset.~~
   **Resolved 2026-08-05 (MC-2110):** the shell casts `shadow.modal`, rounds at
   `radius.shell`, and insets at `space.3xl`. The same change put every other
-  floating surface on the geometry above — the Command Palette, the New sprint
-  dialog, the roster manager and the diagnostics overlay had each grown a
+  floating surface on the geometry above — the Command Palette, the New
+  workspace dialog, the review walkthrough and the diagnostics overlay had each grown a
   private width, radius, border and shadow, and three of the four were shells
   re-implementing this one rather than consuming it. Worth recording is what
   the item asked for and did not get: it proposed `radius.overlay` (7px) as the

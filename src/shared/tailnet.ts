@@ -7,8 +7,8 @@
 /**
  * Per-device scopes, mirroring the gateway's tool families.
  *
- * Read and operate are separate grants so "watch my sprints from the laptop"
- * does not carry the power to cancel them. `terminal:observe` /
+ * Read and operate are separate grants so "watch my backlog from the laptop"
+ * does not carry the power to change it. `terminal:observe` /
  * `terminal:control` are a distinct tier (epic Decision 4): control means
  * arbitrary shell on the host and is never implied by the structured-command
  * scopes. They are declared before the terminal children of the epic land so a
@@ -17,8 +17,6 @@
 export const TAILNET_SCOPES = [
   'workspace:read',
   'workspace:operate',
-  'sprint:read',
-  'sprint:operate',
   'backlog:read',
   'backlog:operate',
   'terminal:observe',
@@ -50,9 +48,9 @@ export function normalizeTailnetScopes(value: unknown): TailnetScope[] {
 /**
  * Whether a set of granted scopes satisfies a required one.
  *
- * `operate` implies `read` within its family: a device trusted to cancel a
- * sprint is necessarily trusted to see it, and granting them separately would
- * only produce devices that mutate blind. The implication is one-way — no
+ * `operate` implies `read` within its family: a device trusted to change a
+ * backlog item is necessarily trusted to see it, and granting them separately
+ * would only produce devices that mutate blind. The implication is one-way — no
  * amount of read access ever confers operate — and never crosses families.
  */
 export function tailnetScopeGrantsAccess(granted: ReadonlySet<TailnetScope>, required: TailnetScope): boolean {

@@ -79,7 +79,7 @@ import {
 } from '../../../../../store/slices/settingsSlice'
 import { GENERAL_AGENT_ENGINE_KEY } from '../../../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
-import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../../../types/workspace'
+import type { AgentCli, CliPermissionPreset } from '../../../../../types/workspace'
 import type { HostedCard } from '../../../../../../../shared/hosted-card-feed'
 
 /**
@@ -99,7 +99,7 @@ export type CardLaunchChoice = {
   cli: AgentCli
   model: string | null
   reasoning: string | null
-  permissionPreset: SprintEngineCliPermissionPreset
+  permissionPreset: CliPermissionPreset
 }
 
 // A general agent, always. A card names a capability, not a role, and the role

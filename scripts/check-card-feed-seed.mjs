@@ -77,7 +77,7 @@ const errors = []
 const STUDIO_SOURCE_ID = 'github:sprintengine/studio-releases'
 // Where resources/studio-plugin mirrors that repository's root.
 const STUDIO_MIRROR = join(root, 'resources', 'studio-plugin')
-const SURFACE_VIEWS = new Set(['home', 'plugins', 'skills', 'agent-clis', 'workflows', 'sprints'])
+const SURFACE_VIEWS = new Set(['home', 'plugins', 'skills', 'agent-clis'])
 
 // The hero's dek is CLAMPED to two lines, because the hero plate's floor is
 // derived from the tallest stack the overlay can legally draw

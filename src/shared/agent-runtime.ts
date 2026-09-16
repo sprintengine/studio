@@ -3,7 +3,6 @@ import type { AgentPhase, AgentSessionSystem } from './electron-api'
 export type {
   AgentExecution,
   AgentExecutionMode,
-  AgentKind,
   AgentState,
 } from './agent-state'
 export { defaultAgent, defaultAgentExecution } from './agent-state'
@@ -11,9 +10,9 @@ export { defaultAgent, defaultAgentExecution } from './agent-state'
 // Generic agent-session runtime contracts. These describe how the core
 // terminal runtime spawns, inventories, and reports exits for *any* system's
 // agent sessions. System-specific modules layer their own behavior on top via
-// the runtime's generic seams. Sprint-managed agents are identified by
+// the runtime's generic seams: a module's managed agents are identified by
 // `registerAgentIdNamespace` and the launch contribution's `session.managed`
-// tag, not by an `AgentKind` member.
+// tag, never by an enum member on the agent record.
 
 type AgentInjectionMode =
   | 'positional-arg'

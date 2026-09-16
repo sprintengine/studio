@@ -2,7 +2,7 @@
  * The agent-launch contract main owns (MC-2159).
  *
  * Launching an agent used to be split in two: a React hook decided the CLI,
- * permission preset, connector environment, name, and specialist prompt, wrote
+ * permission preset, connector environment and name, wrote
  * an `AgentState`, and left the actual spawn to whichever `TerminalView` mounted
  * afterwards. Every one of those decisions is data, none of it is presentation —
  * but because it lived in the renderer, `agent.launch`, `backlog.work`, and
@@ -20,7 +20,7 @@
  *   Its lifetime is the session's: when the pty is gone, so is the record, and
  *   a window opened an hour later projects exactly the sessions still running.
  */
-import type { AgentCli, McpSettings, SprintEngineCliPermissionPreset } from './electron-api'
+import type { AgentCli, McpSettings, CliPermissionPreset } from './electron-api'
 
 export type AgentLaunchRequest = {
   workspaceId: string
@@ -33,9 +33,7 @@ export type AgentLaunchRequest = {
   /** Model id for CLIs declaring modelSelection; forwarded verbatim. */
   cliModel?: string
   /** Absent takes the app-level agent-spawn default (MC-1900). */
-  permissionPreset?: SprintEngineCliPermissionPreset
-  /** When set, the agent launches as a specialist rather than a general agent. */
-  specialistId?: string
+  permissionPreset?: CliPermissionPreset
   /** Git worktree to run in, instead of the workspace checkout. */
   worktreePath?: string
   /** Connector id from the installed connectors; resolves to an isolated single-server MCP. */
@@ -56,8 +54,8 @@ export type AgentLaunchRequest = {
    */
   cwd?: string
   /**
-   * Recorded as the session's agent-identity role. Absent uses the launch kind
-   * ('general'/'specialist'), which is what every app-level launch wants.
+   * Recorded as the session's agent-identity role. Absent records the agent as
+   * general, which is what every app-level launch wants.
    */
   role?: string
   /**
@@ -81,19 +79,16 @@ export type AgentDisposeRequest = {
  *
  * Everything here is something the renderer could not re-derive from the raw
  * session snapshot: the snapshot knows the cli and cwd, but not which permission
- * preset was rendered into the launch argv, which specialist the prompt was
- * wrapped for, or which connector config was written into the worktree. A
- * projection missing those fields would look right and behave wrong on the first
- * relaunch.
+ * preset was rendered into the launch argv, or which connector config was
+ * written into the worktree. A projection missing those fields would look right
+ * and behave wrong on the first relaunch.
  */
 export type AgentLaunchRecord = {
   agentId: string
   name: string
   cli: AgentCli
   cliModel?: string
-  cliPermissionPreset: SprintEngineCliPermissionPreset
-  kind: 'general' | 'specialist'
-  specialistId?: string
+  cliPermissionPreset: CliPermissionPreset
   connectorMcpSettings?: McpSettings
   spawnSkillId?: string
   /**

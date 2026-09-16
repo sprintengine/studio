@@ -24,10 +24,9 @@ import type {
 // Minimal MCP server over a local socket: newline-delimited JSON-RPC 2.0 —
 // the same framing as MCP's stdio transport, carried on a Unix domain socket
 // (POSIX) or named pipe (Windows) so access is gated by filesystem permissions
-// and no remote binding is possible. The app already hosts MCP servers for
-// agents (sprintengine_mcp speaks the same dialect from Python); this is the
-// TypeScript equivalent for the few methods the automation surface needs —
-// initialize, tools/list, tools/call, ping — without adding an SDK dependency.
+// and no remote binding is possible. It implements only the few methods the
+// automation surface needs — initialize, tools/list, tools/call, ping — without
+// adding an SDK dependency.
 //
 // The MCP semantics themselves live in mcp-dispatch.ts, shared with the opt-in
 // tailnet HTTP/WS listener (tailnet/tailnet-gateway-server.ts). This file owns

@@ -26,7 +26,6 @@
 import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../design-system/attach'
 import { STUDIO_PRODUCT_NAME } from '../product-identity'
 import { knowledgeLaunchContext } from '../project-knowledge'
-import { buildRoleAssignmentText } from '../specialists/role-brief'
 
 /**
  * The first line of every host-context document, in every mode.
@@ -66,18 +65,8 @@ export type HostContextInput = {
     relativeRoot?: string
   }
   /**
-   * A specialist launch's role assignment. Present when — and only when —
-   * discovery resolved a skill file in this workspace. The section is a
-   * pointer at that file, not the brief itself.
-   */
-  role?: {
-    id: string
-    /** Workspace-relative POSIX path to the role's SKILL.md. */
-    skillPath: string
-  }
-  /**
    * Sections a module contributed for this launch. Appended after the
-   * design-system, Knowledge Graph and Role sections, in module registration order.
+   * design-system and Knowledge Graph sections, in module registration order.
    */
   moduleSections?: Array<{ heading: string; body: string }>
 }
@@ -104,10 +93,6 @@ export function buildHostContextDocument(input: HostContextInput): string | null
   const knowledgeLine = knowledgeSection(input.knowledge)
   if (knowledgeLine) {
     sections.push(['## Knowledge graph', '', knowledgeLine].join('\n'))
-  }
-
-  if (input.role?.id && input.role.skillPath) {
-    sections.push(['## Role', '', buildRoleAssignmentText(input.role.id, input.role.skillPath)].join('\n'))
   }
 
   for (const section of input.moduleSections ?? []) {

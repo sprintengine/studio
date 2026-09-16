@@ -6391,7 +6391,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   color: var(--sem-color-text-primary);
 }
 
-/* A muted suffix naming an unmet prerequisite — "· Needs Sprint Engine". It
+/* A muted suffix naming an unmet prerequisite — "· Needs the mobile relay". It
  * sits on the label line because it is a fact about the control, not about the
  * setting, and the help line below is already spoken for. */
 .ds-setting-row-requirement {
@@ -11621,16 +11621,16 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>Two consequences follow, and both were real defects:</p>
 <ul><li><strong>A second full-width control never stacks above the search.</strong> A project Select sitting over the field it narrows is a control competing with the control beside it, and it puts the same choice in two different shapes on two different surfaces.</li><li><strong>The search belongs to the column it narrows, not to the screen.</strong> In a list-plus-detail layout, a search bar spanning the full width reads as &quot;search this screen&quot; while it only ever filters the left column. Constrain it — and its divider — to the column it acts on.</li></ul>
 <p><strong>One chrome band per region of content.</strong> Everything that is chrome for the same content shares a row: status on the left, controls on the right. Reaching for a second band means asking which band the new control belongs in, not where to put the new band.</p>
-<p><strong>The door surface</strong> — a full-page surface that takes over the content region (Sprints, Workflows, Design, Reviews, Automations, Extensions) — has an anatomy too, and it has exactly one band of chrome:</p>
+<p><strong>The door surface</strong> — a full-page surface that takes over the content region (Automations, Design, Plugins, Skills, Agent CLIs, the Extensions home) — has an anatomy too, and it has exactly one band of chrome:</p>
 <p>1. <strong>The app's top strip is the door's title bar.</strong> The door's name and its controls ride the strip that is already there. A door that draws its own title row puts two title bars on one screen, with the first one empty. 2. <strong>The name sits on the content gutter (20px).</strong> The title, the leading edge of the tab row under it, and the canvas body share one vertical line. A title inset to the window chrome's 6px hangs off the left edge of its own page. 3. <strong>The bar is the name and the controls, nothing else.</strong> No status chip, no counts line: the page under the bar already shows its own state, and the rail row that opened the door already carries its glyph. 4. <strong>Nothing stacks between the bar and the content.</strong> A status sentence or a tools row under the strip is the second band this anatomy exists to prevent — the controls belong in the strip, and a status belongs to the thing that has it. A notice about the content (a stale change, a failed run) is not chrome and keeps its own band.</p>
 <p><strong>Surfaces, not modals</strong> (ruled 2026-09-05, reversing the doors→modals ruling of 2026-09-01). A destination the shell's own chrome offers — anything an app rail square or a sidebar drawer row opens — is a DOOR: it takes the card region and owns the top row above it. Automations, Design, Plugins, Skills, Agent CLIs and the Extensions home are doors. They spent four days as modals, and the modal was wrong for them twice over: a scrim put a dialog between the person and the very column they had just navigated with, and a float over the card region means back, forward and the window's history all step to a destination that mounts invisibly behind it.</p>
 <p>What stays a modal is the shape a modal is actually for — a <strong>pick-and-close task floated over work that stays put</strong>, reached from inside that work rather than from the chrome:</p>
 <ul><li><strong>Settings.</strong> Opened from the rail's foot, changed and dismissed; the workspace behind it is the thing being configured and must stay visible.</li><li><strong>The Diff popout.</strong> The pane's own Diff tab grown to workbench width, opened from the pane strip. Routing the region would hide the layout it is a bigger view OF.</li><li><strong>Reviews.</strong> A walkthrough is Monaco beside a transcript; the pane column is too narrow to read it in, so picking it there floats the surface instead of opening a pane tab.</li></ul>
 <p>Three tests, all of which a modal must pass. A destination that fails any of them is a door.</p>
 <p>1. <strong>The thing underneath is still the subject.</strong> The workspace being configured, the layout the diff is a bigger view of, the change being reviewed. If the surface replaces the subject rather than acting on it, it wants the region, not a scrim. 2. <strong>Nothing that names a PLACE leads to it.</strong> No section glyph, no drawer row, no history entry — a destination reached by navigation has to be somewhere the region can go, or back and forward step to a page that mounts invisibly behind the scrim. Note the test is about naming a place, not about being chrome: Settings is opened from the rail's FOOT, and the foot is deliberately not navigation — the account and the gear belong to the window rather than to any section of the product, so they route nothing and no history entry records them. 3. <strong>It is a task with an end.</strong> Opened, done, dismissed. A surface a person navigates around inside, or comes back to and expects to find as they left it, is a place, and places are doors.</p>
-<p><strong>A heading must separate something from something else.</strong> Do not label an ungrouped list (&quot;Rosters&quot; over a field that already reads &quot;Search rosters…&quot;), and do not render a group heading when there is only one group — &quot;Recent&quot; spanning every row groups nothing. Headings appear when there are at least two groups to tell apart; the list's accessible name carries the label otherwise.</p>
+<p><strong>A heading must separate something from something else.</strong> Do not label an ungrouped list (&quot;Skills&quot; over a field that already reads &quot;Search skills…&quot;), and do not render a group heading when there is only one group — &quot;Recent&quot; spanning every row groups nothing. Headings appear when there are at least two groups to tell apart; the list's accessible name carries the label otherwise.</p>
 <p><strong>The app rail</strong> (ruled 2026-09-05; glyphs-only and then three-glyph, same day) — the window's far-left column of glyphs — is chrome, not a rail in the context-rail sense. It names AREAS of the product (Home, Extensions) and holds its one standing tool (Automations), never things inside an area; the sidebar column beside it lists the things, and a drilled-in surface still replaces that column's content rather than standing beside it. &quot;One rail, ever&quot; is unchanged: the app rail holds no list a person walks. Its anatomy:</p>
-<p>1. <strong>A fixed set of glyphs on <code>size.control.lg</code> squares, no captions.</strong> A house and a tile grid do not need &quot;Home&quot; and &quot;Extensions&quot; written under them, and the caption is what made the first cut 76px wide. The name is the glyph's tooltip and accessible name — the idiom the sidebar's collapsed rows already use. The column is one square plus a <code>space.sm</code> gutter each side: 56px, and no wider. (Revised 2026-09-07 from <code>control.md</code> squares in a 46px column: the rail squares are a step above the largest in-panel control, and that step is what lets the column be found from across the window rather than read. <code>size.control.lg</code> exists for this column and nothing else; the glyphs on it are <code>icon.size.lg</code>.) 2. <strong>Selection is <code>bg.selected</code> on the square.</strong> Never the accent, never a bar on the window's edge. A section glyph is current while its column shows; a tool glyph is pressed while its surface floats. The two can light together, and they say different things. 3. <strong>Three glyphs: Home, Automations, Extensions.</strong> Automations stands on the rail because it is what the product DOES, not something added to it; it is the module's own registered surface, gated on the module's enablement, so a turned-off module's glyph is simply absent. Plugins does not: it is one of the six product things under Extensions, and a glyph of its own said it stood beside them. 4. <strong>Extensions opens its home, and the sidebar becomes the drawer.</strong> The drawer starts with six product rows in a fixed order — Workflows, Sprints, Design, Plugins, Skills, Agent CLIs — and installed module doors follow in stable registry order, all with the same <code>SidebarNavButton</code> chrome. Registry <code>order</code> never moves the six product rows; an installed door contributes its name, glyph and behaviour, then takes the next available place. The drawer STAYS PUT while the card region swaps, which is what makes it the navigation rather than a menu: a door that is one of its rows renders its own rail beside its canvas instead of taking the column. Only Sprints, which has its own list of runs, replaces it for the length of its visit — and Automations, which is not a drawer row at all, because the automations it lists ARE the navigation while it is open. <strong>Add extension leads the drawer.</strong> It is the dashed add-row used by the other door rails, opening the native folder chooser for an installable module directory. Selection runs through the same validation, copying, signature, and trust workflow as Settings → Modules, then opens that settings page for access review; choosing a folder never silently grants trust. A drawer row reads <code>aria-current</code> while its page is showing (it is navigation, exactly like a workspace row); the rail's square reads <code>aria-pressed</code>. Two honest readings of one state — what would be wrong is one row of the drawer disagreeing with the row above it. <strong>The home is those same rows, said again as tiles</strong> — glyph, name, a one-line summary, a live count, a chevron — resolved from the one function the drawer's rows are resolved by, so a tile cannot open something its row does not, and a module that is off takes both away together. A count on a tile is LIVE or ABSENT: a number nobody has measured yet is no line at all, and a number that really is nothing is words (&quot;No runs&quot;, &quot;None installed&quot;), because &quot;0 running&quot; reads as a counter that has not started rather than as an answer. No module list on the page: those switches live in Settings → Modules, and one choice in two shapes on two surfaces is two things to keep in agreement. 5. <strong>The account and Settings cluster pins to its foot.</strong> They belong to the window, not to whichever section the sidebar is showing. They sit on the same <code>control.lg</code> squares as the sections, and no rule separates them from the glyphs above: the rail is one column from its first square to its last, and the space does the separating (*Hairlines carry the structure*). The sidebar's chrome makes the same call — no rule under New chat. 6. <strong>Its top reserves the title strip's height</strong> on every platform, so its first glyph sits below the chrome row beside it. On macOS the native traffic lights start in that reserve and run past the rail's edge; the sidebar's chrome row insets for the remainder. 7. <strong>The divider starts below that reserve, never at the top.</strong> The rail's right-hand hairline is a positioned strip from the title row down, not a full-height <code>border-r</code>: the traffic lights are wider than the rail, so an edge that ran the whole height drew a line straight through the green light. Across the title row the rail and the chrome beside it are one unbroken band. 8. <strong>A square with news wears the badge's corner count</strong> (2026-09-07) — an unread activity count. Home counts chats wanting you (blocked on a prompt, crashed, or finished while you were away) other than the one on screen; Automations counts scheduled runs that ended while its door was closed; Extensions counts unread news from anything under it, cards published since its home was last open, and sprints waiting on an answer. The tone is the loudest thing counted — danger, then warn, then good or the accent. A thing still waiting on the person stays counted. Never a toast: a glass card for every chat that finished would be over the top, and the count is what says &quot;come back here&quot; without interrupting. 9. <strong>Each product drawer row wears its own count, and the square is their sum</strong> (2026-09-08). The Extensions square used to read everything under it the moment the section opened, and the drawer that appeared said nothing about which row the news belonged to — a count that vanished on the click it asked for. Now the news goes on the row it came from: a source drift notice on Plugins, a CLI update on Agent CLIs, a run waiting on an answer on the door that lists it, entries arrived since the bundle was last shown on Design. Installed module rows carry no inferred count: a module owns its status inside its door until it contributes a notification contract. A counted row draws the same corner counter — trailing when the column is expanded, docked on the icon when collapsed — in place of any status dot it would otherwise wear (one status idiom per surface), with the row's name in its accessible name. Opening a ROW reads its news; opening the section reads nothing, and the square keeps counting while the drawer is on screen, the way a workspace icon does above its unread channels. The one thing the square counts that no row wears is the hosted cards: the square's own click opens the home that shows them, so the square is their row. The home reads its own cards as it mounts, and marks the ones that were new with the New mark, so what the count pointed at is still on screen when the person arrives.</p>
+<p>1. <strong>A fixed set of glyphs on <code>size.control.lg</code> squares, no captions.</strong> A house and a tile grid do not need &quot;Home&quot; and &quot;Extensions&quot; written under them, and the caption is what made the first cut 76px wide. The name is the glyph's tooltip and accessible name — the idiom the sidebar's collapsed rows already use. The column is one square plus a <code>space.sm</code> gutter each side: 56px, and no wider. (Revised 2026-09-07 from <code>control.md</code> squares in a 46px column: the rail squares are a step above the largest in-panel control, and that step is what lets the column be found from across the window rather than read. <code>size.control.lg</code> exists for this column and nothing else; the glyphs on it are <code>icon.size.lg</code>.) 2. <strong>Selection is <code>bg.selected</code> on the square.</strong> Never the accent, never a bar on the window's edge. A section glyph is current while its column shows; a tool glyph is pressed while its surface floats. The two can light together, and they say different things. 3. <strong>Three glyphs: Home, Automations, Extensions.</strong> Automations stands on the rail because it is what the product DOES, not something added to it; it is the module's own registered surface, gated on the module's enablement, so a turned-off module's glyph is simply absent. Plugins does not: it is one of the four product things under Extensions, and a glyph of its own said it stood beside them. 4. <strong>Extensions opens its home, and the sidebar becomes the drawer.</strong> The drawer starts with four product rows in a fixed order — Design, Plugins, Skills, Agent CLIs — and installed module doors follow in stable registry order, all with the same <code>SidebarNavButton</code> chrome. Registry <code>order</code> never moves the four product rows; an installed door contributes its name, glyph and behaviour, then takes the next available place. The drawer STAYS PUT while the card region swaps, which is what makes it the navigation rather than a menu: a door that is one of its rows renders its own rail beside its canvas instead of taking the column. Only Automations replaces it for the length of its visit — and it is not a drawer row at all, because the automations it lists ARE the navigation while it is open. <strong>Add extension leads the drawer.</strong> It is the dashed add-row used by the other door rails, opening the native folder chooser for an installable module directory. Selection runs through the same validation, copying, signature, and trust workflow as Settings → Modules, then opens that settings page for access review; choosing a folder never silently grants trust. A drawer row reads <code>aria-current</code> while its page is showing (it is navigation, exactly like a workspace row); the rail's square reads <code>aria-pressed</code>. Two honest readings of one state — what would be wrong is one row of the drawer disagreeing with the row above it. <strong>The home is those same rows, said again as tiles</strong> — glyph, name, a one-line summary, a live count, a chevron — resolved from the one function the drawer's rows are resolved by, so a tile cannot open something its row does not, and a module that is off takes both away together. A count on a tile is LIVE or ABSENT: a number nobody has measured yet is no line at all, and a number that really is nothing is words (&quot;No runs&quot;, &quot;None installed&quot;), because &quot;0 running&quot; reads as a counter that has not started rather than as an answer. No module list on the page: those switches live in Settings → Modules, and one choice in two shapes on two surfaces is two things to keep in agreement. 5. <strong>The account and Settings cluster pins to its foot.</strong> They belong to the window, not to whichever section the sidebar is showing. They sit on the same <code>control.lg</code> squares as the sections, and no rule separates them from the glyphs above: the rail is one column from its first square to its last, and the space does the separating (*Hairlines carry the structure*). The sidebar's chrome makes the same call — no rule under New chat. 6. <strong>Its top reserves the title strip's height</strong> on every platform, so its first glyph sits below the chrome row beside it. On macOS the native traffic lights start in that reserve and run past the rail's edge; the sidebar's chrome row insets for the remainder. 7. <strong>The divider starts below that reserve, never at the top.</strong> The rail's right-hand hairline is a positioned strip from the title row down, not a full-height <code>border-r</code>: the traffic lights are wider than the rail, so an edge that ran the whole height drew a line straight through the green light. Across the title row the rail and the chrome beside it are one unbroken band. 8. <strong>A square with news wears the badge's corner count</strong> (2026-09-07) — an unread activity count. Home counts chats wanting you (blocked on a prompt, crashed, or finished while you were away) other than the one on screen; Automations counts scheduled runs that ended while its door was closed; Extensions counts unread news from anything under it, cards published since its home was last open, and an installed door's items waiting on an answer. The tone is the loudest thing counted — danger, then warn, then good or the accent. A thing still waiting on the person stays counted. Never a toast: a glass card for every chat that finished would be over the top, and the count is what says &quot;come back here&quot; without interrupting. 9. <strong>Each product drawer row wears its own count, and the square is their sum</strong> (2026-09-08). The Extensions square used to read everything under it the moment the section opened, and the drawer that appeared said nothing about which row the news belonged to — a count that vanished on the click it asked for. Now the news goes on the row it came from: a source drift notice on Plugins, a CLI update on Agent CLIs, a run waiting on an answer on the door that lists it, entries arrived since the bundle was last shown on Design. Installed module rows carry no inferred count: a module owns its status inside its door until it contributes a notification contract. A counted row draws the same corner counter — trailing when the column is expanded, docked on the icon when collapsed — in place of any status dot it would otherwise wear (one status idiom per surface), with the row's name in its accessible name. Opening a ROW reads its news; opening the section reads nothing, and the square keeps counting while the drawer is on screen, the way a workspace icon does above its unread channels. The one thing the square counts that no row wears is the hosted cards: the square's own click opens the home that shows them, so the square is their row. The home reads its own cards as it mounts, and marks the ones that were new with the New mark, so what the count pointed at is still on screen when the person arrives.</p>
 <p><strong>A dialog is header, content, actions — separated by space.</strong> No rule under the title, none above the buttons. See *Hairlines carry the structure*.</p>
 <h4>Status is earned</h4>
 <ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot and a tinted pill saying the same thing.</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
@@ -11794,7 +11794,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>Corner mode</strong> docks the badge to the top-right of a positioned trigger with a 1px border in the surface behind it, so it reads as sitting *on* the control. A box-shadow ring would hold the box at exactly 16px, but the token lint's <code>no-glow-shadow</code> rule forbids that spelling — and every counter this replaces already used a border.</p>
 <p>Never interactive, and never a second status idiom beside a <code>status-dot</code> that already says the same thing. A badge carrying meaning takes an <code>ariaLabel</code> (a bare &quot;3&quot; tells a screen reader nothing); one that merely repeats adjacent text is marked <code>decorative</code> so it is not read twice.</p>
 <p><strong>On the app rail</strong> (2026-09-07) the corner count reports unread activity: each section square wears the number of things in its area the person has not seen or that are waiting on them (principles.md, &quot;The app rail&quot;, item 8). It is named, never decorative — nothing beside a glyph says what the number is — and its ring is the rail's own <code>bg.canvas</code>, since the square sits on the canvas rather than the app ground the default ring assumes.</p>
-<p><strong>On a drawer row</strong> (2026-09-08) the same counter is the row's unread pip: the Extensions drawer's rows each wear the news that belongs to them, trailing the label when the column is expanded and docked on the icon's corner — ringed in <code>bg.canvas</code>, the column's ground — when it is collapsed. It replaces the row's status dot while it shows (one status idiom per surface; the count is the one that says how much), and its accessible name carries the row's name and what is counted (&quot;Sprints: 1 waiting on you, 2 new&quot;), because the row beside it names a place, not the news. The app rail's square above the drawer is the sum of its rows: same primitive, same tone precedence, and the two cannot disagree because one derivation feeds both (principles.md, &quot;The app rail&quot;, item 9).</p>
+<p><strong>On a drawer row</strong> (2026-09-08) the same counter is the row's unread pip: the Extensions drawer's rows each wear the news that belongs to them, trailing the label when the column is expanded and docked on the icon's corner — ringed in <code>bg.canvas</code>, the column's ground — when it is collapsed. It replaces the row's status dot while it shows (one status idiom per surface; the count is the one that says how much), and its accessible name carries the row's name and what is counted (&quot;Agent CLIs: 1 waiting on you, 2 new&quot;), because the row beside it names a place, not the news. The app rail's square above the drawer is the sum of its rows: same primitive, same tone precedence, and the two cannot disagree because one derivation feeds both (principles.md, &quot;The app rail&quot;, item 9).</p>
 <p><strong>On a list row's mark</strong> (2026-09-10) the same corner count is the row's own pip: an agent CLI that is behind its published version, a plugin installed at a commit its source has moved past. The number is usually 1, and on a row that is the point — a rail square's count is a quantity, a row's is a pointer, and the number is what makes it a pip rather than one more status colour. It <strong>replaces the row's health dot</strong> rather than joining it (<code>provider-row</code>, &quot;One status idiom&quot;): the owner opened a list of ten agent CLIs from an update notification and could not tell which row it was about, because all ten dots were the same green. Its ring is <code>bg.surface</code>, the ground those lists sit on, and its accessible name carries the row's name and the version it is behind (&quot;Codex — update available: 0.153.4&quot;).</p>
 <p><strong>On a tab</strong> (2026-09-10) it is the same pip again, docked top-right of the tab and counting what is waiting INSIDE: &quot;3 updates available&quot; before the tab is opened, with a pip on each row underneath saying which. It is not the tab's <code>count</code> — that is how many things the tab holds and rides beside the label in the reading line; this is how many of them want the person, and it sits above the words because it is not part of them. On a tab the count is docked by the strip in reserved trailing padding rather than overhanging the way <code>--corner</code> does, because a tab strip scrolls inside an overflow container that clips anything hanging past the edge — and it needs no keyline there, since it covers the band rather than a glyph.</p>
 <h4>Only a count is a live region (2026-09-02)</h4>
@@ -12207,7 +12207,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Accessibility</h4>
 <ul><li><code>role=&quot;alert&quot;</code> on danger — a failure interrupts. <code>role=&quot;status&quot;</code> on warn — degradation informs politely. This split is the tone vocabulary made audible; do not flatten both to one role.</li><li>The dot is <code>aria-hidden</code>: the message carries the meaning in words, so the state is never conveyed by color alone — and the two roles differ, so it is not conveyed by the dot's shape alone either.</li><li>The action is a real button, reachable by Tab, with the banner's context in its accessible name where &quot;Retry&quot; alone is ambiguous (&quot;Retry loading sessions&quot;).</li><li>Truncated messages still expose their full text (the <code>list-row</code>/tooltip truncation contract applies).</li></ul>
 <h4>The action slot (MC-2115, 2026-08-05)</h4>
-<p>The anatomy above says the action slot &quot;holds a ghost button&quot; — it did not say that button has to be spelled *Retry*, and the two strips that were rebuilding this component by hand both needed to say something else: <strong>Relink</strong> beside the retry on a Sprint board whose saved folder went missing, and <strong>Refresh walkthrough</strong> on a review whose head moved. Shipped <code>Banner</code> takes an optional <code>action</code> node for exactly that, rendered after the Retry when both are given.</p>
+<p>The anatomy above says the action slot &quot;holds a ghost button&quot; — it did not say that button has to be spelled *Retry*, and the two strips that were rebuilding this component by hand both needed to say something else: <strong>Relink</strong> beside the retry on a Backlog scan whose saved folder went missing, and <strong>Refresh walkthrough</strong> on a review whose head moved. Shipped <code>Banner</code> takes an optional <code>action</code> node for exactly that, rendered after the Retry when both are given.</p>
 <p>It is still one recovery cluster, not a toolbar. A condition that wants a third control is not a banner condition — it belongs in an <code>inline-notice</code> at the site of the failure.</p>
 <p><strong>Ruling — there is no quiet banner.</strong> The review canvas's freshness strip had invented a third &quot;quiet&quot; tone for the walkthrough being current. A resolved condition unmounts its banner; what is left when nothing is wrong is a plain provenance line, not a tinted strip in a calmer colour.</p>
 <p>Remaining drift: paddings here are Tailwind steps (<code>px-3 py-2</code>) that land on the scale but bypass the variables.</p>
@@ -12401,7 +12401,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
         <li>
           <button type="button" class="ds-task-card">
             <span class="ds-task-card-id">MC-2093</span>
-            <span class="ds-task-card-title">Wire sprint projections to run branch</span>
+            <span class="ds-task-card-title">Wire automation run history to the door rail</span>
           </button>
         </li>
         <li>
@@ -12527,7 +12527,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
         <li>
           <button type="button" class="ds-task-card">
             <span class="ds-task-card-id">MC-2093</span>
-            <span class="ds-task-card-title">Wire sprint projections to run branch</span>
+            <span class="ds-task-card-title">Wire automation run history to the door rail</span>
           </button>
         </li>
         <li>
@@ -12787,7 +12787,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
         &lt;li&gt;
           &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
             &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2093&lt;/span&gt;
-            &lt;span class=&quot;ds-task-card-title&quot;&gt;Wire sprint projections to run branch&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Wire automation run history to the door rail&lt;/span&gt;
           &lt;/button&gt;
         &lt;/li&gt;
         &lt;li&gt;
@@ -12913,7 +12913,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
         &lt;li&gt;
           &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
             &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2093&lt;/span&gt;
-            &lt;span class=&quot;ds-task-card-title&quot;&gt;Wire sprint projections to run branch&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Wire automation run history to the door rail&lt;/span&gt;
           &lt;/button&gt;
         &lt;/li&gt;
         &lt;li&gt;
@@ -13614,7 +13614,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <p class="demo-label">Light</p>
   <div class="demo-row">
     <button type="button" class="ds-card-button ds-card-button--bordered" style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
-      <span class="ds-card-button-title">Sprints</span>
+      <span class="ds-card-button-title">Automations</span>
       <span class="ds-card-button-supporting">Two runs in flight</span>
     </button>
     <button type="button" class="ds-card-button ds-card-button--bordered" aria-pressed="true" style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
@@ -13635,7 +13635,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <p class="demo-label">Dark</p>
   <div class="demo-row">
     <button type="button" class="ds-card-button ds-card-button--bordered" style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
-      <span class="ds-card-button-title">Sprints</span>
+      <span class="ds-card-button-title">Automations</span>
       <span class="ds-card-button-supporting">Two runs in flight</span>
     </button>
     <button type="button" class="ds-card-button ds-card-button--bordered" aria-pressed="true" style="width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)">
@@ -13801,7 +13801,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   &lt;p class=&quot;demo-label&quot;&gt;Light&lt;/p&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-card-button ds-card-button--bordered&quot; style=&quot;width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)&quot;&gt;
-      &lt;span class=&quot;ds-card-button-title&quot;&gt;Sprints&lt;/span&gt;
+      &lt;span class=&quot;ds-card-button-title&quot;&gt;Automations&lt;/span&gt;
       &lt;span class=&quot;ds-card-button-supporting&quot;&gt;Two runs in flight&lt;/span&gt;
     &lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-card-button ds-card-button--bordered&quot; aria-pressed=&quot;true&quot; style=&quot;width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)&quot;&gt;
@@ -13822,7 +13822,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
   &lt;div class=&quot;demo-row&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-card-button ds-card-button--bordered&quot; style=&quot;width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)&quot;&gt;
-      &lt;span class=&quot;ds-card-button-title&quot;&gt;Sprints&lt;/span&gt;
+      &lt;span class=&quot;ds-card-button-title&quot;&gt;Automations&lt;/span&gt;
       &lt;span class=&quot;ds-card-button-supporting&quot;&gt;Two runs in flight&lt;/span&gt;
     &lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-card-button ds-card-button--bordered&quot; aria-pressed=&quot;true&quot; style=&quot;width: 200px; padding: var(--sem-space-lg) var(--sem-space-lg) var(--sem-space-md); gap: var(--sem-space-2xs)&quot;&gt;
@@ -16884,7 +16884,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Usage</h4>
 <p><strong>The palette is a launcher, not a destination.</strong> Every row's job is to close it. There is no multi-select, no inline editing, no detail pane, no state that survives the dismiss beyond the scope it was opened with.</p>
 <p><strong>Group order is reading order is key order.</strong> The vertical order of the groups is the order the arrow keys traverse, because a selection that jumps between sections in an order the eye cannot predict is a list nobody can drive.</p>
-<p><strong>The resting page is a page, not a preview.</strong> With no query on All, the palette shows what a person opens it for before they have typed: the five actions, then the live chats they were most recently in. Five actions, not every verb the product has: the specialist spawn rows that used to sit here belong to the spawn menu and its chords, and &quot;Add project&quot; is the New chat panel's job (owner, 2026-09-11). &quot;New chat&quot; opens that panel — the one way to start — never a workspace on the spot. &quot;Go to file&quot; and &quot;Search project contents&quot; are the two rows that do not close the palette: each *is* a tab (Files, Text), so choosing it narrows in place and leaves the caret where the query is about to be typed. A resting palette that lists a sample of every group — six workspaces, six commands, six skills — has answered a question nobody asked, under headings nobody read. A query searches every group at once; a narrowing at rest previews its own groups, capped.</p>
+<p><strong>The resting page is a page, not a preview.</strong> With no query on All, the palette shows what a person opens it for before they have typed: the five actions, then the live chats they were most recently in. Five actions, not every verb the product has: the agent spawn rows that used to sit here belong to the spawn menu and its chords, and &quot;Add project&quot; is the New chat panel's job (owner, 2026-09-11). &quot;New chat&quot; opens that panel — the one way to start — never a workspace on the spot. &quot;Go to file&quot; and &quot;Search project contents&quot; are the two rows that do not close the palette: each *is* a tab (Files, Text), so choosing it narrows in place and leaves the caret where the query is about to be typed. A resting palette that lists a sample of every group — six workspaces, six commands, six skills — has answered a question nobody asked, under headings nobody read. A query searches every group at once; a narrowing at rest previews its own groups, capped.</p>
 <p><strong>Say which nothing it is.</strong> &quot;No results&quot; is only true once the search that would have produced them has finished. Populated, empty, loading and error are four different states here — the principles require a failed dependency to never render identically to an empty list. What the palette does *not* say is why a search had nothing to look through (&quot;open a folder to…&quot;): that sentence told the person about the app's state when they had asked about their query, and went (owner, 2026-09-10).</p>
 <p><strong>One row, one action.</strong> A row carries a mark, a label, an optional locator, and an optional chord. No trailing buttons, no per-row menus: the row IS the action, and a second target inside it is a second thing Enter might mean.</p>
 <p><strong>The mark is the one the thing wears everywhere else.</strong> A file row draws the file-type glyph the File Explorer and the Git changes list draw for the same name, in its kind's hue; a skill or plugin row draws its own artwork down the Extensions door's ladder (glyph → logo → the publishing account's avatar → monogram); an action draws the glyph its other entry point already wears (the sidebar's compose mark on New chat, the generic file tile, the search glyph, the settings gear, the remote-machine glyph); a chat draws the sidebar's provider chip — the agent CLI's mark on a round raised ground, or the workspace type's icon when no agent has run in it. A row that is recognised by its mark before it is read is what lets a list be scanned, and on the resting page the glyph is what makes an action row read as an action. A panel or git command wears none: the verb is the whole row, and a glyph invented for it would be decoration.</p>
@@ -17632,7 +17632,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <p class="demo-label">Light — the ring beside the thing it describes. Early in a conversation, and with the tooltip a hover or focus summons.</p>
 
   <div class="demo-head">
-    <span class="demo-title">Retry budget for stalled sprints</span>
+    <span class="demo-title">Retry budget for stalled automation runs</span>
     <span class="demo-anchor">
       <span class="ds-context-ring-anchor" role="img" tabindex="0" aria-label="Context 22% used">
         <svg class="ds-context-ring" viewBox="0 0 16 16" aria-hidden="true">
@@ -17863,7 +17863,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   &lt;p class=&quot;demo-label&quot;&gt;Light — the ring beside the thing it describes. Early in a conversation, and with the tooltip a hover or focus summons.&lt;/p&gt;
 
   &lt;div class=&quot;demo-head&quot;&gt;
-    &lt;span class=&quot;demo-title&quot;&gt;Retry budget for stalled sprints&lt;/span&gt;
+    &lt;span class=&quot;demo-title&quot;&gt;Retry budget for stalled automation runs&lt;/span&gt;
     &lt;span class=&quot;demo-anchor&quot;&gt;
       &lt;span class=&quot;ds-context-ring-anchor&quot; role=&quot;img&quot; tabindex=&quot;0&quot; aria-label=&quot;Context 22% used&quot;&gt;
         &lt;svg class=&quot;ds-context-ring&quot; viewBox=&quot;0 0 16 16&quot; aria-hidden=&quot;true&quot;&gt;
@@ -18346,7 +18346,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     </header>
     <div class="ds-drawer-body">
       <ul class="demo-list">
-        <li><span class="demo-key">Branch</span><span class="demo-value">run/sprint-14</span></li>
+        <li><span class="demo-key">Branch</span><span class="demo-value">feature/relay-auth</span></li>
         <li><span class="demo-key">Changed files</span><span class="demo-value">12</span></li>
         <li><span class="demo-key">Head</span><span class="demo-value">4f2c9a1</span></li>
       </ul>
@@ -18397,7 +18397,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     </header>
     <div class="ds-drawer-body">
       <ul class="demo-list">
-        <li><span class="demo-key">Branch</span><span class="demo-value">run/sprint-14</span></li>
+        <li><span class="demo-key">Branch</span><span class="demo-value">feature/relay-auth</span></li>
         <li><span class="demo-key">Changed files</span><span class="demo-value">12</span></li>
         <li><span class="demo-key">Head</span><span class="demo-value">4f2c9a1</span></li>
       </ul>
@@ -18632,7 +18632,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     &lt;/header&gt;
     &lt;div class=&quot;ds-drawer-body&quot;&gt;
       &lt;ul class=&quot;demo-list&quot;&gt;
-        &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Branch&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;run/sprint-14&lt;/span&gt;&lt;/li&gt;
+        &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Branch&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;feature/relay-auth&lt;/span&gt;&lt;/li&gt;
         &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Changed files&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;12&lt;/span&gt;&lt;/li&gt;
         &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Head&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;4f2c9a1&lt;/span&gt;&lt;/li&gt;
       &lt;/ul&gt;
@@ -18683,7 +18683,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     &lt;/header&gt;
     &lt;div class=&quot;ds-drawer-body&quot;&gt;
       &lt;ul class=&quot;demo-list&quot;&gt;
-        &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Branch&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;run/sprint-14&lt;/span&gt;&lt;/li&gt;
+        &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Branch&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;feature/relay-auth&lt;/span&gt;&lt;/li&gt;
         &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Changed files&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;12&lt;/span&gt;&lt;/li&gt;
         &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Head&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;4f2c9a1&lt;/span&gt;&lt;/li&gt;
       &lt;/ul&gt;
@@ -18891,7 +18891,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><strong>Ruling — copy is readable ink, never <code>text.disabled</code>.</strong> One hand-roll rendered its sentence in <code>text.disabled</code>: copy meant to be read, greyed out as though it were a dead control, next to the only thing on screen you could actually do.</p>
 <p><strong>Ruling — no accent disc, and <code>SurfaceCanvasState</code> is not generalized into this.</strong> The intent above proposed basing this on <code>SurfaceCanvasState</code>'s anatomy (a glyph in an <code>accent.soft</code> disc). They are different jobs. A door's *first-run* canvas earns a prominent accent treatment; a list that filtered down to nothing does not, and giving every empty list an accent disc would spend the accent budget on absence. <code>SurfaceCanvasState</code> keeps its richer door-canvas treatment; this is the quiet general one.</p>
 <h4>Consumers (MC-2115, 2026-08-05)</h4>
-<p>The three dialects the audit found are one row now. Module absence (workspace and door), the aux windows' bare centred mono text, the review canvas's hand-rolled resting states, the Sprint board's detail empties and its task graph's &quot;waiting for the plan&quot; canvas all render this component; the settings and connectors lists that used to say &quot;nothing here&quot; inside a left-barred div render it at <code>list</code> density.</p>
+<p>The three dialects the audit found are one row now. Module absence (workspace and door), the aux windows' bare centred mono text, the review canvas's hand-rolled resting states, the Backlog panel's detail empties and the memory graph's &quot;nothing indexed yet&quot; canvas all render this component; the settings and connectors lists that used to say &quot;nothing here&quot; inside a left-barred div render it at <code>list</code> density.</p>
 <p><strong>Ruling — the glyph slot is a size, not a ceiling.</strong> It is <code>icon.size.lg</code>, and a glyph on the ramp lands exactly on it; an illustration that is deliberately larger (the component gallery's card skeleton) sets its own box rather than overflowing a fixed one into the title.</p>
 <p><code>designSystemAxes.test.ts</code> fails on the next component that names itself for this job without consuming the primitive — with two ruled exceptions on the record there: a first-run chat CANVAS (the richer class this entry declined to absorb) and a card's dashed preview placeholder, which is not a surface with nothing to show.</p>
 </div>
@@ -19143,7 +19143,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
         </span>
       </span>
       <span>
-        <span class="demo-entry-name">Sprint Engine</span><br />
+        <span class="demo-entry-name">Automations</span><br />
         <span class="demo-entry-detail">A mark we ship — it outranks every URL</span>
       </span>
     </div>
@@ -19393,7 +19393,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
         &lt;/span&gt;
       &lt;/span&gt;
       &lt;span&gt;
-        &lt;span class=&quot;demo-entry-name&quot;&gt;Sprint Engine&lt;/span&gt;&lt;br /&gt;
+        &lt;span class=&quot;demo-entry-name&quot;&gt;Automations&lt;/span&gt;&lt;br /&gt;
         &lt;span class=&quot;demo-entry-detail&quot;&gt;A mark we ship — it outranks every URL&lt;/span&gt;
       &lt;/span&gt;
     &lt;/div&gt;
@@ -19725,36 +19725,9 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       <path d="M12.5 15H16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
     </symbol>
-    <symbol id="g-ws-sprintengine" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="6" r="2.4" stroke="currentColor" stroke-width="1.7"/>
-      <circle cx="6.5" cy="16.5" r="2.4" stroke="currentColor" stroke-width="1.7"/>
-      <circle cx="17.5" cy="16.5" r="2.4" stroke="currentColor" stroke-width="1.7"/>
-      <path d="M10.85 8.2L7.65 14.35M13.15 8.2L16.35 14.35M9 16.5H15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-    </symbol>
     <symbol id="g-ws-automations" viewBox="0 0 24 24" fill="none">
       <path d="M19.5 12a7.5 7.5 0 1 1-3.4-6.28" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
       <path d="M12.6 7.3 9 12.4h2.7l-.7 4 3.6-5.1h-2.7l.7-4z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="currentColor" fill-opacity="0.18"/>
-    </symbol>
-
-    <!-- 24-grid role drawings (behind the SprintEngineRoleIcon dispatcher) -->
-    <symbol id="g-role-generic" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="6.4" stroke="currentColor" stroke-width="1.7"/>
-      <circle cx="12" cy="12" r="2.4" stroke="currentColor" stroke-width="1.4" opacity="0.55"/>
-    </symbol>
-    <symbol id="g-role-developer" viewBox="0 0 24 24" fill="none">
-      <path d="M9.25 8L5.25 12L9.25 16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M14.75 8L18.75 12L14.75 16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M13 5.75L11 18.25" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="g-role-architect" viewBox="0 0 24 24" fill="none">
-      <rect x="5" y="4.75" width="5.5" height="5.5" rx="1.4" stroke="currentColor" stroke-width="1.7"/>
-      <rect x="13.5" y="13.75" width="5.5" height="5.5" rx="1.4" stroke="currentColor" stroke-width="1.7"/>
-      <path d="M10.5 7.5H13.5C15.15 7.5 16.5 8.85 16.5 10.5V13.75" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-      <path d="M7.75 10.25V13.5C7.75 15.15 9.1 16.5 10.75 16.5H13.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="g-role-security" viewBox="0 0 24 24" fill="none">
-      <path d="M12 3.75L18.75 6.25V11.15C18.75 15.35 16.08 19.08 12 20.25C7.92 19.08 5.25 15.35 5.25 11.15V6.25L12 3.75Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
-      <path d="M9 12.05L11.05 14.1L15.25 9.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
 
     <!-- 16-grid lifecycle vocabulary (LifecycleGlyph) -->
@@ -19987,7 +19960,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
     <h2 class="demo-heading">Workspace-type identity — registry-resolved</h2>
     <div class="demo-row">
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-standard"/></svg><span class="demo-name">standard</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-sprintengine"/></svg><span class="demo-name">sprintengine</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-automations"/></svg><span class="demo-name">automations</span></span>
     </div>
   </div>
@@ -20011,16 +19983,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       <span class="demo-cell demo-tone-merged"><svg class="ds-glyph" role="img" aria-label="Merged"><use href="#g-lc-branch"/></svg><span class="demo-name">merged</span></span>
       <span class="demo-cell demo-tone-disabled"><svg class="ds-glyph" role="img" aria-label="Archived"><use href="#g-lc-archived"/></svg><span class="demo-name">archived</span></span>
       <span class="demo-cell demo-tone-danger"><svg class="ds-glyph" role="img" aria-label="Failed"><use href="#g-lc-failed"/></svg><span class="demo-name">failed</span></span>
-    </div>
-  </div>
-
-  <div class="demo-section">
-    <h2 class="demo-heading">Role — dispatcher drawings; tone applied only by RoleGlyph / RoleAvatar</h2>
-    <div class="demo-row">
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-generic"/></svg><span class="demo-name">no role</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-developer"/></svg><span class="demo-name">developer</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-architect"/></svg><span class="demo-name">architect</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-security"/></svg><span class="demo-name">security</span></span>
     </div>
   </div>
 
@@ -20125,9 +20087,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
   <div class="demo-section">
     <h2 class="demo-heading">Identity &amp; utility</h2>
     <div class="demo-row">
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-sprintengine"/></svg><span class="demo-name">sprintengine</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-ws-automations"/></svg><span class="demo-name">automations</span></span>
-      <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-role-developer"/></svg><span class="demo-name">developer</span></span>
       <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="Starred"><use href="#g-star-filled"/></svg><span class="demo-name">star</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-refresh"/></svg><span class="demo-name">refresh</span></span>
       <span class="demo-cell"><svg class="ds-glyph" aria-hidden="true"><use href="#g-cli-terminal"/></svg><span class="demo-name">terminal</span></span>
@@ -20151,12 +20111,12 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 </div>
 <div class="catalog-doc">
 <p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The thirty-eight SVGs in <code>glyphs/</code> (close, search, spinner, multicode-mark, git-branch, remote-machine, the four <code>device-*</code> marks, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
-<p>A glyph is not decoration and not a status pill. It answers exactly one question — *which thing is this* (identity), *where is it in its pipeline* (lifecycle), *who is working on it* (role), *what kind of capability* (capability), *which runtime* (CLI), or *what will this control do* (action) — and each question has its own family below. A surface that reaches for two families to answer one question has the wrong hierarchy, not the wrong icon.</p>
+<p>A glyph is not decoration and not a status pill. It answers exactly one question — *which thing is this* (identity), *where is it in its pipeline* (lifecycle), *which machine is it on* (device), *what kind of capability* (capability), *which runtime* (CLI), or *what will this control do* (action) — and each question has its own family below. A surface that reaches for two families to answer one question has the wrong hierarchy, not the wrong icon.</p>
 <h4>Anatomy</h4>
 <p>Two drawing grids, each with its own stroke discipline:</p>
 <p>| Grid | Primary stroke | Drawn by | |---|---|---| | 24 × 24 | <code>1.7</code> (the <code>iconStroke</code> constant) | <code>AppIcons.tsx</code> — every action, identity, status, and settings icon; <code>CliIcon.tsx</code> tile marks (1.7 frame, 1.9 letterform) | | 16 × 16 | <code>1.2 – 1.5</code> | the <code>ui/</code> primitives — <code>LifecycleGlyph</code> (1.4–1.5), <code>PullRequestGlyph</code> (1.4), <code>CapabilityGlyphs</code> (1.3), <code>RefreshIcon</code> (1.35), <code>StarGlyph</code> (1.4), <code>FileTypeGlyph</code> (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in <code>glyphs/</code> |</p>
-<p>The 24-grid stroke flexes deliberately and narrowly: secondary strokes step *down* by 0.1–0.3 (<code>iconStroke - 0.3</code> on the <code>RoleGenericIcon</code> inner ring), and a check or emphasis stroke steps *up* to 1.8–1.9 (the shield tick, the tile letterforms). Anything outside that band is drift, not a variant.</p>
-<ul><li><strong><code>currentColor</code>, always.</strong> A glyph inherits the ink of the text beside it and never carries its own palette. The whole list of self-coloring exceptions: <code>PriorityIcon</code> urgent/high (<code>--tone-error</code> / <code>--tone-warn</code>), <code>StatusIcon</code> done and the in-progress wedge family (<code>--tone-good</code> / <code>--tone-accent</code>), the role tone applied by <code>RoleGlyph</code> / <code>RoleAvatar</code> (see Variants), and the two <strong>identity-colour</strong> families ruled 2026-09-06 (principles.md → &quot;Identity colour&quot;): vendor marks in their vendors' colours (<code>CliIcon</code>, <code>brand/EditorMarks</code>), and <code>FileTypeGlyph</code> under <code>tone=&quot;kind&quot;</code>, which inks by language from the <code>--sem-color-mark-*</code> ramp.</li><li><strong>Drawn for 16 px.</strong> Every glyph must read at <code>--sem-icon-size-sm</code>; detail that only resolves at 22 px is detail the glyph cannot afford.</li><li><strong>Named by grid.</strong> 24-grid components end in <code>Icon</code>; 16-grid primitives end in <code>Glyph</code>. (<code>RefreshIcon</code> predates the rule — see Known drift.)</li><li><strong>Never its own hit area.</strong> An interactive glyph pads out to <code>--sem-size-control-xs</code> (26 px) with a transparent hit area; the glyph itself never grows to fill the target.</li></ul>
+<p>The 24-grid stroke flexes deliberately and narrowly: secondary strokes step *down* by 0.1–0.3 (<code>iconStroke - 0.2</code> on the <code>AutomationsWorkspaceTypeIcon</code> bolt), and a check or emphasis stroke steps *up* to 1.8–1.9 (the shield tick, the tile letterforms). Anything outside that band is drift, not a variant.</p>
+<ul><li><strong><code>currentColor</code>, always.</strong> A glyph inherits the ink of the text beside it and never carries its own palette. The whole list of self-coloring exceptions: <code>PriorityIcon</code> urgent/high (<code>--tone-error</code> / <code>--tone-warn</code>), <code>StatusIcon</code> done and the in-progress wedge family (<code>--tone-good</code> / <code>--tone-accent</code>), and the two <strong>identity-colour</strong> families ruled 2026-09-06 (principles.md → &quot;Identity colour&quot;): vendor marks in their vendors' colours (<code>CliIcon</code>, <code>brand/EditorMarks</code>), and <code>FileTypeGlyph</code> under <code>tone=&quot;kind&quot;</code>, which inks by language from the <code>--sem-color-mark-*</code> ramp.</li><li><strong>Drawn for 16 px.</strong> Every glyph must read at <code>--sem-icon-size-sm</code>; detail that only resolves at 22 px is detail the glyph cannot afford.</li><li><strong>Named by grid.</strong> 24-grid components end in <code>Icon</code>; 16-grid primitives end in <code>Glyph</code>. (<code>RefreshIcon</code> predates the rule — see Known drift.)</li><li><strong>Never its own hit area.</strong> An interactive glyph pads out to <code>--sem-size-control-xs</code> (26 px) with a transparent hit area; the glyph itself never grows to fill the target.</li></ul>
 <p><strong>The size ramp</strong> — these four steps are the sanctioned sizes, and 16 px is the rail canon (the leading-glyph slot of every sidebar and door-rail row):</p>
 <p>| Token | Value | Use | |---|---|---| | <code>--sem-icon-size-xs</code> | 13px | Inline glyphs beside meta copy and inside chips | | <code>--sem-icon-size-sm</code> | 16px | <strong>The default.</strong> List-row leading slots, toolbars, close glyphs | | <code>--sem-icon-size-md</code> | 18px | Icons paired with button labels, panel-header chrome | | <code>--sem-icon-size-lg</code> | 22px | Empty-state glyphs, large overlay close buttons |</p>
 <p>A rail row reserves a fixed 16 px leading slot whether or not the glyph fills it — an unreserved slot is what lets sibling doors' titles start at three different x-offsets (Known drift, MC-2098).</p>
@@ -20167,7 +20127,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>There is no standalone <code>CloseIcon</code>. The dismiss mark lives inside <code>ui/CloseIconButton</code>, on its own 14-grid at stroke 1.4, because a close glyph is only ever a button — an unpadded one is below the hit-target floor. <code>glyphs/close.svg</code> is the framework-neutral sample of the same mark.</p>
 <h5>Workspace-type identity (24-grid, registry-resolved)</h5>
 <p><code>WorkspaceTypeIcon</code> is the dispatcher: it resolves a workspace mode through the renderer host registry, gated on module enablement when <code>moduleOverrides</code> is passed, and degrades to the standard glyph for anything disabled or unknown. Consumers go through it; the concrete marks exist for the registry to point at:</p>
-<p>| Mark | Drawing | |---|---| | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher | | <code>SprintEngineWorkspaceTypeIcon</code> | Three-node crew triangle | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>FolderTypeIcon</code> | The project folder, optionally wearing a workspace's own logo |</p>
+<p>| Mark | Drawing | |---|---| | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>FolderTypeIcon</code> | The project folder, optionally wearing a workspace's own logo |</p>
 <h5>Device identity (16-grid — <code>AppIcons.tsx</code>)</h5>
 <p>The identity family for <strong>a machine on the tailnet</strong>: what kind of thing it is, one shape each, at 16px so it leads a settings row without out-weighing the name beside it. Added 2026-09-10 for the rebuilt Settings › Remote, where a list merges this machine, paired devices, outbound connections and the peer scan into one set of rows — and a list that is one row per *machine* has to say which machine at a glance.</p>
 <p>They are drawn to <code>remote-machine.svg</code>'s discipline, deliberately, because that mark is the family's fallback and the five have to read as one set: the 16-grid, stroke <strong>1.4</strong>, <code>fill=&quot;none&quot;</code> line work in <code>currentColor</code>, rounded rects at <code>rx</code> 1.3–1.8, and a filled 0.75r dot where a unit needs a light. The Mac's dot sits at the same <code>cx</code> as the server mark's two, so the two boxes are visibly the same drawing at different counts.</p>
@@ -20180,7 +20140,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>There is one status vocabulary, and it is <code>LifecycleGlyph</code> (below). The 24-grid <code>PriorityIcon</code> / <code>StatusIcon</code> pair that used to sit here is gone: it was a second answer to the same question, drawn on a different grid, and the folder status enum it keyed off is now <code>FolderStatus</code> in the shared layer with no glyph family of its own.</p>
 <p>One status idiom per surface: a surface shows the 6 px <code>StatusDot</code> *or* a <code>LifecycleGlyph</code>, never both.</p>
 <h5>Lifecycle (16-grid — <code>ui/LifecycleGlyph.tsx</code>)</h5>
-<p>The shape-coded lifecycle vocabulary shared by Backlog readiness and Sprint Engine task state. Eighteen states, read by shape first — every state survives grayscale — with ink only reinforcing:</p>
+<p>The shape-coded lifecycle vocabulary shared by Backlog readiness and Automations run state. Eighteen states, read by shape first — every state survives grayscale — with ink only reinforcing:</p>
 <p>| Shape | States | |---|---| | Ring (plain / dashed) | <code>todo</code>, <code>ready</code> (heavier stroke), <code>idea</code> (dashed) | | Ring + inner mark | <code>blocked</code> (bar), <code>paused</code> (pause bars), <code>needs_input</code> (!), <code>changes_requested</code> (return arrow), <code>archived</code> (slash), <code>failed</code> (×) | | Filling gauge arc | <code>in_progress</code> ¼ (spins when <code>live</code>), <code>review</code> ½, <code>testing</code> ¾, <code>product</code> ⅞ | | Disc / ring + check | <code>done</code> (filled), <code>approved_auto</code> (outline) | | Pull request mark | <code>done_unmerged</code> (the open drawing, <code>--tone-good</code>), <code>done_merged</code> (the merged drawing, <code>--tone-merged</code>) — two shapes out of the Pull request family below; the lifecycle tones only reinforce them | | Document + tick | <code>recorded</code> |</p>
 <p>Held states (<code>blocked</code>, <code>paused</code>) are neutral ink, never the accent — the accent means *startable or live right now*, and never <code>--tone-error</code> — waiting is calm, not a defect.</p>
 <h5>Pull request (16-grid — <code>ui/PullRequestGlyph.tsx</code>)</h5>
@@ -20190,12 +20150,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><strong>Shape first, tone second.</strong> The three shapes are distinguishable in grayscale; the tone only agrees with the shape. The tone map is shared — one function, <code>pullRequestTone</code> in <code>src/shared/git/pull-request.ts</code> — so every surface inks the same state the same way:</p>
 <p>| State | Tone | CSS variable | |---|---|---| | <code>open</code> | <code>accent</code> — the one you can still act on | <code>--accent-primary</code> | | <code>merged</code> | <code>merged</code> — the violet a landed branch already wears | <code>--tone-merged</code> (<code>--sem-color-status-merged</code>) | | <code>closed</code> | <code>error</code> — GitHub's own red for a pull request that ended without landing | <code>--tone-error</code> (<code>--sem-color-status-danger</code>) |</p>
 <p>The primitive takes <code>state</code> and an optional <code>label</code>; the caller owns the size (<code>icon-xs</code> beside meta copy, <code>icon-sm</code> in a row's leading slot) and the ink.</p>
-<p><strong>Every pull request in the product is drawn from here.</strong> <code>LifecycleGlyph</code>'s <code>done_unmerged</code> / <code>done_merged</code> pair takes the open and merged drawings (keeping its own lifecycle tones, which are not pull request tones), the branch step strip's merge commits take the merged one, and the sprint and automation pull request chips lead with the mark for their state. Nothing draws its own.</p>
-<h5>Role (24-grid drawings, 16-grid wrappers)</h5>
-<p><code>SprintEngineRoleIcon(role, registry)</code> dispatches to module-private drawings (architect, product, developer, frontend and ui/ux reviewer, tester, security, performance, production-readiness, cross-platform) and falls back to a neutral disc for an absent or unrecognised role. <code>SpecialistActionIcon(icon)</code> keys the same drawings by specialist-action id (adding writing, spaghetti, nuclear, infra, shield and the two design ids). The drawings are private on purpose: going through the dispatcher is what makes unknown ids degrade instead of crash.</p>
-<p>Two wrappers apply role *tone* — the documented exception to the one-accent rule, and the only one:</p>
-<ul><li><code>RoleGlyph</code> — the bare toned glyph, for a single inline slot (kanban-card trailing slot, task-graph node label). Sizes sm/md/lg (12/14/16 px).</li><li><code>RoleAvatar</code> — the toned identity disc with the glyph centered, for roster rows, running-agents lists, chips, spawn-dialog headers. Sizes xs/sm/md (16/24/28 px disc).</li></ul>
-<p>Role tone never bleeds into panel chrome, list rows, headers, or inspector sections; status and selection stay on <code>--accent-primary</code> and <code>--tone-*</code>.</p>
+<p><strong>Every pull request in the product is drawn from here.</strong> <code>LifecycleGlyph</code>'s <code>done_unmerged</code> / <code>done_merged</code> pair takes the open and merged drawings (keeping its own lifecycle tones, which are not pull request tones), the branch step strip's merge commits take the merged one, and the backlog item and automation pull request chips lead with the mark for their state. Nothing draws its own.</p>
 <h5>Capability (16-grid — <code>ui/CapabilityGlyphs.tsx</code>)</h5>
 <p>| Export | Meaning | |---|---| | <code>SkillsGlyph</code> | The Skills category mark (framed panel) | | <code>McpGlyph</code> | The MCP plug mark |</p>
 <p>Shared by Extensions and capability inventory rows so a category reads the same everywhere; default themselves to <code>icon-xs</code> + <code>--text-muted</code>.</p>
@@ -20220,16 +20175,16 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h5>Utility marks (16-grid)</h5>
 <p>| Export | Meaning | |---|---| | <code>StarGlyph(filled, stroked)</code> | The one star path for starred/favorite — solid when earned, outlined for menu unstarred states. Caller owns size and ink | | <code>RefreshIcon</code> | The canonical two-arrow refresh, shared by every panel that offers a manual re-read (Git status, Backlog scan) | | <code>GitBranchGlyph</code> | The branch fork beside a branch name — sidebar rows, the git button, the run-on strip. <code>glyphs/git-branch.svg</code> | | <code>PresetDialGlyph</code> · <code>LockGlyph</code> · <code>UnlockedGlyph</code> · <code>SparkGlyph</code> | The access-level vocabulary (CLI default · Manual · Bypass · Auto) on the permission-preset menu rows and the composer's permission pill — one drawing per concept, shared by both hosts. Inline in <code>AppIcons.tsx</code>; no standalone asset. | | <code>RemoteMachineGlyph</code> | Also the Device identity family's fallback (above). The stacked-server mark for anything remote — rows, group headers, pickers, the top-bar glyph (remote-sessions-ux decision 7: one glyph, machine name beside it or in the tooltip). Stroke 1.4. <code>glyphs/remote-machine.svg</code> |</p>
 <h5>Settings rail (24-grid, one per category)</h5>
-<p><code>GeneralSettingsIcon</code> (sliders), <code>ProfileSettingsIcon</code> (person), <code>AppearanceSettingsIcon</code> (half-filled disc), <code>ShortcutsSettingsIcon</code> (keyboard), <code>AgentsSettingsIcon</code> (robot), <code>ProvidersSettingsIcon</code> (plug), <code>SpecialistPacksSettingsIcon</code> (package cube), <code>GithubSettingsIcon</code> (branch), <code>TrackersSettingsIcon</code> (tagged file), <code>KnowledgeGraphSettingsIcon</code> (node triangle), <code>DesignSystemSettingsIcon</code> (disc, square and triangle), <code>ModulesSettingsIcon</code> (2 × 2 grid), <code>MobileSettingsIcon</code> (phone), <code>RemoteSettingsIcon</code> (two linked machines). All at <code>iconStroke</code> so the rail reads as one set.</p>
+<p><code>GeneralSettingsIcon</code> (sliders), <code>ProfileSettingsIcon</code> (person), <code>AppearanceSettingsIcon</code> (half-filled disc), <code>ShortcutsSettingsIcon</code> (keyboard), <code>AgentsSettingsIcon</code> (robot), <code>ProvidersSettingsIcon</code> (plug), <code>GithubSettingsIcon</code> (branch), <code>TrackersSettingsIcon</code> (tagged file), <code>KnowledgeGraphSettingsIcon</code> (node triangle), <code>DesignSystemSettingsIcon</code> (disc, square and triangle), <code>ModulesSettingsIcon</code> (2 × 2 grid), <code>MobileSettingsIcon</code> (phone), <code>RemoteSettingsIcon</code> (two linked machines). All at <code>iconStroke</code> so the rail reads as one set.</p>
 <h4>States</h4>
 <p>| State | Treatment | |---|---| | Rest | Inherits the surrounding ink — typically <code>--sem-color-text-muted</code> in a row or toolbar | | Hover / active | The *owning control* shifts its ink and background; the glyph itself defines no hover | | Live | <code>LifecycleGlyph</code> <code>in_progress</code> with <code>live</code> rotates (<code>.ds-glyph--spin</code>). The only animated glyph state, honoring <code>prefers-reduced-motion</code> | | Disabled | Ink drops to <code>--sem-color-text-disabled</code> via the owning control | | Meaning-bearing | <code>role=&quot;img&quot;</code> + <code>aria-label</code> (see Accessibility) | | Decorative | <code>aria-hidden=&quot;true&quot;</code> |</p>
 <h4>Usage</h4>
 <ul><li><strong>Pick the family by the question, then the glyph by the table.</strong> Never answer a lifecycle question with a status dot *and* a glyph, or an identity question with an action icon.</li><li><strong>Size from the ramp, nothing else.</strong> Rails and toolbars at <code>sm</code>; chips and inline-with-meta at <code>xs</code>; button-paired and panel-header at <code>md</code>; empty states at <code>lg</code>. A 28 px icon button is not a size the system has (Known drift, MC-2119).</li><li><strong>Reserve the slot.</strong> A rail row's leading glyph slot is a fixed <code>--sem-icon-size-sm</code> box; a smaller glyph centers in it rather than narrowing it.</li><li><strong>One meaning per shape.</strong> The plus belongs to create; compose gets the pencil-in-square; a second surface wanting &quot;add&quot; reuses <code>PlusIcon</code>, it does not redraw it. Duplicating a path into a second file is how the title-bar chrome ended up with two divergent copies of the same four glyphs (Known drift).</li><li><strong>Drawing a new glyph:</strong> 24-grid, <code>iconStroke</code> 1.7, <code>currentColor</code>, one concept, <code>fill=&quot;none&quot;</code> line work, legible at 16 px. Name it <code>&lt;Concept&gt;Icon</code> (24-grid) or <code>&lt;Concept&gt;Glyph</code> (16-grid); a framework-neutral copy contributed to <code>glyphs/</code> takes a kebab-case concept name per the naming grammar in <code>design-system.json</code>.</li><li><strong>Rebuilding in a framework:</strong> React consumers import from <code>AppIcons.tsx</code> and the <code>ui/</code> primitives — never paste paths inline. Framework-neutral consumers take the <code>glyphs/</code> assets. Both size via the ramp tokens and ink via <code>currentColor</code>.</li></ul>
 <h4>Accessibility</h4>
-<ul><li><strong>Decorative is the default.</strong> A glyph whose meaning is carried by adjacent text is <code>aria-hidden=&quot;true&quot;</code> — every core action, identity, and settings icon ships that way.</li><li><strong>Meaning-bearing glyphs label themselves.</strong> <code>PriorityIcon</code>, <code>StatusIcon</code>, a labelled <code>LifecycleGlyph</code>, <code>StarGlyph</code> with <code>label</code>, and <code>RoleGlyph</code>/<code>RoleAvatar</code> carry <code>role=&quot;img&quot;</code> + <code>aria-label</code> (and a <code>&lt;title&gt;</code> where hover should confirm). Omit the label only when the row's text already announces the state.</li><li><strong>Icon-only buttons carry <code>aria-label</code></strong> on the button; the glyph inside stays hidden. Pair with a tooltip that says the consequence, not the name.</li><li><strong>Shape first, color second.</strong> Every status and lifecycle state is distinguishable in grayscale; ink only reinforces. Color is never the sole differentiator, with no exception. The one that used to stand here — merged-vs-unmerged on the branch fork, on the ruling that a distinct merge shape read as noise at 16 px — was retired on 2026-09-09: the Pull request family draws merged, open and closed as three different shapes at 16 px, so the ruling's premise is gone and nothing in the system needs colour to carry a state on its own.</li><li><strong>Hit targets.</strong> Nothing interactive below <code>--sem-size-hit-target-min</code>; the glyph pads out, it does not grow.</li></ul>
+<ul><li><strong>Decorative is the default.</strong> A glyph whose meaning is carried by adjacent text is <code>aria-hidden=&quot;true&quot;</code> — every core action, identity, and settings icon ships that way.</li><li><strong>Meaning-bearing glyphs label themselves.</strong> <code>PriorityIcon</code>, <code>StatusIcon</code>, a labelled <code>LifecycleGlyph</code>, <code>StarGlyph</code> with <code>label</code>, and <code>PullRequestGlyph</code> with <code>label</code> carry <code>role=&quot;img&quot;</code> + <code>aria-label</code> (and a <code>&lt;title&gt;</code> where hover should confirm). Omit the label only when the row's text already announces the state.</li><li><strong>Icon-only buttons carry <code>aria-label</code></strong> on the button; the glyph inside stays hidden. Pair with a tooltip that says the consequence, not the name.</li><li><strong>Shape first, color second.</strong> Every status and lifecycle state is distinguishable in grayscale; ink only reinforces. Color is never the sole differentiator, with no exception. The one that used to stand here — merged-vs-unmerged on the branch fork, on the ruling that a distinct merge shape read as noise at 16 px — was retired on 2026-09-09: the Pull request family draws merged, open and closed as three different shapes at 16 px, so the ruling's premise is gone and nothing in the system needs colour to carry a state on its own.</li><li><strong>Hit targets.</strong> Nothing interactive below <code>--sem-size-hit-target-min</code>; the glyph pads out, it does not grow.</li></ul>
 <h4>Known drift</h4>
 <p>Shipped divergences from the conventions above, with their backlog homes. Cite these rather than matching the code you happen to be nearest.</p>
-<p>1. <strong>Four icon-button sizes in the chrome strips</strong> — 22 px (<code>WorkspaceIdentity</code> star toggle), 26 px (<code>SidebarChrome</code> <code>BRAND_ROW_BUTTON</code>), 28 px (<code>AppTitleBar</code> / <code>WorkspaceHeader</code> <code>STRIP_BUTTON</code> — off the 26/30/34 control ramp entirely, and with no radius or hover fill where SidebarChrome's 26 px button has both), and 30 px (<code>AppMenuButton</code>). Canon is <code>--sem-size-control-xs</code> (26 px). Tracked as <strong>MC-2119</strong> (icon-size conformance axis). *2026-09-02:* the kit's own off-ramp sites are resolved — <code>CursorErrorPopover</code>'s two 20 px reveal buttons are <code>IconButton</code> / <code>CloseIconButton</code>, and <code>MenuSwatchRow</code>'s 20 px swatches pad out to the 24 px hit-target floor. <strong>Resolved 2026-09-02</strong> for the app chrome too: <code>STRIP_BUTTON</code> is deleted from <code>WorkspaceHeader</code> and <code>AppTitleBar</code>, and every strip, popover-trigger and row glyph button in the renderer is <code>IconButton</code> / <code>CloseIconButton</code> at <code>--sem-size-control-xs</code> (backlog <code>icon-buttons-off-the-control-ramp</code>); the conformance guard's <code>focus-ring-missing</code> rule keeps a bare button from returning. 2. <strong>Per-door rail glyph sizes 16 / 13 / 12 px</strong> — Sprints and Automations lead rows with 16 px glyphs (titles at x = 42 px), Extensions with bare 13 px <code>icon-xs</code> glyphs and no fixed-width wrapper (39 px), the Design door with a 12 px chip (38 px) — so sibling doors' titles start at three different offsets in the same column. <code>AutomationTypeGlyph</code> compounds it: an 18 px <code>icon-md</code> SVG inside a 16 px box, overflowing by 2 px. Canon: <code>sm</code> glyph in a reserved 16 px slot. Tracked as <strong>MC-2098</strong> (door glyph normalization). 3. <strong>Copy-pasted chrome SVGs.</strong> The back / forward / search / panel-left paths are duplicated between <code>AppTitleBar.tsx</code> and <code>SidebarChrome.tsx</code> rather than shared, and the two copies get different hit areas and hover treatments (item 1). One export, two consumers, is the fix. 4. <strong>Stroke drift at the edges.</strong> The chrome strips draw bespoke 16-grid glyphs at 1.5 with a one-off 1.6 &quot;+&quot;; window controls sit at 1.2–1.4; a backlog toggle at 1.3 beside a skills glyph at 1.5. The 16-grid band is 1.2–1.5, so most of these pass individually — the drift is per-surface inconsistency, resolved by consuming the shared exports (item 3). 5. <strong><code>RefreshIcon</code> is a 16-grid primitive named <code>Icon</code></strong> where the family convention is <code>Glyph</code>. Rename when it next moves. 6. <strong>The <code>glyphs/</code> folder holds thirty-four assets</strong> against a shipped vocabulary of roughly sixty. This entry closes the documentation gap; extracting framework-neutral SVGs for the core-action set into <code>glyphs/</code> (and registering them in <code>design-system.json</code>) remains open. *2026-09-05:* the Git view marks, the folder and two file-type samples joined the folder. *2026-09-09:* the seventeen Commit-window and diff-window action marks joined it (Git and diff actions, above), <code>previous-difference</code> among them as a shipped mirror rather than a transform the reader has to apply, and the three pull-request marks with them (Pull request, above).</p>
+<p>1. <strong>Four icon-button sizes in the chrome strips</strong> — 22 px (<code>WorkspaceIdentity</code> star toggle), 26 px (<code>SidebarChrome</code> <code>BRAND_ROW_BUTTON</code>), 28 px (<code>AppTitleBar</code> / <code>WorkspaceHeader</code> <code>STRIP_BUTTON</code> — off the 26/30/34 control ramp entirely, and with no radius or hover fill where SidebarChrome's 26 px button has both), and 30 px (<code>AppMenuButton</code>). Canon is <code>--sem-size-control-xs</code> (26 px). Tracked as <strong>MC-2119</strong> (icon-size conformance axis). *2026-09-02:* the kit's own off-ramp sites are resolved — <code>CursorErrorPopover</code>'s two 20 px reveal buttons are <code>IconButton</code> / <code>CloseIconButton</code>, and <code>MenuSwatchRow</code>'s 20 px swatches pad out to the 24 px hit-target floor. <strong>Resolved 2026-09-02</strong> for the app chrome too: <code>STRIP_BUTTON</code> is deleted from <code>WorkspaceHeader</code> and <code>AppTitleBar</code>, and every strip, popover-trigger and row glyph button in the renderer is <code>IconButton</code> / <code>CloseIconButton</code> at <code>--sem-size-control-xs</code> (backlog <code>icon-buttons-off-the-control-ramp</code>); the conformance guard's <code>focus-ring-missing</code> rule keeps a bare button from returning. 2. <strong>Per-door rail glyph sizes 16 / 13 / 12 px</strong> — Automations leads rows with 16 px glyphs (titles at x = 42 px), Extensions with bare 13 px <code>icon-xs</code> glyphs and no fixed-width wrapper (39 px), the Design door with a 12 px chip (38 px) — so sibling doors' titles start at three different offsets in the same column. <code>AutomationTypeGlyph</code> compounds it: an 18 px <code>icon-md</code> SVG inside a 16 px box, overflowing by 2 px. Canon: <code>sm</code> glyph in a reserved 16 px slot. Tracked as <strong>MC-2098</strong> (door glyph normalization). 3. <strong>Copy-pasted chrome SVGs.</strong> The back / forward / search / panel-left paths are duplicated between <code>AppTitleBar.tsx</code> and <code>SidebarChrome.tsx</code> rather than shared, and the two copies get different hit areas and hover treatments (item 1). One export, two consumers, is the fix. 4. <strong>Stroke drift at the edges.</strong> The chrome strips draw bespoke 16-grid glyphs at 1.5 with a one-off 1.6 &quot;+&quot;; window controls sit at 1.2–1.4; a backlog toggle at 1.3 beside a skills glyph at 1.5. The 16-grid band is 1.2–1.5, so most of these pass individually — the drift is per-surface inconsistency, resolved by consuming the shared exports (item 3). 5. <strong><code>RefreshIcon</code> is a 16-grid primitive named <code>Icon</code></strong> where the family convention is <code>Glyph</code>. Rename when it next moves. 6. <strong>The <code>glyphs/</code> folder holds thirty-four assets</strong> against a shipped vocabulary of roughly sixty. This entry closes the documentation gap; extracting framework-neutral SVGs for the core-action set into <code>glyphs/</code> (and registering them in <code>design-system.json</code>) remains open. *2026-09-05:* the Git view marks, the folder and two file-type samples joined the folder. *2026-09-09:* the seventeen Commit-window and diff-window action marks joined it (Git and diff actions, above), <code>previous-difference</code> among them as a shipped mirror rather than a transform the reader has to apply, and the three pull-request marks with them (Pull request, above).</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/glyphs/component.css</summary><pre><code>/* Glyphs — the sizing and ink contract for the icon vocabulary.
@@ -20413,36 +20368,9 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;path d=&quot;M7.25 10L10 12.5L7.25 15&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.8&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
       &lt;path d=&quot;M12.5 15H16.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.8&quot; stroke-linecap=&quot;round&quot;/&gt;
     &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-ws-sprintengine&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot;&gt;
-      &lt;circle cx=&quot;12&quot; cy=&quot;6&quot; r=&quot;2.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
-      &lt;circle cx=&quot;6.5&quot; cy=&quot;16.5&quot; r=&quot;2.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
-      &lt;circle cx=&quot;17.5&quot; cy=&quot;16.5&quot; r=&quot;2.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
-      &lt;path d=&quot;M10.85 8.2L7.65 14.35M13.15 8.2L16.35 14.35M9 16.5H15&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;
-    &lt;/symbol&gt;
     &lt;symbol id=&quot;g-ws-automations&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot;&gt;
       &lt;path d=&quot;M19.5 12a7.5 7.5 0 1 1-3.4-6.28&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;
       &lt;path d=&quot;M12.6 7.3 9 12.4h2.7l-.7 4 3.6-5.1h-2.7l.7-4z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linejoin=&quot;round&quot; fill=&quot;currentColor&quot; fill-opacity=&quot;0.18&quot;/&gt;
-    &lt;/symbol&gt;
-
-    &lt;!-- 24-grid role drawings (behind the SprintEngineRoleIcon dispatcher) --&gt;
-    &lt;symbol id=&quot;g-role-generic&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot;&gt;
-      &lt;circle cx=&quot;12&quot; cy=&quot;12&quot; r=&quot;6.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
-      &lt;circle cx=&quot;12&quot; cy=&quot;12&quot; r=&quot;2.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; opacity=&quot;0.55&quot;/&gt;
-    &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-role-developer&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot;&gt;
-      &lt;path d=&quot;M9.25 8L5.25 12L9.25 16&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
-      &lt;path d=&quot;M14.75 8L18.75 12L14.75 16&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
-      &lt;path d=&quot;M13 5.75L11 18.25&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;
-    &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-role-architect&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot;&gt;
-      &lt;rect x=&quot;5&quot; y=&quot;4.75&quot; width=&quot;5.5&quot; height=&quot;5.5&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
-      &lt;rect x=&quot;13.5&quot; y=&quot;13.75&quot; width=&quot;5.5&quot; height=&quot;5.5&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot;/&gt;
-      &lt;path d=&quot;M10.5 7.5H13.5C15.15 7.5 16.5 8.85 16.5 10.5V13.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;
-      &lt;path d=&quot;M7.75 10.25V13.5C7.75 15.15 9.1 16.5 10.75 16.5H13.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linecap=&quot;round&quot;/&gt;
-    &lt;/symbol&gt;
-    &lt;symbol id=&quot;g-role-security&quot; viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot;&gt;
-      &lt;path d=&quot;M12 3.75L18.75 6.25V11.15C18.75 15.35 16.08 19.08 12 20.25C7.92 19.08 5.25 15.35 5.25 11.15V6.25L12 3.75Z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.7&quot; stroke-linejoin=&quot;round&quot;/&gt;
-      &lt;path d=&quot;M9 12.05L11.05 14.1L15.25 9.9&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.8&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;
     &lt;/symbol&gt;
 
     &lt;!-- 16-grid lifecycle vocabulary (LifecycleGlyph) --&gt;
@@ -20675,7 +20603,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
     &lt;h2 class=&quot;demo-heading&quot;&gt;Workspace-type identity — registry-resolved&lt;/h2&gt;
     &lt;div class=&quot;demo-row&quot;&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-standard&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;standard&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-sprintengine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;sprintengine&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-automations&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;automations&lt;/span&gt;&lt;/span&gt;
     &lt;/div&gt;
   &lt;/div&gt;
@@ -20699,16 +20626,6 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
       &lt;span class=&quot;demo-cell demo-tone-merged&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Merged&quot;&gt;&lt;use href=&quot;#g-lc-branch&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;merged&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell demo-tone-disabled&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Archived&quot;&gt;&lt;use href=&quot;#g-lc-archived&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;archived&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell demo-tone-danger&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Failed&quot;&gt;&lt;use href=&quot;#g-lc-failed&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;failed&lt;/span&gt;&lt;/span&gt;
-    &lt;/div&gt;
-  &lt;/div&gt;
-
-  &lt;div class=&quot;demo-section&quot;&gt;
-    &lt;h2 class=&quot;demo-heading&quot;&gt;Role — dispatcher drawings; tone applied only by RoleGlyph / RoleAvatar&lt;/h2&gt;
-    &lt;div class=&quot;demo-row&quot;&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-role-generic&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;no role&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-role-developer&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;developer&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-role-architect&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;architect&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-role-security&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;security&lt;/span&gt;&lt;/span&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 
@@ -20813,9 +20730,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
   &lt;div class=&quot;demo-section&quot;&gt;
     &lt;h2 class=&quot;demo-heading&quot;&gt;Identity &amp;amp; utility&lt;/h2&gt;
     &lt;div class=&quot;demo-row&quot;&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-sprintengine&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;sprintengine&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-ws-automations&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;automations&lt;/span&gt;&lt;/span&gt;
-      &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-role-developer&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;developer&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; role=&quot;img&quot; aria-label=&quot;Starred&quot;&gt;&lt;use href=&quot;#g-star-filled&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;star&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-refresh&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;refresh&lt;/span&gt;&lt;/span&gt;
       &lt;span class=&quot;demo-cell&quot;&gt;&lt;svg class=&quot;ds-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;use href=&quot;#g-cli-terminal&quot;/&gt;&lt;/svg&gt;&lt;span class=&quot;demo-name&quot;&gt;terminal&lt;/span&gt;&lt;/span&gt;
@@ -21612,8 +21527,8 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
           <span class="ds-status-dot ds-status-dot--danger"></span>
         </span>
         <span class="ds-inbox-row-text">
-          <span class="ds-inbox-row-title">Sprint 14 run failed</span>
-          <span class="ds-inbox-row-supporting">Gate check rejected the changeset at milestone 3</span>
+          <span class="ds-inbox-row-title">nightly-deploy run failed</span>
+          <span class="ds-inbox-row-supporting">The agent CLI exited before the branch was pushed</span>
         </span>
         <span class="ds-inbox-row-trailing">2m</span>
       </button>
@@ -21685,8 +21600,8 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
           <span class="ds-status-dot ds-status-dot--danger"></span>
         </span>
         <span class="ds-inbox-row-text">
-          <span class="ds-inbox-row-title">Sprint 14 run failed</span>
-          <span class="ds-inbox-row-supporting">Gate check rejected the changeset at milestone 3</span>
+          <span class="ds-inbox-row-title">nightly-deploy run failed</span>
+          <span class="ds-inbox-row-supporting">The agent CLI exited before the branch was pushed</span>
         </span>
         <span class="ds-inbox-row-trailing">2m</span>
       </button>
@@ -22009,8 +21924,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
           &lt;span class=&quot;ds-status-dot ds-status-dot--danger&quot;&gt;&lt;/span&gt;
         &lt;/span&gt;
         &lt;span class=&quot;ds-inbox-row-text&quot;&gt;
-          &lt;span class=&quot;ds-inbox-row-title&quot;&gt;Sprint 14 run failed&lt;/span&gt;
-          &lt;span class=&quot;ds-inbox-row-supporting&quot;&gt;Gate check rejected the changeset at milestone 3&lt;/span&gt;
+          &lt;span class=&quot;ds-inbox-row-title&quot;&gt;nightly-deploy run failed&lt;/span&gt;
+          &lt;span class=&quot;ds-inbox-row-supporting&quot;&gt;The agent CLI exited before the branch was pushed&lt;/span&gt;
         &lt;/span&gt;
         &lt;span class=&quot;ds-inbox-row-trailing&quot;&gt;2m&lt;/span&gt;
       &lt;/button&gt;
@@ -22082,8 +21997,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
           &lt;span class=&quot;ds-status-dot ds-status-dot--danger&quot;&gt;&lt;/span&gt;
         &lt;/span&gt;
         &lt;span class=&quot;ds-inbox-row-text&quot;&gt;
-          &lt;span class=&quot;ds-inbox-row-title&quot;&gt;Sprint 14 run failed&lt;/span&gt;
-          &lt;span class=&quot;ds-inbox-row-supporting&quot;&gt;Gate check rejected the changeset at milestone 3&lt;/span&gt;
+          &lt;span class=&quot;ds-inbox-row-title&quot;&gt;nightly-deploy run failed&lt;/span&gt;
+          &lt;span class=&quot;ds-inbox-row-supporting&quot;&gt;The agent CLI exited before the branch was pushed&lt;/span&gt;
         &lt;/span&gt;
         &lt;span class=&quot;ds-inbox-row-trailing&quot;&gt;2m&lt;/span&gt;
       &lt;/button&gt;
@@ -25072,7 +24987,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <p>The values then moved out of the components and into one shared class pair, <code>ui/menuClasses.ts</code> — the surface and the item — which is what makes a host unable to drift: a component that takes <code>MENU_ITEM_CLASS</code> gets the size, the full-bleed geometry, the one highlight state and the inset ring together, and has nothing left to answer for itself. Every menu host now consumes it, and the flyout size pin above is gone with it.</p>
 <p><code>SplitButton</code>'s alternatives list and <code>Select</code>'s listbox belong to the same family: same chrome, same row geometry, same highlight. A select option keeps <code>body</code> (13px) rather than <code>meta</code>, because its popup echoes strings its trigger is already showing at that size and picking a value must not resize it ([select](../select/component.md)). A menu item has no such at-rest twin, which is why 12px is right here and not there.</p>
 <p>Held by <code>ui/designSystemAxes.test.ts</code>, whose menu checks take <strong>this document — <code>design-system/components/menu/component.md</code> — as their source of truth</strong>, and which compares the three components against each other rather than each against itself: the divergence only ever existed *between* components, so a per-component test could not have caught it.</p>
-<p><strong>Reconciled 2026-08-05, again (MC-2138).</strong> The class pair above had converged the five components the kit owns; every menu row *outside* them was still hand-rolled — the sprint roster popover, both in-app menubar fallbacks, the account menu, the reasoning selector — each with its own inset, its own type step and no disabled state. Two of them were the same menu drawn at two sizes. They consume <code>MENU_ITEM_CLASS</code> now, their surfaces consume <code>MENU_LIST_CLASS</code> (and so gave up the horizontal padding this spec rules out), and the two picker popovers that had shipped as byte-identical copies of one hand-rolled row became the stacked item above. <code>role=&quot;menuitem&quot;</code> also stopped appearing on things that are not rows: the notifications popover put it on a report block carrying its own buttons, and is a <code>dialog</code> popover now.</p>
+<p><strong>Reconciled 2026-08-05, again (MC-2138).</strong> The class pair above had converged the five components the kit owns; every menu row *outside* them was still hand-rolled — the model picker popover, both in-app menubar fallbacks, the account menu, the reasoning selector — each with its own inset, its own type step and no disabled state. Two of them were the same menu drawn at two sizes. They consume <code>MENU_ITEM_CLASS</code> now, their surfaces consume <code>MENU_LIST_CLASS</code> (and so gave up the horizontal padding this spec rules out), and the two picker popovers that had shipped as byte-identical copies of one hand-rolled row became the stacked item above. <code>role=&quot;menuitem&quot;</code> also stopped appearing on things that are not rows: the notifications popover put it on a report block carrying its own buttons, and is a <code>dialog</code> popover now.</p>
 <p>Held additionally by the <code>MC-2138</code> rules in <code>src/renderer/src/components/ui/designSystemConformance.test.tsx</code>, which read the literals a developer types across a directory list that grows as each surface converges — the earlier sweeps' scoped guards plus an unscoped &quot;complete&quot; claim are precisely how this tail survived three of them.</p>
 </div>
 </div>
@@ -25796,7 +25711,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
           </button>
         </div>
         <div class="ds-modal-body">
-          <input class="demo-input" aria-label="Branch name" placeholder="run/sprint-14" />
+          <input class="demo-input" aria-label="Branch name" placeholder="feature/relay-auth" />
         </div>
         <div class="ds-modal-footer">
           <button type="button" class="ds-button ds-button--ghost">Cancel</button>
@@ -25859,7 +25774,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   </div>
 
   <div class="demo-row" data-live>
-    <button type="button" class="ds-button ds-button--ghost" data-open-confirm data-tone="primary">Archive sprint…</button>
+    <button type="button" class="ds-button ds-button--ghost" data-open-confirm data-tone="primary">Archive automation…</button>
   </div>
 </div>
 
@@ -25912,7 +25827,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 <h4>Shipped implementation</h4>
 <p><code>src/renderer/src/components/ui/Modal.tsx</code>, with <code>ConfirmDialog.tsx</code> as the <code>--confirm</code> variant above: its <code>title</code> / <code>body</code> / <code>confirmLabel</code> / <code>cancelLabel</code> / <code>pendingLabel</code> / <code>tone</code> / <code>pending</code> options are this entry's confirm and prompt specs, and <code>ConfirmDialogProvider</code> + <code>useConfirmDialog()</code> are how a caller asks the question without mounting a dialog of its own.</p>
 <h4>Known drift</h4>
-<ul><li>~~<code>Modal.tsx</code> ships <code>z-50</code> against the token ladder's 70.~~ <strong>Resolved 2026-08-05 (MC-2119):</strong> the token ladder is canonical and <code>Modal</code> consumes <code>--z-modal</code> (70). Note the ladder itself was then re-ruled at the interaction-canon merge review (same date): transient surfaces sit ABOVE modal — popover 80, menu 90, toast 100 — so a menu or picker opened from inside a dialog paints over the scrim by design. What the fix ended was Modal keeping a second, private ladder, not menus painting above dialogs.</li><li>~~<code>Modal.tsx</code> ships <strong>no focus trap</strong>.~~ <strong>Resolved (MC-2109):</strong> every <code>aria-modal</code> shell in the renderer wraps its dialog in the shared <code>FocusTrap</code>, sentinels either side, as specified above.</li><li>~~<code>Modal.tsx</code> ships shadowless, <code>rounded-[8px]</code>, and a 20px inset.~~ <strong>Resolved 2026-08-05 (MC-2110):</strong> the shell casts <code>shadow.modal</code>, rounds at <code>radius.shell</code>, and insets at <code>space.3xl</code>. The same change put every other floating surface on the geometry above — the Command Palette, the New sprint dialog, the roster manager and the diagnostics overlay had each grown a private width, radius, border and shadow, and three of the four were shells re-implementing this one rather than consuming it. Worth recording is what the item asked for and did not get: it proposed <code>radius.overlay</code> (7px) as the single radius for every overlay, which would have left <code>radius.shell</code> consumed by nothing and contradicted this entry. The ramp's two steps split by surface class instead, exactly as the elevation ramp does.</li></ul>
+<ul><li>~~<code>Modal.tsx</code> ships <code>z-50</code> against the token ladder's 70.~~ <strong>Resolved 2026-08-05 (MC-2119):</strong> the token ladder is canonical and <code>Modal</code> consumes <code>--z-modal</code> (70). Note the ladder itself was then re-ruled at the interaction-canon merge review (same date): transient surfaces sit ABOVE modal — popover 80, menu 90, toast 100 — so a menu or picker opened from inside a dialog paints over the scrim by design. What the fix ended was Modal keeping a second, private ladder, not menus painting above dialogs.</li><li>~~<code>Modal.tsx</code> ships <strong>no focus trap</strong>.~~ <strong>Resolved (MC-2109):</strong> every <code>aria-modal</code> shell in the renderer wraps its dialog in the shared <code>FocusTrap</code>, sentinels either side, as specified above.</li><li>~~<code>Modal.tsx</code> ships shadowless, <code>rounded-[8px]</code>, and a 20px inset.~~ <strong>Resolved 2026-08-05 (MC-2110):</strong> the shell casts <code>shadow.modal</code>, rounds at <code>radius.shell</code>, and insets at <code>space.3xl</code>. The same change put every other floating surface on the geometry above — the Command Palette, the New workspace dialog, the review walkthrough and the diagnostics overlay had each grown a private width, radius, border and shadow, and three of the four were shells re-implementing this one rather than consuming it. Worth recording is what the item asked for and did not get: it proposed <code>radius.overlay</code> (7px) as the single radius for every overlay, which would have left <code>radius.shell</code> consumed by nothing and contradicted this entry. The ramp's two steps split by surface class instead, exactly as the elevation ramp does.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/modal/component.css</summary><pre><code>/* Modal — the one surface allowed to stop the page. Extracted from the source
@@ -26157,7 +26072,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
           &lt;/button&gt;
         &lt;/div&gt;
         &lt;div class=&quot;ds-modal-body&quot;&gt;
-          &lt;input class=&quot;demo-input&quot; aria-label=&quot;Branch name&quot; placeholder=&quot;run/sprint-14&quot; /&gt;
+          &lt;input class=&quot;demo-input&quot; aria-label=&quot;Branch name&quot; placeholder=&quot;feature/relay-auth&quot; /&gt;
         &lt;/div&gt;
         &lt;div class=&quot;ds-modal-footer&quot;&gt;
           &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot;&gt;Cancel&lt;/button&gt;
@@ -26220,7 +26135,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
   &lt;/div&gt;
 
   &lt;div class=&quot;demo-row&quot; data-live&gt;
-    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot; data-open-confirm data-tone=&quot;primary&quot;&gt;Archive sprint…&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-button ds-button--ghost&quot; data-open-confirm data-tone=&quot;primary&quot;&gt;Archive automation…&lt;/button&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 
@@ -26264,8 +26179,8 @@ const ASKS = {
     buttonClass: 'ds-button ds-button--md ds-button--danger',
   },
   primary: {
-    title: 'Archive sprint?',
-    body: 'Its board leaves the rail. The run branch and its history stay.',
+    title: 'Archive automation?',
+    body: 'It leaves the Automations rail. Its run history and branches stay.',
     confirm: 'Archive',
     buttonClass: 'ds-button ds-button--md ds-button--primary',
   },
@@ -26716,7 +26631,7 @@ document.addEventListener('keydown', (event) =&gt; {
         <span class="ds-panel-header-identity" aria-hidden="true"></span>
         <h2 class="ds-panel-header-title">Backlog</h2>
         <span class="ds-panel-header-count">47</span>
-        <span class="ds-panel-header-scope">This sprint</span>
+        <span class="ds-panel-header-scope">This project</span>
       </div>
       <div class="ds-panel-header-actions">
         <button type="button" class="demo-ghost">New item</button>
@@ -26800,7 +26715,7 @@ document.addEventListener('keydown', (event) =&gt; {
         <span class="ds-panel-header-identity" aria-hidden="true"></span>
         <h2 class="ds-panel-header-title">Backlog</h2>
         <span class="ds-panel-header-count">47</span>
-        <span class="ds-panel-header-scope">This sprint</span>
+        <span class="ds-panel-header-scope">This project</span>
       </div>
       <div class="ds-panel-header-actions">
         <button type="button" class="demo-ghost">New item</button>
@@ -26856,7 +26771,7 @@ document.addEventListener('keydown', (event) =&gt; {
 <p><strong>The count is the canonical count.</strong> Render it here or in the content, never both — two counts that could disagree are the defect the principles name.</p>
 <p><strong>The identity dot is identity, not status.</strong> It marks which tool owns the panel, using the consumer's identity color channel (<code>--ds-panel-header-identity</code> — the app supplies its per-tool value; there is no <code>sem.*</code> token for tool identity, deliberately). It never pulses, never changes tone, and the rest of the panel stays accent-neutral around it. Status belongs to rows and status dots, not to the header.</p>
 <p><strong>The progress hairline is earned.</strong> Attach it only when the panel has a canonical completion metric (accepted of total). It is not decoration, not a loading bar, and not a second accent — it is the accent-as-hairline marking real progress, which the accent budget permits.</p>
-<p><strong>No status chips, no counts line, no subtitle sentence.</strong> The panel under the band already shows its own state. A scope word (&quot;This sprint&quot;) is the ceiling; a sentence is a redesign signal.</p>
+<p><strong>No status chips, no counts line, no subtitle sentence.</strong> The panel under the band already shows its own state. A scope word (&quot;This project&quot;) is the ceiling; a sentence is a redesign signal.</p>
 <h4>Accessibility</h4>
 <ul><li>The band renders as <code>&lt;header&gt;</code>; the title is a real <code>&lt;h2&gt;</code> so the panel lands in the document outline. Give it an <code>id</code> when a region's <code>aria-labelledby</code> points at it.</li><li>The identity dot is <code>aria-hidden=&quot;true&quot;</code> — the title already names the panel; the dot only colors it.</li><li>The progress hairline carries <code>role=&quot;progressbar&quot;</code> with <code>aria-valuemin</code>, <code>aria-valuemax</code>, <code>aria-valuenow</code>, and an <code>aria-label</code> that states the metric (&quot;3 of 7 milestones accepted&quot;). A 2px line is invisible to a screen reader without it.</li><li>Overflowed controls stay reachable: anything demoted to the overflow menu is still in the tab order once the menu opens.</li></ul>
 <h4>Known drift</h4>
@@ -27139,7 +27054,7 @@ document.addEventListener('keydown', (event) =&gt; {
         &lt;span class=&quot;ds-panel-header-identity&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
         &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Backlog&lt;/h2&gt;
         &lt;span class=&quot;ds-panel-header-count&quot;&gt;47&lt;/span&gt;
-        &lt;span class=&quot;ds-panel-header-scope&quot;&gt;This sprint&lt;/span&gt;
+        &lt;span class=&quot;ds-panel-header-scope&quot;&gt;This project&lt;/span&gt;
       &lt;/div&gt;
       &lt;div class=&quot;ds-panel-header-actions&quot;&gt;
         &lt;button type=&quot;button&quot; class=&quot;demo-ghost&quot;&gt;New item&lt;/button&gt;
@@ -27223,7 +27138,7 @@ document.addEventListener('keydown', (event) =&gt; {
         &lt;span class=&quot;ds-panel-header-identity&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
         &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Backlog&lt;/h2&gt;
         &lt;span class=&quot;ds-panel-header-count&quot;&gt;47&lt;/span&gt;
-        &lt;span class=&quot;ds-panel-header-scope&quot;&gt;This sprint&lt;/span&gt;
+        &lt;span class=&quot;ds-panel-header-scope&quot;&gt;This project&lt;/span&gt;
       &lt;/div&gt;
       &lt;div class=&quot;ds-panel-header-actions&quot;&gt;
         &lt;button type=&quot;button&quot; class=&quot;demo-ghost&quot;&gt;New item&lt;/button&gt;
@@ -27323,8 +27238,6 @@ ENOENT: no such file or directory</span>
         <ul class="ds-popover-scope-list">
           <li>workspace:read</li>
           <li>workspace:operate</li>
-          <li>sprint:read</li>
-          <li>sprint:operate</li>
           <li>backlog:read</li>
           <li>backlog:operate</li>
         </ul>
@@ -27397,8 +27310,6 @@ ENOENT: no such file or directory</span>
         <ul class="ds-popover-scope-list">
           <li>workspace:read</li>
           <li>workspace:operate</li>
-          <li>sprint:read</li>
-          <li>sprint:operate</li>
           <li>backlog:read</li>
           <li>backlog:operate</li>
         </ul>
@@ -27996,8 +27907,6 @@ ENOENT: no such file or directory&lt;/span&gt;
         &lt;ul class=&quot;ds-popover-scope-list&quot;&gt;
           &lt;li&gt;workspace:read&lt;/li&gt;
           &lt;li&gt;workspace:operate&lt;/li&gt;
-          &lt;li&gt;sprint:read&lt;/li&gt;
-          &lt;li&gt;sprint:operate&lt;/li&gt;
           &lt;li&gt;backlog:read&lt;/li&gt;
           &lt;li&gt;backlog:operate&lt;/li&gt;
         &lt;/ul&gt;
@@ -28070,8 +27979,6 @@ ENOENT: no such file or directory&lt;/span&gt;
         &lt;ul class=&quot;ds-popover-scope-list&quot;&gt;
           &lt;li&gt;workspace:read&lt;/li&gt;
           &lt;li&gt;workspace:operate&lt;/li&gt;
-          &lt;li&gt;sprint:read&lt;/li&gt;
-          &lt;li&gt;sprint:operate&lt;/li&gt;
           &lt;li&gt;backlog:read&lt;/li&gt;
           &lt;li&gt;backlog:operate&lt;/li&gt;
         &lt;/ul&gt;
@@ -29499,7 +29406,7 @@ window.addEventListener('resize', repositionAll)
     <button type="button" class="ds-row-button ds-row-button--dashed">New workspace</button>
     <button type="button" class="ds-row-button">studio · main</button>
     <button type="button" class="ds-row-button" aria-current="true">multicode · swap-kit</button>
-    <button type="button" class="ds-row-button ds-row-button--nav">Sprints</button>
+    <button type="button" class="ds-row-button ds-row-button--nav">Automations</button>
     <button type="button" class="ds-row-button" disabled>Archived worktree</button>
   </div>
   <div class="demo-panel" style="padding: 0">
@@ -29513,7 +29420,7 @@ window.addEventListener('resize', repositionAll)
     <button type="button" class="ds-row-button ds-row-button--dashed">New workspace</button>
     <button type="button" class="ds-row-button">studio · main</button>
     <button type="button" class="ds-row-button" aria-current="true">multicode · swap-kit</button>
-    <button type="button" class="ds-row-button ds-row-button--nav">Sprints</button>
+    <button type="button" class="ds-row-button ds-row-button--nav">Automations</button>
     <button type="button" class="ds-row-button" disabled>Archived worktree</button>
   </div>
   <div class="demo-panel" style="padding: 0">
@@ -29693,7 +29600,7 @@ window.addEventListener('resize', repositionAll)
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--dashed&quot;&gt;New workspace&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot;&gt;studio · main&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot; aria-current=&quot;true&quot;&gt;multicode · swap-kit&lt;/button&gt;
-    &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--nav&quot;&gt;Sprints&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--nav&quot;&gt;Automations&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot; disabled&gt;Archived worktree&lt;/button&gt;
   &lt;/div&gt;
   &lt;div class=&quot;demo-panel&quot; style=&quot;padding: 0&quot;&gt;
@@ -29707,7 +29614,7 @@ window.addEventListener('resize', repositionAll)
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--dashed&quot;&gt;New workspace&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot;&gt;studio · main&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot; aria-current=&quot;true&quot;&gt;multicode · swap-kit&lt;/button&gt;
-    &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--nav&quot;&gt;Sprints&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--nav&quot;&gt;Automations&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot; disabled&gt;Archived worktree&lt;/button&gt;
   &lt;/div&gt;
   &lt;div class=&quot;demo-panel&quot; style=&quot;padding: 0&quot;&gt;
@@ -29730,8 +29637,6 @@ window.addEventListener('resize', repositionAll)
     <ul class="ds-scope-pill-set" aria-labelledby="l-granted">
       <li class="ds-scope-pill">workspace:read</li>
       <li class="ds-scope-pill">workspace:operate</li>
-      <li class="ds-scope-pill">sprint:read</li>
-      <li class="ds-scope-pill">sprint:operate</li>
       <li class="ds-scope-pill">backlog:read</li>
       <li class="ds-scope-pill">backlog:operate</li>
     </ul>
@@ -29752,8 +29657,6 @@ window.addEventListener('resize', repositionAll)
     <ul class="ds-scope-pill-set" aria-labelledby="d-granted">
       <li class="ds-scope-pill">workspace:read</li>
       <li class="ds-scope-pill">workspace:operate</li>
-      <li class="ds-scope-pill">sprint:read</li>
-      <li class="ds-scope-pill">sprint:operate</li>
       <li class="ds-scope-pill">backlog:read</li>
       <li class="ds-scope-pill">backlog:operate</li>
     </ul>
@@ -29916,8 +29819,6 @@ window.addEventListener('resize', repositionAll)
     &lt;ul class=&quot;ds-scope-pill-set&quot; aria-labelledby=&quot;l-granted&quot;&gt;
       &lt;li class=&quot;ds-scope-pill&quot;&gt;workspace:read&lt;/li&gt;
       &lt;li class=&quot;ds-scope-pill&quot;&gt;workspace:operate&lt;/li&gt;
-      &lt;li class=&quot;ds-scope-pill&quot;&gt;sprint:read&lt;/li&gt;
-      &lt;li class=&quot;ds-scope-pill&quot;&gt;sprint:operate&lt;/li&gt;
       &lt;li class=&quot;ds-scope-pill&quot;&gt;backlog:read&lt;/li&gt;
       &lt;li class=&quot;ds-scope-pill&quot;&gt;backlog:operate&lt;/li&gt;
     &lt;/ul&gt;
@@ -29938,8 +29839,6 @@ window.addEventListener('resize', repositionAll)
     &lt;ul class=&quot;ds-scope-pill-set&quot; aria-labelledby=&quot;d-granted&quot;&gt;
       &lt;li class=&quot;ds-scope-pill&quot;&gt;workspace:read&lt;/li&gt;
       &lt;li class=&quot;ds-scope-pill&quot;&gt;workspace:operate&lt;/li&gt;
-      &lt;li class=&quot;ds-scope-pill&quot;&gt;sprint:read&lt;/li&gt;
-      &lt;li class=&quot;ds-scope-pill&quot;&gt;sprint:operate&lt;/li&gt;
       &lt;li class=&quot;ds-scope-pill&quot;&gt;backlog:read&lt;/li&gt;
       &lt;li class=&quot;ds-scope-pill&quot;&gt;backlog:operate&lt;/li&gt;
     &lt;/ul&gt;
@@ -29974,7 +29873,7 @@ window.addEventListener('resize', repositionAll)
         </div>
       </div>
       <div class="ds-section-body">
-        <p class="demo-line">sprint-41 <span>running</span></p>
+        <p class="demo-line">nightly-deploy <span>running</span></p>
         <p class="demo-line">docs-pass <span>queued</span></p>
         <p class="demo-line">lint-sweep <span>queued</span></p>
       </div>
@@ -30008,7 +29907,7 @@ window.addEventListener('resize', repositionAll)
         </div>
       </div>
       <div class="ds-section-body">
-        <p class="demo-line">sprint-41 <span>running</span></p>
+        <p class="demo-line">nightly-deploy <span>running</span></p>
         <p class="demo-line">docs-pass <span>queued</span></p>
         <p class="demo-line">lint-sweep <span>queued</span></p>
       </div>
@@ -30208,7 +30107,7 @@ window.addEventListener('resize', repositionAll)
         &lt;/div&gt;
       &lt;/div&gt;
       &lt;div class=&quot;ds-section-body&quot;&gt;
-        &lt;p class=&quot;demo-line&quot;&gt;sprint-41 &lt;span&gt;running&lt;/span&gt;&lt;/p&gt;
+        &lt;p class=&quot;demo-line&quot;&gt;nightly-deploy &lt;span&gt;running&lt;/span&gt;&lt;/p&gt;
         &lt;p class=&quot;demo-line&quot;&gt;docs-pass &lt;span&gt;queued&lt;/span&gt;&lt;/p&gt;
         &lt;p class=&quot;demo-line&quot;&gt;lint-sweep &lt;span&gt;queued&lt;/span&gt;&lt;/p&gt;
       &lt;/div&gt;
@@ -30242,7 +30141,7 @@ window.addEventListener('resize', repositionAll)
         &lt;/div&gt;
       &lt;/div&gt;
       &lt;div class=&quot;ds-section-body&quot;&gt;
-        &lt;p class=&quot;demo-line&quot;&gt;sprint-41 &lt;span&gt;running&lt;/span&gt;&lt;/p&gt;
+        &lt;p class=&quot;demo-line&quot;&gt;nightly-deploy &lt;span&gt;running&lt;/span&gt;&lt;/p&gt;
         &lt;p class=&quot;demo-line&quot;&gt;docs-pass &lt;span&gt;queued&lt;/span&gt;&lt;/p&gt;
         &lt;p class=&quot;demo-line&quot;&gt;lint-sweep &lt;span&gt;queued&lt;/span&gt;&lt;/p&gt;
       &lt;/div&gt;
@@ -31145,7 +31044,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
           <div class="ds-setting-row-text">
             <span class="ds-setting-row-label" id="l-publish">
               Publish agent activity
-              <span class="ds-setting-row-requirement">· Needs Sprint Engine</span>
+              <span class="ds-setting-row-requirement">· Needs the mobile relay</span>
             </span>
             <div class="ds-setting-row-help" id="l-publish-help">
               Send activity to mobile notifications without a paired device.
@@ -31297,7 +31196,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
           <div class="ds-setting-row-text">
             <span class="ds-setting-row-label" id="d-publish">
               Publish agent activity
-              <span class="ds-setting-row-requirement">· Needs Sprint Engine</span>
+              <span class="ds-setting-row-requirement">· Needs the mobile relay</span>
             </span>
             <div class="ds-setting-row-help" id="d-publish-help">
               Send activity to mobile notifications without a paired device.
@@ -31400,7 +31299,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <h4>Usage</h4>
 <ul><li><strong>One setting per row.</strong> Two switches on one row is two settings sharing one label, and the help line can only describe one of them.</li><li><strong>Help is one or two lines, and it says what the setting does</strong> — not what the control is. &quot;Settle a thread when its pull request merges&quot; earns its line; &quot;Toggle this on or off&quot; does not. A row whose help would only restate its label ships without help.</li><li><strong>The control stays sized to its content.</strong> A 240px input, an intrinsic select, a switch. A full-width control in the default variant is the <code>--stacked</code> variant asking to be used.</li><li><strong>Group by what a person would change together</strong>, and keep a card to a readable run — past roughly eight rows the card stops being a group and goes back to being a scroll, and the group wants splitting.</li><li><strong>A card is a group, so a card of one row is not a group.</strong> One row alone under its own label belongs in the neighbouring card, or the label goes and the row joins the page's first card.</li><li>Do not nest a card in a card. A setting that opens onto more settings is a row with a disclosure, or a page of its own.</li></ul>
 <h4>Accessibility</h4>
-<ul><li>The row is a <code>&lt;div&gt;</code> and takes no focus. The control is the only tab stop.</li><li>When one control owns the row, the label is a real <code>&lt;label&gt;</code> with <code>for</code> pointing at it, so the label text is clickable and is read as the control's name.</li><li>When the control cannot take a <code>for</code> (a switch rendered as a <code>&lt;button&gt;</code>, an action pair), point the control at the text instead: <code>aria-labelledby</code> on the label and <code>aria-describedby</code> on the help. Never both a <code>&lt;label for&gt;</code> and an <code>aria-labelledby</code> — that is two names for one control.</li><li>The requirement suffix is inside the labelled element, so &quot;Needs Sprint Engine&quot; is read as part of the control's name rather than being lost.</li><li>A disabled control uses the <code>disabled</code> attribute, or <code>aria-disabled=&quot;true&quot;</code> when it must stay focusable to explain why.</li><li>The card is a plain container with no role. When the rows are genuinely a list of like things the card may be a <code>&lt;ul&gt;</code> with <code>&lt;li&gt;</code> rows; a card of unrelated settings is not a list and must not claim to be one.</li><li>Help text is never the only place a constraint appears. A numeric field with a floor states it on the control (<code>min</code>), not only in prose.</li></ul>
+<ul><li>The row is a <code>&lt;div&gt;</code> and takes no focus. The control is the only tab stop.</li><li>When one control owns the row, the label is a real <code>&lt;label&gt;</code> with <code>for</code> pointing at it, so the label text is clickable and is read as the control's name.</li><li>When the control cannot take a <code>for</code> (a switch rendered as a <code>&lt;button&gt;</code>, an action pair), point the control at the text instead: <code>aria-labelledby</code> on the label and <code>aria-describedby</code> on the help. Never both a <code>&lt;label for&gt;</code> and an <code>aria-labelledby</code> — that is two names for one control.</li><li>The requirement suffix is inside the labelled element, so &quot;Needs the mobile relay&quot; is read as part of the control's name rather than being lost.</li><li>A disabled control uses the <code>disabled</code> attribute, or <code>aria-disabled=&quot;true&quot;</code> when it must stay focusable to explain why.</li><li>The card is a plain container with no role. When the rows are genuinely a list of like things the card may be a <code>&lt;ul&gt;</code> with <code>&lt;li&gt;</code> rows; a card of unrelated settings is not a list and must not claim to be one.</li><li>Help text is never the only place a constraint appears. A numeric field with a floor states it on the control (<code>min</code>), not only in prose.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/setting-row/component.css</summary><pre><code>/* Setting row — the state-a-value-and-change-it row of a settings surface.
@@ -31482,7 +31381,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   color: var(--sem-color-text-primary);
 }
 
-/* A muted suffix naming an unmet prerequisite — &quot;· Needs Sprint Engine&quot;. It
+/* A muted suffix naming an unmet prerequisite — &quot;· Needs the mobile relay&quot;. It
  * sits on the label line because it is a fact about the control, not about the
  * setting, and the help line below is already spoken for. */
 .ds-setting-row-requirement {
@@ -31654,7 +31553,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
           &lt;div class=&quot;ds-setting-row-text&quot;&gt;
             &lt;span class=&quot;ds-setting-row-label&quot; id=&quot;l-publish&quot;&gt;
               Publish agent activity
-              &lt;span class=&quot;ds-setting-row-requirement&quot;&gt;· Needs Sprint Engine&lt;/span&gt;
+              &lt;span class=&quot;ds-setting-row-requirement&quot;&gt;· Needs the mobile relay&lt;/span&gt;
             &lt;/span&gt;
             &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;l-publish-help&quot;&gt;
               Send activity to mobile notifications without a paired device.
@@ -31806,7 +31705,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
           &lt;div class=&quot;ds-setting-row-text&quot;&gt;
             &lt;span class=&quot;ds-setting-row-label&quot; id=&quot;d-publish&quot;&gt;
               Publish agent activity
-              &lt;span class=&quot;ds-setting-row-requirement&quot;&gt;· Needs Sprint Engine&lt;/span&gt;
+              &lt;span class=&quot;ds-setting-row-requirement&quot;&gt;· Needs the mobile relay&lt;/span&gt;
             &lt;/span&gt;
             &lt;div class=&quot;ds-setting-row-help&quot; id=&quot;d-publish-help&quot;&gt;
               Send activity to mobile notifications without a paired device.
@@ -31912,7 +31811,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
       <div class="demo-body">
         <div class="demo-row"><span class="demo-key">builder-2 — MC-2114</span><span class="demo-value">04:12</span></div>
         <div class="demo-row"><span class="demo-key">reviewer-1 — MC-2110</span><span class="demo-value">01:38</span></div>
-        <div class="demo-row"><span class="demo-key">planner — sprint-15</span><span class="demo-value">00:22</span></div>
+        <div class="demo-row"><span class="demo-key">planner — MC-2098</span><span class="demo-value">00:22</span></div>
       </div>
     </aside>
   </div>
@@ -32225,7 +32124,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
       &lt;div class=&quot;demo-body&quot;&gt;
         &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;builder-2 — MC-2114&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;04:12&lt;/span&gt;&lt;/div&gt;
         &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;reviewer-1 — MC-2110&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;01:38&lt;/span&gt;&lt;/div&gt;
-        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;planner — sprint-15&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;00:22&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;planner — MC-2098&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;00:22&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/aside&gt;
   &lt;/div&gt;
@@ -33123,7 +33022,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
         <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22" />
         <path d="M8 3a5 5 0 0 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
       </svg>
-      Running sprint-41
+      Running nightly-deploy
     </span>
     <span class="demo-subject">
       <svg class="ds-spinner ds-spinner--md" viewBox="0 0 16 16" fill="none" role="img" aria-label="Syncing sources" focusable="false">
@@ -33152,7 +33051,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
         <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22" />
         <path d="M8 3a5 5 0 0 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
       </svg>
-      Running sprint-41
+      Running nightly-deploy
     </span>
   </div>
   <div class="demo-panel">
@@ -33335,7 +33234,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
         &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-opacity=&quot;0.22&quot; /&gt;
         &lt;path d=&quot;M8 3a5 5 0 0 1 5 5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; /&gt;
       &lt;/svg&gt;
-      Running sprint-41
+      Running nightly-deploy
     &lt;/span&gt;
     &lt;span class=&quot;demo-subject&quot;&gt;
       &lt;svg class=&quot;ds-spinner ds-spinner--md&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; role=&quot;img&quot; aria-label=&quot;Syncing sources&quot; focusable=&quot;false&quot;&gt;
@@ -33364,7 +33263,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
         &lt;circle cx=&quot;8&quot; cy=&quot;8&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-opacity=&quot;0.22&quot; /&gt;
         &lt;path d=&quot;M8 3a5 5 0 0 1 5 5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; /&gt;
       &lt;/svg&gt;
-      Running sprint-41
+      Running nightly-deploy
     &lt;/span&gt;
   &lt;/div&gt;
   &lt;div class=&quot;demo-panel&quot;&gt;
@@ -33989,7 +33888,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
     </div>
     <div class="demo-row">
       <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
-      Sprint 14 run
+      nightly-deploy
       <span class="demo-row-state">Running</span>
     </div>
     <div class="demo-row">
@@ -34036,7 +33935,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
     </div>
     <div class="demo-row">
       <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
-      Sprint 14 run
+      nightly-deploy
       <span class="demo-row-state">Running</span>
     </div>
     <div class="demo-row">
@@ -34224,7 +34123,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
     &lt;/div&gt;
     &lt;div class=&quot;demo-row&quot;&gt;
       &lt;span class=&quot;ds-status-dot ds-status-dot--accent ds-status-dot--pulse&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
-      Sprint 14 run
+      nightly-deploy
       &lt;span class=&quot;demo-row-state&quot;&gt;Running&lt;/span&gt;
     &lt;/div&gt;
     &lt;div class=&quot;demo-row&quot;&gt;
@@ -34271,7 +34170,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
     &lt;/div&gt;
     &lt;div class=&quot;demo-row&quot;&gt;
       &lt;span class=&quot;ds-status-dot ds-status-dot--accent ds-status-dot--pulse&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
-      Sprint 14 run
+      nightly-deploy
       &lt;span class=&quot;demo-row-state&quot;&gt;Running&lt;/span&gt;
     &lt;/div&gt;
     &lt;div class=&quot;demo-row&quot;&gt;
@@ -34725,14 +34624,14 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
 </div>
 <div class="catalog-doc">
 <p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
-<p>The shared header/row/cell chrome for genuinely tabular data — columns of values compared across rows, where <code>list-row</code> (a pick-an-item list) is the wrong shape. Three bespoke implementations ship today: hand-rolled <code>&lt;table&gt;</code> markup in <code>panels/SprintEngineRunSummaryPanel.tsx</code> and <code>diagnostics/DiagnosticsContent.tsx</code>, plus a third div-grid variant in <code>workspace/newWorkspace/SprintEngineRosterTable.tsx</code>. This entry replaces all three with one contract: real <code>&lt;table&gt;</code> semantics, <code>font.size.meta</code> header row in <code>text.muted</code>, <code>border.subtle</code> row hairlines, mono tabular numerals for numeric cells, and no per-surface reinvention of alignment or padding.</p>
+<p>The shared header/row/cell chrome for genuinely tabular data — columns of values compared across rows, where <code>list-row</code> (a pick-an-item list) is the wrong shape. Three bespoke implementations ship today: hand-rolled <code>&lt;table&gt;</code> markup in <code>diagnostics/DiagnosticsContent.tsx</code> and in the markdown renderer's table block (<code>utils/markdown.tsx</code>), plus a third div-grid variant in <code>settings/ThirdPartyModuleList.tsx</code>. This entry replaces all three with one contract: real <code>&lt;table&gt;</code> semantics, <code>font.size.meta</code> header row in <code>text.muted</code>, <code>border.subtle</code> row hairlines, mono tabular numerals for numeric cells, and no per-surface reinvention of alignment or padding.</p>
 <h4>As shipped</h4>
 <p>Composed (<code>Table</code>, <code>Table.Head</code>, <code>Table.Cell</code>, <code>Table.Row</code>) rather than data-driven. The call sites need <code>&lt;colgroup&gt;</code> tracks, per-cell titles, spanning rows and conditional row paint; a <code>columns={[…]} rows={[…]}</code> API would have to grow an escape hatch for each, and the escape hatches are where the chrome would drift apart again. What is shared is the chrome — nothing about the data model.</p>
 <p>| Part | Contract | |---|---| | <code>Table</code> | <code>border-collapse</code>, <code>font.size.meta</code>; <code>fixed</code> takes widths from <code>colgroup</code> | | <code>Table.Head</code> | <code>scope=&quot;col&quot;</code>, <code>text.muted</code>, medium weight, <code>border.default</code> underline | | <code>Table.Cell</code> | <code>numeric</code> right-aligns and sets tabular figures | | <code>Table.Row</code> | <code>border.subtle</code> hairline |</p>
 <p><strong>Header cells are sticky by default.</strong> Every one of these tables sits in a scrollport, and a header that scrolls away turns the numbers beneath it into unlabelled figures. Sticky headers paint <code>bg.surface</code> and sit on <code>z.sticky</code> — without a ground, rows show through as they pass under.</p>
 <p><strong>Ruling — tabular figures in the UI face, not the mono family.</strong> The intent above said &quot;mono tabular numerals&quot;. The UI face already has tabular figures, and switching family mid-row is a louder change than the alignment it buys, in a row whose labels are UI-face.</p>
-<p><strong>Not migrated: <code>SprintEngineRosterTable</code>.</strong> Named in the intent above as a third variant, but it is a roster *editor* — rows of avatars, CLI pickers and per-role toggles. <code>&lt;table&gt;</code> semantics are wrong for configurable rows, and the rewrite would be large for no accessibility gain.</p>
-<p><strong><code>SprintEngineRunSummaryPanel</code> keeps its own header classes</strong> deliberately: it is a dense comparison matrix whose labels carry full words, wrap to two lines and bottom-align above their numbers. Sharing the table chrome does not mean every table wears one header.</p>
+<p><strong>Not migrated: <code>ThirdPartyModuleList</code>.</strong> Named in the intent above as a third variant, but it is a module *editor* — rows of tiles, capability chips and per-module toggles. <code>&lt;table&gt;</code> semantics are wrong for configurable rows, and the rewrite would be large for no accessibility gain.</p>
+<p><strong><code>DiagnosticsContent</code> keeps one local cell rule</strong> deliberately: every cell is <code>whitespace-nowrap</code>, because a wrapped PID or byte count destroys the column scan those tables exist for. Sharing the table chrome does not mean a surface gives up the one thing that is genuinely local to it.</p>
 </div>
 </div>
 <details class="catalog-source"><summary>components/table/component.css</summary><pre><code>/* Table — the shared header/row/cell chrome for genuinely tabular data:
@@ -35634,7 +35533,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
   <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
     <span class="ds-task-card-dot ds-task-card-dot--good" aria-hidden="true"></span>
     <span class="ds-task-card-id">MC-1450</span>
-    <span class="ds-task-card-title">Roster model honored across projections</span>
+    <span class="ds-task-card-title">Module registry honored across surfaces</span>
   </button>
   <button type="button" class="ds-task-card">
     <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
@@ -35659,7 +35558,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
   <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
     <span class="ds-task-card-dot ds-task-card-dot--good" aria-hidden="true"></span>
     <span class="ds-task-card-id">MC-1450</span>
-    <span class="ds-task-card-title">Roster model honored across projections</span>
+    <span class="ds-task-card-title">Module registry honored across surfaces</span>
   </button>
   <button type="button" class="ds-task-card">
     <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
@@ -35833,7 +35732,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
   &lt;button type=&quot;button&quot; class=&quot;ds-task-card ds-task-card--selected&quot; aria-pressed=&quot;true&quot;&gt;
     &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--good&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
     &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1450&lt;/span&gt;
-    &lt;span class=&quot;ds-task-card-title&quot;&gt;Roster model honored across projections&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Module registry honored across surfaces&lt;/span&gt;
   &lt;/button&gt;
   &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
     &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--warn&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
@@ -35858,7 +35757,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
   &lt;button type=&quot;button&quot; class=&quot;ds-task-card ds-task-card--selected&quot; aria-pressed=&quot;true&quot;&gt;
     &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--good&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
     &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1450&lt;/span&gt;
-    &lt;span class=&quot;ds-task-card-title&quot;&gt;Roster model honored across projections&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Module registry honored across surfaces&lt;/span&gt;
   &lt;/button&gt;
   &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
     &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--warn&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
@@ -35907,8 +35806,8 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
     <div class="ds-toast ds-toast--good" role="status" aria-live="polite">
       <span class="ds-toast-dot" aria-hidden="true"></span>
       <div class="ds-toast-content">
-        <div class="ds-toast-title">Sprint archived</div>
-        <div class="ds-toast-description">Its board left the rail; the run branch stays.</div>
+        <div class="ds-toast-title">Automation archived</div>
+        <div class="ds-toast-description">It left the Automations rail; its run history stays.</div>
       </div>
       <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -35949,7 +35848,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
     <div class="ds-toast ds-toast--danger" role="alert" aria-live="assertive">
       <span class="ds-toast-dot" aria-hidden="true"></span>
       <div class="ds-toast-content">
-        <div class="ds-toast-title">Sprint failed to start</div>
+        <div class="ds-toast-title">Automation failed to start</div>
         <div class="ds-toast-description">The run branch could not be created.</div>
       </div>
       <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
@@ -35971,8 +35870,8 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
     <div class="ds-toast ds-toast--good" role="status" aria-live="polite">
       <span class="ds-toast-dot" aria-hidden="true"></span>
       <div class="ds-toast-content">
-        <div class="ds-toast-title">Sprint archived</div>
-        <div class="ds-toast-description">Its board left the rail; the run branch stays.</div>
+        <div class="ds-toast-title">Automation archived</div>
+        <div class="ds-toast-description">It left the Automations rail; its run history stays.</div>
       </div>
       <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -35996,7 +35895,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
     <div class="ds-toast ds-toast--danger" role="alert" aria-live="assertive">
       <span class="ds-toast-dot" aria-hidden="true"></span>
       <div class="ds-toast-content">
-        <div class="ds-toast-title">Sprint failed to start</div>
+        <div class="ds-toast-title">Automation failed to start</div>
         <div class="ds-toast-description">The run branch could not be created.</div>
       </div>
       <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
@@ -36035,7 +35934,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
 <p><strong>One region, one corner.</strong> All toasts stack in a single <code>.ds-toast-region</code> — bottom-trailing, newest at the bottom, <code>space.sm</code> apart. Two corners announcing at once is two voices; route every producer through the one region.</p>
 <p>The region is shipped as <strong><code>ToastRegion</code></strong> (<code>src/renderer/src/components/ui/ToastRegion.tsx</code>) — mounted once per document, reading the toast store every producer writes to, and rendering nothing at all when the store is empty. Three properties are the component rather than the consumer's business, and a rebuild keeps all three:</p>
 <ul><li><strong>It draws nothing.</strong> No surface, no ground, no border, no elevation. The card is the glass; the region is a <code>role=&quot;presentation&quot;</code> stack.</li><li><strong>It swallows no clicks.</strong> The stack is <code>pointer-events: none</code> and each toast surface reclaims its own, so an empty or animating region never blocks the pane under that corner — a fixed transparent box over the app is a dead zone nobody can see.</li><li><strong>It is fixed width.</strong> Every card is the same measure (340px) regardless of its content, so a stack of three reads as one column rather than as a ragged edge.</li></ul>
-<p><strong>Report the result, not the inventory.</strong> &quot;Sprint archived&quot; — not the branch, the commit count, and the layout the archiver chose. The description line is for the one fact the person cannot see from where they are (where a file was written, which workspace adopted the change).</p>
+<p><strong>Report the result, not the inventory.</strong> &quot;Automation archived&quot; — not the branch, the commit count, and the layout the archiver chose. The description line is for the one fact the person cannot see from where they are (where a file was written, which workspace adopted the change).</p>
 <p><strong>A toast is not the state.</strong> Whatever it announces must also be readable somewhere persistent — the row's status, the detail pane. A person who missed the toast lost nothing they cannot find.</p>
 <p><strong>The dismiss affordance is optional on polite tones, mandatory on persistent ones.</strong> A toast that never auto-dismisses without a dismiss button is a squatter.</p>
 <p><strong>Rebuilding it in a framework:</strong> what must survive is the tone table — the role/live/persistence mapping is the component's actual contract — plus the single region, the hit-target floor on the dismiss button, and the glass staying the toast's alone.</p>
@@ -36331,8 +36230,8 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
     &lt;div class=&quot;ds-toast ds-toast--good&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;
       &lt;span class=&quot;ds-toast-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;div class=&quot;ds-toast-content&quot;&gt;
-        &lt;div class=&quot;ds-toast-title&quot;&gt;Sprint archived&lt;/div&gt;
-        &lt;div class=&quot;ds-toast-description&quot;&gt;Its board left the rail; the run branch stays.&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-title&quot;&gt;Automation archived&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-description&quot;&gt;It left the Automations rail; its run history stays.&lt;/div&gt;
       &lt;/div&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
         &lt;svg width=&quot;10&quot; height=&quot;10&quot; viewBox=&quot;0 0 10 10&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2 2L8 8M8 2L2 8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
@@ -36373,7 +36272,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
     &lt;div class=&quot;ds-toast ds-toast--danger&quot; role=&quot;alert&quot; aria-live=&quot;assertive&quot;&gt;
       &lt;span class=&quot;ds-toast-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;div class=&quot;ds-toast-content&quot;&gt;
-        &lt;div class=&quot;ds-toast-title&quot;&gt;Sprint failed to start&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-title&quot;&gt;Automation failed to start&lt;/div&gt;
         &lt;div class=&quot;ds-toast-description&quot;&gt;The run branch could not be created.&lt;/div&gt;
       &lt;/div&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
@@ -36395,8 +36294,8 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
     &lt;div class=&quot;ds-toast ds-toast--good&quot; role=&quot;status&quot; aria-live=&quot;polite&quot;&gt;
       &lt;span class=&quot;ds-toast-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;div class=&quot;ds-toast-content&quot;&gt;
-        &lt;div class=&quot;ds-toast-title&quot;&gt;Sprint archived&lt;/div&gt;
-        &lt;div class=&quot;ds-toast-description&quot;&gt;Its board left the rail; the run branch stays.&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-title&quot;&gt;Automation archived&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-description&quot;&gt;It left the Automations rail; its run history stays.&lt;/div&gt;
       &lt;/div&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
         &lt;svg width=&quot;10&quot; height=&quot;10&quot; viewBox=&quot;0 0 10 10&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2 2L8 8M8 2L2 8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
@@ -36420,7 +36319,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
     &lt;div class=&quot;ds-toast ds-toast--danger&quot; role=&quot;alert&quot; aria-live=&quot;assertive&quot;&gt;
       &lt;span class=&quot;ds-toast-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;div class=&quot;ds-toast-content&quot;&gt;
-        &lt;div class=&quot;ds-toast-title&quot;&gt;Sprint failed to start&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-title&quot;&gt;Automation failed to start&lt;/div&gt;
         &lt;div class=&quot;ds-toast-description&quot;&gt;The run branch could not be created.&lt;/div&gt;
       &lt;/div&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
@@ -36451,14 +36350,14 @@ const TONES = {
     role: 'status',
     live: 'polite',
     persist: false,
-    title: 'Sprint archived',
-    description: 'Its board left the rail; the run branch stays.',
+    title: 'Automation archived',
+    description: 'It left the Automations rail; its run history stays.',
   },
   danger: {
     role: 'alert',
     live: 'assertive',
     persist: true,
-    title: 'Sprint failed to start',
+    title: 'Automation failed to start',
     description: 'The run branch could not be created.',
   },
 }
@@ -38087,8 +37986,8 @@ measureAll()
         </aside>
         <div class="ds-workspace-panel-scroll">
           <div class="ds-workspace-panel-measure">
-            <h3 class="demo-heading">Sprint Engine</h3>
-            <p class="demo-copy">Plans, claims and publishes work across a run. Contributes the Sprints door and its rail.</p>
+            <h3 class="demo-heading">Backlog</h3>
+            <p class="demo-copy">Reads, triages and hands out work items. Contributes the Backlog panel and its scan.</p>
             <h3 class="demo-heading">Automations</h3>
             <p class="demo-copy">Scheduled and triggered runs. Contributes the rail's standing tool.</p>
           </div>
@@ -38344,8 +38243,8 @@ measureAll()
         &lt;/aside&gt;
         &lt;div class=&quot;ds-workspace-panel-scroll&quot;&gt;
           &lt;div class=&quot;ds-workspace-panel-measure&quot;&gt;
-            &lt;h3 class=&quot;demo-heading&quot;&gt;Sprint Engine&lt;/h3&gt;
-            &lt;p class=&quot;demo-copy&quot;&gt;Plans, claims and publishes work across a run. Contributes the Sprints door and its rail.&lt;/p&gt;
+            &lt;h3 class=&quot;demo-heading&quot;&gt;Backlog&lt;/h3&gt;
+            &lt;p class=&quot;demo-copy&quot;&gt;Reads, triages and hands out work items. Contributes the Backlog panel and its scan.&lt;/p&gt;
             &lt;h3 class=&quot;demo-heading&quot;&gt;Automations&lt;/h3&gt;
             &lt;p class=&quot;demo-copy&quot;&gt;Scheduled and triggered runs. Contributes the rail's standing tool.&lt;/p&gt;
           &lt;/div&gt;
@@ -38388,7 +38287,7 @@ measureAll()
               <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M4.8 11a3.2 3.2 0 0 1 6.4 0M2 11h12M8 5.4V3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
               </svg>
-              Sprints
+              Automations
             </label>
             <div class="cr-group">Projects</div>
             <div class="cr-group-rows">
@@ -38404,10 +38303,10 @@ measureAll()
                  given a column of its own. -->
             <div class="cr-group">Runs</div>
             <div class="cr-group-rows cr-group-rows--outer">
-              <button type="button" class="cr-row cr-row--selected" aria-current="true">sprint-1932</button>
-              <button type="button" class="cr-row">sprint-1940</button>
+              <button type="button" class="cr-row cr-row--selected" aria-current="true">nightly-deploy</button>
+              <button type="button" class="cr-row">backlog-scan</button>
             </div>
-            <div class="cr-group">Plan</div>
+            <div class="cr-group">Items</div>
             <div class="cr-group-rows">
               <button type="button" class="cr-row">Type + icon ramp<span class="cr-row-count">9</span></button>
               <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers<span class="cr-row-count">4</span></button>
@@ -38426,18 +38325,18 @@ measureAll()
             <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </label>
-        <span class="cr-bar-title">Sprints</span>
+        <span class="cr-bar-title">Automations</span>
       </div>
       <div class="cr-canvas">
         <h3>Model pickers</h3>
-        <div class="cr-field"><span>Run</span><span>sprint-1932</span></div>
+        <div class="cr-field"><span>Run</span><span>nightly-deploy</span></div>
         <div class="cr-field"><span>Track</span><span>Delivery</span></div>
         <div class="cr-field"><span>Depends on</span><span>Type + icon ramp</span></div>
       </div>
     </div>
   </div>
   <p class="pat-caption">
-    Click <strong>Sprints</strong>, then <strong>Back</strong>. The rail is
+    Click <strong>Automations</strong>, then <strong>Back</strong>. The rail is
     replaced in place and slides in from its leading edge; the brand row above it
     does not move, and the canvas keeps the whole of the rest of the window.
   </p>
@@ -38455,12 +38354,12 @@ measureAll()
     <div class="cr-column">
       <div class="cr-nested-tag">door rail</div>
       <div class="cr-scroll">
-        <button type="button" class="cr-row cr-row--resting" aria-current="true">sprint-1932</button>
-        <button type="button" class="cr-row">sprint-1940</button>
+        <button type="button" class="cr-row cr-row--resting" aria-current="true">nightly-deploy</button>
+        <button type="button" class="cr-row">backlog-scan</button>
       </div>
     </div>
     <div class="cr-column">
-      <div class="cr-nested-tag">plan column</div>
+      <div class="cr-nested-tag">items column</div>
       <div class="cr-scroll">
         <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers</button>
         <button type="button" class="cr-row">Provider rows</button>
@@ -38553,14 +38452,14 @@ measureAll()
       whose rows carry a context line (where the thing lives, with a clock at
       the trailing edge), a title, and a line of marks and chips under it is
       wearing the <em>app sidebar's</em> row, not this pattern's two-line row —
-      the run doors do, so a sprint reads like the chat beside it. Its title
+      the Automations door does, so a run reads like the chat beside it. Its title
       lands on the sidebar's flat-stream edge (16px: 4px scrollport + 12px row
       padding) at <code>font.size.heading</code>, with no leading icon slot;
       the lifecycle mark moves down onto the detail line. It also hovers on
       <code>--bg-surface-raised</code> rather than <code>--bg-hover</code> and
       wears the sidebar's inset selection ring — the sidebar row's own fills.
       Those three are the one sanctioned departure from the column above, and
-      they exist so that drilling from the sidebar into a run door re-flows
+      they exist so that drilling from the sidebar into the Automations door re-flows
       nothing: the row you left and the row you arrive at are the same row.</li>
   </ul>
   <p class="pat-caption">
@@ -38576,7 +38475,7 @@ measureAll()
     <li>The rail keeps <strong>one focused selection</strong>, at
       <code>bg.selected</code>: the thing the canvas is showing.</li>
     <li>A group carrying <strong>outer context</strong> — which project, which
-      run, which board — rests at <code>bg.selected-resting</code>
+      run, which item — rests at <code>bg.selected-resting</code>
       <em>permanently</em>, whether or not the rail holds focus. It answers
       "where am I?", and it must not compete with "what am I looking at?".</li>
     <li>Mark the group, never infer it from position: which group is the outer one
@@ -38606,10 +38505,10 @@ measureAll()
         <div class="cr-scroll">
           <div class="cr-group">Runs</div>
           <div class="cr-group-rows cr-group-rows--outer">
-            <button type="button" class="cr-row cr-row--selected" aria-current="true">sprint-1932</button>
-            <button type="button" class="cr-row">sprint-1940</button>
+            <button type="button" class="cr-row cr-row--selected" aria-current="true">nightly-deploy</button>
+            <button type="button" class="cr-row">backlog-scan</button>
           </div>
-          <div class="cr-group">Plan</div>
+          <div class="cr-group">Items</div>
           <div class="cr-group-rows">
             <button type="button" class="cr-row">Type + icon ramp<span class="cr-row-count">9</span></button>
             <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers<span class="cr-row-count">4</span></button>
@@ -38625,11 +38524,11 @@ measureAll()
             <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
-        <span class="cr-bar-title">Sprints</span>
+        <span class="cr-bar-title">Automations</span>
       </div>
       <div class="cr-canvas">
         <h3>Model pickers</h3>
-        <div class="cr-field"><span>Run</span><span>sprint-1932</span></div>
+        <div class="cr-field"><span>Run</span><span>nightly-deploy</span></div>
         <div class="cr-field"><span>Track</span><span>Delivery</span></div>
       </div>
     </div>
@@ -38990,7 +38889,7 @@ measureAll()
               &lt;svg class=&quot;cr-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
                 &lt;path d=&quot;M4.8 11a3.2 3.2 0 0 1 6.4 0M2 11h12M8 5.4V3.9&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
               &lt;/svg&gt;
-              Sprints
+              Automations
             &lt;/label&gt;
             &lt;div class=&quot;cr-group&quot;&gt;Projects&lt;/div&gt;
             &lt;div class=&quot;cr-group-rows&quot;&gt;
@@ -39006,10 +38905,10 @@ measureAll()
                  given a column of its own. --&gt;
             &lt;div class=&quot;cr-group&quot;&gt;Runs&lt;/div&gt;
             &lt;div class=&quot;cr-group-rows cr-group-rows--outer&quot;&gt;
-              &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;sprint-1932&lt;/button&gt;
-              &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;sprint-1940&lt;/button&gt;
+              &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;nightly-deploy&lt;/button&gt;
+              &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;backlog-scan&lt;/button&gt;
             &lt;/div&gt;
-            &lt;div class=&quot;cr-group&quot;&gt;Plan&lt;/div&gt;
+            &lt;div class=&quot;cr-group&quot;&gt;Items&lt;/div&gt;
             &lt;div class=&quot;cr-group-rows&quot;&gt;
               &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Type + icon ramp&lt;span class=&quot;cr-row-count&quot;&gt;9&lt;/span&gt;&lt;/button&gt;
               &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Model pickers&lt;span class=&quot;cr-row-count&quot;&gt;4&lt;/span&gt;&lt;/button&gt;
@@ -39028,18 +38927,18 @@ measureAll()
             &lt;path d=&quot;M10 3.5 5.5 8l4.5 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
           &lt;/svg&gt;
         &lt;/label&gt;
-        &lt;span class=&quot;cr-bar-title&quot;&gt;Sprints&lt;/span&gt;
+        &lt;span class=&quot;cr-bar-title&quot;&gt;Automations&lt;/span&gt;
       &lt;/div&gt;
       &lt;div class=&quot;cr-canvas&quot;&gt;
         &lt;h3&gt;Model pickers&lt;/h3&gt;
-        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Run&lt;/span&gt;&lt;span&gt;sprint-1932&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Run&lt;/span&gt;&lt;span&gt;nightly-deploy&lt;/span&gt;&lt;/div&gt;
         &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Track&lt;/span&gt;&lt;span&gt;Delivery&lt;/span&gt;&lt;/div&gt;
         &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Depends on&lt;/span&gt;&lt;span&gt;Type + icon ramp&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
   &lt;p class=&quot;pat-caption&quot;&gt;
-    Click &lt;strong&gt;Sprints&lt;/strong&gt;, then &lt;strong&gt;Back&lt;/strong&gt;. The rail is
+    Click &lt;strong&gt;Automations&lt;/strong&gt;, then &lt;strong&gt;Back&lt;/strong&gt;. The rail is
     replaced in place and slides in from its leading edge; the brand row above it
     does not move, and the canvas keeps the whole of the rest of the window.
   &lt;/p&gt;
@@ -39057,12 +38956,12 @@ measureAll()
     &lt;div class=&quot;cr-column&quot;&gt;
       &lt;div class=&quot;cr-nested-tag&quot;&gt;door rail&lt;/div&gt;
       &lt;div class=&quot;cr-scroll&quot;&gt;
-        &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--resting&quot; aria-current=&quot;true&quot;&gt;sprint-1932&lt;/button&gt;
-        &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;sprint-1940&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--resting&quot; aria-current=&quot;true&quot;&gt;nightly-deploy&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;backlog-scan&lt;/button&gt;
       &lt;/div&gt;
     &lt;/div&gt;
     &lt;div class=&quot;cr-column&quot;&gt;
-      &lt;div class=&quot;cr-nested-tag&quot;&gt;plan column&lt;/div&gt;
+      &lt;div class=&quot;cr-nested-tag&quot;&gt;items column&lt;/div&gt;
       &lt;div class=&quot;cr-scroll&quot;&gt;
         &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Model pickers&lt;/button&gt;
         &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Provider rows&lt;/button&gt;
@@ -39155,14 +39054,14 @@ measureAll()
       whose rows carry a context line (where the thing lives, with a clock at
       the trailing edge), a title, and a line of marks and chips under it is
       wearing the &lt;em&gt;app sidebar's&lt;/em&gt; row, not this pattern's two-line row —
-      the run doors do, so a sprint reads like the chat beside it. Its title
+      the Automations door does, so a run reads like the chat beside it. Its title
       lands on the sidebar's flat-stream edge (16px: 4px scrollport + 12px row
       padding) at &lt;code&gt;font.size.heading&lt;/code&gt;, with no leading icon slot;
       the lifecycle mark moves down onto the detail line. It also hovers on
       &lt;code&gt;--bg-surface-raised&lt;/code&gt; rather than &lt;code&gt;--bg-hover&lt;/code&gt; and
       wears the sidebar's inset selection ring — the sidebar row's own fills.
       Those three are the one sanctioned departure from the column above, and
-      they exist so that drilling from the sidebar into a run door re-flows
+      they exist so that drilling from the sidebar into the Automations door re-flows
       nothing: the row you left and the row you arrive at are the same row.&lt;/li&gt;
   &lt;/ul&gt;
   &lt;p class=&quot;pat-caption&quot;&gt;
@@ -39178,7 +39077,7 @@ measureAll()
     &lt;li&gt;The rail keeps &lt;strong&gt;one focused selection&lt;/strong&gt;, at
       &lt;code&gt;bg.selected&lt;/code&gt;: the thing the canvas is showing.&lt;/li&gt;
     &lt;li&gt;A group carrying &lt;strong&gt;outer context&lt;/strong&gt; — which project, which
-      run, which board — rests at &lt;code&gt;bg.selected-resting&lt;/code&gt;
+      run, which item — rests at &lt;code&gt;bg.selected-resting&lt;/code&gt;
       &lt;em&gt;permanently&lt;/em&gt;, whether or not the rail holds focus. It answers
       &quot;where am I?&quot;, and it must not compete with &quot;what am I looking at?&quot;.&lt;/li&gt;
     &lt;li&gt;Mark the group, never infer it from position: which group is the outer one
@@ -39208,10 +39107,10 @@ measureAll()
         &lt;div class=&quot;cr-scroll&quot;&gt;
           &lt;div class=&quot;cr-group&quot;&gt;Runs&lt;/div&gt;
           &lt;div class=&quot;cr-group-rows cr-group-rows--outer&quot;&gt;
-            &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;sprint-1932&lt;/button&gt;
-            &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;sprint-1940&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;nightly-deploy&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;backlog-scan&lt;/button&gt;
           &lt;/div&gt;
-          &lt;div class=&quot;cr-group&quot;&gt;Plan&lt;/div&gt;
+          &lt;div class=&quot;cr-group&quot;&gt;Items&lt;/div&gt;
           &lt;div class=&quot;cr-group-rows&quot;&gt;
             &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Type + icon ramp&lt;span class=&quot;cr-row-count&quot;&gt;9&lt;/span&gt;&lt;/button&gt;
             &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Model pickers&lt;span class=&quot;cr-row-count&quot;&gt;4&lt;/span&gt;&lt;/button&gt;
@@ -39227,11 +39126,11 @@ measureAll()
             &lt;path d=&quot;M10 3.5 5.5 8l4.5 4.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.5&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; /&gt;
           &lt;/svg&gt;
         &lt;/button&gt;
-        &lt;span class=&quot;cr-bar-title&quot;&gt;Sprints&lt;/span&gt;
+        &lt;span class=&quot;cr-bar-title&quot;&gt;Automations&lt;/span&gt;
       &lt;/div&gt;
       &lt;div class=&quot;cr-canvas&quot;&gt;
         &lt;h3&gt;Model pickers&lt;/h3&gt;
-        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Run&lt;/span&gt;&lt;span&gt;sprint-1932&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Run&lt;/span&gt;&lt;span&gt;nightly-deploy&lt;/span&gt;&lt;/div&gt;
         &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Track&lt;/span&gt;&lt;span&gt;Delivery&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
@@ -39272,7 +39171,7 @@ measureAll()
       <div class="rail">
         <div class="rail-head">
           <button type="button" class="rail-new">
-            <span aria-hidden="true">+</span> New sprint
+            <span aria-hidden="true">+</span> New automation
           </button>
           <div class="rail-find">
             <span class="rail-search">
@@ -39280,7 +39179,7 @@ measureAll()
                 <circle cx="7" cy="7" r="4.25" stroke="currentColor" stroke-width="1.4" />
                 <path d="M10.2 10.2 13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
               </svg>
-              Search sprints…
+              Search automations…
             </span>
             <button type="button" class="rail-glyph" data-active="true" aria-label="Filter and sort — filters active">
               <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
@@ -39317,7 +39216,7 @@ measureAll()
       <div class="rail rail--wrong">
         <div class="rail-head">
           <button type="button" class="rail-new">
-            <span aria-hidden="true">+</span> New sprint
+            <span aria-hidden="true">+</span> New automation
           </button>
           <span class="rail-scope">All projects · 49 <span aria-hidden="true">⌄</span></span>
           <div class="rail-find">
@@ -39326,7 +39225,7 @@ measureAll()
                 <circle cx="7" cy="7" r="4.25" stroke="currentColor" stroke-width="1.4" />
                 <path d="M10.2 10.2 13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
               </svg>
-              Search sprints…
+              Search automations…
             </span>
             <button type="button" class="rail-glyph" aria-label="Filter and sort">
               <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
@@ -39620,7 +39519,7 @@ measureAll()
       &lt;div class=&quot;rail&quot;&gt;
         &lt;div class=&quot;rail-head&quot;&gt;
           &lt;button type=&quot;button&quot; class=&quot;rail-new&quot;&gt;
-            &lt;span aria-hidden=&quot;true&quot;&gt;+&lt;/span&gt; New sprint
+            &lt;span aria-hidden=&quot;true&quot;&gt;+&lt;/span&gt; New automation
           &lt;/button&gt;
           &lt;div class=&quot;rail-find&quot;&gt;
             &lt;span class=&quot;rail-search&quot;&gt;
@@ -39628,7 +39527,7 @@ measureAll()
                 &lt;circle cx=&quot;7&quot; cy=&quot;7&quot; r=&quot;4.25&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; /&gt;
                 &lt;path d=&quot;M10.2 10.2 13.5 13.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
               &lt;/svg&gt;
-              Search sprints…
+              Search automations…
             &lt;/span&gt;
             &lt;button type=&quot;button&quot; class=&quot;rail-glyph&quot; data-active=&quot;true&quot; aria-label=&quot;Filter and sort — filters active&quot;&gt;
               &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;14&quot; height=&quot;14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
@@ -39665,7 +39564,7 @@ measureAll()
       &lt;div class=&quot;rail rail--wrong&quot;&gt;
         &lt;div class=&quot;rail-head&quot;&gt;
           &lt;button type=&quot;button&quot; class=&quot;rail-new&quot;&gt;
-            &lt;span aria-hidden=&quot;true&quot;&gt;+&lt;/span&gt; New sprint
+            &lt;span aria-hidden=&quot;true&quot;&gt;+&lt;/span&gt; New automation
           &lt;/button&gt;
           &lt;span class=&quot;rail-scope&quot;&gt;All projects · 49 &lt;span aria-hidden=&quot;true&quot;&gt;⌄&lt;/span&gt;&lt;/span&gt;
           &lt;div class=&quot;rail-find&quot;&gt;
@@ -39674,7 +39573,7 @@ measureAll()
                 &lt;circle cx=&quot;7&quot; cy=&quot;7&quot; r=&quot;4.25&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; /&gt;
                 &lt;path d=&quot;M10.2 10.2 13.5 13.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
               &lt;/svg&gt;
-              Search sprints…
+              Search automations…
             &lt;/span&gt;
             &lt;button type=&quot;button&quot; class=&quot;rail-glyph&quot; aria-label=&quot;Filter and sort&quot;&gt;
               &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;14&quot; height=&quot;14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;

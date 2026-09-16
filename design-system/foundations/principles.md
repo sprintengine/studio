@@ -454,8 +454,8 @@ for a second band means asking which band the new control belongs in, not where
 to put the new band.
 
 **The door surface** — a full-page surface that takes over the content region
-(Sprints, Workflows, Design, Reviews, Automations, Extensions) — has an anatomy
-too, and it has exactly one band of chrome:
+(Automations, Design, Plugins, Skills, Agent CLIs, the Extensions home) — has
+an anatomy too, and it has exactly one band of chrome:
 
 1. **The app's top strip is the door's title bar.** The door's name and its
    controls ride the strip that is already there. A door that draws its own
@@ -515,7 +515,7 @@ them is a door.
    it, is a place, and places are doors.
 
 **A heading must separate something from something else.** Do not label an
-ungrouped list ("Rosters" over a field that already reads "Search rosters…"),
+ungrouped list ("Skills" over a field that already reads "Search skills…"),
 and do not render a group heading when there is only one group — "Recent"
 spanning every row groups nothing. Headings appear when there are at least two
 groups to tell apart; the list's accessible name carries the label otherwise.
@@ -546,21 +546,20 @@ walks. Its anatomy:
    rail because it is what the product DOES, not something added to it; it is
    the module's own registered surface, gated on the module's enablement, so a
    turned-off module's glyph is simply absent. Plugins does not: it is one of
-   the six product things under Extensions, and a glyph of its own said it stood
+   the four product things under Extensions, and a glyph of its own said it stood
    beside them.
 4. **Extensions opens its home, and the sidebar becomes the drawer.** The
-   drawer starts with six product rows in a fixed order — Workflows, Sprints,
-   Design, Plugins, Skills, Agent CLIs — and installed module doors follow in
-   stable registry order, all with the same `SidebarNavButton` chrome. Registry
-   `order` never moves the six product rows; an installed door contributes its
+   drawer starts with four product rows in a fixed order — Design, Plugins,
+   Skills, Agent CLIs — and installed module doors follow in stable registry
+   order, all with the same `SidebarNavButton` chrome. Registry
+   `order` never moves the four product rows; an installed door contributes its
    name, glyph and behaviour, then takes the next available place. The drawer
    STAYS PUT while the card region swaps, which is what makes it the navigation
    rather than a menu:
    a door that is one of its rows renders its own rail beside its canvas
-   instead of taking the column. Only Sprints, which has its own list of runs,
-   replaces it for the length of its visit — and Automations, which is not a
-   drawer row at all, because the automations it lists ARE the navigation while
-   it is open.
+   instead of taking the column. Only Automations replaces it for the length of
+   its visit — and it is not a drawer row at all, because the automations it
+   lists ARE the navigation while it is open.
    **Add extension leads the drawer.** It is the dashed add-row used by the
    other door rails, opening the native folder chooser for an installable module
    directory. Selection runs through the same validation, copying, signature,
@@ -601,9 +600,9 @@ walks. Its anatomy:
    finished while you were away) other than the one on screen; Automations
    counts scheduled runs that ended while its door was closed; Extensions
    counts unread news from anything under it, cards published since its home
-   was last open, and sprints waiting on an answer. The tone is the loudest
-   thing counted — danger, then warn, then good or the accent. A thing still
-   waiting on the person stays counted. Never a toast: a glass card for every
+   was last open, and an installed door's items waiting on an answer. The tone
+   is the loudest thing counted — danger, then warn, then good or the accent. A
+   thing still waiting on the person stays counted. Never a toast: a glass card for every
    chat that finished would be over the top, and the count is what says "come
    back here" without interrupting.
 9. **Each product drawer row wears its own count, and the square is their sum**

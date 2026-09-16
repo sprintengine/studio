@@ -1,5 +1,5 @@
 import { applyDebugDirective } from '../shared/debug-directive'
-import type { AgentCli, CliRuntimeSettings, ColorScheme, SprintEngineCliPermissionPreset } from '../shared/electron-api'
+import type { AgentCli, CliRuntimeSettings, ColorScheme, CliPermissionPreset } from '../shared/electron-api'
 import type { LoadedPlugin, PluginRenderContext } from '../shared/plugin-manifest'
 import { resolveSkillInvocation } from '../shared/skill-invocation'
 
@@ -66,7 +66,7 @@ export type AgentLaunchRenderInput = {
   workspaceRoot?: string
   initialPrompt?: string
   cliRuntime?: CliRuntimeSettings
-  cliPermissionPreset?: SprintEngineCliPermissionPreset
+  cliPermissionPreset?: CliPermissionPreset
   cliModel?: string
   // Selected reasoning-effort level. Consumed only by manifests declaring
   // reasoningSelection (today: Codex and Claude Code); rendered as
@@ -287,7 +287,7 @@ export function renderAgentLaunchPreview(
 // the shell's own "command not found", matching AGENT_CLI_NOT_FOUND_EXIT.
 const AGENT_BINARY_NOT_FOUND_EXIT = 127
 
-// Builds the shell snippet emitted by the Sprint Engine / manual terminal
+// Builds the shell snippet emitted by the manual terminal
 // launch path: a `command -v` guard followed by the actual agent invocation.
 // Pulled here so it can be unit-tested without touching the Electron-dependent
 // `terminal-launch.ts` module.

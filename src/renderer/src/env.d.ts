@@ -92,7 +92,7 @@ import type {
   SessionUser as SharedSessionUser,
   SoulPromptResult as SharedSoulPromptResult,
   SpecialistActionId as SharedSpecialistActionId,
-  SprintEngineCliPermissionPreset as SharedSprintEngineCliPermissionPreset,
+  CliPermissionPreset as SharedCliPermissionPreset,
   SessionActivity as SharedSessionActivity,
   AgentPhase as SharedAgentPhase,
   AgentState as SharedAgentState,
@@ -145,7 +145,7 @@ declare global {
   type AppUpdateProgress = SharedAppUpdateProgress
   type AppUpdateState = SharedAppUpdateState
   type AppUpdateCheckResult = SharedAppUpdateCheckResult
-  type SprintEngineCliPermissionPreset = SharedSprintEngineCliPermissionPreset
+  type CliPermissionPreset = SharedCliPermissionPreset
   type CliRuntimeSettings = SharedCliRuntimeSettings
   type SessionActivity = SharedSessionActivity
   type AgentPhase = SharedAgentPhase

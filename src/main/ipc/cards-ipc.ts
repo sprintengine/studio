@@ -34,7 +34,7 @@ import type {
   CardRunInput,
   CardRunResult,
   McpServerConfig,
-  SprintEngineCliPermissionPreset,
+  CliPermissionPreset,
 } from '../../shared/electron-api'
 import { parseCardAction, type CardAction } from '../../shared/hosted-card-feed'
 import { normalizeMcpServerConfig } from '../../shared/mcp/normalize-server'
@@ -208,10 +208,10 @@ function parseRequest(raw: unknown): ParsedRequest {
 }
 
 /** The four presets this build knows, listed so an unknown one cannot ride in. */
-const PERMISSION_PRESETS: readonly SprintEngineCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
+const PERMISSION_PRESETS: readonly CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
 
-function isPermissionPreset(value: unknown): value is SprintEngineCliPermissionPreset {
-  return typeof value === 'string' && PERMISSION_PRESETS.includes(value as SprintEngineCliPermissionPreset)
+function isPermissionPreset(value: unknown): value is CliPermissionPreset {
+  return typeof value === 'string' && PERMISSION_PRESETS.includes(value as CliPermissionPreset)
 }
 
 /** A non-empty string, or null. Null is "the app's own default", never "no model". */

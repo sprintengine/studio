@@ -112,24 +112,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Not incidental: `test:main:sprintengine-artifacts` refuses to mock the
-      # Sprint Engine store and spawns real Python against `sprintengine_core`,
-      # which exits with "PyYAML is required" without it. It prefers the
-      # repo-local `.venv` and falls back to system `python3` -- and a runner's
-      # system python3 has no PyYAML, so the chain needs this venv to pass.
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: requirements.txt
-
-      - name: Create repo-local venv
-        run: |
-          python -m venv .venv
-          .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install -r requirements.txt
-
       - name: Verify app (lint + JS test suite)
         run: npm run verify:app
 
@@ -138,42 +120,3 @@ jobs:
       # release time is a release that cannot ship.
       - name: Validate marketplace registry and plugin signatures
         run: npm run verify:marketplace-registry
-
-  # The Python suite runs in its own job: it needs no Node toolchain, so it
-  # starts without waiting on `npm ci`, and it runs on Linux only -- the suite has
-  # only ever been measured on POSIX. Its own checkout also keeps pytest's
-  # bytecode caches away from the marketplace payloads the JS job digest-verifies.
-  python-tests:
-    name: Python tests (ubuntu-latest)
-    if: ${{ inputs.release_gate || github.event_name == 'workflow_dispatch' || github.event.repository.private == false }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          # Matches the CPython the app bundles (PYTHON_VERSION in
-          # scripts/fetch-runtimes.mjs), so CI exercises the interpreter users
-          # actually get.
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
-
-      - name: Create repo-local venv
-        run: |
-          python -m venv .venv
-          .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
-
-      # Scoped to tests/ deliberately -- see pytest.ini for why a bare `pytest`
-      # at the repo root cannot be used here.
-      - name: Pytest
-        run: .venv/bin/python -m pytest tests/

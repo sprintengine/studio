@@ -180,7 +180,6 @@ function applyDeclaredConnectionMetadata(
     agentId,
     agentName: text('agentName'),
     cliId: text('cliId'),
-    sprintRunId: text('sprintRunId'),
   }
   if (established.kind !== 'remote-tailnet') return declared
   return {

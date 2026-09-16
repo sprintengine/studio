@@ -34,7 +34,7 @@ import {
 import { ConnectorSectionHeading } from '../../../../panels/ConnectorsPanel/ConnectorRow'
 import { GlobalSurfaceShell } from '../../GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../../surfaceBackNav'
-import { ADD_LOCAL_SKILL_SOURCE_LABEL } from '../../../../../../../shared/workflow-roles'
+import { ADD_LOCAL_SKILL_SOURCE_LABEL } from '../../../../../../../shared/skills'
 import {
   CATALOGUE_PAGE_SIZE,
   deriveCataloguePage,

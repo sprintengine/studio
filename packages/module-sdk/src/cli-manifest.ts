@@ -210,10 +210,6 @@ export type CliSkillIntegration = {
   invocation?: CliSkillInvocation
 }
 
-export type CliSoulsSpec = {
-  directory: string
-}
-
 /**
  * Authoritative agent-state integration: how the CLI's lifecycle hooks are
  * registered and how its native event names map to the studio's shared agent
@@ -325,7 +321,6 @@ export type CliPluginManifest = {
   completion: CliCompletionSpec
   mcpConfig?: CliMcpConfigSpec
   capabilities: CliCapabilities
-  souls?: CliSoulsSpec
   modelSelection?: CliModelSelectionSpec
   reasoningSelection?: CliReasoningSelectionSpec
   themeSelection?: CliThemeSelectionSpec
@@ -426,7 +421,6 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   if (value.mcpConfig !== undefined) validateMcpConfig(value.mcpConfig, issues)
   validateCapabilities(value.capabilities, issues)
   if (value.variables !== undefined) validateVariables(value.variables, issues)
-  if (value.souls !== undefined) validateSouls(value.souls, issues)
   if (value.modelSelection !== undefined) validateModelSelection(value.modelSelection, issues)
   if (value.reasoningSelection !== undefined) validateReasoningSelection(value.reasoningSelection, issues)
   if (value.themeSelection !== undefined) validateThemeSelection(value.themeSelection, issues)
@@ -974,16 +968,6 @@ function validateAuth(value: unknown, issues: CliManifestIssue[]): void {
   }
   requireString(value, 'label', issues, undefined, 'auth')
   if (value.env !== undefined) requireString(value, 'env', issues, undefined, 'auth')
-}
-
-function validateSouls(value: unknown, issues: CliManifestIssue[]): void {
-  if (!isObject(value)) {
-    issues.push({ path: 'souls', message: 'souls must be an object when present.' })
-    return
-  }
-  if (typeof value.directory !== 'string' || value.directory.length === 0) {
-    issues.push({ path: 'souls.directory', message: 'souls.directory must be a non-empty string.' })
-  }
 }
 
 function validateSkillIntegration(value: unknown, issues: CliManifestIssue[]): void {

@@ -1,9 +1,9 @@
 // Single source of truth for resolving the runtimes the studio's own features
 // run on:
 //
-//   * Python  — used by Sprint Engine and souls. We
+//   * Python  — the host interpreter for any feature that runs Python. We
 //     ship a self-contained CPython (python-build-standalone) under
-//     `resources/runtime/python` so these features work with no user Python.
+//     `resources/runtime/python` so those features work with no user Python.
 //   * Node    — used to run our own JS tooling and to install agent CLIs
 //     (Codex via npm). We reuse the Node runtime that Electron already embeds
 //     (`process.execPath` + ELECTRON_RUN_AS_NODE) rather than bundling a second
@@ -134,8 +134,8 @@ export type RuntimeLogger = { log: (msg: string) => void; warn: (msg: string) =>
  * `override`). A `venv`/`system` result there means `runtimes:fetch` never ran
  * or the payload is missing from the build, so the app is silently leaning on a
  * user's system `python3` — possibly the wrong version, possibly absent. That
- * degrades Sprint Engine / souls at runtime instead of
- * failing the build, so we surface it in the logs rather than let it pass quietly.
+ * degrades any Python-backed feature at runtime instead of failing the build, so
+ * we surface it in the logs rather than let it pass quietly.
  */
 export function reportManagedPythonResolution(
   resolved: ResolvedPython,
@@ -284,7 +284,7 @@ export function ensureManagedRuntimeShims(env: RuntimeEnv = currentRuntimeEnv())
 
   // Never let shim-writing failures (read-only home, AV lock, quota) bubble:
   // this runs on the terminal-launch hot path, mirroring the try/catch in the
-  // Sprint Engine shim writers.
+  // shim writers.
   try {
     const node = managedNodeBinary(env)
     const shimDir = getManagedRuntimeShimDir(env.platform)

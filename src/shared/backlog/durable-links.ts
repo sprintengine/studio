@@ -2,64 +2,79 @@
 // scalars so the item's own markdown file carries them — committed, diffable,
 // and carried along by a `git mv`.
 //
-// Links used to live entirely in `.sprintengine/backlog/items.json`, a single
+// Links used to live entirely in a single sidecar `items.json`, a single
 // tracked file every agent and branch wrote to. Two problems came with that: the
 // file was a permanent merge-conflict surface, and most of what it held was not
 // durable at all. A link mixes two kinds of fact:
 //
-//   durable   which sprint run, which pull request — a human's decision, changes
-//             rarely, belongs in the file beside the item it describes
-//   volatile  whether that run is still going, whether that PR is still open,
-//             which agent terminal currently has the item — re-derived from the
-//             world every few minutes and worthless after a restart
+//   durable   which pull request — a human's decision, changes rarely, belongs
+//             in the file beside the item it describes
+//   volatile  whether that PR is still open, which agent terminal currently has
+//             the item — re-derived from the world every few minutes and
+//             worthless after a restart
 //
 // Only the durable half lives here. The volatile half belongs in the gitignored
 // cache (see src/main/backlog-link-cache.ts), which is why writing a resolved
 // status can no longer dirty a tracked file.
 //
-// Everything else about a link is reconstructed: labels are constants, the run
-// path follows the sprintengine layout, and the PR target repeats its URL. That
-// is the whole reason a link fits in a scalar — the sidecar was storing derived
-// data as if it were input.
+// Everything else about a link is reconstructed: labels are constants and the PR
+// target repeats its URL. That is the whole reason a link fits in a scalar — the
+// sidecar was storing derived data as if it were input.
 //
 // Pure and shared by both processes, like frontmatter.ts and item-id.ts: no
 // renderer-only or main-only imports.
 import type { BacklogHighlight, BacklogItemLink } from './scan'
 import { isBacklogHighlightColor } from './scan'
-import {
-  buildSprintEnginePullRequestLink,
-  buildSprintEngineRunLink,
-  SPRINT_ENGINE_MODULE_ID,
-  SPRINT_ENGINE_PR_TARGET_KIND,
-  SPRINT_ENGINE_RUN_TARGET_KIND,
-} from './sprintengine-links'
-import { knownSidecarDirName, sidecarRelativePath } from '../workspace-sidecar'
 
-// Frontmatter keys this module owns. `pr` and `sprints` follow the existing
-// comma-separated scalar convention (`dependsOn`, `mockups`) rather than
-// inventing a nested shape the flat parser cannot round-trip.
-export const DURABLE_LINK_FIELDS = ['sprints', 'pr'] as const
+// Frontmatter keys this module owns. `pr` follows the existing comma-separated
+// scalar convention (`dependsOn`, `mockups`) rather than inventing a nested
+// shape the flat parser cannot round-trip.
+export const DURABLE_LINK_FIELDS = ['pr'] as const
 
-// The sprintengine run layout. One definition so the derivation here and the
-// runtime that owns those directories cannot drift. The sidecar name comes from
-// the project the frontmatter was read out of; without one, the current name —
-// which is what a project with no run store yet would get anyway.
-export function sprintRunPath(slug: string, folderPath = ''): string {
-  return sidecarRelativePath(knownSidecarDirName(folderPath), 'sprintengine', slug, 'run.yaml')
+/** The Backlog itself owns the durable link, so it survives any module. */
+export const BACKLOG_LINK_MODULE_ID = 'backlog'
+export const BACKLOG_PR_TARGET_KIND = 'backlog.pullRequest'
+// Fixed id so the PR link is idempotent per item: re-recording a pull request
+// replaces the link rather than accumulating stale ones. A sibling project's
+// link is suffixed with its repo id, so each one replaces only itself.
+const BACKLOG_PR_LINK_ID = 'backlog:pull-request'
+
+// Structural shape of the built link; assignable to both the renderer's
+// BacklogItemLink and the main-process BacklogItemLinkPayload.
+export type BacklogPullRequestLink = {
+  id: string
+  moduleId: string
+  type: 'external'
+  label: string
+  target: { kind: string; id: string; url: string }
+  status: 'active'
+  updatedAt: string
 }
 
-// `<slug>` or `<slug>#<taskId>` — the task suffix is present only for an epic
-// child owned by one task inside the run (MC-2017), which is why it is optional
-// rather than a second field.
-function parseSprintEntry(entry: string): { slug: string; taskId?: string } | null {
-  const trimmed = entry.trim()
-  if (!trimmed) return null
-  const hash = trimmed.indexOf('#')
-  if (hash < 0) return { slug: trimmed }
-  const slug = trimmed.slice(0, hash).trim()
-  const taskId = trimmed.slice(hash + 1).trim()
-  if (!slug) return null
-  return taskId ? { slug, taskId } : { slug }
+function pullRequestLinkId(repoId?: string): string {
+  const id = (repoId ?? '').trim()
+  return !id || id === 'primary' ? BACKLOG_PR_LINK_ID : `${BACKLOG_PR_LINK_ID}:${id}`
+}
+
+// `external` is lifecycle-neutral, so attaching it never moves the item's
+// status. `repoLabel` names the project in the link the person clicks, and is
+// passed only when more than one project is in play.
+export function buildBacklogPullRequestLink(input: {
+  pullRequestUrl: string
+  updatedAt: string
+  repoId?: string
+  repoLabel?: string
+}): BacklogPullRequestLink {
+  const repoLabel = input.repoLabel?.trim()
+  return {
+    id: pullRequestLinkId(input.repoId),
+    moduleId: BACKLOG_LINK_MODULE_ID,
+    type: 'external',
+    label: repoLabel ? `Pull request (${repoLabel})` : 'Pull request',
+    target: { kind: BACKLOG_PR_TARGET_KIND, id: input.pullRequestUrl, url: input.pullRequestUrl },
+    status: 'active',
+    updatedAt: input.updatedAt,
+  }
 }
 
 function splitScalarList(value: string | undefined): string[] {
@@ -76,33 +91,17 @@ function splitScalarList(value: string | undefined): string[] {
 // what it is before anything resolves it.
 export function durableBacklogLinksFromFrontmatter(
   fields: Readonly<Record<string, string>>,
-  // The project the frontmatter was read out of, so a `sprints:` slug resolves
-  // to the run store that project actually has. Optional because two callers
-  // read links for an item they only know by path; those get the current
-  // sidecar name, which is what a project with no run store yet would get.
-  folderPath = '',
 ): BacklogItemLink[] {
   const links: BacklogItemLink[] = []
-
-  for (const entry of splitScalarList(fields.sprints)) {
-    const parsed = parseSprintEntry(entry)
-    if (!parsed) continue
-    // Built by the canonical builder, not re-specified here, so the label, id
-    // scheme and target shape cannot drift from the ones a live run writes.
-    // `status`/`priorStatus` are stripped: both are volatile, and persisting a
-    // status to a tracked file is the churn this migration exists to end.
-    const { status: _status, priorStatus: _priorStatus, ...link } = buildSprintEngineRunLink({
-      teamSlug: parsed.slug,
-      runRelativePath: sprintRunPath(parsed.slug, folderPath),
-      ...(parsed.taskId ? { taskId: parsed.taskId } : {}),
-    })
-    links.push(link)
-  }
 
   for (const entry of splitScalarList(fields.pr)) {
     const parsed = parsePrEntry(entry)
     if (!parsed) continue
-    const { status: _status, updatedAt: _updatedAt, ...link } = buildSprintEnginePullRequestLink({
+    // Built by the canonical builder, not re-specified here, so the label, id
+    // scheme and target shape cannot drift. `status`/`updatedAt` are stripped:
+    // both are volatile, and persisting one to a tracked file is the churn this
+    // split exists to end.
+    const { status: _status, updatedAt: _updatedAt, ...link } = buildBacklogPullRequestLink({
       pullRequestUrl: parsed.url,
       updatedAt: '',
       ...(parsed.repoId ? { repoId: parsed.repoId, repoLabel: parsed.repoId } : {}),
@@ -118,11 +117,7 @@ export function durableBacklogLinksFromFrontmatter(
 // link is the counterexample: its target is a live terminal id that means
 // nothing after a restart.
 export function isDurableBacklogLink(link: BacklogItemLink): boolean {
-  if (link.moduleId !== SPRINT_ENGINE_MODULE_ID) return false
-  return (
-    link.target.kind === SPRINT_ENGINE_RUN_TARGET_KIND
-    || link.target.kind === SPRINT_ENGINE_PR_TARGET_KIND
-  )
+  return link.moduleId === BACKLOG_LINK_MODULE_ID && link.target.kind === BACKLOG_PR_TARGET_KIND
 }
 
 // The inverse: the frontmatter scalars that reproduce these links. Returns a
@@ -132,30 +127,21 @@ export function isDurableBacklogLink(link: BacklogItemLink): boolean {
 export function durableBacklogLinkFields(
   links: readonly BacklogItemLink[],
 ): Record<(typeof DURABLE_LINK_FIELDS)[number], string | null> {
-  const sprints: string[] = []
   const prs: string[] = []
 
   for (const link of links) {
     if (!isDurableBacklogLink(link)) continue
-    if (link.target.kind === SPRINT_ENGINE_RUN_TARGET_KIND) {
-      const slug = link.target.id.trim()
-      if (!slug) continue
-      const entry = link.target.taskId ? `${slug}#${link.target.taskId}` : slug
-      if (!sprints.includes(entry)) sprints.push(entry)
-      continue
-    }
     const url = (link.target.url ?? link.target.id).trim()
     if (!url) continue
     // A sibling project's PR carries its repo id so the link keeps its own id on
-    // the way back (`sprint-engine:pull-request:<repoId>`); the primary's stays
-    // the bare url it has always been.
+    // the way back (`backlog:pull-request:<repoId>`); the primary's stays the
+    // bare url it has always been.
     const repoId = repoIdFromPullRequestLinkId(link.id)
     const entry = repoId ? `${repoId}=${url}` : url
     if (!prs.includes(entry)) prs.push(entry)
   }
 
   return {
-    sprints: sprints.length > 0 ? sprints.join(',') : null,
     pr: prs.length > 0 ? prs.join(',') : null,
   }
 }
@@ -173,8 +159,8 @@ function parsePrEntry(entry: string): { url: string; repoId?: string } | null {
   return repoId ? { url, repoId } : { url }
 }
 
-// The inverse of sprintEnginePullRequestLinkId: the repo id a sibling link is
-// suffixed with, or null for the primary's bare id.
+// The inverse of pullRequestLinkId: the repo id a sibling link is suffixed
+// with, or null for the primary's bare id.
 function repoIdFromPullRequestLinkId(linkId: string): string | null {
   const parts = linkId.split(':')
   return parts.length > 2 ? parts.slice(2).join(':') : null

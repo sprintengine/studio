@@ -43,8 +43,8 @@ this is the quiet general one.
 
 The three dialects the audit found are one row now. Module absence (workspace
 and door), the aux windows' bare centred mono text, the review canvas's
-hand-rolled resting states, the Sprint board's detail empties and its task
-graph's "waiting for the plan" canvas all render this component; the settings
+hand-rolled resting states, the Backlog panel's detail empties and the memory
+graph's "nothing indexed yet" canvas all render this component; the settings
 and connectors lists that used to say "nothing here" inside a left-barred div
 render it at `list` density.
 

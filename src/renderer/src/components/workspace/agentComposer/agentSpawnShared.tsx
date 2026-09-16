@@ -6,7 +6,7 @@ import { ChipButton } from '../../ui/ChipButton'
 import { DefaultChip } from '../../ui/DefaultChip'
 import { MenuOption } from '../../ui/MenuOption'
 import { LockGlyph, PresetDialGlyph, SparkGlyph, UnlockedGlyph } from '../../AppIcons'
-import type { SprintEngineCliPermissionPreset } from '../../../types/workspace'
+import type { CliPermissionPreset } from '../../../types/workspace'
 
 // Shared, presentation-only pieces of the agent spawn surfaces (the compact
 // SpawnPicker and the AgentComposer panel). Kept in one hookless module so every
@@ -15,7 +15,7 @@ import type { SprintEngineCliPermissionPreset } from '../../../types/workspace'
 // Permission preset chips shown in the picker footer. Exported because the top
 // bar's split-button trigger tooltip names the active preset.
 export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
-  value: SprintEngineCliPermissionPreset
+  value: CliPermissionPreset
   label: string
   /** One line for a menu row's meta — the row has 280px, not a paragraph. */
   summary: string
@@ -51,7 +51,7 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
 // Chip-width labels for the preset row. Exhaustive over the union so a preset
 // added later fails the build here rather than rendering a blank chip. Exported
 // because the model picker's permission footer wears the same short label.
-export const PRESET_CHIP_LABEL: Record<SprintEngineCliPermissionPreset, string> = {
+export const PRESET_CHIP_LABEL: Record<CliPermissionPreset, string> = {
   none: 'None',
   manual: 'Manual',
   auto: 'Auto',
@@ -71,8 +71,8 @@ export function PermissionPresetChips({
   onChange,
   disabled = false,
 }: {
-  value: SprintEngineCliPermissionPreset
-  onChange: (preset: SprintEngineCliPermissionPreset) => void
+  value: CliPermissionPreset
+  onChange: (preset: CliPermissionPreset) => void
   disabled?: boolean
 }) {
   return (
@@ -106,7 +106,7 @@ export function PermissionPresetChips({
 // AppIcons: quiet dial for the CLI's own default, a closed lock for Manual, a
 // spark for Auto, an open lock for Bypass. All-or-nothing per the menu spec's
 // leading-slot rule — every row carries one.
-function PresetGlyph({ preset }: { preset: SprintEngineCliPermissionPreset }) {
+function PresetGlyph({ preset }: { preset: CliPermissionPreset }) {
   const className = 'icon-xs shrink-0'
   if (preset === 'manual') return <LockGlyph className={className} />
   if (preset === 'auto') return <SparkGlyph className={className} />
@@ -125,12 +125,12 @@ function PresetGlyph({ preset }: { preset: SprintEngineCliPermissionPreset }) {
  * chose, so neither is offered for a remote target; a value the gateway would
  * refuse must never be learned about after a network round-trip.
  */
-export const REMOTE_PERMISSION_PRESETS: ReadonlySet<SprintEngineCliPermissionPreset> = new Set(['manual', 'auto'])
+export const REMOTE_PERMISSION_PRESETS: ReadonlySet<CliPermissionPreset> = new Set(['manual', 'auto'])
 
 const REMOTE_PRESET_UNAVAILABLE_REASON = 'Not available on a remote machine'
 
 /** The row reasons a remote target disables, keyed by preset. */
-export const REMOTE_PRESET_DISABLED_REASONS: Partial<Record<SprintEngineCliPermissionPreset, string>> = {
+export const REMOTE_PRESET_DISABLED_REASONS: Partial<Record<CliPermissionPreset, string>> = {
   none: REMOTE_PRESET_UNAVAILABLE_REASON,
   bypass: REMOTE_PRESET_UNAVAILABLE_REASON,
 }
@@ -143,8 +143,8 @@ export const REMOTE_PRESET_DISABLED_REASONS: Partial<Record<SprintEngineCliPermi
  * the surface can honestly offer.
  */
 export function nearestRemotePermissionPreset(
-  preset: SprintEngineCliPermissionPreset,
-): SprintEngineCliPermissionPreset {
+  preset: CliPermissionPreset,
+): CliPermissionPreset {
   if (REMOTE_PERMISSION_PRESETS.has(preset)) return preset
   return preset === 'bypass' ? 'auto' : 'manual'
 }
@@ -240,12 +240,12 @@ export function PermissionPresetMenuRows({
   disabledReasons,
   onSelect,
 }: {
-  value: SprintEngineCliPermissionPreset
+  value: CliPermissionPreset
   /** Locks the rows while a live change is in flight. */
   disabled?: boolean
   /** Rows a target cannot take, each with the one-line reason it shows. */
-  disabledReasons?: Partial<Record<SprintEngineCliPermissionPreset, string>>
-  onSelect: (preset: SprintEngineCliPermissionPreset) => void
+  disabledReasons?: Partial<Record<CliPermissionPreset, string>>
+  onSelect: (preset: CliPermissionPreset) => void
 }) {
   return (
     <>

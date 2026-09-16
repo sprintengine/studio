@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **`ActionContext.spawnAgent` loses `specialistId`.** The app no longer has a
+  concept of a specialist or a role, so there is nothing for the field to name
+  and the host ignored it. This is a **breaking type change** for an automation
+  action provider that sets it: the property no longer exists, so the compile
+  fails rather than the value being dropped silently. Delete the assignment —
+  put whatever the specialist was for into `prompt`, or install the skill you
+  want and attach it through the Agent Sessions service instead.
+
+  The module id `sprint-engine` stays in `BUNDLED_MODULE_IDS`. It is reserved,
+  not bundled: the Sprint Engine ships as an out-of-tree module that installs
+  under that id, and the reservation is what stops anything else claiming the
+  name.
+
 - **A workspace type can hide its workspaces from the rail.**
   `WorkspaceTypeDefinition.hiddenFromRail` withholds workspaces of that type
   from the Projects list, keyboard switch targets, and command-palette
@@ -95,9 +108,9 @@
   `run-skill-loop`) and stays open to module-namespaced kinds.
 
 - **`RendererHost.invoke` routes to any module that declares `ipc:invoke`.**
-  The main-side dispatcher used to refuse bundled owners. The Sprint Engine
-  module is the first in-tree consumer of the published bridge, so that
-  restriction is dropped: prefix + permission remain the gate. No type change.
+  The main-side dispatcher used to refuse bundled owners, which left a module
+  built here unable to use the bridge it publishes. That restriction is
+  dropped: prefix + permission remain the gate. No type change.
 
 - **Backlog item actions render in menus, not as header buttons.**
   `BacklogItemAction.order` positions an action within the row's right-click

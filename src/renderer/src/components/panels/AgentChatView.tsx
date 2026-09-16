@@ -28,7 +28,7 @@ import {
   MAX_ATTACHMENT_BYTES as SHARED_MAX_ATTACHMENT_BYTES,
 } from '../../../../shared/conversation-attachments'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
-import type { SprintEngineCliPermissionPreset } from '../../types/workspace'
+import type { CliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { AGENT_SPAWN_PERMISSION_OPTIONS, focusActivePresetRow, PermissionPresetMenuRows } from '../workspace/agentComposer/agentSpawnShared'
 import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
@@ -1279,8 +1279,8 @@ export function isConversationModelLocked(
 // scale, never the loose one.
 export function resolvePermissionPreset(
   session: Pick<ConversationSessionSummary, 'permissionPreset'> | null,
-  agentPreset: SprintEngineCliPermissionPreset | undefined,
-): SprintEngineCliPermissionPreset {
+  agentPreset: CliPermissionPreset | undefined,
+): CliPermissionPreset {
   return session?.permissionPreset ?? agentPreset ?? 'manual'
 }
 
@@ -1679,7 +1679,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const [permissionChanging, setPermissionChanging] = useState(false)
   const [permissionNotice, setPermissionNotice] = useState<string | null>(null)
   const changePermissionPreset = useCallback(
-    async (next: SprintEngineCliPermissionPreset) => {
+    async (next: CliPermissionPreset) => {
       if (next === permissionPreset || permissionChanging) return
       setActionError(null)
       setPermissionNotice(null)
@@ -2652,7 +2652,7 @@ export function filterModelGroups(groups: ModelGroup[], query: string, activeFil
 // it. The spawn picker's own labels ("Default permissions") name the setting;
 // the pill has to name the BEHAVIOR, because at rest it is the answer to "will
 // this agent stop and ask me before it acts?".
-export function permissionPresetLabel(preset: SprintEngineCliPermissionPreset): string {
+export function permissionPresetLabel(preset: CliPermissionPreset): string {
   // `none` cannot claim "asks before tools": it sends no flag, so the answer is
   // whatever the CLI does — auto mode on Claude Code 2.1.228+ with a Pro, Max or
   // Team plan. Naming the behaviour is the whole job of this pill, and the one
@@ -2685,7 +2685,7 @@ export function PermissionPresetPill({
   onOpenChange,
   onChange,
 }: {
-  preset: SprintEngineCliPermissionPreset
+  preset: CliPermissionPreset
   // Whether a session is running: only then is this a live mutation.
   live: boolean
   // A change is in flight. The pick closes the popover, but the user can reopen
@@ -2694,7 +2694,7 @@ export function PermissionPresetPill({
   changing: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
-  onChange: (preset: SprintEngineCliPermissionPreset) => void
+  onChange: (preset: CliPermissionPreset) => void
 }) {
   const asks = preset === 'manual'
   // The surface portals to <body>, so Tab from the trigger would never reach the

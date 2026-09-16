@@ -33,10 +33,7 @@
 //
 // There is no uninstall of THIS plugin. It is built in: the catalogue offers
 // no Remove for it, and a workspace that has had its skills deleted by hand
-// gets them back the next time it is opened. `workflow-roles` is not this
-// plugin. It is a marketplace entry like any other — the catalogue offers
-// Install and Remove, and a workspace that has never installed it stays
-// without it (owner ruling 2026-09-07).
+// gets them back the next time it is opened.
 
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
@@ -84,15 +81,6 @@ export const STUDIO_MARKETPLACE_RESOURCE_DIR = 'studio-plugin'
  * provenance markers, on the same paths.
  */
 export const STUDIO_SKILLS_PLUGIN_ID = 'studio-skills'
-
-/**
- * The sixteen Sprint Engine workflow roles. Published from the releases
- * repository as an ordinary marketplace plugin: installable, removable, never
- * force-installed (owner ruling 2026-09-07). Listed beside this plugin in the
- * marketplace; copied only when someone presses Install, and not restored on
- * the next workspace open.
- */
-export const WORKFLOW_ROLES_PLUGIN_ID = 'workflow-roles'
 
 /** The marketplace that lists it. */
 const STUDIO_PLUGIN_MARKETPLACE_NAME = 'sprintengine-studio'
@@ -315,16 +303,13 @@ export async function readStudioPluginTemplate(
   }
 }
 
-/** Skill directory names a capability module owns; the plugin template no longer installs them. */
-const MODULE_OWNED_STUDIO_PLUGIN_SKILLS = new Set(['studio-sprints'])
-
 /** The skill directory names the template ships, in listing order. */
 export async function listStudioPluginSkillDirs(template: StudioPluginTemplate): Promise<string[]> {
   const skillsRoot = join(template.pluginDir, 'skills')
   const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => null)
   if (entries === null) return []
   return entries
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && !MODULE_OWNED_STUDIO_PLUGIN_SKILLS.has(entry.name))
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
     .map((entry) => entry.name)
     .sort()
 }

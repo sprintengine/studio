@@ -352,7 +352,7 @@
               <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M4.8 11a3.2 3.2 0 0 1 6.4 0M2 11h12M8 5.4V3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
               </svg>
-              Sprints
+              Automations
             </label>
             <div class="cr-group">Projects</div>
             <div class="cr-group-rows">
@@ -368,10 +368,10 @@
                  given a column of its own. -->
             <div class="cr-group">Runs</div>
             <div class="cr-group-rows cr-group-rows--outer">
-              <button type="button" class="cr-row cr-row--selected" aria-current="true">sprint-1932</button>
-              <button type="button" class="cr-row">sprint-1940</button>
+              <button type="button" class="cr-row cr-row--selected" aria-current="true">nightly-deploy</button>
+              <button type="button" class="cr-row">backlog-scan</button>
             </div>
-            <div class="cr-group">Plan</div>
+            <div class="cr-group">Items</div>
             <div class="cr-group-rows">
               <button type="button" class="cr-row">Type + icon ramp<span class="cr-row-count">9</span></button>
               <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers<span class="cr-row-count">4</span></button>
@@ -390,18 +390,18 @@
             <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </label>
-        <span class="cr-bar-title">Sprints</span>
+        <span class="cr-bar-title">Automations</span>
       </div>
       <div class="cr-canvas">
         <h3>Model pickers</h3>
-        <div class="cr-field"><span>Run</span><span>sprint-1932</span></div>
+        <div class="cr-field"><span>Run</span><span>nightly-deploy</span></div>
         <div class="cr-field"><span>Track</span><span>Delivery</span></div>
         <div class="cr-field"><span>Depends on</span><span>Type + icon ramp</span></div>
       </div>
     </div>
   </div>
   <p class="pat-caption">
-    Click <strong>Sprints</strong>, then <strong>Back</strong>. The rail is
+    Click <strong>Automations</strong>, then <strong>Back</strong>. The rail is
     replaced in place and slides in from its leading edge; the brand row above it
     does not move, and the canvas keeps the whole of the rest of the window.
   </p>
@@ -419,12 +419,12 @@
     <div class="cr-column">
       <div class="cr-nested-tag">door rail</div>
       <div class="cr-scroll">
-        <button type="button" class="cr-row cr-row--resting" aria-current="true">sprint-1932</button>
-        <button type="button" class="cr-row">sprint-1940</button>
+        <button type="button" class="cr-row cr-row--resting" aria-current="true">nightly-deploy</button>
+        <button type="button" class="cr-row">backlog-scan</button>
       </div>
     </div>
     <div class="cr-column">
-      <div class="cr-nested-tag">plan column</div>
+      <div class="cr-nested-tag">items column</div>
       <div class="cr-scroll">
         <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers</button>
         <button type="button" class="cr-row">Provider rows</button>
@@ -517,14 +517,14 @@
       whose rows carry a context line (where the thing lives, with a clock at
       the trailing edge), a title, and a line of marks and chips under it is
       wearing the <em>app sidebar's</em> row, not this pattern's two-line row —
-      the run doors do, so a sprint reads like the chat beside it. Its title
+      the Automations door does, so a run reads like the chat beside it. Its title
       lands on the sidebar's flat-stream edge (16px: 4px scrollport + 12px row
       padding) at <code>font.size.heading</code>, with no leading icon slot;
       the lifecycle mark moves down onto the detail line. It also hovers on
       <code>--bg-surface-raised</code> rather than <code>--bg-hover</code> and
       wears the sidebar's inset selection ring — the sidebar row's own fills.
       Those three are the one sanctioned departure from the column above, and
-      they exist so that drilling from the sidebar into a run door re-flows
+      they exist so that drilling from the sidebar into the Automations door re-flows
       nothing: the row you left and the row you arrive at are the same row.</li>
   </ul>
   <p class="pat-caption">
@@ -540,7 +540,7 @@
     <li>The rail keeps <strong>one focused selection</strong>, at
       <code>bg.selected</code>: the thing the canvas is showing.</li>
     <li>A group carrying <strong>outer context</strong> — which project, which
-      run, which board — rests at <code>bg.selected-resting</code>
+      run, which item — rests at <code>bg.selected-resting</code>
       <em>permanently</em>, whether or not the rail holds focus. It answers
       "where am I?", and it must not compete with "what am I looking at?".</li>
     <li>Mark the group, never infer it from position: which group is the outer one
@@ -570,10 +570,10 @@
         <div class="cr-scroll">
           <div class="cr-group">Runs</div>
           <div class="cr-group-rows cr-group-rows--outer">
-            <button type="button" class="cr-row cr-row--selected" aria-current="true">sprint-1932</button>
-            <button type="button" class="cr-row">sprint-1940</button>
+            <button type="button" class="cr-row cr-row--selected" aria-current="true">nightly-deploy</button>
+            <button type="button" class="cr-row">backlog-scan</button>
           </div>
-          <div class="cr-group">Plan</div>
+          <div class="cr-group">Items</div>
           <div class="cr-group-rows">
             <button type="button" class="cr-row">Type + icon ramp<span class="cr-row-count">9</span></button>
             <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers<span class="cr-row-count">4</span></button>
@@ -589,11 +589,11 @@
             <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
-        <span class="cr-bar-title">Sprints</span>
+        <span class="cr-bar-title">Automations</span>
       </div>
       <div class="cr-canvas">
         <h3>Model pickers</h3>
-        <div class="cr-field"><span>Run</span><span>sprint-1932</span></div>
+        <div class="cr-field"><span>Run</span><span>nightly-deploy</span></div>
         <div class="cr-field"><span>Track</span><span>Delivery</span></div>
       </div>
     </div>

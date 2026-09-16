@@ -7,8 +7,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
-import { parseAgentLaunchSettingsRecord } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/launch-settings'
+import { parseAgentLaunchSettingsRecord } from '../shared/launch-settings'
 import { createAgentLaunchSettingsMirror } from './launch-settings-mirror'
 
 const FILE_NAME = 'agent-launch-settings.json'
@@ -20,20 +20,6 @@ function settings(overrides: Partial<AgentLaunchSettings> = {}): AgentLaunchSett
     projectKnowledgeRoots: { '/repo': 'knowledge' },
     lastSelectedCli: 'claude-code',
     lastAgentSpawnPermissionPreset: 'auto',
-    sprintEngineRoleSettings: {
-      enabled: {},
-      savedRosters: [
-        {
-          id: 'roster-1',
-          name: 'Pair',
-          roleCounts: { developer: 2 },
-          roleCliDefaults: { developer: 'claude-code' },
-          createdAt: 1,
-          updatedAt: 2,
-        },
-      ],
-      lastSelectedRosterId: 'roster-1',
-    },
     ...overrides,
   } as AgentLaunchSettings
 }
@@ -73,8 +59,7 @@ async function main(): Promise<void> {
   await assertFreshInstallReadsDefaults()
   await assertLegacyBareSettingsFileStillReads()
   await assertUnwritableStoreKeepsInMemoryValues()
-  await assertHalfFormedRostersAreDropped()
-  console.log('sprintengine-launch-settings-mirror tests passed')
+  console.log('launch-settings-mirror tests passed')
 }
 
 // (1) The acceptance case: main reads every launch input with zero windows,
@@ -90,8 +75,6 @@ async function assertHeadlessReadSurvivesRestart(): Promise<void> {
     assert.equal(read.lastAgentSpawnPermissionPreset, 'auto')
     assert.equal(read.mcp.syncEnabled, true)
     assert.equal(read.cliRuntimes.claude?.command, 'claude')
-    assert.equal(read.sprintEngineRoleSettings.savedRosters?.[0]?.id, 'roster-1')
-    assert.equal(read.sprintEngineRoleSettings.lastSelectedRosterId, 'roster-1')
     assert.equal(afterRestart.getRecord()?.revision, 1)
   })
 }
@@ -175,7 +158,6 @@ async function assertFreshInstallReadsDefaults(): Promise<void> {
     assert.equal(read.lastAgentSpawnPermissionPreset, null)
     assert.deepEqual(read.cliRuntimes, {})
     assert.deepEqual(read.mcp, { syncEnabled: false, servers: {} })
-    assert.deepEqual(read.sprintEngineRoleSettings, { enabled: {} })
   })
 }
 
@@ -220,29 +202,6 @@ async function assertUnwritableStoreKeepsInMemoryValues(): Promise<void> {
     assert.equal(store.get().lastSelectedCli, 'claude-code', 'in-memory values still apply')
     assert.equal(harness.diagnostics.length, 1)
     assert.equal(harness.diagnostics[0]?.title, 'Agent launch settings not persisted')
-  })
-}
-
-// (8) A roster missing what resolution reads is dropped, not passed through:
-// a headless launch resolving one would staff a phantom team.
-async function assertHalfFormedRostersAreDropped(): Promise<void> {
-  await withHarness(async (harness) => {
-    const store = harness.create()
-    const written = store.set({
-      ...settings(),
-      sprintEngineRoleSettings: {
-        enabled: {},
-        savedRosters: [
-          { id: 'good', name: 'Good', roleCounts: { developer: 1 }, roleCliDefaults: { developer: 'claude-code' } },
-          { id: 'no-clis', name: 'Half', roleCounts: { developer: 1 } },
-          { name: 'No id', roleCounts: {}, roleCliDefaults: {} },
-          'not an object',
-        ],
-      },
-    })
-    await written.persisted
-    const rosters = store.get().sprintEngineRoleSettings.savedRosters
-    assert.deepEqual(rosters?.map((roster) => roster.id), ['good'])
   })
 }
 

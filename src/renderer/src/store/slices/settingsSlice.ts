@@ -36,7 +36,7 @@ import type {
   SprintEngineRoster,
   SprintEngineSavedRoster,
   SpecialistActionId,
-  SprintEngineCliPermissionPreset,
+  CliPermissionPreset,
   SprintEngineRoleRegistry,
   VoiceDictationModel,
   VoiceDictationSettings,
@@ -380,7 +380,7 @@ export { normalizeCliPermissionPreset }
 // a run. Here, ABSENT means "this user has never chosen", which is the only case
 // that may adopt the app default. Kept separate so flipping the app default can
 // never rewrite someone's deliberate choice.
-export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: SprintEngineCliPermissionPreset = 'bypass'
+export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: CliPermissionPreset = 'bypass'
 
 // ONLY an absent value adopts the app default. A present-but-unrecognised value
 // is corruption, and corruption must never ESCALATE permissions — it falls to
@@ -394,8 +394,8 @@ export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: SprintEngineCliPermissionPre
 // normalizeCliPermissionPreset for why `default` lands on `manual` rather than
 // on the argv-identical `none`.
 export function normalizeAgentSpawnPermissionPreset(
-  input: SprintEngineCliPermissionPreset | null | undefined
-): SprintEngineCliPermissionPreset {
+  input: CliPermissionPreset | null | undefined
+): CliPermissionPreset {
   if (input === undefined || input === null) return DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
   return normalizeCliPermissionPreset(input)
 }
@@ -1344,7 +1344,7 @@ export interface SettingsSliceActions {
    * next open is quiet.
    */
   markDesignSystemSeen: (bundleId: string, at?: string) => void
-  setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   /**
    * Write (or clear with `null`) a surface's model choice. A stored

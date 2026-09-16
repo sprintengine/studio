@@ -37,7 +37,7 @@ import { pathExists } from '../filesystem-workspace'
  * The encoding has changed between Claude Code versions before, so the derived
  * path is only the FAST path: when it misses, the session id — which is
  * globally unique and is the file's own name — is looked up by scanning the
- * project folders, the same ruling `sprintengine-token-usage/claude-code-adapter.ts`
+ * project folders, the same ruling the token-usage reader
  * reached for the same reason. That scan is memoised per session so a sweep
  * down a sidebar of forty rows does not become forty directory reads.
  */

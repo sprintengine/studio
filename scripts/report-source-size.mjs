@@ -10,13 +10,11 @@ import { extname, join, resolve, sep } from 'node:path'
 
 const SOURCE_ROOTS = [
   'src',
-  'sprintengine_core',
-  'sprintengine_mcp',
+  'packages',
 ]
 const SOURCE_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.ts', '.tsx', '.py'])
 const EXCLUDED_DIRS = new Set([
   '__pycache__',
-  '.pytest_cache',
   'dist',
   'dist-electron',
   'node_modules',

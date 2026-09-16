@@ -2,7 +2,7 @@ import type { IJsonModel } from 'flexlayout-react'
 import type { BrowserViewport } from '../../../shared/browser-devices'
 import type {
   SprintEngineAutoState,
-  SprintEngineCliPermissionPreset,
+  CliPermissionPreset,
 } from '../../../shared/sprintengine/automation-types'
 import { SPRINT_ENGINE_WORKSPACE_MODULE_ID } from '../../../shared/sprintengine/workspace-record'
 // The Sprint Engine run-domain type family (state/task/artifact/roster/…) and
@@ -167,7 +167,7 @@ export type {
   SprintEngineAutomationEvent,
   SprintEngineAutomationMode,
   SprintEngineAutomationRuntimeState,
-  SprintEngineCliPermissionPreset,
+  CliPermissionPreset,
 } from '../../../shared/sprintengine/automation-types'
 
 export type FuturePlanWorkspaceSource = {
@@ -426,7 +426,7 @@ export type AppSettings = {
    * as installed falls back the same way rather than offering a dead editor.
    */
   lastFolderOpenTarget: FolderOpenTargetId | null
-  lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
+  lastAgentSpawnPermissionPreset: CliPermissionPreset
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
   /**
    * Per-specialist model override, stored with the CLI it was picked for so a

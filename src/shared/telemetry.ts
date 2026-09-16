@@ -1,5 +1,5 @@
 /**
- * The product-telemetry contract: what SprintEngine is allowed to send, under
+ * The product-telemetry contract: what the Studio is allowed to send, under
  * what name, and where the switches are.
  *
  * Shape of the thing: the MAIN process is the only sender. The renderer never
@@ -36,14 +36,11 @@
  * quietly opening a new series in PostHog.
  *
  * `app.boot` is the install/active-machine counter — one per process start.
- * The rest answer "is the thing people installed the thing they use": agents
- * launched, sprints created, sprints finished and how.
+ * `agent.launched` answers "is the thing people installed the thing they use".
  */
 const TELEMETRY_EVENTS = [
   'app.boot',
   'agent.launched',
-  'sprint.run.created',
-  'sprint.run.finished',
 ] as const
 
 export type TelemetryEventName = (typeof TELEMETRY_EVENTS)[number]

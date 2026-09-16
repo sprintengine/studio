@@ -13,7 +13,7 @@ import type {
   AgentState,
   AgentId,
   SprintEngineAutoState,
-  SprintEngineCliPermissionPreset,
+  CliPermissionPreset,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
@@ -301,7 +301,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
    * that reveals them is the visit that clears them.
    */
   markDesignSystemSeen: (bundleId: string, at?: string) => void
-  setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
   /** Drop retired model ids from every remembered launch default for `cli`. */

@@ -2,17 +2,16 @@
  * The pull-request watch: a backoff-scheduled re-probe of things whose state
  * changes on GitHub, outside the app, long after the local work finished.
  *
- * This is the machinery `sprintengine-pr-merge-poller.ts` was built as for
- * MC-2155 (a sprint run's merge state self-healing with no window open),
- * generalised over `{ key, isWatchable, probe }` so the conversation pull
- * request record (`main/pull-request-record.ts`, epic `pull-request-marks`
- * decision 9) is a second consumer of the SAME schedule rather than a second
- * schedule with the same comments. The sprint run remains a consumer; its
- * backoff table, jitter, coalescing window and boot-scan bound are unchanged.
+ * Built for MC-2155 (a pull request's merge state self-healing with no window
+ * open) and generalised over `{ key, isWatchable, probe }`, so the conversation
+ * pull request record (`main/pull-request-record.ts`, epic `pull-request-marks`
+ * decision 9) rides this schedule rather than a second one with the same
+ * comments.
  *
- * WHAT A KEY IS is the consumer's business: a run's state path there, a pull
- * request URL here. The poller only ever asks two things about one — "is this
- * still worth probing" and "probe it" — and both are the consumer's to answer.
+ * WHAT A KEY IS is the consumer's business — a pull request URL, for the one
+ * consumer there is today. The poller only ever asks two things about one — "is
+ * this still worth probing" and "probe it" — and both are the consumer's to
+ * answer.
  *
  * THE SCHEDULE. 1 → 2 → 4 → 8 → 16 → 32 min, then HOLDING at 32 until the key
  * stops being watchable, at which point its timer is torn down for good. It
@@ -56,10 +55,9 @@ export const PR_WATCH_CHANGE_COALESCE_MS = 30_000
  * — and, for a consumer whose keys accumulate for the life of the process, how
  * old one may be and still be worth a timer at all (30 days).
  *
- * It lives here because both consumers bound themselves by it: the sprint run
- * watch has always skipped runs untouched for this long, and the conversation
- * pull request record uses the same window so a laptop that has seen a thousand
- * pull requests does not hold a thousand timers for ones nobody will merge.
+ * It lives here because the conversation pull request record bounds itself by
+ * it, so a laptop that has seen a thousand pull requests does not hold a
+ * thousand timers for ones nobody will merge.
  */
 export const PR_WATCH_BOOT_SCAN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 

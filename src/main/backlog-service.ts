@@ -481,7 +481,7 @@ async function loadMigratedStore(workspace: ValidWorkspace): Promise<BacklogObje
 }
 
 // Frontmatter-sourced lifecycle/triage/epic for an item's markdown content. This
-// is the v2 read shape non-panel readers (the mobile bridge, Sprint Engine) use
+// is the v2 read shape non-panel readers (the mobile bridge) use
 // so they see the same source of truth the renderer does, instead of the now-stale
 // sidecar fields. Unknown/invalid values are dropped; callers fall back to a
 // sidecar record only for not-yet-migrated items (mixed-version tolerance).
@@ -1246,7 +1246,7 @@ async function readDurableBacklogLinks(
     const target = backlogAbsolutePath(workspace.location, normalizedPath)
     if (!target) return []
     const { fields } = parseBacklogFrontmatter(await readFile(target, 'utf-8'))
-    return durableBacklogLinksFromFrontmatter(fields, workspace.root) as BacklogItemLinkPayload[]
+    return durableBacklogLinksFromFrontmatter(fields) as BacklogItemLinkPayload[]
   } catch {
     // A missing or unreadable item contributes no links; the caller's own write
     // reports the real failure.
@@ -1400,9 +1400,8 @@ async function mutateItem(
     const candidate = update(base, now)
     // Every updater stamps `updatedAt: now` unconditionally, so a write that
     // changed nothing else still dirtied the record — and with it a tracked file.
-    // Link status re-resolution ticks against live PRs and sprint runs and
-    // re-persists what is already stored, which is what churned the sidecar all
-    // day. Keep the prior instant when the payload is otherwise identical, so a
+    // Link status re-resolution ticks against live PRs and re-persists what is
+    // already stored, which is what churned the sidecar all day. Keep the prior instant when the payload is otherwise identical, so a
     // confirming re-resolve is a true no-op and saveStore can skip the write.
     const next =
       index >= 0 && sameBacklogRecord({ ...candidate, updatedAt: base.updatedAt }, base)

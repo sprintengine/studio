@@ -40,30 +40,19 @@ export const HOSTED_CARD_FEED_URL =
 // What the card is, which is also the word on its stamp. Not a taxonomy to
 // filter by — the home page is marketing, not a catalogue — but the renderer
 // needs to know whether it is showing an MCP server or a showcase.
-export type HostedCardKind = 'mcp' | 'skill' | 'plugin' | 'workflow' | 'sprint' | 'automation' | 'showcase'
+export type HostedCardKind = 'mcp' | 'skill' | 'plugin' | 'workflow' | 'automation' | 'showcase'
 
-const CARD_KINDS: readonly HostedCardKind[] = ['mcp', 'skill', 'plugin', 'workflow', 'sprint', 'automation', 'showcase']
+const CARD_KINDS: readonly HostedCardKind[] = ['mcp', 'skill', 'plugin', 'workflow', 'automation', 'showcase']
 
-// The doors a card may open. Two kinds, and the distinction matters to whoever
-// adds the next one:
+// The doors a card may open. `plugins`, `skills` and `agent-clis` are VIEWS OF
+// THE EXTENSIONS DOOR — exactly `EXTENSIONS_DRAWER_VIEWS` in the renderer's
+// extensionsSurfaceTarget.ts — and `home` is the card feed's own page beside
+// them. The renderer latches the view and then opens the door.
 //
-//   - `plugins`, `skills` and `agent-clis` are VIEWS OF THE EXTENSIONS DOOR —
-//     exactly `EXTENSIONS_DRAWER_VIEWS` in the renderer's
-//     extensionsSurfaceTarget.ts — and `home` is the card feed's own page beside
-//     them. The renderer latches the view and then opens the door.
-//   - `workflows` and `sprints` are GLOBAL SURFACES of their own, opened
-//     directly with no latch.
-//
-// That second group is why the rule this comment used to state was not enough.
-// It said "if a fourth view is ever added to the door, it is added here too" —
-// a rule about the Extensions door, which could not catch a door added OUTSIDE
-// it. Item 2470 split the run kinds into Workflows and Sprints in the same epic
-// that built this file, and the vocabulary was never told: the shipped hero card
-// is `kind: workflow`, its dek is about an architect and a roster, and the only
-// destinations it could name were three catalogues and this page. So the rule is
-// now the wider one — **every door the app has, whether or not it lives under
-// Extensions** — and adding one here is additive and safe, because a build that
-// does not know a view drops the card and counts it rather than opening nothing.
+// The rule is the wide one: **every door the app has, whether or not it lives
+// under Extensions**, may be named here. Adding one is additive and safe,
+// because a build that does not know a view drops the card and counts it rather
+// than opening nothing.
 //
 // Restated here rather than imported because src/shared may not reach into the
 // renderer. Added to, never renamed: this union is a permanent contract.
@@ -72,22 +61,18 @@ export type CardSurfaceView =
   | 'plugins'
   | 'skills'
   | 'agent-clis'
-  | 'workflows'
-  | 'sprints'
 
 const CARD_SURFACE_VIEWS: readonly CardSurfaceView[] = [
   'home',
   'plugins',
   'skills',
   'agent-clis',
-  'workflows',
-  'sprints',
 ]
 
 // The closed verb set, and it is closed against the call sites rather than
 // against an imagination of them. The first cut of this union carried thirteen
 // verbs, nine of which no installer in this repository could execute:
-// `add.source`, `seed.backlog`, `create.sprint`, `create.workflow`,
+// `add.source`, `seed.backlog`, `create.workflow`,
 // `create.automation` and `design.import` named nothing, and the four that
 // remained were shaped wrong — `install.mcp` carried a source the catalogue does
 // not have, `clone.repo` a `ref` git-clone does not take, `open.chat` one

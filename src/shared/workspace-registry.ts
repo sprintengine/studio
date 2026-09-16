@@ -50,8 +50,7 @@ export type WorkspaceRegistryActor =
  * `editedAt` of the accepted write; an incoming command older than the stamp is
  * dropped and the current value re-broadcast so the lagging window converges.
  *
- * This generalizes `SprintRuntimeAgentConfig.configEditedAt`
- * (`src/shared/sprintengine/runtime-bridge.ts`) rather than inventing a second
+ * This generalizes a per-field edit stamp rather than inventing a second
  * mechanism — per-agent edits keep using `AgentState.configEditedAt` itself.
  *
  * Fields written by main's own subsystems (session assignment, launch flags,
@@ -185,46 +184,13 @@ export function emptyWorkspaceRegistryFile(now = 0): WorkspaceRegistryFile {
  * restart state are dropped.
  */
 function normalizeWorkspaceRegistryAgent(agent: AgentState): AgentState {
-  const keepStartupPrompt =
-    !agent.cliOnboardingPromptSent
-    && agent.kind === 'specialist'
-    && Boolean(agent.specialistId)
   return {
     ...agent,
     status: 'idle',
     streamBuffer: '',
     cliRestartNonce: 0,
-    cliStartupPrompt: keepStartupPrompt ? agent.cliStartupPrompt : undefined,
+    cliStartupPrompt: undefined,
   }
-}
-
-const SPRINT_ENGINE_MODULE_STATE_KEY = 'sprintengine'
-
-function partializeSprintEngineModuleBag(
-  bag: Workspace['moduleState'],
-): Workspace['moduleState'] {
-  if (!isRecord(bag)) return undefined
-  const raw = bag[SPRINT_ENGINE_MODULE_STATE_KEY]
-  const rest = Object.fromEntries(
-    Object.entries(bag).filter(([key]) => key !== SPRINT_ENGINE_MODULE_STATE_KEY),
-  )
-  const durable = durableSprintEngineModuleEntry(raw)
-  const next = durable
-    ? { ...rest, [SPRINT_ENGINE_MODULE_STATE_KEY]: durable }
-    : rest
-  return Object.keys(next).length > 0 ? next : undefined
-}
-
-function durableSprintEngineModuleEntry(raw: unknown): Record<string, unknown> | null {
-  if (!isRecord(raw)) return null
-  // A pre-MC-2573 bag entry was the live projection; nothing in it is durable.
-  if ('roleCounts' in raw || 'sprintEngineAgents' in raw || Array.isArray(raw.tasks)) {
-    return null
-  }
-  const durable: Record<string, unknown> = {}
-  if (isRecord(raw.context)) durable.context = raw.context
-  if (isRecord(raw.roleCliDefaults)) durable.roleCliDefaults = raw.roleCliDefaults
-  return Object.keys(durable).length > 0 ? durable : null
 }
 
 /**
@@ -233,29 +199,13 @@ function durableSprintEngineModuleEntry(raw: unknown): Record<string, unknown> |
  * in localStorage keyed by workspace id — two disjoint field sets, not two
  * copies of one fact, so this is not dual authority.
  *
- * The live run projection (bag `state`) is excluded: it caches
- * `projection.json`, which the engine owns. Durable Sprint Engine identity
- * (`context`, `roleCliDefaults`) lives in `moduleState.sprintengine` and is
- * persisted there.
+ * A module's own `moduleState` bag travels as-is: the module that wrote it is
+ * the only thing that can say what part of it is durable.
  */
 export function normalizeWorkspaceForRegistry(workspace: Workspace): Workspace {
-  const moduleState = partializeSprintEngineModuleBag(workspace.moduleState)
-  // Pre-MC-2573 persist rows still carry these top-level fields. Drop them
-  // here so the registry never re-homes them. Marked for deletion with the
-  // in-tree engine (extensions-installable-modules 2026-08-03; dated 2026-09-16).
-  const {
-    sprintEngineState: _legacyState,
-    sprintEngineContext: _legacyContext,
-    sprintEngineRoleCliDefaults: _legacyRoleCliDefaults,
-    ...durable
-  } = workspace as Workspace & {
-    sprintEngineState?: unknown
-    sprintEngineContext?: unknown
-    sprintEngineRoleCliDefaults?: unknown
-  }
+  const moduleState = isRecord(workspace.moduleState) ? workspace.moduleState : undefined
   const normalized: Workspace = {
-    ...durable,
-    sprintEngineInitialSpawnAgentIds: undefined,
+    ...workspace,
     agents: Object.fromEntries(
       Object.entries(workspace.agents ?? {}).map(([id, agent]) => [id, normalizeWorkspaceRegistryAgent(agent)]),
     ),

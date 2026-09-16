@@ -11,8 +11,8 @@
 //       regression that the design-token lint cannot see.
 //
 //   (b) `WorkspaceActions` declares at most five at-rest control groups via
-//       `{/* top-bar-group: <name> */}` JSX comment markers. The cap matches
-//       the architect plan and BRAND-APP rule "≤ 5 controls per panel header".
+//       `{/* top-bar-group: <name> */}` JSX comment markers. The cap is the
+//       BRAND-APP rule "≤ 5 controls per panel header".
 //       Adding a sixth marker fails this guard; renaming or removing one
 //       requires the brand docs (panel-design-system.md TopBar inventory) to
 //       move in lockstep. (These groups were hoisted out of the retired
@@ -38,8 +38,8 @@ const TOP_BAR_GROUP_CAP = 5
 const CANONICAL_TOP_BAR_GROUPS = new Set([
   'activity-and-views',
   'communication',
-  // `agent-spawn` retired (MC-2222): the specialist split-button is deleted;
-  // spawning is New chat's and the tab strip's job.
+  // `agent-spawn` retired (MC-2222): its split-button is deleted; spawning is
+  // New chat's and the tab strip's job.
   // `account-and-settings` retired: account + Settings relocated to the sidebar
   // bottom (SidebarAccountBar). The set above is the whole TopBar inventory.
 ])
@@ -56,17 +56,11 @@ const ALLOW_LIST = new Map([
   ['FleetTerminalPanel.tsx', 'Hosts xterm attached to ANOTHER machine (MC-2167). Like the local terminal panes, xterm owns the canvas; the chrome above it is a provenance strip (machine name, link state, watch-only label), which is identity a PanelHeader title cannot carry.'],
   ['FileExplorer.tsx', 'Owns its chrome row deliberately (owner, 2026-09-05): the search field AND the four tree actions share ONE band, in place of a PanelHeader titled with the folder name. The name is the tree\'s own root row, so the header restated the first row of the surface. Same band geometry as GitPanel.'],
   ['BacklogPanel.tsx', 'Owns its chrome row deliberately (owner, 2026-09-05): the search field, the count, the filter glyph and the actions share ONE band, in place of a PanelHeader reading "Backlog · N". The word was already on screen — the pane tab this panel lives in is labelled "Backlog" — so the header cost 36px of a narrow pane to say nothing new. Same band geometry as GitPanel.'],
-  ['GitPanel.tsx', 'Owns its chrome row deliberately (owner, 2026-09-04): the icon-only view Tabs strip AND the sync affordances share ONE band, in place of a PanelHeader identity row above them. Both halves of that title were already on screen — the pane tab this panel lives in is labelled "Git", and "Up to date" is what the absence of the Pull/Push buttons means — so the header cost 36px of a narrow pane to say nothing new. Mirrors SprintEngineBoardPanel: the surface owns richer chrome than PanelHeader allows.'],
+  ['GitPanel.tsx', 'Owns its chrome row deliberately (owner, 2026-09-04): the icon-only view Tabs strip AND the sync affordances share ONE band, in place of a PanelHeader identity row above them. Both halves of that title were already on screen — the pane tab this panel lives in is labelled "Git", and "Up to date" is what the absence of the Pull/Push buttons means — so the header cost 36px of a narrow pane to say nothing new. The surface owns richer chrome than PanelHeader allows.'],
   ['GitGraphView.tsx', 'Graph sub-view rendered inside GitPanel; the parent panel owns the operational chrome.'],
   ['GitConflictResolverPanel.tsx', 'Rebuild scheduled in the app-wide audit plan (Stage 7).'],
   ['MemoryGraphPanel.tsx', 'Graph canvas surface; rebuild scheduled in the app-wide audit plan.'],
-  ['SprintEngineTaskGraphView.tsx', 'Sub-view of SprintEngineBoardPanel; rendered inside the parent panel\'s body, so PanelHeader is owned by the parent. Extracted to its own file for maintainability.'],
-  ['SprintEngineInspectorPanel.tsx', 'Inspector aside of SprintEngineBoardPanel; rendered as the right-hand detail pane, so PanelHeader chrome is owned by the parent panel. Extracted to its own file in Stage 2.1 of the app-wide dedup plan.'],
   ['ComposerAttachmentStrip.tsx', 'The attachment strip of the chat composer (MC-2148 launch surface), rendered inside AgentChatView: a row of chips above the field, not a panel, so it carries no PanelHeader.'],
-  ['runSummaryCharts.tsx', 'Chart primitives rendered inside SprintEngineRunSummaryPanel; parent panel owns PanelHeader chrome.'],
-  ['runPullRequest.tsx', 'Pull-request controls + hooks rendered inside SprintEngineBoardPanel: a view chip in the run-hero strip and a primary action in the run-complete banner; the parent panel owns the surrounding chrome.'],
-  ['SprintEngineBoardPanel.tsx', 'Carries a bespoke run-hero strip (project name + run-phase lifecycle glyph + progress hairline + settings overflow) above the Tabs strip in place of PanelHeader. The generic title/count chrome was redundant with the FlexLayout tab label and per-tab content, and the hero conveys identity richer than PanelHeader allows.'],
-  ['SprintRunBoard.tsx', 'Re-export barrel: the door-facing seam for the run board. The board component and its bespoke run-hero chrome live in SprintEngineBoardPanel.tsx (allow-listed above); this file only re-exports SprintRunBoard + the statePath run-handle helpers so the Sprints door has one import site. It renders no chrome of its own.'],
 ])
 
 const args = new Set(process.argv.slice(2))

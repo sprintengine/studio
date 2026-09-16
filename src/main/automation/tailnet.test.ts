@@ -54,7 +54,7 @@ import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { TerminalAttachTransport, TerminalRemoteHost } from '../terminal-remote-attach'
 import { toolSuccess, type McpToolRegistration, type McpToolResult } from '../../shared/modules/mcp-tools'
 import type { AgentLaunchRequest } from '../../shared/agent-launch'
-import type { SprintEngineCliPermissionPreset } from '../../shared/electron-api'
+import type { CliPermissionPreset } from '../../shared/electron-api'
 import { createAutomationTools } from './automation-tools'
 
 // The tailnet listener (MC-2162). Every test here drives the REAL server over a
@@ -1792,7 +1792,7 @@ function realTerminalTools(input: {
   terminals: StubTerminalHost
   launches: AgentLaunchRequest[]
   /** This machine's agent-spawn preset; a terminal.create with none named takes it. */
-  spawnPermissionDefault?: SprintEngineCliPermissionPreset | null
+  spawnPermissionDefault?: CliPermissionPreset | null
 }): McpToolRegistration[] {
   const workspace = {
     id: 'ws-mini',

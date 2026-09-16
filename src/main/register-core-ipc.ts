@@ -109,7 +109,7 @@ export function registerCoreIpc(
   // rest of the app already uses, so it is handed the very same handler.
   registerFolderOpenIpc(ipcMain, createFolderOpenIpcDependencies(filesystemReadHandlers.showItemInFolder))
   // Memory/knowledge-graph backend is foundational: agent context injection
-  // (TerminalView, Sprint Engine auto-run) and the Knowledge Graph settings tab
+  // (TerminalView) and the Knowledge Graph settings tab
   // depend on it, so it is always registered. The memory-graph capability
   // module gates only the visualization panel (renderer side).
   registerMemoryIpc(ipcMain)

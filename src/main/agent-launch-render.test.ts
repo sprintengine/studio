@@ -7,7 +7,7 @@ import { buildHostContextDocument } from '../shared/host-context/document'
 // The directive names the workspace's own sidecar directory, so the expected
 // text is derived the same way the launch derives it rather than pinned.
 const DEBUG_DIRECTIVE = debugDirectiveFor()
-import type { SprintEngineCliPermissionPreset } from '../shared/electron-api'
+import type { CliPermissionPreset } from '../shared/electron-api'
 import {
   argvToPosixShellCommand,
   buildAgentShellCommand,
@@ -880,7 +880,7 @@ function testResolveDebugSkillInvocation(): void {
 // always the trailing argv element, so comparing argv.slice(0, -1) isolates the
 // permission surface.
 function testDebugModeOrthogonality(): void {
-  const presets: SprintEngineCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
+  const presets: CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
   const prompt = 'investigate the crash'
   for (const cli of ['claude-code', 'codex'] as const) {
     for (const preset of presets) {
@@ -1017,7 +1017,7 @@ function testCodexLegacyWindowsReasoning(): void {
 // when debugMode is on, and (b) keep launch/permission args byte-identical with
 // debug on vs off — the same orthogonality invariant the shared paths hold.
 function testCodexLegacyWindowsDebugInjection(): void {
-  const presets: SprintEngineCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
+  const presets: CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
   const cwd = 'C:/work/repo'
   const runtime = { command: '', useWsl: false }
   const prompt = 'investigate the crash'
@@ -1098,7 +1098,7 @@ function testCodexLegacyWindowsDebugInjection(): void {
 // renderAgentLaunchArgv — these two tests are the proof, and they fail the day
 // someone reimplements the preview by hand.
 function testLaunchPreviewMatchesTheLaunchItPreviews(): void {
-  const cases: Array<{ cli: 'claude-code' | 'codex' | 'opencode'; model?: string; preset?: SprintEngineCliPermissionPreset }> = [
+  const cases: Array<{ cli: 'claude-code' | 'codex' | 'opencode'; model?: string; preset?: CliPermissionPreset }> = [
     { cli: 'claude-code' },
     { cli: 'claude-code', preset: 'bypass', model: 'claude-opus-5' },
     { cli: 'codex', preset: 'auto' },

@@ -7,7 +7,7 @@ import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOp
 import { orderSpecialistActions } from '../../../specialists/specialistActions'
 import { listSpecialistPacks, resolveEnabledSpecialists } from '../../../specialists/specialistPacks'
 import { AutomationTypeGlyph } from './AutomationTypeGlyph'
-import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
+import type { AgentCli, SpecialistActionId, CliPermissionPreset } from '../../../types/workspace'
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../../../../shared/automations/contracts'
 import type {
   AutomationDefinition,
@@ -291,7 +291,7 @@ export function AutomationEditor({
   // control shows that rather than "Default" — the editor must not read back a
   // preset the run will not use.
   const selectedPermissionPreset =
-    (form.config.permissionPreset as SprintEngineCliPermissionPreset) || AUTOMATION_DEFAULT_PERMISSION_PRESET
+    (form.config.permissionPreset as CliPermissionPreset) || AUTOMATION_DEFAULT_PERMISSION_PRESET
 
   // A run-landed → sprint-start chain defaults "Run once, then pause" ON: left
   // firing forever, an A↔B pair of these ping-pongs unbounded (each landed run

@@ -55,7 +55,7 @@ export async function readTranscriptSummary(
   }
 
   // A multi-content-block assistant turn is written as SEVERAL rows sharing one
-  // `message.id` (see sprintengine-token-usage/claude-code-adapter.ts), so the
+  // `message.id`, so the
   // last message is the last id group, not the last row. Rows of a group are
   // contiguous, so tracking the current group is enough.
   let groupId: string | null = null

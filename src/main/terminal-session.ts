@@ -44,9 +44,6 @@ type FailedTerminalSessionInput = {
   terminalId?: string
   cli?: AgentCli
   cwd?: string
-  sprintEngineStatePath?: string
-  sprintEngineMcpRunId?: string
-  sprintEngineRole?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
@@ -212,9 +209,6 @@ export type TerminalSession = {
   cliSessionId?: string
   cli?: AgentCli
   cwd?: string
-  sprintEngineStatePath?: string
-  sprintEngineMcpRunId?: string
-  sprintEngineRole?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
@@ -421,8 +415,6 @@ export function createFailedTerminalSession(input: FailedTerminalSessionInput): 
     terminalId: input.terminalId,
     cli: input.cli,
     cwd: input.cwd,
-    sprintEngineStatePath: input.sprintEngineStatePath,
-    sprintEngineMcpRunId: input.sprintEngineMcpRunId,
     executionMode: input.executionMode,
     worktreeId: input.worktreeId,
     worktreePath: input.worktreePath,
@@ -476,8 +468,8 @@ type SuspendedPlaceholderSessionInput = {
 // snapshot sidecar after an app restart, so the existing pause/replay/resume
 // flow treats it exactly like a session suspended in this process: processAlive
 // false, `suspended` true, painted content preferred from `replaySnapshot`.
-// There is no pty and no SprintEngine run behind it; resume disposes it and
-// re-spawns under the same session id.
+// There is no pty behind it; resume disposes it and re-spawns under the same
+// session id.
 export function createSuspendedPlaceholderSession(
   input: SuspendedPlaceholderSessionInput
 ): TerminalSession {
@@ -974,7 +966,6 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     cliSessionId: session.cliSessionId,
     cli: session.cli,
     cwd: session.cwd,
-    sprintEngineStatePath: session.sprintEngineStatePath,
     executionMode: session.executionMode,
     worktreeId: session.worktreeId,
     worktreePath: session.worktreePath,
@@ -1103,8 +1094,8 @@ function createNoopWebContents(): WebContents {
 }
 
 /**
- * Event sink for sessions spawned with no window (sprint-runtime-ownership
- * Phase 3: headless scheduler spawns). Every outbound send is guarded on
+ * Event sink for sessions spawned with no window (a headless launch). Every
+ * outbound send is guarded on
  * `isDestroyed()`, so a headless session simply emits nothing until a window
  * attaches — the reattach path (`spawnTerminalFromIpc` existing-session
  * branch) then adopts the real WebContents and replays scrollback.

@@ -21,7 +21,7 @@ A Backlog item is split across two stores (see
   or `backlog/unfiled/` when it has no epic — is the source of truth for
   lifecycle and triage (`status`, `type`, `difficulty`, `criticality`, `risk`,
   and the up-pointing `epic:` slug) and for the durable app-written facts: the
-  star (`starred`, `highlight`) and declared links (`sprints`, `pr`). The shared
+  star (`starred`, `highlight`) and the declared link (`pr`). The shared
   writer `serializeBacklogFrontmatterFields` (`src/shared/backlog/frontmatter.ts`)
   rewrites it while preserving the document body byte-for-byte.
 - **The link cache** `<sidecar>/backlog/cache/links.json` holds only what is
@@ -66,8 +66,10 @@ frontmatter:
 
 Renderer modules should use the action context helpers or `window.api` service
 methods. They must not read or write `<sidecar>/backlog/cache/` or item
-frontmatter directly. Stored link target paths must stay project-root-relative,
-for example `<sidecar>/sprintengine/<team>/run.yaml`.
+frontmatter directly. A stored link target that names a file must stay
+project-root-relative, for example `<sidecar>/modules/<moduleId>/state.json` —
+never an absolute path, which stops meaning the same thing the moment the
+project is cloned somewhere else.
 
 ## Item Actions
 
@@ -169,52 +171,36 @@ Only execution links can move item lifecycle:
 - Unknown, failed, and non-execution links leave item status unchanged.
 - An **epic** short-circuits all of that: when `epicChildStatuses` is present
   `nextBacklogItemStatusFromLinks` reflects the children's highest-precedence
-  status, and the epic's own active run only contributes an `in_progress` vote
-  — it can never complete the epic.
+  status, and the epic's own active execution link only contributes an
+  `in_progress` vote — it can never complete the epic.
 
 Unknown resolutions are rendered but never persisted, so a transient unreadable
 target does not overwrite a known stored status.
 
-## Sprint Engine Run Links
+## The Pull Request Link
 
-Sprint Engine ships two built-in providers: `sprintengine.run`, described
-below, and `sprintengine.pullRequest`, which opens externally rather than
-mounting a run store.
+The Backlog owns one built-in link of its own, so it survives every module:
+module id `backlog`, target kind `backlog.pullRequest`, link id
+`backlog:pull-request` — or `backlog:pull-request:<repoId>` when the pull request
+belongs to a sibling project rather than the item's own. The fixed id is what
+makes it idempotent: re-recording a pull request replaces the link instead of
+accumulating stale ones, and a sibling's link replaces only itself.
 
-`sprintengine.run` resolves status
-from `readSprintEngineProjection(statePath)` plus normalized Sprint Engine
-projection data. Backlog must not parse Sprint Engine task folders, artifact
-folders, locks, events, or other run-store internals.
+It is built by `buildBacklogPullRequestLink` in
+`src/shared/backlog/durable-links.ts`, which is the only place its label, id
+scheme and target shape are specified — a caller that hand-assembled one would be
+the thing that drifts. Its frontmatter half is the `pr` scalar: `<url>` for the
+item's own project, `<repoId>=<url>` for a sibling.
 
-The provider accepts only safe project-root-relative targets shaped like:
+The link's **type** is `external`, which is lifecycle-neutral, so attaching a
+pull request never moves the item's status. That is deliberate: an open pull
+request is not a claim about whether the work is done, and completion authority
+stays with the item's own status.
 
-```text
-<sidecar>/sprintengine/<team>/run.yaml
-```
-
-Either sidecar name is accepted, so a link stored by an older build still
-resolves. Absolute paths, drive-letter paths, UNC paths, traversal paths,
-`run.yml`, and non-run-store paths are unavailable before any projection read or
-workspace focus.
-
-A readable run with at least one task and every task `done` resolves to
-`completed`; a canceled run resolves to `canceled`, which outranks completeness;
-readable nonterminal or empty runs resolve to `active`; missing, unreadable,
-unavailable, or malformed projections resolve to `unknown`. An **epic-child**
-link resolves against its own `taskId` rather than the run as a whole.
-
-For already-linked items, the normal primary action is **Open Sprint**
-(`sprint-engine.open-linked-run`), not **Run a Sprint**
-(`sprint-engine.start-from-backlog`). `hasSprintEngineRunLink` hides Run a Sprint
-for *any* `sprintengine.run` link at any status, and it is hidden again on
-`status === 'completed'` and on the presence of an agent link. Starting another
-run should be a separate explicit path, not the primary Backlog action.
-
-Sprint Engine projection refresh also reconciles completed linked runs through
-the Backlog service: after a successful normalized completed projection, it
-matches links for the current workspace run and persists link/item completion
-through `addOrUpdateBacklogLink`. Failed reads or writes warn and leave Backlog
-status unchanged.
+Opening it is an external open — the URL goes to the system browser. There is no
+in-app store to mount, which is the whole reason a durable link fits in a
+frontmatter scalar: nothing about it needs reconstructing except the URL a person
+already decided on.
 
 ## Agent Terminal Links
 
