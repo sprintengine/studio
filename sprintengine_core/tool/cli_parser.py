@@ -56,6 +56,7 @@ Roster commands (run-config only: configuredRoles + per-role runtimes):
 Registry inspection commands:
   sprintengine roles list
   sprintengine role get developer
+  sprintengine roles brief developer
   sprintengine soul get developer
   sprintengine skill list
   sprintengine skill get developer
@@ -429,6 +430,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
     p.set_defaults(handler=registry_commands.roles_list, uses_state=False)
 
+    p = roles_sub.add_parser("brief", help="Render a role's composed startup brief.")
+    p.add_argument("role")
+    p.add_argument("--run-id", default="", help="Optional run id for brief template substitution.")
+    p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
+    p.set_defaults(handler=registry_commands.roles_brief, uses_state=False)
+
     role_p = sub.add_parser("role", help="Inspect one configured registry role.")
     role_sub = role_p.add_subparsers(dest="action", required=True)
     p = role_sub.add_parser("get", help="Get a configured registry role by id or alias.")
@@ -436,9 +443,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")
     p.set_defaults(handler=registry_commands.role_get, uses_state=False)
 
-    soul_p = sub.add_parser("soul", help="Inspect rendered registry Souls.")
+    soul_p = sub.add_parser("soul", help="Deprecated alias for `roles brief`. Removed in Studio 0.5.0.")
     soul_sub = soul_p.add_subparsers(dest="action", required=True)
-    p = soul_sub.add_parser("get", help="Render a configured registry Soul by role id or alias.")
+    p = soul_sub.add_parser("get", help="Deprecated: render a role's composed startup brief. Use `roles brief`. Removed in Studio 0.5.0.")
     p.add_argument("role")
     p.add_argument("--run-id", default="", help="Optional run id for Soul template substitution.")
     p.add_argument("--extra-dir", action="append", default=[], help="Additional plugin registry root containing roles/ and skills/.")

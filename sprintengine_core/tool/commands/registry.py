@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -11,6 +12,7 @@ from sprintengine_core.role_registry import (
     RegistryWarning,
     RoleManifest,
     SkillDocument,
+    SOUL_GET_CLI_DEPRECATED,
     SoulRenderError,
     discover_role_registry,
     normalize_role_id,
@@ -33,7 +35,16 @@ def role_get(args) -> dict[str, Any]:
     return {"ok": True, "role": _role_payload(entry, include_shadowed=True), "warnings": _warning_payloads(registry.warnings)}
 
 
+def roles_brief(args) -> dict[str, Any]:
+    return _render_role_brief(args)
+
+
 def soul_get(args) -> dict[str, Any]:
+    print(SOUL_GET_CLI_DEPRECATED, file=sys.stderr)
+    return _render_role_brief(args)
+
+
+def _render_role_brief(args) -> dict[str, Any]:
     registry = _discover(args)
     try:
         rendered = registry.render_soul(args.role, workspace_root=_workspace_root(args), run_id=args.run_id or "")

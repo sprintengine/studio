@@ -25,6 +25,7 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.plan.remove_dependency',
   'sprintengine.plan.update_task',
   'sprintengine.recover',
+  'sprintengine.roles.brief',
   'sprintengine.roles.get',
   'sprintengine.roles.list',
   'sprintengine.run.get',
@@ -1062,6 +1063,34 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     }
   },
   {
+    "name": "sprintengine.roles.brief",
+    "description": "roles brief",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "roleId"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "description": "Run state path; server-resolved, agents normally omit it."
+        },
+        "workspaceRoot": {
+          "type": "string",
+          "description": "Project root for registry, role, Soul, and run discovery. Must resolve under an allowed root."
+        },
+        "roleId": {
+          "type": "string",
+          "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
+        },
+        "runId": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "name": "sprintengine.roles.get",
     "description": "roles get",
     "inputSchema": {
@@ -1082,31 +1111,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "roleId": {
           "type": "string",
           "description": "Canonical Sprint Engine role id. Omit it on a sprint that runs no roles."
-        },
-        "pluginRegistryRoots": {
-          "type": "array",
-          "description": "Loaded plugin registry roots that contain Sprint Engine roles/ and skills/ directories.",
-          "items": {
-            "type": "object",
-            "required": [
-              "root"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "root": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "extraDirs": {
-          "type": "array",
-          "description": "Additional path-only registry roots containing roles/ and skills/ directories.",
-          "items": {
-            "type": "string"
-          }
         }
       }
     }
@@ -1129,31 +1133,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "includeShadowed": {
           "type": "boolean"
-        },
-        "pluginRegistryRoots": {
-          "type": "array",
-          "description": "Loaded plugin registry roots that contain Sprint Engine roles/ and skills/ directories.",
-          "items": {
-            "type": "object",
-            "required": [
-              "root"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "root": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "extraDirs": {
-          "type": "array",
-          "description": "Additional path-only registry roots containing roles/ and skills/ directories.",
-          "items": {
-            "type": "string"
-          }
         }
       }
     }
@@ -1311,7 +1290,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
   },
   {
     "name": "sprintengine.soul.get",
-    "description": "soul get",
+    "description": "Deprecated: use sprintengine.roles.brief. Removed in 0.5.0.",
     "inputSchema": {
       "type": "object",
       "required": [
@@ -1333,31 +1312,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "runId": {
           "type": "string"
-        },
-        "pluginRegistryRoots": {
-          "type": "array",
-          "description": "Loaded plugin registry roots that contain Sprint Engine roles/ and skills/ directories.",
-          "items": {
-            "type": "object",
-            "required": [
-              "root"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "root": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "extraDirs": {
-          "type": "array",
-          "description": "Additional path-only registry roots containing roles/ and skills/ directories.",
-          "items": {
-            "type": "string"
-          }
         }
       }
     }

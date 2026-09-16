@@ -15,6 +15,8 @@ from sprintengine_core.tool.constants import (
     VALID_TASK_STATUSES,
 )
 
+from sprintengine_core.role_registry import SOUL_GET_REMOVAL_RELEASE
+
 from .tool_contracts import ACTIVE_TOOL_NAMES
 
 
@@ -270,9 +272,10 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     ),
     "sprintengine.summary": object_schema(["statePath"], {}),
     "sprintengine.triage.needs_input": object_schema(["statePath", "id"], {"id": AGENT_ID_PROPERTY}),
-    "sprintengine.roles.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeShadowed": {"type": "boolean"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
-    "sprintengine.roles.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
-    "sprintengine.soul.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "runId": {"type": "string"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
+    "sprintengine.roles.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeShadowed": {"type": "boolean"}}),
+    "sprintengine.roles.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY}),
+    "sprintengine.roles.brief": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "runId": {"type": "string"}}),
+    "sprintengine.soul.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "runId": {"type": "string"}}),
     "sprintengine.skills.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeBody": {"type": "boolean"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
     "sprintengine.skill.get": object_schema(["workspaceRoot", "skillId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "skillId": {"type": "string"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
     "sprintengine.task.get": object_schema(["statePath", "taskId"], {"taskId": TASK_ID_PROPERTY, "include": {"type": "array", "items": {"type": "string", "enum": ["activity", "comments", "evidence_log", "diffs"]}, "description": "Deep-read sections to add to the slim task card."}}),
@@ -346,13 +349,26 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 
+# Override only where the generated 2-4 word description would hide a contract.
+# soul.get is the one-release alias for roles.brief; the note names the replacement
+# and the Studio release that drops it.
+TOOL_DESCRIPTIONS: dict[str, str] = {
+    "sprintengine.soul.get": (
+        f"Deprecated: use sprintengine.roles.brief. Removed in {SOUL_GET_REMOVAL_RELEASE}."
+    ),
+}
+
+
 def list_tool_schemas() -> list[dict[str, Any]]:
     # Tool names are self-descriptive; the generic description stays terse
     # because this text lands in every agent context.
     return [
         {
             "name": name,
-            "description": name.removeprefix("sprintengine.").replace(".", " ").replace("_", " "),
+            "description": TOOL_DESCRIPTIONS.get(
+                name,
+                name.removeprefix("sprintengine.").replace(".", " ").replace("_", " "),
+            ),
             "inputSchema": schema,
         }
         for name, schema in sorted(TOOL_SCHEMAS.items())

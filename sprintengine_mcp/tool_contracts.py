@@ -85,6 +85,7 @@ MCP_TOOL_CONTRACTS: dict[str, McpToolContract] = {
         _command("sprintengine.triage.needs_input", cmd_triage_needs_input),
         _special("sprintengine.roles.list", requires_state_path=False),
         _special("sprintengine.roles.get", requires_state_path=False),
+        _special("sprintengine.roles.brief", requires_state_path=False),
         _special("sprintengine.soul.get", requires_state_path=False),
         _special("sprintengine.skills.list", requires_state_path=False),
         _special("sprintengine.skill.get", requires_state_path=False),

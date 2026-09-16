@@ -175,6 +175,8 @@ def _registry_payload(group: str, action: str, args) -> tuple[str, dict]:
         payload["extraDirs"] = extra_dirs
     if group == "roles" and action == "list":
         return "sprintengine.roles.list", {**payload, "includeShadowed": bool(args.include_shadowed)}
+    if group == "roles" and action == "brief":
+        return "sprintengine.roles.brief", {**payload, "roleId": args.role, "runId": args.run_id or ""}
     if group == "role" and action == "get":
         return "sprintengine.roles.get", {**payload, "roleId": args.role}
     if group == "soul" and action == "get":

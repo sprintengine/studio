@@ -339,7 +339,8 @@ Discovery names:
 
 - `sprintengine.roles.list`
 - `sprintengine.roles.get`
-- `sprintengine.soul.get`
+- `sprintengine.roles.brief`
+- `sprintengine.soul.get` (deprecated alias for `roles.brief`; removed in 0.5.0)
 - `sprintengine.skills.list`
 - `sprintengine.skill.get`
 
