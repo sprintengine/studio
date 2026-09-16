@@ -153,33 +153,16 @@ export type AgentState = {
   // (resolveCliReasoning), so it is always a level this agent's CLI accepts.
   cliReasoning?: string
   cliPermissionPreset?: CliPermissionPreset
-  // Explicit per-agent runtime override (MC-1450). Wins over the run's
-  // per-role `roleRuntimes` config on every reconcile and spawn — set by the
-  // board's per-agent CLI/model picker and by creation-time per-agent CLI
-  // overrides. `model: null` means "explicitly the CLI default" (suppresses a
-  // role-configured model); an absent field falls through to the role config.
-  // `reasoning` layers identically for the effort level (MC-1885).
-  // Without this marker the reconcile could not tell a user's mid-run pick
-  // from a stale snapshot and would revert the pick on the next projection.
-  cliRuntimeOverride?: { cli?: AgentCli; model?: string | null; reasoning?: string | null }
-  // The runtime the live terminal was actually launched with, stamped at spawn
-  // success (TerminalView). The record's `cli`/`cliModel` can be re-stamped by
-  // a later config edit, so they reflect the NEW config while the running
-  // session still uses the old one; this stamp preserves what the session is
-  // really on, powering the "on <old model>" divergence label and restart
-  // offer. Never cleared on exit — consumers must gate on terminal liveness.
-  cliLaunchedRuntime?: { cli?: AgentCli; model?: string | null }
   // Orthogonal Debug Mode toggle (the agent picker). Set per-spawn from the
   // transient spawn-UI state; the launch boundary prepends the debug directive
   // to the initial prompt when true. Not persisted-by-default UI: defaults off
   // each spawn, but recorded on the agent so the launch path can read it.
   debugMode?: boolean
   cliStartupPrompt?: string
-  // Last user edit to renderer-owned per-agent config (cliRuntimeOverride,
-  // name, cliStartupPrompt), stamped by the store's updateAgent. The main
-  // scheduler's config merge is last-write-wins on this stamp, so a window
-  // whose store lags the newest edit can never clobber it when it
-  // re-registers its run.
+  // Last user edit to renderer-owned per-agent config (name, cliStartupPrompt,
+  // …), stamped when a window sends a `workspace.update_agent` command. The
+  // workspace registry applies those edits last-write-wins on this stamp, so a
+  // window whose store lags the newest edit can never clobber it.
   configEditedAt?: number
   // Connector chat: a worktree-isolated solo chat scoped to one MCP connector.
   // `connectorMcpSettings` is the connector-only MCP config the spawn forwards

@@ -1193,10 +1193,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           const successContext = currentContext()
           successContext.updateAgent(workspaceId, agentId, {
             cliHasLaunched: true,
-            // What this session actually launched with (the spawn metadata's
-            // cli/model above) — the roster's divergence label compares it to
-            // the record's reconciled runtime after mid-run role edits.
-            cliLaunchedRuntime: { cli: finalAgent.cli, model: finalAgent.cliModel ?? null },
             ...(agentCliSupportsConversationResume(finalResumeCaps)
               ? {
                   cliResumeAvailable: true,
