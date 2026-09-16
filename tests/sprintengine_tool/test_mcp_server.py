@@ -225,6 +225,11 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
     listed = SprintEngineMcpServer().list_tools()
     assert {tool["name"] for tool in listed} == expected
     assert all("inputSchema" in tool for tool in listed)
+    # One object, two names: a later edit to one advertised schema cannot leave
+    # the other behind.
+    assert TOOL_SCHEMAS["sprintengine.roles.brief"] is TOOL_SCHEMAS["sprintengine.soul.get"]
+    listed_by_name = {tool["name"]: tool for tool in listed}
+    assert listed_by_name["sprintengine.roles.brief"]["inputSchema"] is listed_by_name["sprintengine.soul.get"]["inputSchema"]
 
 
 def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> None:

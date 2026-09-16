@@ -119,6 +119,12 @@ def object_schema(required: list[str], properties: dict[str, Any]) -> dict[str, 
     }
 
 
+ROLE_BRIEF_INPUT_SCHEMA = object_schema(
+    ["workspaceRoot", "roleId"],
+    {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "runId": {"type": "string"}},
+)
+
+
 def feedback_properties() -> dict[str, Any]:
     properties: dict[str, Any] = {}
     percent_schema = {"type": "integer", "minimum": 0, "maximum": 100}
@@ -274,8 +280,11 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.triage.needs_input": object_schema(["statePath", "id"], {"id": AGENT_ID_PROPERTY}),
     "sprintengine.roles.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeShadowed": {"type": "boolean"}}),
     "sprintengine.roles.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY}),
-    "sprintengine.roles.brief": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "runId": {"type": "string"}}),
-    "sprintengine.soul.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "runId": {"type": "string"}}),
+    # One schema object, two names: soul.get is the one-release alias and must
+    # not be able to drift from roles.brief (MC-2508). extra fields such as
+    # pluginRegistryRoots stay accepted via additionalProperties.
+    "sprintengine.roles.brief": ROLE_BRIEF_INPUT_SCHEMA,
+    "sprintengine.soul.get": ROLE_BRIEF_INPUT_SCHEMA,
     "sprintengine.skills.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeBody": {"type": "boolean"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
     "sprintengine.skill.get": object_schema(["workspaceRoot", "skillId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "skillId": {"type": "string"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
     "sprintengine.task.get": object_schema(["statePath", "taskId"], {"taskId": TASK_ID_PROPERTY, "include": {"type": "array", "items": {"type": "string", "enum": ["activity", "comments", "evidence_log", "diffs"]}, "description": "Deep-read sections to add to the slim task card."}}),
