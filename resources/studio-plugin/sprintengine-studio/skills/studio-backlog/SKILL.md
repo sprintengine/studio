@@ -47,9 +47,9 @@ guessed `criticality` is worse than none. `risk` is a separate axis from
 Three groups are the app's to write, never yours. **`id:`** is a workspace-global
 integer allocated once and never changed — omit it and the scan assigns one; the
 `KEY-<id>` shown in the panel is composed from it at render time. **`updated:`**
-is a precise UTC instant stamped on every real mutation. And `sprints`, `pr`,
-`starred` and `highlight` are written when a sprint runs, a pull request opens,
-or somebody stars the row.
+is a precise UTC instant stamped on every real mutation. And `pr`, `starred`
+and `highlight` are written when a pull request opens or somebody stars the
+row.
 
 On an epic file, `dependenciesPlanned: true` is the one extra field.
 
