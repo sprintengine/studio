@@ -216,9 +216,8 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // tier it was already sitting on. What remains on this axis is in-flow depth
   // inside a pane, not overlay layering.
   z: {
-    // 6 → 5, 2026-09-08: the annotate overlay's in-flow layer changed address
-    // when the HTML artifact frame moved out of the deleted Design Wizard's
-    // folder (see `components/htmlArtifact` below). Banked, not headroom.
+    // 6 → 5, 2026-09-08: the annotate overlay's in-flow layer moved out with
+    // the HTML artifact frame; the overlay itself was deleted 2026-09-16.
     'components/workspace': 5,
     // 10 → 9: FileExplorer's in-flow error toast (and its z-10) moved to the
     // app's one toast region (remote-sessions-ux / toast-host-region).
@@ -226,10 +225,6 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // with its door (a70ba0931).
     'components/panels': 6, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     'components/ui': 1,
-    // New directory, 2026-09-08 — a MOVE out of `components/workspace`, not a
-    // regression: the annotate overlay left the deleted Design Wizard's folder
-    // with the rest of the HTML artifact frame. See the icon axis note below.
-    'components/htmlArtifact': 1,
     'components/memory': 1,
     'components/auxWindows': 1,
   },
@@ -290,9 +285,8 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // headroom for the next off-ramp.
     'components/ui': 8, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     // New directory, 2026-09-08 — a MOVE, not a regression. The Design Wizard
-    // was deleted; the generated-HTML artifact frame and its annotate mode
-    // survived it (the Backlog mockup surfaces are its real consumers) and
-    // moved out of the wizard's
+    // was deleted; the generated-HTML artifact frame survived it (the Backlog
+    // mockup surfaces are its real consumers) and moved out of the wizard's
     // folder to `components/htmlArtifact`. Its off-ramps changed address out of
     // `components/workspace`, which drops by the same amount below.
     'components/htmlArtifact': 3, // 2026-09-08: the second swap

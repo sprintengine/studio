@@ -16,8 +16,8 @@ import { TruncatedText } from './TruncatedText'
 /**
  * The iframe sandbox token for this card's inert thumbnail. Scripts are off and
  * `allow-same-origin` is never granted, so generated HTML never receives
- * same-origin privileges. The interactive frame's own opt-in lives beside it,
- * in `htmlArtifact/annotate/annotateModel.ts`, under the same rule.
+ * same-origin privileges. The interactive frame's own opt-in lives in
+ * `htmlArtifact/HtmlArtifactFrame.tsx`, under the same rule.
  */
 function htmlArtifactFrameSandbox(allowScripts: boolean): string {
   return allowScripts ? 'allow-scripts' : ''

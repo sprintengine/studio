@@ -338,13 +338,6 @@
   --git-count-badge-bg: #fcc030;
   --git-count-badge-ink: #1c1408;
 
-  /* Annotate-mode pin badge (numbered pending-note pins over a mockup preview,
-     MC-1468). Same self-contained fixed fill+ink approach as the git count
-     badge: --tone-warn flips between light amber (dark themes) and dark amber
-     (light theme), so no single borrowed ink stays legible on it. */
-  --annotate-pin-bg: #fcc030;
-  --annotate-pin-ink: #1c1408;
-
   /* Diff palette — file-status marks in Git surfaces, the +N/-N counts, and
      the diff window's line and word washes.
 

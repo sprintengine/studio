@@ -1,7 +1,6 @@
 {
   "$comment": "Raw <button>/<input>/<textarea> that predate the no-raw-primitive rule, per renderer area. ONLY EVER EDIT DOWNWARD — an area over its number fails the lint, an area under it fails too (write the smaller number), and an area absent here fails on its first raw element. The exit condition is an empty object. See the rule (h) header in scripts/lint-primitive-duplication.mjs.",
   "counts": {
-    "components/htmlArtifact": 1,
     "components/panels": 1,
     "components/workspace": 2
   }
