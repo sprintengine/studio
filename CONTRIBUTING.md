@@ -60,8 +60,13 @@ npm run verify:app                          # everything CI runs, in one command
 lints, the test suite, the SDK drift and pack checks, and the feed seed
 checks. Run it before you open a pull request. It is the same command CI runs.
 
-There is one suite. Everything under `src/`, `scripts/` and `packages/` is
-tested by `npm run test`; `tests/` holds only the fixtures those tests read.
+There is one suite, with no Python half. `npm run test` discovers and runs
+every `*.test.ts` and `*.test.tsx` under `src/`, `packages/`,
+`resources/marketplace/` and `validation/`; the few it holds back are named on
+every run (`scripts/testing/test-profiles.json`). The release-script tests
+under `scripts/release/` run as `npm run test:release`, and the lint guard
+probes as part of `npm run lint` — both are in `verify:app`. `tests/` holds
+only the fixtures those tests read.
 
 While you are iterating, `node scripts/testing/run-tests.mjs <file>` is much
 faster than the whole suite — pass a path or just part of a test file's name.

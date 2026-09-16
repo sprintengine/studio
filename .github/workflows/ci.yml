@@ -80,7 +80,7 @@ jobs:
         run: npm run build
 
   # What the JS gate covers, and why: `verify:app` -- the repo's OWN full-app
-  # verification chain: typecheck, the six design lints plus the guard probes
+  # verification chain: typecheck, the five design lints plus the guard probes
   # that prove those lints still bite, the whole unit suite, the SDK/feed guards
   # and the release-script tests. It is named whole rather than curated: a
   # hand-maintained subset is how the gate once shrank to one script. `npm run

@@ -196,8 +196,8 @@ done that day.
 - Settings -> Actions -> General: set fork pull request workflows to require
   approval for all outside collaborators.
 - `ci.yml` starts running on every pull request and push to `main` by itself --
-  its jobs skip only while the repository is private. Make `Build`, `JS tests`
-  and `Python tests` required checks on `main` in the branch protection rules.
+  its jobs skip only while the repository is private. Make `Build` and
+  `JS tests` required checks on `main` in the branch protection rules.
 - Set the repository variable `PREVIEW_SCHEDULE` to `enabled` to turn on the
   six-hourly preview builds.
 - The `preview:mac` label (`desktop-preview.yml`) builds a DMG for pull
