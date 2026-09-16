@@ -294,12 +294,12 @@ assert.deepEqual(
 const CHAT = { verb: 'open.chat' as const, prompt: 'Do the thing this card is about.', send: true }
 const FEED: HostedCard[] = [
   {
-    slug: 'workflows',
-    kind: 'workflow',
+    slug: 'big-task',
+    kind: 'automation',
     title: 'Big task? No problem.',
-    dek: 'Hand it something too big for one sitting and watch the board.',
+    dek: 'Hand it something too big for one sitting and let it run.',
     credit: 'Automations',
-    art: 'board',
+    art: 'split',
     publishedAt: '2026-09-01T00:00:00.000Z',
     hero: true,
     go: [CHAT],
@@ -401,7 +401,7 @@ assert.ok(
 
 // The stamp, the sentences and the credit — Frame 2’s anatomy, in the DOM.
 for (const [title, stamp, credit] of [
-  ['Big task? No problem.', 'Workflow', 'Automations'],
+  ['Big task? No problem.', 'Automation', 'Automations'],
   ['Let an agent drive your browser', 'MCP server', 'Playwright'],
   ['Build a 3D apocalypse of your own street', 'Showcase', 'Unreal Engine'],
 ]) {
@@ -446,14 +446,14 @@ for (const button of cardButtons()) {
     'the accessible name leads with the visible label and then says which card it belongs to',
   )
 }
-// This hero is a `workflow` card that opens a chat, so its kind names the offer.
+// This hero is an `automation` card that opens a chat, so its kind names the offer.
 // The other direction — a card whose actions only navigate, which must say so
 // whatever its stamp claims — is the pure function's own business and is
 // asserted in homeCards.test.ts, where it needs no DOM.
 const heroButton = cardButtons().find((button) =>
   (button.getAttribute('aria-label') ?? '').endsWith('Big task? No problem.'),
 )
-assert.equal(heroButton?.textContent?.trim(), 'Start', 'the word is the offer the card makes')
+assert.equal(heroButton?.textContent?.trim(), 'Create', 'the word is the offer the card makes')
 const accented = cardButtons().filter((button) =>
   (button.getAttribute('class') ?? '').includes('var(--accent-primary)'),
 )
@@ -643,7 +643,7 @@ async function main(): Promise<void> {
       { cli: 'claude-code', model: MODEL, reasoning: null, permissionPreset: 'auto' },
       'and it runs on THAT row — its cli, its model, and the preset stored against it rather than the app-wide default',
     )
-    assert.equal(ran[0]?.slug, 'workflows', 'on the card whose Go was pressed')
+    assert.equal(ran[0]?.slug, 'big-task', 'on the card whose Go was pressed')
     assert.equal(picker(), null, 'the popover closes on the choice; there is nothing to confirm afterwards')
 
     // Every Go is disabled while a run is in flight, because a button that looks
@@ -910,21 +910,21 @@ async function main(): Promise<void> {
   // no browser globals at all and this predicate's module reaches the store.
   //
   // The case worth writing down is the LAST one: `kind` is the word on the
-  // stamp, and the schema lets a showcase card open a chat exactly as it lets a
-  // workflow card open a surface. A gate keyed on `kind` would pass every
+  // stamp, and the schema lets a showcase card open a chat exactly as it lets an
+  // automation card open a surface. A gate keyed on `kind` would pass every
   // assertion above and put a plain button in front of an agent launch.
   const asCard = (kind: HostedCard['kind'], go: HostedCard['go']): HostedCard => ({
     slug: 'probe',
     kind,
     title: 'Probe',
     dek: 'Probe.',
-    art: 'board',
+    art: 'split',
     publishedAt: '2026-09-06T00:00:00.000Z',
     go,
   })
-  assert.equal(cardRunsAModel(asCard('workflow', [])), false, 'no actions at all runs no model')
+  assert.equal(cardRunsAModel(asCard('automation', [])), false, 'no actions at all runs no model')
   assert.equal(
-    cardRunsAModel(asCard('workflow', [{ verb: 'open.surface', view: 'agent-clis' }])),
+    cardRunsAModel(asCard('automation', [{ verb: 'open.surface', view: 'agent-clis' }])),
     false,
     'opening a door runs no model — this is the shipped hero',
   )
@@ -934,7 +934,7 @@ async function main(): Promise<void> {
     'and installing a server runs no model either',
   )
   assert.equal(
-    cardRunsAModel(asCard('workflow', [{ verb: 'require.cli', cli: 'claude-code' }, CHAT])),
+    cardRunsAModel(asCard('automation', [{ verb: 'require.cli', cli: 'claude-code' }, CHAT])),
     true,
     'a card that ends in a chat runs one',
   )
@@ -962,10 +962,10 @@ async function main(): Promise<void> {
       cards: [
         {
           slug: 'opens-a-door',
-          kind: 'workflow' as const,
+          kind: 'automation' as const,
           title: 'Big task? No problem.',
           dek: 'Its whole go is one open.surface, exactly as the shipped hero’s is.',
-          art: 'board',
+          art: 'split',
           publishedAt: '2026-09-01T00:00:00.000Z',
           hero: true,
           go: [{ verb: 'open.surface' as const, view: 'agent-clis' as const }],

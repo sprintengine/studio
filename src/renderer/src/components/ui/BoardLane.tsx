@@ -7,6 +7,10 @@ import { TruncatedText } from './TruncatedText'
 // default) with a header, a FLIP-animated scrollable list, and optional
 // drag-and-drop.
 //
+// No surface renders a board today. The primitive is kept, with its catalog
+// entry (design-system/components/board-lane), so a future module's board is
+// built from — and compared against — the design system.
+//
 // The lane primitive owns:
 //   - The flex column section (`flex-1` with a caller-set `minWidth` floor)
 //   - The header rhythm (label + optional glyph + count)
@@ -26,7 +30,7 @@ import { TruncatedText } from './TruncatedText'
 //   - Empty-state copy (caller renders the empty placeholder as one of the
 //     children when the records list is empty)
 //
-// A gate-driven board passes no `dnd` prop. A lane that
+// A board whose cards move on their own passes no `dnd` prop. A lane that
 // participates in drag-and-drop passes the three handlers and renders
 // DropIndicator children at the computed index. The visual state prop maps to:
 //   default            — no special chrome

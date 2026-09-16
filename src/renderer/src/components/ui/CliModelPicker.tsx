@@ -8,8 +8,8 @@ import { Tooltip } from './Tooltip'
 import { FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS } from './tokens'
 import { ReasoningSelector, hasContextWindows, hasReasoningAxes, hasReasoningLevels, reasoningTriggerLabel } from './ReasoningSelector'
 import {
+  isLegacyCompositionKey,
   modelFavouriteKey,
-  parseModelFavouriteKey,
   toggleModelFavourite,
   useModelFavourites,
 } from './modelFavourites'
@@ -42,10 +42,6 @@ import { isRecentRelease } from '../../../../shared/hosted-model-feed'
 // they open it from a composer row, a wizard step, a roster band, or a door bar.
 
 const QUICK_SELECT_LIMIT = 9
-
-// The key the pinned "no runtime" row navigates under. Sentinel-shaped for the
-// same reason FAVOURITES_FILTER is: it shares an index space with model keys.
-const NONE_ROW_KEY = '__none__'
 
 // The starred rail entry. Sentinel-shaped so it cannot collide with a plugin id.
 const FAVOURITES_FILTER = '__starred__'
@@ -86,22 +82,8 @@ export type PickerRailExtra = {
   emptyLabel?: string
 }
 
-/** The role a star captures alongside the model, on hosts that compose (MC-2122). */
-export type PickerComposition = {
-  /** The role the host's footer currently sets; null spawns roleless. */
-  role: { id: string; label: string } | null
-  /**
-   * The label for a role id read back out of a stored favourite. Returns null
-   * when that role is no longer installed, and the combo is withheld rather
-   * than rendered as a row whose spawn could not run.
-   */
-  roleLabel: (roleId: string) => string | null
-}
-
-// One rendered list entry: a model row, plus the role this particular entry
-// composes it with. Under a provider filter that role is the footer's; under
-// the ★ filter each entry IS one stored composition and carries its own.
-type VisibleEntry = { row: ModelRow; role: { id: string; label: string } | null; key: string }
+// One rendered list entry: a model row under the key its star is stored as.
+type VisibleEntry = { row: ModelRow; key: string }
 
 type ModelRow = {
   key: string
@@ -205,12 +187,10 @@ export function CliModelPopoverSurface({
   onSelectModel,
   showReasoning = false,
   reasoningAriaLabel,
-  noneRow,
   railExtras,
   groupNote,
   footer,
   permissions,
-  composition,
 }: {
   ariaLabel: string
   options: ReadonlyArray<CliRuntimeOption>
@@ -219,14 +199,8 @@ export function CliModelPopoverSurface({
   /** Opt-in effort support: both accessors must be set for the Reasoning group to appear. */
   effectiveReasoningFor?: (cli: AgentCli) => string | undefined
   onSelectReasoning?: (cli: AgentCli, reasoning: string | null) => void
-  /**
-   * `role` is the composition the picked row carries (MC-2122): the role a
-   * spawn host launches this runtime as. It is the footer's role on an ordinary
-   * row and the star's own role on a ★ composition row; hosts that only pick a
-   * runtime ignore it.
-   */
-  onSelectCli: (cli: AgentCli, role?: string | null) => void
-  onSelectModel: (cli: AgentCli, model: string | null, role?: string | null) => void
+  onSelectCli: (cli: AgentCli) => void
+  onSelectModel: (cli: AgentCli, model: string | null) => void
   /**
    * Render the reasoning selector as a trailing row of this surface. This is
    * where the axes live for every host that opens the picker from a trigger;
@@ -240,16 +214,6 @@ export function CliModelPopoverSurface({
    * reader hears which agent the level applies to rather than a bare axis name.
    */
   reasoningAriaLabel?: string
-  /**
-   * An opt-in row pinned above the models, for hosts where "no runtime at all" is
-   * a real choice rather than an empty one (MC-2129's Planning agent: with None,
-   * the epic is the plan and nothing plans it again). Absent everywhere else, so
-   * a picker that must always resolve to a runtime cannot offer an escape from it.
-   *
-   * Hidden while searching: a query is asking for a model by name, and a pinned
-   * row that matches nothing typed is noise in the results.
-   */
-  noneRow?: { label: string; description?: string; selected: boolean; onSelect: () => void }
   /** Non-model ways in, on the rail below a divider. See PickerRailExtra. */
   railExtras?: ReadonlyArray<PickerRailExtra>
   /**
@@ -265,8 +229,7 @@ export function CliModelPopoverSurface({
    */
   groupNote?: { cli: AgentCli; note: string }
   /**
-   * The host's own cluster at the LEADING end of the trailing row (the spawn
-   * picker's role and ⋯ controls). Bare controls, not a band: this surface owns
+   * The host's own cluster at the LEADING end of the trailing row. Bare controls, not a band: this surface owns
    * the row's border and padding so permissions, effort and the host's controls
    * cannot land on separate lines. Withheld while a rail extra is active,
    * because nothing it configures applies to a shell or a conversation.
@@ -280,8 +243,6 @@ export function CliModelPopoverSurface({
    * roster row's flyout) pass none.
    */
   permissions?: React.ReactNode
-  /** Opt-in model+role stars. See PickerComposition. */
-  composition?: PickerComposition
 }): JSX.Element {
   const favourites = useModelFavourites()
   const favouriteSet = React.useMemo(() => new Set(favourites), [favourites])
@@ -312,27 +273,18 @@ export function CliModelPopoverSurface({
     [options, currentCli, effectiveModelFor],
   )
   const rowByKey = React.useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows])
-  const footerRole = composition?.role ?? null
-  const roleLabel = composition?.roleLabel
   // Every stored star that still resolves on this machine, in the order they
-  // were starred. A composition whose role is no longer installed is dropped
-  // rather than rendered: its one click could not spawn what the row names.
+  // were starred. A legacy model+role star is skipped: there is no role to
+  // spawn it as.
   const starredEntries = React.useMemo<VisibleEntry[]>(() => {
     const entries: VisibleEntry[] = []
     for (const key of favourites) {
-      const { baseKey, role } = parseModelFavouriteKey(key)
-      const row = rowByKey.get(baseKey)
-      if (!row) continue
-      if (!role) {
-        entries.push({ row, role: null, key })
-        continue
-      }
-      const label = roleLabel?.(role)
-      if (!label) continue
-      entries.push({ row, role: { id: role, label }, key })
+      if (isLegacyCompositionKey(key)) continue
+      const row = rowByKey.get(key)
+      if (row) entries.push({ row, key })
     }
     return entries
-  }, [favourites, rowByKey, roleLabel])
+  }, [favourites, rowByKey])
   const hasFavourites = starredEntries.length > 0
 
   const extras = railExtras ?? []
@@ -358,8 +310,7 @@ export function CliModelPopoverSurface({
   const activeExtra = !searching && filterIsLive ? extraForFilter : null
   const composeEntry = (row: ModelRow): VisibleEntry => ({
     row,
-    role: footerRole,
-    key: modelFavouriteKey(row.cli, row.model, footerRole?.id),
+    key: modelFavouriteKey(row.cli, row.model),
   })
   const visible: VisibleEntry[] = activeExtra
     ? []
@@ -377,10 +328,7 @@ export function CliModelPopoverSurface({
     if (row.family) return row.family.variants.some((variant) => variant.id === effectiveModel)
     return row.model === effectiveModel
   }
-  // The CURRENT runtime is a plain model, never a composition: a ★ row that
-  // spawns "Fable 5 as Architect" is a saved way in, not the runtime this
-  // surface is currently set to.
-  const selectedRowIndex = visible.findIndex((entry) => !entry.role && isSelected(entry.row))
+  const selectedRowIndex = visible.findIndex((entry) => isSelected(entry.row))
 
   // ── the keyboard model (MC-2134) ─────────────────────────────────────────
   //
@@ -399,26 +347,14 @@ export function CliModelPopoverSurface({
   // it.
   const [activeKey, setActiveKey] = React.useState<string | null>(null)
   const activeRowRef = React.useRef<HTMLDivElement | null>(null)
-  // The pinned "no runtime" row belongs to the model list: under a rail extra
-  // there is no runtime being chosen at all, so pinning "None" above a list of
-  // shells would offer a choice that means nothing there.
-  const showNoneRow = Boolean(noneRow) && !searching && !activeExtra
   type NavRow =
-    | { key: string; kind: 'none' }
     | { key: string; kind: 'model'; entry: VisibleEntry }
     | { key: string; kind: 'extra'; row: PickerExtraRow }
   const navRows: NavRow[] = [
-    ...(showNoneRow ? [{ key: NONE_ROW_KEY, kind: 'none' as const }] : []),
     ...visible.map((entry) => ({ key: entry.key, kind: 'model' as const, entry })),
     ...extraRows.map((row) => ({ key: row.key, kind: 'extra' as const, row })),
   ]
-  const navSelectedIndex = showNoneRow
-    ? noneRow?.selected
-      ? 0
-      : selectedRowIndex < 0
-        ? -1
-        : selectedRowIndex + 1
-    : selectedRowIndex
+  const navSelectedIndex = selectedRowIndex
   const activeIndex = ((): number => {
     const held = activeKey ? navRows.findIndex((entry) => entry.key === activeKey) : -1
     if (held >= 0) return held
@@ -433,23 +369,20 @@ export function CliModelPopoverSurface({
     activeRowRef.current?.scrollIntoView?.({ block: 'nearest' })
   }, [activeIndex])
 
-  // The role a chosen row carries: its own on a ★ composition, the footer's on
-  // every other row, and nothing at all on a host that does not compose.
-  const choose = ({ row, role }: VisibleEntry): void => {
-    const roleId = role?.id ?? null
+  const choose = ({ row }: VisibleEntry): void => {
     if (row.model === null) {
       const option = options.find((entry) => entry.value === row.cli)
-      if (option?.modelSelection) onSelectModel(row.cli, null, roleId)
-      else onSelectCli(row.cli, roleId)
+      if (option?.modelSelection) onSelectModel(row.cli, null)
+      else onSelectCli(row.cli)
       return
     }
     // Re-choosing the family that is already selected must not silently drop
     // the context window the user picked on it.
-    if (!role && isSelected(row) && effectiveModel) {
-      onSelectModel(row.cli, effectiveModel, roleId)
+    if (isSelected(row) && effectiveModel) {
+      onSelectModel(row.cli, effectiveModel)
       return
     }
-    onSelectModel(row.cli, row.model, roleId)
+    onSelectModel(row.cli, row.model)
   }
 
   // ⌘1–⌘9 pin to the first nine rows of the CURRENT filter, so the chord a row
@@ -472,8 +405,7 @@ export function CliModelPopoverSurface({
     const nav = navRows[index]
     if (!nav) return
     if (nav.kind === 'model') choose(nav.entry)
-    else if (nav.kind === 'extra') nav.row.onSelect()
-    else noneRow?.onSelect()
+    else nav.row.onSelect()
   }
 
   // True when the caret has nothing left to its right, so a horizontal key is
@@ -669,18 +601,6 @@ export function CliModelPopoverSurface({
           aria-label={ariaLabel}
           className="max-h-[300px] min-h-0 flex-1 overflow-y-auto p-1"
         >
-          {showNoneRow && noneRow ? (
-            <NoneRowView
-              id={optionId(0)}
-              rowRef={activeIndex === 0 ? activeRowRef : undefined}
-              label={noneRow.label}
-              description={noneRow.description}
-              selected={noneRow.selected}
-              active={activeIndex === 0}
-              onHighlight={() => setActiveKey(NONE_ROW_KEY)}
-              onSelect={noneRow.onSelect}
-            />
-          ) : null}
           {activeExtra
             ? extraRows.length === 0
               ? (
@@ -689,7 +609,7 @@ export function CliModelPopoverSurface({
                   </p>
                 )
               : extraRows.map((row, index) => {
-                  const navIndex = showNoneRow ? index + 1 : index
+                  const navIndex = index
                   return (
                     <ExtraRowView
                       key={row.key}
@@ -705,31 +625,25 @@ export function CliModelPopoverSurface({
                   )
                 })
             : visible.length === 0 ? (
-                noneRow && !searching ? null : (
-                  <p className="px-2 py-3 text-meta text-[color:var(--text-subtle)]">
-                    {searching ? 'No models match.' : 'No models here yet.'}
-                  </p>
-                )
+                <p className="px-2 py-3 text-meta text-[color:var(--text-subtle)]">
+                  {searching ? 'No models match.' : 'No models here yet.'}
+                </p>
               ) : (
                 visible.map((entry, index) => {
-                  const navIndex = showNoneRow ? index + 1 : index
+                  const navIndex = index
                   return (
                     <ModelRowView
                       key={entry.key}
                       id={optionId(navIndex)}
                       rowRef={activeIndex === navIndex ? activeRowRef : undefined}
                       row={entry.row}
-                      roleTag={entry.role?.label}
-                      selected={!entry.role && isSelected(entry.row)}
+                      selected={isSelected(entry.row)}
                       active={activeIndex === navIndex}
                       chord={index < QUICK_SELECT_LIMIT ? index + 1 : undefined}
                       chordModifier={chordModifier}
                       showProvider={searching || activeFilter === FAVOURITES_FILTER}
                       starred={favouriteSet.has(entry.key)}
                       onHighlight={() => setActiveKey(entry.key)}
-                      // The star captures the row AS COMPOSED: with a role set
-                      // in the footer, starring "Fable 5" saves the pair, and
-                      // the plain model keeps its own separate entry.
                       onToggleStar={() => toggleModelFavourite(entry.key)}
                       onLeaveStar={() => searchRef.current?.focus()}
                       onSelect={() => choose(entry)}
@@ -744,7 +658,7 @@ export function CliModelPopoverSurface({
             on two bordered bands — the permission chip alone on one, the effort
             chip alone on the next. They belong on the same line, so this row owns
             the chrome and the hosts pass bare controls into it: the host's own
-            cluster (role, ⋯) leads, then the two dropdowns that settle the row
+            cluster leads, then the two dropdowns that settle the row
             above: effort on the left, permissions on its right. Same kind of
             control, same line — which is the pairing the two-band layout broke.
 
@@ -842,75 +756,6 @@ function RailButton({
   )
 }
 
-// One model. The row is a `div[role=option]` rather than a `<button>` because it
-// hosts the star's own button, and a button inside a button is invalid.
-//
-// A row is never focused (MC-2134): the search field keeps focus and names the
-// highlighted row through `aria-activedescendant`, so a row carries no tab stop
-// and no key handler of its own. `aria-selected` still marks the CURRENT
-// runtime, which is a different fact from the highlight and outlives it —
-// `data-active` carries the highlight for the tests that assert on it.
-/**
- * The pinned "no runtime" row (MC-2129). Same row geometry and selection
- * treatment as a model row, so the list reads as one list; it carries no CLI
- * glyph because there is no runtime to name, and no star because there is
- * nothing to favourite.
- */
-function NoneRowView({
-  id,
-  rowRef,
-  label,
-  description,
-  selected,
-  active,
-  onHighlight,
-  onSelect,
-}: {
-  id: string
-  rowRef?: React.Ref<HTMLDivElement>
-  label: string
-  description?: string
-  selected: boolean
-  active: boolean
-  onHighlight: () => void
-  onSelect: () => void
-}): JSX.Element {
-  return (
-    <div
-      id={id}
-      ref={rowRef}
-      role="option"
-      aria-selected={selected}
-      data-model-row="true"
-      data-active={active ? 'true' : undefined}
-      onClick={onSelect}
-      onPointerEnter={onHighlight}
-      className={[
-        'interactive flex w-full cursor-pointer items-center gap-2 rounded-sm py-1.5 pl-2 pr-1.5 text-left',
-        // The highlight is `--bg-hover`, the same treatment `Select` gives its
-        // own active option — not a second idiom, and not the focus ring, which
-        // belongs to the field that actually holds focus. A row that is both
-        // current and highlighted keeps the stronger `--bg-selected` fill;
-        // nothing is lost, because the row Enter would take is the one already
-        // marked as current.
-        selected
-          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-          : active
-            ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
-            : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
-      ].join(' ')}
-    >
-      <span className="size-icon-sm shrink-0" aria-hidden="true" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-body">{label}</span>
-        {description ? (
-          <span className="block truncate text-micro text-[color:var(--text-subtle)]">{description}</span>
-        ) : null}
-      </span>
-    </div>
-  )
-}
-
 /**
  * One row under a rail extra — a way in that is not a model (the login shell,
  * a conversation provider). Same geometry as a model row so the list reads as
@@ -976,11 +821,18 @@ function ExtraRowView({
   )
 }
 
+// One model. The row is a `div[role=option]` rather than a `<button>` because it
+// hosts the star's own button, and a button inside a button is invalid.
+//
+// A row is never focused (MC-2134): the search field keeps focus and names the
+// highlighted row through `aria-activedescendant`, so a row carries no tab stop
+// and no key handler of its own. `aria-selected` still marks the CURRENT
+// runtime, which is a different fact from the highlight and outlives it —
+// `data-active` carries the highlight for the tests that assert on it.
 function ModelRowView({
   id,
   rowRef,
   row,
-  roleTag,
   selected,
   active,
   chord,
@@ -995,8 +847,6 @@ function ModelRowView({
   id: string
   rowRef?: React.Ref<HTMLDivElement>
   row: ModelRow
-  /** The role this row composes the model with — a ★ composition wears its name. */
-  roleTag?: string
   /** The CURRENT runtime — a persistent fact, not the keyboard highlight. */
   selected: boolean
   /** The keyboard highlight: this row is the search field's `aria-activedescendant`. */
@@ -1040,14 +890,6 @@ function ModelRowView({
           <span className={`truncate text-body ${row.mono ? 'font-mono text-meta' : ''}`} title={row.name}>
             {row.name}
           </span>
-          {/* The role a starred composition spawns as. A tag, not a second
-              line: the line below already belongs to the runtime, and the role
-              is part of what this row IS. */}
-          {roleTag ? (
-            <span className="shrink-0 whitespace-nowrap rounded-[3px] border border-[color:var(--accent-primary)]/40 bg-[color:var(--accent-primary-soft)] px-1.5 text-micro leading-[1.5] text-[color:var(--accent-primary)]">
-              {roleTag}
-            </span>
-          ) : null}
           {/* "New": the hosted feed released this model in the last 30 days —
               the same rule the website uses. A chip, not a hoist: the row stays
               where the catalog put it so a muscle-memory pick still lands. The
@@ -1079,7 +921,7 @@ function ModelRowView({
         type="button"
         data-model-star="true"
         aria-pressed={starred}
-        aria-label={`${starred ? 'Unstar' : 'Star'} ${row.name}${roleTag ? ` as ${roleTag}` : ''}`}
+        aria-label={`${starred ? 'Unstar' : 'Star'} ${row.name}`}
         tabIndex={-1}
         onClick={(event) => {
           event.stopPropagation()
@@ -1165,7 +1007,6 @@ export function CliModelPickerButton({
   maxWidthClassName = 'max-w-[220px]',
   onSelectCli,
   onSelectModel,
-  noneOption,
 }: {
   ariaLabel: string
   options: CliRuntimeOption[]
@@ -1189,13 +1030,6 @@ export function CliModelPickerButton({
   maxWidthClassName?: string
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
-  /**
-   * Opt-in "no runtime" choice, pinned first in the menu (MC-2129). When
-   * `selected`, the trigger reads as that choice rather than as a runtime —
-   * the row's VALUE is the whole control, so "None" must be legible without
-   * a badge or sub-copy beside it.
-   */
-  noneOption?: { label: string; description?: string; selected: boolean; onSelect: () => void }
 }): JSX.Element | null {
   const [open, setOpen] = React.useState(false)
   const resolvedOptions = options.some((option) => option.value === cli)
@@ -1229,10 +1063,7 @@ export function CliModelPickerButton({
     : selected.hostedVia === 'claude-code'
       ? `${selected.label} · Claude Code`
       : selected.label
-  const isNone = noneOption?.selected === true
-  const runtimeLabel = isNone
-    ? noneOption.label
-    : [runtime, axisLabel].filter(Boolean).join(' · ')
+  const runtimeLabel = [runtime, axisLabel].filter(Boolean).join(' · ')
 
   return (
     <span className="inline-flex min-w-0 shrink-0 items-center gap-0.5">
@@ -1246,7 +1077,7 @@ export function CliModelPickerButton({
         surfaceClassName="overflow-hidden"
         renderTrigger={({ ref, triggerProps, togglePopover }) => (
           <Tooltip
-            content={isNone ? `${ariaLabel}: ${noneOption.label}` : `Agent runtime: ${runtimeLabel}`}
+            content={`Agent runtime: ${runtimeLabel}`}
             wrapperClassName="inline-flex min-w-0"
           >
             <button
@@ -1266,12 +1097,8 @@ export function CliModelPickerButton({
               ].join(' ')}
               {...triggerProps}
             >
-              {isNone ? (
-                <span className="size-icon-sm shrink-0" aria-hidden="true" />
-              ) : (
-                <CliIcon cli={selected.value} className="size-icon-sm shrink-0 text-[color:var(--text-muted)]" />
-              )}
-              <span className="min-w-0 flex-1 truncate">{isNone ? noneOption.label : modelLabel}</span>
+              <CliIcon cli={selected.value} className="size-icon-sm shrink-0 text-[color:var(--text-muted)]" />
+              <span className="min-w-0 flex-1 truncate">{modelLabel}</span>
               <ChevronGlyph
                 className={`shrink-0 text-[color:var(--text-disabled)] ${
                   quiet ? 'opacity-0 transition-opacity group-hover/pill:opacity-100 group-focus-visible/pill:opacity-100' : ''
@@ -1298,19 +1125,6 @@ export function CliModelPickerButton({
             onSelectModel(nextCli, nextModel)
             setOpen(false)
           }}
-          {...(noneOption
-            ? {
-                noneRow: {
-                  label: noneOption.label,
-                  ...(noneOption.description ? { description: noneOption.description } : {}),
-                  selected: isNone,
-                  onSelect: () => {
-                    noneOption.onSelect()
-                    setOpen(false)
-                  },
-                },
-              }
-            : {})}
         />
       </Popover>
     </span>

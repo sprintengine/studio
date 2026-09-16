@@ -77,23 +77,17 @@ async function main(): Promise<void> {
   assert.equal('pluginCatalogStatus' in persisted, false)
   assert.equal('pluginCatalogError' in persisted, false)
 
-  // MC-1766 upgrade path: a profile written before the right-hand aside was
-  // retired still carries its keys, and hydration spreads them onto live state.
-  // Nothing reads them, and the next write must drop them rather than round-trip
-  // a flag that would reopen a column no module claims. The aside column's own
-  // open/width flags are transient too — never written.
+  // The workspace aside column's open/width flags are transient — never
+  // written, even when something has put them on live state.
   useWorkspaceStore.setState((state) => ({
     ...state,
-    sprintEnginesAsideOpen: true,
-    sprintsAsideWidth: 400,
-    sprintsAsideView: { view: 'archived', project: null, sort: 'attention' },
     workspaceAsideOpen: true,
   }) as unknown as WorkspaceStore)
-  const afterRetirement = __workspaceStorePartializeForTests(
+  const withAsideFlags = __workspaceStorePartializeForTests(
     useWorkspaceStore.getState() as WorkspaceStore,
   ) as Record<string, unknown>
-  for (const key of ['sprintEnginesAsideOpen', 'sprintsAsideWidth', 'sprintsAsideView', 'workspaceAsideOpen', 'workspaceAsideWidth']) {
-    assert.equal(key in afterRetirement, false, `${key} must never be persisted`)
+  for (const key of ['workspaceAsideOpen', 'workspaceAsideWidth']) {
+    assert.equal(key in withAsideFlags, false, `${key} must never be persisted`)
   }
 
   // --- T12: background focus re-sync ---------------------------------------

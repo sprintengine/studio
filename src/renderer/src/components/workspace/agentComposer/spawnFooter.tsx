@@ -14,8 +14,8 @@ import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
 // The model picker's footer controls — the row of trailing settings a spawn
 // surface hands `CliModelPopoverSurface` through its `footer` slot.
 //
-// One trigger implementation, so Role, ⋯ and Permissions cannot drift into
-// three chips that merely resemble each other. It lives here rather than inside
+// One trigger implementation, so ⋯ and Permissions cannot drift into two chips
+// that merely resemble each other. It lives here rather than inside
 // any one host because three surfaces now open the picker: the New chat launch
 // surface, the spawn picker, and a Backlog item's "Hand to agent".
 

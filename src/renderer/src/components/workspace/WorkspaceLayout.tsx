@@ -132,7 +132,6 @@ type TabMenuState = {
   currentColor: HighlightColor | null
 }
 
-const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 /**
  * A tab's leading identity chip: a 16px plate carrying a 14px glyph. Several
  * tab kinds wear it — remote machine, a module panel, the CLI brand — and they
@@ -493,18 +492,8 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       const config = node.getConfig() as { agentId?: string } | undefined
       const agentId = config?.agentId ?? node.getId()
       const agent = workspaceAgents[agentId]
-      const currentClassName = node.getClassName() ?? ''
-      const classNames = currentClassName.split(/\s+/).filter(Boolean)
-      const nextClassNames = classNames.filter((className) => className !== AGENT_TAB_NEEDS_INPUT_CLASS)
       if (agent?.name && node.getName() !== agent.name) {
         model.doAction(Actions.renameTab(node.getId(), agent.name))
-      }
-
-      const nextClassName = Array.from(new Set(nextClassNames)).join(' ')
-      if (nextClassName !== currentClassName) {
-        model.doAction(Actions.updateNodeAttributes(node.getId(), {
-          className: nextClassName,
-        }))
       }
     })
   }, [workspaceAgents])
@@ -902,8 +891,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
     const nextConfig = { ...(node.getConfig() ?? {}), highlightColor: nextColor }
 
     // Preserve any existing non-highlight class names on the tab while we
-    // replace the tab-highlight-* class. Other classes here include
-    // `agent-tab-needs-input`.
+    // replace the tab-highlight-* class.
     const existingClassName = node.getClassName() ?? ''
     const baseClassNames = existingClassName
       .split(/\s+/u)
@@ -1266,14 +1254,9 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       )
 
       // Everything needed to identify this agent, surfaced in the hover/focus
-      // popout wrapping the tab content. Role glyph stays the at-rest signal;
-      // the popout carries the exact model, the session id, and the
-      // conversation itself.
-      //
-      // No role line any more (2026-09-07): it read "No role" for almost every
-      // agent, and the role glyph the tab already wears says it for the ones it
-      // did not. No runtime line either — it repeated the mark on the tab — and
-      // no checkout line, which repeated the branch on the topbar.
+      // popout wrapping the tab content: the exact model, the session id, and
+      // the conversation itself. No runtime line — it repeated the mark on the
+      // tab — and no checkout line, which repeated the branch on the topbar.
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then the honest recency source
@@ -1312,7 +1295,6 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         : undefined
       const agentIdentity: AgentTabIdentity = {
         name: agent?.name ?? node.getName(),
-        taskId: null,
         status: identityStatus,
         agent: {
           // A tab whose agent main has no SESSION for still gets a card: the id

@@ -202,7 +202,7 @@ run('an empty feed is an empty grid, and says nothing about why', () => {
 // ── The stamp ────────────────────────────────────────────────────────────────
 
 run('every kind the schema knows has a word on its stamp', () => {
-  const kinds: HostedCardKind[] = ['mcp', 'skill', 'plugin', 'workflow', 'automation', 'showcase']
+  const kinds: HostedCardKind[] = ['mcp', 'skill', 'plugin', 'automation', 'showcase']
   for (const kind of kinds) {
     const label = cardStampLabel(kind)
     assert.ok(label && label.length > 0, `${kind} has a stamp`)
@@ -281,13 +281,13 @@ console.log('homeCards.test.ts: ok')
 // a card could lie about what it is about to do, and no parser could check it.
 {
   const card = (kind: HostedCardKind, go: HostedCard['go']): HostedCard => ({
-    slug: 'x', kind, title: 't', dek: 'd', art: 'board', publishedAt: '2026-09-06', go,
+    slug: 'x', kind, title: 't', dek: 'd', art: 'split', publishedAt: '2026-09-06', go,
   })
   const CHAT = { verb: 'open.chat' as const, prompt: 'p', send: true }
 
   // Every kind has a word, and the table is keyed on the union so a kind added
   // to the schema is a typecheck failure rather than a button with nothing in it.
-  for (const kind of ['mcp', 'skill', 'plugin', 'workflow', 'automation', 'showcase'] as const) {
+  for (const kind of ['mcp', 'skill', 'plugin', 'automation', 'showcase'] as const) {
     const label = cardActionLabel(card(kind, [CHAT]))
     assert.ok(label.length > 0, `${kind}: has a word`)
     assert.notEqual(label, 'Go', `${kind}: and it is not "Go"`)
@@ -295,10 +295,10 @@ console.log('homeCards.test.ts: ok')
   assert.equal(cardActionLabel(card('plugin', [CHAT])), 'Install', 'a plugin card offers an install')
   assert.equal(cardActionLabel(card('automation', [CHAT])), 'Create', 'an automation card creates one')
 
-  // The ACTIONS outrank the kind. The shipped hero is why: its kind is
-  // `workflow`, so the kind alone would say "Start" — and it starts nothing.
+  // The ACTIONS outrank the kind: a showcase card's kind alone would say
+  // "See it", and a card that only opens a door shows nothing.
   assert.equal(
-    cardActionLabel(card('workflow', [{ verb: 'open.surface', view: 'skills' }])),
+    cardActionLabel(card('showcase', [{ verb: 'open.surface', view: 'skills' }])),
     'Open Skills',
     'a card that only navigates names the door, whatever its stamp claims',
   )

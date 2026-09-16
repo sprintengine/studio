@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react'
-
 import { GhostButton, InlineNotice, LifecycleGlyph, PanelHeader, Section, Spinner, TruncatedText } from '../../ui'
 import type { AutomationDefinition, AutomationRun } from '../../../../../shared/automations/contracts'
 import { AutomationRunActions } from './AutomationRunActions'
@@ -21,15 +19,11 @@ import { ModuleAttribution } from './ModuleAttribution'
 // `window.api` automations bridge; reloads whenever the definition's lastRunId
 // changes (e.g. after a run-now).
 export function AutomationDetailPane({
-  definition, workspaceRoot, now, focusRunId, focusNonce, onOpenAgent, onViewReport,
+  definition, workspaceRoot, now, onOpenAgent, onViewReport,
 }: {
   definition: AutomationDefinition
   workspaceRoot: string
   now: number
-  /** A run to scroll into view and briefly highlight (notification deep link). */
-  focusRunId?: string | null
-  /** Changes on every Open action so re-opening the same run re-fires the scroll. */
-  focusNonce?: number
   onOpenAgent: (workspaceId: string, agentId?: string) => void
   /** Open a run's report in the in-app viewer. */
   onViewReport: (run: AutomationRun) => void
@@ -38,18 +32,6 @@ export function AutomationDetailPane({
     workspaceRoot,
     definition,
   )
-  const [highlightRunId, setHighlightRunId] = useState<string | null>(null)
-
-  // Scroll the deep-linked run into view once history has loaded, and highlight
-  // it briefly so the eye lands on it. Instant scroll (no smooth behaviour) so
-  // it is reduced-motion safe.
-  useEffect(() => {
-    if (state !== 'ready' || !focusRunId || !runs.some((run) => run.id === focusRunId)) return
-    document.getElementById(`automation-run-${focusRunId}`)?.scrollIntoView({ block: 'nearest' })
-    setHighlightRunId(focusRunId)
-    const timer = window.setTimeout(() => setHighlightRunId(null), 2400)
-    return () => window.clearTimeout(timer)
-  }, [state, focusRunId, focusNonce, runs])
 
   const nextAt = parseTime(definition.nextRunAt)
   const lastAt = parseTime(definition.lastRunAt)
@@ -112,7 +94,6 @@ export function AutomationDetailPane({
                 key={run.id}
                 run={run}
                 now={now}
-                highlighted={run.id === highlightRunId}
                 onOpenAgent={onOpenAgent}
                 onViewReport={onViewReport}
                 onFinalize={finalizeRun}
@@ -138,10 +119,9 @@ function Meta({ label, value }: { label: string; value: string }) {
 // Run row: leading lifecycle glyph (shape-coded), identifier in
 // mono, timing in tabular figures, and a trailing "Open agent" when a run
 // launched one.
-function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, finalizing }: {
+function RunRow({ run, now, onOpenAgent, onViewReport, onFinalize, finalizing }: {
   run: AutomationRun
   now: number
-  highlighted: boolean
   onOpenAgent: (workspaceId: string, agentId?: string) => void
   onViewReport: (run: AutomationRun) => void
   onFinalize: (run: AutomationRun, outcome: 'completed' | 'failed') => void
@@ -154,11 +134,7 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
 
   return (
     <li
-      id={`automation-run-${run.id}`}
-      className={[
-        'flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-2 transition-colors last:border-b-0',
-        highlighted ? 'bg-[color:var(--accent-primary-soft)]' : '',
-      ].join(' ')}
+      className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-2 last:border-b-0"
     >
       <LifecycleGlyph
         state={RUN_LIFECYCLE[run.status]}

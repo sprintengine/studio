@@ -5,6 +5,10 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
 /**
  * TaskCard — the canonical primitive for board-card and inbox-row task surfaces.
  *
+ * No surface renders one today. The primitive is kept, with its catalog entry
+ * (design-system/components/task-card), so a future module's board is built
+ * from — and compared against — the design system.
+ *
  * Two documented variants for the same anatomy. Both consume identical tokens
  * (StatusDot size, identifier font and color, title font weight) so the four
  * panels read as one family even when their layouts differ:
@@ -14,7 +18,7 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
  * - `variant="card"` — identifier sits above the title; title clamps to two
  *   lines by default (pass `clampTitle={false}` to wrap fully); optional
  *   trailing glyph slot. Used by kanban cards where identity
- *   information is load-bearing and architect-generated titles are often
+ *   information is load-bearing and agent-written titles are often
  *   descriptive sentences. A board opts out of the clamp so
  *   titles wrap in its thin equal-width lanes instead of truncating.
  *
@@ -63,8 +67,8 @@ export type TaskCardProps = {
   /** FLIP reorder key for `useFlipReorder`. */
   flipKey?: string
   /** Apply the just-moved highlight keyframe. Pass the desired class:
-   *  A list board uses `card-just-moved`; a gate-driven board uses
-   *  `card-just-moved-gold`. */
+   *  A drag-reordered board uses `card-just-moved`; a board whose cards move
+   *  on their own uses `card-just-moved-gold`. */
   justMovedClassName?: string
   ariaLabel?: string
 }

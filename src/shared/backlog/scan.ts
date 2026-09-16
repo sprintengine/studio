@@ -4,7 +4,7 @@ import {
   parseBacklogDependenciesPlanned,
   parseBacklogFrontmatter,
 } from './frontmatter'
-import { deriveDefaultBacklogKey, isValidBacklogKey, parseBacklogNumericId } from './item-id'
+import { parseBacklogNumericId } from './item-id'
 // Canonical object-store id, re-exported so existing importers of this module
 // keep working. See src/shared/backlog/object-id.ts for the FNV-1a contract.
 import { stableBacklogObjectId } from './object-id'
@@ -26,7 +26,6 @@ import {
   toTitleName,
   workspaceRelativePath,
 } from '../source-paths'
-import { knownSidecarDirName, sidecarRelativePath } from '../workspace-sidecar'
 
 export type BacklogItemKind = SourcePlanKind | 'html_mockup'
 export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
@@ -88,14 +87,8 @@ export type BacklogItemLink = {
     id: string
     path?: string
     url?: string
-    // The one task inside the target that owns this item, when the target is a
-    // run and the item is one of its epic children (MC-2017).
-    taskId?: string
   }
   status?: BacklogItemLinkStatus
-  // The item status to restore if this link's work is abandoned. Written when an
-  // epic-child link is created and consumed when the run or its task is canceled.
-  priorStatus?: BacklogItemStatus
   updatedAt?: string
 }
 
@@ -631,35 +624,6 @@ export function normalizeRelativePath(pathValue: string): string {
 // stable entry point; the implementation now lives in the shared module used by
 // both processes and the /backlog skill.
 export { stableBacklogObjectId }
-
-// The relative path of a project's Backlog display-key config, under the
-// app-owned sidecar. Takes the project root because the sidecar's name differs
-// between a project made before the rename and one made after. The `key:`
-// inside prefixes every item's human id (`MC-240`); the cross-project read
-// model resolves it per project so aggregated rows never collide (`MA-112`
-// beside `MC-1758`).
-export function backlogConfigRelativePath(folderPath: string): string {
-  return sidecarRelativePath(knownSidecarDirName(folderPath), 'backlog', 'config.json')
-}
-
-// Resolve a project's Backlog display key from its `config.json` contents,
-// falling back to the name-derived default when the file is absent, unreadable,
-// or carries no valid key. Read-only and pure (the raw JSON is supplied by the
-// caller): unlike the main-process resolver behind `ensureBacklogItemIds`, it
-// never persists a derived default — the aggregate read model only reads. Mirrors
-// the mobile snapshot resolver (src/main/mobile/control/) so a
-// project's key reads identically wherever it is surfaced.
-export function resolveBacklogDisplayKey(configJson: string | null | undefined, projectName: string): string {
-  if (configJson) {
-    try {
-      const parsed = JSON.parse(configJson) as { key?: unknown }
-      if (isValidBacklogKey(parsed.key)) return parsed.key
-    } catch {
-      // Malformed config: fall back to the derived default rather than failing.
-    }
-  }
-  return deriveDefaultBacklogKey(projectName)
-}
 
 // Stable per-item slug = the file's name stem, independent of its directory
 // (e.g. `backlog/epics/auth-revamp.md` -> `auth-revamp`,

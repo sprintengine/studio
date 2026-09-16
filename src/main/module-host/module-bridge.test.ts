@@ -26,8 +26,8 @@ const MANIFESTS: Record<string, CapabilityManifest> = {
     permissions: ['network'],
   }),
   automations: manifest({ id: 'automations', source: 'bundled' }),
-  'sprint-engine': manifest({
-    id: 'sprint-engine',
+  'git': manifest({
+    id: 'git',
     source: 'bundled',
     permissions: ['ipc:invoke'],
   }),
@@ -45,7 +45,7 @@ function createBridgeFixture(): FakeIpcMain {
   kernel.hostFor('weather-deck').registerIpc('forecast:global', () => 'unprefixed')
   kernel.hostFor('quiet-deck').registerIpc('quiet-deck:ping', () => 'pong')
   kernel.hostFor('automations').registerIpc('automations:list', () => [])
-  kernel.hostFor('sprint-engine').registerIpc('sprint-engine:projection:read', () => ({ ok: true, data: null }))
+  kernel.hostFor('git').registerIpc('git:status:read', () => ({ ok: true, data: null }))
   return fake
 }
 
@@ -84,7 +84,7 @@ async function testDispatcherRefusesChannelWithoutOwnerPrefix(): Promise<void> {
 
 async function testDispatcherRoutesOwnedBundledModuleChannel(): Promise<void> {
   const fake = createBridgeFixture()
-  const outcome = await bridgeInvoke(fake, { channel: 'sprint-engine:projection:read' })
+  const outcome = await bridgeInvoke(fake, { channel: 'git:status:read' })
   assert.deepEqual(outcome, { ok: true, result: { ok: true, data: null } })
 }
 
@@ -132,23 +132,23 @@ async function testUnregisterModuleRemovesBridgedHandler(): Promise<void> {
   const kernel = createMainKernel(fake.ipcMain, {
     resolveModuleManifest: (moduleId) => MANIFESTS[moduleId],
   })
-  kernel.hostFor('sprint-engine').registerIpc('sprint-engine:projection:read', () => ({ ok: true }))
-  assert.equal(kernel.ownedChannels().get('sprint-engine:projection:read'), 'sprint-engine')
-  await kernel.unregisterModule('sprint-engine')
-  const outcome = await bridgeInvoke(fake, { channel: 'sprint-engine:projection:read' })
+  kernel.hostFor('git').registerIpc('git:status:read', () => ({ ok: true }))
+  assert.equal(kernel.ownedChannels().get('git:status:read'), 'git')
+  await kernel.unregisterModule('git')
+  const outcome = await bridgeInvoke(fake, { channel: 'git:status:read' })
   assert.equal(outcome.ok, false)
   assert.equal(!outcome.ok && outcome.code, 'unknown_channel')
 }
 
-function testSecondModuleCannotClaimOwnedSprintChannel(): void {
+function testSecondModuleCannotClaimOwnedBundledChannel(): void {
   const fake = createFakeIpcMain()
   const kernel = createMainKernel(fake.ipcMain, {
     resolveModuleManifest: (moduleId) => MANIFESTS[moduleId],
   })
-  kernel.hostFor('sprint-engine').registerIpc('sprint-engine:projection:read', () => ({ ok: true }))
+  kernel.hostFor('git').registerIpc('git:status:read', () => ({ ok: true }))
   assert.throws(
-    () => kernel.hostFor('weather-deck').registerIpc('sprint-engine:projection:read', () => ({ stolen: true })),
-    /already registered by module "sprint-engine"/,
+    () => kernel.hostFor('weather-deck').registerIpc('git:status:read', () => ({ stolen: true })),
+    /already registered by module "git"/,
   )
 }
 
@@ -174,7 +174,7 @@ async function main(): Promise<void> {
   await testDispatcherRefusesWithoutManifestResolver()
   await testHandlerErrorsPropagateAsRejections()
   await testUnregisterModuleRemovesBridgedHandler()
-  testSecondModuleCannotClaimOwnedSprintChannel()
+  testSecondModuleCannotClaimOwnedBundledChannel()
   testBridgeChannelIsReservedToHost()
 
   console.log('module-bridge tests passed')

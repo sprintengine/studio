@@ -12,7 +12,6 @@ import {
   type BacklogDifficulty,
   type BacklogHighlightColor,
   type BacklogItem,
-  type BacklogItemStatus,
   backlogItemSlugFromPath,
   isBacklogHighlightColor,
   nextArchiveRelativePath,
@@ -48,29 +47,6 @@ const SIZE_POINTS: Record<BacklogDifficulty, number> = { xs: 1, s: 2, m: 3, l: 4
 // The leaf children of one epic slug: every non-epic item pointing up at it.
 export function childrenOfEpic(items: BacklogItem[], slug: string): BacklogItem[] {
   return items.filter((item) => !item.isEpic && item.epic === slug)
-}
-
-/**
- * Child statuses that are not work, and so are not imported as tasks.
- *
- * MIRRORS `CLOSED_CHILD_STATUSES` in `sprintengine_core/tool/plans.py` — the
- * engine's direct import skips exactly these, and the dialog's count of what
- * goes in has to be the same count, because with no plan gate there is no later
- * stop where a disagreement would surface (MC-2129).
- */
-export const CLOSED_EPIC_CHILD_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<BacklogItemStatus>([
-  'completed',
-  'archived',
-  'idea',
-])
-
-/** What an epic contributes to a sprint: the tasks it mints, and what stays out. */
-export type EpicImportCounts = { open: number; closed: number }
-
-export function epicImportCounts(items: BacklogItem[], slug: string): EpicImportCounts {
-  const children = childrenOfEpic(items, slug)
-  const open = children.filter((child) => !CLOSED_EPIC_CHILD_STATUSES.has(child.status)).length
-  return { open, closed: children.length - open }
 }
 
 // Partition items into ordered epic groups. Order: real epics by their `order:`
@@ -186,19 +162,6 @@ export function epicSlug(epic: BacklogItem): string {
 }
 
 // The canonical directory every epic concept file lives in.
-const EPIC_DIRECTORY_PREFIX = 'backlog/epics/'
-
-// True when a path is an active epic concept file. Frontmatter `type: epic` is the
-// real definition of an epic (BacklogItem.isEpic), and scan-model consumers must
-// use that. This path predicate exists for the ONE consumer that has no scan
-// model: the backlog object store persists neither `type:` nor `epic:` (both live
-// in frontmatter and win on every scan), so the store-only Sprint Engine run-link
-// reconcile identifies an epic by its location. Every epic authored through the
-// app lives at `backlog/epics/<slug>.md`; an archived epic (`backlog/archived/`)
-// is deliberately excluded so a store tick never reopens a retired epic.
-export function isBacklogEpicPath(relativePath: string): boolean {
-  return relativePath.replace(/\\/g, '/').toLowerCase().startsWith(EPIC_DIRECTORY_PREFIX)
-}
 
 // One planned file move in an archive-epic rollup.
 type EpicArchiveMove = {

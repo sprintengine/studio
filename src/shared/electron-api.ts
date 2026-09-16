@@ -2451,7 +2451,6 @@ export type DiagnosticLogInput = {
   workspaceId?: string
   workspaceName?: string
   agentId?: string
-  taskId?: string
   sessionId?: string
   navigationTarget?: NotificationNavigationTarget
   /**
@@ -2717,43 +2716,21 @@ export type SessionSnapshot =
     }
 
 // The phone's wire vocabulary, the twin of the one in
-// `src/main/mobile/bridge/index.ts`. It still names the commands the Sprint
-// Engine took with it: a phone paired before that cut keeps sending them, and
-// the desktop has to be able to name one in order to refuse it honestly. The
-// two lists change together, and only together with the phone.
+// `src/main/mobile/bridge/index.ts` (protocol v3). The two lists change
+// together, and only together with the phone.
 export type MobileControlCommandType =
   | 'snapshot.request'
-  | 'artifact.read'
-  | 'sprintengine.create'
-  | 'task.start'
-  | 'artifact.approve'
-  | 'artifact.requestChanges'
-  | 'agent.followUp'
   | 'device.revoke'
   | 'backlog.update'
-  | 'backlog.startSprintEngine'
   | 'backlog.create'
-  | 'sprintengine.openPullRequest'
-  | 'sprintengine.setAutomationMode'
   | 'automations.control'
 
 export type MobileControlCapability =
   | 'snapshots.read'
-  | 'artifacts.read'
-  | 'sprintengines.create'
-  | 'tasks.start'
-  | 'artifacts.review'
-  | 'agents.followUp'
   | 'devices.revoke'
   | 'backlog.update'
-  | 'backlog.start'
   | 'backlog.create'
-  | 'sprintengines.pr'
-  | 'sprintengines.automation'
-  // Controls the desktop's automations (src/main/automations). NOT the same thing
-  // as `sprintengines.automation`, which is a retired run's automation mode — a
-  // different subsystem, and reusing its scope would have silently granted every
-  // already-paired device the power to fire agent runs here.
+  // Controls the desktop's automations (src/main/automations).
   | 'automations.control'
 
 export type MobileControlDevice = {
@@ -2912,16 +2889,10 @@ export type BacklogItemLinkPayload = {
     id: string
     path?: string
     url?: string
-    // The one task inside the target that owns this item, when the target is a
-    // run and the item is one of its epic children (MC-2017).
-    taskId?: string
   }
   // `pending` is recorded-but-not-started: the link exists so the item shows its
   // work, but it does not drive the item to `in_progress` yet.
   status?: 'pending' | 'active' | 'completed' | 'canceled' | 'failed' | 'unknown'
-  // The item status to restore if this link's work is abandoned. Written when an
-  // epic-child link is created and consumed when the run or its task is canceled.
-  priorStatus?: BacklogItemStatusPayload
   updatedAt?: string
 }
 
@@ -3892,7 +3863,6 @@ export type ElectronApi = {
   // the whole renderer-facing telemetry surface — there is no channel for the
   // renderer to send an event, only this one to stop main sending them.
   setTelemetryEnabled: (enabled: boolean) => Promise<void>
-  readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>
   resolveBacklogLocation: (workspaceRoot: string) => Promise<BacklogLocationResult>
   setBacklogRoot: (input: BacklogSetRootInput) => Promise<BacklogLocationResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>

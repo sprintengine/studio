@@ -13,33 +13,16 @@ import type { MobileControlProtocolVersion } from '../../../../../packages/mobil
 
 type MobileControlCommandType =
   | 'snapshot.request'
-  | 'artifact.read'
-  | 'sprintengine.create'
-  | 'task.start'
-  | 'artifact.approve'
-  | 'artifact.requestChanges'
-  | 'agent.followUp'
   | 'device.revoke'
   | 'backlog.update'
-  | 'backlog.startSprintEngine'
   | 'backlog.create'
-  | 'sprintengine.openPullRequest'
-  | 'sprintengine.setAutomationMode'
   | 'automations.control'
 
 type MobileControlCapability =
   | 'snapshots.read'
-  | 'artifacts.read'
-  | 'sprintengines.create'
-  | 'tasks.start'
-  | 'artifacts.review'
-  | 'agents.followUp'
   | 'devices.revoke'
   | 'backlog.update'
-  | 'backlog.start'
   | 'backlog.create'
-  | 'sprintengines.pr'
-  | 'sprintengines.automation'
   | 'automations.control'
 
 type MobileControlDevice = {
@@ -641,30 +624,12 @@ function commandLabel(commandType: MobileControlCommandType): string {
   switch (commandType) {
     case 'snapshot.request':
       return 'Snapshot requested'
-    case 'artifact.read':
-      return 'Artifact opened'
-    case 'artifact.approve':
-      return 'Artifact approved'
-    case 'artifact.requestChanges':
-      return 'Changes requested'
-    case 'agent.followUp':
-      return 'Follow-up sent'
-    case 'task.start':
-      return 'Task start requested'
-    case 'sprintengine.create':
-      return 'Sprint create requested'
     case 'device.revoke':
       return 'Device revoke requested'
     case 'backlog.update':
       return 'Backlog item updated'
-    case 'backlog.startSprintEngine':
-      return 'Sprint started from backlog'
     case 'backlog.create':
       return 'Backlog item created'
-    case 'sprintengine.openPullRequest':
-      return 'Pull request opened'
-    case 'sprintengine.setAutomationMode':
-      return 'Automation mode changed'
     case 'automations.control':
       return 'Automation controlled'
   }

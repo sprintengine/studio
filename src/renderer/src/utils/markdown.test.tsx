@@ -161,7 +161,7 @@ function testHostileSkillContentNeitherExecutesNorNavigates(): void {
  */
 function testHeadingsKeepTheAuthorsOwnCase(): void {
   const source = [
-    '# Running the sprint',
+    '# Running the release',
     '',
     '###### Session notes',
   ].join('\n')
@@ -169,7 +169,7 @@ function testHeadingsKeepTheAuthorsOwnCase(): void {
   for (const html of [render(source), renderWithCorpus(source, ['SKILL.md'])]) {
     assert.doesNotMatch(html, /class="[^"]*\buppercase\b/, 'no uppercase class on any heading')
     assert.doesNotMatch(html, /text-transform/i, 'no text-transform on any heading')
-    assert.match(html, />Running the sprint</)
+    assert.match(html, />Running the release</)
     assert.match(html, /<h6[^>]*>Session notes<\/h6>/)
   }
 }

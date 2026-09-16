@@ -252,7 +252,7 @@ export function SkillsCatalogue({
         if (result.ok) {
           setInventoryNonce((count) => count + 1)
           sources.refreshInstalled()
-              }
+        }
       } catch (error) {
         setSkillMessage(describe(error))
       }

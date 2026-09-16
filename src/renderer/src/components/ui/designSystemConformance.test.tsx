@@ -466,7 +466,6 @@ async function main(): Promise<void> {
       React.createElement(ConversationPeekCard, {
         identity: {
           name: 'Improve Git Diff Viewing',
-          taskId: 'MC-2488',
           status: { kind: 'working', label: 'Working' },
           agent: {
             sessionId: '309703f3-0000-1756',

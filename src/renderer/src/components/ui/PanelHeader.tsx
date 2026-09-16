@@ -1,5 +1,4 @@
 import React from 'react'
-import { TOOL_COLOR_VAR, type ToolIdentity } from './tokens'
 import { TruncatedText } from './TruncatedText'
 
 type ProgressIndicator = {
@@ -14,8 +13,6 @@ type ProgressIndicator = {
 }
 
 type PanelHeaderBaseProps = {
-  /** Small identity dot only — the rest of the panel should stay accent-neutral. */
-  tool?: ToolIdentity
   title: string
   /** A navigation control BEFORE the title — a Back affordance on a drill-in
    *  shell. Only for getting out of the surface the row names: an action ON the
@@ -61,7 +58,6 @@ type PanelHeaderScopeProps =
 type PanelHeaderProps = PanelHeaderBaseProps & PanelHeaderScopeProps
 
 export function PanelHeader({
-  tool,
   title,
   subtitle,
   scope,
@@ -89,14 +85,6 @@ export function PanelHeader({
     >
       <div className="flex min-w-0 items-center gap-2">
         {leading ? <span className="flex shrink-0 items-center">{leading}</span> : null}
-        {tool ? (
-          <span
-            aria-hidden="true"
-            // design-tokens-allow: tool-identity dot — per-tool accent colour cannot be expressed via StatusDot tone enum, and this is the canonical PanelHeader implementation
-            className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ backgroundColor: TOOL_COLOR_VAR[tool] }}
-          />
-        ) : null}
         <TruncatedText
           as="h2"
           id={titleId}

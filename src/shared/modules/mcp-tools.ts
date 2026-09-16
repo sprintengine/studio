@@ -77,7 +77,3 @@ export function toolError(code: string, message: string): McpToolResult {
     isError: true,
   }
 }
-
-export function isMcpToolResult(value: unknown): value is McpToolResult {
-  return isRecord(value) && Array.isArray(value.content)
-}

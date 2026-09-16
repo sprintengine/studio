@@ -18,27 +18,6 @@ import type { LifecycleState } from '../../../../shared/lifecycle-state'
 // renderer; this re-export keeps every existing import site working unchanged.
 export type { LifecycleState } from '../../../../shared/lifecycle-state'
 
-export const LIFECYCLE_LABEL: Record<LifecycleState, string> = {
-  todo: 'To do',
-  idea: 'Idea',
-  ready: 'Ready',
-  blocked: 'Blocked',
-  in_progress: 'In progress',
-  paused: 'Paused',
-  review: 'In review',
-  testing: 'In testing',
-  product: 'Product gate',
-  changes_requested: 'Changes requested',
-  needs_input: 'Needs input',
-  recorded: 'Recorded',
-  done: 'Done',
-  approved_auto: 'Approved automatically',
-  done_unmerged: 'Complete · not merged',
-  done_merged: 'Merged',
-  archived: 'Archived',
-  failed: 'Failed',
-}
-
 const TONE: Record<LifecycleState, string> = {
   todo: 'text-[color:var(--text-subtle)]',
   idea: 'text-[color:var(--text-disabled)]',

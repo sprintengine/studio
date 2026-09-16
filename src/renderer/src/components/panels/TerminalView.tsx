@@ -37,7 +37,6 @@ import { resumeCapabilitiesForCli } from '../../store/slices/pluginsSlice'
 import {
   resolveWorkspaceTerminalCwd,
   resolveWorkspaceWorktree,
-  resolveWorktreeFallbackRoot,
   resolveWorktreeSpawnFallback,
 } from '../../utils/workspaceWorktree'
 import {
@@ -951,20 +950,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // mid-spawn. The guard re-checks (one `pathExists`) on every launch and
       // self-corrects if the worktree reappears; completion teardown removes the
       // agent entirely, so a stale execution is short-lived either way.
-      // Per-repo fallback (MC-1610): a vanished worktree redirects into the root
-      // of the repo it belonged to, so a sibling-repo agent lands in that
-      // project rather than in the workspace root, where its repo-relative
-      // paths would resolve against the wrong tree. The primary repo's root is
-      // the workspace folder, so single-repo runs redirect exactly as before.
       // Read imperatively (not via a selector) so the launch effect does not
       // re-run on every unrelated workspace write.
       const fallbackWorkspace = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)
       const worktreeFallback = await resolveWorktreeSpawnFallback(
         executionRoot.mode,
         executionRoot.cwd,
-        fallbackWorkspace
-          ? resolveWorktreeFallbackRoot(fallbackWorkspace, executionRoot.cwd)
-          : folderReadyPath,
+        fallbackWorkspace ? (fallbackWorkspace.folderPath ?? null) : folderReadyPath,
         window.api.pathExists,
       )
       if (disposed) return
@@ -1201,10 +1193,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           const successContext = currentContext()
           successContext.updateAgent(workspaceId, agentId, {
             cliHasLaunched: true,
-            // What this session actually launched with (the spawn metadata's
-            // cli/model above) — the roster's divergence label compares it to
-            // the record's reconciled runtime after mid-run role edits.
-            cliLaunchedRuntime: { cli: finalAgent.cli, model: finalAgent.cliModel ?? null },
             ...(agentCliSupportsConversationResume(finalResumeCaps)
               ? {
                   cliResumeAvailable: true,

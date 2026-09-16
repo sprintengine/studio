@@ -542,34 +542,21 @@ async function main(): Promise<void> {
     dom.window.localStorage.clear()
   })
 
-  await run('a star taken with a role set saves the pair, and a retired role withholds it', async () => {
-    dom.window.localStorage.clear()
-    const composition = {
-      role: { id: 'architect', label: 'Architect' },
-      roleLabel: (id: string) => (id === 'architect' ? 'Architect' : null),
-    }
-    const view = mountSurface({ composition })
-    const fableRow = view.rows().find((row) => (row.textContent ?? '').includes('Fable 5'))
-    await view.click(fableRow?.querySelector('[data-model-star="true"]'))
-    assert.equal(
-      dom.window.localStorage.getItem('multicode.model-favourites'),
-      JSON.stringify([modelFavouriteKey('claude-code', 'claude-fable-5', 'architect')]),
-      'the stored key carries the role the footer was set to',
+  await run('a model+role star saved by an older build is never shown', async () => {
+    dom.window.localStorage.setItem(
+      'multicode.model-favourites',
+      JSON.stringify([`${modelFavouriteKey('claude-code', 'claude-fable-5')}:role:architect`]),
     )
-    await view.click(view.tabs()[0])
-    assert.match((view.rows()[0]?.textContent ?? ''), /Architect/, 'the ★ row wears the role it composes')
-    view.unmount()
-
-    // The pack is uninstalled: the composition names a role that cannot spawn.
     __resetModelFavouritesForTest()
-    const orphaned = mountSurface({ composition: { role: null, roleLabel: () => null } })
+    const view = mountSurface({})
     assert.deepEqual(
-      orphaned.tabs().map((tab) => tab.getAttribute('aria-label')),
+      view.tabs().map((tab) => tab.getAttribute('aria-label')),
       ['Claude Code', 'Codex'],
-      'a star that can no longer spawn what it names does not resurrect the ★ entry',
+      'the legacy composition does not surface a ★ entry',
     )
-    orphaned.unmount()
+    view.unmount()
     dom.window.localStorage.clear()
+    __resetModelFavouritesForTest()
   })
 
   await run('unstarring the last favourite from the ★ filter does not strand the list', async () => {

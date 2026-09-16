@@ -8,7 +8,7 @@ mirror the real layouts:
 
 - `backlog/epics/example-epic.md` — an epic container with `dependenciesPlanned`.
 - `backlog/example-epic/…` — items filed under that epic's folder, one with the full
-  current field set (`dependsOn`, `sprints`, `mockups`, `pr`, `updated`), one
+  current field set (`dependsOn`, `mockups`, `pr`, `updated`), one
   with `dependsOn` deliberately absent so the set-absent→clear inverse is
   exercised.
 - `backlog/unfiled/2026-01-07-legacy-nested-section.md` — the legacy nested `backlog:`

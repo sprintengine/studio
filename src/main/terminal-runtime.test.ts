@@ -19,8 +19,7 @@ type SyncMcpConfig = NonNullable<Parameters<typeof import('./terminal-runtime')[
 type SyncInput = Parameters<SyncMcpConfig>[0]
 type SyncResult = Awaited<ReturnType<SyncMcpConfig>>
 type TerminalRuntime = ReturnType<RuntimeModule['createTerminalRuntime']>
-type AgentSpawnInput = Parameters<TerminalRuntime['spawnAgentSession']>[0]
-type AgentSpawnDescriptor = AgentSpawnInput['descriptor']
+type AgentSessionMetadata = NonNullable<Parameters<TerminalRuntime['ipcHandlers']['spawnTerminal']>[1]['agentSession']>
 type AgentSessionExitEvent = Parameters<Parameters<TerminalRuntime['registerAgentSessionExitListener']>[0]>[0]
 type AgentPhaseEvent = Parameters<Parameters<TerminalRuntime['registerAgentPhaseListener']>[0]>[0]
 type AgentStateFrame = Parameters<TerminalRuntime['ingestAgentStateFrame']>[0]
@@ -141,7 +140,6 @@ async function main(): Promise<void> {
     await assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeModule)
     await assertAgentSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule)
     await assertAgentSpawnExposesAgentIdentityEnv(runtimeModule)
-    await assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule)
     await assertIngestAgentStateFrameUpdatesSession(runtimeModule)
     await assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule)
     await assertFileLedgerFollowsHookReportedEdits(runtimeModule)
@@ -163,7 +161,6 @@ async function main(): Promise<void> {
     await assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule)
     await assertHeadlessSpawnAttachesToLaterWindow(runtimeModule)
     await assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule)
-    await assertDescriptorSpawnSucceedsWithNoWindows(runtimeModule)
     await assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule)
     await assertPendingWakeupFrameHoldsIdleReaper(runtimeModule)
     await assertObservedCheckoutFollowsHookCwd(runtimeModule)
@@ -994,76 +991,6 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
   }
 }
 
-// The module-SDK descriptor spawn used to refuse outright with "No desktop
-// window is available to host the agent terminal." The sender is an event sink,
-// not a capability: with zero windows the spawn falls back to the headless
-// sender, the pty runs and buffers, and a window opened later reattaches with
-// the scrollback replayed.
-async function assertDescriptorSpawnSucceedsWithNoWindows(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-headless-descriptor-'))
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
-  })
-
-  try {
-    const result = await withNoWindows(() => runtime.spawnAgentSession({
-      workspaceId: 'ws-headless-desc',
-      workspaceRoot,
-      descriptor: {
-        executionId: 'exec-headless-desc',
-        system: 'weather-deck',
-        workId: 'work-headless-desc',
-        role: 'developer',
-        displayName: 'Headless Dev',
-        command: ['claude'],
-        cwd: workspaceRoot,
-        cli: 'claude-code',
-      },
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    }))
-    assert.equal(result.ok, true, JSON.stringify(result))
-    assert.equal(mockPty.spawnCalls.length, 1, 'a windowless descriptor spawn still creates the pty')
-    assert.equal(
-      (await runtime.ipcHandlers.getTerminalStatus('exec-headless-desc')).processAlive,
-      true,
-      'the returned session is live with no window open'
-    )
-
-    mockPty.spawnCalls[0]!.process.emitData('descriptor output before any window\r\n')
-
-    // A window opens later: the same-sessionId spawn adopts the real sender and
-    // replays what buffered while headless instead of respawning.
-    const reattach = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
-      sessionId: 'exec-headless-desc',
-      cols: 120,
-      rows: 30,
-      cwd: workspaceRoot,
-      cli: 'claude-code',
-      kind: 'agent',
-      shellOnly: false,
-      workspaceId: 'ws-headless-desc',
-      agentId: 'exec-headless-desc',
-      visible: true,
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-    assert.equal(reattach.ok, true, JSON.stringify(reattach))
-    assert.equal(mockPty.spawnCalls.length, 1, 'reattach adopts the live session; no second pty')
-    const replay = mockSender.sent.find((event) => event.channel === 'terminal:replay:exec-headless-desc')
-    assert.ok(replay, 'reopening a window replays the headless descriptor session')
-    assert.ok(
-      String(replay?.payload ?? '').includes('descriptor output before any window'),
-      'replay carries output produced while headless'
-    )
-  } finally {
-    await runtime.shutdown()
-  }
-}
-
 // The guarded sweep must HOLD an idle-past-threshold agent whose pty subtree
 // still has live work under it — the canonical case is a `run_in_background`
 // shell idling toward a result (0% CPU, no port; only the shell-snapshot
@@ -1547,21 +1474,27 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
   })
 
   const spawnAgent = async (
-    overrides: Pick<AgentSpawnDescriptor, 'executionId' | 'system'> & { workspaceId: string }
+    overrides: Pick<AgentSessionMetadata, 'executionId' | 'system'> & { workspaceId: string }
   ): Promise<MockPtyProcess> => {
-    const descriptor: AgentSpawnDescriptor = {
-      executionId: overrides.executionId,
-      system: overrides.system,
-      workId: `work-${overrides.executionId}`,
-      role: 'agent',
-      displayName: `Agent ${overrides.executionId}`,
-      command: ['codex'],
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: overrides.executionId,
+      cols: 120,
+      rows: 30,
       cwd: workspaceRoot,
-    }
-    const result = await runtime.spawnAgentSession({
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
       workspaceId: overrides.workspaceId,
-      workspaceRoot,
-      descriptor,
+      agentId: overrides.executionId,
+      agentSession: {
+        executionId: overrides.executionId,
+        system: overrides.system,
+        workspaceId: overrides.workspaceId,
+        workspaceRoot,
+        workId: overrides.executionId,
+        role: 'manual',
+        displayName: `Agent ${overrides.executionId}`,
+      },
       mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
     })
     assert.equal(result.ok, true, JSON.stringify(result))
@@ -1608,8 +1541,8 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
         system: 'manual',
         workspaceRoot,
         workspaceId: 'ws-manual',
-        // Descriptor spawns key the terminal's agentId off the executionId; the
-        // pair is what an automation correlates on once the execution is gone.
+        // The spawn keys the terminal's agentId to the executionId; the pair is
+        // what an automation correlates on once the execution is gone.
         agentId: 'exec-manual',
         executionId: 'exec-manual',
         exitCode: 7,
@@ -1662,21 +1595,27 @@ async function assertResolveAgentExecutionIdMatchesLiveSession(
   })
 
   const spawnAgent = async (
-    overrides: Pick<AgentSpawnDescriptor, 'executionId' | 'system'> & { workspaceId: string }
+    overrides: Pick<AgentSessionMetadata, 'executionId' | 'system'> & { workspaceId: string }
   ): Promise<MockPtyProcess> => {
-    const descriptor: AgentSpawnDescriptor = {
-      executionId: overrides.executionId,
-      system: overrides.system,
-      workId: `work-${overrides.executionId}`,
-      role: 'agent',
-      displayName: `Agent ${overrides.executionId}`,
-      command: ['codex'],
+    const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: overrides.executionId,
+      cols: 120,
+      rows: 30,
       cwd: workspaceRoot,
-    }
-    const result = await runtime.spawnAgentSession({
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
       workspaceId: overrides.workspaceId,
-      workspaceRoot,
-      descriptor,
+      agentId: overrides.executionId,
+      agentSession: {
+        executionId: overrides.executionId,
+        system: overrides.system,
+        workspaceId: overrides.workspaceId,
+        workspaceRoot,
+        workId: overrides.executionId,
+        role: 'manual',
+        displayName: `Agent ${overrides.executionId}`,
+      },
       mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
     })
     assert.equal(result.ok, true, JSON.stringify(result))
@@ -1686,7 +1625,7 @@ async function assertResolveAgentExecutionIdMatchesLiveSession(
   }
 
   try {
-    // The descriptor spawn keys the session's agentId to its executionId, so
+    // The spawn keys the session's agentId to its executionId, so
     // resolveAgentExecutionId is exercised by matching (workspaceId, agentId).
     const agentPty = await spawnAgent({
       executionId: 'exec-resolve-1',
@@ -3438,53 +3377,6 @@ async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeM
     assert.equal(snap?.agentState?.phase, 'exited', 'exit clears the hook phase to inferred exited')
     assert.equal(snap?.agentState?.source, 'lifecycle', 'post-exit phase is inferred from activity, not a stale hook')
   } finally {
-    await runtime.shutdown()
-  }
-}
-
-// The descriptor launch path — a module spawning its own agent — must also
-// expose the agent's identity so the agent-state reporter can map hook frames to the
-// session: MULTICODE_AGENT_ID is set to the executionId (=== session.agentId),
-// and any stale id inherited by the app process is overridden.
-async function assertDescriptorSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeModule): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-descriptor-identity-'))
-  mockPty.spawnCalls = []
-  mockSender.sent = []
-
-  const priorAgentId = process.env.MULTICODE_AGENT_ID
-  process.env.MULTICODE_AGENT_ID = 'stale-leak-from-app-process'
-
-  const runtime = runtimeModule.createTerminalRuntime({
-    diagnosticsEnabled: false,
-    logMainPerfEvent: () => undefined,
-    syncMcpConfig: async (): Promise<SyncResult> => ({ ok: true }),
-  })
-
-  try {
-    const result = await runtime.spawnAgentSession({
-      workspaceId: 'ws-desc',
-      workspaceRoot,
-      descriptor: {
-        executionId: 'exec-desc-1',
-        system: 'weather-deck',
-        workId: 'work-1',
-        role: 'developer',
-        displayName: 'Dev One',
-        command: ['claude'],
-        cwd: workspaceRoot,
-        cli: 'claude-code',
-      },
-      mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
-    })
-    assert.equal(result.ok, true, JSON.stringify(result))
-    assert.equal(mockPty.spawnCalls.length, 1)
-    const env = (mockPty.spawnCalls[0]?.options.env ?? {}) as Record<string, string>
-    assert.equal(env.MULTICODE_AGENT_ID, 'exec-desc-1', 'descriptor identity equals executionId so reporter frames resolve')
-    assert.equal(env.MULTICODE_WORKSPACE_ID, 'ws-desc')
-    assert.equal(env.MULTICODE_AGENT_NAME, 'Dev One')
-  } finally {
-    if (priorAgentId === undefined) delete process.env.MULTICODE_AGENT_ID
-    else process.env.MULTICODE_AGENT_ID = priorAgentId
     await runtime.shutdown()
   }
 }

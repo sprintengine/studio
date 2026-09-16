@@ -1,13 +1,10 @@
 // "Select this Backlog item" signal, dispatched by the agent terminal glyph and
 // consumed by BacklogPanel.
 //
-// A dedicated latch+event (not the shared notification reveal-target): the
-// Backlog panel is often cold when the glyph is clicked — the same click opens
-// its workspace-pane tab (`revealBacklogItemInPane`), so it mounts a tick
-// later and can miss a live event. The latch covers that race. It is intentionally separate from
-// `revealTarget.ts` because that latch has a greedy consumer (a module surface
-// board drains it on any live event) that would swallow a backlog target before
-// a cold BacklogPanel drains it.
+// A latch+event pair: the Backlog panel is often cold when the glyph is
+// clicked — the same click opens its workspace-pane tab
+// (`revealBacklogItemInPane`), so it mounts a tick later and can miss a live
+// event. The latch covers that race.
 
 const BACKLOG_REVEAL_EVENT = 'multicode:reveal-backlog-item'
 

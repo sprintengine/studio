@@ -81,7 +81,7 @@ run('the shared row interior keeps its columns with the star present (panel + so
 })
 
 // The epic ordering mark (MC-2137). The row is where an epic whose ordering was
-// never declared finished becomes visible, before any sprint dialog is opened.
+// never declared finished becomes visible.
 function orderingEpicItem(frontmatter: string[], status = 'ready'): BacklogItem {
   return createBacklogItem({
     path: '/repo/backlog/epics/auth.md',

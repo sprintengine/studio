@@ -55,7 +55,6 @@ Cache writers (`<sidecar>/backlog/cache/links.json`) — `updateBacklogHighlight
 and `addOrUpdateBacklogLink` also write the durable half into the item's
 frontmatter:
 
-- `readBacklogObjectStore(workspaceRoot)`
 - `ensureBacklogObjectRecords(workspaceRoot, items)`
 - `updateBacklogHighlight(input)`
 - `addOrUpdateBacklogLink(input)`

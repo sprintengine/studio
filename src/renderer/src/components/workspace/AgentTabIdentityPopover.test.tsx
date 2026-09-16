@@ -46,7 +46,6 @@ const SELF: AgentTabIdentity['agent'] = {
 
 const TAB: AgentTabIdentity = {
   name: 'planner-agent',
-  taskId: null,
   status: { kind: 'working', label: 'Working' },
   // A tab's card is ITS OWN agent's — see `WorkspaceLayout`, which builds this
   // from the tab's agent record and that agent's session snapshot.
@@ -144,11 +143,6 @@ run('the space they freed is the conversation', () => {
   const markup = tabCard()
   assert.match(markup, /Freeze the title after the first prompt/, 'the message that started the work')
   assert.match(markup, /Drop the role row from the tab card/, 'and everything sent since')
-})
-
-run('an agent claimed on a task still names it', () => {
-  const markup = tabCard({ ...TAB, taskId: 'MC-1444' })
-  assert.match(markup, /MC-1444/, 'the task id survived the cull')
 })
 
 run('a tab whose agent has no session yet is still identified', () => {

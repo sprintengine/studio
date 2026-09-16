@@ -504,7 +504,6 @@ export type DiagnosticLogInput = {
   workspaceId?: string
   workspaceName?: string
   agentId?: string
-  taskId?: string
   sessionId?: string
   navigationTarget?: NotificationNavigationTarget
   /**

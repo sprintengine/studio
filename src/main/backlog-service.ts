@@ -105,13 +105,6 @@ const BACKLOG_PREFIX = 'backlog/'
 const UNFILED_DIR = 'unfiled'
 const EPICS_PREFIX = 'backlog/epics/'
 
-// An epic's status is derived from its children and is never written to its
-// file. Exported so the main-process link writer can spare an epic the launch
-// status write the renderer already spares it.
-export function isBacklogEpicRelativePath(relativePath: string): boolean {
-  return relativePath.replace(/\\/g, '/').toLowerCase().startsWith(EPICS_PREFIX)
-}
-
 type ValidWorkspace = {
   root: string
   storePath: string
@@ -1693,13 +1686,8 @@ function normalizeBacklogLink(value: unknown): BacklogItemLinkPayload | null {
       id: raw.target.id,
       path: typeof raw.target.path === 'string' ? raw.target.path : undefined,
       url: typeof raw.target.url === 'string' ? raw.target.url : undefined,
-      taskId: typeof raw.target.taskId === 'string' ? raw.target.taskId : undefined,
     },
     status: typeof raw.status === 'string' ? raw.status : undefined,
-    // Restore target for an epic-child run link (MC-2017). Whitelisted like every
-    // other field here: this normalizer runs on the write path too, so a field it
-    // does not name is dropped on the way into items.json.
-    priorStatus: isBacklogStatus(raw.priorStatus) ? raw.priorStatus : undefined,
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined,
   }
 }

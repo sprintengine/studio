@@ -65,9 +65,8 @@ const ALIGN: Record<ButtonAlign, string> = {
 }
 
 // xs is the dense-chrome size for inline row actions and popover triggers;
-// sm/md carry the form-control sizes. Migrated hand-rolled buttons on the
-// roster and tracker surfaces land here so their radius, focus ring, and hover
-// all match the primitive rather than drifting per surface. Heights and label
+// sm/md carry the form-control sizes, so every button's radius, focus ring, and
+// hover match the primitive rather than drifting per surface. Heights and label
 // sizes come from the ramp (sem.size.control.*, sem.font.size.*) so a control
 // and the label beside it keep their rhythm when the ramp moves.
 export type ButtonSize = 'inline' | 'xs' | 'sm' | 'md'
@@ -371,9 +370,8 @@ export const MediaButton = React.forwardRef<HTMLButtonElement, ButtonBase>(
 
 // Bordered neutral button — the "outline" variant. Retired the hand-rolled
 // lookalike (a GhostButton re-styled with a border className, or a raw <button>
-// with border/rounded/hover chrome) that had accreted across the roster,
-// tracker, and backlog surfaces; each had subtly different radius, hover, and
-// focus. This is the one canonical secondary-action button.
+// with border/rounded/hover chrome) that had accreted across surfaces; each
+// had subtly different radius, hover, and focus. This is the one canonical secondary-action button.
 // Tone here is INK ONLY — the border and the ground stay neutral in both. A
 // destructive secondary action is still a secondary action: `DangerButton`'s
 // solid fill is the terminal confirm, and giving this one a red edge as well
@@ -647,7 +645,7 @@ export const CaptionButton = React.forwardRef<
 // Canonical close affordance. Use everywhere a panel, aside, drawer, or
 // inspector needs a top-right X. Borderless on purpose — bordered/raised
 // variants compete with the surface they sit on and add a second radius
-// to the view, breaking the soul brief's ≤ 2 radii rule. The bordered
+// to the view, breaking the ≤ 2 radii rule. The bordered
 // A brand-coloured button variant was retired here; do not reintroduce it.
 export function CloseIconButton({
   size = 'sm',

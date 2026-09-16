@@ -1,4 +1,4 @@
-import { isAbsoluteFilePath, joinFilePath, pathSeparatorFor, samePath } from './paths'
+import { samePath } from './paths'
 import {
   agentWorktreePaths,
   repoRootFromWorktreePath,
@@ -8,9 +8,6 @@ import {
   worktreeContainerPath,
 } from '../../../shared/worktree-paths'
 import type { AgentExecutionMode, Workspace } from '../types/workspace'
-
-/** Generic default repo id when a workspace did not declare one. */
-export const DEFAULT_WORKSPACE_TASK_REPO = 'primary'
 
 // Pure worktree path/branch derivation now lives in the node-free shared module
 // so the main process can reuse it (agent-at-launch worktrees over the App
@@ -50,129 +47,41 @@ export type ResolvedWorkspaceWorktree = {
   gitRoot: string
   /** Branch the worktree is checked out on, for display. */
   branch?: string
-  /**
-   * Declared repo this worktree belongs to (MC-1610), and the absolute root of
-   * that repo's own checkout — the tree the worktree was created FROM, which is
-   * where a spawn falls back to when the worktree is gone. Absent for a
-   * worktree workspace with no declared repo set, which is every one of them
-   * today.
-   */
-  repoId?: string
-  repoRoot?: string
 }
 
 /**
- * Resolve a repo-declared path against the workspace folder. `.` is the
- * workspace folder itself; an absolute value is used as-is (out of contract,
- * but joinFilePath would corrupt it into a nested path).
+ * The worktree this workspace is backed by, or null for a regular workspace.
  *
- * `..` segments are collapsed because a declared sibling root legitimately
- * carries them (`../multicode-mobile`) and this result is compared against real
- * paths — `git worktree list` output, a session's cwd. A string join alone
- * would leave `/proj/../mobile`, which no comparison would ever match.
- * Task-owned paths are a different thing entirely and still reject `..`
- * outright; only a run's own declared roots reach here.
- */
-/**
- * A project-root-relative path from a run store, made absolute the way every
- * surface that opens a run worktree does: an absolute value is used as-is
- * (out of contract, but defended against), `.` is the root, and `..` segments
- * collapse — so two callers naming one tree spell it one way, which is what
- * lets main share a git read between them.
- */
-export function resolveDeclaredPath(folderPath: string, value: string): string {
-  const trimmed = value.trim()
-  if (isAbsoluteFilePath(trimmed)) return trimmed
-  if (!trimmed || trimmed === '.') return folderPath
-  const joined = joinFilePath(folderPath, trimmed)
-  if (!joined.includes('..')) return joined
-  const separator = pathSeparatorFor(joined)
-  const leading = joined.startsWith(separator) ? separator : ''
-  const resolved: string[] = []
-  for (const segment of joined.split(/[\\/]+/)) {
-    if (!segment || segment === '.') continue
-    if (segment === '..') resolved.pop()
-    else resolved.push(segment)
-  }
-  return leading + resolved.join(separator)
-}
-
-/**
- * Every worktree this workspace is backed by, primary first (MC-1610).
- *
- * - Worktree workspaces (opened via the Worktree manager): flagged by the
- *   explicit `workspace.worktree` marker. Their `folderPath` already *is* the
- *   worktree, so the git root stays `folderPath`; the marker only carries the
- *   branch and signals worktree-backed. Always a single entry.
- * - Everything else: empty (regular workspace, unchanged behavior).
- *
- * The Git panel builds one scope per entry; the spawn path selects the entry
- * matching a session's repo. Callers that want "the" worktree take the primary
- * via {@link resolveWorkspaceWorktree}.
- */
-export function resolveWorkspaceWorktrees(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
-): ResolvedWorkspaceWorktree[] {
-  const folderPath = workspace.folderPath
-  if (!folderPath) return []
-
-  if (workspace.worktree) {
-    // Deliberately no `repoRoot`: the Git panel reads it as "the checkout to
-    // operate on" (it picks the scope list, and the `main` scope diffs, stages,
-    // commits and spawns its terminal there). Naming the parent project here
-    // would quietly move all of that out of a perfectly healthy worktree. The
-    // project this worktree was cut from is a grouping fact, and grouping asks
-    // workspaceProjectRoot for it.
-    return [{ gitRoot: folderPath, branch: workspace.worktree.branch }]
-  }
-
-  return []
-}
-
-/**
- * The workspace's PRIMARY worktree — entry zero of {@link
- * resolveWorkspaceWorktrees} — for the surfaces that show or spawn into exactly
- * one: the workspace's Git view default, its terminal glyph, and any terminal
- * not routed to a specific repo. Null for a regular workspace.
+ * Worktree workspaces (opened via the Worktree manager) are flagged by the
+ * explicit `workspace.worktree` marker. Their `folderPath` already *is* the
+ * worktree, so the git root stays `folderPath`; the marker only carries the
+ * branch and signals worktree-backed. Used by the workspace's Git view default,
+ * its terminal glyph, and any terminal spawned into the workspace.
  */
 export function resolveWorkspaceWorktree(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
+  workspace: Pick<Workspace, 'folderPath' | 'worktree'>
 ): ResolvedWorkspaceWorktree | null {
-  return resolveWorkspaceWorktrees(workspace)[0] ?? null
+  const folderPath = workspace.folderPath
+  if (!folderPath || !workspace.worktree) return null
+  // Deliberately no project root: the Git panel operates on this checkout (it
+  // diffs, stages, commits and spawns its terminal there). The project this
+  // worktree was cut from is a grouping fact, and grouping asks
+  // workspaceProjectRoot for it.
+  return { gitRoot: folderPath, branch: workspace.worktree.branch }
 }
 
 /**
  * The workspace's *effective working root* (MC-1535): where live work actually
  * happens. `folderPath` stays the durable primary checkout (that's what
  * `ModuleWorkspaceView` reports), but a worktree-backed workspace does its live
- * work under the primary worktree — file watches, agent spawns, and file-tab
+ * work under its worktree — file watches, agent spawns, and file-tab
  * resolution that used the primary checkout would silently miss it. Null means
  * the workspace has no resolvable root at all (folderless), never a fallback.
  */
 export function workspaceWorkingRoot(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
+  workspace: Pick<Workspace, 'folderPath' | 'worktree'>
 ): string | null {
   return resolveWorkspaceWorktree(workspace)?.gitRoot ?? workspace.folderPath ?? null
-}
-
-/**
- * The root a spawn falls back to when `worktreeCwd` has been removed: the root
- * of the repo THAT worktree belongs to, not the workspace folder (MC-1610). A
- * pruned mobile worktree redirects into the mobile checkout, where the agent's
- * repo-relative paths still mean what they say; redirecting it into the
- * workspace root would silently point it at a different project's files.
- *
- * The workspace folder remains the answer for the primary repo (whose root IS
- * the workspace) and for any cwd that matches no declared worktree.
- */
-export function resolveWorktreeFallbackRoot(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>,
-  worktreeCwd: string | null | undefined
-): string | null {
-  const folderPath = workspace.folderPath ?? null
-  if (!worktreeCwd) return folderPath
-  const match = resolveWorkspaceWorktrees(workspace).find((entry) => samePath(entry.gitRoot, worktreeCwd))
-  return match?.repoRoot ?? folderPath
 }
 
 export type WorkspaceTerminalCwd =
@@ -225,9 +134,6 @@ export type WorktreeSpawnFallback = {
  * not persist a change). Non-worktree agents and still-present worktrees pass
  * through unchanged.
  *
- * `fallbackRoot` is per-repo (MC-1610) — {@link resolveWorktreeFallbackRoot}
- * derives it from the vanished worktree's own declared repo, so a pruned mobile
- * worktree redirects into the mobile checkout rather than the workspace root.
  */
 export async function resolveWorktreeSpawnFallback(
   executionMode: AgentExecutionMode,

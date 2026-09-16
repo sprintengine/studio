@@ -39,41 +39,22 @@ export const BACKLOG_PR_TARGET_KIND = 'backlog.pullRequest'
 // link is suffixed with its repo id, so each one replaces only itself.
 const BACKLOG_PR_LINK_ID = 'backlog:pull-request'
 
-// Structural shape of the built link; assignable to both the renderer's
-// BacklogItemLink and the main-process BacklogItemLinkPayload.
-export type BacklogPullRequestLink = {
-  id: string
-  moduleId: string
-  type: 'external'
-  label: string
-  target: { kind: string; id: string; url: string }
-  status: 'active'
-  updatedAt: string
-}
-
 function pullRequestLinkId(repoId?: string): string {
   const id = (repoId ?? '').trim()
   return !id || id === 'primary' ? BACKLOG_PR_LINK_ID : `${BACKLOG_PR_LINK_ID}:${id}`
 }
 
-// `external` is lifecycle-neutral, so attaching it never moves the item's
-// status. `repoLabel` names the project in the link the person clicks, and is
-// passed only when more than one project is in play.
-export function buildBacklogPullRequestLink(input: {
-  pullRequestUrl: string
-  updatedAt: string
-  repoId?: string
-  repoLabel?: string
-}): BacklogPullRequestLink {
-  const repoLabel = input.repoLabel?.trim()
+// The durable pull-request link a `pr:` entry declares. `external` is
+// lifecycle-neutral, so it never moves the item's status. A sibling project's
+// link carries its repo id in both the id and the label the person clicks.
+function backlogPullRequestLink(pullRequestUrl: string, repoId?: string): BacklogItemLink {
+  const repoLabel = repoId?.trim()
   return {
-    id: pullRequestLinkId(input.repoId),
+    id: pullRequestLinkId(repoId),
     moduleId: BACKLOG_LINK_MODULE_ID,
     type: 'external',
     label: repoLabel ? `Pull request (${repoLabel})` : 'Pull request',
-    target: { kind: BACKLOG_PR_TARGET_KIND, id: input.pullRequestUrl, url: input.pullRequestUrl },
-    status: 'active',
-    updatedAt: input.updatedAt,
+    target: { kind: BACKLOG_PR_TARGET_KIND, id: pullRequestUrl, url: pullRequestUrl },
   }
 }
 
@@ -97,16 +78,9 @@ export function durableBacklogLinksFromFrontmatter(
   for (const entry of splitScalarList(fields.pr)) {
     const parsed = parsePrEntry(entry)
     if (!parsed) continue
-    // Built by the canonical builder, not re-specified here, so the label, id
-    // scheme and target shape cannot drift. `status`/`updatedAt` are stripped:
-    // both are volatile, and persisting one to a tracked file is the churn this
-    // split exists to end.
-    const { status: _status, updatedAt: _updatedAt, ...link } = buildBacklogPullRequestLink({
-      pullRequestUrl: parsed.url,
-      updatedAt: '',
-      ...(parsed.repoId ? { repoId: parsed.repoId, repoLabel: parsed.repoId } : {}),
-    })
-    links.push(link)
+    // No `status`: it is volatile, and persisting one to a tracked file is the
+    // churn this split exists to end.
+    links.push(backlogPullRequestLink(parsed.url, parsed.repoId))
   }
 
   return links
@@ -187,7 +161,6 @@ export function mergeBacklogLinks(
     return {
       ...link,
       ...(overlay.status ? { status: overlay.status } : {}),
-      ...(overlay.priorStatus ? { priorStatus: overlay.priorStatus } : {}),
       ...(overlay.updatedAt ? { updatedAt: overlay.updatedAt } : {}),
     }
   })

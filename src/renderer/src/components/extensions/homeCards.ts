@@ -48,7 +48,6 @@ export const CARD_KIND_STAMPS: Readonly<Record<HostedCardKind, string>> = {
   mcp: 'MCP server',
   skill: 'Skill',
   plugin: 'Plugin',
-  workflow: 'Workflow',
   automation: 'Automation',
   showcase: 'Showcase',
 }
@@ -79,7 +78,6 @@ const CARD_KIND_ACTIONS: Readonly<Record<HostedCardKind, string>> = {
   mcp: 'Install',
   skill: 'Install',
   plugin: 'Install',
-  workflow: 'Start',
   automation: 'Create',
   showcase: 'See it',
 }
@@ -115,10 +113,9 @@ function navigatesOnly(card: HostedCard): CardSurfaceView | null {
 /**
  * The label for this card's one control.
  *
- * The card's ACTIONS outrank its `kind`, and the shipped hero is why. Its kind is
- * `workflow`, so the kind alone would label it "Start" — and it starts nothing;
- * it opens a door. A card whose actions only navigate has to say so whatever its
- * stamp claims, which is also what stops the button and the stamp saying the same
+ * The card's ACTIONS outrank its `kind`. A showcase card whose only action opens
+ * a door would otherwise say "See it" — and it shows nothing; it opens a door. A
+ * card whose actions only navigate has to say so whatever its stamp claims, which is also what stops the button and the stamp saying the same
  * noun twice.
  *
  * Keyed on the union, so a kind added to the schema is a typecheck failure here

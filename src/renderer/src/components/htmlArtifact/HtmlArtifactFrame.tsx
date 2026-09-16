@@ -1,36 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ChipButton, GhostButton, IconButton, Skeleton, Tooltip, TruncatedText } from '../ui'
-import {
-  anchorFromSelect,
-  addAnnotation,
-  annotateAvailability,
-  annotateFrameSandbox,
-  removeAnnotation,
-  submitFailureMessage,
-  updateAnnotationMessage,
-  type AnnotateComposerState,
-  type AnnotateSubmitState,
-} from './annotate/annotateModel'
-import { AnnotateOverlay } from './annotate/AnnotateOverlay'
-import { AnnotateTray } from './annotate/AnnotateTray'
-import { composeAnnotateSrcDoc } from './annotate/annotateSrcDoc'
-import {
-  buildAnnotateLocateRequest,
-  readTrustedAnnotateMessage,
-  type ScrollOffset,
-} from './annotate/bridge'
-import type { AnnotationRect, MockupAnnotation } from './annotate/types'
 import { basename } from '../../utils/paths'
 
 // The generated-HTML artifact viewer: one file on disk, live-rendered in a
-// scripts-off sandbox, with device widths, zoom, an optional source view, and
-// the annotate mode a reviewer marks screens up with. It lives here, on
-// its own, rather than beside any one consumer: every mockup surface renders
-// the same frame.
+// scripts-off sandbox, with device widths, zoom and an optional source view.
+// It lives here, on its own, rather than beside any one consumer: every mockup
+// surface renders the same frame.
 //
-// The scripts-off sandbox policy is `annotate/annotateModel.ts`'s
-// `annotateFrameSandbox`, which never adds `allow-same-origin`; the shared
-// HtmlPreviewCard thumbnail spells the same rule for its own inert frame.
+// The scripts-off sandbox policy is `htmlFrameSandbox` below, which never adds
+// `allow-same-origin`; the shared HtmlPreviewCard thumbnail spells the same
+// rule for its own inert frame.
 
 // The preview never shows an undesigned void: every non-rendered situation maps
 // to one of four designed states derived from a real file signal (MC-1505).
@@ -65,8 +44,13 @@ const PREVIEW_VIEWPORTS: ReadonlyArray<{ id: HtmlPreviewViewport; label: string 
 const PREVIEW_ZOOMS = [1, 0.75, 0.5] as const
 export type HtmlPreviewZoom = (typeof PREVIEW_ZOOMS)[number]
 
-// Stable empty batch so files without notes never churn effect dependencies.
-const EMPTY_ANNOTATION_BATCH: MockupAnnotation[] = []
+/**
+ * Sandbox for the preview iframe: scripts off by default, `allow-scripts` only
+ * behind the explicit interactive-demo toggle, and never `allow-same-origin`.
+ */
+function htmlFrameSandbox(allowScripts: boolean): string {
+  return allowScripts ? 'allow-scripts' : ''
+}
 
 function nextHtmlPreviewZoom(zoom: HtmlPreviewZoom): HtmlPreviewZoom {
   const index = PREVIEW_ZOOMS.indexOf(zoom)
@@ -83,7 +67,6 @@ export type HtmlArtifactViewMode = 'preview' | 'source'
 export type HtmlArtifactView = {
   showToggle: boolean
   mode: HtmlArtifactViewMode
-  showsRenderedFrame: boolean
   showsSource: boolean
   showsPreviewControls: boolean
 }
@@ -97,7 +80,6 @@ function resolveHtmlArtifactView(
   return {
     showToggle: enableSourceView,
     mode,
-    showsRenderedFrame: !isSource,
     showsSource: isSource,
     showsPreviewControls: !isSource,
   }
@@ -181,25 +163,11 @@ export function HtmlArtifactFrame({
   relativePath,
   watchDirectoryPath,
   enableSourceView = false,
-  onSubmitAnnotations,
-  annotateSubmitLabel,
 }: {
   absolutePath: string
   relativePath: string
   watchDirectoryPath: string
   enableSourceView?: boolean
-  /**
-   * Opt-in annotate mode (MC-1468), the same opt-in-prop pattern as
-   * `enableSourceView`: passing the callback is the opt-in, so the mode can
-   * never be enabled without a real batch destination. The frame collects
-   * element-anchored notes and submits them as ONE batch through this seam; it
-   * contains no feedback-routing logic — where a batch goes is entirely the
-   * host's decision.
-   */
-  onSubmitAnnotations?: (annotations: MockupAnnotation[]) => Promise<void>
-  /** Host-named tray send action ("Send to designer" in the wizard); the
-   * routing-agnostic frame cannot name the destination itself. */
-  annotateSubmitLabel?: string
 }) {
   const [allowScripts, setAllowScripts] = useState(false)
   const [viewMode, setViewMode] = useState<HtmlArtifactViewMode>('preview')
@@ -215,41 +183,17 @@ export function HtmlArtifactFrame({
   // canvas never flashes over the dark stage before a dark mockup paints.
   const [frameLoaded, setFrameLoaded] = useState(false)
 
-  // --- Annotate mode (MC-1468 part 2) ---------------------------------------
-  // Pending batches are keyed per file and live HERE, in the parent of the
-  // iframe — so a batch survives entering Source view, a file reload, and the
-  // annotate iframe remount itself. The capture mode stays on across screen
-  // switches (a review sweep spans screens); each screen keeps its own batch.
-  const annotateEnabled = typeof onSubmitAnnotations === 'function'
-  const [annotateOn, setAnnotateOn] = useState(false)
-  const [annotationBatches, setAnnotationBatches] = useState<Record<string, MockupAnnotation[]>>({})
-  const [composer, setComposer] = useState<AnnotateComposerState>({ kind: 'closed' })
-  const [submitState, setSubmitState] = useState<AnnotateSubmitState>({ kind: 'idle' })
-  const [trayListOpen, setTrayListOpen] = useState(false)
-  // Live frame geometry from the validated bridge: current scroll offset and
-  // the freshest located rect per selector (null = unanchored).
-  const [frameScroll, setFrameScroll] = useState<ScrollOffset>({ x: 0, y: 0 })
-  const [anchorRects, setAnchorRects] = useState<Record<string, AnnotationRect | null>>({})
-  const iframeRef = useRef<HTMLIFrameElement | null>(null)
-  const commentToggleRef = useRef<HTMLButtonElement>(null)
-
   // Reset scripts to off whenever the previewed file changes — the safe default
-  // must not carry over from a previously trusted file. Per-frame annotate
-  // geometry and the composer reset with it; the pending batches do not.
+  // must not carry over from a previously trusted file.
   useEffect(() => {
     setAllowScripts(false)
     setBrowserOpenState({ kind: 'idle' })
     setCopiedPath(false)
-    setComposer({ kind: 'closed' })
-    setSubmitState({ kind: 'idle' })
-    setTrayListOpen(false)
-    setFrameScroll({ x: 0, y: 0 })
-    setAnchorRects({})
   }, [absolutePath])
 
   useEffect(() => {
     setFrameLoaded(false)
-  }, [absolutePath, allowScripts, reloadNonce, annotateOn])
+  }, [absolutePath, allowScripts, reloadNonce])
 
   useEffect(() => {
     let cancelled = false
@@ -345,166 +289,8 @@ export function HtmlArtifactFrame({
   // beneath it. Falls back to the humanized filename before the content loads.
   const pageTitle = htmlPreviewTitle(relativePath, frameState.kind === 'ready' ? frameState.content : null)
 
-  const availability = annotateAvailability(frameState.kind)
-  // Capture is live only while a document is rendered; the toggle state itself
-  // survives an unavailable interlude (e.g. the file is being rewritten).
-  const annotateActive = annotateEnabled && annotateOn && availability.available && view.showsRenderedFrame
-  const batch = annotationBatches[absolutePath] ?? EMPTY_ANNOTATION_BATCH
-  const submitting = submitState.kind === 'submitting'
-
-  const setBatch = (next: MockupAnnotation[]) => {
-    setAnnotationBatches((batches) => {
-      if (next.length === 0) {
-        const { [absolutePath]: _removed, ...rest } = batches
-        return rest
-      }
-      return { ...batches, [absolutePath]: next }
-    })
-  }
-
-  // Everything the overlay anchors to: the batch plus an open draft's anchor,
-  // so a draft composer re-anchors under reflow/scroll exactly like a pin.
-  const draftSelector = composer.kind === 'new' ? composer.anchor.selector : null
-  const anchoredSelectors = () => {
-    const selectors = batch.map((annotation) => annotation.selector)
-    if (draftSelector && !selectors.includes(draftSelector)) selectors.push(draftSelector)
-    return selectors
-  }
-
-  const postLocate = (selectors: readonly string[]) => {
-    iframeRef.current?.contentWindow?.postMessage(buildAnnotateLocateRequest(selectors), '*')
-  }
-
-  // Bridge listener: only messages from our own iframe's contentWindow are
-  // trusted (source identity — the sandboxed frame is an opaque origin).
-  useEffect(() => {
-    if (!annotateActive) return
-    const onMessage = (event: MessageEvent) => {
-      const message = readTrustedAnnotateMessage(event, iframeRef.current?.contentWindow ?? null)
-      if (!message) return
-      switch (message.type) {
-        case 'ready':
-          // A (re)loaded document starts unscrolled; re-anchor the batch in it.
-          setFrameScroll({ x: 0, y: 0 })
-          postLocate(anchoredSelectors())
-          break
-        case 'scroll':
-          setFrameScroll(message.scrollOffset)
-          break
-        case 'anchors': {
-          const next: Record<string, AnnotationRect | null> = {}
-          for (const anchor of message.anchors) next[anchor.selector] = anchor.rect
-          setAnchorRects(next)
-          setFrameScroll(message.scrollOffset)
-          break
-        }
-        case 'select':
-          if (submitting) break
-          setComposer((prev) => {
-            // An explicit edit session is never discarded by a stray click; a
-            // new draft re-anchors to the latest selection, keeping its text.
-            if (prev.kind === 'edit') return prev
-            return {
-              kind: 'new',
-              anchor: anchorFromSelect(message),
-              message: prev.kind === 'new' ? prev.message : '',
-            }
-          })
-          break
-        case 'hover':
-        case 'hover-end':
-          // The identity chip renders inside the frame (picker runtime).
-          break
-      }
-    }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [annotateActive, batch, draftSelector, submitting])
-
-  // Re-anchor whenever the anchored set or the projection inputs change; the
-  // picker itself re-reports after in-frame reflows and scrolls.
-  useEffect(() => {
-    if (!annotateActive) return
-    postLocate(anchoredSelectors())
-  }, [annotateActive, batch, draftSelector, zoom, viewport])
-
-  const onToggleAnnotate = () => {
-    setComposer({ kind: 'closed' })
-    setTrayListOpen(false)
-    setAnnotateOn((value) => !value)
-  }
-
-  // Escape exits Comment mode and returns focus to its toggle. The composer
-  // and the tray list handle their own Escape first (and stop propagation);
-  // this handler stops propagation too, so one press never also collapses the
-  // shell's expanded bubble or drawer — Escape peels exactly one layer.
-  const onFrameKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'Escape' || !annotateActive) return
-    event.stopPropagation()
-    setAnnotateOn(false)
-    commentToggleRef.current?.focus()
-  }
-
-  const onComposerCommit = () => {
-    if (composer.kind === 'closed') return
-    const message = composer.message.trim()
-    if (!message) return
-    if (composer.kind === 'new') {
-      setBatch(addAnnotation(batch, { ...composer.anchor, message }))
-    } else {
-      setBatch(updateAnnotationMessage(batch, composer.index, message))
-    }
-    setComposer({ kind: 'closed' })
-  }
-
-  const onComposerRemove = () => {
-    if (composer.kind !== 'edit') return
-    setBatch(removeAnnotation(batch, composer.index))
-    setComposer({ kind: 'closed' })
-  }
-
-  const onEditAnnotation = (index: number) => {
-    if (submitting || !availability.available) return
-    const annotation = batch[index]
-    if (!annotation) return
-    // Editing from the tray while capture is off re-enters Comment mode so the
-    // composer has a surface to anchor to.
-    setAnnotateOn(true)
-    setComposer({ kind: 'edit', index, message: annotation.message })
-  }
-
-  const onSendBatch = async () => {
-    if (!onSubmitAnnotations || batch.length === 0 || submitting) return
-    const pathAtSubmit = absolutePath
-    setComposer({ kind: 'closed' })
-    setSubmitState({ kind: 'submitting' })
-    try {
-      await onSubmitAnnotations(batch)
-      setAnnotationBatches((batches) => {
-        const { [pathAtSubmit]: _sent, ...rest } = batches
-        return rest
-      })
-      setTrayListOpen(false)
-      setSubmitState({ kind: 'idle' })
-    } catch (error) {
-      // The batch is deliberately untouched — a failed send keeps every note.
-      setSubmitState({ kind: 'failed', reason: submitFailureMessage(error) })
-    }
-  }
-
-  // Annotate mode swaps the srcDoc for the composed one (author scripts
-  // neutralized, picker injected); the normal preview path is untouched.
-  const annotateSrcDoc = useMemo(
-    () =>
-      annotateActive && frameState.kind === 'ready'
-        ? composeAnnotateSrcDoc(stripHtmlFrontmatter(frameState.content))
-        : null,
-    [annotateActive, frameState],
-  )
-
   return (
     <div
-      onKeyDown={onFrameKeyDown}
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
     >
       {/* flex-wrap: narrow hosts (e.g. a narrow detail pane) fit fewer
@@ -578,18 +364,7 @@ export function HtmlArtifactFrame({
               </svg>
             </IconButton>
           </Tooltip>
-          {annotateEnabled && view.showsPreviewControls ? (
-            // aria-disabled (not disabled) keeps the unavailable toggle
-            // hoverable and focusable, so the reason tooltip actually reaches
-            // the user instead of a dead control.
-            <CommentToggle
-              buttonRef={commentToggleRef}
-              active={annotateActive}
-              unavailableReason={availability.available ? null : availability.reason}
-              onToggle={onToggleAnnotate}
-            />
-          ) : null}
-          {view.showsPreviewControls && !annotateActive ? (
+          {view.showsPreviewControls ? (
             // The chip's `warn` tone: the standing warning the control itself
             // carries — scripts are running in this preview, and this is where
             // they are turned off (design-system/components/chip-button → Tone).
@@ -648,11 +423,10 @@ export function HtmlArtifactFrame({
               style={viewport === 'fit' ? undefined : { width: viewport * zoom }}
             >
               <iframe
-                ref={iframeRef}
-                key={`${absolutePath}::${annotateActive ? 'annotate' : allowScripts ? 'scripts' : 'no-scripts'}::${reloadNonce}`}
+                key={`${absolutePath}::${allowScripts ? 'scripts' : 'no-scripts'}::${reloadNonce}`}
                 title={`Preview · ${pageTitle}`}
-                srcDoc={annotateSrcDoc ?? stripHtmlFrontmatter(frameState.content)}
-                sandbox={annotateFrameSandbox(annotateActive, allowScripts)}
+                srcDoc={stripHtmlFrontmatter(frameState.content)}
+                sandbox={htmlFrameSandbox(allowScripts)}
                 onLoad={() => setFrameLoaded(true)}
                 className={`border-0 bg-white transition-opacity duration-150 ${frameLoaded ? 'opacity-100' : 'opacity-0'}`}
                 style={{
@@ -662,22 +436,6 @@ export function HtmlArtifactFrame({
                   transformOrigin: 'top left',
                 }}
               />
-              {annotateActive ? (
-                <AnnotateOverlay
-                  annotations={batch}
-                  anchors={anchorRects}
-                  transform={{ zoom, scroll: frameScroll, offsetX: 0, offsetY: 0 }}
-                  composer={composer}
-                  busy={submitting}
-                  onOpenEdit={onEditAnnotation}
-                  onComposerMessageChange={(message) =>
-                    setComposer((prev) => (prev.kind === 'closed' ? prev : { ...prev, message }))
-                  }
-                  onComposerCancel={() => setComposer({ kind: 'closed' })}
-                  onComposerCommit={onComposerCommit}
-                  onComposerRemove={onComposerRemove}
-                />
-              ) : null}
             </div>
           </div>
         ) : frameState.kind === 'generating' ? (
@@ -706,80 +464,8 @@ export function HtmlArtifactFrame({
           </div>
         ) : null}
       </div>
-      {/* The batch tray floats over the stage (a sibling of the scroll container,
-          so it never scrolls away) whenever this file has pending notes — even
-          with capture toggled off, pending feedback is never invisible. */}
-      {annotateEnabled && view.showsRenderedFrame && batch.length > 0 ? (
-        <AnnotateTray
-          annotations={batch}
-          anchors={anchorRects}
-          submitState={submitState}
-          listOpen={trayListOpen}
-          submitLabel={annotateSubmitLabel}
-          onToggleList={() => setTrayListOpen((value) => !value)}
-          onEdit={onEditAnnotation}
-          onRemove={(index) => setBatch(removeAnnotation(batch, index))}
-          onClear={() => {
-            setBatch([])
-            setTrayListOpen(false)
-            setComposer({ kind: 'closed' })
-          }}
-          onSend={() => void onSendBatch()}
-        />
-      ) : annotateActive && composer.kind === 'closed' ? (
-        <span
-          role="status"
-          className="pointer-events-none absolute bottom-3 left-1/2 z-[var(--z-pane)] -translate-x-1/2 whitespace-nowrap rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-1 text-micro text-[color:var(--text-muted)] shadow-[var(--shadow-drawer)]"
-        >
-          Click any element in the preview to pin a note
-        </span>
-      ) : null}
     </div>
   )
-}
-
-/**
- * The annotate/Comment mode toggle in the frame header. Unavailable states
- * (file missing, still generating, unreadable, loading) keep the control
- * focusable via aria-disabled so the Tooltip can explain why; activation is
- * simply a no-op until the file renders again.
- */
-function CommentToggle({
-  buttonRef,
-  active,
-  unavailableReason,
-  onToggle,
-}: {
-  buttonRef: RefObject<HTMLButtonElement>
-  active: boolean
-  unavailableReason: string | null
-  onToggle: () => void
-}) {
-  const unavailable = unavailableReason !== null
-  const button = (
-    // The kit's `aria-disabled` treatment — the unavailable state of a toggle
-    // whose tooltip says why it is off: the same look as `disabled`, and the tab
-    // stop kept so the explanation is reachable without a pointer.
-    <GhostButton
-      ref={buttonRef}
-      size="xs"
-      onClick={unavailable ? undefined : onToggle}
-      pressed={active}
-      aria-disabled={unavailable || undefined}
-    >
-      <svg viewBox="0 0 14 14" className="icon-xs" aria-hidden="true">
-        <path
-          d="M9.5 2.5 11.5 4.5 5 11l-2.5.5L3 9z"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.3"
-          strokeLinejoin="round"
-        />
-      </svg>
-      {active ? 'Commenting' : 'Comment'}
-    </GhostButton>
-  )
-  return unavailable ? <Tooltip content={unavailableReason}>{button}</Tooltip> : button
 }
 
 type PreviewStateGlyph = 'deleted' | 'error'

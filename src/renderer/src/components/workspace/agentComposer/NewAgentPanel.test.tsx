@@ -313,9 +313,7 @@ async function main(): Promise<void> {
 
     assert.ok(!text.includes('+ Worktree'), 'worktree is not on the row until it is set')
     assert.ok(!text.includes('+ Skill') && !text.includes('+ Connector'), 'the two old chips are gone')
-    assert.ok(!text.includes('Role'), 'no role control anywhere on the row')
     assert.ok(!/debug/i.test(text), 'nor is debug')
-    assert.ok(!text.includes('Architect'), 'and no role picker sits where the model goes')
 
     // The command line is not printed under the box any more.
     assert.ok(!text.includes(PREVIEW_DISPLAY), 'the invocation is not a line of chrome')

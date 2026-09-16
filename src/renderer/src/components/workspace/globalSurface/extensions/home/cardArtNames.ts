@@ -22,7 +22,6 @@ export const CARD_ART_NAMES = [
   'browser',
   'city',
   'split',
-  'board',
   'tokens',
   'braces',
   'plane',

@@ -122,8 +122,6 @@ export type ConversationPeekAgent = {
 export type ConversationPeekIdentity = {
   /** The chat's name — the tab's or the row's title. */
   name: string
-  /** A task the agent is claimed on, when its host reports one. */
-  taskId: string | null
   /** The corner's state; null to omit it entirely. */
   status: ConversationPeekStatus | null
   /** The one agent whose conversation this card shows. */
@@ -724,11 +722,6 @@ export function ConversationPeekCard({
         <Badge className="max-w-full">
           <span className="truncate font-mono">{agent.model ?? 'CLI default'}</span>
         </Badge>
-        {identity.taskId ? (
-          <Badge>
-            <span className="font-mono tabular-nums">{identity.taskId}</span>
-          </Badge>
-        ) : null}
         {agent.sessionId ? (
           // The copy control sits BESIDE the chip, not inside it: a badge is
           // display-only by spec (design-system/components/badge — "never

@@ -29,7 +29,6 @@ import {
   ensureBacklogItemIds,
   ensureBacklogObjectRecords,
   moveBacklogObjectSource,
-  readBacklogObjectStore,
   resolveBacklogLocation,
   setBacklogRoot,
   removeBacklogLink,
@@ -45,10 +44,6 @@ import {
 } from '../backlog-service'
 
 export function registerBacklogIpc(ipcMain: IpcMain): void {
-  ipcMain.handle('backlog:read-object-store', (_event, workspaceRoot: string): Promise<BacklogReadResult> => {
-    return readBacklogObjectStore(workspaceRoot)
-  })
-
   ipcMain.handle('backlog:resolve-location', (_event, workspaceRoot: string): Promise<BacklogLocationResult> => {
     return resolveBacklogLocation(workspaceRoot)
   })

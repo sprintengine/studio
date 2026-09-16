@@ -53,10 +53,6 @@ import {
 import {
   collectScrollbackFootprint,
 } from '../../utils/diagnostics/terminalInstanceRegistry'
-import {
-  getTimerRegistrations,
-  summarizeTimers,
-} from '../../utils/diagnostics/timerRegistry'
 import type { IpcStatsSnapshot } from '../../../../shared/electron-api'
 
 // Poll process metrics once a second while the panel is mounted. Both surfaces
@@ -381,7 +377,6 @@ export default function DiagnosticsContent({ headerActions }: Props) {
   const perfRollup = useMemo(() => aggregatePerfEvents(getPerfEventSamples(), { now }), [now])
   const longTaskSummary = useMemo(() => summarizeLongTasks(getLongTaskSamples(), { now }), [now])
   const frameStats = useMemo(() => summarizeFrameStats(getFrameSamples(), { now }), [now])
-  const timerRows = useMemo(() => summarizeTimers(getTimerRegistrations()), [now])
   const scrollback = useMemo(() => collectScrollbackFootprint(), [now])
   // Series for the memory-trend sparklines, drawn from the same rolling history
   // the growth slope uses. Refreshed on the 1s tick.
@@ -463,7 +458,6 @@ export default function DiagnosticsContent({ headerActions }: Props) {
       ipc: ipcThroughput,
       terminalThroughput,
       scrollback,
-      timers: timerRows,
       now: Date.now(),
     })
     void window.api
@@ -1073,41 +1067,6 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           active={activeTab === 'subsystems'}
           className="flex flex-col gap-4"
         >
-        {/* Active timers / supervisors */}
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
-            Active timers / supervisors ({timerRows.length})
-          </h2>
-          {timerRows.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Label</Th>
-                  <Th numeric>Cadence ms</Th>
-                  <Th numeric>Ticks</Th>
-                  <Th numeric>Avg ms</Th>
-                  <Th numeric>Max ms</Th>
-                  <Th numeric>Last tick</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {timerRows.map((row) => (
-                  <tr key={row.label} className="border-b border-[color:var(--border-subtle)]">
-                    <Td>{row.label}</Td>
-                    <Td numeric>{row.cadenceMs}</Td>
-                    <Td numeric>{row.tickCount}</Td>
-                    <Td numeric>{msOrDash(row.avgMs)}</Td>
-                    <Td numeric>{msOrDash(row.maxMs)}</Td>
-                    <Td numeric>{formatRelativeMsAgo(row.lastTickAt, now) || '—'}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <p className="text-[color:var(--text-muted)]">No registered recurring timers.</p>
-          )}
-        </section>
-
         {/* Terminal scrollback + write throughput */}
         <section>
           <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Terminal subsystem</h2>

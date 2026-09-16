@@ -60,18 +60,6 @@ export const ModalSurfaceChromeContext = React.createContext<{
   onBarPresence: (present: boolean) => void
 } | null>(null)
 
-// A modal body that chromes itself (its own PanelHeader) claims the
-// host bar so ModalSurfaceFrame's fallback title+X does not double it.
-export function ClaimModalSurfaceBar(): null {
-  const chrome = useContext(ModalSurfaceChromeContext)
-  useEffect(() => {
-    if (!chrome) return undefined
-    chrome.onBarPresence(true)
-    return () => chrome.onBarPresence(false)
-  }, [chrome])
-  return null
-}
-
 // The one modal title bar (owner, 2026-09-01): a step taller than the door bar
 // and at the title type step — a dialog names itself more loudly than a page
 // whose name rides the app strip — with the X as the one close. Rendered by

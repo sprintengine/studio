@@ -9,9 +9,8 @@
  * Fifty-odd byte-identical copies of this lived across the tree under three
  * names (`isRecord`, `isObject`, `asRecord`) and two spellings of one condition
  * (`Boolean(value) && typeof value === 'object'` vs `typeof value === 'object'
- * && value !== null`). They all agreed; this is what they collapsed to. Two
- * predicates did NOT agree and kept their own definitions:
- * `htmlArtifact/annotate/bridge.ts` (arrays allowed) and
+ * && value !== null`). They all agreed; this is what they collapsed to. One
+ * predicate did NOT agree and kept its own definition:
  * `skills/plugin-install-store.ts` (a record of a specific shape).
  */
 export function isRecord(value: unknown): value is Record<string, unknown> {

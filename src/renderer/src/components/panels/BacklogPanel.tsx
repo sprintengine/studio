@@ -38,7 +38,8 @@ import { useSharedBacklogScan } from '../../hooks/useSharedBacklogScan'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { renderMarkdown } from '../../utils/markdown'
-import { basename, parentPath } from '../../utils/paths'
+import { basename, parentPath, slugify } from '../../utils/paths'
+import { isEditableTarget } from '../../utils/keyboard'
 import { resolveFirstMockupCandidate } from '../../utils/backlogMockups'
 import { HtmlArtifactFrame } from '../htmlArtifact/HtmlArtifactFrame'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
@@ -262,8 +263,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // The extended (shift/cmd) selection layered over the cursor above (MC-2060),
-  // keyed by item id — this panel lists one project, so there is no cross-
-  // project rule to enforce (the door's model carries that via `groupOf`).
+  // keyed by item id.
   const [multiSelection, setMultiSelection] = useState(EMPTY_BACKLOG_MULTI_SELECTION)
   // Search is ephemeral: a transient act, never persisted or shared, so each
   // window's box starts empty and typing here never leaks to another workspace.
@@ -956,7 +956,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
       const title = draft.title.trim()
       if (!folderPath || !title) return
       const fileName = uniquePlanFileName(
-        `${todayPrefix()}-${slugify(title)}`,
+        `${todayPrefix()}-${planSlug(title)}`,
         new Set((scan?.items ?? []).map((item) => item.relativePath.toLowerCase())),
       )
       // ensureDir is idempotent; it also covers a missing backlog/ folder.
@@ -2349,7 +2349,6 @@ export function BacklogDetail({
   onOpenMockup,
   onCloseMockupPreview,
   onPopOutMockup,
-  headerExtra,
   backlogLocation = null,
 }: {
   scan: BacklogScanResult | null
@@ -2402,8 +2401,6 @@ export function BacklogDetail({
   // Pop the previewed mockup out into a source editor tab (the FilePreviewPane
   // "Open in editor" jump-out), wired to the workspace openFile bridge.
   onPopOutMockup: () => void
-  /** Host-supplied band rendered directly under the title (MC-1923). */
-  headerExtra?: React.ReactNode
   /**
    * Where this workspace's backlog lives, for the missing-folder state. Null
    * while it is still being resolved, which reads as the default — the right
@@ -2553,9 +2550,8 @@ export function BacklogDetail({
       {/* `px-3 py-2` — `ui/PanelHeader`'s inset, so this pane starts where every
           other header does; it sat at `px-4 py-3` (2112).
 
-          NOT the primitive itself: this header wraps its title to two lines and
-          hosts a host band (`headerExtra`) under it, neither of which the
-          one-line primitive does. The inset is what makes the heights agree, and
+          NOT the primitive itself: this header wraps its title to two lines,
+          which the one-line primitive does not. The inset is what makes the heights agree, and
           that is what converges here.
 
           ONE identity row (MC-2067). MC-1923 gave the crumb a band of its own so
@@ -2833,13 +2829,6 @@ export function BacklogDetail({
             <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
           </GhostButton>
         ) : null}
-
-        {/* A host's own band, directly under the title — the loudest thing in
-            the pane when it is present. A host that knows who is delivering this
-            item puts that here (MC-1923): the one fact about a backlog item that
-            Backlog itself cannot know. Absent everywhere else, so the panel and
-            the Backlog door render byte-identically without it. */}
-        {headerExtra}
 
         {/* Earned, not standing (MC-2067): a host with no shell action to offer
             gets no action band at all, because the overflow menu that used to be
@@ -3247,14 +3236,8 @@ function matchesQuery(item: BacklogItem, query: string): boolean {
   )
 }
 
-function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 60) || 'untitled'
-  )
+function planSlug(value: string): string {
+  return slugify(value).slice(0, 60) || 'untitled'
 }
 
 function todayPrefix(): string {
@@ -3277,12 +3260,6 @@ function uniquePlanFileName(baseName: string, existingRelativeLower: Set<string>
 
 function assertBacklogMutation(result: { ok: boolean; message?: string }): void {
   if (!result.ok) throw new Error(result.message || 'Unable to update Backlog metadata.')
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
 }
 
 function listEmptyHint(

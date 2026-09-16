@@ -197,7 +197,6 @@ function connectFrameBody() {
       agentId: studioEnv('SPRINTENGINE_AGENT_ID'),
       agentName: studioEnv('SPRINTENGINE_AGENT_NAME'),
       cliId: studioEnv('SPRINTENGINE_AGENT_CLI'),
-      sprintRunId: studioEnv('SPRINTENGINE_SPRINTENGINE_MCP_RUN_ID'),
     },
   })
 }

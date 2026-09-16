@@ -11,8 +11,6 @@ export type Tone = 'neutral' | 'accent' | 'good' | 'warn' | 'error'
 // override so "merged" stays recognisable across themes.
 export type StatusTone = Tone | 'merged'
 
-export type ToolIdentity = 'sprintengine'
-
 export const TONE_COLOR_VAR: Record<Tone, string> = {
   neutral: 'var(--tone-neutral)',
   accent: 'var(--tone-accent)',
@@ -32,10 +30,6 @@ export const TONE_SOFT_VAR: Record<Tone, string> = {
   good: 'var(--tone-good-soft)',
   warn: 'var(--tone-warn-soft)',
   error: 'var(--tone-error-soft)',
-}
-
-export const TOOL_COLOR_VAR: Record<ToolIdentity, string> = {
-  sprintengine: 'var(--tool-sprintengine)',
 }
 
 // The product's one focus indicator: a 2px --border-focus outline at a 2px

@@ -210,16 +210,16 @@ function testBundledModuleSkipsSpawnPermission(): void {
   const kernel = createMainKernel(createFakeIpcMain(), {
     resolveModuleRoot: () => MODULE_ROOT,
     resolveModuleManifest: () => ({
-      id: 'sprint-engine',
-      displayName: 'Sprint Engine',
+      id: 'git',
+      displayName: 'Git',
       version: 1,
       defaultEnabled: true,
     }),
   })
-  const handle = kernel.hostFor('sprint-engine').registerSidecar({
-    id: 'sprintengine-mcp',
+  const handle = kernel.hostFor('git').registerSidecar({
+    id: 'git-mcp',
     kind: 'python',
-    python: { root: 'python', module: 'sprintengine_mcp' },
+    python: { root: 'python', module: 'git_mcp' },
     startOn: 'demand',
   })
   assert.equal(handle.status().state, 'stopped')

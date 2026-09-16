@@ -48,8 +48,8 @@
 // nothing could show.
 //
 // THE WATCH IS BOUNDED (decision 9's schedule, not its scope). Only a pull
-// request opened inside `PR_WATCH_BOOT_SCAN_MAX_AGE_MS` holds a timer — the
-// same 30-day window the sprint run watch has always bounded its boot scan by.
+// request opened inside `PR_WATCH_BOOT_SCAN_MAX_AGE_MS` holds a timer — a
+// 30-day window.
 // Without it every open pull request the app ever saw, in any repository, for
 // sessions long gone, keeps a ≤32-minute timer for the life of the process.
 //
@@ -106,8 +106,8 @@ export const LOOKUP_RETRY_AFTER_FAILURE_MS = 10_000
 export const HOVER_REFRESH_STALE_MS = 60_000
 
 /**
- * How old an OPEN pull request may be and still hold a watch timer. The window
- * the sprint run watch already bounds its boot scan by — see the header.
+ * How old an OPEN pull request may be and still hold a watch timer — see the
+ * header.
  */
 export const WATCH_MAX_AGE_MS = PR_WATCH_BOOT_SCAN_MAX_AGE_MS
 

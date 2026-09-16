@@ -17,7 +17,7 @@ async function main(): Promise<void> {
 
   const view: ModuleWorkspaceView = {
     id: 'ws-1',
-    name: 'Calendar sprint',
+    name: 'Calendar week',
     folderPath: '/repos/calendar',
     mode: 'calendar',
   }

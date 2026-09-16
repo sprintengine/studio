@@ -12,7 +12,7 @@ export { StatusDot } from './StatusDot'
 export { AgentWorkingDots } from './AgentWorkingDots'
 export { ContextRing, CONTEXT_RING_WARN_PERCENTAGE } from './ContextRing'
 export { Spinner } from './Spinner'
-export { LifecycleGlyph, LIFECYCLE_LABEL, type LifecycleState } from './LifecycleGlyph'
+export { LifecycleGlyph, type LifecycleState } from './LifecycleGlyph'
 // The barrel exports the PRIMITIVE only. `PULL_REQUEST_SHAPES` is the raw
 // drawing, and its one consumer (`LifecycleGlyph`, which draws two of these
 // marks under its own tones) imports it directly: putting bare SVG fragments in
@@ -92,7 +92,6 @@ export { KebabGlyph } from './KebabGlyph'
 export { MicroChip } from './DefaultChip'
 export { ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export { CliModelPickerButton, CliModelPopoverSurface } from './CliModelPicker'
-export type { CliRuntimeOption } from './cliRuntimeCatalog'
 export {
   resolveModelPermissionPreset,
   setModelPermissionPreset,
@@ -190,18 +189,15 @@ export type { ToolbarButtonProps } from './Toolbar'
 export { Badge } from './Badge'
 export type { MarkBadge } from './Badge'
 export { NewChip } from './NewChip'
-export { Table } from './Table'
 export { EmptyState } from './EmptyState'
 export { SidePane, SidePaneHeader } from './SidePane'
 export { BoardLane } from './BoardLane'
-export { Banner } from './Banner'
 export { ActionResultMessage, InlineNotice } from './InlineNotice'
-export type { ActionResult, InlineNoticeTone } from './InlineNotice'
+export type { ActionResult } from './InlineNotice'
 export { Skeleton } from './Skeleton'
 export { ChangePulse } from './ChangePulse'
 export { LoadingOverlay } from './LoadingOverlay'
 export { HtmlPreviewCard } from './HtmlPreviewCard'
-export { FilePreviewPane } from './FilePreviewPane'
 export { KbdChord } from './KbdChord'
 export { StarGlyph } from './StarGlyph'
 export { Tooltip } from './Tooltip'
@@ -214,7 +210,6 @@ export {
   FOCUS_RING_WITHIN_CHECKBOX_CLASS,
   FOCUS_RING_WITHIN_INPUT_CLASS,
   FOCUS_RING_WITHIN_TEXTAREA_CLASS,
-  LIST_CURSOR_MARK_CLASS,
   TONE_COLOR_VAR,
   TONE_SOFT_VAR,
 } from './tokens'

@@ -56,7 +56,6 @@ const AGENT: ConversationPeekIdentity['agent'] = {
 
 const IDENTITY: ConversationPeekIdentity = {
   name: 'Deara Shea',
-  taskId: null,
   status: { kind: 'working', label: 'Working' },
   agent: AGENT,
 }
@@ -134,11 +133,6 @@ run('a model the agent never chose reads as the CLI default, never blank', () =>
   const markup = card({ agent: { model: null } })
   assert.match(markup, /CLI default/, 'null model falls back to "CLI default"')
   assert.equal(markup.includes('claude-opus-5'), false, 'no stale model string when unset')
-})
-
-run('a claimed task rides the meta row when there is one', () => {
-  assert.match(card({ identity: { taskId: 'MC-2488' } }), /MC-2488/, 'shows the claimed task id')
-  assert.equal(card().includes('MC-2488'), false, 'and nothing when there is none')
 })
 
 // --- One agent per card: the agent list is gone (mockup frame 3) -----------

@@ -9,9 +9,8 @@
 // There used to be a second lane — a request/respond IPC pair that asked the
 // primary window's renderer to run the same store actions the UI used. Every
 // kind it carried is now a main service: agent launch and disposal
-// (`src/main/agent-launch-service.ts`, MC-2159), workspace creation (main owns
-// the registry, MC-2158), and sprint creation
-// (`src/main/sprint-create-service.ts`, MC-2160). MC-2161 deleted the lane
+// (`src/main/agent-launch-service.ts`, MC-2159) and workspace creation (main
+// owns the registry, MC-2158). MC-2161 deleted the lane
 // itself, and with it the whole error class that made every one of those
 // operations fail when no window happened to be open.
 

@@ -4,14 +4,14 @@ import { decodeAutomationTargetRef, type RunTargetRef } from '../../../automatio
 // The deep-link latch for the Automations full-page surface (global-surfaces
 // epic 1704 / item 1707). A run notification's "Open" opens the door AND names
 // the automation (and run) to select — but the door may open the surface a tick
-// before it mounts and subscribes. So, exactly like the workspace `revealTarget`
-// latch, the producer both stashes the pending ref and emits a live event; the
+// before it mounts and subscribes. So, exactly like the `backlogReveal` and
+// `fileReveal` latches, the producer both stashes the pending ref and emits a live event; the
 // surface drains the latch on mount and also handles the live event, so the
 // deep-link lands whether the surface was already open or just mounted.
 //
 // Pure (a module-level ref + window CustomEvent, no store, no React) so it stays
 // out of the eager module-registry graph and the notification-action provider
-// can import it directly, the same discipline `revealTarget` follows.
+// can import it directly, the same discipline those latches follow.
 
 const AUTOMATION_SURFACE_TARGET_EVENT = 'multicode:automation-surface-target'
 

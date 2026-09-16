@@ -224,7 +224,7 @@ const scored = (
 run('an exact name beats a prefix beats a word start beats a buried match', () => {
   assert.equal(scored({ label: 'backlog' }, 'backlog'), PALETTE_SCORE.labelExact)
   assert.equal(scored({ label: 'backlog triage' }, 'backlog'), PALETTE_SCORE.labelPrefix)
-  assert.equal(scored({ label: 'Sprint backlog' }, 'backlog'), PALETTE_SCORE.labelWord)
+  assert.equal(scored({ label: 'Team backlog' }, 'backlog'), PALETTE_SCORE.labelWord)
   assert.equal(scored({ label: 'nobacklogging' }, 'backlog'), PALETTE_SCORE.labelSubstring)
 })
 

@@ -20,17 +20,6 @@ run('a plain variable maps back to its MULTICODE_ spelling', () => {
   assert.equal(legacyEnvName('SPRINTENGINE_USER_DATA_DIR'), 'MULTICODE_USER_DATA_DIR')
 })
 
-// The suffix already said SPRINTENGINE on these, so the swap drops the repeat
-// instead of stuttering it. That is what makes the mapping untabulated in one
-// direction and is the whole reason the overrides exist.
-run('a variable whose suffix already said SPRINTENGINE keeps its old full name', () => {
-  assert.equal(legacyEnvName('SPRINTENGINE_TOOL_PATH'), 'MULTICODE_SPRINTENGINE_TOOL_PATH')
-  assert.equal(legacyEnvName('SPRINTENGINE_MCP_RUN_ID'), 'MULTICODE_SPRINTENGINE_MCP_RUN_ID')
-  assert.equal(legacyEnvName('SPRINTENGINE_DISABLE_SYNC'), 'MULTICODE_DISABLE_SPRINTENGINE_SYNC')
-  assert.equal(legacyEnvName('SPRINTENGINE_DISABLE_AUTORUN'), 'MULTICODE_DISABLE_SPRINTENGINE_AUTORUN')
-  assert.equal(legacyEnvName('SPRINTENGINE_DISABLE_TERMINALS'), 'MULTICODE_DISABLE_SPRINTENGINE_TERMINALS')
-})
-
 run('a variable that is not ours has no legacy spelling', () => {
   for (const name of ['PATH', 'HOME', 'CLAUDE_CODE_ENTRYPOINT', 'MULTICODE_AGENT_ID']) {
     assert.equal(legacyEnvName(name), null, `${name} must not be rewritten`)
@@ -51,8 +40,6 @@ run('the new name wins when both are set', () => {
 // sweep, or a shell a person exported the old name into, still reads.
 run('the legacy name is read when the new one is absent', () => {
   assert.equal(readStudioEnv('SPRINTENGINE_AGENT_ID', { MULTICODE_AGENT_ID: 'old' }), 'old')
-  assert.equal(readStudioEnv('SPRINTENGINE_TOOL_PATH', { MULTICODE_SPRINTENGINE_TOOL_PATH: '/t' }), '/t')
-  assert.equal(readStudioEnv('SPRINTENGINE_DISABLE_SYNC', { MULTICODE_DISABLE_SPRINTENGINE_SYNC: '1' }), '1')
 })
 
 run('an unset variable reads as undefined under either name', () => {

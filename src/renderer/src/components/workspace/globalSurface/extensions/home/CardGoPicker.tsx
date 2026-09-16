@@ -101,11 +101,10 @@ export type CardLaunchChoice = {
   permissionPreset: CliPermissionPreset
 }
 
-// A general agent, always. A card names a capability, not a role, and the role
-// modifier is the spawn picker's own control — the same reading "Hand to agent"
-// took. Keying off General is also how "otherwise the last-used row leads" is
-// answered: the picker READS the engine the person last chose for a roleless
-// agent. It does not write it back — see `choose` below.
+// A general agent, always — the same reading "Hand to agent" takes. Keying off
+// General is also how "otherwise the last-used row leads" is answered: the
+// picker READS the engine the person last chose for a general agent. It does
+// not write it back — see `choose` below.
 const CARD_SELECTION: AgentComposerSelection = { kind: 'general' }
 
 /** The runtime a card insists on, or null when it names none. */
@@ -136,7 +135,7 @@ function cardRequiredCli(card: HostedCard): AgentCli | null {
  *
  * **Derived from the ACTIONS, never from `kind`.** `kind` is the word on the
  * stamp — what the card is about — and the schema lets a showcase card open a
- * chat exactly as it lets a workflow card open a surface. Keying off it would
+ * chat exactly as it lets an automation card open a surface. Keying off it would
  * be this same bug with a different key, and the card that broke it would be a
  * card that spawns an agent behind a plain button.
  *

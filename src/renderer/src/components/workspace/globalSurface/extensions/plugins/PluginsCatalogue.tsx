@@ -431,7 +431,7 @@ export function PluginsCatalogue({
         if (result.mcpServers.length > 0) onAddMcpServers(result.mcpServers)
         setReport({ sourceId: source.id, outcome: summarizePluginInstall(result), error: null })
         sources.refreshInstalled()
-            return true
+        return true
       } catch (error) {
         setReport({ sourceId: source.id, outcome: null, error: describe(error) })
         return false
@@ -492,7 +492,7 @@ export function PluginsCatalogue({
         })
         if (result.ok) {
           sources.refreshInstalled()
-              }
+        }
       } catch (error) {
         setReport({ sourceId: source.id, outcome: null, error: describe(error) })
       } finally {

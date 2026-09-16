@@ -136,16 +136,6 @@ async function main(): Promise<void> {
     assert.equal(hiddenFromReaders(heading), false, 'while the card\'s own title is still read')
   })
 
-  await run('the board plate carries the run and the done lanes', async () => {
-    // The hero's picture, and the reason it earns the hero: the tones say a run
-    // is halfway through without a word of copy on the plate.
-    await draw(<CardArt name="board" />)
-    const markup = container.innerHTML
-    assert.match(markup, /--tone-warn/, 'a running lane')
-    assert.match(markup, /--tone-good/, 'and a finished one')
-    assert.doesNotMatch(markup, /Running|Todo|Ready|Done/, 'and no lane label below the micro floor')
-  })
-
   // ── The furniture ──────────────────────────────────────────────────────────
 
   await run('a title cannot grow past the band the scrim quietens', async () => {
@@ -307,7 +297,7 @@ async function main(): Promise<void> {
     // Both lints reject `uppercase` PAIRED WITH `tracking-*`, and neither has
     // anything to say about the case on its own — which is what the mockup
     // draws.
-    await draw(<CardSplashStamp label="Workflow" />)
+    await draw(<CardSplashStamp label="Automation" />)
     const stamp = container.firstElementChild
     assert.ok(stamp?.className.includes('uppercase'), 'the mockup draws it uppercase')
     assert.doesNotMatch(stamp?.className ?? '', /tracking-/, 'and the pairing is what the design system rejects')

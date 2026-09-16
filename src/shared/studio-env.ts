@@ -28,32 +28,10 @@ function processEnv(): EnvRecord {
 }
 
 /**
- * The eight variables whose suffix already said SPRINTENGINE. A plain prefix
- * swap would stutter them into `SPRINTENGINE_SPRINTENGINE_TOOL_PATH`, so the
- * repeated word is dropped instead — which makes the mapping underivable in
- * that direction, which is why it is written down here rather than computed.
- *
- * Keyed by the NEW name because that is the direction the lookup runs: a call
- * site names the variable it wants and this says what it used to be called.
- */
-const LEGACY_ENV_NAME_OVERRIDES: Readonly<Record<string, string>> = {
-  SPRINTENGINE_TOOL_PATH: 'MULTICODE_SPRINTENGINE_TOOL_PATH',
-  SPRINTENGINE_REGISTRY_ROOTS: 'MULTICODE_SPRINTENGINE_REGISTRY_ROOTS',
-  SPRINTENGINE_USER_REGISTRY_ROOT: 'MULTICODE_SPRINTENGINE_USER_REGISTRY_ROOT',
-  SPRINTENGINE_MCP_RUN_ID: 'MULTICODE_SPRINTENGINE_MCP_RUN_ID',
-  SPRINTENGINE_MCP_RUN_TOKEN: 'MULTICODE_SPRINTENGINE_MCP_RUN_TOKEN',
-  SPRINTENGINE_DISABLE_SYNC: 'MULTICODE_DISABLE_SPRINTENGINE_SYNC',
-  SPRINTENGINE_DISABLE_AUTORUN: 'MULTICODE_DISABLE_SPRINTENGINE_AUTORUN',
-  SPRINTENGINE_DISABLE_TERMINALS: 'MULTICODE_DISABLE_SPRINTENGINE_TERMINALS',
-}
-
-/**
  * What `name` used to be called, or null if it is not one of the app's own
- * variables. Everything outside the overrides above is a straight prefix swap.
+ * variables. Every one is a straight prefix swap.
  */
 export function legacyEnvName(name: string): string | null {
-  const override = LEGACY_ENV_NAME_OVERRIDES[name]
-  if (override) return override
   if (!name.startsWith(ENV_PREFIX)) return null
   return `${LEGACY_ENV_PREFIX}${name.slice(ENV_PREFIX.length)}`
 }

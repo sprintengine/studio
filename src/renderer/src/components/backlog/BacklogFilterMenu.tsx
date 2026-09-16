@@ -27,24 +27,15 @@ type BacklogFilterMenuProps = {
   onViewChange: (view: BacklogView) => void
   onSortChange: (sort: BacklogSort) => void
   onGroupChange: (group: BacklogGroup) => void
-  // The "no filter applied" baseline the active marker is measured against.
-  defaultView?: BacklogView
-  defaultSort?: BacklogSort
-  defaultGroup?: BacklogGroup
-  /** The project lens, when the surface spans more than one project (the door).
-   *  It leads the menu rather than standing beside the search as its own Select:
-   *  everything that narrows the list lives behind one glyph, so there is one
-   *  place to look for "why am I not seeing everything?". */
-  project?: {
-    items: ReadonlyArray<SelectItem<string>>
-    value: string
-    defaultValue: string
-    onChange: (value: string) => void
-  }
   className?: string
 }
 
 const OPTION_SELECTOR = '[data-filter-option="true"]'
+
+// The "no filter applied" baseline the active marker is measured against.
+const DEFAULT_VIEW: BacklogView = 'active'
+const DEFAULT_SORT: BacklogSort = 'recent'
+const DEFAULT_GROUP: BacklogGroup = 'none'
 
 export function BacklogFilterMenu({
   view,
@@ -56,10 +47,6 @@ export function BacklogFilterMenu({
   onViewChange,
   onSortChange,
   onGroupChange,
-  defaultView = 'active',
-  defaultSort = 'recent',
-  defaultGroup = 'none',
-  project,
   className,
 }: BacklogFilterMenuProps): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -100,11 +87,7 @@ export function BacklogFilterMenu({
     }
   }
 
-  const active =
-    view !== defaultView ||
-    sort !== defaultSort ||
-    group !== defaultGroup ||
-    (project ? project.value !== project.defaultValue : false)
+  const active = view !== DEFAULT_VIEW || sort !== DEFAULT_SORT || group !== DEFAULT_GROUP
 
   return (
     <Popover
@@ -143,22 +126,12 @@ export function BacklogFilterMenu({
         </IconButton>
       )}
     >
-      {project ? (
-        <FilterGroup
-          label="Project"
-          items={project.items}
-          current={project.value}
-          onSelect={project.onChange}
-          onOptionKey={onOptionKey}
-        />
-      ) : null}
       <FilterGroup
         label="View"
         items={viewItems}
         current={view}
         onSelect={onViewChange}
         onOptionKey={onOptionKey}
-        divider={Boolean(project)}
       />
       <FilterGroup
         label="Sort by"

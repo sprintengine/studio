@@ -1061,12 +1061,12 @@ function session(
     agentSession: input.agentSession ?? {
       sessionId: input.sessionId,
       executionId: 'exec_1',
-      system: 'sprintengine',
+      system: 'manual',
       workspaceId: input.workspaceId ?? 'workspace_1',
       workspaceRoot: '/workspace',
       workId: 'work_1',
-      role: 'developer',
-      displayName: 'Developer',
+      role: 'manual',
+      displayName: 'Agent',
     },
   }
 }

@@ -126,7 +126,7 @@ run('reconcile merges djb2 + FNV twins: union links, newest updatedAt wins', () 
       // Same fixed link id, newer timestamp — must supersede the djb2 twin's.
       { id: 'agent-runtime:working-agent', moduleId: 'agent-runtime', type: 'agent', label: 'Agent: new', target: { kind: 'agent.terminal', id: 'ws/new' }, updatedAt: '2026-07-05T00:00:00.000Z' },
       // A distinct link id present only on the FNV twin — must be preserved.
-      { id: 'sprint:execution', moduleId: 'sprint', type: 'execution', label: 'Run', target: { kind: 'run', id: 'run-1' }, updatedAt: '2026-07-02T00:00:00.000Z' },
+      { id: 'atlas:execution', moduleId: 'atlas', type: 'execution', label: 'Run', target: { kind: 'run', id: 'run-1' }, updatedAt: '2026-07-02T00:00:00.000Z' },
     ],
   })
 
@@ -141,7 +141,7 @@ run('reconcile merges djb2 + FNV twins: union links, newest updatedAt wins', () 
   assert.equal(merged.links?.length, 2)
   const working = merged.links?.find((l) => l.id === 'agent-runtime:working-agent')
   assert.equal(working?.label, 'Agent: new')
-  assert.ok(merged.links?.some((l) => l.id === 'sprint:execution'), 'distinct link preserved')
+  assert.ok(merged.links?.some((l) => l.id === 'atlas:execution'), 'distinct link preserved')
   // Newer record has no highlight; the older starred highlight survives.
   assert.deepEqual(merged.highlight, { starred: true, color: 'red' })
 })

@@ -600,13 +600,6 @@ export function automationCliSelectItems(
   return items
 }
 
-// Editable-target guard so list shortcuts stay inert while typing.
-export function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
-}
-
 // ---------------------------------------------------------------------------
 // Operational overview (T6) — engine health + the cross-definition runs feed.
 // ---------------------------------------------------------------------------
