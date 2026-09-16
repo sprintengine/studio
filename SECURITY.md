@@ -31,8 +31,7 @@ patched; upgrading to the current release is the supported remedy.
 In scope:
 
 - **The desktop app** — the Electron main, preload, renderer and shared code in
-  `src/`, its packaging and update path, and the Python services it ships
-  (`sprintengine_core/`, `sprintengine_mcp/`).
+  `src/`, and its packaging and update path.
 - **The module SDK** in `packages/module-sdk/`, including module manifest
   parsing, the permission model, and module and plugin signature verification.
 - **The studio plugin** in `resources/studio-plugin/`, and the MCP surface it
