@@ -6,13 +6,10 @@
 // only driver was the toolbar's "Reveal active file" button, so the path was
 // hard-wired to the active editor file. This is the outside entry point.
 //
-// A dedicated latch+event (not the shared notification reveal-target): the Files
-// panel is usually cold when the menu item is clicked — the same click reveals it
-// via the panel rail, so it mounts a tick later and can miss a live event. The
-// latch covers that race. It is intentionally separate from `revealTarget.ts`
-// because that latch has a greedy consumer (a module surface can drain it on
-// any live event) that would swallow a file target first. Same shape, and for the
-// same reason, as `backlogReveal.ts`.
+// A latch+event pair: the Files panel is usually cold when the menu item is
+// clicked — the same click reveals it via the panel rail, so it mounts a tick
+// later and can miss a live event. The latch covers that race. Same shape, and
+// for the same reason, as `backlogReveal.ts`.
 
 const FILE_REVEAL_EVENT = 'multicode:reveal-file'
 
