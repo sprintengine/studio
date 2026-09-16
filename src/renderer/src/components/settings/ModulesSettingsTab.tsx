@@ -19,19 +19,17 @@ import { SettingCard, SettingsPageHeader, SettingsSectionTitle } from './Setting
 // Settings does. Module enablement writes appSettings.modules.
 
 // The same neutral icon chip the Connectors surface uses, for entries that
-// have no brand image: a glyph when the entry kind ships one, else a monogram.
-function ModuleTileIcon({ name, glyph }: { name: string; glyph?: React.ReactNode }) {
+// have no brand image: a monogram.
+function ModuleTileIcon({ name }: { name: string }) {
   return (
     <span
       aria-hidden
       style={{ width: 36, height: 36 }}
       className="grid shrink-0 place-items-center rounded-lg border border-[color:var(--icon-chip-border)] bg-[color:var(--icon-chip-bg)]"
     >
-      {glyph ?? (
-        <span style={{ fontSize: 15 }} className="font-mono font-semibold text-[color:var(--icon-chip-ink)]">
-          {mcpMonogram(name)}
-        </span>
-      )}
+      <span style={{ fontSize: 15 }} className="font-mono font-semibold text-[color:var(--icon-chip-ink)]">
+        {mcpMonogram(name)}
+      </span>
     </span>
   )
 }

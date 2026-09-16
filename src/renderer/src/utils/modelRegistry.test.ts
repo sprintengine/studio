@@ -18,7 +18,6 @@ import {
   revealAgentTab,
   unregisterModel,
   togglePanelRailComponent,
-  revealNavRailComponent,
   NAV_RAIL_COMPONENTS,
 } from './modelRegistry'
 
@@ -151,10 +150,7 @@ function navTabsets(model: Model): TabsetJson[] {
 {
   const model = freshModel()
   registerModel(WS, model)
-  assert.equal(revealNavRailComponent(WS, 'backlog', 'Backlog'), false)
-  assert.equal(navTabsets(model).length, 0)
-  assert.ok(!tabNames(model).includes('Backlog'))
-  // The toggle path refuses it too, rather than falling through to the Editor's
+  // The toggle path refuses it rather than falling through to the Editor's
   // toggle and docking a 'backlog' document tab centre-stage.
   assert.equal(togglePanelRailComponent(WS, 'backlog', 'Backlog'), false)
   assert.ok(!allComponents(model).includes('backlog'))
@@ -307,24 +303,12 @@ function navTabsets(model: Model): TabsetJson[] {
 {
   const model = freshModel()
   registerModel(WS, model)
-  revealNavRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
   assert.equal(focusOrAddFileTab(WS, '/tmp/app.ts', 'app.ts'), true)
   assert.deepEqual(tabsets(model).map(componentsOf), [['memory-graph'], ['file-editor'], ['agent']])
   const nav = navTabsets(model)
   assert.equal(nav.length, 1)
   assert.equal(nav[0].enableTabStrip, false)
-  unregisterModel(WS)
-}
-
-// Reveal (command palette / menu) is non-toggling: opening the same switch
-// twice leaves exactly one instance, never closing it.
-{
-  const model = freshModel()
-  registerModel(WS, model)
-  revealNavRailComponent(WS, 'memory-graph', 'Knowledge Graph')
-  revealNavRailComponent(WS, 'memory-graph', 'Knowledge Graph')
-  assert.equal(allComponents(model).filter((c) => c === 'memory-graph').length, 1)
-  assert.equal(navTabsets(model).length, 1)
   unregisterModel(WS)
 }
 
@@ -419,7 +403,7 @@ function navTabsets(model: Model): TabsetJson[] {
   const model = freshModel()
   registerModel(WS, model)
   // Opening Git selects the nav pane, making it the active tabset.
-  revealNavRailComponent(WS, 'memory-graph', 'Knowledge Graph')
+  togglePanelRailComponent(WS, 'memory-graph', 'Knowledge Graph')
   assert.equal(addTerminalTab(WS, 'term-2', 'Terminal'), true)
   assert.deepEqual(tabsets(model).map(componentsOf), [['memory-graph'], ['agent', 'terminal']])
   // The git nav pane was not used as the spawn target.

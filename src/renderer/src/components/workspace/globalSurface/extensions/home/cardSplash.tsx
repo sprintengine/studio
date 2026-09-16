@@ -41,125 +41,10 @@ import React from 'react'
  * artwork has to hold up its end, which is exactly why the shot list asks for a
  * quiet bottom third and why the title is clamped to two lines below — a third
  * line would climb further into the fade than the picture can be trusted for.
- *
- * It is exported as a NUMBER as well as a string because the hero's floor below
- * is derived from it rather than guessed at, and `cardSplash.test.tsx` re-does
- * that arithmetic: a change to the stop that did not carry to the floor would
- * put the hero's words back over open artwork, which is the bug of
- * `2026-09-06-the-hero-keeps-its-words-on-its-plate` arriving by a second door.
  */
 export const SCRIM_CLEAR_STOP_FRACTION = 0.64
 
-/** Where the scrim stops being flat and starts to ramp. */
-const SCRIM_FLAT_STOP_FRACTION = 0.1
-
 const SCRIM_CLEAR_STOP = `${SCRIM_CLEAR_STOP_FRACTION * 100}%`
-
-/**
- * How opaque the scrim is at a height measured UP FROM THE BOTTOM of the plate,
- * as a fraction of the plate's height. 1 is the plate's own surface colour and
- * 0 is bare artwork.
- *
- * This is the gradient above, read back as a function, and it exists so a test
- * can ask the question the eye asks — "is there anything behind this word?" —
- * of a geometry no headless DOM will lay out for it.
- */
-export function scrimAlphaAt(fractionFromBottom: number): number {
-  if (fractionFromBottom <= SCRIM_FLAT_STOP_FRACTION) return 1
-  if (fractionFromBottom >= SCRIM_CLEAR_STOP_FRACTION) return 0
-  return (
-    (SCRIM_CLEAR_STOP_FRACTION - fractionFromBottom) /
-    (SCRIM_CLEAR_STOP_FRACTION - SCRIM_FLAT_STOP_FRACTION)
-  )
-}
-
-/**
- * The floor under the hero plate, and the whole of the fix for
- * `2026-09-06-the-hero-keeps-its-words-on-its-plate` (2026-09-06).
- *
- * **The bug.** The hero's four elements — title, dek, credit, `Go` — are one
- * absolutely-positioned stack of CONTENT height, and the plate under them was a
- * pure ratio with no floor. So the plate shrank with the card region and the
- * stack did not, and two failures arrived in order: the stack climbed out of
- * the band the scrim quietens (a 187px plate clears at y=67, and the stack
- * started at y=36 — the title drawn over open artwork), and then at a 169px
- * plate the 173px stack was simply taller than the frame and `overflow-hidden`
- * took the top off the title.
- *
- * **Why a floor, and not the other two answers the item offered.** A hero scrim
- * of its own would darken the plate but could not stop the clip: at 456px the
- * words are taller than the picture whatever colour is behind them. Dropping to
- * the ordinary card layout below a breakpoint keeps the composition but has to
- * move the dek, the credit and the button out of the plate and into a body —
- * and the title has to stay ON the plate to keep layout C (ruling R3), so the
- * stack has to split across the splash boundary at one width and not the other.
- * That is a restructure of the card to fix a number that was missing.
- *
- * **Why the item's "1 alone is not enough" does not hold, and what it missed.**
- * The item read a floor as "min-h at the height the overlay actually needs" and
- * concluded, correctly for that number, that the scrim is a percentage and so a
- * floor equal to the stack's height leaves the stack exactly where it was
- * relative to the fade. But the height the overlay needs is not its own height:
- * it is its height DIVIDED BY the scrim's clear stop, and at that value the
- * percentage works for the plate instead of against it. With `H` the plate's
- * height and `Ho` the stack's, the stack's top sits at `Ho / H` from the bottom;
- * `H >= Ho / 0.64` therefore puts it at or under 0.64 — inside the scrim — at
- * EVERY width, because `H` only ever grows from the floor.
- *
- * **The number.** The tallest stack the hero can legally draw is two title
- * lines, two dek lines and a credit, inside the stack's own padding. Against
- * the app's type steps that is 48 of padding + 60 of title + 10 of gap + 42 of
- * dek + 24 of credit = 184px, so the floor has to be at least 184 / 0.64 = 288.
- * 296 is that rounded up, which leaves the worst case sitting at 0.62 of the
- * plate rather than exactly on the stop. Both clamps are what make "legally" a
- * fact rather than an assumption: the title's is below, the dek's is in
- * `CardPoster.tsx`, and `cardSplash.test.tsx` re-does the whole sum so the day
- * a step of the type scale moves is the day this number is challenged.
- *
- * The item this fixes named a THREE-line dek as the tallest a card can be. That
- * premise is what the dek's clamp replaces, and the arithmetic is the reason:
- * three lines needs a 321px floor under the mockup's 330px cap, which leaves the
- * 2.7:1 crop nine pixels of plate height to govern and makes the hero a
- * fixed-height band with a ratio written on it. Two lines is also
- * the shape the hero already has wherever the plate is wide — `max-w-[62ch]`
- * caps the dek's column, so a shipped dek wraps twice and stops — and it is the
- * same device, at the same count, as the title's own clamp.
- *
- * **Where the floor bites.** 296 × 2.7 = 799px of card region, so the ratio
- * governs from there up to the cap and the floor takes over below it. That line
- * falls between the widths the item measured: the 806px region it called fine
- * is untouched, and the 606, 506 and 456px regions it caught losing their scrim
- * and then clipping are all floored. The floor repairs everything that was
- * broken and moves nothing that was not.
- */
-export const HERO_PLATE_MIN_HEIGHT_PX = 296
-
-/**
- * The mockup's cap on the hero plate (`2026-09-06-extensions-home.html`,
- * `.card--wide-hero .splash`), and the hero's crop.
- *
- * Exported only so the floor above has something to be measured against: a
- * floor that had drifted up past the cap would be a plate with no ratio left,
- * and a test that did not know the cap could not say so.
- */
-export const HERO_PLATE_MAX_HEIGHT_PX = 330
-
-/** The hero's crop, as a number the plate's height can be computed from. */
-export const HERO_PLATE_ASPECT = 2.7
-
-/**
- * How tall the hero's plate actually comes out at a given card-region width —
- * the ratio, held between the floor and the cap.
- *
- * The browser does this in three CSS declarations; this restates it so a test
- * can walk the widths the app can produce without a layout engine.
- */
-export function heroPlateHeightPx(regionWidthPx: number): number {
-  return Math.min(
-    HERO_PLATE_MAX_HEIGHT_PX,
-    Math.max(HERO_PLATE_MIN_HEIGHT_PX, regionWidthPx / HERO_PLATE_ASPECT),
-  )
-}
 
 /**
  * The frame. A card is 16:9; the hero is a wider crop of the same picture,
@@ -186,18 +71,19 @@ export function CardSplash({
     <div
       // design-tokens-allow: 330px is the mockup's cap on the hero plate
       // (`2026-09-06-extensions-home.html`, `.card--wide-hero .splash`) and
-      // 320px is the floor `HERO_PLATE_MIN_HEIGHT_PX` derives above. Both are
-      // the size of a picture, not a step of spacing: the ratio does the work
-      // between them, the cap stops a very wide window turning the hero into a
-      // billboard and the floor stops a narrow one clipping its own words, so
-      // there is no scale either could be taken from.
+      // 296px is its floor. Both are the size of a picture, not a step of
+      // spacing: the ratio does the work between them, the cap stops a very
+      // wide window turning the hero into a billboard and the floor stops a
+      // narrow one clipping its own words, so there is no scale either could be
+      // taken from.
       //
-      // Written out as literal class text and never assembled from
-      // `HERO_PLATE_MIN_HEIGHT_PX`, for the reason `ui/tokens.ts` sets out:
-      // Tailwind generates a rule only for a candidate it can see. The constant
-      // and this literal are held together by `cardSplash.test.tsx`, which
-      // asserts the class the frame actually ships carries the number the
-      // arithmetic above produced.
+      // The floor (2026-09-06-the-hero-keeps-its-words-on-its-plate): the
+      // hero's overlay is content-height, so the plate must be at least the
+      // tallest legal stack divided by the scrim's clear stop to keep the words
+      // inside the scrim at every width. Two title lines, two dek lines and a
+      // credit inside the padding is 184px; 184 / 0.64 = 288, rounded up to
+      // 296. Both clamps (the title's here, the dek's in `CardPoster.tsx`) are
+      // what make that stack the tallest.
       className={`relative w-full overflow-hidden bg-[color:var(--bg-surface-raised)] ${
         shape === 'hero' ? 'aspect-[2.7/1] max-h-[330px] min-h-[296px]' : 'aspect-[16/9]'
       }`}

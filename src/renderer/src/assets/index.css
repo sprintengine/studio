@@ -327,16 +327,8 @@
      flips to white on some dark themes (e.g. slate), leaving white-on-coral.
      The error red is the light coral #fc787c on every theme except `light`,
      so near-black is the correct ink; the light theme overrides it to white
-     against its deeper #d92d2d. Same approach as --git-count-badge-ink. */
+     against its deeper #d92d2d. */
   --tone-error-ink: #08080c;
-
-  /* Git change-count badge on the panel rail. A count chip is self-contained,
-     so it carries one fixed amber fill + near-black ink across every theme
-     rather than borrowing --text-on-accent — that token is tuned for the blue
-     accent and flips to white on several dark themes, leaving illegible
-     white-on-amber. Defined once here; themes inherit it unchanged. */
-  --git-count-badge-bg: #fcc030;
-  --git-count-badge-ink: #1c1408;
 
   /* Diff palette — file-status marks in Git surfaces, the +N/-N counts, and
      the diff window's line and word washes.
@@ -359,19 +351,9 @@
      paper, sage, herbarium-dark) re-points --sem-color-diff-added /
      --sem-color-diff-removed at those same two values, and its diff reads in
      one palette. A theme with no such override inherits the bundle's, which is
-     the default this paragraph describes.
-
-     --diff-context has no bundle counterpart and wants none: "unchanged" is
-     not a diff colour, it is the row's ordinary muted ink, and it must follow
-     the theme's ink ramp. */
+     the default this paragraph describes. */
   --diff-added: var(--sem-color-diff-added);
   --diff-removed: var(--sem-color-diff-removed);
-  --diff-context: var(--text-muted);
-  /* The two washes the diff window draws (mockup 2522): a changed line, and
-     the changed words inside it. Identity blue at 14% and 34% — neither added
-     nor removed, so neither green nor red. Consumed by T4/T7. */
-  --diff-changed: var(--sem-color-diff-changed);
-  --diff-changed-strong: var(--sem-color-diff-changed-strong);
 
   /* Tool identity dots only — header chrome, never row chrome. */
   --tool-sprintengine: #fcc030;

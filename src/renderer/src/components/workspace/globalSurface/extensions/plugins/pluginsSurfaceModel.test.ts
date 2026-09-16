@@ -15,11 +15,9 @@ import {
   derivePluginInstallAvailability,
   derivePluginInstallState,
   derivePluginRows,
-  derivePluginsKindStateLine,
   describeInstallPlan,
   findInstalledRecord,
   findPlugin,
-  pluginCountLine,
   pluginExternalUrl,
   summarizePluginInstall,
 } from './pluginsSurfaceModel'
@@ -98,35 +96,6 @@ function record(over: Partial<InstalledPluginRecord> = {}): InstalledPluginRecor
     ...over,
   }
 }
-
-run('a source never states zero plugins while loading or unreadable', () => {
-  assert.equal(pluginCountLine(undefined), 'Loading…')
-  assert.equal(pluginCountLine({ status: 'loading' }), 'Loading…')
-  assert.equal(pluginCountLine({ status: 'error', message: 'x' }), 'Count unavailable')
-  assert.equal(pluginCountLine({ status: 'ready', scan: scanOf([]) }), 'No plugins here')
-  assert.equal(pluginCountLine({ status: 'ready', scan: scanOf([plugin('a')]) }), '1 plugin')
-  // A scan cached before plugins existed has no plugins field at all.
-  const legacy = scanOf([])
-  delete legacy.plugins
-  assert.equal(pluginCountLine({ status: 'ready', scan: legacy }), 'No plugins here')
-})
-
-run('the kind line speaks a total only once every source answered', () => {
-  const other: SkillSource = { ...SOURCE, id: 'github:o/r', repo: 'o/r' }
-  assert.equal(derivePluginsKindStateLine({ status: 'loading' }, [], {}), 'Loading…')
-  assert.equal(derivePluginsKindStateLine({ status: 'error', message: 'x' }, [], {}), 'Sources unavailable')
-  assert.equal(
-    derivePluginsKindStateLine({ status: 'ready' }, [SOURCE, other], { [SOURCE.id]: { status: 'ready', scan: scanOf([plugin('a')]) } }),
-    '2 sources',
-  )
-  assert.equal(
-    derivePluginsKindStateLine({ status: 'ready' }, [SOURCE, other], {
-      [SOURCE.id]: { status: 'ready', scan: scanOf([plugin('a'), plugin('b')]) },
-      [other.id]: { status: 'ready', scan: scanOf([plugin('c')]) },
-    }),
-    '2 sources · 3 plugins',
-  )
-})
 
 run('rows say what a plugin ships, and unread linked plugins say so', () => {
   const rows = derivePluginRows({

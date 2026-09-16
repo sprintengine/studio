@@ -19,7 +19,7 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 // you would otherwise have escaped through.
 //
 // Kept out of `surfaceSubstrate.tsx` so the pure presentational primitives there
-// (SurfaceCanvasState / SurfaceRail / BarStatusChip) stay free of the workspace
+// (SurfaceCanvasState / SurfaceRail) stay free of the workspace
 // store's transitive imports and remain unit-testable as bare markup.
 
 /**

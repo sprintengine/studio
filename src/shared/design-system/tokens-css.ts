@@ -16,7 +16,7 @@
 // `scripts/build-tokens.mjs` performs, which the bundle contract otherwise
 // forbids. It is
 // allowed here for one reason: this one WRITES NOTHING. Regeneration still
-// belongs to the bundle's own script (forked by `derived-file-runner.ts`); this
+// belongs to the bundle's own script; this
 // only composes a string in memory so a scripts-off iframe has the right
 // variables. What keeps the two honest is `test:shared:design-system-tokens-css`,
 // which runs the template script over the example bundle and asserts

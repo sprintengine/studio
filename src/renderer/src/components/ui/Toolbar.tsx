@@ -31,12 +31,6 @@ import { IconButton } from './Buttons'
 
 const ITEM_ATTR = 'data-toolbar-item'
 
-/** The attribute the band's roving walk looks for. Exported so a COMPOSITE
- *  child of the band — the segmented control, the inline pager — can hang its
- *  own focusables off the same hook rather than standing up a second tab stop
- *  inside a band whose whole promise is that there is one. */
-export const TOOLBAR_ITEM_ATTR = ITEM_ATTR
-
 // Children that own their own arrow keys. A radiogroup moves its selection, a
 // menu walks its options, a text field moves the caret; the band walks BETWEEN
 // items. When both answer, the band wins by accident — its `move(null, 1)`

@@ -127,7 +127,7 @@ export function isValidBacklogSlug(value: unknown): value is string {
 
 // An epic's `dependenciesPlanned:` mark (MC-2137): the author asserting that the
 // ordering pass over this epic's children is finished, whoever ran it — a hand
-// edit, a planning agent, `/backlog` closing an ordering session. It is what
+// edit, an agent's ordering pass, `/backlog` closing an ordering session. It is what
 // disambiguates the two meanings of "no `dependsOn` edges": deliberately
 // parallel (flag set) versus never ordered (flag absent).
 //

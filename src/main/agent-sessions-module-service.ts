@@ -301,7 +301,6 @@ export function createAgentSessionsModuleRegistry(
       ...(request.cliModel?.trim() ? { cliModel: request.cliModel.trim() } : {}),
       ...(request.label?.trim() ? { name: request.label.trim() } : {}),
       ...(request.permissionPreset ? { permissionPreset: request.permissionPreset } : {}),
-      ...(request.role?.trim() ? { role: request.role.trim() } : {}),
       ...(skillId ? { spawnSkillId: skillId } : {}),
     })
     if (!launched.ok) {

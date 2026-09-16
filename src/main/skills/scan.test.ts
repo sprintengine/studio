@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { sourceLayout, type ScanResult } from '../../shared/skills'
+import type { ScanResult } from '../../shared/skills'
 import { scanSkillTree, type SkillTreeEntry } from './scan'
 
 // Resolved from the repo root, not __dirname: the suite runs from a bundle in
@@ -53,7 +53,6 @@ function mattpocock(): void {
     'personal',
     'productivity',
   ])
-  assert.equal(sourceLayout(result), 'grouped')
 
   // The repository ships a `.claude-plugin/marketplace.json`, but its single
   // plugin enumerates no skills, so it says nothing about grouping and the
@@ -91,7 +90,6 @@ function anthropics(): void {
     'discernment-nudge',
     'Everything else',
   ])
-  assert.equal(sourceLayout(result), 'grouped')
 
   const template = result.skills.find((skill) => skill.id === 'template')
   assert.ok(template, 'the directory the manifest forgot is still a skill')
@@ -159,7 +157,6 @@ function browserAct(): void {
     result.groups.filter((group) => group !== '(repo root)').sort(),
     ['ecommerce', 'lead-generation', 'search-research', 'social-listening', 'video-platforms']
   )
-  assert.equal(sourceLayout(result), 'search', '103 skills is past the grouped ceiling')
 
   // Two of these entries share a byte-identical SKILL.md across two categories.
   // They are two entries the source itself lists twice, so a blob-SHA dedupe
@@ -189,7 +186,6 @@ function impeccable(): void {
   assert.equal(result.fileCount, 128)
   assert.equal(result.groupingSignal, 'none')
   assert.deepEqual(result.groups, [])
-  assert.equal(sourceLayout(result), 'solo')
 
   // The whole directory is the skill, subdirectory shape intact.
   assert.ok(skill.files.some((file) => file.path === 'SKILL.md' && file.isEntry))
@@ -284,7 +280,6 @@ function repoRootSkill(): void {
   assert.deepEqual(result.skills.map((skill) => skill.id), [''])
   assert.equal(result.skills[0].files.length, 2)
   assert.equal(result.skills[0].group, '')
-  assert.equal(sourceLayout(result), 'solo')
 }
 
 function main(): void {

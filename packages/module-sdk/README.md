@@ -239,9 +239,8 @@ valid for the app):
 - `WorkspaceTypeDefinition.deriveRunGlyph` receives a minimal
   `{ mode }` view (the app passes a richer internal shape) and returns states
   from the published `WorkspaceRunGlyphState` subset (the shell's own
-  vocabulary is wider and keeps growing); `isRunGlyphProviderForWorkspace` is
-  not published — a module's provider always matches its own mode, and the
-  mode's own provider wins the dispatch.
+  vocabulary is wider and keeps growing). A type's provider is asked only
+  about workspaces of its own mode.
 - Workspace layout JSON (`WorkspaceLayoutJson`) is a conservative subset of
   the app's FlexLayout model (rows, tabsets, tabs); the app accepts more.
 - `BacklogItemView` widens enumerated app internals (item kind, triage axes)

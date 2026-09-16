@@ -12,7 +12,7 @@ import {
   MAX_PEEK_MESSAGES,
 } from '../../shared/conversation-peek'
 import { pathExists } from '../filesystem-workspace'
-import { forEachJsonlRow } from '../sprintengine-token-usage/jsonl'
+import { forEachJsonlRow } from '../jsonl'
 import {
   capPeekText,
   collapsePeekText,

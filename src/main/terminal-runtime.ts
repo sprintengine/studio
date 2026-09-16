@@ -1132,10 +1132,6 @@ export function setIdleSuspendThresholdMs(value: unknown): void {
   configuredSuspendIdleAfterMs = clampSuspendIdleAfterMs(value)
 }
 
-export function getIdleSuspendThresholdMs(): number {
-  return configuredSuspendIdleAfterMs
-}
-
 // User-configurable recency floor ("Always keep running"), set from the
 // renderer's setting. The idle sweep never suspends/disposes below this many
 // live agent terminals — the most recently used survive even once idle past
@@ -1144,10 +1140,6 @@ let configuredKeepRecentAliveCount = DEFAULT_KEEP_RECENT_TERMINALS_ALIVE
 
 export function setKeepRecentTerminalsAlive(value: unknown): void {
   configuredKeepRecentAliveCount = clampKeepRecentTerminalsAlive(value)
-}
-
-export function getKeepRecentTerminalsAlive(): number {
-  return configuredKeepRecentAliveCount
 }
 
 // Test-only seam for the spawn pre-flight. Its probe spawns real login shells
@@ -2378,8 +2370,6 @@ function materializeAgentSessionIdentity(
     system: agentSession.system,
     workspaceId: agentSession.workspaceId || workspaceId || '',
     workspaceRoot: agentSession.workspaceRoot,
-    workId: agentSession.workId,
-    role: agentSession.role,
     displayName: agentSession.displayName,
   }
 }

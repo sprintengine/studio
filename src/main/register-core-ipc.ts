@@ -15,6 +15,7 @@ import { registerTextGenerationIpc } from './ipc/text-generation-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { createConversationIpcHandlers, registerConversationIpc } from './ipc/conversation-ipc'
 import { registerCredentialIpc } from './ipc/credential-ipc'
+import { registerConversationPeekIpc } from './ipc/conversation-peek-ipc'
 import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
@@ -38,7 +39,9 @@ import { registerCliVersionIpc } from './ipc/cli-version-ipc'
 import { registerModuleEnablementIpc, type ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { registerModuleRegistryIpc } from './ipc/module-registry-ipc'
 import { registerPluginIpc } from './ipc/plugins-ipc'
+import { registerPullRequestIpc } from './ipc/pull-request-ipc'
 import { registerSkillsIpc } from './ipc/skills-ipc'
+import { registerTerminalIpc } from './ipc/terminal-ipc'
 import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
 import { registerLaunchSettingsIpc } from './ipc/launch-settings-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
@@ -171,4 +174,38 @@ export function registerCoreIpc(
   registerCredentialIpc(ipcMain)
   registerDesignSystemIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain)
+
+  // The terminal runtime (agent-runtime) is always on, so its IPC registers
+  // with the core surfaces.
+  registerTerminalIpc(ipcMain, {
+    ...services.terminalRuntime.ipcHandlers,
+    // One idle-suspend setting governs both agent runtimes: PTY terminals and
+    // headless conversation child processes share the threshold.
+    setIdleSuspendThresholdMs: (value: unknown): void => {
+      services.terminalRuntime.ipcHandlers.setIdleSuspendThresholdMs(value)
+      services.conversationRuntime.setIdleThresholdMs(value)
+    },
+  })
+
+  // The conversation peek reads a terminal session, so it registers alongside
+  // the runtime that owns one rather than with the core surfaces.
+  registerConversationPeekIpc(ipcMain, services.conversationPeek)
+
+  // Same reason: the pull request marks are read off a terminal session's
+  // observed checkout, so their one refresh channel registers beside the
+  // runtime that owns the session.
+  registerPullRequestIpc(ipcMain, {
+    refreshPullRequestsForSession: (sessionId) => services.pullRequestRecord.refreshForSession(sessionId),
+    // Keyed by conversation, for the rows with nothing running in them.
+    listForWorkspaces: (workspaceIds) => {
+      const out: Record<string, ReturnType<typeof services.pullRequestRecord.forWorkspace>> = {}
+      for (const id of workspaceIds) {
+        const list = services.pullRequestRecord.forWorkspace(id)
+        // Only conversations that have something. An empty array per id would
+        // make every answer the size of the question.
+        if (list.length > 0) out[id] = list
+      }
+      return out
+    },
+  })
 }

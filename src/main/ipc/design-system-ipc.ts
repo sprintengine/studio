@@ -1,7 +1,6 @@
 import type { IpcMain } from 'electron'
 
 import type { DesignSystemBundleLintRunResult } from '../../shared/design-system/bundle-lint-run'
-import type { DesignSystemRegenResult } from '../../shared/design-system/derived-files'
 import type { DesignSystemScaffoldResult } from '../../shared/design-system/bundle-scaffold'
 import type { DesignSystemArrivalsResult } from '../../shared/design-system/arrivals'
 import type { DesignSystemBundleReadResult } from '../../shared/design-system/bundle-view'
@@ -10,7 +9,6 @@ import type {
   DesignSystemAttachSource,
   DesignSystemDetachResult,
 } from '../../shared/design-system/attach'
-import { regenerateDesignSystemDerivedFiles } from '../design-system/derived-file-runner'
 import { forkBundleScriptInUtilityProcess } from '../design-system/utility-process-fork'
 import { seedDesignSystemBundle } from '../design-system/bundle-scaffold'
 import { resolveDesignSystemTemplatesDir } from '../design-system/templates-path'
@@ -47,23 +45,9 @@ function parseAttachSource(value: unknown): DesignSystemAttachSource | null {
   return null
 }
 
-// Regenerates design-system derived files (tokens.css, catalog/index.html) by
-// forking the bundle's own generator scripts in a utility process. Triggered
-// on demand (attach reuses it). A root with no bundle resolves ok
-// with zero bundles, so non-design-system flows are untouched.
-//
 // Scaffolding stamps the bundle layout from resources/design-system/templates
 // into the folder the user picked; it never overwrites an existing bundle.
 export function registerDesignSystemIpc(ipcMain: IpcMain): void {
-  ipcMain.handle(
-    'design-system:regenerate-derived',
-    (_event, rootDir: unknown): Promise<DesignSystemRegenResult> => {
-      if (typeof rootDir !== 'string' || rootDir.trim().length === 0) {
-        return Promise.resolve({ ok: false, bundles: [], message: 'No root directory provided.' })
-      }
-      return regenerateDesignSystemDerivedFiles(rootDir, forkBundleScriptInUtilityProcess)
-    },
-  )
   // Create a new bundle in a folder the user chose — seeded from one they have,
   // or bare from the shipped templates (item 2005). The ONE place the design
   // surface writes a bundle, and only ever into the folder the user picked.

@@ -287,7 +287,6 @@ export function createAutomationService(options: AutomationServiceOptions) {
     setTailnetEnabled: (next: boolean): Promise<TailnetRemoteStatus> => tailnetService().setEnabled(next),
     offerTailnetPairing: (input?: { scopes?: unknown; origin?: TailnetDeviceOrigin }): TailnetPairingOfferView =>
       tailnetService().offerPairing(input),
-    setTailnetNotifications: (enabled: boolean): TailnetRemoteStatus => tailnetService().setNotifications(enabled),
     cancelTailnetPairing: (): TailnetRemoteStatus => tailnetService().cancelPairing(),
     revokeTailnetDevice: (deviceId: string): TailnetRemoteStatus => tailnetService().revokeDevice(deviceId),
     updateTailnetDeviceScopes: (deviceId: string, scopes: unknown): TailnetRemoteStatus =>

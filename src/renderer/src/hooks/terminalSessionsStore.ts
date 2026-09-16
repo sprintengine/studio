@@ -5,8 +5,6 @@ export type TerminalSessionsApi = {
   onTerminalSessionsChanged(cb: (sessions: TerminalSessionSnapshot[]) => void): () => void
 }
 
-export type TerminalSessionsStore = ReturnType<typeof createTerminalSessionsStore>
-
 function getActivitySignature(activity: TerminalSessionSnapshot['activity']) {
   switch (activity.kind) {
     case 'working':

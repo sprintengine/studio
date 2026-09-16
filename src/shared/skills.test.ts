@@ -6,64 +6,7 @@ import {
   skillDirName,
   skillNameWarning,
   skillSourceMonogram,
-  sourceLayout,
-  type ScanResult,
-  type ScannedSkill,
 } from './skills'
-
-function skills(count: number): ScannedSkill[] {
-  return Array.from({ length: count }, (_, index) => ({
-    id: `skills/skill-${index}`,
-    name: `skill-${index}`,
-    description: '',
-    group: '',
-    files: [],
-    allowedTools: [],
-    hasExecutables: false,
-  }))
-}
-
-function result(count: number, grouped: boolean): ScanResult {
-  return {
-    skills: skills(count),
-    groups: grouped ? ['one', 'two'] : [],
-    groupingSignal: grouped ? 'folders' : 'none',
-    fileCount: 0,
-    commitSha: '',
-  }
-}
-
-function layoutBoundaries(): void {
-  assert.equal(sourceLayout(result(0, false)), 'none')
-  assert.equal(sourceLayout(result(0, true)), 'none')
-
-  // One skill is one skill however the source groups it.
-  assert.equal(sourceLayout(result(1, false)), 'solo')
-  assert.equal(sourceLayout(result(1, true)), 'solo')
-
-  // Ungrouped stays a flat list to 24, then search takes over — the gap the
-  // backlog table left open at 25-59 lands on search-first, not on grouping a
-  // source that carries no groups.
-  assert.equal(sourceLayout(result(2, false)), 'flat')
-  assert.equal(sourceLayout(result(24, false)), 'flat')
-  assert.equal(sourceLayout(result(25, false)), 'search')
-  assert.equal(sourceLayout(result(60, false)), 'search')
-  assert.equal(sourceLayout(result(61, false)), 'search')
-
-  // Grouped stays browsable much further, because the groups do the narrowing.
-  assert.equal(sourceLayout(result(2, true)), 'grouped')
-  assert.equal(sourceLayout(result(24, true)), 'grouped')
-  assert.equal(sourceLayout(result(25, true)), 'grouped')
-  assert.equal(sourceLayout(result(60, true)), 'grouped')
-  assert.equal(sourceLayout(result(61, true)), 'search')
-
-  // A signal with no groups behind it is not a grouped source.
-  assert.equal(
-    sourceLayout({ ...result(30, true), groups: [] }),
-    'search',
-    'grouping needs actual groups, not just a signal'
-  )
-}
 
 function frontmatter(): void {
   const block = parseSkillFrontmatter(
@@ -274,7 +217,6 @@ function identifiers(): void {
 }
 
 function main(): void {
-  layoutBoundaries()
   frontmatter()
   allowedToolsIsSpaceSeparated()
   byteOrderMarkedFrontmatter()

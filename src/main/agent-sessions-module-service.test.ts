@@ -234,7 +234,6 @@ run('a fresh spawn is an ordinary agent terminal with the module\'s own identity
     result.executionId,
     'without an execution identity the runtime reports no exit for this session at all'
   )
-  assert.equal(payload.agentSession?.role, 'review-guide')
   assert.equal(payload.agentSession?.workspaceRoot, PROJECT_ROOT)
 })
 

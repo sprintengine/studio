@@ -45,7 +45,6 @@ export type ModuleContributedSurfaces = {
   commands: string[]
   topBarItems: string[]
   backlogItemActions: string[]
-  workspaceAsides: string[]
 }
 
 export const EMPTY_MODULE_SURFACES: ModuleContributedSurfaces = {
@@ -57,7 +56,6 @@ export const EMPTY_MODULE_SURFACES: ModuleContributedSurfaces = {
   commands: [],
   topBarItems: [],
   backlogItemActions: [],
-  workspaceAsides: [],
 }
 
 /**
@@ -164,6 +162,5 @@ function normalizeSurfaces(value: unknown): ModuleContributedSurfaces {
     commands: read('commands'),
     topBarItems: read('topBarItems'),
     backlogItemActions: read('backlogItemActions'),
-    workspaceAsides: read('workspaceAsides'),
   }
 }

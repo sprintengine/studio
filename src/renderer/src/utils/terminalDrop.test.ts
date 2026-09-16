@@ -5,7 +5,6 @@ import { plainSkillInvocation, resolveSkillInvocation } from '../../../shared/sk
 import {
   backlogItemDropDescriptor,
   backlogSkillInvocationForDrop,
-  backlogSlashCommandForDrop,
   formatDroppedPathsForTerminal,
   hasSkillDropData,
   MULTICODE_FILE_DROP_MIME,
@@ -146,7 +145,7 @@ assert.equal(
   ''
 )
 
-// --- backlogSlashCommandForDrop -------------------------------------------
+// --- backlogSkillInvocationForDrop ----------------------------------------
 
 const allHarnesses = ['claude', 'codex', 'cursor', 'gemini', 'opencode', 'agents'] as const
 const pluginEntries: PluginRegistryListEntry[] = [
@@ -222,8 +221,21 @@ function backlogPayload(path: string, rootPath = '/repo'): FileDropPayload {
 const agentSession = (input: Partial<TerminalSessionSnapshot> = {}): TerminalSessionSnapshot =>
   session({ kind: 'agent', cli: 'claude-code', executionMode: 'current_workspace', ...input })
 
+// The fixture plugins, with the skill installed for exactly these harnesses.
+const invocationFor = (
+  drop: FileDropPayload,
+  target: TerminalSessionSnapshot,
+  installedHarnesses: readonly SkillHarness[],
+): string | null =>
+  backlogSkillInvocationForDrop(
+    drop,
+    target,
+    pluginEntries,
+    installedHarnesses.map((harness) => ({ harness, status: 'installed' as const, support: 'native' as const })),
+  )
+
 assert.equal(
-  backlogSlashCommandForDrop(backlogPayload('/repo/backlog/item.md'), agentSession(), allHarnesses),
+  invocationFor(backlogPayload('/repo/backlog/item.md'), agentSession(), allHarnesses),
   '/backlog backlog/item.md'
 )
 
@@ -239,7 +251,7 @@ assert.equal(
 
 // Windows separators normalize to a forward-slash project-relative path.
 assert.equal(
-  backlogSlashCommandForDrop(
+  invocationFor(
     backlogPayload('C:\\repo\\backlog\\item.md', 'C:\\repo'),
     agentSession({ pathStyle: 'windows' }),
     allHarnesses
@@ -249,13 +261,13 @@ assert.equal(
 
 // Whitespace in the file name gets quoted.
 assert.equal(
-  backlogSlashCommandForDrop(backlogPayload('/repo/backlog/two words.md'), agentSession(), allHarnesses),
+  invocationFor(backlogPayload('/repo/backlog/two words.md'), agentSession(), allHarnesses),
   "/backlog 'backlog/two words.md'"
 )
 
 // Codex maps to the codex adapter, but not to a top-level `/backlog` command.
 assert.equal(
-  backlogSlashCommandForDrop(
+  invocationFor(
     backlogPayload('/repo/backlog/item.md'),
     agentSession({ cli: 'codex' }),
     ['codex']
@@ -286,7 +298,7 @@ assert.equal(
 
 // Not an agent terminal.
 assert.equal(
-  backlogSlashCommandForDrop(
+  invocationFor(
     backlogPayload('/repo/backlog/item.md'),
     session({ kind: 'terminal', cli: undefined }),
     allHarnesses
@@ -296,7 +308,7 @@ assert.equal(
 
 // Worktree sessions keep plain path pastes.
 assert.equal(
-  backlogSlashCommandForDrop(
+  invocationFor(
     backlogPayload('/repo/backlog/item.md'),
     agentSession({ executionMode: 'worktree', worktreePath: '/repo/.worktrees/a' }),
     allHarnesses
@@ -306,7 +318,7 @@ assert.equal(
 
 // Unknown or shell CLIs never get a slash command.
 assert.equal(
-  backlogSlashCommandForDrop(
+  invocationFor(
     backlogPayload('/repo/backlog/item.md'),
     agentSession({ cli: 'generic-shell' }),
     allHarnesses
@@ -326,13 +338,13 @@ assert.equal(
 
 // The CLI's harness must actually have the skill present.
 assert.equal(
-  backlogSlashCommandForDrop(backlogPayload('/repo/backlog/item.md'), agentSession(), ['codex']),
+  invocationFor(backlogPayload('/repo/backlog/item.md'), agentSession(), ['codex']),
   null
 )
 
 // Only single-file drops inject.
 assert.equal(
-  backlogSlashCommandForDrop(
+  invocationFor(
     {
       version: 1,
       workspaceId: 'workspace-1',
@@ -350,17 +362,17 @@ assert.equal(
 
 // Files outside backlog/ keep the plain path behavior.
 assert.equal(
-  backlogSlashCommandForDrop(backlogPayload('/repo/src/main.ts'), agentSession(), allHarnesses),
+  invocationFor(backlogPayload('/repo/src/main.ts'), agentSession(), allHarnesses),
   null
 )
 
 // Directories and native drops (no workspace root) are excluded.
 assert.equal(
-  backlogSlashCommandForDrop(directoryPayload('/repo/backlog/sub', '/repo'), agentSession(), allHarnesses),
+  invocationFor(directoryPayload('/repo/backlog/sub', '/repo'), agentSession(), allHarnesses),
   null
 )
 assert.equal(
-  backlogSlashCommandForDrop(backlogPayload('/repo/backlog/item.md', ''), agentSession(), allHarnesses),
+  invocationFor(backlogPayload('/repo/backlog/item.md', ''), agentSession(), allHarnesses),
   null
 )
 

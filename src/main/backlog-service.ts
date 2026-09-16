@@ -1080,7 +1080,7 @@ export async function updateBacklogDependencies(input: BacklogDependenciesInput)
 // over". Setting it writes the literal `dependenciesPlanned: true`; clearing it
 // removes the line rather than writing `false`, because absent IS false and a
 // flag file should not accumulate a negative assertion. Nothing polices HOW it
-// got set — a hand edit, a planning agent, `/backlog` closing an ordering
+// got set — a hand edit, an agent's ordering pass, `/backlog` closing an ordering
 // session are all the same assertion — so this validates nothing beyond the
 // boolean, and never recomputes the value from the children's edges.
 export async function updateBacklogDependenciesPlanned(

@@ -24,10 +24,9 @@
 //   here; they are rendered by their existing bespoke components.
 //   T18/T19 still consume those components directly.
 
-// Scope marks where a field is surfaced:
-// - 'app'   — app-wide preferences shown in SettingsPanel.
-// - 'panel' — per-panel popover (the Backlog).
-type SettingScope = 'app' | 'panel'
+// Scope marks where a field is surfaced. Every entry today is 'app': an
+// app-wide preference shown in SettingsPanel.
+type SettingScope = 'app'
 
 type SelectOption<V extends string = string> = {
   value: V

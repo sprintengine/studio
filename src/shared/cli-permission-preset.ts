@@ -1,7 +1,6 @@
 /**
  * Core CLI permission-preset vocabulary. The values are what every agent CLI
- * launch understands; Sprint Engine automation types re-export the same union
- * under the historical `CliPermissionPreset` name.
+ * launch understands.
  */
 export type CliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
 

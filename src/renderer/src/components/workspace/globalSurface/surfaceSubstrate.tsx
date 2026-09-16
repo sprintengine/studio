@@ -21,8 +21,6 @@
 //       rows are too rich to be SurfaceRailRows (Backlog) but whose head is the
 //       same head. New-at-top and one narrowing glyph is a cross-door contract,
 //       so it lives in exactly one place.
-//   • BarStatusChip — the one status idiom in the surface bar: a 6 px dot + label,
-//       never a competing pill or badge.
 
 import React, { useCallback, useRef } from 'react'
 
@@ -34,8 +32,7 @@ import { InlineNotice } from '../../ui/InlineNotice'
 import { RowButton } from '../../ui/RowButton'
 import { type SelectItem } from '../../ui/Select'
 import { Spinner } from '../../ui/Spinner'
-import { StatusDot } from '../../ui/StatusDot'
-import { FOCUS_RING_CLASS, type StatusTone } from '../../ui/tokens'
+import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { Tooltip } from '../../ui/Tooltip'
 import { TruncatedText } from '../../ui/TruncatedText'
 import { SELECTION_EDGE_CLASS, attentionRowSurfaceClass, doneRowSurfaceClass } from '../rowStatusParts'
@@ -803,29 +800,6 @@ export function SurfaceRail({
       {afterRows && !(afterRowsScope === 'rows' && emptyNotice && rows.length === 0) ? afterRows : null}
       </div>
     </div>
-  )
-}
-
-// ── BarStatusChip ────────────────────────────────────────────────────────────
-// The one status idiom in the surface bar: a 6 px dot + a short label. Never a
-// tinted pill or badge — the dot carries the tone.
-
-export function BarStatusChip({
-  tone,
-  label,
-  pulse,
-}: {
-  tone: StatusTone
-  /** The visible label ("Active", "On", "In progress") — carries the state for
-   *  screen readers, so the dot stays decorative (no competing double-read). */
-  label: React.ReactNode
-  pulse?: boolean
-}): JSX.Element {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-micro font-medium text-[color:var(--text-muted)]">
-      <StatusDot tone={tone} pulse={pulse} />
-      {label}
-    </span>
   )
 }
 

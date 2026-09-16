@@ -19,8 +19,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import type { PullRequestProvider } from '../../shared/git/pr-url'
-
 const execFileAsync = promisify(execFile)
 
 /**
@@ -180,30 +178,6 @@ export function buildShellGhDescriptor(
 
 function posixSingleQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
-}
-
-// Resolves the REST token from the same environment variables gh reads.
-// github.com is fixed to api.github.com so GH_TOKEN can only ever reach GitHub.
-// A GHES host, though, comes straight from the pasted URL: handing the enterprise
-// token to an arbitrary host would leak it, so the token is released only when the
-// host matches an explicitly configured enterprise host (gh's own GH_HOST). An
-// unconfigured or mismatched host falls through unauthenticated.
-//
-// Only the review provider's REST fallback uses this; everything newer is
-// gh-only (decision 11) and never sees a token at all.
-export function defaultResolveToken(host: string, provider: PullRequestProvider): Promise<string | null> {
-  if (provider === 'github') return Promise.resolve(pickEnv('GH_TOKEN', 'GITHUB_TOKEN'))
-  const configuredHost = (process.env.GH_HOST ?? process.env.GH_ENTERPRISE_HOST ?? '').trim().toLowerCase()
-  if (!configuredHost || configuredHost !== host.toLowerCase()) return Promise.resolve(null)
-  return Promise.resolve(pickEnv('GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'))
-}
-
-function pickEnv(...names: string[]): string | null {
-  for (const name of names) {
-    const value = process.env[name]?.trim()
-    if (value) return value
-  }
-  return null
 }
 
 /**

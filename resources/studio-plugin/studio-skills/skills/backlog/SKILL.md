@@ -46,7 +46,7 @@ matters (comma-separated sibling slugs), and when the ordering is deliberate and
 complete — including "no edges, these run in parallel" — set
 `dependenciesPlanned: true` on the epic's frontmatter as the last act, by hand or
 with `backlog.update {path, dependenciesPlanned: true}`. That flag is what lets
-work start from the epic with no planning agent; without it, whoever picks the
+work start from the epic with no further ordering pass; without it, whoever picks the
 epic up has to plan it again first. Nothing recomputes it, so changing which
 items belong to the epic is your cue to re-check the order and the flag.
 

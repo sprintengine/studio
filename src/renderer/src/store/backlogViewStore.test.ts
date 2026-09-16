@@ -2,11 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  BACKLOG_DOOR_ALL_PROJECTS,
-  DEFAULT_BACKLOG_DOOR_VIEW,
   DEFAULT_BACKLOG_PROJECT_VIEW,
   selectBacklogProjectView,
-  useBacklogDoorViewStore,
   useBacklogViewStore,
 } from './backlogViewStore'
 
@@ -78,59 +75,4 @@ test('seedProjectViewIfAbsent skips a pure-default seed to stay sparse', () => {
   assert.deepEqual(useBacklogViewStore.getState().viewByProject, {})
   // Absent record still reads as default.
   assert.deepEqual(read('/p'), DEFAULT_BACKLOG_PROJECT_VIEW)
-})
-
-// ---------------------------------------------------------------------------
-// Backlog door (cross-project) view store — transient, per-window (D7)
-// ---------------------------------------------------------------------------
-
-function resetDoor(): void {
-  useBacklogDoorViewStore.setState({ door: DEFAULT_BACKLOG_DOOR_VIEW })
-}
-
-test('the door view defaults to All projects under the Active lens', () => {
-  resetDoor()
-  assert.deepEqual(useBacklogDoorViewStore.getState().door, {
-    projectFilter: BACKLOG_DOOR_ALL_PROJECTS,
-    view: 'active',
-    sort: 'recent',
-    group: 'none',
-  })
-})
-
-test('setDoorView merges a partial patch across separate fields', () => {
-  resetDoor()
-  const set = useBacklogDoorViewStore.getState().setDoorView
-  set({ projectFilter: 'root-key-b' })
-  set({ view: 'epics' })
-  set({ sort: 'priority' })
-  assert.deepEqual(useBacklogDoorViewStore.getState().door, {
-    projectFilter: 'root-key-b',
-    view: 'epics',
-    sort: 'priority',
-    group: 'none',
-  })
-})
-
-test('setDoorView keeps a free-string projectFilter (a feed rootKey) verbatim', () => {
-  resetDoor()
-  useBacklogDoorViewStore.getState().setDoorView({ projectFilter: '/users/me/multiauth' })
-  assert.equal(useBacklogDoorViewStore.getState().door.projectFilter, '/users/me/multiauth')
-})
-
-test('setDoorView coerces an invalid lens/sort/group back to the field default', () => {
-  resetDoor()
-  useBacklogDoorViewStore.getState().setDoorView({
-    view: 'bogus' as never,
-    sort: 'nope' as never,
-    group: 'x' as never,
-    projectFilter: 'keep-me',
-  })
-  const door = useBacklogDoorViewStore.getState().door
-  // The filter is applied even though the enums were rejected — one wedge field
-  // never blocks a legitimate change in another.
-  assert.equal(door.projectFilter, 'keep-me')
-  assert.equal(door.view, DEFAULT_BACKLOG_DOOR_VIEW.view)
-  assert.equal(door.sort, DEFAULT_BACKLOG_DOOR_VIEW.sort)
-  assert.equal(door.group, DEFAULT_BACKLOG_DOOR_VIEW.group)
 })

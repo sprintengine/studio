@@ -3,18 +3,14 @@ import {
   LEGACY_SIDECAR_DIR_NAME,
   SIDECAR_DIR_NAME,
   SIDECAR_DIR_NAMES,
-  SIDECAR_DIR_PATTERN_SOURCE,
   forgetSidecarDirName,
-  isSidecarDirName,
   knownSidecarDirName,
   rememberSidecarDirName,
   setUnknownSidecarDirNameResolver,
   sidecarCandidates,
-  sidecarDirNameOfPath,
   sidecarFor,
   sidecarPath,
   sidecarRelativePath,
-  withoutSidecarPrefix,
 } from './workspace-sidecar'
 
 const tests: Array<{ name: string; body: () => void }> = []
@@ -30,14 +26,6 @@ run('the preferred name is the new one and the legacy name is still recognised',
   assert.equal(SIDECAR_DIR_NAME, '.sprintengine')
   assert.equal(LEGACY_SIDECAR_DIR_NAME, '.multi-code')
   assert.deepEqual([...SIDECAR_DIR_NAMES], ['.sprintengine', '.multi-code'])
-  assert.ok(isSidecarDirName('.sprintengine'))
-  assert.ok(isSidecarDirName('.multi-code'))
-})
-
-run('a name that is neither is not a sidecar', () => {
-  for (const segment of ['.sprintengine-old', 'sprintengine', '.multicode', '.multi_code', '', 'src']) {
-    assert.equal(isSidecarDirName(segment), false, `${JSON.stringify(segment)} must not read as a sidecar`)
-  }
 })
 
 run('a sidecar defaults to the new name and takes the old one when asked', () => {
@@ -64,35 +52,6 @@ run('a relative sidecar path is POSIX under either name', () => {
   assert.equal(sidecarRelativePath(SIDECAR_DIR_NAME, 'backlog', 'config.json'), '.sprintengine/backlog/config.json')
   assert.equal(sidecarRelativePath(LEGACY_SIDECAR_DIR_NAME, 'backlog', 'config.json'), '.multi-code/backlog/config.json')
   assert.equal(sidecarRelativePath(SIDECAR_DIR_NAME), '.sprintengine')
-})
-
-// The reading half of the fallback: a path written by any version of the app,
-// on either platform, has to be recognised as a sidecar path.
-run('a path is recognised under either name and either separator', () => {
-  assert.equal(sidecarDirNameOfPath(`${WORKSPACE}/.sprintengine/automations/t/run.json`), '.sprintengine')
-  assert.equal(sidecarDirNameOfPath(`${WORKSPACE}/.multi-code/automations/t/run.json`), '.multi-code')
-  assert.equal(sidecarDirNameOfPath('C:\\repo\\.multi-code\\browser'), '.multi-code')
-  assert.equal(sidecarDirNameOfPath('.sprintengine/backlog/config.json'), '.sprintengine')
-  assert.equal(sidecarDirNameOfPath(`${WORKSPACE}/src/main/index.ts`), null)
-  // A directory that merely starts with the name is a different directory.
-  assert.equal(sidecarDirNameOfPath(`${WORKSPACE}/.sprintengine-backup/x`), null)
-})
-
-run('the pattern fragment matches both names and nothing adjacent', () => {
-  const pattern = new RegExp(`^${SIDECAR_DIR_PATTERN_SOURCE}/automations/([^/]+)/run\\.json$`, 'u')
-  assert.equal(pattern.exec('.sprintengine/automations/alpha/run.json')?.[1], 'alpha')
-  assert.equal(pattern.exec('.multi-code/automations/alpha/run.json')?.[1], 'alpha')
-  assert.equal(pattern.test('xsprintengine/automations/alpha/run.json'), false)
-  // The dot is escaped, so it matches a literal dot rather than any character.
-  assert.equal(pattern.test('Xsprintengine/automations/alpha/run.json'), false)
-})
-
-run('the sidecar prefix comes off under either name, and only when it is there', () => {
-  assert.deepEqual(withoutSidecarPrefix(['.sprintengine', 'automations', 't', 'plan.md']), ['automations', 't', 'plan.md'])
-  assert.deepEqual(withoutSidecarPrefix(['.multi-code', 'automations', 't', 'plan.md']), ['automations', 't', 'plan.md'])
-  assert.deepEqual(withoutSidecarPrefix(['.sprintengine']), [])
-  assert.equal(withoutSidecarPrefix(['plan.md']), null)
-  assert.equal(withoutSidecarPrefix([]), null)
 })
 
 // The registry is how one process's answer reaches every path builder in it,

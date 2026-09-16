@@ -3,7 +3,7 @@
 // slide-in motion (.drawer-panel + `--motion-deliberate`), focus capture,
 // Escape close, focus restoration to the opener, and body scroll-lock.
 //
-// API matches the architect plan (T3):
+// API:
 //   <Drawer open onClose title ariaLabel>
 //     <Drawer.Body>...</Drawer.Body>
 //   </Drawer>

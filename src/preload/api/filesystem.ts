@@ -1,7 +1,6 @@
 import { ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type {
   ContentSearchResult,
-  ContextMenuItem,
   DiagnosticLogEntry,
   DiagnosticLogInput,
   ElectronApi,
@@ -13,7 +12,6 @@ import type {
   MemoryGraphIndexResult,
   MemoryPreviewResult,
   MemoryRootStatus,
-  OpenDialogOptions,
   ProcessMetricsSnapshot,
   ProjectLogo,
   VersionControlProviderProbe,
@@ -97,8 +95,6 @@ export const filesystemApi = {
   openDir: (options?: { defaultPath?: string }) => ipcRenderer.invoke('fs:dialog:opendir', options),
   ensureDefaultUserSkillsDir: () => ipcRenderer.invoke('skills:ensure-default-user-dir'),
   defaultWorkspaceParentDir: () => ipcRenderer.invoke('app:default-workspace-parent'),
-  openFile: (options?: OpenDialogOptions) => ipcRenderer.invoke('fs:dialog:openfile', options),
-  showContextMenu: (items: ContextMenuItem[]) => ipcRenderer.invoke('app:show-context-menu', items),
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) =>
     ipcRenderer.invoke('app:show-menubar-menu', label, position),
 } satisfies Pick<
@@ -141,7 +137,5 @@ export const filesystemApi = {
   | 'openDir'
   | 'ensureDefaultUserSkillsDir'
   | 'defaultWorkspaceParentDir'
-  | 'openFile'
-  | 'showContextMenu'
   | 'showMenubarMenu'
 >

@@ -65,8 +65,8 @@ export function selectionForRow(row: ComposerRow): AgentComposerSelection {
 // The roster every composer surface offers. Terminal (a plain shell) and
 // Conversation (provider-backed) launch no CLI, so they survive a machine with
 // none; the General row does launch one, so with none installed it is not built
-// at all — a row that cannot run must not be reachable by click, Enter, or
-// search, and the surfaces render the install route instead (MC-2093).
+// at all — a row that cannot run must not be reachable by click or Enter, and
+// the surfaces render the install route instead (MC-2093).
 export function composerRosterRows({
   showTerminal,
   conversationAvailable,
@@ -141,9 +141,9 @@ type UseAgentComposerOptions = {
   initialEngine?: { cli: AgentCli; model: string | null; reasoning: string | null } | null
 }
 
-// Shared state + store-derived data for every AgentComposer surface (the New
-// Chat panel and the popover picker). Owns roster building, selection, search,
-// keyboard roving, and engine (CLI/model) resolution + persistence, so each
+// Shared state + store-derived data for every agent composer surface (the New
+// Chat panel and the popover picker). Owns roster building, selection, and
+// engine (CLI/model) resolution + persistence, so each
 // layout component stays presentational. Selection is the durable highlight;
 // the engine controls always reflect the selected agent's remembered pair and
 // persist edits as that agent's default.
@@ -188,7 +188,6 @@ export function useAgentComposer({
     [showTerminal, conversationAvailable, noAgentCliInstalled],
   )
 
-  const [query, setQuery] = React.useState('')
   const [selection, setSelection] = React.useState<AgentComposerSelection>(() =>
     resolveInitialSelection(allRows, initialSelection),
   )
@@ -247,29 +246,15 @@ export function useAgentComposer({
     [cliForSelection, agentCliOptions, modelForSelection],
   )
 
-  const trimmedQuery = query.trim().toLowerCase()
-  const visibleRows = React.useMemo(() => {
-    if (!trimmedQuery) return allRows
-    return allRows.filter((row) => {
-      if (row.kind === 'terminal') return 'terminal'.includes(trimmedQuery)
-      if (row.kind === 'general') {
-        // The General row wears its bound engine, so typing the runtime's or
-        // the model's name always finds the row.
-        const { cliLabel, modelLabel } = engineNamesFor({ kind: 'general' })
-        return `${cliLabel} ${modelLabel ?? ''}`.toLowerCase().includes(trimmedQuery)
-      }
-      return 'conversation agent'.includes(trimmedQuery)
-    })
-  }, [allRows, trimmedQuery, engineNamesFor])
-
-  // Keep the selection pointed at a visible row: a search that filters out the
-  // current pick moves selection to the first match, so Enter always has a target.
+  // Keep the selection pointed at a row the roster still offers: a roster that
+  // drops the current pick moves selection to its first row, so Enter always
+  // has a target.
   React.useEffect(() => {
-    if (visibleRows.length === 0) return
-    if (!visibleRows.some((row) => rowMatchesSelection(row, selection))) {
-      setSelection(selectionForRow(visibleRows[0]))
+    if (allRows.length === 0) return
+    if (!allRows.some((row) => rowMatchesSelection(row, selection))) {
+      setSelection(selectionForRow(allRows[0]))
     }
-  }, [visibleRows, selection])
+  }, [allRows, selection])
 
   // Effort reads through the same per-surface selection the model does, guarded
   // per-CLI by resolveCliReasoning so a level chosen for one CLI never surfaces
@@ -307,16 +292,6 @@ export function useAgentComposer({
       return { kind: 'general', cli, model, reasoning, ...picked, ...worktree, ...servers }
     },
     [cliForSelection, modelForSelection, reasoningForSelection, skills, worktreeName, mcpServers],
-  )
-
-  const moveSelection = React.useCallback(
-    (delta: number) => {
-      if (visibleRows.length === 0) return
-      const index = visibleRows.findIndex((row) => rowMatchesSelection(row, selection))
-      const nextIndex = Math.max(0, Math.min(visibleRows.length - 1, (index < 0 ? 0 : index) + delta))
-      setSelection(selectionForRow(visibleRows[nextIndex]))
-    },
-    [visibleRows, selection],
   )
 
   // Engine persistence. `appSettings.lastSelectedCli` is what every surface
@@ -359,16 +334,13 @@ export function useAgentComposer({
   )
 
   return {
-    query,
-    setQuery,
     skills,
     setSkills,
     worktreeName,
     setWorktreeName,
     mcpServers,
     setMcpServers,
-    visibleRows,
-    hasResults: visibleRows.length > 0,
+    visibleRows: allRows,
     selection,
     setSelection,
     selectionCli,
@@ -376,7 +348,6 @@ export function useAgentComposer({
     modelForSelection,
     engineNamesFor,
     reasoningForSelection,
-    moveSelection,
     buildConfirm,
     setEngineCli,
     setEngineModel,

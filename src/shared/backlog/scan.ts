@@ -32,7 +32,7 @@ export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input'
 
 // Lightweight triage metadata, owned by the backlog object store (items.json),
 // never required from markdown frontmatter. All fields are optional: a rough
-// capture can stay untyped/unestimated until an architect sizes and prioritizes
+// capture can stay untyped/unestimated until someone sizes and prioritizes
 // it, which is a calm neutral state, not a defect.
 // `epic` is a grouping container (see docs/backlog-item-schema.md); every other
 // type is a leaf. An unknown `type:` value is tolerated per OKF: it is preserved
@@ -387,7 +387,6 @@ export async function scanBacklog(
             relativePath,
             sourceContent,
             stats,
-            workspaceRoot: location.workspaceRoot,
           }),
         }
       } catch (error) {
@@ -436,8 +435,6 @@ export function createBacklogItem(input: {
   sourceContent: string
   stats: Pick<FileSystemStat, 'modifiedAtMs' | 'sizeBytes'>
   object?: BacklogItemObjectMetadata
-  /** The project this item belongs to, for resolving its durable run links. */
-  workspaceRoot?: string
 }): BacklogItem {
   const relativePath = normalizeRelativePath(input.relativePath)
   const { body, fields } = parseBacklogFrontmatter(input.sourceContent)

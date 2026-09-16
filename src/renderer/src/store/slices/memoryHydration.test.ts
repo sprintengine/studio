@@ -1,4 +1,4 @@
-import { hydrationStorage, hydrationWorkspaceId } from './memoryHydrationSetup'
+import { hydrationStorage, hydrationWorkspaceId } from './memoryHydration.test-helper'
 import { useWorkspaceStore } from '../workspaceStore'
 import { defaultAuthState } from './authSlice'
 import assert from 'node:assert/strict'

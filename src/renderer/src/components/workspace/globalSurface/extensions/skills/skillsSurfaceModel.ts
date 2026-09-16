@@ -3,25 +3,18 @@
 // the rendering, and everything that can be unit-tested without a renderer
 // lives here.
 //
-// The one rule this module exists to hold: a source page's shape is derived
-// from what the scan actually found, never from a template. `sourceLayout()`
-// (src/shared/skills.ts, owned by the scan rule) decides the layout; nothing
-// here re-derives it. What this module adds is the view each layout needs —
-// which rows, which group, what the empty state says — plus the honest state
-// lines for the rails, where "still loading" and "could not read" must never
-// render as a zero count.
+// A source's listing is derived from what the scan actually found, never from
+// a template, and a total that is still loading or could not be read never
+// renders as a zero count.
 
 import {
   SKILL_UNLISTED_GROUP,
   skillDirName,
   skillNameWarning,
-  skillSourceMonogram,
-  sourceLayout,
   type ScanResult,
   type ScannedSkill,
   type SkillFileRef,
   type SkillSource,
-  type SkillSourceLayout,
 } from '../../../../../../../shared/skills'
 
 /**
@@ -32,11 +25,6 @@ import {
  */
 export function sourceDisplayName(source: SkillSource): string {
   return source.repo || source.name
-}
-
-/** Badge letters for the display name, so those three read MS, AS and BA. */
-export function sourceDisplayMonogram(source: SkillSource): string {
-  return source.repo ? skillSourceMonogram(source.repo) : source.monogram
 }
 
 /** Per-source scan read. Sources list first; each scan lands independently. */
@@ -51,61 +39,8 @@ export type SkillSourcesLoad =
   | { status: 'error'; message: string }
   | { status: 'ready' }
 
-export type SkillSourceRailRow = {
-  id: string
-  name: string
-  monogram: string
-  /** '12 skills' once the scan lands; 'Loading…' / 'Count unavailable' before. */
-  stateLine: string
-  tooltip: string
-}
-
 export function pluralSkills(count: number): string {
   return `${count} ${count === 1 ? 'skill' : 'skills'}`
-}
-
-/** A source's one-line state. A failed or pending scan never reads as 0 skills. */
-export function skillCountLine(load: SkillScanLoad | undefined): string {
-  if (!load || load.status === 'loading') return 'Loading…'
-  if (load.status === 'error') return 'Count unavailable'
-  return pluralSkills(load.scan.skills.length)
-}
-
-export function deriveSourceRailRows(
-  sources: readonly SkillSource[],
-  scans: Readonly<Record<string, SkillScanLoad>>,
-): SkillSourceRailRow[] {
-  return sources.map((source) => {
-    const stateLine = skillCountLine(scans[source.id])
-    const name = sourceDisplayName(source)
-    return {
-      id: source.id,
-      name,
-      monogram: sourceDisplayMonogram(source),
-      stateLine,
-      // The rail truncates hard at 216px, so the hover carries the untruncated
-      // name, the count, and what the source actually is.
-      tooltip: `${name} — ${stateLine}${source.blurb ? `. ${source.blurb}` : ''}`,
-    }
-  })
-}
-
-/**
- * The Extensions rail's own "Skills" state line. The total is only spoken once
- * EVERY source has answered: a partial sum presented as the total would be a
- * lie that settles into a different number a second later.
- */
-export function deriveSkillsKindStateLine(
-  sourcesLoad: SkillSourcesLoad,
-  sources: readonly SkillSource[],
-  scans: Readonly<Record<string, SkillScanLoad>>,
-): string {
-  const total = skillsTotal(sourcesLoad, sources, scans)
-  if (total.state === 'loading') return 'Loading…'
-  if (total.state === 'error') return 'Sources unavailable'
-  const sourceLine = `${total.sourceCount} source${total.sourceCount === 1 ? '' : 's'}`
-  if (!total.ready) return sourceLine
-  return `${sourceLine} · ${pluralSkills(total.skillCount)}`
 }
 
 /**
@@ -172,102 +107,6 @@ export type SkillListItem = {
   nameWarning: string
 }
 
-export type SkillGroupTab = { name: string; label: string; count: number }
-
-/**
- * What a source page renders. `layout` names the shape `sourceLayout()` chose,
- * so a view is never confused for a different one; `empty` is the case decided
- * before the layout rule runs.
- */
-export type SkillSourceView =
-  | { kind: 'empty' }
-  | { kind: 'solo'; skill: SkillListItem }
-  | { kind: 'flat'; items: SkillListItem[] }
-  | { kind: 'grouped'; groups: SkillGroupTab[]; activeGroup: string; items: SkillListItem[] }
-  | {
-      kind: 'search'
-      groups: SkillGroupTab[]
-      activeGroup: string | null
-      query: string
-      items: SkillListItem[]
-      /** Set when there is nothing to list yet, and says what to do about it. */
-      prompt: string | null
-    }
-
-export type SkillSourceViewInput = {
-  source: SkillSource
-  scan: ScanResult
-  /** Directory names of the skills installed in the active workspace. */
-  installedDirNames: ReadonlySet<string>
-  /** The group the user is browsing, or null for the source's first group. */
-  activeGroup: string | null
-  /** The search-first layout's query. */
-  query: string
-}
-
-export function deriveSourceView(input: SkillSourceViewInput): SkillSourceView {
-  const { scan } = input
-
-  const layout: SkillSourceLayout = sourceLayout(scan)
-  const items = scan.skills.map((skill) => toListItem(skill, input.installedDirNames))
-
-  if (layout === 'none') return { kind: 'empty' }
-  if (layout === 'solo') return { kind: 'solo', skill: items[0] }
-  if (layout === 'flat') return { kind: 'flat', items }
-
-  const groups = deriveGroupTabs(scan)
-
-  if (layout === 'grouped') {
-    // An unknown or stale group falls back to the default rather than rendering
-    // an empty pane the user cannot explain.
-    const activeGroup =
-      input.activeGroup && groups.some((group) => group.name === input.activeGroup)
-        ? input.activeGroup
-        : defaultGroup(groups)
-    return {
-      kind: 'grouped',
-      groups,
-      activeGroup,
-      items: items.filter((item) => item.group === activeGroup),
-    }
-  }
-
-  // Search-first: empty until asked. Nobody reads 103 rows, and rendering them
-  // was the specific complaint against the first draft.
-  const query = input.query.trim()
-  if (query.length > 0) {
-    const matched = matchSkills(items, query)
-    return {
-      kind: 'search',
-      groups,
-      activeGroup: null,
-      query: input.query,
-      items: matched,
-      prompt: matched.length === 0 ? `Nothing matches “${query}”.` : null,
-    }
-  }
-  const activeGroup =
-    input.activeGroup && groups.some((group) => group.name === input.activeGroup) ? input.activeGroup : null
-  if (activeGroup) {
-    return {
-      kind: 'search',
-      groups,
-      activeGroup,
-      query: '',
-      items: items.filter((item) => item.group === activeGroup),
-      prompt: null,
-    }
-  }
-  return {
-    kind: 'search',
-    groups,
-    activeGroup: null,
-    query: '',
-    items: [],
-    prompt: groups.length > 0 ? 'Pick a category, or search.' : `Search these ${scan.skills.length} skills.`,
-  }
-}
-
 function toListItem(skill: ScannedSkill, installedDirNames: ReadonlySet<string>): SkillListItem {
   return {
     skillId: skill.id,
@@ -283,26 +122,6 @@ function toListItem(skill: ScannedSkill, installedDirNames: ReadonlySet<string>)
     installed: installedDirNames.has(skillDirName(skill.id)),
     nameWarning: skillNameWarning(skill.name, skillDirName(skill.id)),
   }
-}
-
-/**
- * The group a source opens on: its largest. Group names arrive sorted, so
- * taking the first would open `mattpocock/skills` on `deprecated` — four
- * abandoned skills as the first thing anyone sees of a source of 41.
- */
-function defaultGroup(groups: readonly SkillGroupTab[]): string {
-  return groups.reduce<SkillGroupTab | null>(
-    (largest, group) => (largest === null || group.count > largest.count ? group : largest),
-    null,
-  )?.name ?? ''
-}
-
-export function deriveGroupTabs(scan: ScanResult): SkillGroupTab[] {
-  return scan.groups.map((name) => ({
-    name,
-    label: skillGroupLabel(name),
-    count: scan.skills.filter((skill) => skill.group === name).length,
-  }))
 }
 
 /** `social-listening` → `Social listening`; names the source already cased, or
@@ -336,9 +155,7 @@ export function skillPluginFolder(skillId: string): string {
  * A source's skills as the tab renders them: the repository's own folders as
  * groups, in the order the scan found them, filtered by the tab's search.
  *
- * The `sourceLayout()` shapes — solo, flat, grouped, search-first — decided
- * how much of a source to show at once, and the pager decides that now: every
- * source lists in full, twelve rows at a time, so the only question left is
+ * Every source lists in full, twelve rows at a time, so the only question is
  * how the rows are grouped. A source that carries no grouping signal lists
  * under one heading rather than under a fake one.
  */
@@ -371,19 +188,6 @@ export function deriveSkillCatalogueGroups(input: {
   return ungrouped.length > 0
     ? [...grouped, { key: '(ungrouped)', label: SKILL_UNLISTED_GROUP, items: ungrouped }]
     : grouped
-}
-
-/**
- * What the scan passed over: an entry document that was read and declared no
- * `description` is not a skill (https://agentskills.io/specification, fetched
- * 2026-09-06), so it is not listed. Null when nothing was passed over, and for
- * a scan cached before the count existed — which is not the same as zero, and
- * must not render as "0 skipped".
- */
-export function skippedNoDescriptionLine(scan: Pick<ScanResult, 'skippedNoDescription'> | null): string | null {
-  const skipped = scan?.skippedNoDescription ?? 0
-  if (skipped === 0) return null
-  return `${skipped} ${skipped === 1 ? 'directory' : 'directories'} skipped: no description`
 }
 
 /**
@@ -607,19 +411,4 @@ function normalizeSkillPath(path: string): string {
     else out.push(segment)
   }
   return out.join('/')
-}
-
-/**
- * The facts a source header can state under its name, without inventing any.
- * The repository is the header's title, so it is not repeated here.
- */
-export function describeSourceMeta(source: SkillSource, load: SkillScanLoad | undefined): string[] {
-  const parts: string[] = []
-  if (load && load.status === 'ready') {
-    parts.push(pluralSkills(load.scan.skills.length))
-    parts.push(`${load.scan.fileCount} file${load.scan.fileCount === 1 ? '' : 's'}`)
-  }
-  const commit = shortCommit(source.commitSha)
-  if (commit) parts.push(commit)
-  return parts
 }

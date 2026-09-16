@@ -21,11 +21,10 @@ import {
 } from './git-worktree-validation'
 
 export { listGitWorktrees } from './git-worktree-list'
-export { getGitRowSummary, getGitStatus } from './git-status'
+export { getGitStatus } from './git-status'
 export { getGitBranches, getGitCommitGraph } from './git-read-models'
 export { applyGitStash, dropGitStash, listGitStashes, pushGitStash } from './git-stash'
 export {
-  discardUnstagedGitChanges,
   revertGitPaths,
   stageGitPaths,
   unstageGitPaths,

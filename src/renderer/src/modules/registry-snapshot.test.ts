@@ -46,7 +46,6 @@ type SurfaceKind =
   | 'commands'
   | 'topBarItems'
   | 'backlogItemActions'
-  | 'workspaceAsides'
 
 function registryOf(entries: Array<{ kind: SurfaceKind; id: string; moduleId: string }>): ModuleSurfaceRegistry {
   const of = (kind: SurfaceKind): Array<{ id: string; moduleId: string }> =>
@@ -60,7 +59,6 @@ function registryOf(entries: Array<{ kind: SurfaceKind; id: string; moduleId: st
     getModuleCommands: () => of('commands'),
     getTopBarItems: () => of('topBarItems'),
     getBacklogItemActions: () => of('backlogItemActions'),
-    getWorkspaceAside: () => of('workspaceAsides')[0],
   }
 }
 
@@ -71,13 +69,11 @@ function testSurfacesAreGroupedByOwningModule(): void {
       { kind: 'workspaceTypes', id: 'atlas-chart', moduleId: 'atlas' },
       { kind: 'commands', id: 'atlas.open-board', moduleId: 'atlas' },
       { kind: 'sidebarNavEntries', id: 'design', moduleId: 'design' },
-      { kind: 'workspaceAsides', id: 'skills', moduleId: 'agent-runtime' },
     ])
   )
   assert.deepEqual(surfaces['atlas'].globalSurfaces, ['charts'])
   assert.deepEqual(surfaces['atlas'].commands, ['atlas.open-board'])
   assert.deepEqual(surfaces['design'].sidebarNavEntries, ['design'])
-  assert.deepEqual(surfaces['agent-runtime'].workspaceAsides, ['skills'])
   assert.equal(surfaces['atlas'].settingsSections.length, 0, 'a kind nobody registered stays empty')
 }
 

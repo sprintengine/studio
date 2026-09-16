@@ -9,7 +9,7 @@ import { LockGlyph, PresetDialGlyph, SparkGlyph, UnlockedGlyph } from '../../App
 import type { CliPermissionPreset } from '../../../types/workspace'
 
 // Shared, presentation-only pieces of the agent spawn surfaces (the compact
-// SpawnPicker and the AgentComposer panel). Kept in one hookless module so every
+// SpawnPicker and the New Chat panel). Kept in one hookless module so every
 // surface can import them without pulling in the composer's store hook.
 
 // Permission preset chips shown in the picker footer. Exported because the top
@@ -56,50 +56,6 @@ export const PRESET_CHIP_LABEL: Record<CliPermissionPreset, string> = {
   manual: 'Manual',
   auto: 'Auto',
   bypass: 'Bypass',
-}
-
-// The CLI default / Manual / Auto / Bypass preset chip row — the one interactive permission
-// control every spawn surface renders (composer panel, picker popover footer,
-// Automations editor runtime row, and the chat composer's live permission
-// pill), so the options and their tone can't drift. Bypass carries the warn
-// tone when active; inactive chips stay quiet. `disabled` is for surfaces that
-// change a LIVE session's preset: the row locks while the change is in flight
-// so a second pick can't race the first. Selection is carried by aria-pressed
-// as well as tint, so the active chip reads without color.
-export function PermissionPresetChips({
-  value,
-  onChange,
-  disabled = false,
-}: {
-  value: CliPermissionPreset
-  onChange: (preset: CliPermissionPreset) => void
-  disabled?: boolean
-}) {
-  return (
-    <>
-      {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
-        const active = option.value === value
-        const isBypass = option.value === 'bypass'
-        return (
-          // The kit's chip toggle. `pressed` carries the thrown fill AND the
-          // `aria-pressed` this row already stated, and the tone decides which
-          // fill: `warn` keeps its own tint, because a thrown Bypass that went
-          // neutral would stop saying what it says. The tone is warn only while
-          // thrown — an unpicked Bypass chip is as quiet as its neighbours.
-          <Tooltip key={option.value} content={option.title} placement="bottom">
-            <ChipButton
-              tone={active && isBypass ? 'warn' : 'subtle'}
-              pressed={active}
-              disabled={disabled}
-              onClick={() => onChange(option.value)}
-            >
-              {PRESET_CHIP_LABEL[option.value]}
-            </ChipButton>
-          </Tooltip>
-        )
-      })}
-    </>
-  )
 }
 
 // One glyph per preset, a vocabulary that reads at a glance, drawn once in
@@ -320,22 +276,6 @@ export function SpawnDebugToggle({
         DEBUG
       </ChipButton>
     </Tooltip>
-  )
-}
-
-// Neutral chat glyph for conversation-runtime rows. CliIcon is reserved for
-// terminal CLI plugins; a provider-backed agent is a conversation, so it reads
-// as a speech bubble rather than a terminal prompt.
-export function ConversationProviderIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M5 5.75h14a1.75 1.75 0 0 1 1.75 1.75v7a1.75 1.75 0 0 1-1.75 1.75H10l-3.75 3v-3H5A1.75 1.75 0 0 1 3.25 15.5v-8A1.75 1.75 0 0 1 5 5.75Z"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinejoin="round"
-      />
-    </svg>
   )
 }
 

@@ -2,15 +2,13 @@
 // skillsSurfaceModel idiom: the components own the IPC and the rendering, and
 // everything that can be tested without a renderer lives here.
 //
-// The honesty rules it holds: a source's plugin count never renders as zero
-// while it is loading or unreadable; a linked plugin's components are unknown
-// until read, never empty; and what an install will do is stated per harness
+// The honesty rules it holds: a linked plugin's components are unknown until
+// read, never empty; and what an install will do is stated per harness
 // before it happens, in the same words the install reports afterwards.
 
 import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
 import { pluginNeedsOwnFiles, referencesPluginRoot } from '../../../../../../../shared/mcp/plugin-root'
 import {
-  STUDIO_SKILL_SOURCE_ID,
   describePluginComponents,
   findScannedPlugin,
   pluginAliases,
@@ -22,7 +20,6 @@ import {
   type SkillHarness,
   type SkillSource,
 } from '../../../../../../../shared/skills'
-import type { SkillScanLoad, SkillSourcesLoad } from '../skills/skillsSurfaceModel'
 
 const HARNESS_LABEL: Record<SkillHarness, string> = {
   claude: 'Claude Code',
@@ -32,40 +29,6 @@ const HARNESS_LABEL: Record<SkillHarness, string> = {
   opencode: 'OpenCode',
   grok: 'Grok',
   agents: 'Shared agents directory',
-}
-
-function pluralPlugins(count: number): string {
-  return `${count} ${count === 1 ? 'plugin' : 'plugins'}`
-}
-
-/** A source's plugin count, or why there is none to state. */
-export function pluginCountLine(load: SkillScanLoad | undefined): string {
-  if (!load || load.status === 'loading') return 'Loading…'
-  if (load.status === 'error') return 'Count unavailable'
-  const count = scanPlugins(load.scan).length
-  return count === 0 ? 'No plugins here' : pluralPlugins(count)
-}
-
-/** The Extensions rail's own "Plugins" line: spoken only once every source answered. */
-export function derivePluginsKindStateLine(
-  sourcesLoad: SkillSourcesLoad,
-  sources: readonly SkillSource[],
-  scans: Readonly<Record<string, SkillScanLoad>>,
-  /** The studio marketplace's count once it answered; null while it has not. */
-  registryCount: number | null = null,
-): string {
-  if (sourcesLoad.status === 'loading') return 'Loading…'
-  if (sourcesLoad.status === 'error') return 'Sources unavailable'
-  const sourceLine = `${sources.length} source${sources.length === 1 ? '' : 's'}`
-  // The studio source's plugins are the registry's, not its scan's.
-  const scanned = sources.filter((source) => source.id !== STUDIO_SKILL_SOURCE_ID)
-  const loads = scanned.map((source) => scans[source.id])
-  if (loads.some((load) => !load || load.status !== 'ready')) return sourceLine
-  if (sources.some((source) => source.id === STUDIO_SKILL_SOURCE_ID) && registryCount === null) return sourceLine
-  const total =
-    loads.reduce((sum, load) => sum + (load && load.status === 'ready' ? scanPlugins(load.scan).length : 0), 0)
-    + (registryCount ?? 0)
-  return `${sourceLine} · ${pluralPlugins(total)}`
 }
 
 // ── Rows ─────────────────────────────────────────────────────────────────────

@@ -75,10 +75,7 @@ function activityStartedAt(activity: SessionActivity): number {
 //
 // The `source` a plain terminal reports is therefore a placeholder, not a claim
 // about where its phase came from: it has no phase.
-export function deriveSessionStatus(
-  session: TerminalSessionSnapshot,
-  runtimeNeedsInput: boolean,
-): SessionStatusInfo {
+export function deriveSessionStatus(session: TerminalSessionSnapshot): SessionStatusInfo {
   const hook = session.agentState
   const source: AgentStateSource = hook?.source ?? 'lifecycle'
   const lastActivityAt = maxTimestamp(session.lastOutputAt, session.lastInputAt)
@@ -95,17 +92,14 @@ export function deriveSessionStatus(
     }
   }
 
-  // Needs-input: authoritative hook phase, or a module's MCP self-report.
-  // This is the most expensive state to miss, so it outranks working/idle. The
-  // hook disjunct is gated on `processAlive` — a dead agent's stale
-  // `awaiting_input` is not a live attention request — while a module's
-  // self-report (`runtimeNeedsInput`) is a separate signal, not tied to pty
-  // liveness, so it stays ungated.
-  if ((hook?.phase === 'awaiting_input' && session.processAlive) || runtimeNeedsInput) {
+  // Needs-input: the authoritative hook phase. This is the most expensive state
+  // to miss, so it outranks working/idle. It is gated on `processAlive` — a dead
+  // agent's stale `awaiting_input` is not a live attention request.
+  if (hook?.phase === 'awaiting_input' && session.processAlive) {
     return {
       status: 'needs-input',
       source,
-      activitySince: hook?.phase === 'awaiting_input' && session.processAlive ? hook.since : fallbackSince,
+      activitySince: hook.since,
       lastActivityAt,
       exitCode: null,
     }
@@ -115,7 +109,7 @@ export function deriveSessionStatus(
   // "produced output recently". `stalled`/`idle`/`exited` hook phases fall through
   // to idle below.
   //
-  // Gated on `processAlive` for the same reason the needs-input disjunct above
+  // Gated on `processAlive` for the same reason the needs-input check above
   // is, and it is the same stale frame: a session suspended (or killed) mid-turn
   // keeps the working phase and activity it had when its pty died, and nothing
   // revisits them. A paused agent is not working — it is not running at all.
@@ -183,7 +177,7 @@ export function getWorkspaceActivity(
   workspace: Workspace,
   terminalSessions: TerminalSessionSnapshot[],
 ): WorkspaceActivity {
-  return deriveWorkspaceDisplayActivity(workspace.id, terminalSessions, false)
+  return deriveWorkspaceDisplayActivity(workspace.id, terminalSessions)
 }
 
 export function uniqueAgentName(baseName: string, agents: Workspace['agents']): string {
@@ -317,7 +311,7 @@ export function getSessionItems(
       if (session.kind === 'agent') {
         if (session.agentId && conversationAgentKeys.has(`${group.id} ${session.agentId}`)) return []
         const agent = session.agentId ? workspace?.agents[session.agentId] : undefined
-        const statusInfo = deriveSessionStatus(session, false)
+        const statusInfo = deriveSessionStatus(session)
 
         return [
           {
@@ -345,7 +339,7 @@ export function getSessionItems(
       const terminalId = session.terminalId ?? session.sessionId.replace(/^terminal-/, '')
       // Plain terminals have no lifecycle hooks; their status is honest
       // output-recency (working while producing output, otherwise idle).
-      const statusInfo = deriveSessionStatus(session, false)
+      const statusInfo = deriveSessionStatus(session)
       return [
         {
           group,

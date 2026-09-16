@@ -2,7 +2,24 @@ import { stat } from 'fs/promises'
 import { join } from 'path'
 
 import type { DesignSystemBundleLintRunResult } from '../../shared/design-system/bundle-lint-run'
-import type { BundleScriptFork } from './derived-file-runner'
+
+export interface BundleScriptExit {
+  /** Null when the process could not be spawned or was killed on timeout. */
+  exitCode: number | null
+  stdout: string
+  stderr: string
+}
+
+/**
+ * Runs one bundle script. Production passes the Electron utilityProcess
+ * binding (utility-process-fork.ts), so bundle scripts never run in the main
+ * process; tests inject a plain child_process fork.
+ */
+export type BundleScriptFork = (
+  scriptPath: string,
+  args: string[],
+  options: { cwd: string },
+) => Promise<BundleScriptExit>
 
 // On-demand run of a bundle's own scripts/lint.mjs, forked like every other
 // bundle script. This is the author's contribution gate — no read-only surface

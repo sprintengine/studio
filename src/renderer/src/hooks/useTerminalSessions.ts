@@ -310,29 +310,12 @@ export function sessionRecencyOf(session: TerminalSessionSnapshot): SessionRecen
 export function deriveWorkspaceDisplayActivity(
   workspaceId: string,
   sessions: TerminalSessionSnapshot[],
-  needsInput: boolean
 ): WorkspaceDisplayActivity {
-  if (needsInput || workspaceTerminalAwaitingInput(workspaceId, sessions)) return 'needs-input'
+  if (workspaceTerminalAwaitingInput(workspaceId, sessions)) return 'needs-input'
   const terminalActivity = deriveWorkspaceTerminalActivity(workspaceId, sessions)
   if (terminalActivity.kind === 'working') return 'working'
   if (terminalActivity.kind === 'failed') return 'failed'
   return 'idle'
-}
-
-function findExecutionTerminalSession(
-  sessions: TerminalSessionSnapshot[],
-  workspaceId: string,
-  executionId: string | null | undefined
-): TerminalSessionSnapshot | null {
-  if (!executionId) return null
-  return (
-    sessions.find(
-      (session) =>
-        session.kind === 'agent' &&
-        session.workspaceId === workspaceId &&
-        session.agentSession?.executionId === executionId
-    ) ?? null
-  )
 }
 
 export type TabRecencySource = 'idle' | 'input' | 'persisted' | 'exited'
@@ -388,23 +371,4 @@ export function tabRecencyLabel(source: TabRecencySource): string {
   if (source === 'input') return 'Last typed'
   if (source === 'persisted') return 'Last activity'
   return 'Exited'
-}
-
-export type ExecutionTerminalState =
-  | { kind: 'missing' }
-  | { kind: 'running'; sessionId: string; agentId: string }
-  | { kind: 'exited'; sessionId: string; agentId: string }
-
-export function describeExecutionTerminal(
-  sessions: TerminalSessionSnapshot[],
-  workspaceId: string,
-  executionId: string | null | undefined
-): ExecutionTerminalState {
-  const session = findExecutionTerminalSession(sessions, workspaceId, executionId)
-  if (!session) return { kind: 'missing' }
-  const agentId =
-    session.agentId ?? session.agentSession?.executionId ?? executionId ?? session.sessionId
-  return isLiveTerminal(session)
-    ? { kind: 'running', sessionId: session.sessionId, agentId }
-    : { kind: 'exited', sessionId: session.sessionId, agentId }
 }

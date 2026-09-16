@@ -136,9 +136,6 @@ export type AgentState = {
   // (`sessionIdFromCaller`) at session assign, the sibling of cliResumeAvailable;
   // consumers use it to decide the resume token. See agent-cli-resume.ts.
   cliUsesStableSessionId?: boolean
-  // Explicit "resume this conversation on next launch" intent, so TerminalView
-  // resumes rather than starting a new conversation.
-  cliResumeRequested?: boolean
   cliLastExitCode?: number | null
   cliLastExitedAt?: number | null
   cli?: AgentCli

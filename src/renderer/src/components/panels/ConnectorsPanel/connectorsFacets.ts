@@ -14,7 +14,7 @@
 // installed, which is what `launchableConnectors` below lists.
 
 import type { McpServerConfig, McpServerListing } from '../../../../../shared/electron-api'
-import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
+import type { AgentComposerConnector } from '../../workspace/agentComposer/useAgentComposer'
 import type {
   MarketplaceComponentKind,
   MarketplacePluginEntry,

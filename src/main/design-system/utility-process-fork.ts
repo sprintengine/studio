@@ -1,7 +1,7 @@
 import { utilityProcess } from 'electron'
 
 import { bundleScriptEnv } from './bundle-script-env'
-import type { BundleScriptExit, BundleScriptFork } from './derived-file-runner'
+import type { BundleScriptExit, BundleScriptFork } from './bundle-lint-run'
 
 // Bundle generator scripts run in an Electron utility process, never in the
 // main process itself — the same trust boundary as the bypass designer

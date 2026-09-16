@@ -108,5 +108,3 @@ export function TruncatedText({
     </Tooltip>
   )
 }
-
-export default TruncatedText

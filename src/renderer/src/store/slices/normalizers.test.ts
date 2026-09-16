@@ -184,7 +184,6 @@ const persistedHostAgentFields = {
   cliRestartNonce: 3,
   cliHasLaunched: true,
   cliResumeAvailable: true,
-  cliResumeRequested: true,
   cliOnboardingPromptSent: true,
   cliStartupPrompt: 'Run automation MM-37',
 }
@@ -201,7 +200,6 @@ type PersistedLaunchAgent = {
   cliRestartNonce?: number
   cliHasLaunched?: boolean
   cliResumeAvailable?: boolean
-  cliResumeRequested?: boolean
   cliOnboardingPromptSent?: boolean
   cliStartupPrompt?: string
 }
@@ -217,7 +215,6 @@ assert.equal(automationsHostAgent.harnessSessionId, 'harness-123', 'harness resu
 assert.equal(automationsHostAgent.cliStartRequested, false)
 assert.equal(automationsHostAgent.cliHasLaunched, false)
 assert.equal(automationsHostAgent.cliResumeAvailable, false)
-assert.equal(automationsHostAgent.cliResumeRequested, false)
 assert.equal(automationsHostAgent.cliOnboardingPromptSent, false)
 assert.equal(automationsHostAgent.cliRestartNonce, 0)
 // Clearing the startup prompt is what keeps a start from re-running the

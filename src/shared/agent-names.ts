@@ -211,8 +211,6 @@ export const AGENT_SURNAMES = [
   'Wolfe',
 ] as const
 
-export const AGENT_NAMES = AGENT_FIRST_NAMES
-
 function normalizeName(name: string): string {
   return name.trim().toLowerCase()
 }

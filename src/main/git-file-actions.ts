@@ -100,21 +100,3 @@ export async function revertGitPaths(repoRoot: string, paths: string[]): Promise
 
   return combineCommandResults(results, 'No file changes to revert.')
 }
-
-export async function discardUnstagedGitChanges(repoRoot: string, paths: string[]): Promise<GitCommandResult> {
-  const snapshot = await getGitStatus(repoRoot)
-  const entries = getSelectedStatusEntries(snapshot, paths).filter((entry) => entry.unstaged)
-  const trackedEntries = entries.filter((entry) => !isUntrackedEntry(entry))
-  const untrackedEntries = entries.filter(isUntrackedEntry)
-  const results: GitCommandResult[] = []
-
-  if (trackedEntries.length) {
-    results.push(await runGitCommand(repoRoot, ['restore', '--worktree', '--', ...entryPathspecs(repoRoot, trackedEntries)]))
-  }
-
-  if (untrackedEntries.length) {
-    results.push(await runGitCommand(repoRoot, ['clean', '-f', '--', ...entryPathspecs(repoRoot, untrackedEntries)]))
-  }
-
-  return combineCommandResults(results, 'No unstaged changes to roll back.')
-}

@@ -806,8 +806,6 @@ export function describePluginComponents(plugin: ScannedPlugin): string {
   return parts.length > 0 ? parts.join(' · ') : 'No components declared'
 }
 
-export type SkillSourceLayout = 'solo' | 'flat' | 'grouped' | 'search' | 'none'
-
 export const SKILL_ENTRY_FILE = 'SKILL.md'
 
 /** Group name for skills that sit directly at a source's root. */
@@ -880,24 +878,6 @@ export const LOCAL_SKILL_SOURCE_ID_PREFIX = 'local:'
 export function localSourceFolderName(path: string): string {
   const segments = path.split(/[\\/]/).filter((segment) => segment.length > 0)
   return segments.length > 0 ? segments[segments.length - 1] : path
-}
-
-/**
- * How a source's skill list should be presented. Derived on read, never
- * persisted: the same scan renders differently as a repository grows, and a
- * stored layout would go stale the moment Sync moved the commit.
- *
- * A grouped source stays browsable much further than a flat one, because the
- * groups do the narrowing a search box would otherwise have to do.
- */
-export function sourceLayout(result: ScanResult): SkillSourceLayout {
-  const count = result.skills.length
-  if (count === 0) return 'none'
-  if (count === 1) return 'solo'
-  if (result.groupingSignal !== 'none' && result.groups.length > 0) {
-    return count <= 60 ? 'grouped' : 'search'
-  }
-  return count <= 24 ? 'flat' : 'search'
 }
 
 // Discover: finding a skill you do not already have the repository for.

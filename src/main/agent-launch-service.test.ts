@@ -367,11 +367,9 @@ run('the launch carries an execution identity, or the run could never finalize',
     executionId: 'session-minted',
     system: 'manual',
     workspaceId: 'ws-1',
-    // The PROJECT root, never the run worktree: the engine's teardown matches a
-    // run's sessions on the workspace root it was launched for.
+    // The PROJECT root, never the run worktree: a module's teardown matches its
+    // sessions on the workspace root they were launched for.
     workspaceRoot: '/repo/a',
-    workId: 'agent-codex-abc123',
-    role: 'general',
     displayName: 'Scout',
   })
 })
@@ -396,7 +394,6 @@ run('a caller that owns its agent id keeps it, and the session id is still minte
     'session-minted',
     'the agent id is never reused as the session id — a Claude-harness CLI refuses one it has seen'
   )
-  assert.equal(app.spawns[0]!.agentSession?.workId, 'review-guide-review_1')
 })
 
 run('an explicit cwd wins over the workspace folder, which still owns the residency', async () => {
@@ -415,16 +412,6 @@ run('an explicit cwd wins over the workspace folder, which still owns the reside
     '/repo/a',
     'the execution identity still names the project root'
   )
-})
-
-run('a caller that knows what its agent IS records that role', async () => {
-  const app = harness()
-  await app.service.launch({ workspaceId: 'ws-1', cli: 'claude-code', role: 'review-guide' })
-  assert.equal(app.spawns[0]!.agentSession?.role, 'review-guide')
-
-  const general = harness()
-  await general.service.launch({ workspaceId: 'ws-1', cli: 'claude-code' })
-  assert.equal(general.spawns[0]!.agentSession?.role, 'general', 'an app-level launch says nothing')
 })
 
 run('anyWorkspaceMode accepts the workspace the caller named, whatever its mode', async () => {

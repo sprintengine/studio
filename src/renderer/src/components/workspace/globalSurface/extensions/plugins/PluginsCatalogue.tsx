@@ -59,7 +59,7 @@ import {
 import { referencesPluginRoot } from '../../../../../../../shared/mcp/plugin-root'
 import { mcpServerConfigFromScanned } from '../../../../../../../shared/mcp/server-from-scanned'
 import type { ConnectorSources } from '../../../../panels/ConnectorsPanel/useConnectorSources'
-import type { AgentComposerConnector } from '../../../agentComposer/AgentComposer'
+import type { AgentComposerConnector } from '../../../agentComposer/useAgentComposer'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 import { bundledScanLine, sourceDisplayName, summarizeSyncRun } from '../skills/skillsSurfaceModel'
 import type { SkillSourcesState } from '../skills/useSkillSources'

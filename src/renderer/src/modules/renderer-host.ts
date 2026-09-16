@@ -3,12 +3,11 @@ import type { ComponentType, LazyExoticComponent } from 'react'
 import type { RowBadge } from '../components/workspace/SidebarNavButton'
 
 import type { ModuleEventEnvelope } from '../../../shared/modules/events'
-import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
-import { resolveModuleEnablement } from '../../../shared/modules/resolve'
+import type { CapabilityManifest } from '../../../shared/modules/manifest'
 import { COMMAND_REGISTRY } from '../commands/commandRegistry'
 import { collapseDuplicateKeybindings } from '../commands/keybindings'
 import type { CommandAvailability, CommandContribution, CommandScope, ModuleCommandContext } from '../commands/types'
-import type { AppNotification, LayoutTemplate } from '../types/workspace'
+import type { AppNotification, LayoutTemplate, Workspace } from '../types/workspace'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
 import type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
 import { AGENT_RUNTIME_MODULE_ID } from '../../../shared/backlog/agent-links'
@@ -81,7 +80,7 @@ export type WorkspaceTypeSidebarWorkspace = {
   id: string
   name: string
   mode: WorkspaceRunGlyphProviderInput['mode']
-  moduleState?: WorkspaceRunGlyphProviderInput['moduleState']
+  moduleState?: Workspace['moduleState']
 }
 
 /**
@@ -192,7 +191,6 @@ export type WorkspaceTypeDefinition = {
     label: string
     views: WorkspaceTypeTopBarView[]
   }
-  isRunGlyphProviderForWorkspace?(workspace: WorkspaceRunGlyphProviderInput): boolean
   deriveRunGlyph?(workspace: WorkspaceRunGlyphProviderInput): WorkspaceRunGlyph | null
   /**
    * Label for this type's create control (picker, hub). Absent ⇒ `label`.
@@ -737,25 +735,6 @@ export type RegisteredModalSurfaceLauncher = ModalSurfaceLauncher & {
   moduleId: string
 }
 
-// The single tenant of the right-docked workspace aside column (MC-1766). The
-// column is app-level chrome outside the workspace card, so unlike panels and
-// door surfaces there is exactly ONE slot — a second claimant would have to
-// fight the first for the same strip of window. Registration is single-slot and
-// ownership-guarded like `provideBacklogReader`; WorkspaceAsideMount owns the
-// width, the resize edge, and the landmark, and this component fills it.
-export type WorkspaceAsideDefinition = {
-  /** Stable id for the tenant, for diagnostics and duplicate reporting. */
-  id: string
-  /** Accessible name for the column landmark, e.g. "Skills". Non-empty. */
-  label: string
-  /** The column's content. Eager or React.lazy(), mirroring GlobalSurfaceDefinition. */
-  Component: GlobalSurfaceComponent
-}
-
-export type RegisteredWorkspaceAside = WorkspaceAsideDefinition & {
-  moduleId: string
-}
-
 // An agent-id namespace a module claims (MC-2090). A module that spawns agents
 // outside a window's knowledge — a background guide, a companion — owns ids the
 // shell then has to reason about without knowing whose they are: what to call
@@ -884,12 +863,6 @@ export type RendererHost = {
    * is not exactly one character, a missing Glyph) throws at registration.
    */
   registerModalSurface(definition: ModalSurfaceDefinition): void
-  /**
-   * Claim the right-docked workspace aside column (MC-1766). A single slot:
-   * the second module to claim it throws, naming the module that holds it. The
-   * mount gates on this module's live enablement. No module claims it today.
-   */
-  registerWorkspaceAside(definition: WorkspaceAsideDefinition): void
   /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`. The channel must be `<moduleId>:`-prefixed —
@@ -1164,12 +1137,6 @@ export type RendererKernel = {
     moduleEnabled?: (moduleId: string) => boolean
   ): RegisteredModalSurfaceLauncher[]
   /**
-   * The module claiming the workspace aside column, with its owning module so
-   * the mount can gate on enablement. Undefined while the column is unclaimed —
-   * the mount then renders nothing at all, never an empty column.
-   */
-  getWorkspaceAside(): RegisteredWorkspaceAside | undefined
-  /**
    * The module namespace owning `agentId`, or undefined when no enabled module
    * claims it. The shell asks this instead of importing a module's own id
    * predicate — it is how a session no workspace claims gets a group label,
@@ -1314,7 +1281,6 @@ export function createRendererHost(): RendererKernel {
   const globalSurfaces = new Map<string, RegisteredGlobalSurface>()
   const modalSurfaces = new Map<string, RegisteredModalSurface>()
   const agentIdNamespaces = new Map<string, RegisteredAgentIdNamespace>()
-  let workspaceAside: RegisteredWorkspaceAside | null = null
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
   const moduleAssetOrigins = new Map<string, string>()
   let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
@@ -1677,20 +1643,6 @@ export function createRendererHost(): RendererKernel {
           }
           agentIdNamespaces.set(prefix, { ...definition, prefix, moduleId })
         },
-        registerWorkspaceAside(definition) {
-          if (definition.id.trim().length === 0) {
-            throw new Error('Workspace aside id must be a non-empty string.')
-          }
-          if (definition.label.trim().length === 0) {
-            throw new Error('Workspace aside label must be a non-empty string.')
-          }
-          if (workspaceAside) {
-            throw new Error(
-              `The workspace aside is already claimed by module "${workspaceAside.moduleId}".`
-            )
-          }
-          workspaceAside = { ...definition, moduleId }
-        },
         provideBacklogReader(reader) {
           if (backlogReader) {
             throw new Error(
@@ -1975,9 +1927,6 @@ export function createRendererHost(): RendererKernel {
       }
       return launchers
     },
-    getWorkspaceAside() {
-      return workspaceAside ?? undefined
-    },
     getAgentIdNamespace(agentId, moduleEnabled) {
       // Longest prefix first, so a future nested claim resolves to the more
       // specific owner rather than to whichever registered first. Registration
@@ -2046,14 +1995,4 @@ export function createRendererHost(): RendererKernel {
 export type RendererModule = {
   manifest: CapabilityManifest
   registerRenderer?: (host: RendererHost) => void
-}
-
-// Pure helper shared by the factory, the panel rail, and the Modules settings
-// tab so "is this feature on?" is computed identically everywhere.
-export function isModuleEnabled(
-  manifests: ReadonlyArray<CapabilityManifest>,
-  overrides: ModuleEnablementOverrides,
-  moduleId: string
-): boolean {
-  return resolveModuleEnablement([...manifests], overrides).order.includes(moduleId)
 }
