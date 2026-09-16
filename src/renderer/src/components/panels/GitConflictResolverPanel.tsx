@@ -17,7 +17,6 @@ type ResolverState =
   | { status: 'ready'; conflict: GitConflictFileContent; content: string; saving: boolean; message: string | null }
 
 type Props = {
-  workspaceId: string
   repoRoot: string
   filePath: string
 }
