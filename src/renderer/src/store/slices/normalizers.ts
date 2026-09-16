@@ -1,5 +1,9 @@
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, type Workspace } from '../../types/workspace'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
+import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from '../../../../shared/sprintengine/agent-identity'
 import { normalizeAgentState, pickWorkspaceAgentName } from './agentsSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
 import { normalizeSprintEngineAutoState } from './runStateSlice'
@@ -58,9 +62,9 @@ export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspa
   const run = legacySprintEngineRunState(workspace)
   if (workspace.mode !== 'sprintengine' && !run) return workspace
 
-  const sprintEngineAgentIds = new Set(Object.keys(run?.sprintEngineAgents ?? {}))
+  const sprintEngineAgentIds = sprintEngineRosterAgentIds(run?.sprintEngineAgents)
   const hasSprintEngineAgents = Object.entries(workspace.agents).some(
-    ([id, agent]) => agent.kind === 'sprintengine' || sprintEngineAgentIds.has(id)
+    ([id, agent]) => isSprintEngineManagedAgent(agent, { agentId: id, rosterIds: sprintEngineAgentIds })
   )
   if (!hasSprintEngineAgents) return workspace
 
@@ -68,12 +72,11 @@ export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspa
     ...workspace,
     agents: Object.fromEntries(
       Object.entries(workspace.agents).map(([id, agent]) => {
-        if (agent.kind !== 'sprintengine' && !sprintEngineAgentIds.has(id)) return [id, agent]
+        if (!isSprintEngineManagedAgent(agent, { agentId: id, rosterIds: sprintEngineAgentIds })) return [id, agent]
         return [
           id,
           normalizeAgentState({
             ...agent,
-            kind: 'sprintengine',
             status: 'idle',
             streamBuffer: '',
             cliStartRequested: false,

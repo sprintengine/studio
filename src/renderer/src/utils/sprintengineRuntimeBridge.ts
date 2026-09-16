@@ -38,6 +38,10 @@ import {
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { useNotificationStore } from '../store/notificationStore'
 import { normalizeSprintEngineAutoState } from '../store/slices/runStateSlice'
+import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from '../../../shared/sprintengine/agent-identity'
 import { applyAgentTerminalRevealPolicy } from './modelRegistry'
 import type { Workspace } from '../types/workspace'
 import { applySprintEngineAutomationStopReason } from './sprintengineSupervisorNotifications'
@@ -99,8 +103,9 @@ function buildRegistration(workspace: Workspace, statePath: string): SprintRunti
  */
 function buildAgentConfigs(workspace: Workspace): Record<string, SprintRuntimeAgentConfig> {
   const configs: Record<string, SprintRuntimeAgentConfig> = {}
+  const rosterIds = sprintEngineRosterAgentIds(sprintEngineRunState(workspace)?.sprintEngineAgents)
   for (const [agentId, agent] of Object.entries(workspace.agents)) {
-    if (agent.kind !== 'sprintengine') continue
+    if (!isSprintEngineManagedAgent(agent, { agentId, rosterIds })) continue
     configs[agentId] = {
       cliRuntimeOverride: agent.cliRuntimeOverride ?? null,
       ...(agent.name ? { name: agent.name } : {}),

@@ -13,20 +13,20 @@ function agent(overrides: Partial<AgentState>): AgentState {
   return {
     id: 'architect',
     name: 'Architect',
-    kind: 'sprintengine',
+    kind: 'general',
     ...overrides,
   } as AgentState
 }
 
 // --- selectSprintEngineTeardownAgentIds ---
 
-// 1. Only sprintengine agents are selected; other kinds are left untouched.
+// 1. Roster agents are selected; other agents are left untouched.
 {
   const ids = selectSprintEngineTeardownAgentIds({
-    architect: agent({ id: 'architect', kind: 'sprintengine' }),
-    'dev-1': agent({ id: 'dev-1', kind: 'sprintengine' }),
-    chat: agent({ id: 'chat', kind: 'general' }),
-  })
+    architect: agent({ id: 'architect' }),
+    'dev-1': agent({ id: 'dev-1' }),
+    chat: agent({ id: 'chat' }),
+  }, ['architect', 'dev-1'])
   assert.deepEqual(ids.sort(), ['architect', 'dev-1'])
 }
 
@@ -109,11 +109,15 @@ function makeWorkspace(agents: Record<string, AgentState>, layoutModel?: unknown
     name: 'design-system-platform',
     agents,
     layoutModel,
-    sprintEngineContext: { statePath: '/proj/.sprintengine/sprintengine/x/run.yaml' },
-    sprintEngineState: {
-      sprintEngineAgents: {
-        architect: { role: 'architect' },
-        'dev-1': { role: 'developer' },
+    moduleState: {
+      sprintengine: {
+        context: { statePath: '/proj/.sprintengine/sprintengine/x/run.yaml' },
+        state: {
+          sprintEngineAgents: {
+            architect: { role: 'architect' },
+            'dev-1': { role: 'developer' },
+          },
+        },
       },
     },
   } as unknown as Workspace

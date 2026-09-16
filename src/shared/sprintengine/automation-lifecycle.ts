@@ -11,15 +11,16 @@
  * deliberately stay in the renderer shim.
  */
 import type {
-  LegacyCliPermissionPreset,
   SprintEngineAutoState,
-  SprintEngineCliPermissionPreset,
   SprintEngineAutomationDesiredMode,
   SprintEngineAutomationEvent,
   SprintEngineAutomationMode,
   SprintEngineAutomationRuntimeState,
   SprintEngineAutomationStopReason,
 } from './automation-types'
+import { normalizeCliPermissionPreset } from '../cli-permission-preset'
+
+export { normalizeCliPermissionPreset }
 
 const desiredModes = new Set<SprintEngineAutomationDesiredMode>([
   'manual',
@@ -260,51 +261,6 @@ export function sprintEngineCliWatchPollingForAutomationMode(
   mode: SprintEngineAutomationMode,
 ): 'enabled' | 'disabled' {
   return mode === 'manual' ? 'disabled' : 'enabled'
-}
-
-/**
- * The permission preset a spawn actually runs on, and the ONLY place the
- * pre-MC-2210 spellings are understood. Relocated with MC-2160 because main
- * normalizes it when it composes a sprint run; `settingsSlice.ts` re-exports it.
- *
- * Legacy `default` maps to `manual`, NOT to `none`, even though `none` is what
- * reproduces its exact argv. Two reasons, both found the hard way:
- *
- *  1. `default` was doing double duty — a real preset AND the "this run has no
- *     local override" sentinel that persistence and run settings test against.
- *     Mapping it to `none` makes it a third real value and the sentinel stops
- *     matching, so a factory-default run silently stops inheriting the app
- *     default (caught by the v61 persistence migration test).
- *  2. It is the conservative direction. `none` sends no flag, and no flag now
- *     means whatever the CLI defaults to — auto mode on Claude Code 2.1.228+
- *     with a Pro/Max/Team plan. `manual` is the value that still means what
- *     the old preset's label promised: ask before every action.
- *
- * The cost is that a saved `default` now sends `--permission-mode default`
- * where it used to send nothing. Nobody chose that distinction: the old UI
- * offered one option labelled "Default (Claude prompts for permissions)", and
- * `manual` is the preset that keeps that promise.
- *
- * Anything unrecognised floors to `manual` for the same reason.
- */
-export function normalizeCliPermissionPreset(
-  input: SprintEngineCliPermissionPreset | LegacyCliPermissionPreset | null | undefined,
-): SprintEngineCliPermissionPreset {
-  switch (input) {
-    case 'none':
-    case 'manual':
-    case 'auto':
-    case 'bypass':
-      return input
-    case 'default':
-      return 'manual'
-    case 'auto_workspace':
-      return 'auto'
-    case 'bypass_all':
-      return 'bypass'
-    default:
-      return 'manual'
-  }
 }
 
 /**

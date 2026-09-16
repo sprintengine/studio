@@ -180,7 +180,6 @@ export function useSprintEngineBoardTerminalActions(
         cliStartupPrompt: undefined,
         cliLastExitCode: undefined,
         cliLastExitedAt: undefined,
-        kind: 'sprintengine',
       })
       revealAgentTerminalTab({ workspaceId, agentId, name: label })
       return true
@@ -222,7 +221,6 @@ export function useSprintEngineBoardTerminalActions(
       cli: selectedCli,
       ...(options?.cliModel !== undefined ? { cliModel: options.cliModel ?? undefined } : {}),
       cliStartupPrompt: startupPrompt,
-      kind: 'sprintengine',
     })
     if (options?.reveal === 'background') {
       // Materialise the tab docked-but-unfocused. Only when it's missing — an
@@ -295,7 +293,6 @@ export function useSprintEngineBoardTerminalActions(
         cliOnboardingPromptSent: true,
         cliSessionId: liveSession.sessionId,
         ...(effectiveCli ? { cli: effectiveCli } : {}),
-        kind: 'sprintengine',
       })
       revealAgentTerminalTab({
         workspaceId,
@@ -312,7 +309,6 @@ export function useSprintEngineBoardTerminalActions(
       cliSessionId: undefined,
       cliOnboardingPromptSent: false,
       cliResumeAvailable: false,
-      kind: 'sprintengine',
     })
     revealAgentTerminalTab({ workspaceId, agentId, name: label })
   }
@@ -364,7 +360,6 @@ export function useSprintEngineBoardTerminalActions(
       cliSessionId: undefined,
       cliOnboardingPromptSent: false,
       cliResumeAvailable: false,
-      kind: 'sprintengine',
     })
     return true
   }

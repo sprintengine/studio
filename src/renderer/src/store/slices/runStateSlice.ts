@@ -23,6 +23,10 @@ import {
   normalizeAgentState,
   pickWorkspaceAgentName,
 } from './agentsSlice'
+import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from '../../../../shared/sprintengine/agent-identity'
 import { sprintEngineTabsLayoutModel } from './layoutSlice'
 import { patchSprintEngineModuleState, sprintEngineRunContext, sprintEngineRunState, sprintEngineRoleDefaults } from './workspaceModuleState'
 import {
@@ -185,6 +189,7 @@ export function reconcileSprintEngineAgents(
   if (!runProjection) return {}
 
   const nextAgents: Workspace['agents'] = {}
+  const rosterIds = sprintEngineRosterAgentIds(runProjection.sprintEngineAgents)
   const rosterAgents = Object.fromEntries(
     buildSprintEngineAgentRosterForState(runProjection).map((agent) => {
       const current = currentAgents[agent.id]
@@ -202,13 +207,12 @@ export function reconcileSprintEngineAgents(
         ? normalizeAgentState({
           ...current,
           name: nextName,
-          kind: 'sprintengine' as const,
           cli: resolved.cli ?? current.cli,
           cliModel: resolved.cliModel,
           cliReasoning: resolved.cliReasoning,
         }, 'claude-code')
         : {
-          ...defaultAgent(agent.id, nextName, 'sprintengine'),
+          ...defaultAgent(agent.id, nextName),
           cli: resolved.cli ?? ('claude-code' as const),
           ...(resolved.cliModel ? { cliModel: resolved.cliModel } : {}),
           ...(resolved.cliReasoning ? { cliReasoning: resolved.cliReasoning } : {}),
@@ -226,7 +230,7 @@ export function reconcileSprintEngineAgents(
   )
   const transientSprintEngineAgents = Object.fromEntries(
     Object.entries(currentAgents).filter(([id, agent]) =>
-      agent.kind === 'sprintengine'
+      isSprintEngineManagedAgent(agent, { agentId: id, rosterIds })
       && !rosterAgents[id]
       && Boolean(agent.cliStartRequested || agent.cliHasLaunched || agent.cliSessionId)
     ).map(([id, agent]) => [id, reuseAgentIfUnchanged(agent, normalizeAgentState(agent, 'claude-code'))])
@@ -637,7 +641,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         const runtime = resolveSprintEngineAgentRuntime(run.roleRuntimes, role, undefined)
         const memberCli = runtime.cli ?? resolveSprintEngineRoleCli(roleCliDefaults, role)
         ws.agents[agentId] = {
-          ...defaultAgent(agentId, agentLabel, 'sprintengine'),
+          ...defaultAgent(agentId, agentLabel),
           cli: memberCli,
           ...(runtime.cliModel ? { cliModel: runtime.cliModel } : {}),
           ...(runtime.cliReasoning ? { cliReasoning: runtime.cliReasoning } : {}),

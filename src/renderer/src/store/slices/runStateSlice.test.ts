@@ -147,7 +147,7 @@ const frontendRosterLabel = buildSprintEngineAgentRosterForState(sprintState)
   ?.label ?? 'frontend'
 const defaultNamedSprintAgents = {
   frontend: {
-    ...defaultAgent('frontend', frontendRosterLabel, 'sprintengine'),
+    ...defaultAgent('frontend', frontendRosterLabel),
     cli: 'claude-code' as const,
   },
 }
@@ -206,7 +206,7 @@ assert.equal(
 const legacyAgents = reconcileSprintEngineAgents(
   {
     frontend: {
-      ...defaultAgent('frontend', 'Legacy Frontend', 'sprintengine'),
+      ...defaultAgent('frontend', 'Legacy Frontend'),
       cli: 'codex' as const,
       cliModel: 'legacy-model',
     },

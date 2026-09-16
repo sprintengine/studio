@@ -366,7 +366,7 @@ export function normalizeProjectColors(value: unknown): Record<string, ProjectCo
 
 // Relocated to shared with MC-2160 (main normalizes the preset when it composes
 // a sprint run); re-exported so every existing renderer import site is unchanged.
-import { normalizeCliPermissionPreset } from '../../../../shared/sprintengine/automation-lifecycle'
+import { normalizeCliPermissionPreset } from '../../../../shared/cli-permission-preset'
 
 export { normalizeCliPermissionPreset }
 

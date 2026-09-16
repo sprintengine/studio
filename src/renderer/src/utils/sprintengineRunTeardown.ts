@@ -27,13 +27,18 @@ import type {
   WorkspaceId,
 } from '../types/workspace'
 import { sprintEngineRunContext, sprintEngineRunState } from '../store/slices/workspaceModuleState'
+import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from '../../../shared/sprintengine/agent-identity'
 
 /** Roster agent ids whose panels the completion teardown should remove. */
 export function selectSprintEngineTeardownAgentIds(
   agents: Record<string, AgentState>,
+  rosterIds?: Iterable<string>,
 ): AgentId[] {
   return Object.entries(agents)
-    .filter(([, agent]) => agent.kind === 'sprintengine')
+    .filter(([id, agent]) => isSprintEngineManagedAgent(agent, { agentId: id, rosterIds }))
     .map(([id]) => id)
 }
 
@@ -126,7 +131,10 @@ export async function tearDownCompletedSprintRunAgents(
   const workspace = ports.getWorkspace(workspaceId)
   if (!workspace) return empty
 
-  const agentIds = selectSprintEngineTeardownAgentIds(workspace.agents)
+  const agentIds = selectSprintEngineTeardownAgentIds(
+    workspace.agents,
+    sprintEngineRosterAgentIds(sprintEngineRunState(workspace)?.sprintEngineAgents),
+  )
   if (agentIds.length === 0) return empty
 
   const statePath = sprintEngineRunContext(workspace)?.statePath
@@ -247,7 +255,10 @@ export async function tearDownDepartedTaskScopedWorker(
   }
   const workspace = ports.getWorkspace(workspaceId)
   const agent = workspace?.agents[agentId]
-  if (!workspace || !agent || agent.kind !== 'sprintengine') return miss
+  if (!workspace || !agent || !isSprintEngineManagedAgent(agent, {
+    agentId,
+    rosterIds: sprintEngineRosterAgentIds(sprintEngineRunState(workspace)?.sprintEngineAgents),
+  })) return miss
 
   const statePath = sprintEngineRunContext(workspace)?.statePath
   let sessions = preloadedSessions

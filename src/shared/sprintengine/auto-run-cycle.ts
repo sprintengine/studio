@@ -61,6 +61,10 @@ import {
   sprintEngineCoordinatorSeat,
 } from './state'
 import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from './agent-identity'
+import {
   AUTO_RUN_ROLE_CONTINUATION_RETRY_MS,
   AUTO_RUN_RETIREMENT_COOLDOWN_MS,
   sprintEngineIdleClockKey,
@@ -602,7 +606,6 @@ async function findRunningAgentSession(
     cliHasLaunched: true,
     cliResumeAvailable: false,
     cli: effectiveCli,
-    kind: 'sprintengine',
   })
   void ports.dispatchAssignTerminalSession(workspace.id, agentId, runningSession.sessionId, effectiveCli)
   void ports.dispatchUpdateTerminalLaunchState(workspace.id, agentId, {
@@ -814,7 +817,6 @@ async function getRunningAutoRunAgentIds(
         cliResumeAvailable: agentCliSupportsConversationResume(resumeCaps),
         cliUsesStableSessionId: agentCliUsesStableSessionIdForResume(resumeCaps),
         cli: effectiveCli,
-        kind: 'sprintengine',
       })
       void ports.dispatchAssignTerminalSession(workspace.id, session.agentId, session.sessionId, effectiveCli)
     }
@@ -1478,7 +1480,6 @@ async function reconcileDuplicateAgentSessions(
         cliResumeAvailable: agentCliSupportsConversationResume(resumeCaps),
         cliUsesStableSessionId: agentCliUsesStableSessionIdForResume(resumeCaps),
         cli: effectiveCli,
-        kind: 'sprintengine',
       })
       void ports.dispatchAssignTerminalSession(workspace.id, agentId, preferredSession.sessionId, effectiveCli)
     }
@@ -1808,7 +1809,6 @@ export async function spawnAutoRunCandidate(
       cliLastExitedAt: undefined,
       cli: selectedCli,
       cliStartupPrompt: nextRun.startupPromptOverride || storedStartupPrompt ? latestAgent?.cliStartupPrompt : undefined,
-      kind: 'sprintengine',
     })
 
     const terminalMetadata = {
@@ -2021,7 +2021,10 @@ function clearStaleRetainedResumeState(
   liveAgentIds: ReadonlySet<string>
 ): void {
   for (const [agentId, agent] of Object.entries(workspace.agents)) {
-    if (agent.kind !== 'sprintengine') continue
+    if (!isSprintEngineManagedAgent(agent, {
+      agentId,
+      rosterIds: sprintEngineRosterAgentIds(sprintEngineState.sprintEngineAgents),
+    })) continue
     if (!agent.cliResumeAvailable || !agent.cliSessionId || agent.cliStartRequested || agent.cliHasLaunched) continue
     if (liveAgentIds.has(agentId)) continue
     const lastOwnedTaskId = sprintEngineState.sprintEngineAgents[agentId]?.lastOwnedTaskId
@@ -2737,7 +2740,10 @@ export async function reconcileWorkspaceSessions(
     if (!agent.cliStartRequested) continue
 
     if (!agent.cliSessionId) {
-      if (agent.kind !== 'sprintengine') continue
+      if (!isSprintEngineManagedAgent(agent, {
+        agentId: agent.id,
+        rosterIds: sprintEngineRosterAgentIds(workspace.sprintEngineState?.sprintEngineAgents),
+      })) continue
       ports.updateAgent(workspace.id, agent.id, {
         cliStartRequested: false,
         cliHasLaunched: false,

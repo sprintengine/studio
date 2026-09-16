@@ -7,8 +7,10 @@ import {
   WORKTREE_CONTAINER_DIR,
   worktreeContainerPath,
 } from '../../../shared/worktree-paths'
-import { DEFAULT_SPRINTENGINE_TASK_REPO } from '../../../shared/sprintengine/run-types'
 import type { AgentExecutionMode, Workspace } from '../types/workspace'
+
+/** Generic default repo id when a workspace did not declare one. */
+export const DEFAULT_WORKSPACE_TASK_REPO = 'primary'
 import { sprintEngineRunState } from '../store/slices/workspaceModuleState'
 
 // Pure worktree path/branch derivation now lives in the node-free shared module
@@ -140,7 +142,7 @@ export function resolveWorkspaceWorktrees(
       return [{
         gitRoot: resolveDeclaredPath(folderPath, vcs.worktreePath),
         branch: vcs.branchName,
-        repoId: DEFAULT_SPRINTENGINE_TASK_REPO,
+        repoId: DEFAULT_WORKSPACE_TASK_REPO,
         repoRoot: folderPath,
       }]
     }

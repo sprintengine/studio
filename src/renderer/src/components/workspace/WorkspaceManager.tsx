@@ -72,6 +72,10 @@ import { normalizeAgentIdentifier, prependAgentIdentifier } from '../../utils/ag
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
+import {
+  isSprintEngineManagedAgent,
+  sprintEngineRosterAgentIds,
+} from '../../../../shared/sprintengine/agent-identity'
 import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAutomationModeSync'
 import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
@@ -5092,7 +5096,10 @@ function killTerminalForLayoutTab(
     sessionIds.forEach((sessionId) => {
       void window.api.terminalKill(sessionId).catch(() => {})
     })
-    if (agent?.kind === 'sprintengine') {
+    if (isSprintEngineManagedAgent(agent, {
+      agentId,
+      rosterIds: sprintEngineRosterAgentIds(sprintEngineRunState(workspace)?.sprintEngineAgents),
+    })) {
       applySprintEngineAutomationStopReason(workspaceId, 'agent_terminal_closed', { agentId })
     }
     state.updateAgent(workspaceId, agentId, {

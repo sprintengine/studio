@@ -45,6 +45,9 @@ import { NEW_AGENT_TAB_COMPONENT, captureRailWidthFractions, consumePendingAgent
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
+import {
+  isSprintEngineManagedAgent,
+} from '../../../../shared/sprintengine/agent-identity'
 import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
@@ -774,7 +777,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           void window.api.terminalKill(sessionId).catch(() => {})
         })
         if (agent) {
-          if (agent.kind === 'sprintengine') {
+          if (isSprintEngineManagedAgent(agent, {
+            agentId,
+            rosterIds: Object.keys(sprintEngineAgents),
+          })) {
             applySprintEngineAutomationStopReason(workspaceId, 'agent_terminal_closed', { agentId })
           }
           updateAgent(workspaceId, agentId, {
@@ -1264,7 +1270,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // sprint agents show their run lifecycle (in progress / blocked /
       // complete), never a live dot or recency. Everyone else uses the
       // working dot with recency while idle.
-      const isSprintEngineRun = agent?.kind === 'sprintengine'
+      const isSprintEngineRun = isSprintEngineManagedAgent(agent, {
+        agentId,
+        rosterIds: Object.keys(sprintEngineAgents),
+      })
       const sprintEngineLifecycle = isSprintEngineRun
         ? sprintEngineTabLifecycle(runtimeAgent?.status)
         : null
@@ -1280,7 +1289,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       const specialist = agent?.kind === 'specialist' && agent.specialistId
         ? getSpecialistAction(agent.specialistId)
         : null
-      const sprintEngineRole = agent?.kind === 'sprintengine'
+      const sprintEngineRole = isSprintEngineRun
         ? runtimeAgent?.role ?? null
         : null
 

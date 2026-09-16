@@ -20,6 +20,7 @@ import {
 } from '../utils/sprintengineBacklogLinks'
 import type { SprintEngineBacklogLinkOpenPorts } from '../utils/sprintengineBacklogLinks'
 import { bindSprintEngineIpc, createHostBackedSprintEngineIpc, sprintEngineIpc } from './sprint-engine-ipc'
+import { SPRINT_ENGINE_AGENT_ID_PREFIX } from '../../../shared/sprintengine/agent-identity'
 
 // Lazy so the Sprint Engine board bundle only loads when the panel is actually
 // rendered — never, when the module is disabled.
@@ -169,6 +170,10 @@ export const sprintEngineRendererModule: RendererModule = {
     // Only the Sprint Engine workspace type. The `roadmap` type retired with its
     // door (MC-1692, deleted 2026-09-05) and was never registered here.
     registerSprintEngineWorkspaceTypes(host)
+    host.registerAgentIdNamespace({
+      prefix: SPRINT_ENGINE_AGENT_ID_PREFIX,
+      label: 'Sprint Engine',
+    })
     host.registerBacklogLinkProvider({
       moduleId: SPRINT_ENGINE_MODULE_ID,
       targetKinds: [SPRINT_ENGINE_RUN_TARGET_KIND],

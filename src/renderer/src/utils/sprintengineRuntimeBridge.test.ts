@@ -224,28 +224,29 @@ async function main(): Promise<void> {
   await settle()
   assert.equal(fakeApi.stopReasonPushes.length, 0, 'a main-originated resume is never pushed back to main')
 
-  // ── Agent configs: explicit tombstones + last-write-wins stamp. A
-  // sprintengine agent registers with null tombstones for unset fields…
-  useWorkspaceStore.getState().updateAgent(workspaceId, 'architect-1', { kind: 'sprintengine' })
+  // ── Agent configs: a config-field edit on a roster agent re-registers with
+  // null tombstones for unset fields (roster membership marks the agent managed).
+  useWorkspaceStore.getState().updateAgent(workspaceId, 'architect', {
+    cliStartupPrompt: 'ship it',
+  })
   await settle()
-  assert.equal(fakeApi.registerCalls.length, 4, 'a materialized sprintengine agent re-registers configs')
-  const seededConfig = fakeApi.registerCalls[3].agentConfigs['architect-1']
+  assert.equal(fakeApi.registerCalls.length, 4, 'a config edit re-registers configs')
+  const seededConfig = fakeApi.registerCalls[3].agentConfigs['architect']
   assert.ok(seededConfig, 'sprintengine agents always carry a config entry')
   assert.equal(seededConfig.cliRuntimeOverride, null, 'unset override is an explicit tombstone')
-  assert.equal(seededConfig.cliStartupPrompt, null, 'unset startup prompt is an explicit tombstone')
-  assert.equal(seededConfig.name, 'Ada')
+  assert.equal(seededConfig.cliStartupPrompt, 'ship it', 'the edited startup prompt is registered')
 
   // …and a user config edit is stamped so main's merge is last-write-wins.
-  useWorkspaceStore.getState().updateAgent(workspaceId, 'architect-1', {
+  useWorkspaceStore.getState().updateAgent(workspaceId, 'architect', {
     cliRuntimeOverride: { cli: 'codex', model: null },
   })
   await settle()
   assert.equal(fakeApi.registerCalls.length, 5, 'a config edit re-registers')
-  const editedConfig = fakeApi.registerCalls[4].agentConfigs['architect-1']
+  const editedConfig = fakeApi.registerCalls[4].agentConfigs['architect']
   assert.deepEqual(editedConfig?.cliRuntimeOverride, { cli: 'codex', model: null })
   assert.ok(typeof editedConfig?.configEditedAt === 'number', 'the edit is stamped for last-write-wins')
   assert.equal(
-    workspace()?.agents['architect-1']?.configEditedAt,
+    workspace()?.agents['architect']?.configEditedAt,
     editedConfig.configEditedAt,
     'the stamp lives on the agent record',
   )

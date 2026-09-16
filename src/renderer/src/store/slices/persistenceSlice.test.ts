@@ -319,7 +319,7 @@ const migratedSprintEngineLaunch = migratePersistedWorkspaceState(v56SprintEngin
 }
 const migratedArchitect = migratedSprintEngineLaunch.workspaces[0].agents.architect
 assert.ok(getSprintEngineModuleState(migratedSprintEngineLaunch.workspaces[0] as Workspace)?.state?.sprintEngineAgents.architect)
-assert.equal(migratedArchitect.kind, 'sprintengine')
+assert.equal(migratedArchitect.kind, 'general')
 assert.equal(migratedArchitect.cliStartRequested, false)
 assert.equal(migratedArchitect.cliHasLaunched, false)
 // The v57 migration clears the launch/resume gate so a restart never auto-resumes

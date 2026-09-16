@@ -9,7 +9,7 @@ import type {
 // ownership Phase 2: main runs the auto-run planner). Canonical definitions —
 // including all field documentation — live in
 // `src/shared/sprintengine/run-types.ts` and
-// `src/shared/sprintengine/agent-state.ts`; the imports pull in the names this
+// `src/shared/agent-state.ts`; the imports pull in the names this
 // module still references and the re-export blocks below keep every existing
 // renderer import site working unchanged, mirroring the automation-types
 // re-export at the bottom of the Sprint Engine section.
@@ -28,7 +28,7 @@ import type {
   McpServerConfig,
   McpSettings,
   SpecialistActionId,
-} from '../../../shared/sprintengine/agent-state'
+} from '../../../shared/agent-state'
 
 export type {
   AgentCli,
@@ -88,7 +88,7 @@ export type {
   McpServerConfig,
   McpSettings,
   SpecialistActionId,
-} from '../../../shared/sprintengine/agent-state'
+} from '../../../shared/agent-state'
 export type WorkspaceId = string
 export type WorkspaceWindowId = string
 export const STANDARD_WORKSPACE_MODE = 'standard'

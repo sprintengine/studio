@@ -2041,8 +2041,7 @@ export function computeSprintEngineFocusAgentAvailability(
     const runtime = sprintEngineState.sprintEngineAgents[agent.id]
     const local = agents[agent.id]
     const localExited = Boolean(
-      local?.kind === 'sprintengine'
-      && local.cliLastExitedAt
+      local?.cliLastExitedAt
       && !local.cliStartRequested
       && !local.cliHasLaunched
     )

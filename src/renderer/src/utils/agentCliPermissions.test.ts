@@ -14,7 +14,7 @@ const baseAgent = (id: string, overrides: Partial<AgentState> = {}): AgentState 
   ...overrides,
 })
 
-const workspace = (agent: AgentState): Workspace => ({
+const workspace = (agent: AgentState, rosterIds: string[] = []): Workspace => ({
   id: 'workspace-1',
   name: 'Workspace',
   mode: 'sprintengine',
@@ -33,12 +33,25 @@ const workspace = (agent: AgentState): Workspace => ({
     deliveredAgentNotificationEventKeys: [],
   },
   createdAt: 1,
+  ...(rosterIds.length > 0
+    ? {
+        moduleState: {
+          sprintengine: {
+            state: {
+              sprintEngineAgents: Object.fromEntries(
+                rosterIds.map((id) => [id, { role: 'architect', status: 'idle', currentTaskId: null }]),
+              ),
+            },
+          },
+        },
+      }
+    : {}),
 })
 
 assert.equal(
-  resolveAgentCliPermissionPreset(workspace(baseAgent('architect', { kind: 'sprintengine' })), 'architect'),
+  resolveAgentCliPermissionPreset(workspace(baseAgent('architect'), ['architect']), 'architect'),
   'bypass',
-  'Sprint Engine agents use the Sprint Engine permission preset even when auto-run is off'
+  'Sprint Engine roster agents use the Sprint Engine permission preset even when auto-run is off'
 )
 
 assert.equal(

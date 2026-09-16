@@ -207,7 +207,6 @@ function synthesizeAgent(id: string, name: string): AgentState {
     execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
     messages: [],
     streamBuffer: '',
-    kind: 'sprintengine',
   }
 }
 

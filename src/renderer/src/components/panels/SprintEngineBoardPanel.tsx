@@ -2034,7 +2034,6 @@ export function SprintRunBoard({
  ...(memberName ? { name: memberName } : {}),
  cli: memberCli,
  cliModel: addMemberModel,
- kind: 'sprintengine',
  })
  if (addMemberSpawnNow) {
  void startAgentTerminalWhenReady(addedAgent.id, memberName || addedAgent.label, memberCli, {
@@ -2245,7 +2244,6 @@ export function SprintRunBoard({
  ...(pending.name ? { name: pending.name } : {}),
  ...(pending.cli ? { cli: pending.cli } : {}),
  ...(pending.model !== undefined ? { cliModel: pending.model ?? undefined } : {}),
- kind: 'sprintengine',
  })
  setSelectedAgentId(pending.agentId)
  setPendingRosterMemberSpawns((current) => current.filter((candidate) => candidate.agentId !== pending.agentId))

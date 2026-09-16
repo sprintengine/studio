@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
-import type { AgentExecution, AgentExecutionMode, AgentKind } from '../../types/workspace'
+import type { AgentExecution, AgentExecutionMode, AgentState } from '../../types/workspace'
 import type { AgentSessionSystem, TerminalSpawnMetadata, TerminalSpawnResult } from '../../../../shared/electron-api'
 import { useSession } from '../../hooks/useTerminalSessions'
 import {
@@ -64,6 +64,9 @@ import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
 import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
+import {
+  isSprintEngineManagedAgent,
+} from '../../../../shared/sprintengine/agent-identity'
 
 
 interface Props {
@@ -138,8 +141,11 @@ async function resolveMemoryLaunchContext(
   return knowledgeLaunchContext(status)
 }
 
-function agentSessionSystem(kind: AgentKind | undefined): AgentSessionSystem {
-  if (kind === 'sprintengine') return 'sprintengine'
+function agentSessionSystem(
+  agent: AgentState | undefined,
+  rosterIds?: Iterable<string>,
+): AgentSessionSystem {
+  if (isSprintEngineManagedAgent(agent, { agentId: agent?.id, rosterIds })) return 'sprintengine'
   return 'manual'
 }
 
@@ -419,7 +425,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
     const sessionId = attachedSessionId ?? initialContext.agent?.cliSessionId
     if (!sessionId) return
-    const isSprintEngineAgent = initialContext.agent?.kind === 'sprintengine'
+    const isSprintEngineAgent = isSprintEngineManagedAgent(initialContext.agent, {
+      agentId,
+      rosterIds: initialContext.sprintEngineRuntimeRole ? [agentId] : [],
+    })
     // Sprint agents are normally spawned fresh (auto-run re-dispatches roles),
     // but an explicit board re-open of a completed run's recorded session sets
     // `cliResumeRequested` so we resume that conversation instead.
@@ -1120,7 +1129,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const finalCli = finalContext.cli
       if (!finalAgent || !finalCli) return
       const finalResumeCaps = resumeCapabilitiesForCli(finalCli, useWorkspaceStore.getState().pluginCatalogEntries)
-      const sessionSystem = agentSessionSystem(finalAgent.kind)
+      const sessionSystem = agentSessionSystem(
+        finalAgent,
+        finalContext.sprintEngineRuntimeRole ? [agentId] : [],
+      )
       const sessionRole = sessionSystem === 'sprintengine'
         ? finalContext.sprintEngineRuntimeRole ?? finalContext.sprintEngineRosterRole
         : finalAgent.kind ?? 'manual'

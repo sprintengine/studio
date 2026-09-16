@@ -13,6 +13,7 @@ import type {
   WorkspaceMode,
 } from '../../types/workspace'
 import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
+import { isSprintEngineManagedAgent } from '../../../../shared/sprintengine/agent-identity'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { DISABLE_SPRINTENGINE_TERMINALS, SAFE_MODE } from '../../utils/runtimeFlags'
 import {
@@ -62,7 +63,7 @@ export function resolveAgentRuntimeKind(
   if (!agent) return 'terminal'
   if (context.isSprintEngineAgent) return 'terminal'
   if (context.workspaceMode === 'sprintengine') return 'terminal'
-  if (agent.kind === 'sprintengine') return 'terminal'
+  if (isSprintEngineManagedAgent(agent)) return 'terminal'
   return normalizeAgentRuntime(agent).runtimeKind
 }
 

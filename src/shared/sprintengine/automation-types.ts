@@ -7,15 +7,11 @@
  * modules. Everything here is data-shape only — no runtime dependencies.
  */
 
-export type SprintEngineCliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
-
-/**
- * Spellings written before MC-2210. Accepted forever on read (persisted
- * settings, saved automations, third-party plugin manifests, external MCP
- * callers) and never emitted. `normalizeCliPermissionPreset` is the one place
- * that maps them.
- */
-export type LegacyCliPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+export type {
+  CliPermissionPreset as SprintEngineCliPermissionPreset,
+  LegacyCliPermissionPreset,
+} from '../cli-permission-preset'
+import type { CliPermissionPreset } from '../cli-permission-preset'
 export type SprintEngineAutomationMode = 'manual' | 'run_agents' | 'run_agents_and_approve_artifacts'
 export type SprintEngineAutomationDesiredMode = SprintEngineAutomationMode
 export type SprintEngineAutomationRuntimeState =
@@ -72,7 +68,7 @@ export type SprintEngineAutoState = {
   reasonTaskId?: string
   reasonAgentId?: string
   changedAt?: number
-  cliPermissionPreset: SprintEngineCliPermissionPreset
+  cliPermissionPreset: CliPermissionPreset
   maxConcurrentAgents: number
   deliveredAgentNotificationEventKeys: string[]
   // One-shot completion-teardown marker: set (to the teardown timestamp) after

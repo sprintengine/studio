@@ -231,7 +231,7 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
 
 function sprintAgent(id: string, name: string, cli: AgentCli = 'codex'): Workspace['agents'][string] {
   return {
-    ...defaultAgent(id, name, 'sprintengine'),
+    ...defaultAgent(id, name),
     cli,
   }
 }

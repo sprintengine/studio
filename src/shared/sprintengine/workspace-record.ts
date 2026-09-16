@@ -180,7 +180,7 @@ function buildSprintEngineWorkspaceAgents(
       agent.role,
     )?.cliReasoning
     agents[agent.id] = {
-      ...defaultAgent(agent.id, input.pickAgentName(agents), 'sprintengine'),
+      ...defaultAgent(agent.id, input.pickAgentName(agents)),
       cli: rosterCli,
       cliModel: rosterModel,
       ...(rosterReasoning ? { cliReasoning: rosterReasoning } : {}),

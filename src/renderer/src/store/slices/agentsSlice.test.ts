@@ -194,10 +194,18 @@ carrier.workspaces[0].agents['claude-code-agent'] = {
   cliSessionId: 'stable-claude-code',
   cliResumeAvailable: true,
 }
+carrier.workspaces[0].moduleState = {
+  sprintengine: {
+    state: {
+      sprintEngineAgents: {
+        'sprintengine-agent': { role: 'architect', status: 'idle', currentTaskId: null },
+      },
+    },
+  },
+}
 carrier.workspaces[0].agents['sprintengine-agent'] = {
   ...defaultAgent('sprintengine-agent'),
   cli: 'codex',
-  kind: 'sprintengine',
   cliStartRequested: true,
   cliHasLaunched: true,
   cliSessionId: 'stale-sprintengine',
