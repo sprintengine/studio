@@ -60,9 +60,9 @@ export type TerminalSpawnPayload = {
   /**
    * Specialist role id for this spawn. Host-context delivery reads the matching
    * workspace skill and, when it resolves, adds the Role section. Unset for
-   * general agents. Not part of TerminalSpawnMetadata (concurrent IPC rewrite);
-   * in-process callers set it on the payload, renderer callers spread it via
-   * the metadata bag.
+   * general agents. Same field as TerminalSpawnMetadata.specialistId: in-process
+   * callers set it on the payload, renderer callers spread it via the metadata
+   * bag.
    */
   specialistId?: string
   // Set only by the main-process AgentLaunchService (MC-2159): the launch
