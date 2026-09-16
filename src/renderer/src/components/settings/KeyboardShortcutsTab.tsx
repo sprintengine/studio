@@ -111,12 +111,8 @@ export function buildShortcutRows(
 // entry added here is a user-visible retirement and belongs in the release notes
 // (`docs/release-checklist.md`).
 export const RETIRED_COMMAND_IDS: readonly string[] = [
-  // The Sprint Engines panel and the specialist spawn commands went with the
-  // in-tree sprint engine (2026-09-16).
+  // The Sprint Engines panel went with the in-tree sprint engine (2026-09-16).
   'panel.sprint-engines.toggle',
-  'specialist.spawn.architect',
-  'specialist.spawn.performance',
-  'specialist.spawn.frontend-design-review',
   // The sprint-engine module's board and New sprint commands (MC-2577
   // registered them as `sprint-engine.<id>`), and the shell-registry
   // `sprintengine.*` spellings their stored bindings were keyed by before that

@@ -84,7 +84,7 @@ of the first release that ships it, then delete the line.
   capability module under the reserved id `sprint-engine`, published separately -
   the id stays claimed in this build so nothing else can take the name.
 - Workflow roles, 2026-09-16: the app no longer has a concept of a role. The
-  role registry, the role picker, the role brief and specialist spawn are gone,
+  role registry, the role picker and the role brief are gone,
   and the `workflow-roles` plugin is no longer offered in the bundled
   marketplace seed. The sixteen role skills are unaffected as SKILLS - they ship
   from `sprintengine/studio-releases` and install like any other plugin. Invoke

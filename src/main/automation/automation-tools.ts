@@ -1,7 +1,6 @@
 import { isAbsolute } from 'path'
 import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import { isRecord } from '../../shared/records'
 import type {
   CliPermissionPreset,
   TerminalSessionSnapshot,
@@ -33,11 +32,6 @@ import type {
   BacklogReadItemResult,
 } from '../backlog-service'
 import type { AutomationStoreListResult } from '../automations/store'
-import {
-  namesRetiredSpecialist,
-  SPECIALIST_REMOVED_CODE,
-  SPECIALIST_REMOVED_MESSAGE,
-} from '../automations/actions/spawn-agent'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import type {
@@ -804,10 +798,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       additionalProperties: false,
     },
     handler: async (args) => {
-      // The schema says `additionalProperties: false`, but nothing enforces it
-      // for a client that ignores the schema; a request still naming a
-      // specialist is refused rather than launched as a plain agent.
-      if (namesRetiredSpecialist(args)) return failure(SPECIALIST_REMOVED_CODE, SPECIALIST_REMOVED_MESSAGE)
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
       const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'connectorId'])
@@ -1839,10 +1829,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (typeof workspaceId !== 'string') return workspaceId
       if (typeof args.definition !== 'object' || args.definition === null || Array.isArray(args.definition)) {
         return failure('invalid_arguments', '"definition" must be an object.')
-      }
-      const action = (args.definition as { action?: unknown }).action
-      if (namesRetiredSpecialist(isRecord(action) ? action.config : undefined)) {
-        return failure(SPECIALIST_REMOVED_CODE, SPECIALIST_REMOVED_MESSAGE)
       }
       const preset = resolvedActionPermissionPreset(args.definition)
       // Normalized before the compare, exactly as validatePermissionPreset does

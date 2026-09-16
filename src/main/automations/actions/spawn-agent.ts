@@ -29,32 +29,6 @@ function normalizeAutomationPermissionPreset(value: string): AutomationCliPermis
   return LEGACY_PERMISSION_PRESETS[value]
 }
 
-/**
- * Specialists (and the roles behind them) are gone from the product: a launch
- * is a plain agent, and whatever a specialist was for is a skill the prompt
- * invokes. A saved automation or a gateway request that still names one is
- * refused by name rather than quietly run as a plain agent — the person who
- * wrote it expected something else to happen.
- */
-export const SPECIALIST_REMOVED_CODE = 'specialist_removed'
-export const SPECIALIST_REMOVED_MESSAGE =
-  'Specialists were removed — run this as an agent and invoke the skill in the terminal. '
-  + 'Remove "specialistId" and put what the specialist was for into the prompt.'
-
-export class SpecialistRemovedError extends Error {
-  readonly code = SPECIALIST_REMOVED_CODE
-
-  constructor() {
-    super(SPECIALIST_REMOVED_MESSAGE)
-    this.name = 'SpecialistRemovedError'
-  }
-}
-
-/** True when a config or request still carries the retired `specialistId` key. */
-export function namesRetiredSpecialist(value: unknown): boolean {
-  return isRecord(value) && value.specialistId !== undefined
-}
-
 export type SpawnAgentConfig = {
   folderPath?: string
   workspaceId?: string
@@ -192,7 +166,6 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
 
 export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
   if (!isRecord(config)) throw new Error('spawn-agent config must be an object.')
-  if (namesRetiredSpecialist(config)) throw new SpecialistRemovedError()
   const prompt = optionalString(config.prompt)
   if (!prompt) throw new Error('spawn-agent config requires a prompt.')
 

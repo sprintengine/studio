@@ -24,13 +24,12 @@
   running, `needs_input` for a stage waiting on a person, `done` for a
   finished one).
 
-- **`ActionContext.spawnAgent` loses `specialistId`.** The app no longer has a
-  concept of a specialist or a role, so there is nothing for the field to name
-  and the host ignored it. This is a **breaking type change** for an automation
-  action provider that sets it: the property no longer exists, so the compile
-  fails rather than the value being dropped silently. Delete the assignment —
-  put whatever the specialist was for into `prompt`, or install the skill you
-  want and attach it through the Agent Sessions service instead.
+- **`ActionContext.spawnAgent` loses `specialistId`.** Nothing in the app
+  reads it, and the host ignored it. This is a **breaking type change** for an
+  automation action provider that sets it: the property no longer exists, so
+  the compile fails rather than the value being dropped silently. Delete the
+  assignment and say what the agent should do in `prompt`, or install the
+  skill you want and attach it through the Agent Sessions service instead.
 
   The module id `sprint-engine` stays in `BUNDLED_MODULE_IDS`. It is reserved,
   not bundled: the Sprint Engine ships as an out-of-tree module that installs
