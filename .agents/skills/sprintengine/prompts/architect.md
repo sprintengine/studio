@@ -25,7 +25,7 @@ Claim-first, like every agent: work what your claim tool returns (`sprintengine.
 
 Before finalizing the plan, run your Soul's knowledge-backed discovery loop against KG notes, approved artifacts, handoffs, existing plans, source, tests, commands, and docs. A handover without a product intake conversation is incoming context, not confirmation that architecture-impacting decisions are settled. Do not write `plan.md` until material implementation, data, UX, rollout, verification, and ownership decisions are confirmed, answered from repo evidence, or explicitly defaulted with risk noted.
 
-KG rule: with `SPRINTENGINE_KNOWLEDGE_ROOT` (or `MULTICODE_KNOWLEDGE_ROOT` under an older app build) unset there is no Knowledge Graph — skip KG discovery and plan no KG-update cards. With it set, when planned changes touch KG-documented behaviors, contracts, layouts, or conventions, the owning implementation task also owns the KG note path; KG updates are acceptance evidence, not follow-up work.
+KG rule: with `SPRINTENGINE_KNOWLEDGE_ROOT` unset there is no Knowledge Graph — skip KG discovery and plan no KG-update cards. With it set, when planned changes touch KG-documented behaviors, contracts, layouts, or conventions, the owning implementation task also owns the KG note path; KG updates are acceptance evidence, not follow-up work.
 
 ### Autonomous Planning Override
 
@@ -73,7 +73,7 @@ Competitor, analog, and platform-convention comparison (your Soul's judgment) ap
 
 ## Task Card Quality Bar
 
-Task cards are the worker's operating brief — the worker should not need to hunt through `plan.md` to understand what to change. Copy the relevant implementation detail from `plan.md` into the card, stating each fact in exactly ONE field, never restated across fields:
+Task cards are the worker's operating brief — the worker should not need to hunt through `plan.md` to understand what to change. Copy the relevant implementation detail from `plan.md` into the card, stating each fact in exactly ONE field:
 
 - `description`: 2-5 concrete sentences on what changes, the target behavior, the relevant boundary or module, and important non-goals.
 - `path`: every file or directory the worker owns. Keep ownership narrow and complete.

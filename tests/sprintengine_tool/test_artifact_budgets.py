@@ -134,7 +134,13 @@ PROMPT_BYTE_CEILINGS = {
     # the sources/reference-mode and verify-in-place instructions deduplicated,
     # the autonomous-override bullets and approval rules compressed). Net the
     # file SHRANK, so the ceiling steps down with it.
-    "architect.md": 13_750,
+    # Re-ratcheted DOWN 2026-09-16: the 2026-09-14 rename grew architect.md
+    # 13,726 → 13,786 by inlining a dual-name KG-env parenthetical; this trim
+    # drops that artefact (legacy spellings stay in the shared KG skill this
+    # prompt already defers to) and a quality-bar clause that restated
+    # "exactly ONE field". Net 13,782 → 13,695, so the ceiling steps down
+    # with it onto the next 50-byte step.
+    "architect.md": 13_700,
     "cross_platform.md": 1_500,
     "developer.md": 750,
     "frontend.md": 1_750,

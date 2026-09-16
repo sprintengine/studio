@@ -5,7 +5,7 @@
     "TypeScript: src/shared/sprintengine/state.ts sprintEngineCoordinatorSeat / isSprintEngineCoordinatorAgent / isSprintEngineCoordinationTask.",
     "Readers: tests/sprintengine_tool/test_coordinator_seat_differential.py and src/shared/sprintengine/state.test.ts.",
     "The expectations below are the contract. Changing one is a deliberate change to BOTH implementations, and neither test passes until both agree with it again.",
-    "Paths are resolved by each side the way a real run resolves them: the run lives at <repoRoot>/.multi-code/sprintengine/<team>/, so `plan.md` and the full-prefix spelling name the same file."
+    "Paths are resolved by each side the way a real run resolves them: the run lives at <repoRoot>/.sprintengine/sprintengine/<team>/, so `plan.md` and the full-prefix spelling name the same file."
   ],
   "team": "matrix-team",
   "seatCases": [
@@ -356,7 +356,7 @@
           "id": "A1",
           "kind": "architect_plan",
           "status": "approved",
-          "path": ".multi-code/sprintengine/matrix-team/plan.md",
+          "path": ".sprintengine/sprintengine/matrix-team/plan.md",
           "taskId": "T0"
         }
       ],
