@@ -16,7 +16,7 @@ import type {
   SprintEngineRoleModelOverrides,
   SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
-} from '../../../types/workspace'
+} from '../../../modules/sprint-engine-workspace-types'
 import type { PluginModelCatalog, PluginReasoningCatalog } from '../../../../../shared/plugin-manifest'
 
 export type SprintEngineCliOption = {

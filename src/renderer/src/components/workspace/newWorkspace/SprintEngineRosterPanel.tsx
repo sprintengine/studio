@@ -17,7 +17,7 @@ import type {
   SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
   SprintEngineRoster,
-} from '../../../types/workspace'
+} from '../../../modules/sprint-engine-workspace-types'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,

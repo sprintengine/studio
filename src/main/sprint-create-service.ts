@@ -91,7 +91,7 @@ import type {
   SprintEngineWorkspaceCreationPort,
   SprintEngineWorkspaceRegistration,
 } from '../shared/sprintengine/workspace-creation-port'
-import { composeSprintEngineWorkspaceRecord } from '../shared/sprintengine/workspace-record'
+import { composeSprintEngineWorkspaceFromModule } from '../shared/sprintengine/workspace-record'
 import { inferSourcePlanKind, joinPath, planBasename, toTitleName, workspaceRelativePath } from '../shared/source-paths'
 import { scanBacklog, type BacklogItem, type BacklogFilesystemAdapter } from '../shared/backlog/scan'
 import { CLOSED_EPIC_CHILD_STATUSES, isBacklogEpicPath } from '../shared/backlog/epics'
@@ -418,12 +418,14 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
       record: null as Workspace | null,
       addWorkspace(registration: SprintEngineWorkspaceRegistration): string {
         const workspaceId = deps.newWorkspaceId()
-        const { workspace } = composeSprintEngineWorkspaceRecord({
+        const { workspace } = composeSprintEngineWorkspaceFromModule({
           workspaceId,
-          sprintEngineState: registration.sprintEngineState,
-          sprintEngineContext: registration.sprintEngineContext,
+          module: {
+            state: registration.sprintEngineState,
+            context: registration.sprintEngineContext,
+            roleCliDefaults: normalizeSprintEngineRoleCliDefaults(registration.roleCliDefaults),
+          },
           folderPath: registration.folderPath,
-          roleCliDefaults: normalizeSprintEngineRoleCliDefaults(registration.roleCliDefaults),
           agentCliOverrides: registration.agentCliOverrides ?? null,
           roleModelOverrides: registration.roleModelOverrides ?? null,
           initialSpawnRoles: null,
