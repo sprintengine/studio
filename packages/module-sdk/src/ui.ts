@@ -424,7 +424,6 @@ export type CliModelPickerButtonProps = {
   maxWidthClassName?: string
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
-  noneOption?: { label: string; description?: string; selected: boolean; onSelect: () => void }
 }
 
 /** The runtime + model trigger, so a module's agent controls read as the
