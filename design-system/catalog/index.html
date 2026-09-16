@@ -6493,14 +6493,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   max-width: 560px;
 }
 
-/* A persisted drag width (inline style) keeps the floor above and this
- * ceiling — max-width beats the inline width when they conflict, so a wide
- * remembered pane cannot starve the board on a narrow window. */
-.ds-side-pane--resized {
-  flex-shrink: 0;
-  max-width: 65%;
-}
-
 /* The quiet secondary aside: one tone step of distance from the lane, and
  * never a shadow to go with it. */
 .ds-side-pane--sunken {
@@ -6549,69 +6541,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   color: var(--sem-color-text-muted);
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
-}
-
-/* Opt-in resize. A role="separator" straddling the hairline: a 6px hit strip
- * (the guideline inside it is the visual), keyboard-operable, pointer
- * captured on the handle so an iframe in the pane cannot swallow the drag. */
-.ds-side-pane-resize {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  width: 6px;
-  z-index: var(--sem-z-sticky);
-  cursor: col-resize;
-  background: transparent;
-  border: 0;
-  padding: 0;
-}
-
-.ds-side-pane--right .ds-side-pane-resize {
-  left: 0;
-  transform: translateX(-50%);
-}
-
-.ds-side-pane--left .ds-side-pane-resize {
-  right: 0;
-  transform: translateX(50%);
-}
-
-/* The guideline: accent as a 1px hairline marking a genuinely live process —
- * within the accent budget. Reduced strength on hover as the reach-for
- * affordance, full strength while the drag is live. */
-.ds-side-pane-resize::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
-  background: var(--sem-color-accent-primary);
-  opacity: 0;
-  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
-}
-
-.ds-side-pane-resize:hover::after {
-  opacity: 0.6;
-}
-
-.ds-side-pane-resize[data-resizing="true"]::after {
-  opacity: 1;
-}
-
-.ds-side-pane-resize:focus-visible {
-  outline: var(--sem-focus-ring);
-  /* Negative offset: the handle straddles two surfaces, so an outset ring
-   * would draw over both panes' content. Clip-own-overflow controls take the
-   * negative offset rather than a second treatment. */
-  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ds-side-pane-resize::after {
-    transition: none;
-  }
 }
 
 /* components/skeleton/component.css */
@@ -11794,7 +11723,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p><strong>Corner mode</strong> docks the badge to the top-right of a positioned trigger with a 1px border in the surface behind it, so it reads as sitting *on* the control. A box-shadow ring would hold the box at exactly 16px, but the token lint's <code>no-glow-shadow</code> rule forbids that spelling — and every counter this replaces already used a border.</p>
 <p>Never interactive, and never a second status idiom beside a <code>status-dot</code> that already says the same thing. A badge carrying meaning takes an <code>ariaLabel</code> (a bare &quot;3&quot; tells a screen reader nothing); one that merely repeats adjacent text is marked <code>decorative</code> so it is not read twice.</p>
 <p><strong>On the app rail</strong> (2026-09-07) the corner count reports unread activity: each section square wears the number of things in its area the person has not seen or that are waiting on them (principles.md, &quot;The app rail&quot;, item 8). It is named, never decorative — nothing beside a glyph says what the number is — and its ring is the rail's own <code>bg.canvas</code>, since the square sits on the canvas rather than the app ground the default ring assumes.</p>
-<p><strong>On a drawer row</strong> (2026-09-08) the same counter is the row's unread pip: the Extensions drawer's rows each wear the news that belongs to them, trailing the label when the column is expanded and docked on the icon's corner — ringed in <code>bg.canvas</code>, the column's ground — when it is collapsed. It replaces the row's status dot while it shows (one status idiom per surface; the count is the one that says how much), and its accessible name carries the row's name and what is counted (&quot;Agent CLIs: 1 waiting on you, 2 new&quot;), because the row beside it names a place, not the news. The app rail's square above the drawer is the sum of its rows: same primitive, same tone precedence, and the two cannot disagree because one derivation feeds both (principles.md, &quot;The app rail&quot;, item 9).</p>
+<p><strong>On a drawer row</strong> (2026-09-08) the same counter is the row's unread pip: the Extensions drawer's rows each wear the news that belongs to them, trailing the label when the column is expanded and docked on the icon's corner — ringed in <code>bg.canvas</code>, the column's ground — when it is collapsed. It replaces the row's status dot while it shows (one status idiom per surface; the count is the one that says how much), and its accessible name carries the row's name and what is counted (&quot;Design: 2 new&quot;), because the row beside it names a place, not the news. The app rail's square above the drawer is the sum of its rows: same primitive, same tone precedence, and the two cannot disagree because one derivation feeds both (principles.md, &quot;The app rail&quot;, item 9).</p>
 <p><strong>On a list row's mark</strong> (2026-09-10) the same corner count is the row's own pip: an agent CLI that is behind its published version, a plugin installed at a commit its source has moved past. The number is usually 1, and on a row that is the point — a rail square's count is a quantity, a row's is a pointer, and the number is what makes it a pip rather than one more status colour. It <strong>replaces the row's health dot</strong> rather than joining it (<code>provider-row</code>, &quot;One status idiom&quot;): the owner opened a list of ten agent CLIs from an update notification and could not tell which row it was about, because all ten dots were the same green. Its ring is <code>bg.surface</code>, the ground those lists sit on, and its accessible name carries the row's name and the version it is behind (&quot;Codex — update available: 0.153.4&quot;).</p>
 <p><strong>On a tab</strong> (2026-09-10) it is the same pip again, docked top-right of the tab and counting what is waiting INSIDE: &quot;3 updates available&quot; before the tab is opened, with a pip on each row underneath saying which. It is not the tab's <code>count</code> — that is how many things the tab holds and rides beside the label in the reading line; this is how many of them want the person, and it sits above the words because it is not part of them. On a tab the count is docked by the strip in reserved trailing padding rather than overhanging the way <code>--corner</code> does, because a tab strip scrolls inside an overflow container that clips anything hanging past the edge — and it needs no keyline there, since it covers the band rather than a glyph.</p>
 <h4>Only a count is a live region (2026-09-02)</h4>
@@ -12207,7 +12136,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <h4>Accessibility</h4>
 <ul><li><code>role=&quot;alert&quot;</code> on danger — a failure interrupts. <code>role=&quot;status&quot;</code> on warn — degradation informs politely. This split is the tone vocabulary made audible; do not flatten both to one role.</li><li>The dot is <code>aria-hidden</code>: the message carries the meaning in words, so the state is never conveyed by color alone — and the two roles differ, so it is not conveyed by the dot's shape alone either.</li><li>The action is a real button, reachable by Tab, with the banner's context in its accessible name where &quot;Retry&quot; alone is ambiguous (&quot;Retry loading sessions&quot;).</li><li>Truncated messages still expose their full text (the <code>list-row</code>/tooltip truncation contract applies).</li></ul>
 <h4>The action slot (MC-2115, 2026-08-05)</h4>
-<p>The anatomy above says the action slot &quot;holds a ghost button&quot; — it did not say that button has to be spelled *Retry*, and the two strips that were rebuilding this component by hand both needed to say something else: <strong>Relink</strong> beside the retry on a Backlog scan whose saved folder went missing, and <strong>Refresh walkthrough</strong> on a review whose head moved. Shipped <code>Banner</code> takes an optional <code>action</code> node for exactly that, rendered after the Retry when both are given.</p>
+<p>The anatomy above says the action slot &quot;holds a ghost button&quot; — it did not say that button has to be spelled *Retry*, and the two strips that were rebuilding this component by hand both needed to say something else: a <strong>Relink</strong> beside the retry on a surface whose saved folder went missing, and <strong>Refresh walkthrough</strong> on a review whose head moved. Shipped <code>Banner</code> takes an optional <code>action</code> node for exactly that, rendered after the Retry when both are given.</p>
 <p>It is still one recovery cluster, not a toolbar. A condition that wants a third control is not a banner condition — it belongs in an <code>inline-notice</code> at the site of the failure.</p>
 <p><strong>Ruling — there is no quiet banner.</strong> The review canvas's freshness strip had invented a third &quot;quiet&quot; tone for the walkthrough being current. A resolved condition unmounts its banner; what is left when nothing is wrong is a plain provenance line, not a tinted strip in a calmer colour.</p>
 <p>Remaining drift: paddings here are Tailwind steps (<code>px-3 py-2</code>) that land on the scale but bypass the variables.</p>
@@ -17983,8 +17912,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
           <dd class="ds-definition-detail"><span class="ds-definition-mono">4f2a9c1e77b03d58aa41</span></dd>
         </div>
         <div class="ds-definition-pair">
-          <dt class="ds-definition-term">Milestones</dt>
-          <dd class="ds-definition-detail">3 of 7 accepted</dd>
+          <dt class="ds-definition-term">Checks</dt>
+          <dd class="ds-definition-detail">3 of 7 passed</dd>
         </div>
         <div class="ds-definition-pair">
           <dt class="ds-definition-term">Duration</dt>
@@ -18031,8 +17960,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
           <dd class="ds-definition-detail"><span class="ds-definition-mono">4f2a9c1e77b03d58aa41</span></dd>
         </div>
         <div class="ds-definition-pair">
-          <dt class="ds-definition-term">Milestones</dt>
-          <dd class="ds-definition-detail">3 of 7 accepted</dd>
+          <dt class="ds-definition-term">Checks</dt>
+          <dd class="ds-definition-detail">3 of 7 passed</dd>
         </div>
         <div class="ds-definition-pair">
           <dt class="ds-definition-term">Duration</dt>
@@ -18263,8 +18192,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
           &lt;dd class=&quot;ds-definition-detail&quot;&gt;&lt;span class=&quot;ds-definition-mono&quot;&gt;4f2a9c1e77b03d58aa41&lt;/span&gt;&lt;/dd&gt;
         &lt;/div&gt;
         &lt;div class=&quot;ds-definition-pair&quot;&gt;
-          &lt;dt class=&quot;ds-definition-term&quot;&gt;Milestones&lt;/dt&gt;
-          &lt;dd class=&quot;ds-definition-detail&quot;&gt;3 of 7 accepted&lt;/dd&gt;
+          &lt;dt class=&quot;ds-definition-term&quot;&gt;Checks&lt;/dt&gt;
+          &lt;dd class=&quot;ds-definition-detail&quot;&gt;3 of 7 passed&lt;/dd&gt;
         &lt;/div&gt;
         &lt;div class=&quot;ds-definition-pair&quot;&gt;
           &lt;dt class=&quot;ds-definition-term&quot;&gt;Duration&lt;/dt&gt;
@@ -18311,8 +18240,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
           &lt;dd class=&quot;ds-definition-detail&quot;&gt;&lt;span class=&quot;ds-definition-mono&quot;&gt;4f2a9c1e77b03d58aa41&lt;/span&gt;&lt;/dd&gt;
         &lt;/div&gt;
         &lt;div class=&quot;ds-definition-pair&quot;&gt;
-          &lt;dt class=&quot;ds-definition-term&quot;&gt;Milestones&lt;/dt&gt;
-          &lt;dd class=&quot;ds-definition-detail&quot;&gt;3 of 7 accepted&lt;/dd&gt;
+          &lt;dt class=&quot;ds-definition-term&quot;&gt;Checks&lt;/dt&gt;
+          &lt;dd class=&quot;ds-definition-detail&quot;&gt;3 of 7 passed&lt;/dd&gt;
         &lt;/div&gt;
         &lt;div class=&quot;ds-definition-pair&quot;&gt;
           &lt;dt class=&quot;ds-definition-term&quot;&gt;Duration&lt;/dt&gt;
@@ -18371,7 +18300,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     </header>
     <div class="ds-drawer-body">
       <ul class="demo-list">
-        <li><span class="demo-key">Agent</span><span class="demo-value">builder-2</span></li>
+        <li><span class="demo-key">Agent</span><span class="demo-value">Fix login redirect</span></li>
         <li><span class="demo-key">Task</span><span class="demo-value">MC-2114</span></li>
         <li><span class="demo-key">Elapsed</span><span class="demo-value">04:12</span></li>
       </ul>
@@ -18417,7 +18346,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>Unlike a dialog's interior, the header here keeps its hairline: the body scrolls under it, so the rule is a working edge — the seam between fixed chrome and moving content — not decoration.</p>
 <h4>Variants</h4>
 <p>None. Side and entrance are fixed: drawers come from the right, because that is where inspectors live and where the reading eye ends. A bottom sheet or a left drawer would be a new component argued in the principles first.</p>
-<p><strong>Rejected: side pane as a drawer variant.</strong> The shipped <code>SidePane</code> shares nothing that matters with this component — no portal, no scrim, no shadow, no focus capture, no <code>z</code> layer; it is flex chrome inside the page with a hairline and a resize handle. Folding it in here would put &quot;overlay&quot; and &quot;in flow&quot; — opposite answers to the one question that defines this family — behind a single class. It has its own entry.</p>
+<p><strong>Rejected: side pane as a drawer variant.</strong> The shipped <code>SidePane</code> shares nothing that matters with this component — no portal, no scrim, no shadow, no focus capture, no <code>z</code> layer; it is flex chrome inside the page with a hairline. Folding it in here would put &quot;overlay&quot; and &quot;in flow&quot; — opposite answers to the one question that defines this family — behind a single class. It has its own entry.</p>
 <h4>States</h4>
 <p>| State | <code>data-state</code> | Treatment | |---|---|---| | Closed | — | Not in the document | | Entering | <code>entering</code> | Panel offscreen (<code>translate3d(100%,0,0)</code>), scrim transparent; one frame later flips to open so the transition runs | | Open | <code>open</code> | Panel at rest, scrim at full opacity — both over <code>motion.duration.deliberate</code> / <code>motion.ease.standard</code>, the drawer's sanctioned pace | | Closing | <code>closing</code> | The same transition reversed; the node leaves the document when the slide ends, with a timeout fallback so a missed event can never wedge the lifecycle |</p>
 <p>Under <code>prefers-reduced-motion: reduce</code> the slide and fade are dropped — the drawer appears and disappears in place, and closing skips straight to closed.</p>
@@ -18657,7 +18586,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     &lt;/header&gt;
     &lt;div class=&quot;ds-drawer-body&quot;&gt;
       &lt;ul class=&quot;demo-list&quot;&gt;
-        &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Agent&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;builder-2&lt;/span&gt;&lt;/li&gt;
+        &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Agent&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;Fix login redirect&lt;/span&gt;&lt;/li&gt;
         &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Task&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;MC-2114&lt;/span&gt;&lt;/li&gt;
         &lt;li&gt;&lt;span class=&quot;demo-key&quot;&gt;Elapsed&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;04:12&lt;/span&gt;&lt;/li&gt;
       &lt;/ul&gt;
@@ -18883,7 +18812,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 </div>
 <div class="catalog-doc">
 <p><strong>Status: shipped 2026-08-05</strong> (MC-2117) — <code>src/renderer/src/components/ui/</code>.</p>
-<p>What a surface shows when it has nothing to show: a glyph, a title, an optional body line, and at most one call-to-action — never a dead end on a first-run surface. Five local <code>EmptyState</code> components re-declare this idea today (<code>workspace/WorkspaceManager.tsx</code>, <code>AutomationsPanel.tsx</code>, <code>AutomationsList.tsx</code>, <code>SkillsDiscover.tsx</code>), and the <code>icon.size.lg</code> token already names &quot;empty-state glyphs&quot; as a use with no component to consume it. The likely base is <code>SurfaceCanvasState</code> in <code>workspace/globalSurface/surfaceSubstrate.tsx</code> — the six-door unification that already renders one shared loading/empty/error anatomy (glyph in an <code>accent.soft</code> disc, title, one CTA) across every global surface. This entry generalizes that anatomy; MC-2115's consolidation consumes it.</p>
+<p>What a surface shows when it has nothing to show: a glyph, a title, an optional body line, and at most one call-to-action — never a dead end on a first-run surface. Five local <code>EmptyState</code> components re-declare this idea today (<code>workspace/WorkspaceManager.tsx</code>, <code>AutomationsPanel.tsx</code>, <code>AutomationsList.tsx</code>, <code>SkillsDiscover.tsx</code>), and the <code>icon.size.lg</code> token already names &quot;empty-state glyphs&quot; as a use with no component to consume it. The likely base is <code>SurfaceCanvasState</code> in <code>workspace/globalSurface/surfaceSubstrate.tsx</code>, which already renders one shared loading/empty/error anatomy (glyph in an <code>accent.soft</code> disc, title, one CTA) for the global surfaces that use it (Automations, Design). This entry generalizes that anatomy; MC-2115's consolidation consumes it.</p>
 <h4>As shipped</h4>
 <p>Two densities, because the five hand-rolls were doing two different jobs:</p>
 <p>| Density | Where | Shape | |---|---|---| | <code>pane</code> (default) | a region with nothing in it — no workspace open, nothing selected | fills the height, centred | | <code>list</code> | a list that came back empty | top-aligned and compact |</p>
@@ -20116,7 +20045,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>Two drawing grids, each with its own stroke discipline:</p>
 <p>| Grid | Primary stroke | Drawn by | |---|---|---| | 24 × 24 | <code>1.7</code> (the <code>iconStroke</code> constant) | <code>AppIcons.tsx</code> — every action, identity, status, and settings icon; <code>CliIcon.tsx</code> tile marks (1.7 frame, 1.9 letterform) | | 16 × 16 | <code>1.2 – 1.5</code> | the <code>ui/</code> primitives — <code>LifecycleGlyph</code> (1.4–1.5), <code>PullRequestGlyph</code> (1.4), <code>CapabilityGlyphs</code> (1.3), <code>RefreshIcon</code> (1.35), <code>StarGlyph</code> (1.4), <code>FileTypeGlyph</code> (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in <code>glyphs/</code> |</p>
 <p>The 24-grid stroke flexes deliberately and narrowly: secondary strokes step *down* by 0.1–0.3 (<code>iconStroke - 0.2</code> on the <code>AutomationsWorkspaceTypeIcon</code> bolt), and a check or emphasis stroke steps *up* to 1.8–1.9 (the shield tick, the tile letterforms). Anything outside that band is drift, not a variant.</p>
-<ul><li><strong><code>currentColor</code>, always.</strong> A glyph inherits the ink of the text beside it and never carries its own palette. The whole list of self-coloring exceptions: <code>PriorityIcon</code> urgent/high (<code>--tone-error</code> / <code>--tone-warn</code>), <code>StatusIcon</code> done and the in-progress wedge family (<code>--tone-good</code> / <code>--tone-accent</code>), and the two <strong>identity-colour</strong> families ruled 2026-09-06 (principles.md → &quot;Identity colour&quot;): vendor marks in their vendors' colours (<code>CliIcon</code>, <code>brand/EditorMarks</code>), and <code>FileTypeGlyph</code> under <code>tone=&quot;kind&quot;</code>, which inks by language from the <code>--sem-color-mark-*</code> ramp.</li><li><strong>Drawn for 16 px.</strong> Every glyph must read at <code>--sem-icon-size-sm</code>; detail that only resolves at 22 px is detail the glyph cannot afford.</li><li><strong>Named by grid.</strong> 24-grid components end in <code>Icon</code>; 16-grid primitives end in <code>Glyph</code>. (<code>RefreshIcon</code> predates the rule — see Known drift.)</li><li><strong>Never its own hit area.</strong> An interactive glyph pads out to <code>--sem-size-control-xs</code> (26 px) with a transparent hit area; the glyph itself never grows to fill the target.</li></ul>
+<ul><li><strong><code>currentColor</code>, always.</strong> A glyph inherits the ink of the text beside it and never carries its own palette. The whole list of self-coloring exceptions: <code>LifecycleGlyph</code>, which inks each state in its lifecycle tone (below), and the two <strong>identity-colour</strong> families ruled 2026-09-06 (principles.md → &quot;Identity colour&quot;): vendor marks in their vendors' colours (<code>CliIcon</code>, <code>brand/EditorMarks</code>), and <code>FileTypeGlyph</code> under <code>tone=&quot;kind&quot;</code>, which inks by language from the <code>--sem-color-mark-*</code> ramp.</li><li><strong>Drawn for 16 px.</strong> Every glyph must read at <code>--sem-icon-size-sm</code>; detail that only resolves at 22 px is detail the glyph cannot afford.</li><li><strong>Named by grid.</strong> 24-grid components end in <code>Icon</code>; 16-grid primitives end in <code>Glyph</code>. (<code>RefreshIcon</code> predates the rule — see Known drift.)</li><li><strong>Never its own hit area.</strong> An interactive glyph pads out to <code>--sem-size-control-xs</code> (26 px) with a transparent hit area; the glyph itself never grows to fill the target.</li></ul>
 <p><strong>The size ramp</strong> — these four steps are the sanctioned sizes, and 16 px is the rail canon (the leading-glyph slot of every sidebar and door-rail row):</p>
 <p>| Token | Value | Use | |---|---|---| | <code>--sem-icon-size-xs</code> | 13px | Inline glyphs beside meta copy and inside chips | | <code>--sem-icon-size-sm</code> | 16px | <strong>The default.</strong> List-row leading slots, toolbars, close glyphs | | <code>--sem-icon-size-md</code> | 18px | Icons paired with button labels, panel-header chrome | | <code>--sem-icon-size-lg</code> | 22px | Empty-state glyphs, large overlay close buttons |</p>
 <p>A rail row reserves a fixed 16 px leading slot whether or not the glyph fills it — an unreserved slot is what lets sibling doors' titles start at three different x-offsets (Known drift, MC-2098).</p>
@@ -20127,7 +20056,9 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>There is no standalone <code>CloseIcon</code>. The dismiss mark lives inside <code>ui/CloseIconButton</code>, on its own 14-grid at stroke 1.4, because a close glyph is only ever a button — an unpadded one is below the hit-target floor. <code>glyphs/close.svg</code> is the framework-neutral sample of the same mark.</p>
 <h5>Workspace-type identity (24-grid, registry-resolved)</h5>
 <p><code>WorkspaceTypeIcon</code> is the dispatcher: it resolves a workspace mode through the renderer host registry, gated on module enablement when <code>moduleOverrides</code> is passed, and degrades to the standard glyph for anything disabled or unknown. Consumers go through it; the concrete marks exist for the registry to point at:</p>
-<p>| Mark | Drawing | |---|---| | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>FolderTypeIcon</code> | The project folder, optionally wearing a workspace's own logo |</p>
+<p>| Mark | Drawing | |---|---| | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>FolderTypeIcon</code> | The project folder, optionally wearing a workspace's own logo |</p>
+<h5>Product mark (<code>brand/SprintEngineFrond.tsx</code>)</h5>
+<p><code>SprintEngineFrond</code> is the SprintEngine frond, copied path-for-path from the mobile app's generated icon so both products carry one drawing. Two tones: <code>brand</code> keeps the mark's own ink and rust leaflet, for the fixed-light icon chip; <code>current</code> draws it in <code>currentColor</code> for chrome that inks its own glyphs. It is a brand mark, not a workspace type, so the dispatcher never resolves to it. The brand accent tokens <code>--tool-sprintengine</code> and <code>--tool-sprintengine-ink</code> stay defined for brand ink on themed chrome; the frond does not read them.</p>
 <h5>Device identity (16-grid — <code>AppIcons.tsx</code>)</h5>
 <p>The identity family for <strong>a machine on the tailnet</strong>: what kind of thing it is, one shape each, at 16px so it leads a settings row without out-weighing the name beside it. Added 2026-09-10 for the rebuilt Settings › Remote, where a list merges this machine, paired devices, outbound connections and the peer scan into one set of rows — and a list that is one row per *machine* has to say which machine at a glance.</p>
 <p>They are drawn to <code>remote-machine.svg</code>'s discipline, deliberately, because that mark is the family's fallback and the five have to read as one set: the 16-grid, stroke <strong>1.4</strong>, <code>fill=&quot;none&quot;</code> line work in <code>currentColor</code>, rounded rects at <code>rx</code> 1.3–1.8, and a filled 0.75r dot where a unit needs a light. The Mac's dot sits at the same <code>cx</code> as the server mark's two, so the two boxes are visibly the same drawing at different counts.</p>
@@ -20150,7 +20081,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p><strong>Shape first, tone second.</strong> The three shapes are distinguishable in grayscale; the tone only agrees with the shape. The tone map is shared — one function, <code>pullRequestTone</code> in <code>src/shared/git/pull-request.ts</code> — so every surface inks the same state the same way:</p>
 <p>| State | Tone | CSS variable | |---|---|---| | <code>open</code> | <code>accent</code> — the one you can still act on | <code>--accent-primary</code> | | <code>merged</code> | <code>merged</code> — the violet a landed branch already wears | <code>--tone-merged</code> (<code>--sem-color-status-merged</code>) | | <code>closed</code> | <code>error</code> — GitHub's own red for a pull request that ended without landing | <code>--tone-error</code> (<code>--sem-color-status-danger</code>) |</p>
 <p>The primitive takes <code>state</code> and an optional <code>label</code>; the caller owns the size (<code>icon-xs</code> beside meta copy, <code>icon-sm</code> in a row's leading slot) and the ink.</p>
-<p><strong>Every pull request in the product is drawn from here.</strong> <code>LifecycleGlyph</code>'s <code>done_unmerged</code> / <code>done_merged</code> pair takes the open and merged drawings (keeping its own lifecycle tones, which are not pull request tones), the branch step strip's merge commits take the merged one, and the backlog item and automation pull request chips lead with the mark for their state. Nothing draws its own.</p>
+<p><strong>Every pull request in the product is drawn from here.</strong> <code>LifecycleGlyph</code>'s <code>done_unmerged</code> / <code>done_merged</code> pair takes the open and merged drawings (keeping its own lifecycle tones, which are not pull request tones), <code>BranchStepStrip</code>'s merge commits take the merged one, and <code>PullRequestMark</code> — the pull request a conversation wears on its sidebar line and in its peek card — leads with the mark for its state. Nothing draws its own.</p>
 <h5>Capability (16-grid — <code>ui/CapabilityGlyphs.tsx</code>)</h5>
 <p>| Export | Meaning | |---|---| | <code>SkillsGlyph</code> | The Skills category mark (framed panel) | | <code>McpGlyph</code> | The MCP plug mark |</p>
 <p>Shared by Extensions and capability inventory rows so a category reads the same everywhere; default themselves to <code>icon-xs</code> + <code>--text-muted</code>.</p>
@@ -20181,7 +20112,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <h4>Usage</h4>
 <ul><li><strong>Pick the family by the question, then the glyph by the table.</strong> Never answer a lifecycle question with a status dot *and* a glyph, or an identity question with an action icon.</li><li><strong>Size from the ramp, nothing else.</strong> Rails and toolbars at <code>sm</code>; chips and inline-with-meta at <code>xs</code>; button-paired and panel-header at <code>md</code>; empty states at <code>lg</code>. A 28 px icon button is not a size the system has (Known drift, MC-2119).</li><li><strong>Reserve the slot.</strong> A rail row's leading glyph slot is a fixed <code>--sem-icon-size-sm</code> box; a smaller glyph centers in it rather than narrowing it.</li><li><strong>One meaning per shape.</strong> The plus belongs to create; compose gets the pencil-in-square; a second surface wanting &quot;add&quot; reuses <code>PlusIcon</code>, it does not redraw it. Duplicating a path into a second file is how the title-bar chrome ended up with two divergent copies of the same four glyphs (Known drift).</li><li><strong>Drawing a new glyph:</strong> 24-grid, <code>iconStroke</code> 1.7, <code>currentColor</code>, one concept, <code>fill=&quot;none&quot;</code> line work, legible at 16 px. Name it <code>&lt;Concept&gt;Icon</code> (24-grid) or <code>&lt;Concept&gt;Glyph</code> (16-grid); a framework-neutral copy contributed to <code>glyphs/</code> takes a kebab-case concept name per the naming grammar in <code>design-system.json</code>.</li><li><strong>Rebuilding in a framework:</strong> React consumers import from <code>AppIcons.tsx</code> and the <code>ui/</code> primitives — never paste paths inline. Framework-neutral consumers take the <code>glyphs/</code> assets. Both size via the ramp tokens and ink via <code>currentColor</code>.</li></ul>
 <h4>Accessibility</h4>
-<ul><li><strong>Decorative is the default.</strong> A glyph whose meaning is carried by adjacent text is <code>aria-hidden=&quot;true&quot;</code> — every core action, identity, and settings icon ships that way.</li><li><strong>Meaning-bearing glyphs label themselves.</strong> <code>PriorityIcon</code>, <code>StatusIcon</code>, a labelled <code>LifecycleGlyph</code>, <code>StarGlyph</code> with <code>label</code>, and <code>PullRequestGlyph</code> with <code>label</code> carry <code>role=&quot;img&quot;</code> + <code>aria-label</code> (and a <code>&lt;title&gt;</code> where hover should confirm). Omit the label only when the row's text already announces the state.</li><li><strong>Icon-only buttons carry <code>aria-label</code></strong> on the button; the glyph inside stays hidden. Pair with a tooltip that says the consequence, not the name.</li><li><strong>Shape first, color second.</strong> Every status and lifecycle state is distinguishable in grayscale; ink only reinforces. Color is never the sole differentiator, with no exception. The one that used to stand here — merged-vs-unmerged on the branch fork, on the ruling that a distinct merge shape read as noise at 16 px — was retired on 2026-09-09: the Pull request family draws merged, open and closed as three different shapes at 16 px, so the ruling's premise is gone and nothing in the system needs colour to carry a state on its own.</li><li><strong>Hit targets.</strong> Nothing interactive below <code>--sem-size-hit-target-min</code>; the glyph pads out, it does not grow.</li></ul>
+<ul><li><strong>Decorative is the default.</strong> A glyph whose meaning is carried by adjacent text is <code>aria-hidden=&quot;true&quot;</code> — every core action, identity, and settings icon ships that way.</li><li><strong>Meaning-bearing glyphs label themselves.</strong> A labelled <code>LifecycleGlyph</code>, <code>StarGlyph</code> with <code>label</code>, and <code>PullRequestGlyph</code> with <code>label</code> carry <code>role=&quot;img&quot;</code> + <code>aria-label</code> (and a <code>&lt;title&gt;</code> where hover should confirm). Omit the label only when the row's text already announces the state.</li><li><strong>Icon-only buttons carry <code>aria-label</code></strong> on the button; the glyph inside stays hidden. Pair with a tooltip that says the consequence, not the name.</li><li><strong>Shape first, color second.</strong> Every status and lifecycle state is distinguishable in grayscale; ink only reinforces. Color is never the sole differentiator, with no exception. The one that used to stand here — merged-vs-unmerged on the branch fork, on the ruling that a distinct merge shape read as noise at 16 px — was retired on 2026-09-09: the Pull request family draws merged, open and closed as three different shapes at 16 px, so the ruling's premise is gone and nothing in the system needs colour to carry a state on its own.</li><li><strong>Hit targets.</strong> Nothing interactive below <code>--sem-size-hit-target-min</code>; the glyph pads out, it does not grow.</li></ul>
 <h4>Known drift</h4>
 <p>Shipped divergences from the conventions above, with their backlog homes. Cite these rather than matching the code you happen to be nearest.</p>
 <p>1. <strong>Four icon-button sizes in the chrome strips</strong> — 22 px (<code>WorkspaceIdentity</code> star toggle), 26 px (<code>SidebarChrome</code> <code>BRAND_ROW_BUTTON</code>), 28 px (<code>AppTitleBar</code> / <code>WorkspaceHeader</code> <code>STRIP_BUTTON</code> — off the 26/30/34 control ramp entirely, and with no radius or hover fill where SidebarChrome's 26 px button has both), and 30 px (<code>AppMenuButton</code>). Canon is <code>--sem-size-control-xs</code> (26 px). Tracked as <strong>MC-2119</strong> (icon-size conformance axis). *2026-09-02:* the kit's own off-ramp sites are resolved — <code>CursorErrorPopover</code>'s two 20 px reveal buttons are <code>IconButton</code> / <code>CloseIconButton</code>, and <code>MenuSwatchRow</code>'s 20 px swatches pad out to the 24 px hit-target floor. <strong>Resolved 2026-09-02</strong> for the app chrome too: <code>STRIP_BUTTON</code> is deleted from <code>WorkspaceHeader</code> and <code>AppTitleBar</code>, and every strip, popover-trigger and row glyph button in the renderer is <code>IconButton</code> / <code>CloseIconButton</code> at <code>--sem-size-control-xs</code> (backlog <code>icon-buttons-off-the-control-ramp</code>); the conformance guard's <code>focus-ring-missing</code> rule keeps a bare button from returning. 2. <strong>Per-door rail glyph sizes 16 / 13 / 12 px</strong> — Automations leads rows with 16 px glyphs (titles at x = 42 px), Extensions with bare 13 px <code>icon-xs</code> glyphs and no fixed-width wrapper (39 px), the Design door with a 12 px chip (38 px) — so sibling doors' titles start at three different offsets in the same column. <code>AutomationTypeGlyph</code> compounds it: an 18 px <code>icon-md</code> SVG inside a 16 px box, overflowing by 2 px. Canon: <code>sm</code> glyph in a reserved 16 px slot. Tracked as <strong>MC-2098</strong> (door glyph normalization). 3. <strong>Copy-pasted chrome SVGs.</strong> The back / forward / search / panel-left paths are duplicated between <code>AppTitleBar.tsx</code> and <code>SidebarChrome.tsx</code> rather than shared, and the two copies get different hit areas and hover treatments (item 1). One export, two consumers, is the fix. 4. <strong>Stroke drift at the edges.</strong> The chrome strips draw bespoke 16-grid glyphs at 1.5 with a one-off 1.6 &quot;+&quot;; window controls sit at 1.2–1.4; a backlog toggle at 1.3 beside a skills glyph at 1.5. The 16-grid band is 1.2–1.5, so most of these pass individually — the drift is per-surface inconsistency, resolved by consuming the shared exports (item 3). 5. <strong><code>RefreshIcon</code> is a 16-grid primitive named <code>Icon</code></strong> where the family convention is <code>Glyph</code>. Rename when it next moves. 6. <strong>The <code>glyphs/</code> folder holds thirty-four assets</strong> against a shipped vocabulary of roughly sixty. This entry closes the documentation gap; extracting framework-neutral SVGs for the core-action set into <code>glyphs/</code> (and registering them in <code>design-system.json</code>) remains open. *2026-09-05:* the Git view marks, the folder and two file-type samples joined the folder. *2026-09-09:* the seventeen Commit-window and diff-window action marks joined it (Git and diff actions, above), <code>previous-difference</code> among them as a shipped mirror rather than a transform the reader has to apply, and the three pull-request marks with them (Pull request, above).</p>
@@ -22883,7 +22814,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
       </span>
     </button>
     <button type="button" class="demo-row">
-      Accept milestone
+      Send message
       <span class="ds-kbd-chord" role="img" aria-label="Enter">
         <kbd class="ds-kbd-chord-key">↵</kbd>
       </span>
@@ -23081,7 +23012,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
       &lt;/span&gt;
     &lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;demo-row&quot;&gt;
-      Accept milestone
+      Send message
       &lt;span class=&quot;ds-kbd-chord&quot; role=&quot;img&quot; aria-label=&quot;Enter&quot;&gt;
         &lt;kbd class=&quot;ds-kbd-chord-key&quot;&gt;↵&lt;/kbd&gt;
       &lt;/span&gt;
@@ -26643,15 +26574,15 @@ document.addEventListener('keydown', (event) =&gt; {
     <div class="demo-body">Panel content.</div>
   </div>
 
-  <p class="demo-label">Progress — the 2px completion hairline on the bottom border: accent for accepted, warn for blocked.</p>
+  <p class="demo-label">Progress — the 2px completion hairline on the bottom border: accent for done, warn for blocked.</p>
   <div class="demo-panel">
     <header class="ds-panel-header" style="--ds-panel-header-progress: 43%; --ds-panel-header-progress-warn: 14%;">
       <div class="ds-panel-header-lead">
-        <h2 class="ds-panel-header-title">Milestones</h2>
+        <h2 class="ds-panel-header-title">Checklist</h2>
         <span class="ds-panel-header-count">3/7</span>
       </div>
       <div class="ds-panel-header-actions">
-        <button type="button" class="demo-kebab" aria-label="Milestone options">
+        <button type="button" class="demo-kebab" aria-label="Checklist options">
           <svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><circle cx="7" cy="3" r="1.1"/><circle cx="7" cy="7" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
         </button>
       </div>
@@ -26661,7 +26592,7 @@ document.addEventListener('keydown', (event) =&gt; {
         aria-valuemin="0"
         aria-valuemax="7"
         aria-valuenow="3"
-        aria-label="3 of 7 milestones accepted, 1 blocked"
+        aria-label="3 of 7 steps done, 1 blocked"
       >
         <div class="ds-panel-header-progress-fill"></div>
         <div class="ds-panel-header-progress-warn"></div>
@@ -26730,11 +26661,11 @@ document.addEventListener('keydown', (event) =&gt; {
   <div class="demo-panel">
     <header class="ds-panel-header" style="--ds-panel-header-progress: 43%; --ds-panel-header-progress-warn: 14%;">
       <div class="ds-panel-header-lead">
-        <h2 class="ds-panel-header-title">Milestones</h2>
+        <h2 class="ds-panel-header-title">Checklist</h2>
         <span class="ds-panel-header-count">3/7</span>
       </div>
       <div class="ds-panel-header-actions">
-        <button type="button" class="demo-kebab" aria-label="Milestone options">
+        <button type="button" class="demo-kebab" aria-label="Checklist options">
           <svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><circle cx="7" cy="3" r="1.1"/><circle cx="7" cy="7" r="1.1"/><circle cx="7" cy="11" r="1.1"/></svg>
         </button>
       </div>
@@ -26744,7 +26675,7 @@ document.addEventListener('keydown', (event) =&gt; {
         aria-valuemin="0"
         aria-valuemax="7"
         aria-valuenow="3"
-        aria-label="3 of 7 milestones accepted, 1 blocked"
+        aria-label="3 of 7 steps done, 1 blocked"
       >
         <div class="ds-panel-header-progress-fill"></div>
         <div class="ds-panel-header-progress-warn"></div>
@@ -26770,10 +26701,10 @@ document.addEventListener('keydown', (event) =&gt; {
 <p><strong>One primary action, then overflow.</strong> The actions slot holds at most one labeled action and one overflow trigger. A second visible control means the first two are competing; move it into the overflow menu.</p>
 <p><strong>The count is the canonical count.</strong> Render it here or in the content, never both — two counts that could disagree are the defect the principles name.</p>
 <p><strong>The identity dot is identity, not status.</strong> It marks which tool owns the panel, using the consumer's identity color channel (<code>--ds-panel-header-identity</code> — the app supplies its per-tool value; there is no <code>sem.*</code> token for tool identity, deliberately). It never pulses, never changes tone, and the rest of the panel stays accent-neutral around it. Status belongs to rows and status dots, not to the header.</p>
-<p><strong>The progress hairline is earned.</strong> Attach it only when the panel has a canonical completion metric (accepted of total). It is not decoration, not a loading bar, and not a second accent — it is the accent-as-hairline marking real progress, which the accent budget permits.</p>
+<p><strong>The progress hairline is earned.</strong> Attach it only when the panel has a canonical completion metric (done of total). It is not decoration, not a loading bar, and not a second accent — it is the accent-as-hairline marking real progress, which the accent budget permits.</p>
 <p><strong>No status chips, no counts line, no subtitle sentence.</strong> The panel under the band already shows its own state. A scope word (&quot;This project&quot;) is the ceiling; a sentence is a redesign signal.</p>
 <h4>Accessibility</h4>
-<ul><li>The band renders as <code>&lt;header&gt;</code>; the title is a real <code>&lt;h2&gt;</code> so the panel lands in the document outline. Give it an <code>id</code> when a region's <code>aria-labelledby</code> points at it.</li><li>The identity dot is <code>aria-hidden=&quot;true&quot;</code> — the title already names the panel; the dot only colors it.</li><li>The progress hairline carries <code>role=&quot;progressbar&quot;</code> with <code>aria-valuemin</code>, <code>aria-valuemax</code>, <code>aria-valuenow</code>, and an <code>aria-label</code> that states the metric (&quot;3 of 7 milestones accepted&quot;). A 2px line is invisible to a screen reader without it.</li><li>Overflowed controls stay reachable: anything demoted to the overflow menu is still in the tab order once the menu opens.</li></ul>
+<ul><li>The band renders as <code>&lt;header&gt;</code>; the title is a real <code>&lt;h2&gt;</code> so the panel lands in the document outline. Give it an <code>id</code> when a region's <code>aria-labelledby</code> points at it.</li><li>The identity dot is <code>aria-hidden=&quot;true&quot;</code> — the title already names the panel; the dot only colors it.</li><li>The progress hairline carries <code>role=&quot;progressbar&quot;</code> with <code>aria-valuemin</code>, <code>aria-valuemax</code>, <code>aria-valuenow</code>, and an <code>aria-label</code> that states the metric (&quot;3 of 7 steps done&quot;). A 2px line is invisible to a screen reader without it.</li><li>Overflowed controls stay reachable: anything demoted to the overflow menu is still in the tab order once the menu opens.</li></ul>
 <h4>Known drift</h4>
 <ul><li><code>PanelHeader.tsx</code> animates the progress fill over <code>200ms</code>; the motion ramp has no such step. Canon is <code>motion.duration.normal</code> (180ms). Fold into the MC-2112 rollout.</li></ul>
 </div>
@@ -27066,15 +26997,15 @@ document.addEventListener('keydown', (event) =&gt; {
     &lt;div class=&quot;demo-body&quot;&gt;Panel content.&lt;/div&gt;
   &lt;/div&gt;
 
-  &lt;p class=&quot;demo-label&quot;&gt;Progress — the 2px completion hairline on the bottom border: accent for accepted, warn for blocked.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Progress — the 2px completion hairline on the bottom border: accent for done, warn for blocked.&lt;/p&gt;
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;header class=&quot;ds-panel-header&quot; style=&quot;--ds-panel-header-progress: 43%; --ds-panel-header-progress-warn: 14%;&quot;&gt;
       &lt;div class=&quot;ds-panel-header-lead&quot;&gt;
-        &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Milestones&lt;/h2&gt;
+        &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Checklist&lt;/h2&gt;
         &lt;span class=&quot;ds-panel-header-count&quot;&gt;3/7&lt;/span&gt;
       &lt;/div&gt;
       &lt;div class=&quot;ds-panel-header-actions&quot;&gt;
-        &lt;button type=&quot;button&quot; class=&quot;demo-kebab&quot; aria-label=&quot;Milestone options&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-kebab&quot; aria-label=&quot;Checklist options&quot;&gt;
           &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;circle cx=&quot;7&quot; cy=&quot;3&quot; r=&quot;1.1&quot;/&gt;&lt;circle cx=&quot;7&quot; cy=&quot;7&quot; r=&quot;1.1&quot;/&gt;&lt;circle cx=&quot;7&quot; cy=&quot;11&quot; r=&quot;1.1&quot;/&gt;&lt;/svg&gt;
         &lt;/button&gt;
       &lt;/div&gt;
@@ -27084,7 +27015,7 @@ document.addEventListener('keydown', (event) =&gt; {
         aria-valuemin=&quot;0&quot;
         aria-valuemax=&quot;7&quot;
         aria-valuenow=&quot;3&quot;
-        aria-label=&quot;3 of 7 milestones accepted, 1 blocked&quot;
+        aria-label=&quot;3 of 7 steps done, 1 blocked&quot;
       &gt;
         &lt;div class=&quot;ds-panel-header-progress-fill&quot;&gt;&lt;/div&gt;
         &lt;div class=&quot;ds-panel-header-progress-warn&quot;&gt;&lt;/div&gt;
@@ -27153,11 +27084,11 @@ document.addEventListener('keydown', (event) =&gt; {
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;header class=&quot;ds-panel-header&quot; style=&quot;--ds-panel-header-progress: 43%; --ds-panel-header-progress-warn: 14%;&quot;&gt;
       &lt;div class=&quot;ds-panel-header-lead&quot;&gt;
-        &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Milestones&lt;/h2&gt;
+        &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Checklist&lt;/h2&gt;
         &lt;span class=&quot;ds-panel-header-count&quot;&gt;3/7&lt;/span&gt;
       &lt;/div&gt;
       &lt;div class=&quot;ds-panel-header-actions&quot;&gt;
-        &lt;button type=&quot;button&quot; class=&quot;demo-kebab&quot; aria-label=&quot;Milestone options&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;demo-kebab&quot; aria-label=&quot;Checklist options&quot;&gt;
           &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;currentColor&quot; aria-hidden=&quot;true&quot;&gt;&lt;circle cx=&quot;7&quot; cy=&quot;3&quot; r=&quot;1.1&quot;/&gt;&lt;circle cx=&quot;7&quot; cy=&quot;7&quot; r=&quot;1.1&quot;/&gt;&lt;circle cx=&quot;7&quot; cy=&quot;11&quot; r=&quot;1.1&quot;/&gt;&lt;/svg&gt;
         &lt;/button&gt;
       &lt;/div&gt;
@@ -27167,7 +27098,7 @@ document.addEventListener('keydown', (event) =&gt; {
         aria-valuemin=&quot;0&quot;
         aria-valuemax=&quot;7&quot;
         aria-valuenow=&quot;3&quot;
-        aria-label=&quot;3 of 7 milestones accepted, 1 blocked&quot;
+        aria-label=&quot;3 of 7 steps done, 1 blocked&quot;
       &gt;
         &lt;div class=&quot;ds-panel-header-progress-fill&quot;&gt;&lt;/div&gt;
         &lt;div class=&quot;ds-panel-header-progress-warn&quot;&gt;&lt;/div&gt;
@@ -31793,12 +31724,11 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-side-pane">
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — a right pane (md preset) sharing a panel with its board. Drag the divider, or focus it and use arrow keys; Home or double-click resets. No shadow, no scrim — one hairline does the separating.</p>
+  <p class="demo-label">Light — a right pane (md preset) sharing a panel with its board. No shadow, no scrim — one hairline does the separating.</p>
 
   <div class="demo-panel">
     <div class="demo-board">Board</div>
-    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md" aria-labelledby="pane-light-title" data-resizable>
-      <button type="button" class="ds-side-pane-resize" role="separator" aria-orientation="vertical" aria-label="Resize running agents pane"></button>
+    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md" aria-labelledby="pane-light-title">
       <header class="ds-side-pane-header">
         <h3 class="ds-side-pane-title" id="pane-light-title">Running agents</h3>
         <div style="display: flex; align-items: center; gap: var(--sem-space-sm);">
@@ -31809,9 +31739,9 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         </div>
       </header>
       <div class="demo-body">
-        <div class="demo-row"><span class="demo-key">builder-2 — MC-2114</span><span class="demo-value">04:12</span></div>
-        <div class="demo-row"><span class="demo-key">reviewer-1 — MC-2110</span><span class="demo-value">01:38</span></div>
-        <div class="demo-row"><span class="demo-key">planner — MC-2098</span><span class="demo-value">00:22</span></div>
+        <div class="demo-row"><span class="demo-key">Fix login redirect</span><span class="demo-value">04:12</span></div>
+        <div class="demo-row"><span class="demo-key">Review the login PR</span><span class="demo-value">01:38</span></div>
+        <div class="demo-row"><span class="demo-key">Backlog triage</span><span class="demo-value">00:22</span></div>
       </div>
     </aside>
   </div>
@@ -31822,8 +31752,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 
   <div class="demo-panel">
     <div class="demo-board">Board</div>
-    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken" aria-labelledby="pane-dark-title" data-resizable>
-      <button type="button" class="ds-side-pane-resize" role="separator" aria-orientation="vertical" aria-label="Resize active review pane"></button>
+    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken" aria-labelledby="pane-dark-title">
       <header class="ds-side-pane-header">
         <h3 class="ds-side-pane-title" id="pane-dark-title">Active review</h3>
         <div style="display: flex; align-items: center; gap: var(--sem-space-sm);">
@@ -31847,20 +31776,19 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <p>It is deliberately <strong>not</strong> a drawer variant. The overlay family's defining question is &quot;does this surface cover the page?&quot; — a drawer answers yes (scrim, shadow, focus trap, <code>z.drawer</code>) and a side pane answers no. It is not a raised surface either: it shares the panel's own background, so the hairline does all the separating, exactly as the principles order — borders carry the structure, shadows belong to overlays.</p>
 <p>Use a drawer when the surface is summoned and dismissed; use a side pane when it is part of the page's standing anatomy. A multi-pane surface built from side panes has exactly one focused selection — every other pane's selection rests (<code>patterns/selection</code>).</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Pane | <code>.ds-side-pane</code> | yes — <code>&lt;aside&gt;</code> for secondary content, <code>&lt;section&gt;</code> for a primary column; flex column, hairline on its inner edge | | Header | <code>.ds-side-pane-header</code> | no — title, optional count, close; simpler asides only | | Title | <code>.ds-side-pane-title</code> | with the header — <code>font.size.body</code> at <code>emphasis</code>, matching the panel-header rhythm so board and aside read as one family | | Count | <code>.ds-side-pane-count</code> | no — display-only, <code>tabular-nums</code>; never hosts a control | | Body | — | caller-owned scroll container: keyboard handlers and list semantics vary per surface, so the system does not pre-empt them | | Resize handle | <code>.ds-side-pane-resize</code> | no — <code>role=&quot;separator&quot;</code>, keyboard-operable, opt-in |</p>
+<p>| Part | Class | Required | |---|---|---| | Pane | <code>.ds-side-pane</code> | yes — <code>&lt;aside&gt;</code> for secondary content, <code>&lt;section&gt;</code> for a primary column; flex column, hairline on its inner edge | | Header | <code>.ds-side-pane-header</code> | no — title, optional count, close; simpler asides only | | Title | <code>.ds-side-pane-title</code> | with the header — <code>font.size.body</code> at <code>emphasis</code>, matching the panel-header rhythm so board and aside read as one family | | Count | <code>.ds-side-pane-count</code> | no — display-only, <code>tabular-nums</code>; never hosts a control | | Body | — | caller-owned scroll container: keyboard handlers and list semantics vary per surface, so the system does not pre-empt them |</p>
 <h4>Variants</h4>
 <ul><li><strong>Side</strong> — <code>.ds-side-pane--left</code> / <code>.ds-side-pane--right</code>: which inner edge carries the hairline (<code>border.default</code>). A pane's outer edge is the panel's edge and draws nothing — no doubled borders where surfaces meet.</li><li><strong>Width presets</strong> — <code>.ds-side-pane--sm</code> (38%, 320–520px), <code>--md</code> (42%, 320–560px, the default detail aside), <code>--lg</code> (44%, 320–560px, a primary content column). Percent of the panel with pixel rails, so the pane breathes with the window but can neither starve nor swallow its neighbour. The values are layout measures, not tokens.</li><li><code>.ds-side-pane--sunken</code> — <code>bg.app</code> instead of the inherited panel surface, for the quiet secondary asides (running agents, active review) that want a shade of distance from the lane. In light mode this is the one tone step the pane is allowed; it never adds a shadow to go with it.</li><li><code>.ds-side-pane--expanded</code> — the pane takes the whole row (the caller hides the neighbour). The hairline is dropped: there is nothing left to separate from.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Hairline, inherited surface; nothing else | | Resizing | The handle's 1px <code>accent.primary</code> guideline at full strength while the drag is live — accent as a hairline marking a genuinely live process, within budget | | Handle hovered | The same guideline at reduced strength, as the reach-for affordance | | Handle focused | The standard <code>focus.ring</code> at <code>focus.ring-offset</code> | | Expanded | Full row, no hairline |</p>
-<p>A persisted drag width overrides the preset but keeps the 320px floor and a 65% ceiling — CSS <code>max-width</code> beats the inline width when they conflict, so a wide remembered pane cannot starve the board on a narrow window.</p>
+<p>| State | Treatment | |---|---| | Rest | Hairline, inherited surface; nothing else | | Expanded | Full row, no hairline |</p>
+<p>The width is the preset's alone: the pane has no resize handle, so nothing overrides the percent and its pixel rails.</p>
 <h4>Usage</h4>
 <p><strong>One hairline, on the inner edge.</strong> The pane never draws its own box. If a pane seems to need a full border, it is trying to be a card inside a panel — reconsider the surface.</p>
 <p><strong>The header is one chrome band.</strong> Title left, count and close right, <code>space.sm</code>/<code>space.lg</code> inset, one <code>border.default</code> rule beneath — a working edge over the scrolling body, matching the drawer's header. A toolbar stacked under it is the second band the composition rules exist to prevent.</p>
-<p><strong>Resize is opt-in and fully keyboard-operable.</strong> The handle is a <code>role=&quot;separator&quot;</code> with <code>aria-orientation=&quot;vertical&quot;</code>: arrow keys step the width 16px toward or away from the divider, Home (and double-click) resets to the preset. The drag captures the pointer on the handle itself, because panes routinely host iframes that would otherwise swallow <code>pointermove</code> mid-drag and leave the resize stuck.</p>
 <p><strong>Element choice is a semantic claim.</strong> <code>&lt;aside&gt;</code> for the pane that supports the main flow; <code>&lt;section&gt;</code> (with an accessible name) when the column *is* the main flow — an inbox column is not an aside to its own detail.</p>
-<p><strong>Rebuilding it in a framework:</strong> what must survive is the flow-not-overlay nature (no portal, no trap — Tab passes through), the inner-edge hairline, the clamped width contract, and the separator keyboard behaviour.</p>
+<p><strong>Rebuilding it in a framework:</strong> what must survive is the flow-not-overlay nature (no portal, no trap — Tab passes through), the inner-edge hairline, and the clamped width contract.</p>
 <h4>Accessibility</h4>
-<ul><li>The pane carries <code>aria-label</code> or <code>aria-labelledby</code> — a <code>&lt;section&gt;</code> requires one to be exposed as a landmark, and an <code>&lt;aside&gt;</code> with several siblings needs the disambiguation.</li><li>No focus trap and no scroll lock: the pane is page content. Tab order runs through it in document order.</li><li>The resize handle is focusable, visibly focused via <code>focus.ring</code>, and operable by keyboard with the same result as the drag. Its <code>aria-label</code> names the pane it resizes (&quot;Resize review pane&quot;).</li><li>The close button's label names what it closes — &quot;Close running agents&quot;, not &quot;Close&quot; — because several side panes can be open in one view.</li><li>The count is display-only. A count that should be clickable is a filter, and belongs in the body, not the header.</li></ul>
+<ul><li>The pane carries <code>aria-label</code> or <code>aria-labelledby</code> — a <code>&lt;section&gt;</code> requires one to be exposed as a landmark, and an <code>&lt;aside&gt;</code> with several siblings needs the disambiguation.</li><li>No focus trap and no scroll lock: the pane is page content. Tab order runs through it in document order.</li><li>The close button's label names what it closes — &quot;Close running agents&quot;, not &quot;Close&quot; — because several side panes can be open in one view.</li><li>The count is display-only. A count that should be clickable is a filter, and belongs in the body, not the header.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/side-pane/component.css</summary><pre><code>/* Side pane — the column that shares the page. Extracted from the source
@@ -31913,14 +31841,6 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   max-width: 560px;
 }
 
-/* A persisted drag width (inline style) keeps the floor above and this
- * ceiling — max-width beats the inline width when they conflict, so a wide
- * remembered pane cannot starve the board on a narrow window. */
-.ds-side-pane--resized {
-  flex-shrink: 0;
-  max-width: 65%;
-}
-
 /* The quiet secondary aside: one tone step of distance from the lane, and
  * never a shadow to go with it. */
 .ds-side-pane--sunken {
@@ -31969,69 +31889,6 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   color: var(--sem-color-text-muted);
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
-}
-
-/* Opt-in resize. A role=&quot;separator&quot; straddling the hairline: a 6px hit strip
- * (the guideline inside it is the visual), keyboard-operable, pointer
- * captured on the handle so an iframe in the pane cannot swallow the drag. */
-.ds-side-pane-resize {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  width: 6px;
-  z-index: var(--sem-z-sticky);
-  cursor: col-resize;
-  background: transparent;
-  border: 0;
-  padding: 0;
-}
-
-.ds-side-pane--right .ds-side-pane-resize {
-  left: 0;
-  transform: translateX(-50%);
-}
-
-.ds-side-pane--left .ds-side-pane-resize {
-  right: 0;
-  transform: translateX(50%);
-}
-
-/* The guideline: accent as a 1px hairline marking a genuinely live process —
- * within the accent budget. Reduced strength on hover as the reach-for
- * affordance, full strength while the drag is live. */
-.ds-side-pane-resize::after {
-  content: &quot;&quot;;
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
-  background: var(--sem-color-accent-primary);
-  opacity: 0;
-  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
-}
-
-.ds-side-pane-resize:hover::after {
-  opacity: 0.6;
-}
-
-.ds-side-pane-resize[data-resizing=&quot;true&quot;]::after {
-  opacity: 1;
-}
-
-.ds-side-pane-resize:focus-visible {
-  outline: var(--sem-focus-ring);
-  /* Negative offset: the handle straddles two surfaces, so an outset ring
-   * would draw over both panes' content. Clip-own-overflow controls take the
-   * negative offset rather than a second treatment. */
-  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ds-side-pane-resize::after {
-    transition: none;
-  }
 }
 </code></pre></details>
 <details class="catalog-source"><summary>components/side-pane/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
@@ -32106,12 +31963,11 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 &lt;/head&gt;
 &lt;body&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Light — a right pane (md preset) sharing a panel with its board. Drag the divider, or focus it and use arrow keys; Home or double-click resets. No shadow, no scrim — one hairline does the separating.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a right pane (md preset) sharing a panel with its board. No shadow, no scrim — one hairline does the separating.&lt;/p&gt;
 
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;div class=&quot;demo-board&quot;&gt;Board&lt;/div&gt;
-    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md&quot; aria-labelledby=&quot;pane-light-title&quot; data-resizable&gt;
-      &lt;button type=&quot;button&quot; class=&quot;ds-side-pane-resize&quot; role=&quot;separator&quot; aria-orientation=&quot;vertical&quot; aria-label=&quot;Resize running agents pane&quot;&gt;&lt;/button&gt;
+    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md&quot; aria-labelledby=&quot;pane-light-title&quot;&gt;
       &lt;header class=&quot;ds-side-pane-header&quot;&gt;
         &lt;h3 class=&quot;ds-side-pane-title&quot; id=&quot;pane-light-title&quot;&gt;Running agents&lt;/h3&gt;
         &lt;div style=&quot;display: flex; align-items: center; gap: var(--sem-space-sm);&quot;&gt;
@@ -32122,9 +31978,9 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         &lt;/div&gt;
       &lt;/header&gt;
       &lt;div class=&quot;demo-body&quot;&gt;
-        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;builder-2 — MC-2114&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;04:12&lt;/span&gt;&lt;/div&gt;
-        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;reviewer-1 — MC-2110&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;01:38&lt;/span&gt;&lt;/div&gt;
-        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;planner — MC-2098&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;00:22&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;Fix login redirect&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;04:12&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;Review the login PR&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;01:38&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;Backlog triage&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;00:22&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/aside&gt;
   &lt;/div&gt;
@@ -32135,8 +31991,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;div class=&quot;demo-board&quot;&gt;Board&lt;/div&gt;
-    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken&quot; aria-labelledby=&quot;pane-dark-title&quot; data-resizable&gt;
-      &lt;button type=&quot;button&quot; class=&quot;ds-side-pane-resize&quot; role=&quot;separator&quot; aria-orientation=&quot;vertical&quot; aria-label=&quot;Resize active review pane&quot;&gt;&lt;/button&gt;
+    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken&quot; aria-labelledby=&quot;pane-dark-title&quot;&gt;
       &lt;header class=&quot;ds-side-pane-header&quot;&gt;
         &lt;h3 class=&quot;ds-side-pane-title&quot; id=&quot;pane-dark-title&quot;&gt;Active review&lt;/h3&gt;
         &lt;div style=&quot;display: flex; align-items: center; gap: var(--sem-space-sm);&quot;&gt;
@@ -32155,76 +32010,6 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   &lt;/div&gt;
 &lt;/div&gt;
 
-&lt;script&gt;
-/* Reference behaviour for the resize contract in component.md. What must
-   survive a framework rewrite: pointer capture on the handle (an iframe in
-   the pane would otherwise swallow the drag), the 16px keyboard step toward
-   or away from the divider, Home/double-click reset, and the floor/ceiling
-   clamp done by CSS min-/max-width, not by script. */
-
-const KEY_STEP = 16
-
-for (const pane of document.querySelectorAll('[data-resizable]')) {
-  const handle = pane.querySelector('.ds-side-pane-resize')
-  const isRight = pane.classList.contains('ds-side-pane--right')
-
-  function setWidth(px) {
-    pane.classList.add('ds-side-pane--resized')
-    pane.style.width = Math.round(px) + 'px'
-  }
-
-  function reset() {
-    pane.classList.remove('ds-side-pane--resized')
-    pane.style.removeProperty('width')
-  }
-
-  /* The pane grows away from its divider edge: a right pane measures from
-     its right edge back to the pointer. */
-  function widthFromPointer(clientX) {
-    const rect = pane.getBoundingClientRect()
-    return isRight ? rect.right - clientX : clientX - rect.left
-  }
-
-  handle.addEventListener('pointerdown', (event) =&gt; {
-    if (event.button !== 0) return
-    event.preventDefault()
-    handle.setPointerCapture(event.pointerId)
-    handle.dataset.resizing = 'true'
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    const onMove = (e) =&gt; setWidth(widthFromPointer(e.clientX))
-    const end = () =&gt; {
-      handle.removeEventListener('pointermove', onMove)
-      handle.removeEventListener('pointerup', end)
-      handle.removeEventListener('pointercancel', end)
-      delete handle.dataset.resizing
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    handle.addEventListener('pointermove', onMove)
-    handle.addEventListener('pointerup', end)
-    handle.addEventListener('pointercancel', end)
-  })
-
-  handle.addEventListener('keydown', (event) =&gt; {
-    const current = pane.getBoundingClientRect().width
-    const grow = isRight ? 'ArrowLeft' : 'ArrowRight'
-    const shrink = isRight ? 'ArrowRight' : 'ArrowLeft'
-    if (event.key === grow) {
-      event.preventDefault()
-      setWidth(current + KEY_STEP)
-    } else if (event.key === shrink) {
-      event.preventDefault()
-      setWidth(current - KEY_STEP)
-    } else if (event.key === 'Home') {
-      event.preventDefault()
-      reset()
-    }
-  })
-
-  handle.addEventListener('dblclick', reset)
-}
-&lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>
@@ -33916,7 +33701,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
   <p class="demo-label">Standing alone — no adjacent text names the state, so the dot carries its own label.</p>
   <div class="demo-pane">
     <div class="demo-row">
-      Gate checks
+      CI checks
       <span class="demo-row-state">
         <span class="ds-status-dot ds-status-dot--good" role="img" aria-label="Passing"></span>
       </span>
@@ -34151,7 +33936,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
   &lt;p class=&quot;demo-label&quot;&gt;Standing alone — no adjacent text names the state, so the dot carries its own label.&lt;/p&gt;
   &lt;div class=&quot;demo-pane&quot;&gt;
     &lt;div class=&quot;demo-row&quot;&gt;
-      Gate checks
+      CI checks
       &lt;span class=&quot;demo-row-state&quot;&gt;
         &lt;span class=&quot;ds-status-dot ds-status-dot--good&quot; role=&quot;img&quot; aria-label=&quot;Passing&quot;&gt;&lt;/span&gt;
       &lt;/span&gt;
@@ -34470,13 +34255,13 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
   <p class="demo-label">Light — a scrolling table. The header is pinned and paints its own ground; the numeric column is right-aligned with tabular figures.</p>
   <div class="demo-pane">
     <div class="demo-scrollport">
-      <table class="ds-table" aria-label="Runs by agent">
+      <table class="ds-table" aria-label="Token use by chat">
         <thead>
           <tr>
-            <th class="ds-table-head" scope="col">Agent</th>
+            <th class="ds-table-head" scope="col">Chat</th>
             <th class="ds-table-head" scope="col">Model</th>
             <th class="ds-table-head ds-table-head--numeric" scope="col">Tokens</th>
-            <th class="ds-table-head ds-table-head--numeric" scope="col">Tasks</th>
+            <th class="ds-table-head ds-table-head--numeric" scope="col">Turns</th>
           </tr>
         </thead>
         <tbody>
@@ -34484,7 +34269,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
             <td class="ds-table-cell">
               <span class="demo-name">
                 <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
-                Planner
+                Fix login redirect
               </span>
             </td>
             <td class="ds-table-cell">Opus</td>
@@ -34495,7 +34280,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
             <td class="ds-table-cell">
               <span class="demo-name">
                 <span class="ds-status-dot ds-status-dot--warn" aria-hidden="true"></span>
-                Implementer
+                Backlog triage
               </span>
             </td>
             <td class="ds-table-cell">Sonnet</td>
@@ -34503,25 +34288,25 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
             <td class="ds-table-cell ds-table-cell--numeric">31</td>
           </tr>
           <tr class="ds-table-row">
-            <td class="ds-table-cell">Reviewer</td>
+            <td class="ds-table-cell">Review the login PR</td>
             <td class="ds-table-cell">Opus</td>
             <td class="ds-table-cell ds-table-cell--numeric">96,510</td>
             <td class="ds-table-cell ds-table-cell--numeric">12</td>
           </tr>
           <tr class="ds-table-row">
-            <td class="ds-table-cell">Test author</td>
+            <td class="ds-table-cell">Flaky test hunt</td>
             <td class="ds-table-cell">Sonnet</td>
             <td class="ds-table-cell ds-table-cell--numeric">42,880</td>
             <td class="ds-table-cell ds-table-cell--numeric">9</td>
           </tr>
           <tr class="ds-table-row">
-            <td class="ds-table-cell">Doc writer</td>
+            <td class="ds-table-cell">Release notes</td>
             <td class="ds-table-cell">Haiku</td>
             <td class="ds-table-cell ds-table-cell--numeric">8,140</td>
             <td class="ds-table-cell ds-table-cell--numeric">3</td>
           </tr>
           <tr class="ds-table-row">
-            <td class="ds-table-cell">Triage</td>
+            <td class="ds-table-cell">Dependency bump</td>
             <td class="ds-table-cell">Haiku</td>
             <td class="ds-table-cell ds-table-cell--numeric">2,015</td>
             <td class="ds-table-cell ds-table-cell--numeric">1</td>
@@ -34571,13 +34356,13 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
   <p class="demo-label">Dark — the same chrome. The header's rule stays the strongest horizontal line; the row hairlines are the quieter divider.</p>
   <div class="demo-pane">
     <div class="demo-scrollport">
-      <table class="ds-table" aria-label="Runs by agent">
+      <table class="ds-table" aria-label="Token use by chat">
         <thead>
           <tr>
-            <th class="ds-table-head" scope="col">Agent</th>
+            <th class="ds-table-head" scope="col">Chat</th>
             <th class="ds-table-head" scope="col">Model</th>
             <th class="ds-table-head ds-table-head--numeric" scope="col">Tokens</th>
-            <th class="ds-table-head ds-table-head--numeric" scope="col">Tasks</th>
+            <th class="ds-table-head ds-table-head--numeric" scope="col">Turns</th>
           </tr>
         </thead>
         <tbody>
@@ -34585,7 +34370,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
             <td class="ds-table-cell">
               <span class="demo-name">
                 <span class="ds-status-dot ds-status-dot--accent ds-status-dot--pulse" aria-hidden="true"></span>
-                Planner
+                Fix login redirect
               </span>
             </td>
             <td class="ds-table-cell">Opus</td>
@@ -34593,25 +34378,25 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
             <td class="ds-table-cell ds-table-cell--numeric">7</td>
           </tr>
           <tr class="ds-table-row">
-            <td class="ds-table-cell">Implementer</td>
+            <td class="ds-table-cell">Backlog triage</td>
             <td class="ds-table-cell">Sonnet</td>
             <td class="ds-table-cell ds-table-cell--numeric">1,209,004</td>
             <td class="ds-table-cell ds-table-cell--numeric">31</td>
           </tr>
           <tr class="ds-table-row">
-            <td class="ds-table-cell">Reviewer</td>
+            <td class="ds-table-cell">Review the login PR</td>
             <td class="ds-table-cell">Opus</td>
             <td class="ds-table-cell ds-table-cell--numeric">96,510</td>
             <td class="ds-table-cell ds-table-cell--numeric">12</td>
           </tr>
           <tr class="ds-table-row">
-            <td class="ds-table-cell">Test author</td>
+            <td class="ds-table-cell">Flaky test hunt</td>
             <td class="ds-table-cell">Sonnet</td>
             <td class="ds-table-cell ds-table-cell--numeric">42,880</td>
             <td class="ds-table-cell ds-table-cell--numeric">9</td>
           </tr>
           <tr class="ds-table-row">
-            <td class="ds-table-cell">Doc writer</td>
+            <td class="ds-table-cell">Release notes</td>
             <td class="ds-table-cell">Haiku</td>
             <td class="ds-table-cell ds-table-cell--numeric">8,140</td>
             <td class="ds-table-cell ds-table-cell--numeric">3</td>
@@ -34771,13 +34556,13 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
   &lt;p class=&quot;demo-label&quot;&gt;Light — a scrolling table. The header is pinned and paints its own ground; the numeric column is right-aligned with tabular figures.&lt;/p&gt;
   &lt;div class=&quot;demo-pane&quot;&gt;
     &lt;div class=&quot;demo-scrollport&quot;&gt;
-      &lt;table class=&quot;ds-table&quot; aria-label=&quot;Runs by agent&quot;&gt;
+      &lt;table class=&quot;ds-table&quot; aria-label=&quot;Token use by chat&quot;&gt;
         &lt;thead&gt;
           &lt;tr&gt;
-            &lt;th class=&quot;ds-table-head&quot; scope=&quot;col&quot;&gt;Agent&lt;/th&gt;
+            &lt;th class=&quot;ds-table-head&quot; scope=&quot;col&quot;&gt;Chat&lt;/th&gt;
             &lt;th class=&quot;ds-table-head&quot; scope=&quot;col&quot;&gt;Model&lt;/th&gt;
             &lt;th class=&quot;ds-table-head ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Tokens&lt;/th&gt;
-            &lt;th class=&quot;ds-table-head ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Tasks&lt;/th&gt;
+            &lt;th class=&quot;ds-table-head ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Turns&lt;/th&gt;
           &lt;/tr&gt;
         &lt;/thead&gt;
         &lt;tbody&gt;
@@ -34785,7 +34570,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
             &lt;td class=&quot;ds-table-cell&quot;&gt;
               &lt;span class=&quot;demo-name&quot;&gt;
                 &lt;span class=&quot;ds-status-dot ds-status-dot--accent ds-status-dot--pulse&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
-                Planner
+                Fix login redirect
               &lt;/span&gt;
             &lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Opus&lt;/td&gt;
@@ -34796,7 +34581,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
             &lt;td class=&quot;ds-table-cell&quot;&gt;
               &lt;span class=&quot;demo-name&quot;&gt;
                 &lt;span class=&quot;ds-status-dot ds-status-dot--warn&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
-                Implementer
+                Backlog triage
               &lt;/span&gt;
             &lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Sonnet&lt;/td&gt;
@@ -34804,25 +34589,25 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;31&lt;/td&gt;
           &lt;/tr&gt;
           &lt;tr class=&quot;ds-table-row&quot;&gt;
-            &lt;td class=&quot;ds-table-cell&quot;&gt;Reviewer&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Review the login PR&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Opus&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;96,510&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;12&lt;/td&gt;
           &lt;/tr&gt;
           &lt;tr class=&quot;ds-table-row&quot;&gt;
-            &lt;td class=&quot;ds-table-cell&quot;&gt;Test author&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Flaky test hunt&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Sonnet&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;42,880&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;9&lt;/td&gt;
           &lt;/tr&gt;
           &lt;tr class=&quot;ds-table-row&quot;&gt;
-            &lt;td class=&quot;ds-table-cell&quot;&gt;Doc writer&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Release notes&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Haiku&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;8,140&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;3&lt;/td&gt;
           &lt;/tr&gt;
           &lt;tr class=&quot;ds-table-row&quot;&gt;
-            &lt;td class=&quot;ds-table-cell&quot;&gt;Triage&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Dependency bump&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Haiku&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;2,015&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;1&lt;/td&gt;
@@ -34872,13 +34657,13 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
   &lt;p class=&quot;demo-label&quot;&gt;Dark — the same chrome. The header's rule stays the strongest horizontal line; the row hairlines are the quieter divider.&lt;/p&gt;
   &lt;div class=&quot;demo-pane&quot;&gt;
     &lt;div class=&quot;demo-scrollport&quot;&gt;
-      &lt;table class=&quot;ds-table&quot; aria-label=&quot;Runs by agent&quot;&gt;
+      &lt;table class=&quot;ds-table&quot; aria-label=&quot;Token use by chat&quot;&gt;
         &lt;thead&gt;
           &lt;tr&gt;
-            &lt;th class=&quot;ds-table-head&quot; scope=&quot;col&quot;&gt;Agent&lt;/th&gt;
+            &lt;th class=&quot;ds-table-head&quot; scope=&quot;col&quot;&gt;Chat&lt;/th&gt;
             &lt;th class=&quot;ds-table-head&quot; scope=&quot;col&quot;&gt;Model&lt;/th&gt;
             &lt;th class=&quot;ds-table-head ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Tokens&lt;/th&gt;
-            &lt;th class=&quot;ds-table-head ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Tasks&lt;/th&gt;
+            &lt;th class=&quot;ds-table-head ds-table-head--numeric&quot; scope=&quot;col&quot;&gt;Turns&lt;/th&gt;
           &lt;/tr&gt;
         &lt;/thead&gt;
         &lt;tbody&gt;
@@ -34886,7 +34671,7 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
             &lt;td class=&quot;ds-table-cell&quot;&gt;
               &lt;span class=&quot;demo-name&quot;&gt;
                 &lt;span class=&quot;ds-status-dot ds-status-dot--accent ds-status-dot--pulse&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
-                Planner
+                Fix login redirect
               &lt;/span&gt;
             &lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Opus&lt;/td&gt;
@@ -34894,25 +34679,25 @@ for (const pane of document.querySelectorAll('[data-resizable]')) {
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;7&lt;/td&gt;
           &lt;/tr&gt;
           &lt;tr class=&quot;ds-table-row&quot;&gt;
-            &lt;td class=&quot;ds-table-cell&quot;&gt;Implementer&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Backlog triage&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Sonnet&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;1,209,004&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;31&lt;/td&gt;
           &lt;/tr&gt;
           &lt;tr class=&quot;ds-table-row&quot;&gt;
-            &lt;td class=&quot;ds-table-cell&quot;&gt;Reviewer&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Review the login PR&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Opus&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;96,510&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;12&lt;/td&gt;
           &lt;/tr&gt;
           &lt;tr class=&quot;ds-table-row&quot;&gt;
-            &lt;td class=&quot;ds-table-cell&quot;&gt;Test author&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Flaky test hunt&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Sonnet&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;42,880&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;9&lt;/td&gt;
           &lt;/tr&gt;
           &lt;tr class=&quot;ds-table-row&quot;&gt;
-            &lt;td class=&quot;ds-table-cell&quot;&gt;Doc writer&lt;/td&gt;
+            &lt;td class=&quot;ds-table-cell&quot;&gt;Release notes&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell&quot;&gt;Haiku&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;8,140&lt;/td&gt;
             &lt;td class=&quot;ds-table-cell ds-table-cell--numeric&quot;&gt;3&lt;/td&gt;
@@ -35849,7 +35634,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
       <span class="ds-toast-dot" aria-hidden="true"></span>
       <div class="ds-toast-content">
         <div class="ds-toast-title">Automation failed to start</div>
-        <div class="ds-toast-description">The run branch could not be created.</div>
+        <div class="ds-toast-description">The agent CLI could not be launched.</div>
       </div>
       <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -35896,7 +35681,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
       <span class="ds-toast-dot" aria-hidden="true"></span>
       <div class="ds-toast-content">
         <div class="ds-toast-title">Automation failed to start</div>
-        <div class="ds-toast-description">The run branch could not be created.</div>
+        <div class="ds-toast-description">The agent CLI could not be launched.</div>
       </div>
       <button type="button" class="ds-toast-dismiss" aria-label="Dismiss">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M2 2L8 8M8 2L2 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -36273,7 +36058,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
       &lt;span class=&quot;ds-toast-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;div class=&quot;ds-toast-content&quot;&gt;
         &lt;div class=&quot;ds-toast-title&quot;&gt;Automation failed to start&lt;/div&gt;
-        &lt;div class=&quot;ds-toast-description&quot;&gt;The run branch could not be created.&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-description&quot;&gt;The agent CLI could not be launched.&lt;/div&gt;
       &lt;/div&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
         &lt;svg width=&quot;10&quot; height=&quot;10&quot; viewBox=&quot;0 0 10 10&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2 2L8 8M8 2L2 8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
@@ -36320,7 +36105,7 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
       &lt;span class=&quot;ds-toast-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
       &lt;div class=&quot;ds-toast-content&quot;&gt;
         &lt;div class=&quot;ds-toast-title&quot;&gt;Automation failed to start&lt;/div&gt;
-        &lt;div class=&quot;ds-toast-description&quot;&gt;The run branch could not be created.&lt;/div&gt;
+        &lt;div class=&quot;ds-toast-description&quot;&gt;The agent CLI could not be launched.&lt;/div&gt;
       &lt;/div&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-toast-dismiss&quot; aria-label=&quot;Dismiss&quot;&gt;
         &lt;svg width=&quot;10&quot; height=&quot;10&quot; viewBox=&quot;0 0 10 10&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M2 2L8 8M8 2L2 8&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
@@ -36358,7 +36143,7 @@ const TONES = {
     live: 'assertive',
     persist: true,
     title: 'Automation failed to start',
-    description: 'The run branch could not be created.',
+    description: 'The agent CLI could not be launched.',
   },
 }
 
@@ -38285,7 +38070,8 @@ measureAll()
           <div class="cr-scroll">
             <label class="cr-row cr-swap-trigger" for="cr-drill">
               <svg class="cr-glyph" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M4.8 11a3.2 3.2 0 0 1 6.4 0M2 11h12M8 5.4V3.9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                <path d="M13 8a5 5 0 1 1-2.27-4.19" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                <path d="M8.4 4.9 6 8.3h1.8l-.47 2.66L9.73 7.6H7.93l.47-2.7z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="currentColor" fill-opacity="0.18" />
               </svg>
               Automations
             </label>
@@ -38301,16 +38087,16 @@ measureAll()
           <div class="cr-scroll">
             <!-- Outer level, folded into a GROUP of this one rail rather than
                  given a column of its own. -->
-            <div class="cr-group">Runs</div>
+            <div class="cr-group">Automations</div>
             <div class="cr-group-rows cr-group-rows--outer">
-              <button type="button" class="cr-row cr-row--selected" aria-current="true">nightly-deploy</button>
-              <button type="button" class="cr-row">backlog-scan</button>
+              <button type="button" class="cr-row cr-row--selected" aria-current="true">nightly-review</button>
+              <button type="button" class="cr-row">dependency-bump</button>
             </div>
-            <div class="cr-group">Items</div>
+            <div class="cr-group">Runs</div>
             <div class="cr-group-rows">
-              <button type="button" class="cr-row">Type + icon ramp<span class="cr-row-count">9</span></button>
-              <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers<span class="cr-row-count">4</span></button>
-              <button type="button" class="cr-row">Provider rows<span class="cr-row-count">6</span></button>
+              <button type="button" class="cr-row cr-row--selected" aria-current="true">Today, 02:00</button>
+              <button type="button" class="cr-row">Yesterday, 02:00</button>
+              <button type="button" class="cr-row">Monday, 02:00</button>
             </div>
           </div>
         </div>
@@ -38328,10 +38114,10 @@ measureAll()
         <span class="cr-bar-title">Automations</span>
       </div>
       <div class="cr-canvas">
-        <h3>Model pickers</h3>
-        <div class="cr-field"><span>Run</span><span>nightly-deploy</span></div>
-        <div class="cr-field"><span>Track</span><span>Delivery</span></div>
-        <div class="cr-field"><span>Depends on</span><span>Type + icon ramp</span></div>
+        <h3>nightly-review — today, 02:00</h3>
+        <div class="cr-field"><span>Trigger</span><span>Schedule, daily at 02:00</span></div>
+        <div class="cr-field"><span>Started</span><span>02:00</span></div>
+        <div class="cr-field"><span>Status</span><span>Completed</span></div>
       </div>
     </div>
   </div>
@@ -38354,19 +38140,19 @@ measureAll()
     <div class="cr-column">
       <div class="cr-nested-tag">door rail</div>
       <div class="cr-scroll">
-        <button type="button" class="cr-row cr-row--resting" aria-current="true">nightly-deploy</button>
-        <button type="button" class="cr-row">backlog-scan</button>
+        <button type="button" class="cr-row cr-row--resting" aria-current="true">nightly-review</button>
+        <button type="button" class="cr-row">dependency-bump</button>
       </div>
     </div>
     <div class="cr-column">
-      <div class="cr-nested-tag">items column</div>
+      <div class="cr-nested-tag">runs column</div>
       <div class="cr-scroll">
-        <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers</button>
-        <button type="button" class="cr-row">Provider rows</button>
+        <button type="button" class="cr-row cr-row--selected" aria-current="true">Today, 02:00</button>
+        <button type="button" class="cr-row">Yesterday, 02:00</button>
       </div>
     </div>
     <div class="cr-canvas">
-      <h3>Model pickers</h3>
+      <h3>nightly-review — today, 02:00</h3>
       Content starts three columns in. Each one is a list of things to choose,
       so nothing says which choice the screen is actually about.
     </div>
@@ -38475,7 +38261,7 @@ measureAll()
     <li>The rail keeps <strong>one focused selection</strong>, at
       <code>bg.selected</code>: the thing the canvas is showing.</li>
     <li>A group carrying <strong>outer context</strong> — which project, which
-      run, which item — rests at <code>bg.selected-resting</code>
+      automation — rests at <code>bg.selected-resting</code>
       <em>permanently</em>, whether or not the rail holds focus. It answers
       "where am I?", and it must not compete with "what am I looking at?".</li>
     <li>Mark the group, never infer it from position: which group is the outer one
@@ -38503,16 +38289,16 @@ measureAll()
       <div class="cr-brand">sprint<em>engine</em></div>
       <div class="cr-rail">
         <div class="cr-scroll">
-          <div class="cr-group">Runs</div>
+          <div class="cr-group">Automations</div>
           <div class="cr-group-rows cr-group-rows--outer">
-            <button type="button" class="cr-row cr-row--selected" aria-current="true">nightly-deploy</button>
-            <button type="button" class="cr-row">backlog-scan</button>
+            <button type="button" class="cr-row cr-row--selected" aria-current="true">nightly-review</button>
+            <button type="button" class="cr-row">dependency-bump</button>
           </div>
-          <div class="cr-group">Items</div>
+          <div class="cr-group">Runs</div>
           <div class="cr-group-rows">
-            <button type="button" class="cr-row">Type + icon ramp<span class="cr-row-count">9</span></button>
-            <button type="button" class="cr-row cr-row--selected" aria-current="true">Model pickers<span class="cr-row-count">4</span></button>
-            <button type="button" class="cr-row">Provider rows<span class="cr-row-count">6</span></button>
+            <button type="button" class="cr-row cr-row--selected" aria-current="true">Today, 02:00</button>
+            <button type="button" class="cr-row">Yesterday, 02:00</button>
+            <button type="button" class="cr-row">Monday, 02:00</button>
           </div>
         </div>
       </div>
@@ -38527,9 +38313,9 @@ measureAll()
         <span class="cr-bar-title">Automations</span>
       </div>
       <div class="cr-canvas">
-        <h3>Model pickers</h3>
-        <div class="cr-field"><span>Run</span><span>nightly-deploy</span></div>
-        <div class="cr-field"><span>Track</span><span>Delivery</span></div>
+        <h3>nightly-review — today, 02:00</h3>
+        <div class="cr-field"><span>Trigger</span><span>Schedule, daily at 02:00</span></div>
+        <div class="cr-field"><span>Status</span><span>Completed</span></div>
       </div>
     </div>
   </div>
@@ -38887,7 +38673,8 @@ measureAll()
           &lt;div class=&quot;cr-scroll&quot;&gt;
             &lt;label class=&quot;cr-row cr-swap-trigger&quot; for=&quot;cr-drill&quot;&gt;
               &lt;svg class=&quot;cr-glyph&quot; viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
-                &lt;path d=&quot;M4.8 11a3.2 3.2 0 0 1 6.4 0M2 11h12M8 5.4V3.9&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
+                &lt;path d=&quot;M13 8a5 5 0 1 1-2.27-4.19&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
+                &lt;path d=&quot;M8.4 4.9 6 8.3h1.8l-.47 2.66L9.73 7.6H7.93l.47-2.7z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot; fill=&quot;currentColor&quot; fill-opacity=&quot;0.18&quot; /&gt;
               &lt;/svg&gt;
               Automations
             &lt;/label&gt;
@@ -38903,16 +38690,16 @@ measureAll()
           &lt;div class=&quot;cr-scroll&quot;&gt;
             &lt;!-- Outer level, folded into a GROUP of this one rail rather than
                  given a column of its own. --&gt;
-            &lt;div class=&quot;cr-group&quot;&gt;Runs&lt;/div&gt;
+            &lt;div class=&quot;cr-group&quot;&gt;Automations&lt;/div&gt;
             &lt;div class=&quot;cr-group-rows cr-group-rows--outer&quot;&gt;
-              &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;nightly-deploy&lt;/button&gt;
-              &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;backlog-scan&lt;/button&gt;
+              &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;nightly-review&lt;/button&gt;
+              &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;dependency-bump&lt;/button&gt;
             &lt;/div&gt;
-            &lt;div class=&quot;cr-group&quot;&gt;Items&lt;/div&gt;
+            &lt;div class=&quot;cr-group&quot;&gt;Runs&lt;/div&gt;
             &lt;div class=&quot;cr-group-rows&quot;&gt;
-              &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Type + icon ramp&lt;span class=&quot;cr-row-count&quot;&gt;9&lt;/span&gt;&lt;/button&gt;
-              &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Model pickers&lt;span class=&quot;cr-row-count&quot;&gt;4&lt;/span&gt;&lt;/button&gt;
-              &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Provider rows&lt;span class=&quot;cr-row-count&quot;&gt;6&lt;/span&gt;&lt;/button&gt;
+              &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Today, 02:00&lt;/button&gt;
+              &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Yesterday, 02:00&lt;/button&gt;
+              &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Monday, 02:00&lt;/button&gt;
             &lt;/div&gt;
           &lt;/div&gt;
         &lt;/div&gt;
@@ -38930,10 +38717,10 @@ measureAll()
         &lt;span class=&quot;cr-bar-title&quot;&gt;Automations&lt;/span&gt;
       &lt;/div&gt;
       &lt;div class=&quot;cr-canvas&quot;&gt;
-        &lt;h3&gt;Model pickers&lt;/h3&gt;
-        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Run&lt;/span&gt;&lt;span&gt;nightly-deploy&lt;/span&gt;&lt;/div&gt;
-        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Track&lt;/span&gt;&lt;span&gt;Delivery&lt;/span&gt;&lt;/div&gt;
-        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Depends on&lt;/span&gt;&lt;span&gt;Type + icon ramp&lt;/span&gt;&lt;/div&gt;
+        &lt;h3&gt;nightly-review — today, 02:00&lt;/h3&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Trigger&lt;/span&gt;&lt;span&gt;Schedule, daily at 02:00&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Started&lt;/span&gt;&lt;span&gt;02:00&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Status&lt;/span&gt;&lt;span&gt;Completed&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
@@ -38956,19 +38743,19 @@ measureAll()
     &lt;div class=&quot;cr-column&quot;&gt;
       &lt;div class=&quot;cr-nested-tag&quot;&gt;door rail&lt;/div&gt;
       &lt;div class=&quot;cr-scroll&quot;&gt;
-        &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--resting&quot; aria-current=&quot;true&quot;&gt;nightly-deploy&lt;/button&gt;
-        &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;backlog-scan&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--resting&quot; aria-current=&quot;true&quot;&gt;nightly-review&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;dependency-bump&lt;/button&gt;
       &lt;/div&gt;
     &lt;/div&gt;
     &lt;div class=&quot;cr-column&quot;&gt;
-      &lt;div class=&quot;cr-nested-tag&quot;&gt;items column&lt;/div&gt;
+      &lt;div class=&quot;cr-nested-tag&quot;&gt;runs column&lt;/div&gt;
       &lt;div class=&quot;cr-scroll&quot;&gt;
-        &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Model pickers&lt;/button&gt;
-        &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Provider rows&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Today, 02:00&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Yesterday, 02:00&lt;/button&gt;
       &lt;/div&gt;
     &lt;/div&gt;
     &lt;div class=&quot;cr-canvas&quot;&gt;
-      &lt;h3&gt;Model pickers&lt;/h3&gt;
+      &lt;h3&gt;nightly-review — today, 02:00&lt;/h3&gt;
       Content starts three columns in. Each one is a list of things to choose,
       so nothing says which choice the screen is actually about.
     &lt;/div&gt;
@@ -39077,7 +38864,7 @@ measureAll()
     &lt;li&gt;The rail keeps &lt;strong&gt;one focused selection&lt;/strong&gt;, at
       &lt;code&gt;bg.selected&lt;/code&gt;: the thing the canvas is showing.&lt;/li&gt;
     &lt;li&gt;A group carrying &lt;strong&gt;outer context&lt;/strong&gt; — which project, which
-      run, which item — rests at &lt;code&gt;bg.selected-resting&lt;/code&gt;
+      automation — rests at &lt;code&gt;bg.selected-resting&lt;/code&gt;
       &lt;em&gt;permanently&lt;/em&gt;, whether or not the rail holds focus. It answers
       &quot;where am I?&quot;, and it must not compete with &quot;what am I looking at?&quot;.&lt;/li&gt;
     &lt;li&gt;Mark the group, never infer it from position: which group is the outer one
@@ -39105,16 +38892,16 @@ measureAll()
       &lt;div class=&quot;cr-brand&quot;&gt;sprint&lt;em&gt;engine&lt;/em&gt;&lt;/div&gt;
       &lt;div class=&quot;cr-rail&quot;&gt;
         &lt;div class=&quot;cr-scroll&quot;&gt;
-          &lt;div class=&quot;cr-group&quot;&gt;Runs&lt;/div&gt;
+          &lt;div class=&quot;cr-group&quot;&gt;Automations&lt;/div&gt;
           &lt;div class=&quot;cr-group-rows cr-group-rows--outer&quot;&gt;
-            &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;nightly-deploy&lt;/button&gt;
-            &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;backlog-scan&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;nightly-review&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;dependency-bump&lt;/button&gt;
           &lt;/div&gt;
-          &lt;div class=&quot;cr-group&quot;&gt;Items&lt;/div&gt;
+          &lt;div class=&quot;cr-group&quot;&gt;Runs&lt;/div&gt;
           &lt;div class=&quot;cr-group-rows&quot;&gt;
-            &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Type + icon ramp&lt;span class=&quot;cr-row-count&quot;&gt;9&lt;/span&gt;&lt;/button&gt;
-            &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Model pickers&lt;span class=&quot;cr-row-count&quot;&gt;4&lt;/span&gt;&lt;/button&gt;
-            &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Provider rows&lt;span class=&quot;cr-row-count&quot;&gt;6&lt;/span&gt;&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;Today, 02:00&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Yesterday, 02:00&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;Monday, 02:00&lt;/button&gt;
           &lt;/div&gt;
         &lt;/div&gt;
       &lt;/div&gt;
@@ -39129,9 +38916,9 @@ measureAll()
         &lt;span class=&quot;cr-bar-title&quot;&gt;Automations&lt;/span&gt;
       &lt;/div&gt;
       &lt;div class=&quot;cr-canvas&quot;&gt;
-        &lt;h3&gt;Model pickers&lt;/h3&gt;
-        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Run&lt;/span&gt;&lt;span&gt;nightly-deploy&lt;/span&gt;&lt;/div&gt;
-        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Track&lt;/span&gt;&lt;span&gt;Delivery&lt;/span&gt;&lt;/div&gt;
+        &lt;h3&gt;nightly-review — today, 02:00&lt;/h3&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Trigger&lt;/span&gt;&lt;span&gt;Schedule, daily at 02:00&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;cr-field&quot;&gt;&lt;span&gt;Status&lt;/span&gt;&lt;span&gt;Completed&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;

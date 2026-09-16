@@ -14,7 +14,7 @@ export const backlogRendererModule: RendererModule = {
     publisher: 'multicode',
     category: 'orchestration',
     summary:
-      'Local work-intake items backed by backlog files, sidecar metadata, and module-contributed actions.',
+      'Local work-intake items backed by backlog files and sidecar metadata.',
     defaultEnabled: true,
     dependsOn: ['dev-tools'],
   },

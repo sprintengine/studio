@@ -11,16 +11,15 @@ import type {
   PluginCatalogStatus,
 } from '../../types/workspace'
 import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
-import { publishDiagnosticSync } from '../../utils/diagnostics'
 import {
   isAgentCliMissing,
   selectAgentCliCatalog,
   type CliAvailabilityFilterStatus,
 } from '../workspace/newWorkspace/cliRuntimeOptions'
-import { IconButton, PrimaryButton, RowButton, StarGlyph, Tooltip } from '../ui'
+import { IconButton, RowButton, StarGlyph, Tooltip } from '../ui'
 import { revealBacklogItemInPane } from '../workspace/pane/backlogPaneReveal'
-import { clearAgentLaunchFailed } from '../../utils/terminalColdLoad'
 import { requestPaletteOpen } from '../palette/paletteOpenRequest'
+import { CliInstallCta } from '../workspace/cliInstallRoute'
 
 const TerminalView = React.lazy(() => import('./TerminalView'))
 const AgentChatView = React.lazy(() => import('./AgentChatView'))
@@ -58,11 +57,11 @@ export function resolveAgentRuntimeKind(
   return normalizeAgentRuntime(agent).runtimeKind
 }
 
-// Whether the agent pane mounts its terminal or shows the inert "Spawn" pane.
-// A standard agent mounts immediately — TerminalView owns the spawn/attach
-// decision — so the inert pane is only for a CLI that is not installed. It does
+// Whether the agent pane mounts its terminal or shows the install pane. A
+// standard agent mounts immediately — TerminalView owns the spawn/attach
+// decision — so the install pane is only for a CLI that is not installed. It does
 // NOT depend on an attached session id: a New chat has none yet, and gating on
-// one left every new agent parked on a Spawn button (regression, 2026-09-16,
+// one left every new agent parked on an inert pane (regression, 2026-09-16,
 // from reducing the old Sprint Engine gate the wrong way round).
 export function agentPaneMountsTerminal(input: { agentCliUnavailable: boolean }): boolean {
   return !input.agentCliUnavailable
@@ -77,16 +76,11 @@ export default function AgentPanel({
   const agent = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
-  const workspaceName = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.name
-  )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
-  const label = agent?.name ?? agentId
   const runtimeKind = resolveAgentRuntimeKind(agent)
   const isConversationRuntime = runtimeKind === 'conversation'
   const cli = agent?.cli
@@ -204,54 +198,6 @@ export default function AgentPanel({
       new CustomEvent('multicode:resume-terminal', { detail: { sessionId: effectiveSessionId } }),
     )
   }
-  const cliShellTone = ''
-
-  const startAgent = (restart = false) => {
-    if (agentCliUnavailable) {
-      publishDiagnosticSync({
-        level: 'error',
-        source: 'terminal',
-        title: `${label} was not started`,
-        // "Reinstall" was wrong on the machine this guard now catches most
-        // often: a fresh install where the CLI was never there (MC-2093).
-        message: `Agent CLI "${cli}" is not installed. Install it in Settings → Agents before launching this agent.`,
-        workspaceId,
-        workspaceName,
-        agentId,
-      })
-      return
-    }
-    if (!cli) {
-      publishDiagnosticSync({
-        level: 'error',
-        source: 'terminal',
-        title: `${label} was not started`,
-        message: 'Agent terminal is missing its CLI selection.',
-        workspaceId,
-        workspaceName,
-        agentId,
-      })
-      return
-    }
-    // A deliberate Spawn/Restart is the user asking to try again, exactly like a
-    // click on an inert pane (startInertAgent). Drop any "launch failed this
-    // session" marker so the cold-load decision lets this fresh attempt spawn
-    // instead of gating it back to inert on the stale failure.
-    clearAgentLaunchFailed(workspaceId, agentId)
-    const existingSessionId = restart ? agent?.cliSessionId : undefined
-    updateAgent(workspaceId, agentId, {
-      cliStartRequested: true,
-      cliSessionId: existingSessionId ?? crypto.randomUUID(),
-      cliHasLaunched: false,
-      cliOnboardingPromptSent: false,
-      cliResumeAvailable: restart ? agent?.cliResumeAvailable ?? false : false,
-      cliRestartNonce: (agent?.cliRestartNonce ?? 0) + 1,
-      cli,
-    })
-  }
-
-  const startLabel = `Spawn ${label}`
-
   if (isConversationRuntime) {
     return (
       <React.Suspense fallback={null}>
@@ -269,7 +215,7 @@ export default function AgentPanel({
   }
 
   return (
-    <div className={`flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-meta text-[color:var(--text-default)] ${cliShellTone}`}>
+    <div className="flex h-full flex-col bg-[color:var(--bg-surface)] font-mono text-meta text-[color:var(--text-default)]">
       {/* No needs-input tint on the pane: the workspace tab's lifecycle glyph
           already carries that state, and a 1px tone-coloured inset line said it a
           second time by colour alone (2026-09-02, status-said-twice). */}
@@ -395,19 +341,10 @@ export default function AgentPanel({
             </React.Suspense>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center">
-              {agentCliUnavailable ? (
-                <div className="max-w-sm text-meta leading-5 text-[color:var(--text-muted)]">
-                  Agent CLI "{cli}" is not installed. Install it in Settings → Agents before launching this
-                  agent.
-                </div>
-              ) : null}
-              <PrimaryButton
-                size="md"
-                onClick={() => startAgent(false)}
-                disabled={agentCliUnavailable}
-              >
-                {startLabel}
-              </PrimaryButton>
+              <div className="max-w-sm text-meta leading-5 text-[color:var(--text-muted)]">
+                Agent CLI "{cli}" is not installed. Install it before launching this agent.
+              </div>
+              <CliInstallCta />
             </div>
           )}
         </div>

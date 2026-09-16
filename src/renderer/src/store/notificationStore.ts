@@ -12,6 +12,37 @@ const MAX_NOTIFICATIONS = 120
 // as `read` — what this person has seen — and it persists alongside it.
 type RailSeenSection = 'extensions'
 
+// Sources that no longer exist. A notification persisted before its source was
+// removed has nothing left to open and no rail section to be read from, so it is
+// dropped when the store loads rather than sitting in the bell forever. The
+// in-tree Sprint Engine published as `sprintengine` until it was removed
+// (2026-09-16).
+const RETIRED_NOTIFICATION_SOURCES: ReadonlySet<string> = new Set(['sprintengine'])
+
+type PersistedNotificationState = Pick<NotificationStore, 'notifications' | 'sectionSeenAt'>
+
+export function dropRetiredNotifications(notifications: unknown): AppNotification[] {
+  if (!Array.isArray(notifications)) return []
+  return notifications.filter(
+    (notification): notification is AppNotification =>
+      Boolean(notification)
+      && typeof notification === 'object'
+      && !RETIRED_NOTIFICATION_SOURCES.has(String((notification as { source?: unknown }).source)),
+  )
+}
+
+// The persist `merge`: the stored state over the initial one, less any
+// notification from a retired source.
+export function mergePersistedNotificationState<T extends PersistedNotificationState>(persisted: unknown, current: T): T {
+  if (!persisted || typeof persisted !== 'object') return current
+  const stored = persisted as Partial<PersistedNotificationState>
+  return {
+    ...current,
+    ...stored,
+    notifications: dropRetiredNotifications(stored.notifications ?? current.notifications),
+  }
+}
+
 interface NotificationStore {
   notifications: AppNotification[]
   sectionSeenAt: Partial<Record<RailSeenSection, string>>
@@ -92,6 +123,7 @@ export const useNotificationStore = create<NotificationStore>()(
     {
       name: NOTIFICATION_STORAGE_KEY,
       version: 1,
+      merge: mergePersistedNotificationState,
     }
   )
 )

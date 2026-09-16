@@ -69,7 +69,7 @@ the panel stays accent-neutral around it. Status belongs to rows and status
 dots, not to the header.
 
 **The progress hairline is earned.** Attach it only when the panel has a
-canonical completion metric (accepted of total). It is not decoration, not a
+canonical completion metric (done of total). It is not decoration, not a
 loading bar, and not a second accent — it is the accent-as-hairline marking
 real progress, which the accent budget permits.
 
@@ -86,7 +86,7 @@ ceiling; a sentence is a redesign signal.
   panel; the dot only colors it.
 - The progress hairline carries `role="progressbar"` with `aria-valuemin`,
   `aria-valuemax`, `aria-valuenow`, and an `aria-label` that states the metric
-  ("3 of 7 milestones accepted"). A 2px line is invisible to a screen reader
+  ("3 of 7 steps done"). A 2px line is invisible to a screen reader
   without it.
 - Overflowed controls stay reachable: anything demoted to the overflow menu
   is still in the tab order once the menu opens.

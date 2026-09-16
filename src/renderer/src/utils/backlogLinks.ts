@@ -7,6 +7,28 @@ import type {
 } from './backlog'
 import type { BacklogLinkProvider, BacklogLinkProviderInput } from '../modules/renderer-host'
 
+// Modules whose links are ignored on read. The in-tree Sprint Engine wrote
+// `execution` links to its runs until it was removed (2026-09-16); nothing can
+// resolve or open them any more, so a stored one would render as an
+// "Unavailable" sprint link and, while it still claimed `active`, keep its item
+// reading as in progress. They are dropped when read, not rewritten on disk.
+const RETIRED_BACKLOG_LINK_MODULE_IDS: ReadonlySet<string> = new Set(['sprint-engine'])
+
+export function isRetiredBacklogLink(link: { moduleId?: string }): boolean {
+  return typeof link.moduleId === 'string' && RETIRED_BACKLOG_LINK_MODULE_IDS.has(link.moduleId)
+}
+
+export function withoutRetiredBacklogLinks<T extends { moduleId?: string }>(links: ReadonlyArray<T>): T[] {
+  return links.filter((link) => !isRetiredBacklogLink(link))
+}
+
+// The item as the Backlog should read it: the same object when it carries no
+// retired link, so memoized consumers keep their identity.
+export function backlogItemWithoutRetiredLinks<T extends Pick<BacklogItem, 'links'>>(item: T): T {
+  if (!item.links.some(isRetiredBacklogLink)) return item
+  return { ...item, links: withoutRetiredBacklogLinks(item.links) }
+}
+
 export function unknownBacklogResolvedLink(link: BacklogItemLink): BacklogResolvedLink {
   return {
     ...link,
@@ -38,7 +60,7 @@ export async function resolveBacklogLinks(input: {
   providers: ReadonlyArray<BacklogLinkProvider>
 }): Promise<BacklogResolvedLink[]> {
   const resolved: BacklogResolvedLink[] = []
-  for (const link of input.item.links) {
+  for (const link of withoutRetiredBacklogLinks(input.item.links)) {
     resolved.push(await resolveBacklogLink({ ...input, link }))
   }
   return resolved
@@ -80,7 +102,7 @@ function highestPrecedenceStatus(statuses: ReadonlyArray<BacklogItemStatus>): Ba
 // known) its live status. Both a stored BacklogItemLink and a resolved link
 // satisfy it, so a caller can derive from stored links without a resolve round
 // trip (the override-dialog guard) or from freshly resolved ones (the sync tick).
-type StatusDrivingLink = Pick<BacklogItemLink, 'type' | 'status'>
+type StatusDrivingLink = Pick<BacklogItemLink, 'type' | 'status'> & Partial<Pick<BacklogItemLink, 'moduleId'>>
 
 // The status an item should carry given its execution links and — for an epic —
 // its children. Two derivation modes:
@@ -108,7 +130,7 @@ export function nextBacklogItemStatusFromLinks(
   epicChildStatuses?: ReadonlyArray<BacklogItemStatus>,
 ): BacklogItemStatus {
   if (currentStatus === 'archived') return currentStatus
-  const executionLinks = links.filter((link) => link.type === 'execution')
+  const executionLinks = withoutRetiredBacklogLinks(links).filter((link) => link.type === 'execution')
 
   // Epic with children: reflect the highest-precedence child status. The epic's
   // own active run adds an `in_progress` vote but never a completion trigger, so

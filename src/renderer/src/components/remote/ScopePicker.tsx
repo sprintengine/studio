@@ -5,7 +5,7 @@ import { DescribedCheckRow, DescribedCheckRowList, SegmentedControl } from '../u
 import { SCOPE_ROWS, presetFor, scopesForPreset, toggleScope, type ScopePreset } from './scopePickerModel'
 
 // The permission body, once (remote-settings-rebuild): a preset strip and the
-// eight described rows, in `TAILNET_SCOPES` order.
+// six described rows, in `TAILNET_SCOPES` order.
 //
 // It is ONE component because two surfaces put the same question and used to
 // answer it differently — the Pair a device modal ("what may this machine do

@@ -249,7 +249,7 @@ export function createDiagnosticsWindow(): BrowserWindow {
     minWidth: 600,
     minHeight: 400,
     show: false,
-    title: 'Sprint Engine Studio Diagnostics',
+    title: 'SprintEngine Studio Diagnostics',
     backgroundColor: '#09090b',
     autoHideMenuBar: true,
     webPreferences: {

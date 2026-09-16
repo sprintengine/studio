@@ -6,12 +6,12 @@ import { join } from 'node:path'
 // `cliSessionId` yet — mounts its terminal. The helper test beside this one
 // (`AgentPanel.test.ts`) pins `agentPaneMountsTerminal`, but the regression
 // that shipped with a green suite was in the panel's own gate: every New chat
-// parked on an inert "Spawn <name>" button and no agent could start. This
+// parked on an inert pane and no agent could start. This
 // proves the panel takes the mount branch, not only that the helper answers.
 //
 // The terminal branch is recognised by what only it renders — the Suspense
 // boundary around the lazy TerminalView and the paused-footer control beside
-// it — and by the absence of the Spawn button the inert branch renders.
+// it — and by the absence of the CLI install row the missing-CLI branch renders.
 // TerminalView itself is lazy, so it never paints here; the panel is unmounted
 // before its module could resolve.
 
@@ -139,9 +139,9 @@ async function main(): Promise<void> {
   try {
     const labels = buttonLabels(fresh.container)
     assert.equal(
-      labels.some((label) => label.startsWith('Spawn')),
+      labels.some((label) => label.startsWith('Spawn') || label.startsWith('Install an agent CLI')),
       false,
-      `a new agent must not park on a Spawn button (rendered: ${JSON.stringify(labels)})`,
+      `a new agent must not park on the missing-CLI pane (rendered: ${JSON.stringify(labels)})`,
     )
     assert.equal(
       labels.includes('Resume paused agent — click or type to resume'),
@@ -152,13 +152,18 @@ async function main(): Promise<void> {
     fresh.unmount()
   }
 
-  // The control: the same agent whose CLI is not installed shows the inert
-  // pane, so the assertions above can tell the two branches apart.
+  // The control: the same agent whose CLI is not installed shows the install
+  // call to action, so the assertions above can tell the two branches apart.
   seed(true)
   const missing = render()
   try {
     const labels = buttonLabels(missing.container)
-    assert.equal(labels.includes('Spawn Scout'), true, `the inert pane offers Spawn (rendered: ${JSON.stringify(labels)})`)
+    assert.equal(
+      labels.some((label) => label.startsWith('Install an agent CLI')),
+      true,
+      `the missing-CLI pane offers the CLI install row (rendered: ${JSON.stringify(labels)})`,
+    )
+    assert.equal(labels.some((label) => label.startsWith('Spawn')), false, 'no Spawn button remains')
     assert.equal(labels.includes('Resume paused agent — click or type to resume'), false)
     assert.match(missing.container.textContent ?? '', /is not installed/)
   } finally {

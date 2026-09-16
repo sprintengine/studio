@@ -70,12 +70,11 @@
 </head>
 <body>
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — a right pane (md preset) sharing a panel with its board. Drag the divider, or focus it and use arrow keys; Home or double-click resets. No shadow, no scrim — one hairline does the separating.</p>
+  <p class="demo-label">Light — a right pane (md preset) sharing a panel with its board. No shadow, no scrim — one hairline does the separating.</p>
 
   <div class="demo-panel">
     <div class="demo-board">Board</div>
-    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md" aria-labelledby="pane-light-title" data-resizable>
-      <button type="button" class="ds-side-pane-resize" role="separator" aria-orientation="vertical" aria-label="Resize running agents pane"></button>
+    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md" aria-labelledby="pane-light-title">
       <header class="ds-side-pane-header">
         <h3 class="ds-side-pane-title" id="pane-light-title">Running agents</h3>
         <div style="display: flex; align-items: center; gap: var(--sem-space-sm);">
@@ -86,9 +85,9 @@
         </div>
       </header>
       <div class="demo-body">
-        <div class="demo-row"><span class="demo-key">builder-2 — MC-2114</span><span class="demo-value">04:12</span></div>
-        <div class="demo-row"><span class="demo-key">reviewer-1 — MC-2110</span><span class="demo-value">01:38</span></div>
-        <div class="demo-row"><span class="demo-key">planner — MC-2098</span><span class="demo-value">00:22</span></div>
+        <div class="demo-row"><span class="demo-key">Fix login redirect</span><span class="demo-value">04:12</span></div>
+        <div class="demo-row"><span class="demo-key">Review the login PR</span><span class="demo-value">01:38</span></div>
+        <div class="demo-row"><span class="demo-key">Backlog triage</span><span class="demo-value">00:22</span></div>
       </div>
     </aside>
   </div>
@@ -99,8 +98,7 @@
 
   <div class="demo-panel">
     <div class="demo-board">Board</div>
-    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken" aria-labelledby="pane-dark-title" data-resizable>
-      <button type="button" class="ds-side-pane-resize" role="separator" aria-orientation="vertical" aria-label="Resize active review pane"></button>
+    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken" aria-labelledby="pane-dark-title">
       <header class="ds-side-pane-header">
         <h3 class="ds-side-pane-title" id="pane-dark-title">Active review</h3>
         <div style="display: flex; align-items: center; gap: var(--sem-space-sm);">
@@ -119,75 +117,5 @@
   </div>
 </div>
 
-<script>
-/* Reference behaviour for the resize contract in component.md. What must
-   survive a framework rewrite: pointer capture on the handle (an iframe in
-   the pane would otherwise swallow the drag), the 16px keyboard step toward
-   or away from the divider, Home/double-click reset, and the floor/ceiling
-   clamp done by CSS min-/max-width, not by script. */
-
-const KEY_STEP = 16
-
-for (const pane of document.querySelectorAll('[data-resizable]')) {
-  const handle = pane.querySelector('.ds-side-pane-resize')
-  const isRight = pane.classList.contains('ds-side-pane--right')
-
-  function setWidth(px) {
-    pane.classList.add('ds-side-pane--resized')
-    pane.style.width = Math.round(px) + 'px'
-  }
-
-  function reset() {
-    pane.classList.remove('ds-side-pane--resized')
-    pane.style.removeProperty('width')
-  }
-
-  /* The pane grows away from its divider edge: a right pane measures from
-     its right edge back to the pointer. */
-  function widthFromPointer(clientX) {
-    const rect = pane.getBoundingClientRect()
-    return isRight ? rect.right - clientX : clientX - rect.left
-  }
-
-  handle.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return
-    event.preventDefault()
-    handle.setPointerCapture(event.pointerId)
-    handle.dataset.resizing = 'true'
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    const onMove = (e) => setWidth(widthFromPointer(e.clientX))
-    const end = () => {
-      handle.removeEventListener('pointermove', onMove)
-      handle.removeEventListener('pointerup', end)
-      handle.removeEventListener('pointercancel', end)
-      delete handle.dataset.resizing
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    handle.addEventListener('pointermove', onMove)
-    handle.addEventListener('pointerup', end)
-    handle.addEventListener('pointercancel', end)
-  })
-
-  handle.addEventListener('keydown', (event) => {
-    const current = pane.getBoundingClientRect().width
-    const grow = isRight ? 'ArrowLeft' : 'ArrowRight'
-    const shrink = isRight ? 'ArrowRight' : 'ArrowLeft'
-    if (event.key === grow) {
-      event.preventDefault()
-      setWidth(current + KEY_STEP)
-    } else if (event.key === shrink) {
-      event.preventDefault()
-      setWidth(current - KEY_STEP)
-    } else if (event.key === 'Home') {
-      event.preventDefault()
-      reset()
-    }
-  })
-
-  handle.addEventListener('dblclick', reset)
-}
-</script>
 </body>
 </html>

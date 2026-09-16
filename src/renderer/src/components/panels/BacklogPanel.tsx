@@ -65,7 +65,7 @@ import {
   type BacklogRisk,
   type BacklogScanResult,
 } from '../../utils/backlog'
-import { nextBacklogItemStatusFromLinks } from '../../utils/backlogLinks'
+import { backlogItemWithoutRetiredLinks, nextBacklogItemStatusFromLinks } from '../../utils/backlogLinks'
 import { BacklogHandToAgentButton, BacklogOpenAgentButton } from '../backlog/BacklogHandToAgentButton'
 import { overflowItemsForBacklogModuleActions } from '../backlog/backlogModuleActions'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
@@ -361,8 +361,11 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   // special-casing. Leaf items pass through untouched, so their behavior is
   // byte-identical. A never-launched epic (zero links) still derives from its
   // children; a childless epic falls back to the leaf link rule.
+  //
+  // Links from retired modules (the removed Sprint Engine) are dropped here too,
+  // so no surface below renders or derives from them.
   const items = useMemo(() => {
-    const raw = scan?.items ?? []
+    const raw = (scan?.items ?? []).map(backlogItemWithoutRetiredLinks)
     if (!raw.some((item) => item.isEpic)) return raw
     const childStatusesBySlug = new Map<string, BacklogItemStatus[]>()
     for (const item of raw) {
@@ -1217,7 +1220,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
         if (needsUnlink) {
           const confirmed = await dialog.confirm({
             title: 'Override linked status?',
-            body: `Setting “${BACKLOG_STATUS_LABEL[status]}” will unlink ${executionLinks.length === 1 ? 'the linked execution' : `${executionLinks.length} linked executions`}. The run itself will not be deleted.`,
+            body: `Setting “${BACKLOG_STATUS_LABEL[status]}” will unlink ${executionLinks.length === 1 ? 'the linked execution' : `${executionLinks.length} linked executions`}. The linked work itself is not deleted.`,
             confirmLabel: `Unlink and set ${BACKLOG_STATUS_LABEL[status]}`,
           })
           if (!confirmed) return

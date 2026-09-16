@@ -326,7 +326,7 @@ export default function MobileSettingsTab() {
       <SettingCard>
         <SettingToggle
           label="Mobile companion"
-          description="Paired phones can watch runs and send follow-ups."
+          description="Paired phones can see your workspaces, update the backlog and control automations."
           enabled={enabled}
           onChange={(next) => void toggleEnabled(next)}
           disabled={busy}
@@ -632,6 +632,9 @@ function commandLabel(commandType: MobileControlCommandType): string {
       return 'Backlog item created'
     case 'automations.control':
       return 'Automation controlled'
+    default:
+      // A command this build no longer handles, recorded before it was retired.
+      return 'Unsupported command'
   }
 }
 

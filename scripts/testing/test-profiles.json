@@ -292,6 +292,7 @@
     "src/renderer/src/components/extensions/ExtensionsHomeSurface.test.tsx": "cjs-bundled-jsx-jsdom",
     "src/renderer/src/components/extensions/homeCards.test.ts": "cjs-bundled-jsx",
     "src/renderer/src/components/panels/AgentChatView.test.ts": "esm-bundled-jsx-jsdom",
+    "src/renderer/src/components/panels/AgentPanel.mount.test.ts": "cjs-bundled-jsx",
     "src/renderer/src/components/panels/AgentPanel.test.ts": "esm-bundled-2",
     "src/renderer/src/components/panels/AutomationsPanel/AutomationEditor.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/panels/AutomationsPanel/AutomationRunActions.test.tsx": "cjs-external-jsx-flexlayout-2",

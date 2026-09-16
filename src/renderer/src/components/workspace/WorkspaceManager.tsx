@@ -595,7 +595,7 @@ export default function WorkspaceManager() {
   // module's registered provider can return a deep-focus action (e.g. open the
   // module's own record, or open the Automations screen at a run), and the shell
   // guarantees a generic workspace-reveal fallback for any notification that
-  // names a workspace. Provider actions are offered whether or not the
+  // names a workspace that still exists. Provider actions are offered whether or not the
   // notification names a workspace — a provider can deep-link to an app-level
   // screen that has no backing workspace (Automations). Only the generic
   // reveal fallback needs a workspaceId. Provider modules that are disabled drop
@@ -608,8 +608,9 @@ export default function WorkspaceManager() {
           selectModuleEnabled(moduleEnablement, moduleId),
         ),
         revealWorkspace: (id) => setActiveWorkspaceForWindow(workspaceWindowId, id),
+        workspaceExists: (id) => workspaces.some((workspace) => workspace.id === id),
       }),
-    [moduleEnablement, setActiveWorkspaceForWindow, workspaceWindowId]
+    [moduleEnablement, setActiveWorkspaceForWindow, workspaceWindowId, workspaces]
   )
 
   const currentWorkspaceWindow = useMemo(

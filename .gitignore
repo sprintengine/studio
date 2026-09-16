@@ -1,6 +1,9 @@
 node_modules
 .venv/
 dist/
+# Except the committed Reviews seed: the marketplace plugin ships this bundle,
+# and its signature is taken over these exact bytes.
+!/resources/marketplace/plugins/review/module/dist/
 dist-electron/
 out/
 release/
@@ -125,5 +128,6 @@ resources/marketplace/trusted-publishers.dev.json
 #
 # Nothing in the build reads it: the frontmatter round-trip property tests use a
 # checked-in fixture corpus under src/shared/backlog/__fixtures__/ rather than
-# this repository's own items.
-backlog/
+# this repository's own items. Anchored to the root: `src/shared/backlog/`,
+# the Backlog components and the backlog skill are source.
+/backlog/
