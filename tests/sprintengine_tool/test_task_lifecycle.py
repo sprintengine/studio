@@ -931,13 +931,10 @@ def test_join_resumes_an_owner_parked_in_its_review_phase(tmp_path) -> None:
 
 def test_temporary_marketer_role_owns_a_task_through_its_review_phase(tmp_path) -> None:
     # A workspace-layer role gets the same single-owner walk as a built-in one:
-    # it claims, publishes into its own review, and advances itself to done. Its
-    # `directives.review` pack rides the phase directive.
+    # it claims, publishes into its own review, and advances itself to done. Phase
+    # packs died with the manifest; the shared review base pack is the directive.
     workspace = tmp_path / "custom-role-workspace"
-    write_workspace_role(workspace, "marketer", aliases=["growth-marketer"], review_skill="marketer_review")
-    review_skill_dir = workspace / ".sprintengine" / "skills" / "marketer_review"
-    review_skill_dir.mkdir(parents=True, exist_ok=True)
-    (review_skill_dir / "SKILL.md").write_text("# marketer_review\n\nCheck the headline reads as a product statement.", encoding="utf-8")
+    write_workspace_role(workspace, "marketer")
 
     marketer_task = task("T1", "Draft launch post", "marketer")
     fixture = create_workspace_team(tmp_path, "custom-role-workspace", "custom-role-phases", [marketer_task])
@@ -945,14 +942,13 @@ def test_temporary_marketer_role_owns_a_task_through_its_review_phase(tmp_path) 
     state["sprintengine"]["rosterConfigured"] = True
     write_state(fixture.state_path, state)
 
-    claimed = fixture.cli.run("task", "next", "--role", "growth-marketer", "--id", "marketer-1")
+    claimed = fixture.cli.run("task", "next", "--role", "marketer", "--id", "marketer-1")
     assert claimed["claimed"] is True
     assert claimed["task"]["role"] == "marketer"
 
     published = fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "marketer-1", "--summary", "Drafted the post.")
     assert published["nextStatus"] == "review"
-    assert "marketer additions for this phase" in published["nextDirective"]
-    assert "reads as a product statement" in published["nextDirective"]
+    assert "you are now reviewing your own work" in published["nextDirective"]
     assert get_task(read_state(fixture.state_path), "T1")["ownerAgentId"] == "marketer-1"
 
     completed = fixture.cli.run(
@@ -1524,7 +1520,7 @@ def test_architect_cannot_add_tasks_for_roles_absent_from_roster(tmp_path) -> No
 
 def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
     workspace = tmp_path / "custom-role-workspace"
-    write_workspace_role(workspace, "marketer", aliases=["growth-marketer"])
+    write_workspace_role(workspace, "marketer")
     state_path = workspace / ".sprintengine" / "sprintengine" / "custom-role-flow" / "run.yaml"
     cli = SwarmCli(state_path, cwd=workspace)
     cli.run(
@@ -1534,18 +1530,16 @@ def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
         "--agent",
         "architect:architect",
         "--agent",
-        "growth-marketer:marketer-1",
+        "marketer:marketer-1",
     )
 
-    # The `growth-marketer` alias resolves to the `marketer` role (leases dropped
-    # `roster list`; the resolution is proven by the planned task's role below).
     accepted = cli.run(
         "plan",
         "add-task",
         "--title",
         "Draft launch post",
         "--role",
-        "growth-marketer",
+        "marketer",
         "--description",
         "Write the launch post.",
         "--phases",
@@ -1564,14 +1558,14 @@ def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
             task["status"] = "done"
     store.sync_state_to_store(state_path.parent, state, state_path=state_path)
 
-    listed = cli.run("task", "list", "--role", "growth-marketer")
+    listed = cli.run("task", "list", "--role", "marketer")
     assert [task["id"] for task in listed["readyTasks"]] == [accepted["task"]["id"]]
 
-    joined = cli.run("join", "--role", "growth-marketer", "--id", "marketer-1")
+    joined = cli.run("join", "--role", "marketer", "--id", "marketer-1")
     assert joined["action"] == "work"
     assert "sprintengine task next --role marketer --id marketer-1" in joined["prompt"]
 
-    claimed = cli.run("task", "next", "--role", "growth-marketer", "--id", "marketer-1")
+    claimed = cli.run("task", "next", "--role", "marketer", "--id", "marketer-1")
     assert claimed["claimed"] is True
     assert claimed["task"]["role"] == "marketer"
     assert claimed["task"]["id"] == accepted["task"]["id"]

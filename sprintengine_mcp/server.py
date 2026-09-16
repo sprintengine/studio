@@ -20,17 +20,17 @@ from sprintengine_core.audit import record_audit_event
 from sprintengine_core.health import build_health_report
 from sprintengine_core import store as folder_store
 from sprintengine_core.role_registry import (
+    MissingRoleError,
     RegistryDiscovery,
     RegistryEntry,
     RegistryWarning,
     RoleManifest,
     SkillDocument,
     SoulRenderError,
+    active_workspace_root,
     discover_role_registry,
     normalize_role_id,
     role_manifest_payload,
-    multicode_user_registry_root,
-    session_registry_roots_from_env,
 )
 from sprintengine_core.tool import (
     cmd_handover,
@@ -177,6 +177,7 @@ class SprintEngineMcpServer:
         actor_context: ActorContext | None = None
         state_path: Path | None = None
         context_token = _REQUEST_CONTEXT.set(context)
+        workspace_token = None
         try:
             actor_context = context.actor if context is not None else self._actor(actor)
             if tool_name not in TOOL_SCHEMAS:
@@ -187,6 +188,9 @@ class SprintEngineMcpServer:
             contract = MCP_TOOL_CONTRACTS[tool_name]
             state_path = self._state_path(payload, required=contract.requires_state_path)
             self._validate_request_workspace_root(payload)
+            workspace_for_call = self._workspace_root_for_active(payload, state_path)
+            if workspace_for_call is not None:
+                workspace_token = active_workspace_root.set(workspace_for_call)
             authorize_tool(tool_name, payload, actor_context, state_path)
             self._authorize_role_capability(tool_name, payload, actor_context, state_path)
             payload = self._bind_session_repo(tool_name, payload)
@@ -220,6 +224,8 @@ class SprintEngineMcpServer:
             self._audit(tool_name, state_path, actor_context, payload, start, "failure", mapped)
             return {"ok": False, "tool": tool_name, "error": mapped.to_dict()}
         finally:
+            if workspace_token is not None:
+                active_workspace_root.reset(workspace_token)
             _REQUEST_CONTEXT.reset(context_token)
 
     def _bind_session_repo(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -414,11 +420,7 @@ class SprintEngineMcpServer:
 
     def _agent_join(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
         workspace_root = self._workspace_root(payload, required=False) or _default_workspace_root(state_path)
-        registry = discover_role_registry(
-            workspace_root=workspace_root,
-            plugin_roots=self._plugin_registry_roots(payload),
-            user_root=self._effective_user_root(),
-        )
+        registry = discover_role_registry(workspace_root=workspace_root)
         # `role` is OPTIONAL (MC-2057): a roleless run's agents have none, and
         # absent is legal where wrong still is not — a role that IS named must
         # resolve to the registry.
@@ -685,11 +687,7 @@ class SprintEngineMcpServer:
     def _registry_tool(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         workspace_root = self._workspace_root(payload, required=True)
         assert workspace_root is not None
-        registry = discover_role_registry(
-            workspace_root=workspace_root,
-            plugin_roots=self._plugin_registry_roots(payload),
-            user_root=self._effective_user_root(),
-        )
+        registry = discover_role_registry(workspace_root=workspace_root)
         if tool_name == "sprintengine.roles.list":
             include_shadowed = bool(payload.get("includeShadowed", False))
             roles = [_role_payload(entry, include_shadowed=include_shadowed) for _, entry in sorted(registry.roles.items())]
@@ -698,14 +696,14 @@ class SprintEngineMcpServer:
             try:
                 entry = registry.role_entry(str(payload["roleId"]))
             except KeyError as exc:
-                raise McpToolError("unknown_role", _unknown_role_message(str(payload["roleId"]), registry.roles)) from exc
+                raise McpToolError("unknown_role", str(exc)) from exc
             return {"ok": True, "role": _role_payload(entry, include_shadowed=True), "warnings": _warning_payloads(registry.warnings)}
         if tool_name == "sprintengine.soul.get":
             run_id = str(payload.get("runId") or "")
             try:
                 rendered = registry.render_soul(str(payload["roleId"]), workspace_root=workspace_root, run_id=run_id)
             except KeyError as exc:
-                raise McpToolError("unknown_role", _unknown_role_message(str(payload["roleId"]), registry.roles)) from exc
+                raise McpToolError("unknown_role", str(exc)) from exc
             except SoulRenderError as exc:
                 raise McpToolError("soul_render_failed", str(exc), {"warnings": _warning_payloads(exc.warnings)}) from exc
             return {
@@ -727,50 +725,13 @@ class SprintEngineMcpServer:
         raise McpToolError("unknown_tool", f"Unknown registry tool: {tool_name}")
 
     def _plugin_registry_roots(self, payload: dict[str, Any]) -> list[dict[str, str]]:
-        roots: list[dict[str, str]] = []
-        roots.extend(self._configured_plugin_registry_roots())
-        for raw in payload.get("pluginRegistryRoots") or []:
-            if not isinstance(raw, dict):
-                raise McpToolError("invalid_plugin_registry_root", "pluginRegistryRoots entries must be objects.")
-            root = self._registry_root_path(raw.get("root"))
-            plugin_id = raw.get("id") or raw.get("pluginId")
-            entry = {"root": str(root)}
-            if isinstance(plugin_id, str) and plugin_id.strip():
-                entry["id"] = plugin_id.strip()
-            roots.append(entry)
-        for raw in payload.get("extraDirs") or []:
-            root = self._registry_root_path(raw)
-            roots.append({"root": str(root)})
-        if not roots:
-            # No roots configured or supplied: fall back to the app-injected
-            # session registry roots. The managed MCP server inherits the agent
-            # terminal's env, so an installed specialist pack resolves here the
-            # same way it does for `souls get` and the direct-core CLI.
-            roots.extend(session_registry_roots_from_env())
-        # The canonical user-install root rides along natively, exactly like
-        # bare discover_role_registry() — a headless `python -m sprintengine_mcp`
-        # with no configured/payload/env roots must resolve the same installed
-        # roles the CLI does, or roles.list and init validation disagree.
-        # Duplicate listings are precedence-resolved (shadowed), never errors.
-        user_root = str(multicode_user_registry_root())
-        if all(entry.get("root") != user_root for entry in roots):
-            roots.append({"root": user_root, "id": "user-roles"})
-        return roots
+        # pluginRegistryRoots / extraDirs are accepted and ignored: roles come
+        # from the workspace's installed skills (owner 2026-09-08).
+        del payload
+        return []
 
     def _configured_plugin_registry_roots(self) -> list[dict[str, str]]:
-        roots: list[dict[str, str]] = []
-        for raw in self._effective_plugin_registry_roots():
-            if isinstance(raw, dict):
-                root = self._registry_root_path(raw.get("root") or raw.get("path"), enforce_allowed=False)
-                plugin_id = raw.get("id") or raw.get("pluginId") or raw.get("plugin_id")
-                entry = {"root": str(root)}
-                if isinstance(plugin_id, str) and plugin_id.strip():
-                    entry["id"] = plugin_id.strip()
-                roots.append(entry)
-                continue
-            root = self._registry_root_path(raw, enforce_allowed=False)
-            roots.append({"root": str(root)})
-        return roots
+        return []
 
     def _registry_root_path(self, raw: Any, *, enforce_allowed: bool = True) -> Path:
         if not isinstance(raw, str) or not raw.strip():
@@ -887,6 +848,14 @@ class SprintEngineMcpServer:
                 return derived
         if required:
             raise McpToolError("invalid_workspace_root", "workspaceRoot is required.")
+        return None
+
+    def _workspace_root_for_active(self, payload: dict[str, Any], state_path: Path | None) -> Path | None:
+        resolved = self._workspace_root(payload, required=False)
+        if resolved is not None:
+            return resolved
+        if state_path is not None:
+            return _default_workspace_root(state_path)
         return None
 
     def _input_file_path(self, raw: Any, *, base_root: Path | None = None) -> Path:
@@ -1266,8 +1235,10 @@ def _compose_registry_prompt(
                     knowledge_root_configured=knowledge_root_configured,
                 ),
             ).content
-        except (KeyError, SoulRenderError):
-            soul_prompt = None
+        except MissingRoleError as exc:
+            raise McpToolError("unknown_role", str(exc)) from exc
+        except SoulRenderError as exc:
+            raise McpToolError("soul_render_failed", str(exc), {"warnings": _warning_payloads(exc.warnings)}) from exc
     return compose_prompt(
         "# SprintEngine Coordination Rules",
         load_sprintengine_coordination_prompt(
@@ -1291,9 +1262,9 @@ def _role_payload(entry: RegistryEntry, *, include_shadowed: bool = False) -> di
     if not isinstance(role, RoleManifest):
         return {}
     payload = _role_manifest_payload(role)
-    payload["source"] = _source_payload(entry.source.layer.name)
+    payload["source"] = _source_payload(entry.source)
     if include_shadowed:
-        payload["shadowedSources"] = [_source_payload(source.layer.name) for source in entry.shadowed]
+        payload["shadowedSources"] = [_source_payload(source) for source in entry.shadowed]
     return payload
 
 
@@ -1307,7 +1278,7 @@ def _skill_payload(entry: RegistryEntry, *, include_body: bool) -> dict[str, Any
     payload: dict[str, Any] = {
         "id": skill.id,
         "frontmatter": dict(skill.frontmatter),
-        "source": _source_payload(entry.source.layer.name),
+        "source": _source_payload(entry.source),
     }
     if include_body:
         payload["body"] = skill.body
@@ -1316,8 +1287,8 @@ def _skill_payload(entry: RegistryEntry, *, include_body: bool) -> dict[str, Any
     return payload
 
 
-def _source_payload(layer_name: str) -> dict[str, Any]:
-    return {"layer": layer_name}
+def _source_payload(source) -> dict[str, Any]:
+    return {"layer": source.layer.name, "path": str(source.path)}
 
 
 def _unknown_role_message(role_id: str, roles: dict[str, RegistryEntry]) -> str:

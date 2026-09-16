@@ -9,7 +9,7 @@ import threading
 import urllib.error
 import urllib.request
 
-from helpers import REPO_ROOT, create_team, create_workspace_team, get_task, read_state, task, write_state
+from helpers import REPO_ROOT, create_team, create_workspace_team, get_task, read_state, task, write_state, write_workspace_role
 from sprintengine_core.tool.constants import FEEDBACK_COUNT_FIELDS, FEEDBACK_SCORE_FIELDS, FEEDBACK_TEXT_FIELDS
 from sprintengine_mcp import McpRequestContext, SprintEngineMcpServer
 from sprintengine_mcp.auth import ActorContext
@@ -46,22 +46,12 @@ def feedback_rows(team_dir):
 
 
 def write_registry_role(root, role_id: str, *, label: str | None = None, implement: list[dict] | None = None) -> None:
-    roles_dir = root / ".sprintengine" / "roles"
-    roles_dir.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "id": role_id,
-        "label": label or role_id.replace("_", " ").title(),
-        "aliases": [role_id.replace("_", "-")],
-        "summary": f"{role_id} summary",
-        "directives": {"implement": implement or [{"skill": role_id}]},
-    }
-    (roles_dir / f"{role_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    del implement
+    write_workspace_role(root, role_id, label=label)
 
 
 def write_registry_skill(root, skill_id: str, body: str) -> None:
-    skill_dir = root / ".sprintengine" / "skills" / skill_id
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+    write_workspace_role(root, skill_id, body=body)
 
 
 @contextmanager
@@ -1066,8 +1056,7 @@ def test_mcp_epic_reference_handover_and_init_over_mcp_route(tmp_path) -> None:
 
 def test_mcp_agent_join_resolves_workspace_only_custom_role(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    write_registry_role(workspace, "writer", label="Writer", implement=[{"skill": "drafting"}])
-    write_registry_skill(workspace, "drafting", "Drafting Soul for {{role}} in {{run_id}}.")
+    write_workspace_role(workspace, "writer", label="Writer", body="Drafting Soul for {{role}} in {{run_id}}.")
     fixture = create_team(tmp_path, "mcp-custom-role-join", [])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
@@ -1098,6 +1087,40 @@ def test_mcp_agent_join_resolves_workspace_only_custom_role(tmp_path) -> None:
     # `agents` key and writer-1 (which claimed nothing) has no worker view.
     assert "agents" not in read_state(fixture.state_path)
     assert joined["result"]["agent"] is None
+
+
+def test_mcp_join_and_soul_get_name_a_dropped_alias(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-dropped-alias", [task("T1", "Work", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    actor_user = actor("workspace-user", "user")
+
+    joined = server.call_tool(
+        "sprintengine.agent.join",
+        {
+            "statePath": str(fixture.state_path),
+            "workspaceRoot": str(tmp_path),
+            "role": "qa-test",
+            "agentId": "qa-1",
+        },
+        actor_user,
+    )
+    assert joined["ok"] is False
+    assert joined["error"]["code"] == "unknown_role"
+    assert "Unknown role 'qa-test'" in joined["error"]["message"]
+    assert "no skill declaring it is installed" in joined["error"]["message"]
+    assert "workflow-roles" in joined["error"]["message"]
+
+    soul = server.call_tool(
+        "sprintengine.soul.get",
+        {"workspaceRoot": str(tmp_path), "roleId": "qa-test"},
+        actor_user,
+    )
+    assert soul["ok"] is False
+    assert soul["error"]["code"] == "unknown_role"
+    assert "Unknown role 'qa-test'" in soul["error"]["message"]
+    assert "no skill declaring it is installed" in soul["error"]["message"]
+    assert "workflow-roles" in soul["error"]["message"]
+    assert "Known roles:" in soul["error"]["message"]
 
 
 def test_mcp_agent_join_response_contains_no_cli_command_strings(tmp_path) -> None:
@@ -1394,10 +1417,8 @@ def test_mcp_agent_leave_keeps_a_review_task_bound_to_its_owner(tmp_path) -> Non
 
 def test_mcp_registry_discovery_returns_roles_skills_brief_and_warnings(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    write_registry_role(workspace, "marketer", label="Growth Marketer", implement=[{"skill": "strategy"}, {"skill": "missing"}])
-    write_registry_skill(workspace, "strategy", "---\nname: strategy\n---\n\nPlan for {{role}} in {{run_id}}.")
-    write_registry_role(workspace, "writer", label="Writer", implement=[{"skill": "drafting"}])
-    write_registry_skill(workspace, "drafting", "Draft for {{role}} in {{run_id}}.")
+    write_workspace_role(workspace, "marketer", label="Growth Marketer", body="Plan for {{role}} in {{run_id}}.")
+    write_workspace_role(workspace, "writer", label="Writer", body="Draft for {{role}} in {{run_id}}.")
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     roles = server.call_tool(
@@ -1417,22 +1438,22 @@ def test_mcp_registry_discovery_returns_roles_skills_brief_and_warnings(tmp_path
     )
 
     assert roles["ok"] is True
-    assert any(role["id"] == "marketer" and role["source"]["layer"] == "workspace" for role in roles["result"]["roles"])
-    assert any(warning["code"] == "missing_referenced_skill" for warning in roles["result"]["warnings"])
+    marketer = next(role for role in roles["result"]["roles"] if role["id"] == "marketer")
+    assert marketer["source"]["layer"] == "workspace"
+    assert str(workspace) in marketer["source"]["path"]
     assert skills["ok"] is True
-    assert {skill["id"] for skill in skills["result"]["skills"]} >= {"strategy", "drafting"}
+    assert {skill["id"] for skill in skills["result"]["skills"]} >= {"marketer", "writer"}
     assert all("body" not in skill for skill in skills["result"]["skills"])
     assert soul["ok"] is True
     assert soul["result"]["soul"]["content"].startswith("<soul-legend>")
-    assert '<skill name="drafting">\nDraft for writer in run-123.\n</skill>' in soul["result"]["soul"]["content"]
-    assert str(tmp_path) not in json.dumps(roles["result"], sort_keys=True)
+    assert '<skill name="writer">\nDraft for writer in run-123.\n</skill>' in soul["result"]["soul"]["content"]
 
 
-def test_mcp_registry_discovery_accepts_plugin_registry_roots(tmp_path) -> None:
+def test_mcp_registry_discovery_ignores_plugin_registry_roots(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     plugin_root = tmp_path / "plugin" / "souls"
-    write_registry_role(plugin_root, "plugin_writer", label="Plugin Writer", implement=[{"skill": "plugin_writer"}])
-    write_registry_skill(plugin_root, "plugin_writer", "Plugin writer Soul.")
+    write_workspace_role(plugin_root, "plugin_writer", label="Plugin Writer", body="Plugin writer Soul.")
+    write_workspace_role(workspace, "marketer", label="Marketer")
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
     roles = server.call_tool(
@@ -1440,23 +1461,15 @@ def test_mcp_registry_discovery_accepts_plugin_registry_roots(tmp_path) -> None:
         {
             "workspaceRoot": str(workspace),
             "includeShadowed": True,
-            "pluginRegistryRoots": [{"id": "writer-plugin", "root": str(plugin_root / ".sprintengine")}],
-        },
-        actor("workspace-user", "user"),
-    )
-    skills = server.call_tool(
-        "sprintengine.skills.list",
-        {
-            "workspaceRoot": str(workspace),
-            "pluginRegistryRoots": [{"id": "writer-plugin", "root": str(plugin_root / ".sprintengine")}],
+            "pluginRegistryRoots": [{"id": "writer-plugin", "root": str(plugin_root)}],
         },
         actor("workspace-user", "user"),
     )
 
     assert roles["ok"] is True
-    assert any(role["id"] == "plugin_writer" and role["source"]["layer"] == "plugin:writer-plugin" for role in roles["result"]["roles"])
-    assert skills["ok"] is True
-    assert any(skill["id"] == "plugin_writer" and skill["source"]["layer"] == "plugin:writer-plugin" for skill in skills["result"]["skills"])
+    ids = {role["id"] for role in roles["result"]["roles"]}
+    assert "marketer" in ids
+    assert "plugin_writer" not in ids
 
 
 def test_mcp_plan_add_and_update_task_forward_needs_triage(tmp_path) -> None:
@@ -2486,10 +2499,7 @@ def test_sprintengine_mcp_serve_matches_module_entrypoint_roots_and_extra_dirs(t
     workspace = tmp_path / "workspace"
     outside = tmp_path / "outside"
     fixture = create_team(outside, "mcp-serve-outside", [task("T1", "Outside task", "developer")])
-    plugin_root = tmp_path / "plugin"
-    registry_root = plugin_root / ".sprintengine"
-    write_registry_role(plugin_root, "plugin_writer", label="Plugin Writer", implement=[{"skill": "plugin_writer"}])
-    write_registry_skill(plugin_root, "plugin_writer", "Plugin writer Soul.")
+    write_workspace_role(workspace, "plugin_writer", label="Plugin Writer", body="Plugin writer Soul.")
     messages = [
         {
             "jsonrpc": "2.0",
@@ -2519,7 +2529,7 @@ def test_sprintengine_mcp_serve_matches_module_entrypoint_roots_and_extra_dirs(t
             "--workspace",
             str(workspace),
             "--extra-dir",
-            str(registry_root),
+            str(tmp_path / "ignored-extra"),
         ],
         cwd=REPO_ROOT,
         env={
@@ -2544,7 +2554,7 @@ def test_sprintengine_mcp_serve_matches_module_entrypoint_roots_and_extra_dirs(t
     roles_result = json.loads(roles_wrapper["content"][0]["text"])
     task_result = json.loads(task_wrapper["content"][0]["text"])
     assert roles_result["ok"] is True
-    assert any(role["id"] == "plugin_writer" and role["source"]["layer"] == "plugin:0" for role in roles_result["result"]["roles"])
+    assert any(role["id"] == "plugin_writer" and role["source"]["layer"] == "workspace" for role in roles_result["result"]["roles"])
     assert task_result["ok"] is False
     assert task_result["error"]["code"] == "state_path_not_allowed"
 

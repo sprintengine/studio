@@ -2,13 +2,14 @@ from pathlib import Path
 
 import sprintengine_core.tool as tool
 from sprintengine_core.tool import artifacts, feedback, phase_prompts, plans, tasks
-from sprintengine_core.role_registry import RoleSkillRegistry
+from sprintengine_core.role_registry import discover_role_registry
 from sprintengine_core.tool.roles import (
     configured_role_ids,
     configured_soul_role_ids,
     dispatchable_role_ids,
     is_configured_role,
 )
+from helpers import write_workspace_role
 
 
 def test_tool_package_preserves_public_entrypoint_imports() -> None:
@@ -64,20 +65,10 @@ def test_role_validation_resolves_the_registry_at_call_time() -> None:
 
 
 def test_custom_registry_roles_are_dispatchable(tmp_path: Path) -> None:
-    root = tmp_path / "workspace" / ".sprintengine"
-    (root / "roles").mkdir(parents=True)
-    (root / "skills" / "marketer").mkdir(parents=True)
-    (root / "roles" / "marketer.json").write_text(
-        '{"id":"marketer","label":"Marketer","directives":{"implement":[{"skill":"marketer"}]}}',
-        encoding="utf-8",
-    )
-    (root / "skills" / "marketer" / "SKILL.md").write_text("# Marketer\n\nLaunch campaigns.", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    write_workspace_role(workspace, "marketer", label="Marketer")
 
-    discovery = RoleSkillRegistry(
-        workspace_root=tmp_path / "workspace",
-        user_root=tmp_path / "user",
-        bundled_root=tmp_path / "bundled",
-    ).discover()
+    discovery = discover_role_registry(workspace_root=workspace)
 
     assert "marketer" in configured_soul_role_ids(discovery)
     assert "marketer" in dispatchable_role_ids(discovery)

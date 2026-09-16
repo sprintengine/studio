@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool.artifacts import artifacts_for_task, file_fingerprint, next_artifact_id, project_relative_display_path
 from sprintengine_core.tool.constants import VALID_TASK_PHASES
-from sprintengine_core.tool.paths import now_iso, sprintengine_state_path_for
+from sprintengine_core.tool.paths import now_iso, sprintengine_state_path_for, workspace_root_for_state_path
 from sprintengine_core.tool.plans import (
     actor_is_coordinator,
     apply_coordinator_brief_to_task,
@@ -923,6 +923,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
 
         prompt = load_prompt(
             args.role,
+            workspace_root=workspace_root_for_state_path(args.state),
             backlog_sourced=run_is_backlog_sourced(state),
             staffed_roles=[str(entry) for entry in (state.get("configuredRoles") or []) if str(entry).strip()],
         )

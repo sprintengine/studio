@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from sprintengine_core.role_registry import BUNDLED_REGISTRY_ROOT, RoleSkillRegistry
+from sprintengine_core.role_registry import BUNDLED_REGISTRY_ROOT, discover_role_registry
 from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
 from workflow_roles import WORKFLOW_ROLE_IDS, workspace_role_discovery
 
@@ -114,39 +114,27 @@ def test_phase_review_base_pack_resolves_through_registry_layering(tmp_path: Pat
     assert skill_id == "sprintengine_phase_review"
 
     workspace = tmp_path / "workspace"
-    override_dir = workspace / ".sprintengine" / "skills" / skill_id
+    override_dir = workspace / ".claude" / "skills" / skill_id
     override_dir.mkdir(parents=True)
     (override_dir / "SKILL.md").write_text("# House review lens\n", encoding="utf-8")
 
-    discovery = RoleSkillRegistry(
-        workspace_root=workspace,
-        user_root=tmp_path / "user",
-        bundled_root=BUNDLED_REGISTRY_ROOT,
-    ).discover()
+    discovery = discover_role_registry(workspace_root=workspace)
 
     entry = discovery.skills[skill_id]
     assert entry.source.layer.name == "workspace"
     assert "House review lens" in entry.value.body
-    assert [shadow.layer.name for shadow in entry.shadowed] == ["bundled"]
 
 
 @pytest.fixture()
-def bundled_discovery(workflow_roles_workspace: Path, tmp_path: Path):
+def bundled_discovery(workflow_roles_workspace: Path):
     # Role identity from the workspace fixture; host skills from the bundled
     # root — the composition a real dispatch renders.
-    return workspace_role_discovery(
-        workflow_roles_workspace,
-        user_root=tmp_path / "user",
-    )
+    return workspace_role_discovery(workflow_roles_workspace)
 
 
 def test_every_bundled_soul_skill_has_registered_anchors(bundled_discovery) -> None:
     assert set(bundled_discovery.roles) == WORKFLOW_ROLE_IDS
-    referenced = {
-        entry_skill.skill
-        for entry in bundled_discovery.roles.values()
-        for entry_skill in entry.value.all_directive_skills()
-    }
+    referenced = set(bundled_discovery.roles)
     unregistered = sorted(referenced - set(SKILL_ANCHORS))
     assert not unregistered, (
         "Bundled soul skills without contract anchors (register them in "
@@ -158,11 +146,7 @@ WHAT_TO_DO_MAX_NONEMPTY_LINES = 16
 
 
 def test_bundled_soul_skills_have_wellformed_emphasis_tags(bundled_discovery) -> None:
-    referenced = {
-        entry_skill.skill
-        for entry in bundled_discovery.roles.values()
-        for entry_skill in entry.value.all_directive_skills()
-    }
+    referenced = set(bundled_discovery.roles)
     problems: list[str] = []
     for skill_id in sorted(referenced):
         body = bundled_discovery.skills[skill_id].value.body
@@ -190,10 +174,9 @@ def test_rendered_souls_carry_legend_and_skill_provenance(bundled_discovery, tmp
         )
         assert rendered.content.count("<soul-legend>") == 1, role_id
         role = bundled_discovery.get_role(role_id)
-        for directive_entry in role.implement_directives:
-            assert f'<skill name="{directive_entry.skill}">' in rendered.content, (
-                f"{role_id}: missing envelope for {directive_entry.skill}"
-            )
+        assert f'<skill name="{role_id}">' in rendered.content, (
+            f"{role_id}: missing envelope for {role_id}"
+        )
 
 
 def test_every_rendered_soul_contains_required_rule_anchors(bundled_discovery, tmp_path: Path) -> None:
@@ -202,11 +185,9 @@ def test_every_rendered_soul_contains_required_rule_anchors(bundled_discovery, t
         rendered = bundled_discovery.render_soul(
             role_id, workspace_root=tmp_path / "workspace", run_id="contract"
         )
-        role = bundled_discovery.get_role(role_id)
-        for directive_entry in role.implement_directives:
-            for anchor in SKILL_ANCHORS.get(directive_entry.skill, ()):
-                if anchor not in rendered.content:
-                    missing.append(f"{role_id}: [{directive_entry.skill}] {anchor!r}")
+        for anchor in SKILL_ANCHORS.get(role_id, ()):
+            if anchor not in rendered.content:
+                missing.append(f"{role_id}: [{role_id}] {anchor!r}")
     assert not missing, "Rule anchors missing from rendered souls:\n" + "\n".join(missing)
 
 

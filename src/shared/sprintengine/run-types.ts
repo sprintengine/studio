@@ -16,11 +16,11 @@ import type { AgentState } from './agent-state'
 export type AgentId = string
 
 // `SprintEngineRole` is the historical first-party Sprint Engine role union.
-// Those manifests now ship in the installable pack at
-// `resources/specialist-pack/roles/` (MC-1587), not the bundled root, but the
-// union is retained because it still types first-party config shapes such as
-// default skill maps, default role counts, and CLI defaults — those are
-// studio-owned settings, not pluggable role manifests.
+// Those role skills now ship in `resources/studio-plugin/workflow-roles/skills/`
+// and resolve from a workspace's installed harness skills, but the union is
+// retained because it still types first-party config shapes such as default
+// skill maps, default role counts, and CLI defaults — those are studio-owned
+// settings, not pluggable role skills.
 //
 // Pluggable/projection-facing surfaces (task.role, gate.role, agent.role,
 // comment.authorRole, feedback.role, quality-policy gate.role, runtime agent

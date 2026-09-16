@@ -32,7 +32,6 @@ is no longer any tool a reviewer needs and a worker must not have.
 
 from __future__ import annotations
 
-import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
@@ -40,8 +39,6 @@ from typing import Any, Iterable
 from sprintengine_core.role_registry import (
     discover_role_registry,
     normalize_role_id,
-    multicode_user_registry_root,
-    session_registry_roots_from_env,
 )
 
 RoleClassification = str  # "operator" | "architect" | "roleless" | "owner"
@@ -176,24 +173,11 @@ def classify_role(
     normalized = normalize_role_id(str(role or ""))
     if not normalized or normalized == "user":
         return "operator"
-    # With no explicit roots, fall back to the app-injected session registry roots
-    # so the managed MCP server (which inherits the agent terminal's env) resolves
-    # an installed specialist pack the same way the rest of the engine does. The
-    # canonical user-install root rides along natively either way, matching bare
-    # discover_role_registry() (duplicates precedence-resolve to one winner).
-    base_roots = tuple(plugin_registry_roots) or tuple(session_registry_roots_from_env())
-    user_root_entry = str(multicode_user_registry_root())
-    if not any(
-        (isinstance(entry, dict) and entry.get("root") == user_root_entry) or str(entry) == user_root_entry
-        for entry in base_roots
-    ):
-        base_roots = (*base_roots, {"root": user_root_entry, "id": "user-roles"})
-    roots = base_roots
+    # plugin_registry_roots and user_root are accepted and ignored: roles come
+    # from the workspace's installed skills (owner 2026-09-08).
     return _classify_registry_role(
         normalized,
         str(workspace_root) if workspace_root else None,
-        _registry_roots_key(roots),
-        str(user_root) if user_root else None,
     )
 
 
@@ -201,26 +185,14 @@ def clear_role_classification_cache() -> None:
     _classify_registry_role.cache_clear()
 
 
-def _registry_roots_key(plugin_registry_roots: tuple[Any, ...]) -> str:
-    return json.dumps(
-        [root if isinstance(root, (str, dict)) else str(root) for root in plugin_registry_roots],
-        sort_keys=True,
-        default=str,
-    )
-
-
 @lru_cache(maxsize=256)
 def _classify_registry_role(
     normalized_role: str,
     workspace_root: str | None,
-    registry_roots_key: str,
-    user_root: str | None,
 ) -> RoleClassification:
     try:
         registry = discover_role_registry(
             workspace_root=Path(workspace_root) if workspace_root else None,
-            plugin_roots=tuple(json.loads(registry_roots_key)),
-            user_root=Path(user_root) if user_root else None,
         )
         manifest = registry.role_entry(normalized_role).value
     except Exception:

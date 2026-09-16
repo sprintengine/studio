@@ -10,8 +10,6 @@ description/directives is a first-class, plannable role.
 
 from __future__ import annotations
 
-import json
-
 from helpers import create_workspace_team, read_state, task, write_state, write_workspace_role
 from sprintengine_core.role_registry import discover_role_registry
 from sprintengine_mcp import SprintEngineMcpServer
@@ -71,34 +69,22 @@ def test_only_the_planning_role_carries_the_roles_section(tmp_path) -> None:
 
 
 def test_a_role_with_only_id_label_description_and_skills_is_plannable(tmp_path, monkeypatch) -> None:
-    """Zero capability JSON: a third-party role plans on its description alone."""
+    """A third-party role skill plans on its description alone."""
     workspace = tmp_path / "minimal-ws"
-    roles_dir = workspace / ".sprintengine" / "roles"
-    skill_dir = workspace / ".sprintengine" / "skills" / "compliance"
-    roles_dir.mkdir(parents=True, exist_ok=True)
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    (roles_dir / "compliance.json").write_text(
-        json.dumps(
-            {
-                "id": "compliance",
-                "label": "Compliance",
-                "description": "Checks regulated data handling. Staff it when the run touches personal data.",
-                "directives": {"implement": [{"skill": "compliance"}]},
-            }
-        ),
-        encoding="utf-8",
+    write_workspace_role(
+        workspace,
+        "compliance",
+        label="Compliance",
+        description="Checks regulated data handling. Staff it when the run touches personal data.",
+        body="# compliance\n\nYou check regulated data handling.",
     )
-    (skill_dir / "SKILL.md").write_text("# compliance\n\nYou check regulated data handling.", encoding="utf-8")
 
-    discovery = discover_role_registry(workspace_root=workspace, plugin_roots=[], user_root=tmp_path / "no-user")
+    discovery = discover_role_registry(workspace_root=workspace)
     role = discovery.get_role("compliance")
     assert role.description.startswith("Checks regulated data handling.")
-    assert not [warning for warning in discovery.warnings if warning.role_id == "compliance"]
 
     fixture = create_workspace_team(tmp_path, "minimal-ws", "minimal-role", [])
     staff(fixture.state_path, ["architect", "compliance"])
-    # Role validation discovers the workspace layer from the process cwd, which for
-    # a managed MCP server is the workspace root.
     monkeypatch.chdir(workspace)
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
@@ -115,32 +101,16 @@ def test_a_role_with_only_id_label_description_and_skills_is_plannable(tmp_path,
     assert added["ok"] is True, added.get("error")
 
 
-def test_a_manifest_still_carrying_summary_loads_and_is_warned_about(tmp_path) -> None:
-    """An installed pack predating the rename must keep staffing runs."""
+def test_a_role_skill_without_a_description_still_loads(tmp_path) -> None:
     workspace = tmp_path / "legacy-ws"
-    roles_dir = workspace / ".sprintengine" / "roles"
-    skill_dir = workspace / ".sprintengine" / "skills" / "legacy_marketer"
-    roles_dir.mkdir(parents=True, exist_ok=True)
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    (roles_dir / "legacy_marketer.json").write_text(
-        json.dumps(
-            {
-                "id": "legacy_marketer",
-                "label": "Marketer",
-                "summary": "Owns positioning.",
-                "directives": {"implement": [{"skill": "legacy_marketer"}]},
-            }
-        ),
+    skill_dir = workspace / ".claude" / "skills" / "legacy-marketer"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: legacy-marketer\nmetadata:\n  sprintengine-role: legacy_marketer\n  role-label: Marketer\n---\n\nYou own positioning.\n",
         encoding="utf-8",
     )
-    (skill_dir / "SKILL.md").write_text("# legacy_marketer\n\nYou own positioning.", encoding="utf-8")
 
-    discovery = discover_role_registry(workspace_root=workspace, plugin_roots=[], user_root=tmp_path / "no-user")
-
+    discovery = discover_role_registry(workspace_root=workspace)
     role = discovery.get_role("legacy_marketer")
-    # The old value is not read as the new field — the author renames it and writes
-    # the fuller text `description` asks for.
     assert role.description is None
-    renames = [warning for warning in discovery.warnings if warning.code == "renamed_manifest_key"]
-    assert len(renames) == 1
-    assert "'summary' was renamed to 'description'" in renames[0].message
+    assert role.label == "Marketer"

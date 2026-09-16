@@ -91,9 +91,19 @@ def test_a_legacy_store_loads_without_error(tmp_path: Path) -> None:
     run = call(server, state_path, "sprintengine.run.get")["run"]
     assert run["name"] == "mobile-relay-traffic-efficiency2"
     assert run["status"] == "completed"
+    assert run["configuredRoles"] == [
+        "architect",
+        "developer",
+        "frontend",
+        "ui_ux_reviewer",
+        "tester",
+        "nuclear_reviewer",
+        "spec_reviewer",
+    ]
 
     card = call(server, state_path, "sprintengine.task.get", taskId="T1")["task"]
     assert card["status"] == "done"
+    assert card["role"] == "developer"
 
     summary = call(server, state_path, "sprintengine.summary")["summary"]
     assert summary["status"] == "completed"

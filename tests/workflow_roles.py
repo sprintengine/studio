@@ -3,7 +3,8 @@
 The shipped roles live at ``resources/studio-plugin/workflow-roles/skills/``.
 The running app copies that tree into a workspace's ``.claude/skills/``; every
 Python suite that needs a real role goes through ``install_workflow_roles``
-rather than duplicating a shipped skill or pointing at a registry-root env.
+rather than duplicating a shipped skill. Custom fixture roles go through
+``write_workspace_role``.
 """
 
 from __future__ import annotations
@@ -11,7 +12,8 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+
+from sprintengine_core.role_registry import discover_role_registry
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_ROLES_SKILLS_ROOT = (
@@ -76,94 +78,46 @@ def install_workflow_roles(workspace: Path) -> Path:
     return workspace
 
 
-def workspace_role_discovery(
+def write_workspace_role(
     workspace: Path,
+    role_id: str,
     *,
-    user_root: Path,
-    bundled_root: Path | None = None,
-):
-    """Build a ``RegistryDiscovery`` from a workspace the helper installed.
+    label: str | None = None,
+    description: str | None = None,
+    body: str | None = None,
+    icon: str | None = None,
+    harness: str = ".claude",
+) -> Path:
+    """Write one role skill into a workspace harness directory. Returns the SKILL.md path."""
+    kebab = role_id.replace("_", "-")
+    skill_dir = workspace / harness / "skills" / kebab
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    resolved_label = label or role_id.replace("_", " ").title()
+    resolved_description = description or f"Use when the run needs {role_id} work."
+    resolved_body = body or f"# {role_id}\n\nTemporary test role."
+    resolved_icon = icon or "extension"
+    # Quote the description so YAML stays a single scalar even with colons.
+    escaped = resolved_description.replace("\\", "\\\\").replace('"', '\\"')
+    content = (
+        "---\n"
+        f"name: {kebab}\n"
+        f'description: "{escaped}"\n'
+        "metadata:\n"
+        f"  sprintengine-role: {role_id}\n"
+        f"  role-label: {resolved_label}\n"
+        f"  role-icon: {resolved_icon}\n"
+        "---\n"
+        f"{resolved_body}\n"
+    )
+    path = skill_dir / "SKILL.md"
+    path.write_text(content, encoding="utf-8")
+    return path
 
-    MC-2503 rewrites engine discovery to scan harness skill directories. Until
-    that lands, this is the test-side equivalent: host skills still come from
-    the bundled registry root, and each installed ``SKILL.md`` that carries
-    ``metadata.sprintengine-role`` becomes the role that composes itself.
+
+def workspace_role_discovery(workspace: Path, **_ignored):
+    """Engine discovery for a workspace the helper installed.
+
+    Extra kwargs are ignored so callers written against the test-side synthesis
+    keep working.
     """
-    from sprintengine_core.role_registry import (
-        BUNDLED_REGISTRY_ROOT,
-        DirectiveSkillEntry,
-        IMPLEMENT_DIRECTIVE,
-        RegistryDiscovery,
-        RegistryEntry,
-        RoleManifest,
-        RoleSkillRegistry,
-        SourceEntry,
-        SourceLayer,
-        _load_skill_document,
-        normalize_role_id,
-    )
-
-    bundled = RoleSkillRegistry(
-        workspace_root=workspace,
-        plugin_roots=[],
-        user_root=user_root,
-        bundled_root=bundled_root or BUNDLED_REGISTRY_ROOT,
-    ).discover()
-
-    skills_root = workspace / ".claude" / "skills"
-    layer = SourceLayer("workspace", workspace / ".claude", 0)
-    roles: dict[str, RegistryEntry] = dict(bundled.roles)
-    skills: dict[str, RegistryEntry] = dict(bundled.skills)
-    warnings = list(bundled.warnings)
-
-    if skills_root.is_dir():
-        for skill_dir in sorted(path for path in skills_root.iterdir() if path.is_dir()):
-            path = skill_dir / "SKILL.md"
-            if not path.is_file():
-                continue
-            skill_id = normalize_role_id(skill_dir.name)
-            document = _load_skill_document(skill_id, path, layer, warnings)
-            if document is None:
-                continue
-            metadata = document.frontmatter.get("metadata")
-            if not isinstance(metadata, Mapping):
-                continue
-            role_id_raw = metadata.get("sprintengine-role")
-            if not isinstance(role_id_raw, str) or not role_id_raw.strip():
-                continue
-            role_id = normalize_role_id(role_id_raw)
-            label_raw = metadata.get("role-label")
-            label = (
-                label_raw.strip()
-                if isinstance(label_raw, str) and label_raw.strip()
-                else role_id.replace("_", " ").title()
-            )
-            icon_raw = metadata.get("role-icon")
-            icon = icon_raw.strip() if isinstance(icon_raw, str) and icon_raw.strip() else None
-            description_raw = document.frontmatter.get("description")
-            description = (
-                description_raw.strip()
-                if isinstance(description_raw, str) and description_raw.strip()
-                else None
-            )
-            source = SourceEntry(layer, path)
-            roles[role_id] = RegistryEntry(
-                value=RoleManifest(
-                    id=role_id,
-                    label=label,
-                    aliases=(),
-                    description=description,
-                    icon=icon,
-                    directives={IMPLEMENT_DIRECTIVE: (DirectiveSkillEntry(skill=skill_id),)},
-                ),
-                source=source,
-                shadowed=(),
-            )
-            skills[skill_id] = RegistryEntry(value=document, source=source, shadowed=())
-
-    return RegistryDiscovery(
-        roles=roles,
-        skills=skills,
-        aliases={role_id: role_id for role_id in roles},
-        warnings=tuple(warnings),
-    )
+    return discover_role_registry(workspace_root=workspace)

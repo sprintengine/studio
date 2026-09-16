@@ -1073,3 +1073,52 @@ def test_managed_agent_join_composes_the_role_prompt_file(tmp_path) -> None:
 
     assert response["ok"] is True
     assert role_prose in response["result"]["prompt"]
+
+
+def test_sprint_run_cli_composition_resolves_role_from_workspace_skills(tmp_path) -> None:
+    from helpers import write_workspace_role
+    from sprintengine_core.tool.prompts import load_prompt
+
+    workspace = tmp_path / "workspace"
+    write_workspace_role(
+        workspace,
+        "developer",
+        label="Developer",
+        body="Workspace-installed developer identity for {{role}}.",
+    )
+    prompt = load_prompt(
+        "developer",
+        workspace_root=workspace,
+        knowledge_root_configured=False,
+        backlog_sourced=False,
+    )
+    assert "Workspace-installed developer identity for developer." in prompt
+    assert "# Soul Personality And Quality Bar" in prompt
+
+
+def test_dropped_alias_is_a_named_missing_role_state(tmp_path) -> None:
+    from sprintengine_core.role_registry import MissingRoleError
+    from sprintengine_core.tool.prompts import load_prompt, load_soul_prompt
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with pytest.raises(MissingRoleError) as soul_info:
+        load_soul_prompt("qa-test", workspace_root=workspace, knowledge_root_configured=False)
+    message = str(soul_info.value)
+    assert "qa-test" in message
+    assert "no skill declaring it is installed in this workspace" in message
+    assert "Install the workflow-roles pack from the SprintEngine Studio skill source" in message
+    assert "add a role skill to your skills folder" in message
+    # The brief is not a substitute identity: composition raises rather than
+    # returning None and continuing with norms only.
+    with pytest.raises(MissingRoleError) as prompt_info:
+        load_prompt("qa-test", workspace_root=workspace, knowledge_root_configured=False)
+    assert "qa-test" in str(prompt_info.value)
+
+
+def test_join_names_the_spelling_that_failed_for_a_dropped_alias(tmp_path) -> None:
+    fixture = create_team(tmp_path, "dropped-alias-join", [task("T1", "Work", "developer")])
+    rejected = fixture.cli.run_failure("join", "--role", "qa-test", "--id", "qa-1")
+    assert "qa-test" in rejected.stderr
+    assert "no skill declaring it is installed" in rejected.stderr
+    assert "workflow-roles" in rejected.stderr

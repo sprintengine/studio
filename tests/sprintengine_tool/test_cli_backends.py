@@ -11,12 +11,6 @@ from helpers import REPO_ROOT, create_team, create_workspace_team, get_task, rea
 MCP_USER_ID_ENV = "SPRINTENGINE_MCP_USER_ID"
 MCP_USER_AUTHORIZED_ENV = "SPRINTENGINE_MCP_USER_AUTHORIZED"
 
-# Specialist roles ship as an installable pack, not in the bundled root. The
-# registry-inspection commands take an explicit plugin root via --extra-dir, so
-# these tests point at the pack the way an installed environment resolves it.
-SPECIALIST_PACK_ROOT = REPO_ROOT / "resources" / "specialist-pack"
-SPECIALIST_PACK_EXTRA_DIR = ["--extra-dir", str(SPECIALIST_PACK_ROOT)]
-
 
 def run_swarm(args: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     merged_env = os.environ.copy()
@@ -242,16 +236,16 @@ def test_custom_workspace_role_resolves_through_the_cli(tmp_path) -> None:
 
 
 def test_registry_inspection_commands_work_from_repo_root() -> None:
-    roles = parse_stdout_json(run_swarm(["roles", "list", "--include-shadowed", *SPECIALIST_PACK_EXTRA_DIR]))
-    role = parse_stdout_json(run_swarm(["role", "get", "qa-test", *SPECIALIST_PACK_EXTRA_DIR]))
-    soul = parse_stdout_json(run_swarm(["soul", "get", "qa-test", "--run-id", "registry-cli-test", *SPECIALIST_PACK_EXTRA_DIR]))
-    skills = parse_stdout_json(run_swarm(["skill", "list", *SPECIALIST_PACK_EXTRA_DIR]))
-    skill = parse_stdout_json(run_swarm(["skill", "get", "tester", *SPECIALIST_PACK_EXTRA_DIR]))
+    roles = parse_stdout_json(run_swarm(["roles", "list", "--include-shadowed"]))
+    role = parse_stdout_json(run_swarm(["role", "get", "tester"]))
+    soul = parse_stdout_json(run_swarm(["soul", "get", "tester", "--run-id", "registry-cli-test"]))
+    skills = parse_stdout_json(run_swarm(["skill", "list"]))
+    skill = parse_stdout_json(run_swarm(["skill", "get", "tester"]))
 
     assert roles["ok"] is True
-    assert any(entry["id"] == "tester" and entry["source"]["layer"] == "plugin:0" for entry in roles["roles"])
+    assert any(entry["id"] == "tester" and entry["source"]["layer"] == "bundled" for entry in roles["roles"])
     assert role["role"]["id"] == "tester"
-    assert role["role"]["source"]["layer"] == "plugin:0"
+    assert role["role"]["source"]["layer"] == "bundled"
     assert "shadowedSources" in role["role"]
     assert soul["role"]["id"] == "tester"
     assert "principal QA engineer" in soul["soul"]["content"]
@@ -263,11 +257,11 @@ def test_registry_inspection_commands_work_from_repo_root() -> None:
 
 def test_registry_inspection_commands_work_from_custom_workspace(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    write_workspace_role(workspace, "marketer", aliases=["growth-marketer"])
+    write_workspace_role(workspace, "marketer")
 
     roles = parse_stdout_json(run_swarm_in_cwd(["roles", "list"], workspace))
-    role = parse_stdout_json(run_swarm_in_cwd(["role", "get", "growth-marketer"], workspace))
-    soul = parse_stdout_json(run_swarm_in_cwd(["soul", "get", "growth-marketer", "--run-id", "custom-run"], workspace))
+    role = parse_stdout_json(run_swarm_in_cwd(["role", "get", "marketer"], workspace))
+    soul = parse_stdout_json(run_swarm_in_cwd(["soul", "get", "marketer", "--run-id", "custom-run"], workspace))
     skills = parse_stdout_json(run_swarm_in_cwd(["skill", "list"], workspace))
     skill = parse_stdout_json(run_swarm_in_cwd(["skill", "get", "marketer"], workspace))
 
@@ -280,40 +274,26 @@ def test_registry_inspection_commands_work_from_custom_workspace(tmp_path) -> No
     assert skill["skill"]["source"]["layer"] == "workspace"
 
 
-def test_registry_inspection_accepts_explicit_plugin_extra_dir(tmp_path) -> None:
+def test_registry_inspection_extra_dir_is_accepted_and_ignored(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    plugin_root = tmp_path / "plugin" / "souls"
-    write_workspace_role(workspace, "marketer", aliases=["growth-marketer"])
-    (plugin_root / "roles").mkdir(parents=True)
-    (plugin_root / "skills" / "plugin_writer").mkdir(parents=True)
-    (plugin_root / "roles" / "plugin_writer.json").write_text(
-        json.dumps(
-            {
-                "id": "plugin_writer",
-                "label": "Plugin Writer",
-                "aliases": [],
-                "directives": {"implement": [{"skill": "plugin_writer"}]},
-            }
-        ),
-        encoding="utf-8",
-    )
-    (plugin_root / "skills" / "plugin_writer" / "SKILL.md").write_text("# Plugin writer\n", encoding="utf-8")
+    write_workspace_role(workspace, "marketer")
+    write_workspace_role(workspace, "plugin_writer", label="Plugin Writer", body="# Plugin writer\n")
 
-    roles = parse_stdout_json(run_swarm_in_cwd(["roles", "list", "--include-shadowed", "--extra-dir", str(plugin_root)], workspace))
-    role = parse_stdout_json(run_swarm_in_cwd(["role", "get", "plugin-writer", "--extra-dir", str(plugin_root)], workspace))
-    skills = parse_stdout_json(run_swarm_in_cwd(["skill", "list", "--extra-dir", str(plugin_root)], workspace))
+    roles = parse_stdout_json(run_swarm_in_cwd(["roles", "list", "--include-shadowed", "--extra-dir", str(tmp_path / "ignored")], workspace))
+    role = parse_stdout_json(run_swarm_in_cwd(["role", "get", "plugin-writer", "--extra-dir", str(tmp_path / "ignored")], workspace))
+    skills = parse_stdout_json(run_swarm_in_cwd(["skill", "list", "--extra-dir", str(tmp_path / "ignored")], workspace))
 
-    assert any(entry["id"] == "plugin_writer" and entry["source"]["layer"] == "plugin:0" for entry in roles["roles"])
+    assert any(entry["id"] == "plugin_writer" and entry["source"]["layer"] == "workspace" for entry in roles["roles"])
     assert role["role"]["id"] == "plugin_writer"
-    assert any(entry["id"] == "plugin_writer" and entry["source"]["layer"] == "plugin:0" for entry in skills["skills"])
+    assert any(entry["id"] == "plugin_writer" and entry["source"]["layer"] == "workspace" for entry in skills["skills"])
 
 
 def test_registry_inspection_unknown_role_and_skill_errors_include_known_ids() -> None:
-    role = run_swarm(["role", "get", "not-a-role", *SPECIALIST_PACK_EXTRA_DIR])
-    skill = run_swarm(["skill", "get", "not-a-skill", *SPECIALIST_PACK_EXTRA_DIR])
+    role = run_swarm(["role", "get", "not-a-role"])
+    skill = run_swarm(["skill", "get", "not-a-skill"])
 
     assert role.returncode != 0
-    assert "Unknown registry role: not-a-role." in role.stderr
+    assert "Unknown role 'not-a-role'" in role.stderr
     assert "Known roles:" in role.stderr
     assert "developer" in role.stderr
     assert skill.returncode != 0
@@ -324,7 +304,7 @@ def test_registry_inspection_unknown_role_and_skill_errors_include_known_ids() -
 
 def test_mcp_backend_registry_inspection_commands_work_from_custom_workspace(tmp_path) -> None:
     workspace = tmp_path / "workspace"
-    write_workspace_role(workspace, "marketer", aliases=["growth-marketer"])
+    write_workspace_role(workspace, "marketer")
     env = {
         "SPRINTENGINE_MCP_ALLOWED_ROOT": str(tmp_path),
         MCP_USER_ID_ENV: "workspace-user",
@@ -332,8 +312,8 @@ def test_mcp_backend_registry_inspection_commands_work_from_custom_workspace(tmp
     }
 
     roles = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "roles", "list"], workspace, env=env))
-    role = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "role", "get", "growth-marketer"], workspace, env=env))
-    soul = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "soul", "get", "growth-marketer"], workspace, env=env))
+    role = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "role", "get", "marketer"], workspace, env=env))
+    soul = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "soul", "get", "marketer"], workspace, env=env))
     skills = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "skill", "list"], workspace, env=env))
     skill = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "skill", "get", "marketer"], workspace, env=env))
 
@@ -350,11 +330,11 @@ def test_mcp_backend_soul_get_unknown_role_error_includes_known_ids() -> None:
         MCP_USER_AUTHORIZED_ENV: "1",
     }
 
-    soul = run_swarm(["--backend", "mcp-local", "soul", "get", "not-a-role", *SPECIALIST_PACK_EXTRA_DIR], env=env)
+    soul = run_swarm(["--backend", "mcp-local", "soul", "get", "not-a-role"], env=env)
 
     assert soul.returncode != 0
     assert "unknown_role" in soul.stderr
-    assert "Unknown registry role: not-a-role." in soul.stderr
+    assert "Unknown role 'not-a-role'" in soul.stderr
     assert "Known roles:" in soul.stderr
     assert "developer" in soul.stderr
 

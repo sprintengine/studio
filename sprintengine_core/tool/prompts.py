@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
 from sprintengine_core.tool.paths import PROMPTS_DIR, REPO_ROOT
@@ -10,9 +11,9 @@ from sprintengine_core.role_registry import (
     RegistryDiscovery,
     RoleManifest,
     SkillDocument,
-    SoulRenderError,
     discover_role_registry,
     normalize_role_id,
+    resolve_workspace_root,
 )
 from sprintengine_core.skill_layers import (
     SPRINTENGINE_ROLELESS_WORKFLOW_SKILL,
@@ -30,47 +31,50 @@ SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "creative", "developer", "de
 def load_soul_prompt(
     role: Optional[str],
     *,
+    workspace_root: Optional[Path | str] = None,
     backlog_sourced: bool = True,
     knowledge_root_configured: Optional[bool] = None,
 ) -> Optional[str]:
-    # Role manifests carry only the portable role identity. A Sprint Engine dispatch
+    # Role skills carry the portable role identity. A Sprint Engine dispatch
     # layers the studio's product skills (gated per run) and the Sprint Engine
     # quality norms on top, so the rendered brief carries the full quality bar
-    # without any of it being baked into the manifest.
+    # without any of it being baked into the skill.
     # `knowledge_root_configured=None` resolves from this process's env — correct
     # for CLI/stdio composition, overridden by the HTTP run context.
     if knowledge_root_configured is None:
         knowledge_root_configured = knowledge_root_is_configured()
+    resolved_workspace = resolve_workspace_root(workspace_root)
     if not str(role or "").strip():
-        # No role at all (MC-2057). There is no manifest to render, so render the
+        # No role at all (MC-2057). There is no skill to render, so render the
         # roleless layer (norms + orchestration) instead — this shared chokepoint
         # must never drop the norms for a roleless agent on the CLI-join or
         # plan-review composition paths.
         return load_roleless_soul_prompt(
+            workspace_root=resolved_workspace,
             backlog_sourced=backlog_sourced,
             knowledge_root_configured=knowledge_root_configured,
         )
-    try:
-        discovery = discover_role_registry()
-        return (
-            discovery
-            .render_soul(
-                role,
-                workspace_root=REPO_ROOT,
-                extra_skills=sprintengine_soul_extra_skills(
-                    backlog_sourced=backlog_sourced,
-                    knowledge_root_configured=knowledge_root_configured,
-                ),
-            )
-            .content
+    discovery = discover_role_registry(workspace_root=resolved_workspace)
+    # MissingRoleError (and SoulRenderError) propagate: a named role with no
+    # installed skill is a missing-role state, never a quiet None brief.
+    return (
+        discovery
+        .render_soul(
+            role,
+            workspace_root=resolved_workspace,
+            extra_skills=sprintengine_soul_extra_skills(
+                backlog_sourced=backlog_sourced,
+                knowledge_root_configured=knowledge_root_configured,
+            ),
         )
-    except (KeyError, SoulRenderError):
-        return None
+        .content
+    )
 
 
 def load_roleless_soul_prompt(
     registry: Optional[RegistryDiscovery] = None,
     *,
+    workspace_root: Optional[Path | str] = None,
     backlog_sourced: bool = True,
     knowledge_root_configured: Optional[bool] = None,
 ) -> Optional[str]:
@@ -90,7 +94,9 @@ def load_roleless_soul_prompt(
     discovered registry so workspace skill overrides apply, exactly as they do for
     a specialist soul render; callers without one get the default discovery.
     """
-    registry = registry if registry is not None else discover_role_registry()
+    registry = registry if registry is not None else discover_role_registry(
+        workspace_root=resolve_workspace_root(workspace_root),
+    )
     if knowledge_root_configured is None:
         knowledge_root_configured = knowledge_root_is_configured()
     roleless_skills = (
@@ -182,7 +188,9 @@ def architect_role_catalog(
     """
     if normalize_role_id(str(role or "")) != "architect":
         return None
-    resolved = discovery if discovery is not None else discover_role_registry()
+    resolved = discovery if discovery is not None else discover_role_registry(
+        workspace_root=resolve_workspace_root(None),
+    )
     seen: set[str] = set()
     entries: list[RoleManifest] = []
     for raw_role in staffed_roles:
@@ -353,18 +361,22 @@ def compose_prompt(
 def load_prompt(
     role: Optional[str],
     *,
+    workspace_root: Optional[Path | str] = None,
     backlog_sourced: bool = True,
     knowledge_root_configured: Optional[bool] = None,
     staffed_roles: Sequence[str] = (),
 ) -> str:
+    resolved_workspace = resolve_workspace_root(workspace_root)
+    discovery = discover_role_registry(workspace_root=resolved_workspace)
     return compose_prompt(
         "# SprintEngine Coordination Rules",
         load_sprintengine_coordination_prompt(
             role,
-            role_catalog=architect_role_catalog(role, staffed_roles),
+            role_catalog=architect_role_catalog(role, staffed_roles, discovery=discovery),
         ),
         load_soul_prompt(
             role,
+            workspace_root=resolved_workspace,
             backlog_sourced=backlog_sourced,
             knowledge_root_configured=knowledge_root_configured,
         ),

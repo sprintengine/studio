@@ -50,7 +50,7 @@ class RestartedEngine:
     """A `python -m sprintengine_mcp` subprocess speaking line-delimited JSON-RPC."""
 
     def __init__(self, allowed_root: Path) -> None:
-        env = dict(os.environ)  # carries conftest's specialist-pack registry env
+        env = dict(os.environ)
         env["PYTHONPATH"] = os.pathsep.join(
             [str(REPO_ROOT), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
         )

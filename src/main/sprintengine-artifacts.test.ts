@@ -699,22 +699,25 @@ async function testReadRegistryRolesPassesLoadedPluginSoulsRoots(): Promise<void
 async function testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-registry-'))
   const previousPythonPath = process.env.PYTHONPATH
-  const rolePath = join(workspaceRoot, '.sprintengine', 'roles', 'marketer.json')
-  const skillPath = join(workspaceRoot, '.sprintengine', 'skills', 'marketer', 'SKILL.md')
-  await mkdir(join(workspaceRoot, '.sprintengine', 'roles'), { recursive: true })
-  await mkdir(join(workspaceRoot, '.sprintengine', 'skills', 'marketer'), { recursive: true })
+  const skillDir = join(workspaceRoot, '.claude', 'skills', 'marketer')
+  await mkdir(skillDir, { recursive: true })
   await writeFile(
-    rolePath,
-    JSON.stringify({
-      id: 'marketer',
-      label: 'Marketer',
-      aliases: ['growth-marketer'],
-      description: 'Tests workspace custom role discovery. Staff it when a workspace role must be discovered.',
-      directives: { implement: [{ skill: 'marketer' }] },
-    }, null, 2),
+    join(skillDir, 'SKILL.md'),
+    [
+      '---',
+      'name: marketer',
+      'description: "Tests workspace custom role discovery. Use when a workspace role must be discovered."',
+      'metadata:',
+      '  sprintengine-role: marketer',
+      '  role-label: Marketer',
+      '  role-icon: extension',
+      '---',
+      '',
+      'Workspace marketer test skill.',
+      '',
+    ].join('\n'),
     'utf-8'
   )
-  await writeFile(skillPath, 'Workspace marketer test skill.\n', 'utf-8')
 
   try {
     delete process.env.PYTHONPATH
@@ -734,7 +737,7 @@ async function testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles():
     assert.equal(roleIds.has('developer'), true, 'bundled developer role is discovered through the real MCP bridge')
     assert.equal(roleIds.has('marketer'), true, 'workspace custom role fixture is discovered through the real MCP bridge')
     assert.equal(payload.roles?.find((role) => role.id === 'marketer')?.source?.layer, 'workspace')
-    assert.equal(payload.aliases?.growth_marketer, 'marketer')
+    assert.equal(payload.aliases?.marketer, 'marketer')
   } finally {
     if (previousPythonPath === undefined) {
       delete process.env.PYTHONPATH
