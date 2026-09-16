@@ -206,6 +206,8 @@ def test_souls_unknown_role_fails_clearly() -> None:
     assert payload["error"] == "soul_not_found"
     assert "Unknown role 'unknown-role'" in payload["message"]
     assert "no skill declaring it is installed" in payload["message"]
+    assert "workflow-roles" in payload["message"]
+    assert "Known roles:" in payload["message"]
 
 
 def test_souls_path_uses_the_bundled_skill_file() -> None:

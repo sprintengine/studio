@@ -23,7 +23,11 @@ def dispatchable_role_ids(discovery: RegistryDiscovery | None = None) -> frozens
 
 
 def canonical_role_id(role: str, discovery: RegistryDiscovery | None = None) -> str:
-    """Return the configured canonical role id, resolving aliases and hyphen variants."""
+    """Return the configured canonical role id.
+
+    Hyphen and underscore are the same name. A different name is a missing-role
+    error, not a substitute.
+    """
 
     clean_role = str(role or "").strip()
     if not clean_role:

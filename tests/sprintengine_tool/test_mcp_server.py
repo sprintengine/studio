@@ -1118,6 +1118,9 @@ def test_mcp_join_and_soul_get_name_a_dropped_alias(tmp_path) -> None:
     assert soul["ok"] is False
     assert soul["error"]["code"] == "unknown_role"
     assert "Unknown role 'qa-test'" in soul["error"]["message"]
+    assert "no skill declaring it is installed" in soul["error"]["message"]
+    assert "workflow-roles" in soul["error"]["message"]
+    assert "Known roles:" in soul["error"]["message"]
 
 
 def test_mcp_agent_join_response_contains_no_cli_command_strings(tmp_path) -> None:
