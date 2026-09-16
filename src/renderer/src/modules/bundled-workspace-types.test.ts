@@ -123,23 +123,24 @@ for (const [id, expectedTemplate] of Object.entries(expectedTemplates)) {
   assert.deepEqual(host.getWorkspaceType(id)?.createTemplate(), expectedTemplate, `${id} template stays unchanged`)
 }
 
-// The Sprint Engine auto-run supervisor is retired (sprint-runtime-ownership
-// Phase 3): scheduling and session reconcile run in the main-process scheduler
-// (src/main/sprint-runtime.ts); the renderer contributes NO supervisor.
-assert.equal(
-  host.getWorkspaceType('sprintengine')?.supervisors,
-  undefined,
-  'Sprint Engine contributes no renderer supervisor (main-process scheduler owns auto-run)',
+// Projection refresh and the quiesced-run change subscriber are the Sprint
+// Engine type's WorkspaceTypeDefinition.supervisors (all-windows). Auto-run
+// scheduling still lives in the main-process scheduler; these only keep this
+// window's bag projection current. Automations mounts its observer directly.
+assert.deepEqual(
+  host.getWorkspaceType('sprintengine')?.supervisors?.map((supervisor) => supervisor.scope),
+  ['all-windows', 'all-windows'],
+  'Sprint Engine contributes projection + run-change supervisors on every window',
 )
 assert.deepEqual(
   collectWorkspaceTypeSupervisors(host.getWorkspaceTypes(), true).map((supervisor) => supervisor.key),
-  [],
-  'no bundled workspace type contributes a renderer supervisor (automations mounts its observer directly)',
+  ['sprintengine:all-windows:0', 'sprintengine:all-windows:1'],
+  'primary windows mount the Sprint Engine all-windows supervisors',
 )
 assert.deepEqual(
   collectWorkspaceTypeSupervisors(host.getWorkspaceTypes(), false).map((supervisor) => supervisor.key),
-  [],
-  'secondary workspace windows do not mount global supervisor contributions',
+  ['sprintengine:all-windows:0', 'sprintengine:all-windows:1'],
+  'secondary windows still mount all-windows Sprint Engine supervisors',
 )
 
 // The always-mounted observer's per-event decision. A timer

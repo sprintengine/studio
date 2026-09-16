@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { Workspace } from '../../types/workspace'
 import {
@@ -7,6 +7,11 @@ import {
 } from '../../utils/sprintengineProjectionRefresh'
 import { registerTimer, type TimerHandle } from '../../utils/diagnostics/timerRegistry'
 import { sprintEngineRunContext } from '../../store/slices/workspaceModuleState'
+
+function isSprintEngineSyncDisabled(): boolean {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
+  return env?.VITE_SPRINTENGINE_SAFE_MODE === '1' || env?.VITE_SPRINTENGINE_DISABLE_SYNC === '1'
+}
 
 
 // Paired with the auto-run cadence. The reader now short-circuits via a cheap
@@ -17,10 +22,35 @@ const SPRINT_ENGINE_PROJECTION_ACTIVE_POLL_MS = 4000
 const SPRINT_ENGINE_PROJECTION_INACTIVE_POLL_MS = 15000
 
 const PROJECTION_POLL_TIMER_LABEL = 'SprintEngine projection poll'
+const FALLBACK_WINDOW_ID = 'primary'
 
-type Props = {
-  activeWorkspaceId: string | null
-  workspaceIds: string[]
+function workspaceWindowIdFromLocation(): string {
+  try {
+    const value = new URL(window.location.href).searchParams.get('windowId')?.trim()
+    return value || FALLBACK_WINDOW_ID
+  } catch {
+    return FALLBACK_WINDOW_ID
+  }
+}
+
+function windowWorkspaceIds(
+  workspaceWindows: { id: string; workspaceIds: string[] }[],
+  primaryWorkspaceWindowId: string,
+  windowId: string,
+): string[] | null {
+  const current = workspaceWindows.find((entry) => entry.id === windowId)
+    ?? workspaceWindows.find((entry) => entry.id === primaryWorkspaceWindowId)
+  return current?.workspaceIds ?? null
+}
+
+function windowActiveWorkspaceId(
+  workspaceWindows: { id: string; activeWorkspaceId: string | null }[],
+  primaryWorkspaceWindowId: string,
+  windowId: string,
+): string | null {
+  const current = workspaceWindows.find((entry) => entry.id === windowId)
+    ?? workspaceWindows.find((entry) => entry.id === primaryWorkspaceWindowId)
+  return current?.activeWorkspaceId ?? null
 }
 
 // Whether any sprint workspace in this window still needs the projection poll.
@@ -92,7 +122,7 @@ export function createProjectionPollLoop(deps: {
   }
 }
 
-export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, workspaceIds }: Props) {
+export default function SprintEngineProjectionSupervisor() {
   const tokensByWorkspace = useRef(new Map<string, string>())
   const lastInactiveRefreshByWorkspace = useRef(new Map<string, number>())
   // Workspaces whose refresh failed permanently (run directory gone, or a store
@@ -101,9 +131,22 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
   // statePath is unchanged; a repointed context — or an app restart — retries.
   const permanentFailureStatePaths = useRef(new Map<string, string>())
   const tickInProgress = useRef(false)
+  const windowId = useMemo(() => workspaceWindowIdFromLocation(), [])
+  const assignedIds = useWorkspaceStore((s) =>
+    windowWorkspaceIds(s.workspaceWindows, s.primaryWorkspaceWindowId, windowId),
+  )
+  const windowActiveId = useWorkspaceStore((s) =>
+    windowActiveWorkspaceId(s.workspaceWindows, s.primaryWorkspaceWindowId, windowId),
+  )
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const workspaceIds = assignedIds ?? workspaces.map((workspace) => workspace.id)
+  const activeWorkspaceId = windowActiveId && workspaceIds.includes(windowActiveId)
+    ? windowActiveId
+    : null
   const workspaceKey = workspaceIds.join('\n')
 
   useEffect(() => {
+    if (isSprintEngineSyncDisabled()) return
     let disposed = false
 
     const tick = async () => {
@@ -123,8 +166,8 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
         })
 
         const now = Date.now()
-        const { workspaces } = useWorkspaceStore.getState()
-        const sprintEngineWorkspaces = workspaces.filter((workspace) =>
+        const { workspaces: liveWorkspaces } = useWorkspaceStore.getState()
+        const sprintEngineWorkspaces = liveWorkspaces.filter((workspace) =>
           refreshWorkspaceIds.has(workspace.id)
           && (workspace.mode === 'sprintengine' || Boolean(sprintEngineRunContext(workspace)))
         )

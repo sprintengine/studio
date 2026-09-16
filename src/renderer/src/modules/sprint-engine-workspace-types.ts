@@ -1,3 +1,4 @@
+import { lazy } from 'react'
 import type { RendererHost } from './renderer-host'
 import type { LayoutTemplate, SprintEngineMockConfig } from '../types/workspace'
 import { createSprintEngineLayoutTemplate } from '../../../shared/sprintengine/workspace-record'
@@ -8,6 +9,9 @@ import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
 import { isSprintEngineWorkspace } from '../utils/sprintEngineWorkspace'
 import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
 import { sprintEngineRunState } from '../store/slices/workspaceModuleState'
+
+const SprintEngineProjectionSupervisor = lazy(() => import('../components/workspace/SprintEngineProjectionSupervisor'))
+const SprintEngineRunChangeSubscriber = lazy(() => import('../components/workspace/SprintEngineRunChangeSubscriber'))
 
 const defaultSprintEngineTemplateConfig: SprintEngineMockConfig = {
   name: 'Sprint Roster',
@@ -47,10 +51,16 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
     createTemplate: () => createSprintEngineTemplate(defaultSprintEngineTemplateConfig),
     isRunGlyphProviderForWorkspace: isSprintEngineWorkspace,
     deriveRunGlyph: deriveSprintEngineWorkspaceRunGlyph,
-    // The auto-run supervisor component is retired (sprint-runtime-ownership
-    // Phase 3): scheduling AND session reconcile run in the main-process
-    // scheduler (src/main/sprint-runtime.ts); the runtime bridge mirrors its
-    // store mutations into every window. No renderer supervisor remains.
+    // Projection refresh and the quiesced-run change subscriber used to be
+    // propful mounts in WorkspaceManager (they needed the window's workspace
+    // list). They now read that list from the store themselves, so they ship
+    // as zero-prop WorkspaceTypeDefinition.supervisors. Auto-run scheduling
+    // still lives in the main-process scheduler; these only keep this
+    // window's bag projection current.
+    supervisors: [
+      { Component: SprintEngineProjectionSupervisor, scope: 'all-windows' },
+      { Component: SprintEngineRunChangeSubscriber, scope: 'all-windows' },
+    ],
     // Sprint creation left the wizard (MC-2062): picking this type anywhere —
     // the hub rail, the sidebar "+" menu — opens the New sprint dialog, never
     // a wizard flow. There is no sprint creation flow, so no creationStepsId:

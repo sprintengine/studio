@@ -4,6 +4,7 @@ import type { LayoutTemplate, Workspace, WorkspaceWindowState } from '../../type
 import { getEditorBuffer } from '../../utils/editorBuffers'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
+import { useSprintEngineRunStore } from '../../modules/sprint-engine-run-store'
 import { applySoloChatSeed, normalizeWorkspaceMode, workspaceFolderKey } from './workspacesSlice'
 
 const standardTemplate: LayoutTemplate = {
@@ -531,7 +532,7 @@ assert.deepEqual(
 )
 // Consumed atomically — one spawn pass clears the intent.
 assert.deepEqual(
-  useWorkspaceStore.getState().consumeSprintEngineInitialSpawns(architectLaunchId, ['architect']),
+  useSprintEngineRunStore.getState().consumeSprintEngineInitialSpawns(architectLaunchId, ['architect']),
   ['architect'],
 )
 assert.equal(

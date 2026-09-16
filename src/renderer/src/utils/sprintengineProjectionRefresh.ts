@@ -1,4 +1,4 @@
-import { useWorkspaceStore } from '../store/workspaceStore'
+import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import type {
   BacklogItemLinkPayload,
   BacklogMutationResult,
@@ -80,15 +80,15 @@ function defaultSprintEngineProjectionRefreshPorts(): SprintEngineProjectionRefr
     readSprintEngineProjection: (statePath, knownToken) =>
       sprintEngineIpc.readSprintEngineProjection(statePath, knownToken),
     setSprintEngineState: (workspaceId, state) =>
-      useWorkspaceStore.getState().setSprintEngineState(workspaceId, state),
+      useSprintEngineRunStore.getState().setSprintEngineState(workspaceId, state),
     applySprintEngineAutomationEvent: (workspaceId, event) =>
-      useWorkspaceStore.getState().applySprintEngineAutomationEvent(workspaceId, event),
+      useSprintEngineRunStore.getState().applySprintEngineAutomationEvent(workspaceId, event),
     readBacklogObjectStore: (workspaceRoot) => window.api.readBacklogObjectStore(workspaceRoot),
     addOrUpdateBacklogLink: (input) => window.api.addOrUpdateBacklogLink(input),
     publishDiagnostic: (input) => publishDiagnostic(input),
     tearDownCompletedRunAgents: (workspaceId) => tearDownCompletedSprintRunAgents(workspaceId),
     setCompletionTeardownAt: (workspaceId, at) =>
-      useWorkspaceStore.getState().setSprintEngineCompletionTeardownAt(workspaceId, at),
+      useSprintEngineRunStore.getState().setSprintEngineCompletionTeardownAt(workspaceId, at),
   }
 }
 

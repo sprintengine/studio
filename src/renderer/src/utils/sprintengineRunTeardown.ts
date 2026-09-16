@@ -13,6 +13,7 @@
  * teardown regardless of automation mode.
  */
 
+import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { removeAgentTab, removeAgentTabFromLayoutModel } from './modelRegistry'
 import { publishDiagnostic } from './diagnostics'
@@ -102,7 +103,7 @@ function defaultPorts(): SprintEngineRunTeardownPorts {
     getWorkspace: (workspaceId) =>
       useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspaceId),
     upsertRosterSession: (workspaceId, agentId, session) =>
-      useWorkspaceStore.getState().upsertSprintEngineRosterSession(workspaceId, agentId, session),
+      useSprintEngineRunStore.getState().upsertSprintEngineRosterSession(workspaceId, agentId, session),
     removeAgent: (workspaceId, agentId) => useWorkspaceStore.getState().removeAgent(workspaceId, agentId),
     removeAgentTab: (workspaceId, agentId) => removeAgentTab(workspaceId, agentId),
     updateLayout: (workspaceId, model) => useWorkspaceStore.getState().updateLayout(workspaceId, model),

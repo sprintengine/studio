@@ -1101,7 +1101,7 @@ assert.equal(
 // ── MC-1573: the store's generic module-state writer ────────────────────────
 // setWorkspaceModuleState is the SDK setter's backing action: entries write
 // into the bag, null removes, unknown workspaces and the reserved sprintengine
-// key report false (that entry's single writer stays setSprintEngineState).
+// key report false (that entry's single writer is the Sprint Engine run store).
 {
   const targetId = useWorkspaceStore.getState().addWorkspace(
     { ...raceTemplate, id: 'bag-writer' },
@@ -1136,7 +1136,7 @@ assert.equal(
   assert.equal(
     store.setWorkspaceModuleState(targetId, 'sprintengine', {}),
     false,
-    'the reserved sprintengine key is refused — its single writer is setSprintEngineState',
+    'the reserved sprintengine key is refused — its single writer is the Sprint Engine run store',
   )
 }
 

@@ -6,7 +6,7 @@ import {
 } from '../../../../shared/sprintengine/agent-identity'
 import { normalizeAgentState, pickWorkspaceAgentName } from './agentsSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
-import { normalizeSprintEngineAutoState } from './runStateSlice'
+import { normalizeSprintEngineAutoState } from '../../modules/sprint-engine-run-state'
 import {
   normalizeWorkspaceBacklogState,
   normalizeWorkspaceFileExplorerState,

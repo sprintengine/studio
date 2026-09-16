@@ -54,6 +54,7 @@ const fakeApi = installFakeApi()
 
 // Imported AFTER the fake window is installed.
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import { useNotificationStore } from '../store/notificationStore'
 import { initSprintEngineRuntimeBridge } from './sprintengineRuntimeBridge'
 import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
@@ -88,7 +89,7 @@ async function settle(): Promise<void> {
 // from the run name, so read the effective statePath back.
 function addSprintWorkspace(name: string, folderPath: string): { workspaceId: string; statePath: string } {
   const workspaceId = useWorkspaceStore.getState().addWorkspace(template, { name, folderPath })
-  useWorkspaceStore.getState().setSprintEngineState(
+  useSprintEngineRunStore.getState().setSprintEngineState(
     workspaceId,
     createInitialSprintEngineState({
       goal: 'Validate the runtime bridge',
@@ -139,7 +140,7 @@ async function main(): Promise<void> {
   assert.equal(fakeApi.registerCalls.length, 1, 'agent churn does not re-register')
 
   // ── A config change (maxConcurrentAgents) re-registers.
-  useWorkspaceStore.getState().setSprintEngineMaxConcurrentAgents(workspaceId, 5)
+  useSprintEngineRunStore.getState().setSprintEngineMaxConcurrentAgents(workspaceId, 5)
   await settle()
   assert.equal(fakeApi.registerCalls.length, 2, 'config change re-registers')
   assert.equal(fakeApi.registerCalls[1].maxConcurrentAgents, 5)
@@ -176,7 +177,7 @@ async function main(): Promise<void> {
   assert.equal(workspace()?.agents['architect-1']?.cliOnboardingPromptSent, true)
 
   // stop_reason: same transitions as a renderer stop, and NO push-back echo.
-  useWorkspaceStore.getState().setSprintEngineAutomationMode(workspaceId, 'run_agents')
+  useSprintEngineRunStore.getState().setSprintEngineAutomationMode(workspaceId, 'run_agents')
   assert.equal(workspace()?.sprintEngineAutoState?.runtimeState, 'running')
   fakeApi.broadcastOp({
     kind: 'stop_reason',
@@ -209,7 +210,7 @@ async function main(): Promise<void> {
 
   // ── Lifecycle rides re-registrations: the blocked state above is visible to
   // the scheduler the next time identity/config re-registers.
-  useWorkspaceStore.getState().setSprintEngineMaxConcurrentAgents(workspaceId, 4)
+  useSprintEngineRunStore.getState().setSprintEngineMaxConcurrentAgents(workspaceId, 4)
   await settle()
   assert.equal(fakeApi.registerCalls.length, 3, 'config change re-registers')
   assert.equal(fakeApi.registerCalls[2].runtimeState, 'blocked', 'persisted lifecycle rides the registration')

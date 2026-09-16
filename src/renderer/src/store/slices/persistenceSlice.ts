@@ -27,7 +27,7 @@ import {
   normalizeSprintEngineRoleCliDefaults,
   normalizeSprintEngineWorkspaceContext,
   reconcileSprintEngineAgents,
-} from './runStateSlice'
+} from '../../modules/sprint-engine-run-state'
 import {
   defaultAppSettings,
   normalizeAppSettings,

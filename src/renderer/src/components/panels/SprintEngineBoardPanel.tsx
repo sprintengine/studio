@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { useSprintEngineRunStore } from '../../modules/sprint-engine-run-store'
 import {
   selectSprintEngineView,
   useSprintEngineViewStore,
@@ -593,7 +594,7 @@ export default function SprintEngineBoardPanel(props: Props) {
  const workspace = useWorkspaceStore(
  (s) => s.workspaces.find((w) => w.id === props.workspaceId) ?? null
  )
- const applyState = useWorkspaceStore((s) => s.setSprintEngineState)
+ const applyState = useSprintEngineRunStore((s) => s.setSprintEngineState)
  const handle = useMemo(
  () => (workspace ? sprintRunHandleFromWorkspace(workspace, applyState) : null),
  [workspace, applyState],
@@ -686,12 +687,12 @@ export function SprintRunBoard({
   const workspace = useWorkspaceStore((s) =>
     handle.workspaceId ? s.workspaces.find((w) => w.id === handle.workspaceId) ?? null : null,
   )
-  const setSprintEngineAutomationMode = useWorkspaceStore((s) => s.setSprintEngineAutomationMode)
-  const applySprintEngineAutomationEvent = useWorkspaceStore((s) => s.applySprintEngineAutomationEvent)
-  const setSprintEngineCliPermissionPreset = useWorkspaceStore((s) => s.setSprintEngineCliPermissionPreset)
- const addSprintEngineMember = useWorkspaceStore((s) => s.addSprintEngineMember)
- const setSprintEngineMaxConcurrentAgents = useWorkspaceStore((s) => s.setSprintEngineMaxConcurrentAgents)
- const consumeSprintEngineInitialSpawns = useWorkspaceStore((s) => s.consumeSprintEngineInitialSpawns)
+  const setSprintEngineAutomationMode = useSprintEngineRunStore((s) => s.setSprintEngineAutomationMode)
+  const applySprintEngineAutomationEvent = useSprintEngineRunStore((s) => s.applySprintEngineAutomationEvent)
+  const setSprintEngineCliPermissionPreset = useSprintEngineRunStore((s) => s.setSprintEngineCliPermissionPreset)
+ const addSprintEngineMember = useSprintEngineRunStore((s) => s.addSprintEngineMember)
+ const setSprintEngineMaxConcurrentAgents = useSprintEngineRunStore((s) => s.setSprintEngineMaxConcurrentAgents)
+ const consumeSprintEngineInitialSpawns = useSprintEngineRunStore((s) => s.consumeSprintEngineInitialSpawns)
  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
  const openFile = useWorkspaceStore((s) => s.openFile)
  const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)

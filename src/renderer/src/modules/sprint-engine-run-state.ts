@@ -2,38 +2,38 @@ import {
   buildSprintEngineAgentRosterForState,
   getNextSprintEngineAgentId,
   normalizeSprintEngineState,
-} from '../../utils/sprintengine'
-import { deriveSprintEngineAutomationMode } from '../../utils/sprintengineAutomation'
+} from '../utils/sprintengine'
+import { deriveSprintEngineAutomationMode } from '../utils/sprintengineAutomation'
 // Relocated to shared with MC-2160 so a main-composed sprint run carries the
 // identical automation block; re-exported below for existing import sites.
-import { normalizeSprintEngineAutoState } from '../../../../shared/sprintengine/automation-lifecycle'
-import { transitionSprintEngineAutomation } from '../../utils/sprintengineAutomationLifecycle'
-import { auditSprintEngineLifecycleTransition } from '../../utils/sprintengineAutomationAudit'
+import { normalizeSprintEngineAutoState } from '../../../shared/sprintengine/automation-lifecycle'
+import { transitionSprintEngineAutomation } from '../utils/sprintengineAutomationLifecycle'
+import { auditSprintEngineLifecycleTransition } from '../utils/sprintengineAutomationAudit'
 import {
   pushSprintEngineAutomationModeIntent,
   pushSprintEngineCliPermissionPresetIntent,
-} from '../../utils/sprintengineAutomationIntentClient'
+} from '../utils/sprintengineAutomationIntentClient'
 import {
   getSprintEngineDirectoryPath,
   getSprintEngineStateFilePath,
   slugifySprintEngineName,
-} from '../../utils/sprintengineStateFile'
+} from '../utils/sprintengineStateFile'
 import {
   defaultAgent,
   normalizeAgentState,
   pickWorkspaceAgentName,
-} from './agentsSlice'
+} from '../store/slices/agentsSlice'
 import {
   isSprintEngineManagedAgent,
   sprintEngineRosterAgentIds,
-} from '../../../../shared/sprintengine/agent-identity'
-import { sprintEngineTabsLayoutModel } from './layoutSlice'
-import { patchSprintEngineModuleState, sprintEngineRunContext, sprintEngineRunState, sprintEngineRoleDefaults } from './workspaceModuleState'
+} from '../../../shared/sprintengine/agent-identity'
+import { sprintEngineTabsLayoutModel } from '../store/slices/layoutSlice'
+import { patchSprintEngineModuleState, sprintEngineRunContext, sprintEngineRunState, sprintEngineRoleDefaults } from '../store/slices/workspaceModuleState'
 import {
   normalizeCliPermissionPreset,
   normalizeSprintEngineRunSettings,
   sprintEngineRunSettingsKey,
-} from './settingsSlice'
+} from '../store/slices/settingsSlice'
 import type {
   AgentState,
   AgentId,
@@ -49,7 +49,7 @@ import type {
   SprintEngineWorkspaceContext,
   Workspace,
   WorkspaceId,
-} from '../../types/workspace'
+} from '../types/workspace'
 
 export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
   desiredMode: 'manual',
@@ -68,11 +68,11 @@ export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
 // The role -> CLI map moved to shared with MC-2160 (main composes sprint
 // workspaces headlessly and normalizes the same map); re-exported so every
 // existing renderer import site is unchanged.
-import { normalizeSprintEngineRoleCliDefaults } from '../../../../shared/sprintengine/role-cli-defaults'
+import { normalizeSprintEngineRoleCliDefaults } from '../../../shared/sprintengine/role-cli-defaults'
 // One role -> CLI resolver for the whole app (MC-2160): creation and
 // roster-member addition used to hold near-identical copies that differed on
 // how a roleless seat keys.
-import { resolveSprintEngineRoleCli } from '../../../../shared/sprintengine/workspace-record'
+import { resolveSprintEngineRoleCli } from '../../../shared/sprintengine/workspace-record'
 
 export { normalizeSprintEngineRoleCliDefaults }
 
@@ -81,7 +81,7 @@ export { normalizeSprintEngineRoleCliDefaults }
 // to the shared Sprint Engine state module (sprint-runtime-ownership Phase 2:
 // the main-process auto-run planner resolves runtimes too); these re-exports
 // keep every existing import site working unchanged.
-import { resolveSprintEngineAgentRuntime } from '../../../../shared/sprintengine/state'
+import { resolveSprintEngineAgentRuntime } from '../../../shared/sprintengine/state'
 export { normalizeSprintEngineAutoState }
 
 function createSprintEngineWorkspaceContext(

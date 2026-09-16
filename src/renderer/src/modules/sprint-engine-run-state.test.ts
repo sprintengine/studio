@@ -1,18 +1,19 @@
 import assert from 'node:assert/strict'
 
-import type { LayoutTemplate, Workspace } from '../../types/workspace'
-import { buildSprintEngineAgentRosterForState, createInitialSprintEngineState } from '../../utils/sprintengine'
-import { useWorkspaceStore } from '../workspaceStore'
-import { defaultAgent, defaultEditorState } from './agentsSlice'
+import type { LayoutTemplate, Workspace } from '../types/workspace'
+import { buildSprintEngineAgentRosterForState, createInitialSprintEngineState } from '../utils/sprintengine'
+import { useWorkspaceStore } from '../store/workspaceStore'
+import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
+import { defaultAgent, defaultEditorState } from '../store/slices/agentsSlice'
 import {
   createRunStateSlice,
   defaultSprintEngineAutoState,
   normalizeSprintEngineAutoState,
   normalizeSprintEngineRoleCliDefaults,
   reconcileSprintEngineAgents,
-} from './runStateSlice'
-import { sprintEngineRunSettingsKey } from './settingsSlice'
-import { getSprintEngineModuleState, sprintEngineRunContext, sprintEngineRunState } from './workspaceModuleState'
+} from './sprint-engine-run-state'
+import { sprintEngineRunSettingsKey } from '../store/slices/settingsSlice'
+import { getSprintEngineModuleState, sprintEngineRunContext, sprintEngineRunState } from '../store/slices/workspaceModuleState'
 
 const standardTemplate: LayoutTemplate = {
   id: 'run-state-standard',
@@ -319,16 +320,16 @@ const storeWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTempl
   name: 'Run State Store',
   folderPath: '/repo/store',
 })
-useWorkspaceStore.getState().setSprintEngineState(storeWorkspaceId, sprintState)
-useWorkspaceStore.getState().setSprintEngineAutomationMode(storeWorkspaceId, 'run_agents_and_approve_artifacts')
+useSprintEngineRunStore.getState().setSprintEngineState(storeWorkspaceId, sprintState)
+useSprintEngineRunStore.getState().setSprintEngineAutomationMode(storeWorkspaceId, 'run_agents_and_approve_artifacts')
 const originalDateNow = Date.now
 Date.now = () => 1780801560320
 try {
-  useWorkspaceStore.getState().setSprintEngineCliPermissionPreset(storeWorkspaceId, 'bypass')
+  useSprintEngineRunStore.getState().setSprintEngineCliPermissionPreset(storeWorkspaceId, 'bypass')
 } finally {
   Date.now = originalDateNow
 }
-useWorkspaceStore.getState().setSprintEngineCompletionTeardownAt(storeWorkspaceId, 4321)
+useSprintEngineRunStore.getState().setSprintEngineCompletionTeardownAt(storeWorkspaceId, 4321)
 assert.equal(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)
     ?.sprintEngineAutoState?.completionTeardownAt,
@@ -336,13 +337,13 @@ assert.equal(
 )
 // The marker must survive a projection write (setSprintEngineState re-normalizes
 // the auto state on every poll).
-useWorkspaceStore.getState().setSprintEngineState(storeWorkspaceId, sprintState)
+useSprintEngineRunStore.getState().setSprintEngineState(storeWorkspaceId, sprintState)
 assert.equal(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)
     ?.sprintEngineAutoState?.completionTeardownAt,
   4321,
 )
-useWorkspaceStore.getState().setSprintEngineCompletionTeardownAt(storeWorkspaceId, undefined)
+useSprintEngineRunStore.getState().setSprintEngineCompletionTeardownAt(storeWorkspaceId, undefined)
 assert.equal(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)
     ?.sprintEngineAutoState?.completionTeardownAt,
@@ -384,14 +385,14 @@ const noopWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTempla
   name: 'No-op Projection',
   folderPath: '/repo/noop',
 })
-useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, sprintState)
+useSprintEngineRunStore.getState().setSprintEngineState(noopWorkspaceId, sprintState)
 const afterFirstSet = useWorkspaceStore.getState().workspaces
 const noopWorkspaceAfterFirstSet = afterFirstSet.find((workspace) => workspace.id === noopWorkspaceId)
 assert.ok(sprintEngineRunState(noopWorkspaceAfterFirstSet!), 'sprint engine state should be applied')
 
 // Re-apply the identical state: array, workspace object, and nested projection
 // fields must all keep their identity so `useShallow`/array selectors skip.
-useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, sprintState)
+useSprintEngineRunStore.getState().setSprintEngineState(noopWorkspaceId, sprintState)
 const afterIdenticalSet = useWorkspaceStore.getState().workspaces
 assert.equal(
   afterIdenticalSet,
@@ -421,7 +422,7 @@ const changedSprintState = createInitialSprintEngineState({
   name: 'Run State Team',
   roleCounts: { frontend: 1, tester: 1 },
 })
-useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, changedSprintState)
+useSprintEngineRunStore.getState().setSprintEngineState(noopWorkspaceId, changedSprintState)
 const afterChangedSet = useWorkspaceStore.getState().workspaces
 assert.notEqual(
   afterChangedSet,
@@ -436,7 +437,7 @@ assert.equal(
 
 // Clearing the projection (normalized === null) must also move the reference and
 // reset mode to standard.
-useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, null)
+useSprintEngineRunStore.getState().setSprintEngineState(noopWorkspaceId, null)
 const afterClearSet = useWorkspaceStore.getState().workspaces
 assert.notEqual(
   afterClearSet,
@@ -448,7 +449,7 @@ assert.equal(sprintEngineRunState(noopWorkspaceAfterClear!), null, 'cleared proj
 assert.equal(noopWorkspaceAfterClear?.mode, 'standard', 'cleared projection should reset mode to standard')
 
 // Re-clearing an already-cleared projection is itself a no-op.
-useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, null)
+useSprintEngineRunStore.getState().setSprintEngineState(noopWorkspaceId, null)
 assert.equal(
   useWorkspaceStore.getState().workspaces,
   afterClearSet,

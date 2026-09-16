@@ -83,7 +83,7 @@ import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
 import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, removeAgentTab, removeNewAgentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
 import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
-import { DISABLE_SPRINTENGINE_AUTORUN, DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
+import { DISABLE_SPRINTENGINE_AUTORUN } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import {
@@ -91,8 +91,6 @@ import {
   type AgentComposerConnector,
   type AgentComposerSelection,
 } from './agentComposer/AgentComposer'
-import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
-import SprintEngineRunChangeSubscriber from './SprintEngineRunChangeSubscriber'
 // Always-on observer of background automation run events (raises run
 // notifications). Automations is no longer a workspace type, so the shell mounts
 // its global supervisor directly, gated on the automations module + primary
@@ -572,7 +570,6 @@ export default function WorkspaceManager() {
     (moduleId: string) => selectModuleEnabled(moduleEnablement, moduleId),
     [moduleEnablement],
   )
-  const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
   const firstRunCliCardDismissed = useWorkspaceStore((s) => s.appSettings.firstRunCliCardDismissed)
   const dismissFirstRunCliCard = useWorkspaceStore((s) => s.dismissFirstRunCliCard)
@@ -4524,23 +4521,6 @@ export default function WorkspaceManager() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-canvas)] text-[color:var(--text-strong)]">
-      {sprintEngineEnabled && !DISABLE_SPRINTENGINE_SYNC ? (
-        // Projection sync consumes active-window/workspace identity from the shell,
-        // so it remains the known propful exception to zero-prop supervisor contributions.
-        <SprintEngineProjectionSupervisor
-          activeWorkspaceId={windowActiveWorkspaceId}
-          workspaceIds={workspaces.map((workspace) => workspace.id)}
-        />
-      ) : null}
-      {sprintEngineEnabled && !DISABLE_SPRINTENGINE_SYNC ? (
-        // Merge-state polling itself is MAIN's (MC-2155): it spawns a `gh`
-        // subprocess, must run with no window open, and having one owner in main
-        // is what keeps a second window from doubling the probes. What is left
-        // here is display — pulling a run main re-probed into THIS window's store
-        // when the projection poll above has already quiesced on it. Per window,
-        // not a global-owner singleton: every window's store needs the read.
-        <SprintEngineRunChangeSubscriber workspaceIds={workspaces.map((workspace) => workspace.id)} />
-      ) : null}
       {workspaceTypeSupervisors.map((supervisor) => (
         <WorkspaceTypeSupervisorHost key={supervisor.key} supervisor={supervisor} />
       ))}

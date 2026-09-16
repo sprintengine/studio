@@ -14,7 +14,7 @@ import {
   normalizeAgentState,
 } from './agentsSlice'
 import { defaultWorkspaceMemoryConfig } from './memorySlice'
-import { defaultSprintEngineAutoState } from './runStateSlice'
+import { defaultSprintEngineAutoState } from '../../modules/sprint-engine-run-state'
 import { defaultWorkspaceWorktreeState } from './worktreesSlice'
 
 const standardTemplate: LayoutTemplate = {

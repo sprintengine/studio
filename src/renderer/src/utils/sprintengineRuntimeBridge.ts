@@ -37,7 +37,8 @@ import {
 } from '../../../shared/agent-cli-resume'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { useNotificationStore } from '../store/notificationStore'
-import { normalizeSprintEngineAutoState } from '../store/slices/runStateSlice'
+import { normalizeSprintEngineAutoState } from '../modules/sprint-engine-run-state'
+import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import {
   isSprintEngineManagedAgent,
   sprintEngineRosterAgentIds,
@@ -139,6 +140,7 @@ function registrationSignature(registration: SprintRuntimeRunRegistration): stri
  *  dispatch, no push back to main (the no-echo rule). */
 function applyRuntimeOp(op: SprintRuntimeOp, workspaceId: string): void {
   const store = useWorkspaceStore.getState()
+  const run = useSprintEngineRunStore.getState()
   switch (op.kind) {
     case 'agent_updated':
       store.updateAgent(workspaceId, op.agentId, op.update)
@@ -165,7 +167,7 @@ function applyRuntimeOp(op: SprintRuntimeOp, workspaceId: string): void {
       })
       return
     case 'notification_delivered':
-      store.markSprintEngineAgentNotificationDelivered(workspaceId, op.eventKey)
+      run.markSprintEngineAgentNotificationDelivered(workspaceId, op.eventKey)
       return
     case 'folder_missing':
       store.setFolderMissing(workspaceId, op.missing)
@@ -176,13 +178,13 @@ function applyRuntimeOp(op: SprintRuntimeOp, workspaceId: string): void {
       applySprintEngineAutomationStopReason(workspaceId, op.reason, op.context ?? {}, { origin: 'main' })
       return
     case 'roster_session_recorded':
-      store.upsertSprintEngineRosterSession(workspaceId, op.agentId, op.session)
+      run.upsertSprintEngineRosterSession(workspaceId, op.agentId, op.session)
       return
     case 'automation_resumed':
       // Main resumed a blocked run itself (a needs_input resolution lifted
       // the blocker): apply the same runner_started transition the board's
       // Resume control uses. Store action only — no push back to main.
-      store.applySprintEngineAutomationEvent(workspaceId, { type: 'runner_started' })
+      run.applySprintEngineAutomationEvent(workspaceId, { type: 'runner_started' })
       return
     case 'worker_retired':
       // Renderer-side completion of a main-side retirement: remove the
@@ -197,7 +199,7 @@ function applyRuntimeOp(op: SprintRuntimeOp, workspaceId: string): void {
       ).catch(() => undefined)
       return
     case 'completion_teardown_at':
-      store.setSprintEngineCompletionTeardownAt(workspaceId, op.at)
+      run.setSprintEngineCompletionTeardownAt(workspaceId, op.at)
       return
     case 'diagnostic':
       // Main already wrote the JSONL — this window only surfaces the entry,

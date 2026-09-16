@@ -1,3 +1,4 @@
+import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { WorkspaceId } from '../types/workspace'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
@@ -55,6 +56,7 @@ export function applySprintEngineAutomationStopReason(
   options: { origin?: 'renderer' | 'main' } = {},
 ): void {
   const store = useWorkspaceStore.getState()
+  const run = useSprintEngineRunStore.getState()
   const workspace = store.workspaces.find((ws) => ws.id === workspaceId)
   const mode = deriveSprintEngineAutomationMode(workspace?.sprintEngineAutoState)
   const origin = options.origin ?? 'renderer'
@@ -64,7 +66,7 @@ export function applySprintEngineAutomationStopReason(
   }
 
   if (reason === 'user_manual_toggle') {
-    store.setSprintEngineAutomationMode(workspaceId, 'manual', {
+    run.setSprintEngineAutomationMode(workspaceId, 'manual', {
       reason: context.message ?? REASON_MESSAGES[reason],
       ...(context.details ? { details: context.details } : {}),
     })
@@ -74,7 +76,7 @@ export function applySprintEngineAutomationStopReason(
   if (mode === 'manual') return
 
   if (reason === 'blocked_on_external_input') {
-    store.applySprintEngineAutomationEvent(workspaceId, {
+    run.applySprintEngineAutomationEvent(workspaceId, {
       type: 'runner_blocked',
       message: context.message ?? REASON_MESSAGES[reason],
       ...(context.taskId ? { taskId: context.taskId } : {}),
@@ -82,7 +84,7 @@ export function applySprintEngineAutomationStopReason(
     })
     notifyMainScheduler()
   } else if (reason === 'all_tasks_done') {
-    store.applySprintEngineAutomationEvent(workspaceId, {
+    run.applySprintEngineAutomationEvent(workspaceId, {
       type: 'runner_complete',
       message: context.message ?? REASON_MESSAGES[reason],
     })
@@ -105,7 +107,7 @@ export function applySprintEngineAutomationStopReason(
       })
       return
     }
-    store.applySprintEngineAutomationEvent(workspaceId, {
+    run.applySprintEngineAutomationEvent(workspaceId, {
       type: 'runner_paused',
       reason: reason === 'agent_terminal_closed' ? 'terminal_closed' : 'workspace_removed',
       message: context.message ?? REASON_MESSAGES[reason],
@@ -114,7 +116,7 @@ export function applySprintEngineAutomationStopReason(
     })
     notifyMainScheduler()
   } else {
-    store.applySprintEngineAutomationEvent(workspaceId, {
+    run.applySprintEngineAutomationEvent(workspaceId, {
       type: 'runner_failed',
       reason: reason === 'folder_missing' ? 'folder_missing' : 'spawn_failed',
       message: context.message ?? REASON_MESSAGES[reason],

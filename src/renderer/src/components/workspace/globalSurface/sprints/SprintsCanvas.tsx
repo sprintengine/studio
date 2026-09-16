@@ -33,6 +33,7 @@ import {
   type SprintEngineRepoMergeRollup,
 } from '../../../../utils/sprintengine'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
+import { useSprintEngineRunStore } from '../../../../modules/sprint-engine-run-store'
 // The handle helpers come from the store slice, and the board itself is lazy: the
 // board module is the heaviest in the renderer, and the door must open on the
 // repositories strip and the rollup without waiting for it. `SprintRunBoard.tsx`
@@ -144,7 +145,7 @@ export function useSprintRunCanvas(run: SprintRunSummary | null): SprintRunCanva
   const residentWorkspace = useWorkspaceStore((store) =>
     residentWorkspaceId ? store.workspaces.find((w) => w.id === residentWorkspaceId) ?? null : null,
   )
-  const applyWorkspaceState = useWorkspaceStore((store) => store.setSprintEngineState)
+  const applyWorkspaceState = useSprintEngineRunStore((store) => store.setSprintEngineState)
   const workspaceHandle = useMemo(
     () => (residentWorkspace ? sprintRunHandleFromWorkspace(residentWorkspace, applyWorkspaceState) : null),
     [residentWorkspace, applyWorkspaceState],

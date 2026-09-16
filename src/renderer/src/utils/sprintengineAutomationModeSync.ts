@@ -29,6 +29,7 @@
 import type { SprintEngineAutomationChangedEvent } from '../../../shared/sprintengine/ipc-types'
 import type { SprintEngineAutomationIntentRecord } from '../../../shared/sprintengine/automation-intent'
 import type { SprintEngineCliPermissionPreset } from '../types/workspace'
+import { useSprintEngineRunStore } from '../modules/sprint-engine-run-store'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
 import {
@@ -68,13 +69,14 @@ function findWorkspaceIdForStatePath(statePath: string): string | null {
  */
 function adoptAuthoritativeRecord(workspaceId: string, event: SprintEngineAutomationChangedEvent): void {
   const store = useWorkspaceStore.getState()
+  const run = useSprintEngineRunStore.getState()
   const workspace = store.workspaces.find((ws) => ws.id === workspaceId)
   if (!workspace) return
   noteAppliedSprintEngineAutomationRevision(event.statePath, event.record.revision)
-  adoptAuthoritativeCliPermissionPreset(store, workspaceId, workspace, event.record)
+  adoptAuthoritativeCliPermissionPreset(run, workspaceId, workspace, event.record)
   const currentMode = deriveSprintEngineAutomationMode(workspace.sprintEngineAutoState)
   if (currentMode === event.record.desiredMode) return
-  store.setSprintEngineAutomationMode(workspaceId, event.record.desiredMode, {
+  run.setSprintEngineAutomationMode(workspaceId, event.record.desiredMode, {
     suppressMainSync: true,
     suppressManualAudit: true,
   })
@@ -96,7 +98,7 @@ function adoptAuthoritativeRecord(workspaceId: string, event: SprintEngineAutoma
  * write with no revision bump and no broadcast, so the echo dies there.
  */
 function adoptAuthoritativeCliPermissionPreset(
-  store: Pick<ReturnType<typeof useWorkspaceStore.getState>, 'setSprintEngineCliPermissionPreset'>,
+  store: Pick<ReturnType<typeof useSprintEngineRunStore.getState>, 'setSprintEngineCliPermissionPreset'>,
   workspaceId: string,
   workspace: { sprintEngineAutoState?: { cliPermissionPreset?: SprintEngineCliPermissionPreset } },
   record: SprintEngineAutomationIntentRecord,

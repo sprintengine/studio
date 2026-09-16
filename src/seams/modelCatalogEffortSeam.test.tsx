@@ -132,7 +132,7 @@ async function main(): Promise<void> {
     '../renderer/src/components/workspace/newWorkspace/cliRuntimeOptions'
   )
   const { CliModelPopoverSurface } = await import('../renderer/src/components/ui/CliModelPicker')
-  const { reconcileSprintEngineAgents } = await import('../renderer/src/store/slices/runStateSlice')
+  const { reconcileSprintEngineAgents } = await import('../renderer/src/modules/sprint-engine-run-state')
   const { createInitialSprintEngineState } = await import('../renderer/src/utils/sprintengine')
   const { buildAgentShellCommand, renderAgentLaunchArgv } = await import('../main/agent-launch-render')
   const { createPluginRegistry } = await import('../main/plugin-registry')
@@ -584,13 +584,15 @@ async function main(): Promise<void> {
       {
         name: 'Start Now Team',
         folderPath: '/repo/seam-start-now',
-        sprintEngineState: {
-          ...state,
-          // What run init wrote and the projection reads back — the single
-          // source of truth every later reconcile of this seat uses.
-          roleRuntimes: { architect: { cli: 'claude-code', model: 'claude-opus-5', reasoning: 'max' } },
+        sprintEngineModule: {
+          state: {
+            ...state,
+            // What run init wrote and the projection reads back — the single
+            // source of truth every later reconcile of this seat uses.
+            roleRuntimes: { architect: { cli: 'claude-code', model: 'claude-opus-5', reasoning: 'max' } },
+          },
+          roleCliDefaults: { architect: 'claude-code', developer: 'claude-code' },
         },
-        sprintEngineRoleCliDefaults: { architect: 'claude-code', developer: 'claude-code' },
         sprintEngineRoleModelOverrides: { architect: 'claude-opus-5' },
         sprintEngineInitialSpawnRoles: ['architect'],
       } as never,

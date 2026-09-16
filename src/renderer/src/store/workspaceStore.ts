@@ -13,14 +13,9 @@ import type {
   AgentState,
   AgentId,
   SprintEngineAutoState,
-  SprintEngineAutomationEvent,
-  SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
-  SprintEngineState,
-  SprintEngineWorkspaceContext,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
-  SprintEngineRosterSession,
   SprintEngineRoleCounts,
   SprintEngineRoleModelOverrides,
   AgentCli,
@@ -84,11 +79,10 @@ import {
   pickWorkspaceAgentName,
 } from './slices/agentsSlice'
 import {
-  createRunStateSlice,
   normalizeSprintEngineAutoState,
   normalizeSprintEngineRoleCliDefaults,
   normalizeSprintEngineWorkspaceContext,
-} from './slices/runStateSlice'
+} from '../modules/sprint-engine-run-state'
 import {
   createWorktreesSlice,
   defaultWorkspaceWorktreeState,
@@ -381,7 +375,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setActiveWorkspace: (id: WorkspaceId) => void
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
-  setSprintEngineContext: (id: WorkspaceId, sprintEngineContext: SprintEngineWorkspaceContext | null) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
   setFileExplorerFolderRole: (id: WorkspaceId, folderPath: string, role: WorkspaceFolderRole | null) => void
@@ -396,7 +389,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   /**
    * Write one module's entry in a workspace's per-module state bag (MC-1573);
    * null/undefined removes it. False for an unknown workspace or the reserved
-   * `sprintengine` key (single writer: setSprintEngineState).
+   * `sprintengine` key (single writer: the Sprint Engine run store).
    */
   setWorkspaceModuleState: (workspaceId: WorkspaceId, moduleId: string, state: unknown) => boolean
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
@@ -422,40 +415,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   upsertWorktreeEntry: (workspaceId: WorkspaceId, entry: WorktreeEntry) => void
   markWorktreeMissing: (workspaceId: WorkspaceId, worktreeId: string, missingAt?: number) => void
   removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
-  setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
-  setSprintEngineAutomationMode: (
-    workspaceId: WorkspaceId,
-    mode: SprintEngineAutomationMode,
-    options?: {
-      suppressManualAudit?: boolean
-      reason?: string
-      details?: string
-      // Set by the automation-mode sync subscriber when adopting an
-      // authoritative main broadcast (MC-1567): no push back to main.
-      suppressMainSync?: boolean
-    }
-  ) => void
-  applySprintEngineAutomationEvent: (
-    workspaceId: WorkspaceId,
-    event: SprintEngineAutomationEvent
-  ) => void
-  setSprintEngineCliPermissionPreset: (
-    workspaceId: WorkspaceId,
-    cliPermissionPreset: SprintEngineCliPermissionPreset
-  ) => void
-  setSprintEngineMaxConcurrentAgents: (workspaceId: WorkspaceId, maxConcurrentAgents: number) => void
-  upsertSprintEngineRosterSession: (
-    workspaceId: WorkspaceId,
-    agentId: AgentId,
-    session: SprintEngineRosterSession
-  ) => void
-  setSprintEngineCompletionTeardownAt: (workspaceId: WorkspaceId, at: number | undefined) => void
-  markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
-  addSprintEngineMember: (
-    workspaceId: WorkspaceId,
-    role: SprintEngineRoleId
-  ) => { id: AgentId; label: string } | null
-  consumeSprintEngineInitialSpawns: (workspaceId: WorkspaceId, agentIds?: AgentId[]) => AgentId[]
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
   importWorkspace: (ws: Workspace) => void
@@ -1273,7 +1232,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       ...createSettingsSlice(set),
       ...createLayoutSlice(set),
       ...createAgentsSlice(set),
-      ...createRunStateSlice(set),
       ...createWorktreesSlice(set),
       ...createMemorySlice(set),
       ...createPluginsSlice(set),

@@ -9,7 +9,7 @@ import {
   normalizeWorkspaceWorktreeState,
 } from './worktreesSlice'
 import { defaultWorkspaceMemoryConfig } from './memorySlice'
-import { defaultSprintEngineAutoState } from './runStateSlice'
+import { defaultSprintEngineAutoState } from '../../modules/sprint-engine-run-state'
 
 const standardTemplate: LayoutTemplate = {
   id: 'worktrees-slice-standard',
