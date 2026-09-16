@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
+import { compatStudioEnvEntry } from '../shared/studio-env'
 import {
   AGENT_STATE_HOOK_TAG,
   applyBackgroundWork,
@@ -90,14 +91,15 @@ async function runReporter(event: string): Promise<Record<string, unknown> | nul
   await new Promise<void>((res) => server.listen(socketPath, res))
   try {
     const child = spawn(process.execPath, [reporterPath, '--socket', socketPath], {
-      // MULTICODE_AGENT_STATE_SOCKET is pinned, not just --socket: the reporter
-      // reads env FIRST, so when this suite runs inside a studio agent
-      // terminal the inherited value would send the frame to the live app.
+      // The reporter reads SPRINTENGINE_AGENT_STATE_SOCKET first (legacy
+      // MULTICODE_* is the fallback), so when this suite runs inside a studio
+      // agent terminal the inherited live-app value would steal the frame.
+      // Pin both spellings; this is the same pair the app writes at launch.
       env: {
         ...process.env,
-        MULTICODE_AGENT_STATE_SOCKET: socketPath,
-        MULTICODE_AGENT_ID: 'agent-1',
-        MULTICODE_WORKSPACE_ID: 'ws-1',
+        ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', socketPath),
+        ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', 'agent-1'),
+        ...compatStudioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'ws-1'),
       },
       stdio: ['pipe', 'ignore', 'ignore'],
     })
@@ -1723,7 +1725,12 @@ async function run(): Promise<void> {
     const written = (await readStatusLine(world)).statusLine.command as string
     const out = await new Promise<string>((res, rej) => {
       const child = spawn('/bin/sh', ['-c', written], {
-        env: { ...process.env, MULTICODE_AGENT_ID: '', MULTICODE_AGENT_STATE_SOCKET: '', SHELL: '/bin/sh' },
+        env: {
+          ...process.env,
+          ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', ''),
+          ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', ''),
+          SHELL: '/bin/sh',
+        },
         stdio: ['pipe', 'pipe', 'ignore'],
       })
       let stdout = ''

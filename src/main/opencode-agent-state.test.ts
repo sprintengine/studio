@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { parseAgentStateFrame, renderAgentStatePluginTemplate, type AgentStateFrame } from './agent-state'
+import { compatStudioEnvEntry } from '../shared/studio-env'
 
 type ToolCall = { input: unknown; output: unknown }
 
@@ -138,10 +139,11 @@ async function run(): Promise<void> {
               ...process.env,
               // Always overridden: when this test runs inside a studio agent
               // session the launch env carries the LIVE app's socket, and
-              // inheriting it would send these frames to the real app.
-              MULTICODE_AGENT_STATE_SOCKET: socketPath,
-              MULTICODE_AGENT_ID: 'oc-agent',
-              MULTICODE_WORKSPACE_ID: 'oc-ws',
+              // inheriting it would send these frames to the real app. Both
+              // spellings: the plugin reads SPRINTENGINE_* first.
+              ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', socketPath),
+              ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', 'oc-agent'),
+              ...compatStudioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'oc-ws'),
             },
             stdio: ['ignore', 'inherit', 'inherit'],
           })
