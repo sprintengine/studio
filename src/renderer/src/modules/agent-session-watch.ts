@@ -17,7 +17,7 @@ export type ModuleAgentSessionView = {
   name: string | null
   /** Session kind, widened to string ('terminal', 'agent', …). */
   kind: string
-  /** Owning orchestration system tag (e.g. 'sprintengine'), when the session belongs to one. */
+  /** Owning orchestration system tag — a module id — when the session belongs to one. */
   system: string | null
   /** The owning execution's id within its system, when the session belongs to one. */
   executionId: string | null

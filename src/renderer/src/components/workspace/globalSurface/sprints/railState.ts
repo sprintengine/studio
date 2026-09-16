@@ -242,17 +242,24 @@ export type SprintRunOpenFailureCopy = {
  * read is PERMANENT and carries its own remedy (delete the directory, named once
  * in `detail`), so promising "usually temporary" and offering "Try again" is a
  * false affordance. Everything else really is usually a mid-write read.
+ *
+ * `noun` is the door's own word (`sprint` / `workflow`) so the Sprints half of
+ * this copy lives with that door and the Workflows half with the other — the
+ * kernel here is the two cases, not the product name.
  */
-export function sprintRunOpenFailureCopy(summary: SprintRunSummary): SprintRunOpenFailureCopy {
+export function sprintRunOpenFailureCopy(
+  summary: SprintRunSummary,
+  noun = 'sprint',
+): SprintRunOpenFailureCopy {
   if (summary.unknownKind === 'unsupported_store') {
     return {
-      title: 'This sprint can’t be opened by this version of Multicode.',
-      hint: 'Its run store is too old to read, and old stores are never upgraded. Delete the sprint’s folder and start it again — the path is in the details.',
+      title: `This ${noun} can’t be opened by this version of Multicode.`,
+      hint: `Its run store is too old to read, and old stores are never upgraded. Delete the ${noun}’s folder and start it again — the path is in the details.`,
       retryLabel: 'Check again',
     }
   }
   return {
-    title: 'Couldn’t open this sprint.',
+    title: `Couldn’t open this ${noun}.`,
     hint: 'Its run store is on disk but could not be read just now — this is usually temporary.',
     retryLabel: 'Try again',
   }
@@ -366,12 +373,6 @@ export function sprintDoorAttention(
   }
   return { waiting, running }
 }
-
-// Plain-language degraded copy for the canvas when the index itself could not be
-// read. Exported so the exact wording is locked by tests (quality-audit rule: a
-// failed read never reads as "no sprints").
-export const RUN_INDEX_ERROR_TITLE = 'Couldn’t load your sprints.'
-export const RUN_INDEX_ERROR_HINT = 'Your runs are still on disk — this is usually temporary.'
 
 // ── The rich row (door-rails-premium) ────────────────────────────────────────
 // The run doors' rows wear the app sidebar's shape — a project line with a

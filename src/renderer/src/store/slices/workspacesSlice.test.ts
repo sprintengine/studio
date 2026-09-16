@@ -4,8 +4,12 @@ import type { LayoutTemplate, Workspace, WorkspaceWindowState } from '../../type
 import { getEditorBuffer } from '../../utils/editorBuffers'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { useWorkspaceStore } from '../workspaceStore'
-import { useSprintEngineRunStore } from '../../modules/sprint-engine-run-store'
+import { bindSprintEngineRunStore, useSprintEngineRunStore } from '../../modules/sprint-engine-run-store'
 import { applySoloChatSeed, normalizeWorkspaceMode, workspaceFolderKey } from './workspacesSlice'
+
+bindSprintEngineRunStore((recipe) => {
+  useWorkspaceStore.setState(recipe as never)
+})
 
 const standardTemplate: LayoutTemplate = {
   id: 'standard-test',

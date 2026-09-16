@@ -6,7 +6,10 @@ import {
   normalizeSprintEngineState,
 } from '../../utils/sprintengine'
 import { moveEditorBuffer } from '../../utils/editorBuffers'
-import { composeSprintEngineWorkspaceFromModule } from '../../../../shared/sprintengine/workspace-record'
+import {
+  composeSprintEngineWorkspaceFromModule,
+  SPRINT_ENGINE_WORKSPACE_TYPE_ID,
+} from '../../../../shared/sprintengine/workspace-record'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
 import {
   decideWorkspaceSettlement,
@@ -111,11 +114,15 @@ export function workspaceFolderKey(value: string | null | undefined): string | n
   return normalized ? normalized.toLowerCase() : null
 }
 
+// `runProjection` is the LEGACY shape only: a persisted row that carried a run
+// projection but no mode string, from before the workspace type existed. The
+// type id comes from the module that registers it (MC-2577) rather than a mode
+// enum the shell compiles in, so core never mints the literal itself.
 export function normalizeWorkspaceMode(
   input: unknown,
   runProjection?: SprintEngineState | null
 ): WorkspaceMode {
-  if (runProjection) return 'sprintengine'
+  if (runProjection) return SPRINT_ENGINE_WORKSPACE_TYPE_ID
   if (typeof input === 'string' && input.trim().length > 0) return input
   return 'standard'
 }
@@ -1733,7 +1740,7 @@ export function createWorkspacesSlice(
       set((state) => {
         const id = nanoid()
         const runProjection = normalizeSprintEngineState(sprintEngineRunState(ws))
-        const mode = runProjection ? 'sprintengine' : ws.mode ?? 'standard'
+        const mode = runProjection ? SPRINT_ENGINE_WORKSPACE_TYPE_ID : ws.mode ?? 'standard'
         const agents = Object.fromEntries(
           Object.entries(ws.agents).map(([k, v]) => [
             k,

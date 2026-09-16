@@ -17,6 +17,11 @@ export const EXTENSIONS_BROWSE_DEEPLINK = 'extensions:browse'
 // nothing.
 const CONNECTORS_FOLDED_SETTINGS_TABS = ['mcps', 'skill-packs', 'extensions'] as const
 
+// The Settings tab that lists every module with its on/off switch. A module
+// that is installed but turned off is a toggle away, not an install, so the
+// absence surfaces route there rather than to the marketplace grid.
+export const MODULES_SETTINGS_TAB = 'modules'
+
 // The folded tab that asked for skills. It routes to the Skills rail row rather
 // than the marketplace grid the other two land on: the packs it named are gone,
 // but what it was asking for is exactly what Skills shows.

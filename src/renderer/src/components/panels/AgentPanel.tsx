@@ -14,6 +14,7 @@ import type {
 } from '../../types/workspace'
 import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
 import { isSprintEngineManagedAgent } from '../../../../shared/sprintengine/agent-identity'
+import { isSprintEngineWorkspace } from '../../utils/sprintEngineWorkspace'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { DISABLE_SPRINTENGINE_TERMINALS, SAFE_MODE } from '../../utils/runtimeFlags'
 import {
@@ -62,7 +63,7 @@ export function resolveAgentRuntimeKind(
 ): AgentRuntimeKind {
   if (!agent) return 'terminal'
   if (context.isSprintEngineAgent) return 'terminal'
-  if (context.workspaceMode === 'sprintengine') return 'terminal'
+  if (context.workspaceMode && isSprintEngineWorkspace({ mode: context.workspaceMode })) return 'terminal'
   if (isSprintEngineManagedAgent(agent)) return 'terminal'
   return normalizeAgentRuntime(agent).runtimeKind
 }
@@ -95,7 +96,9 @@ export default function AgentPanel({
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const label = agent?.name ?? agentId
-  const isSprintEngineAgent = workspaceMode === 'sprintengine' && Boolean(sprintEngineRuntimeRole)
+  const isSprintEngineAgent =
+    Boolean(workspaceMode && isSprintEngineWorkspace({ mode: workspaceMode }))
+    && Boolean(sprintEngineRuntimeRole)
   const sprintEngineTerminalBlocked = DISABLE_SPRINTENGINE_TERMINALS && isSprintEngineAgent
   const runtimeKind = resolveAgentRuntimeKind(agent, {
     isSprintEngineAgent,

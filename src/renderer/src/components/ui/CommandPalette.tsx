@@ -179,16 +179,6 @@ type Command = PaletteCommand
 // where they are composed instead of repeated on every literal.
 type UngroupedCommand = Omit<Command, 'group'>
 
-/**
- * Dispatch a panel command. Panel components listen on `window` for
- * `multicode:panel-command` events and run the local action that corresponds
- * to the command id. The id is `<panel>.<verb>.<noun>` so it matches the
- * overflow item / settings popover row of the same capability.
- */
-function dispatchPanelCommand(id: string) {
-  dispatchPanelCommandEvent(id)
-}
-
 interface Props {
   onClose: () => void
   /**
@@ -383,10 +373,6 @@ export default function CommandPalette({
   }, [onClose])
 
   const commands = useMemo((): Command[] => {
-    const runPanel = (id: string) => () => {
-      dispatchPanelCommand(id)
-      onClose()
-    }
     // A panel command is offered only when its scope is active and its runtime
     // preconditions are met — the exact predicate the keyboard dispatcher
     // applies. Rows that fail are dropped rather than left to silently no-op, so
@@ -395,22 +381,6 @@ export default function CommandPalette({
     // surfaces a real diagnostic if state changed between open and run.
     const panelCommandEnabled = (id: string): boolean =>
       isCommandIdEnabled(id, activeScopes, commandAvailability)
-    // verify-progress requires an architect on the roster and focus-agent
-    // requires a focusable running/waiting agent; both come through the shared
-    // availability context, so a row only appears when the shortcut would run.
-    const sprintEngineCommands: UngroupedCommand[] = [
-      { id: 'sprintengine.verify.progress', label: 'Sprint: Verify progress', run: runPanel('sprintengine.verify.progress') },
-      { id: 'sprintengine.add.role', label: 'Sprint: More roles', run: runPanel('sprintengine.add.role') },
-      { id: 'sprintengine.read.plan', label: 'Sprint: Read plan', run: runPanel('sprintengine.read.plan') },
-      { id: 'sprintengine.focus.agent', label: 'Sprint: Focus active agent', run: runPanel('sprintengine.focus.agent') },
-      { id: 'sprintengine.refresh.board', label: 'Sprint: Refresh board', run: runPanel('sprintengine.refresh.board') },
-      { id: 'sprintengine.goto.inbox', label: 'Sprint: Inbox', shortcut: shortcutFor('sprintengine.goto.inbox'), run: runPanel('sprintengine.goto.inbox') },
-      { id: 'sprintengine.goto.roster', label: 'Sprint: Agents', shortcut: shortcutFor('sprintengine.goto.roster'), run: runPanel('sprintengine.goto.roster') },
-      { id: 'sprintengine.goto.tasks', label: 'Sprint: Tasks', shortcut: shortcutFor('sprintengine.goto.tasks'), run: runPanel('sprintengine.goto.tasks') },
-      { id: 'sprintengine.goto.graph', label: 'Sprint: Tasks → Graph layout', shortcut: shortcutFor('sprintengine.goto.graph'), run: runPanel('sprintengine.goto.graph') },
-      { id: 'sprintengine.goto.kanban', label: 'Sprint: Tasks → Kanban layout', shortcut: shortcutFor('sprintengine.goto.kanban'), run: runPanel('sprintengine.goto.kanban') },
-      { id: 'sprintengine.open.settings', label: 'Sprint: Run configuration', shortcut: shortcutFor('sprintengine.open.settings'), run: runPanel('sprintengine.open.settings') },
-    ].filter((command) => panelCommandEnabled(command.id))
     // Git refresh/fetch/commit run the Git panel's real handlers; the shared
     // availability context (gitPanelActive) keeps them listed only while the Git
     // panel is open, so a selection cannot land on an unmounted handler. They are
@@ -503,7 +473,6 @@ export default function CommandPalette({
     const registryCommands: Command[] = [
       ...panelToggleCommands,
       ...gitCommands,
-      ...sprintEngineCommands,
       ...moduleCommands,
     ].map((command) => ({ ...command, group: 'commands' as const }))
 
@@ -520,7 +489,7 @@ export default function CommandPalette({
       // folder path rides `description` so typing a path filters here too,
       // preserving the sidebar's path matching.
       ...workspaces
-        .filter((workspace) => !isHiddenFromRail(workspace))
+        .filter((workspace) => !isHiddenFromRail(workspace, moduleEnablement))
         .map((workspace): Command => ({
           id: workspaceSwitchRowId(workspace.id),
           // The chat's own title, the way the sidebar lists it: the group

@@ -1686,7 +1686,12 @@ function buildReapCandidates(): ReapCandidate[] {
       Boolean(session.sprintEngineStatePath)
       && (activeSprintRunStatePaths.has(session.sprintEngineStatePath ?? '')
         || !isAtRestAgentPhase(session.agentState?.phase)),
-    managed: session.managed === true || Boolean(session.sprintEngineStatePath),
+    // Managed-ness is a module's claim on the session's lifetime, recorded at
+    // spawn from the launch contribution (MC-2577). Core no longer infers it
+    // from a run-state path: with the owning module absent or disabled nothing
+    // contributes the tag, and a spawn that still carries a stale path must not
+    // be treated as somebody's managed agent.
+    managed: session.managed === true,
     reapExempt: session.reapExempt === true,
     // Hook-reported self-scheduled wakeup (see ingestAgentStateFrame): a future
     // wake time holds the session in the pure policy.
@@ -3512,7 +3517,7 @@ async function spawnMobileAgentTerminal(input: {
         sprintEngineStatePath: input.sprintEngineStatePath,
         sprintEngineMcpRunId,
         sprintEngineRole: input.role,
-        managed: managed === true || Boolean(input.sprintEngineStatePath),
+        managed: managed === true,
         ...(reapExempt ? { reapExempt: true } : {}),
         executionMode: input.executionMode,
       worktreeId: input.worktreeId,
@@ -4009,7 +4014,7 @@ async function spawnTerminalFromIpc(
         sprintEngineStatePath,
         sprintEngineMcpRunId,
         sprintEngineRole: sprintEngineRoleForLaunch(agentSession?.role, agentId),
-        managed: managed === true || Boolean(sprintEngineStatePath),
+        managed: managed === true,
         ...(reapExempt ? { reapExempt: true } : {}),
         executionMode,
         worktreeId,

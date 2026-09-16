@@ -4,6 +4,7 @@ import type { HostedCard } from '../../../shared/hosted-card-feed'
 import type { AppNotification } from '../types/workspace'
 import {
   AUTOMATIONS_NOTIFICATION_SOURCES,
+  CORE_NOTIFICATION_SOURCE_ROWS,
   EXTENSIONS_NOTIFICATION_SOURCES,
   automationsRailBadge,
   extensionsRailBadge,
@@ -75,18 +76,33 @@ assert.equal(
 assert.equal(extensionsRowOfNotification(note({ source: 'cli' })), 'agent-clis')
 assert.equal(extensionsRowOfNotification(note({ source: 'models' })), 'agent-clis')
 assert.equal(extensionsRowOfNotification(note({ source: 'marketplace' })), 'plugins', 'the drift notice says "Open Plugins"')
-assert.equal(extensionsRowOfNotification(note({ source: 'sprintengine' })), 'sprints', 'an unnamed run notice falls to Sprints, as an unclassifiable run does')
+assert.equal(
+  extensionsRowOfNotification(note({ source: 'sprintengine' })),
+  null,
+  'core does not know the Sprints row — a door-badge contribution supplies the source map',
+)
+assert.equal(
+  extensionsRowOfNotification(note({ source: 'sprintengine' }), { sprintengine: 'sprints' }),
+  'sprints',
+  'an unnamed run notice falls to Sprints via the contributed source map',
+)
 assert.equal(extensionsRowOfNotification(note({ source: 'sprintengine', extensionsRow: 'workflows' })), 'workflows', 'an emitter that knows wins')
 assert.equal(extensionsRowOfNotification(note({ source: 'marketplace', extensionsRow: 'skills' })), 'skills')
 assert.equal(extensionsRowOfNotification(note({ source: 'marketplace', extensionsRow: 'nonsense' })), 'plugins', 'an unknown row name falls back to the source rule')
 assert.equal(extensionsRowOfNotification(note({ source: 'terminal' })), null, 'a terminal crash badges no row')
 assert.equal(extensionsRowOfNotification(note({ source: 'terminal', extensionsRow: 'design' })), 'design', 'any source may name a row')
+assert.equal(CORE_NOTIFICATION_SOURCE_ROWS.sprintengine, undefined, 'the core map has no run-door rows')
 
-const byRow = unreadByExtensionsRow([
-  ...list,
-  note({ id: 'g', source: 'cli', read: true }),
-  note({ id: 'h', source: 'sprintengine', extensionsRow: 'workflows' }),
-])
+const SPRINT_SOURCE_ROWS = { sprintengine: 'sprints' as const }
+
+const byRow = unreadByExtensionsRow(
+  [
+    ...list,
+    note({ id: 'g', source: 'cli', read: true }),
+    note({ id: 'h', source: 'sprintengine', extensionsRow: 'workflows' }),
+  ],
+  SPRINT_SOURCE_ROWS,
+)
 assert.deepEqual(
   Object.fromEntries(Object.entries(byRow).map(([row, rows]) => [row, rows.map((n) => n.id)])),
   { workflows: ['h'], sprints: ['d'], design: [], plugins: ['c'], skills: [], 'agent-clis': ['f'] },

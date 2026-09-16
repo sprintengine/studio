@@ -83,8 +83,28 @@ contracts, so a published version always matches the app version it ships with.
   open; `host.createWorkspace()` mints the row and `host.removeWorkspace(id)`
   takes it back, so a create that fails after minting leaves nothing behind,
   and `request.setStepValue` is where the failure goes — your step owns that
-  page's body. Absent ⇒ the hub creates from `createTemplate` directly),
+  page's body. Absent ⇒ the hub creates from `createTemplate` directly;
+  `createLabel` names the create control (picker, hub) and defaults to
+  `label`; `RowMark` is the glyph beside a sidebar row of this type;
+  `hasOnDiskState` / `onDiskStateDirectory` drive the shell's Delete-with-
+  on-disk-state confirm; `rowActions` are extra context-menu items on those
+  rows (`{ id, label, variant?, isVisible, confirm, run }`), gone with the
+  module, never a disabled core row; `hiddenFromRail` withholds workspaces
+  of this type from the Projects list, keyboard switch targets, and
+  command-palette results — hidden from discovery, still in the store and
+  explicitly activatable, the rail analog of `hiddenFromPicker`),
   `registerBacklogItemAction`, `registerBacklogLinkProvider`,
+  `registerFileAction` (a Files-tree context-menu action — sibling of
+  `registerBacklogItemAction` — `{ id, label, order?, getLabel?,
+  isVisible(context), getState(context), run(context) }` where `context` is
+  `{ workspaceId, workspaceRoot, entries }` and each entry is `{ name, path,
+  isDir, gitDeleted? }`; the explorer renders visible contributions from
+  enabled modules under a heading named for the module, gone with it, never
+  a disabled core row; duplicate ids are a registration error),
+  `registerNotificationActionProvider` (Open actions for bell rows of
+  `provider.source`; one provider per source; `resolveActions` receives
+  `{ notification: { workspaceId?, navigationTarget? }, revealWorkspace }`
+  and returning none leaves the shell's generic workspace-reveal fallback),
   `registerCommand` (registered id is namespaced `<moduleId>.<id>`; scope
   `panel:<moduleId>` activates while a workspace of your module's mode is
   active, and `availability` accepts a predicate over the published
@@ -94,12 +114,15 @@ contracts, so a published version always matches the app version it ships with.
   panel-targeted dispatch is a
   `multicode:panel-command` CustomEvent from your `run()`),
   `registerSettingsSection` (values persist in the module's own
-  `module:<id>` settings namespace), `registerSidebarNavEntry` (an
+  `module:<id>` settings namespace),   `registerSidebarNavEntry` (an
   instance-level door in the workspace sidebar's top-nav cluster — a
   `SidebarNavEntryDefinition` of `{ id, order, Component }`; the door shows
   only while your module is enabled and sits at its `order`, so the module
   toggle adds/removes it without a reload, and the row acts on the local
-  window's store), `registerGlobalSurface` (the full-page surface behind
+  window's store), `registerDoorBadge` (the waiting-count a drawer / nav-entry
+  row wears — `{ rowId, getWaitingCount, subscribe, notificationSource? }`;
+  the shell merges it with that row's unread news; duplicate `rowId` is a
+  registration error; gone with the module), `registerGlobalSurface` (the full-page surface behind
   that door — a `GlobalSurfaceDefinition` of `{ id, Component }` whose `id`
   matches the one the nav entry opens; a global surface is a first-class,
   instance-global extension point needing no workspace type, panel, or
@@ -225,6 +248,13 @@ valid for the app):
   shell-only fields.
 - `MainHost.ipcMain` is typed `unknown` to keep the SDK Electron-free.
 - `BacklogItemActionContext` omits the shell-internal `startSourcePlan` hook.
+- `FileActionContext` omits the same shell-internal `startSourcePlan` hook
+  (the explorer passes it in-app so an in-tree consumer can open the
+  new-sprint flow; an extracted module opens that flow through its own
+  `registerModalSurface` / `createWorkspace` instead).
+- `NotificationActionContext.notification` is the published
+  `{ workspaceId?, navigationTarget? }` view; the shell passes a richer
+  in-app notification.
 
 ## Building a module
 

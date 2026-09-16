@@ -2350,7 +2350,7 @@ export function SprintRunBoard({
  id: 'refresh',
  label: 'Refresh board',
  onSelect: () => void refreshSprintEngineState(),
- shortcut: shortcutFor('sprintengine.refresh.board'),
+ shortcut: shortcutFor('sprint-engine.refresh.board'),
  disabled: !folderPath || manualRefreshBusy,
  })
  if (focusAgent && showFocusAgentAction) {

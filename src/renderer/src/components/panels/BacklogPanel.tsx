@@ -70,6 +70,7 @@ import {
   sprintEngineRunLinkForItem,
 } from '../../utils/sprintengineBacklogLinks'
 import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
+import { isSprintEngineWorkspace } from '../../utils/sprintEngineWorkspace'
 import { BacklogHandToAgentButton, BacklogOpenAgentButton } from '../backlog/BacklogHandToAgentButton'
 import { overflowItemsForBacklogModuleActions } from '../backlog/backlogModuleActions'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
@@ -147,7 +148,7 @@ import {
 } from '../backlog/BacklogRow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { BacklogItemAction, BacklogItemActionContext, BacklogLinkProvider, WorkspacePanelProps } from '../../modules/renderer-host'
-import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
+import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 
 
 // Backlog panel: capture / browse / triage / start surface for the lightweight
@@ -249,7 +250,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const sprintEngineWorkspaces = useWorkspaceStore(
     useShallow((state) =>
       state.workspaces.filter(
-        (workspace) => workspace.mode === 'sprintengine' || Boolean(sprintEngineRunContext(workspace)),
+        (workspace) => isSprintEngineWorkspace(workspace),
       ),
     ),
   )

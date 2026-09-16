@@ -750,8 +750,8 @@ export function migratePersistedWorkspaceState(
   if (version < 49) {
     // The SE board tabset's FlexLayout tab strip is redundant once the
     // workspace top bar carries the icon segmented nav. Stamp
-    // enableTabStrip: false onto the tabset that wraps the 'sprintengine'
-    // board in existing layouts without rewriting custom arrangements.
+    // enableTabStrip: false onto the tabset that wraps the sprint board tab
+    // in existing layouts without rewriting custom arrangements.
     mapMigrationWorkspaces(migrationState, (ws) => {
       const next = hideSprintEngineBoardTabStrip(ws.layoutModel)
       return next ? { ...ws, layoutModel: next } : ws

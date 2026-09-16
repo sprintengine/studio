@@ -88,6 +88,7 @@ import {
   type SelectItem,
 } from '../../ui'
 import { Modal } from '../../ui/Modal'
+import { ClaimModalSurfaceBar } from '../globalSurface/GlobalSurfaceShell'
 import { CheckIcon } from '../../AppIcons'
 import { NoWorkflowRolesNotice } from '../../NoWorkflowRolesNotice'
 import { workflowRolesInstalled } from '../../../../../shared/workflow-roles'
@@ -198,6 +199,7 @@ export default function NewSprintDialog({
   projectOptions,
   workspaceWindowId,
   onClose,
+  embedded = false,
 }: {
   /** Project the dialog opens scoped to; null falls back to the first option. */
   initialFolderPath: string | null
@@ -208,6 +210,13 @@ export default function NewSprintDialog({
   projectOptions: NewSprintDialogProject[]
   workspaceWindowId: WorkspaceWindowId
   onClose: () => void
+  /**
+   * The shell already wraps this body in its modal (`registerModalSurface`).
+   * Skip the inner Modal, claim the host bar so it does not double the
+   * PanelHeader, and intercept Escape on the roster screen before the
+   * host Modal treats it as close.
+   */
+  embedded?: boolean
 }): JSX.Element {
   const [folderPath, setFolderPath] = useState<string | null>(
     initialSource?.folderPath ?? initialFolderPath ?? projectOptions[0]?.path ?? null,
@@ -743,6 +752,20 @@ export default function NewSprintDialog({
     else onClose()
   }, [onClose])
 
+  useEffect(() => {
+    if (!embedded) return undefined
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (creatingItemRef.current) return
+      if (prevScreenRef.current !== 'roster') return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      setScreen('sprint')
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [embedded])
+
   // --- start --------------------------------------------------------------
   const canStart = Boolean(
     source && folderPath && runName && !creating && (noRoles || (rolesLoaded && packInstalled)),
@@ -960,14 +983,7 @@ export default function NewSprintDialog({
           trouble. All of that is the primitive's now (MC-2110); what stays here
           is what is actually the New sprint dialog: its two screens, its
           Enter-to-start, and its header. */}
-      <Modal
-        open
-        onClose={onClose}
-        onEscape={handleEscape}
-        label="New sprint"
-        size="workbench"
-        layout="panel"
-      >
+      <NewSprintDialogShell embedded={embedded} onClose={onClose} onEscape={handleEscape}>
         <div
           ref={dialogRef}
           tabIndex={-1}
@@ -1426,7 +1442,7 @@ export default function NewSprintDialog({
             )}
           </footer>
         </div>
-      </Modal>
+      </NewSprintDialogShell>
       {/* The shared New-item capture, stacked as a sibling of the dialog — not
           inside it — so its keystrokes never reach the dialog's Enter-to-start
           handler and its own trap keeps its own cycle. */}
@@ -1440,6 +1456,39 @@ export default function NewSprintDialog({
         />
       ) : null}
     </>
+  )
+}
+
+function NewSprintDialogShell({
+  embedded,
+  onClose,
+  onEscape,
+  children,
+}: {
+  embedded: boolean
+  onClose: () => void
+  onEscape: () => void
+  children: React.ReactNode
+}): JSX.Element {
+  if (embedded) {
+    return (
+      <>
+        <ClaimModalSurfaceBar />
+        {children}
+      </>
+    )
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      onEscape={onEscape}
+      label="New sprint"
+      size="workbench"
+      layout="panel"
+    >
+      {children}
+    </Modal>
   )
 }
 

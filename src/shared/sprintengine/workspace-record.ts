@@ -35,6 +35,8 @@ import {
 
 /** The module id the canonical `moduleState` entry is keyed by. */
 export const SPRINT_ENGINE_WORKSPACE_MODULE_ID = 'sprintengine'
+/** The registered workspace type id (`Workspace.mode`) and board panel id. */
+export const SPRINT_ENGINE_WORKSPACE_TYPE_ID = SPRINT_ENGINE_WORKSPACE_MODULE_ID
 
 /**
  * The `moduleState.sprintengine` bag entry (MC-2573). Durable identity

@@ -117,6 +117,10 @@ const workspaceManager = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/workspace/WorkspaceManager.tsx'),
   'utf8',
 )
+const newSprintOpen = readFileSync(
+  join(process.cwd(), 'src/renderer/src/modules/sprint-engine-new-sprint.ts'),
+  'utf8',
+)
 
 function shellRegion(startAnchor: string, endAnchor: string): string {
   const start = workspaceManager.indexOf(startAnchor)
@@ -126,19 +130,21 @@ function shellRegion(startAnchor: string, endAnchor: string): string {
   return workspaceManager.slice(start, end)
 }
 
-// The New sprint dialog is the one creation surface (the wizard hub retired
-// 2026-09-04), and every route out of it releases the claim.
-const dialogClose = shellRegion('const closeNewSprintDialog = useCallback(', '}, [])')
-assert.match(dialogClose, /releaseSprintCreationDoorClaim\(\)/, 'closing the dialog releases the door claim')
-
-const dialogOpen = shellRegion('const openNewSprintDialog = useCallback(', 'const openSettings = useCallback(')
-assert.match(dialogOpen, /releaseSprintCreationDoorClaim\(\)/, 'opening the dialog resets the claim to whoever opened this one')
+// Opening the New sprint modal from the module helper releases whatever
+// claim came before, and leaving the modal (the WorkspaceManager effect
+// cleanup when the surface id changes) releases it again.
+assert.match(newSprintOpen, /releaseSprintCreationDoorClaim\(\)/, 'opening the dialog resets the claim to whoever opened this one')
+assert.match(
+  workspaceManager,
+  /activeModalSurface !== SPRINT_ENGINE_NEW_MODAL_ID[\s\S]*releaseSprintCreationDoorClaim\(\)/,
+  'closing the dialog releases the door claim',
+)
 
 // The door asks, the dialog opens, THEN the door claims — so the claim always
 // belongs to the dialog the operator is looking at.
 const doorRequest = shellRegion('subscribeNewSprintRequests((source, door) => {', '}),')
 assert.ok(
-  doorRequest.indexOf('openNewSprintDialog()') < doorRequest.indexOf('claimSprintCreationForDoor(door)'),
+  doorRequest.indexOf('openSprintEngineNewSprint()') < doorRequest.indexOf('claimSprintCreationForDoor(door)'),
   'the door claims after the dialog it asked for has opened',
 )
 assert.match(

@@ -343,15 +343,13 @@ async function main(): Promise<void> {
     for (const id of ['design', 'extensions']) {
       assert.ok(host.getGlobalSurface(id)?.Icon, `the ${id} door offers a glyph for its drawer row`)
     }
-    // No bundled module registers a modal surface any more, so the registry —
-    // and the contributed pane-launcher rows that ride on it — are empty in a
-    // stock build. That empty case is the one every launcher consumer has to
-    // survive: composePaneKinds keeps the static rows, and no chrome invents a
-    // row for a surface nothing registered.
+    // The New-sprint dialog is a module modal (MC-2577). It declares no
+    // pane launcher — opening it is the type's createWorkspace / command —
+    // so the contributed launcher list stays empty in a stock build.
     assert.deepEqual(
       host.getModalSurfaces().map((surface) => [surface.id, surface.label] as const),
-      [],
-      'the modal registry is empty (Settings is core and never registered; Reviews is an installable module now)',
+      [['sprint-engine-new', 'New sprint']],
+      'New sprint is the bundled module modal; Settings is core and never registered',
     )
     assert.deepEqual(
       host.getModalSurfaceLaunchers(),
@@ -378,6 +376,10 @@ async function main(): Promise<void> {
     assert.ok(
       !host.getGlobalSurfaces(withoutSprintEngine).some((surface) => surface.id === 'workflows'),
       'and so does the Workflows surface',
+    )
+    assert.ok(
+      !host.getDoorBadges(withoutSprintEngine).some((badge) => badge.rowId === 'sprints' || badge.rowId === 'workflows'),
+      'waiting counts for both run doors leave with the module',
     )
     // The same gating for a drawer door, from its own module id: the Design row
     // and its page leave with the design module (registering a surface from a

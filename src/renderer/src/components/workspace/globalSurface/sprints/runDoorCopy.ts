@@ -39,6 +39,8 @@ export type RunDoorDefinition = {
   selectPromptTitle: string
   /** The canvas's first read. */
   loadingLabel: string
+  /** Why the canvas failed to read the run index — per door, never a shared "sprints" string. */
+  indexError: { title: string; hint: string }
 }
 
 export const WORKFLOWS_DOOR: RunDoorDefinition = {
@@ -61,6 +63,10 @@ export const WORKFLOWS_DOOR: RunDoorDefinition = {
   filteredOutTitle: 'No workflows match. Clear the search or pick All projects to see the rest.',
   selectPromptTitle: 'Select a workflow to see where it stands.',
   loadingLabel: 'Loading your workflows…',
+  indexError: {
+    title: 'Couldn’t load your workflows.',
+    hint: 'Your runs are still on disk — this is usually temporary.',
+  },
 }
 
 export const SPRINTS_DOOR: RunDoorDefinition = {
@@ -83,4 +89,8 @@ export const SPRINTS_DOOR: RunDoorDefinition = {
   filteredOutTitle: 'No sprints match. Clear the search or pick All projects to see the rest.',
   selectPromptTitle: 'Select a sprint to see where it stands.',
   loadingLabel: 'Loading your sprints…',
+  indexError: {
+    title: 'Couldn’t load your sprints.',
+    hint: 'Your runs are still on disk — this is usually temporary.',
+  },
 }

@@ -10,7 +10,6 @@ import { collapseDuplicateKeybindings } from '../commands/keybindings'
 import type { CommandAvailability, CommandContribution, CommandScope, ModuleCommandContext } from '../commands/types'
 import type {
   AppNotification,
-  DiagnosticSource,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
 } from '../types/workspace'
@@ -68,6 +67,41 @@ export type WorkspaceTypeSupervisorComponent =
 export type WorkspaceTypeSupervisor = {
   Component: WorkspaceTypeSupervisorComponent
   scope: WorkspaceTypeSupervisorScope
+}
+
+/** Confirm copy for a type-contributed sidebar row action. */
+export type WorkspaceTypeRowActionConfirm = {
+  title: string
+  body: string
+  confirmLabel: string
+  cancelLabel?: string
+}
+
+/**
+ * The workspace fields a type's sidebar status hooks may read. The shell
+ * passes a richer row (session auto-state, agents) — this is the published
+ * identity plus the module bag.
+ */
+export type WorkspaceTypeSidebarWorkspace = {
+  id: string
+  name: string
+  mode: WorkspaceRunGlyphProviderInput['mode']
+  moduleState?: WorkspaceRunGlyphProviderInput['moduleState']
+  sprintEngineAutoState?: WorkspaceRunGlyphProviderInput['sprintEngineAutoState']
+}
+
+/**
+ * Extra context-menu item on a sidebar row of this type. Gone with the
+ * module; never a disabled core row. `confirm` opens the shell's confirm
+ * modal before `run`.
+ */
+export type WorkspaceTypeRowAction = {
+  id: string
+  label: string
+  variant?: 'danger'
+  isVisible?: (workspace: WorkspaceTypeSidebarWorkspace) => boolean
+  confirm?: (workspace: { name: string }) => WorkspaceTypeRowActionConfirm
+  run: (workspaceId: string) => void | Promise<void>
 }
 
 // A module-owned config step in the workspace-creation hub. One step per type
@@ -166,6 +200,20 @@ export type WorkspaceTypeDefinition = {
   }
   isRunGlyphProviderForWorkspace?(workspace: WorkspaceRunGlyphProviderInput): boolean
   deriveRunGlyph?(workspace: WorkspaceRunGlyphProviderInput): WorkspaceRunGlyph | null
+  /**
+   * Label for this type's create control (picker, hub). Absent ⇒ `label`.
+   * When `createWorkspace` is present, that control runs the hook instead of
+   * minting from `createTemplate`.
+   */
+  createLabel?: string
+  /** Glyph beside the sidebar row title for workspaces of this type. */
+  RowMark?: WorkspaceTypeIconComponent
+  /** Whether Delete must trash on-disk state for this workspace. */
+  hasOnDiskState?(workspace: WorkspaceTypeSidebarWorkspace): boolean
+  /** Path named in the delete confirmation; null when there is none. */
+  onDiskStateDirectory?(workspace: WorkspaceTypeSidebarWorkspace): string | null
+  /** Extra context-menu items on this type's sidebar rows. */
+  rowActions?: WorkspaceTypeRowAction[]
   supervisors?: WorkspaceTypeSupervisor[]
   /** The type's config step in the creation hub (one per type in v1). */
   creationStep?: WorkspaceTypeCreationStep
@@ -180,6 +228,17 @@ export type WorkspaceTypeDefinition = {
    * picker analog of `isHiddenFromRail`.
    */
   hiddenFromPicker?: boolean
+  /**
+   * Keep the type registered (so its runtime workspaces still resolve, render,
+   * and get created programmatically) but withhold those workspaces from the
+   * normal workspace rail — Projects list, keyboard switch targets, and
+   * command-palette results. For a type whose own door surface took over
+   * finding and steering the workspaces, so listing them again under one
+   * project would claim they belong there. Hidden means hidden from
+   * DISCOVERY: the workspace stays in the store, in window assignments, and
+   * explicitly activatable. The rail analog of `hiddenFromPicker`.
+   */
+  hiddenFromRail?: boolean
 }
 
 export type RegisteredWorkspaceTypeDefinition = WorkspaceTypeDefinition & {
@@ -234,6 +293,40 @@ export type RegisteredBacklogItemAction = BacklogItemAction & {
   moduleId: string
 }
 
+// Files-tree context-menu actions. Sibling of BacklogItemAction: the explorer
+// renders enabled-module contributions under a heading named for the module,
+// gone with it, never a disabled core row. `startSourcePlan` is the same
+// shell-internal hook Backlog actions receive and the SDK omits.
+export type FileActionEntry = {
+  name: string
+  path: string
+  isDir: boolean
+  gitDeleted?: boolean
+}
+
+export type FileActionContext = {
+  workspaceId: string
+  workspaceRoot: string
+  entries: readonly FileActionEntry[]
+  startSourcePlan?: (source: FuturePlanWorkspaceSource) => void
+}
+
+export type FileActionState = 'enabled' | 'disabled'
+
+export type FileAction = {
+  id: string
+  label: string
+  order?: number
+  getLabel?: (context: FileActionContext) => string
+  isVisible?: (context: FileActionContext) => boolean
+  getState?: (context: FileActionContext) => FileActionState
+  run: (context: FileActionContext) => void | Promise<void>
+}
+
+export type RegisteredFileAction = FileAction & {
+  moduleId: string
+}
+
 export type BacklogLinkProviderInput = {
   workspaceId: string
   workspaceRoot: string
@@ -270,8 +363,8 @@ export type NotificationAction = {
 }
 
 export type NotificationActionProvider = {
-  /** The notification source this provider owns (e.g. 'sprintengine'). */
-  source: DiagnosticSource
+  /** The notification source this provider owns — the emitter tag its module writes. */
+  source: string
   resolveActions(context: NotificationActionContext): NotificationAction[]
 }
 
@@ -392,6 +485,28 @@ export type SidebarNavEntryDefinition = {
 }
 
 export type RegisteredSidebarNavEntry = SidebarNavEntryDefinition & {
+  moduleId: string
+}
+
+/**
+ * A waiting-count a module contributes for a drawer / nav-entry row (MC-2577).
+ * The shell's badge hook reads this instead of importing a module's run index;
+ * the row is absent with the module, so a count with no row never appears.
+ */
+export type DoorBadgeContribution = {
+  /** Matches a sidebar nav entry id / Extensions drawer row id. */
+  rowId: string
+  /** Live items on this door waiting on the operator. Not a React hook. */
+  getWaitingCount(): number
+  subscribe(onChange: () => void): () => void
+  /**
+   * Notification source whose unnamed rows fall to this door. An emitter that
+   * knows the row still sets `extensionsRow` on the notification itself.
+   */
+  notificationSource?: string
+}
+
+export type RegisteredDoorBadge = DoorBadgeContribution & {
   moduleId: string
 }
 
@@ -723,6 +838,12 @@ export type RendererHost = {
   openWorkspace(typeId: string): Promise<string>
   registerBacklogItemAction(action: BacklogItemAction): void
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
+  /**
+   * Contribute a Files-tree context-menu action. The explorer renders
+   * enabled-module contributions under a heading named for this module.
+   * Duplicate ids throw. The row is absent when this module is off.
+   */
+  registerFileAction(action: FileAction): void
   registerNotificationActionProvider(provider: NotificationActionProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
@@ -733,6 +854,13 @@ export type RendererHost = {
    * the door without a reload. The row acts on the local window's store.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
+  /**
+   * Contribute the waiting-count a drawer / nav-entry row wears. The shell
+   * merges this with that row's unread bell news; the contribution is gone
+   * with the module, so a count with no row never appears. Duplicate `rowId`
+   * is a registration error.
+   */
+  registerDoorBadge(contribution: DoorBadgeContribution): void
   /**
    * Contribute a control to the app's top bar (the title-strip control
    * cluster). Registered unconditionally at boot; the bar filters by this
@@ -969,6 +1097,7 @@ export type RendererKernel = {
   getWorkspaceTypes(moduleEnabled?: (moduleId: string) => boolean): RegisteredWorkspaceTypeDefinition[]
   getWorkspaceTypeModule(id: string): string | undefined
   getBacklogItemActions(): RegisteredBacklogItemAction[]
+  getFileActions(): RegisteredFileAction[]
   getBacklogLinkProviders(moduleEnabled?: (moduleId: string) => boolean): BacklogLinkProvider[]
   getNotificationActionProviders(
     moduleEnabled?: (moduleId: string) => boolean
@@ -997,6 +1126,12 @@ export type RendererKernel = {
    * which carry their own `order`, into one deterministic band.
    */
   getSidebarNavEntries(moduleEnabled?: (moduleId: string) => boolean): RegisteredSidebarNavEntry[]
+  /**
+   * Door / nav-entry waiting-count contributions for enabled modules, in
+   * registration order. The badge hook reads these instead of a module's run
+   * index.
+   */
+  getDoorBadges(moduleEnabled?: (moduleId: string) => boolean): RegisteredDoorBadge[]
   /**
    * Contributed top-bar controls for enabled modules, sorted by `order` then
    * id so the bar reads the same across reloads. WorkspaceActions renders
@@ -1169,11 +1304,13 @@ export function createRendererHost(): RendererKernel {
   const panelModules = new Map<string, string>()
   const workspaceTypes = new Map<string, RegisteredWorkspaceTypeDefinition>()
   const backlogItemActions = new Map<string, RegisteredBacklogItemAction>()
+  const fileActions = new Map<string, RegisteredFileAction>()
   const backlogLinkProviders = new Map<string, BacklogLinkProvider>()
-  const notificationActionProviders = new Map<DiagnosticSource, RegisteredNotificationActionProvider>()
+  const notificationActionProviders = new Map<string, RegisteredNotificationActionProvider>()
   const moduleCommands = new Map<string, RegisteredModuleCommand>()
   const settingsSections = new Map<string, RegisteredSettingsSection>()
   const sidebarNavEntries = new Map<string, RegisteredSidebarNavEntry>()
+  const doorBadges = new Map<string, RegisteredDoorBadge>()
   const topBarItems = new Map<string, RegisteredTopBarItem>()
   const globalSurfaces = new Map<string, RegisteredGlobalSurface>()
   const modalSurfaces = new Map<string, RegisteredModalSurface>()
@@ -1298,6 +1435,15 @@ export function createRendererHost(): RendererKernel {
           }
           backlogItemActions.set(action.id, { ...action, moduleId })
         },
+        registerFileAction(action) {
+          if (action.id.trim().length === 0) {
+            throw new Error('File action id must be a non-empty string.')
+          }
+          if (fileActions.has(action.id)) {
+            throw new Error(`File action "${action.id}" is already registered.`)
+          }
+          fileActions.set(action.id, { ...action, moduleId })
+        },
         registerBacklogLinkProvider(provider) {
           if (provider.moduleId !== moduleId) {
             throw new Error(`Backlog link provider "${provider.moduleId}" must be registered by its owning module "${moduleId}".`)
@@ -1395,6 +1541,19 @@ export function createRendererHost(): RendererKernel {
             )
           }
           sidebarNavEntries.set(definition.id, { ...definition, moduleId })
+        },
+        registerDoorBadge(contribution) {
+          const rowId = contribution.rowId.trim()
+          if (rowId.length === 0) {
+            throw new Error('Door badge row id must be a non-empty string.')
+          }
+          const existing = doorBadges.get(rowId)
+          if (existing) {
+            throw new Error(
+              `Door badge for row "${rowId}" is already registered by module "${existing.moduleId}".`
+            )
+          }
+          doorBadges.set(rowId, { ...contribution, rowId, moduleId })
         },
         registerTopBarItem(definition) {
           if (definition.id.trim().length === 0) {
@@ -1733,6 +1892,12 @@ export function createRendererHost(): RendererKernel {
         return order === 0 ? a.label.localeCompare(b.label) : order
       })
     },
+    getFileActions() {
+      return [...fileActions.values()].sort((a, b) => {
+        const order = (a.order ?? 100) - (b.order ?? 100)
+        return order === 0 ? a.label.localeCompare(b.label) : order
+      })
+    },
     getBacklogLinkProviders(moduleEnabled) {
       const providers = new Set<BacklogLinkProvider>()
       for (const provider of backlogLinkProviders.values()) {
@@ -1775,6 +1940,9 @@ export function createRendererHost(): RendererKernel {
           const order = (a.order ?? 0) - (b.order ?? 0)
           return order === 0 ? a.id.localeCompare(b.id) : order
         })
+    },
+    getDoorBadges(moduleEnabled) {
+      return [...doorBadges.values()].filter((badge) => !moduleEnabled || moduleEnabled(badge.moduleId))
     },
     getTopBarItems(moduleEnabled) {
       return [...topBarItems.values()]

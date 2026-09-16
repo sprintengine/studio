@@ -121,6 +121,8 @@ export type SprintRunCanvasModel = {
    * and the engine's refusal in one place: the card for the repo it targeted.
    */
   merge: RepoMergeAction
+  /** The door's noun (`sprint` / `workflow`) for open-failure copy. */
+  noun?: string
 }
 
 /**
@@ -246,7 +248,7 @@ export function SprintsCanvas({ model }: { model: SprintRunCanvasModel }): JSX.E
     // A store from an older build fails permanently and says so, with its
     // delete path in the details — the one place that remedy is spelled out
     // (MC-2063). Everything else keeps the transient-read copy.
-    const copy = sprintRunOpenFailureCopy(model.run)
+    const copy = sprintRunOpenFailureCopy(model.run, model.noun)
     return (
       <SurfaceCanvasState
         kind="error"

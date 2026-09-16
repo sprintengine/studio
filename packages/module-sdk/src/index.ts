@@ -1518,6 +1518,39 @@ export type WorkspaceRunGlyphInput = {
   mode: string
 }
 
+/** Confirm copy for a type-contributed sidebar row action. */
+export type WorkspaceTypeRowActionConfirm = {
+  title: string
+  body: string
+  confirmLabel: string
+  cancelLabel?: string
+}
+
+/**
+ * The workspace fields a type's sidebar status hooks may read. The shell
+ * passes a richer row; this is identity plus the module bag.
+ */
+export type WorkspaceTypeSidebarWorkspace = {
+  id: string
+  name: string
+  mode: string
+  moduleState?: Record<string, unknown>
+}
+
+/**
+ * Extra context-menu item on a sidebar row of this type. Gone with the
+ * module; never a disabled core row. `confirm` opens the shell's confirm
+ * modal before `run`.
+ */
+export type WorkspaceTypeRowAction = {
+  id: string
+  label: string
+  variant?: 'danger'
+  isVisible?: (workspace: WorkspaceTypeSidebarWorkspace) => boolean
+  confirm?: (workspace: { name: string }) => WorkspaceTypeRowActionConfirm
+  run: (workspaceId: string) => void | Promise<void>
+}
+
 /**
  * A module-owned config step in the workspace-creation hub. One step per type
  * (v1): the hub renders it as the flow's one config page after the shared
@@ -1644,10 +1677,35 @@ export type WorkspaceTypeDefinition = {
    * from module state you already hold, not from IPC.
    */
   deriveRunGlyph?(workspace: WorkspaceRunGlyphInput): WorkspaceRunGlyph | null
+  /**
+   * Label for this type's create control (picker, hub). Absent ⇒ `label`.
+   * When `createWorkspace` is present, that control runs the hook instead of
+   * minting from `createTemplate`.
+   */
+  createLabel?: string
+  /** Glyph beside the sidebar row title for workspaces of this type. */
+  RowMark?: WorkspaceTypeIconComponent
+  /** Whether Delete must trash on-disk state for this workspace. */
+  hasOnDiskState?(workspace: WorkspaceTypeSidebarWorkspace): boolean
+  /** Path named in the delete confirmation; null when there is none. */
+  onDiskStateDirectory?(workspace: WorkspaceTypeSidebarWorkspace): string | null
+  /** Extra context-menu items on this type's sidebar rows. */
+  rowActions?: WorkspaceTypeRowAction[]
   /** The type's config step in the creation hub (one per type in v1). */
   creationStep?: WorkspaceTypeCreationStep
   creationStepsId?: string
   pickerOrder?: number
+  /**
+   * Keep the type registered (so its runtime workspaces still resolve, render,
+   * and get created programmatically) but withhold those workspaces from the
+   * normal workspace rail — Projects list, keyboard switch targets, and
+   * command-palette results. For a type whose own door surface took over
+   * finding and steering the workspaces, so listing them again under one
+   * project would claim they belong there. Hidden means hidden from
+   * DISCOVERY: the workspace stays in the store, in window assignments, and
+   * explicitly activatable. The rail analog of `hiddenFromPicker`.
+   */
+  hiddenFromRail?: boolean
 }
 
 // ── Backlog contributions ────────────────────────────────────────────────────
@@ -1754,6 +1812,45 @@ export type BacklogLinkProvider = {
   openLink?(input: BacklogLinkProviderInput): Promise<void | boolean>
 }
 
+// ── File Explorer actions ────────────────────────────────────────────────────
+
+/**
+ * One selected Files-tree row as handed to `registerFileAction` callbacks.
+ * Directories, git-deleted rows and ordinary files all appear; visibility is
+ * the action's to decide.
+ */
+export type FileActionEntry = {
+  name: string
+  path: string
+  isDir: boolean
+  gitDeleted?: boolean
+}
+
+export type FileActionContext = {
+  workspaceId: string
+  workspaceRoot: string
+  entries: readonly FileActionEntry[]
+}
+
+export type FileActionState = 'enabled' | 'disabled'
+
+/**
+ * A Files-tree context-menu action. Sibling of `BacklogItemAction`: the
+ * explorer renders enabled-module contributions under a heading named for
+ * the module, gone entirely when the module is absent — never a disabled
+ * core row. Sorted by `order` then label within the group.
+ */
+export type FileAction = {
+  id: string
+  label: string
+  order?: number
+  /** Selection-aware display label; falls back to `label` when absent. */
+  getLabel?: (context: FileActionContext) => string
+  isVisible?: (context: FileActionContext) => boolean
+  getState?: (context: FileActionContext) => FileActionState
+  run: (context: FileActionContext) => void | Promise<void>
+}
+
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 export type CommandScope =
@@ -1763,11 +1860,11 @@ export type CommandScope =
   | 'editor'
   | 'terminal'
   | 'panel'
-  | 'panel:sprintengine'
   // Open scope family: `panel:<moduleId>` is active while a workspace whose
   // mode belongs to that module is active — the shell derives it from the
   // workspace-type registry, so your module's commands can gate on "my
-  // workspace is active" without a shell enum change.
+  // workspace is active" without a shell enum change. Sprint Engine commands
+  // use `panel:sprint-engine`.
   | (string & {})
 
 export type CommandAvailability =
@@ -1876,6 +1973,24 @@ export type SidebarNavEntryDefinition = {
   /** Sort key in the top-nav cluster; lower renders first. Built-in doors reserve 0–30. */
   order: number
   Component: SidebarNavEntryComponent
+}
+
+/**
+ * A waiting-count your module contributes for a drawer / nav-entry row. The
+ * shell merges this with that row's unread bell news; the contribution is
+ * gone with the module, so a count with no row never appears.
+ */
+export type DoorBadgeContribution = {
+  /** Matches your sidebar nav entry id / the shell's drawer row id. */
+  rowId: string
+  /** Live items on this door waiting on the operator. Not a React hook. */
+  getWaitingCount(): number
+  subscribe(onChange: () => void): () => void
+  /**
+   * Notification source whose unnamed rows fall to this door. An emitter that
+   * knows the row still sets `extensionsRow` on the notification itself.
+   */
+  notificationSource?: string
 }
 
 // ── Top bar items ────────────────────────────────────────────────────────────
@@ -2197,6 +2312,36 @@ export type ModuleFocusTabInput = {
   id: string
 }
 
+// ── Notification Open actions (renderer) ─────────────────────────────────────
+
+/**
+ * The subset of a bell row a notification-action provider may read. The shell
+ * passes a richer in-app notification; extra fields stay unpublished.
+ */
+export type NotificationActionView = {
+  workspaceId?: string
+  navigationTarget?: { kind: string; ref: string }
+}
+
+export type NotificationActionContext = {
+  notification: NotificationActionView
+  /** Shell capability: switch the active workspace in the current window. */
+  revealWorkspace(workspaceId: string): void
+}
+
+export type NotificationAction = {
+  id: string
+  label: string
+  isVisible?(context: NotificationActionContext): boolean
+  run(context: NotificationActionContext): void | Promise<void>
+}
+
+export type NotificationActionProvider = {
+  /** The notification source this provider owns — the emitter tag its module writes. */
+  source: string
+  resolveActions(context: NotificationActionContext): NotificationAction[]
+}
+
 // ── Renderer host registration contract ──────────────────────────────────────
 
 export type RendererHost = {
@@ -2219,6 +2364,19 @@ export type RendererHost = {
   openWorkspace(typeId: string): Promise<string>
   registerBacklogItemAction(action: BacklogItemAction): void
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
+  /**
+   * Contribute a Files-tree context-menu action. The explorer renders
+   * enabled-module contributions under a heading named for this module, sorted
+   * by `order` then label. Duplicate ids are a registration error. The row is
+   * absent — not disabled — when this module is off.
+   */
+  registerFileAction(action: FileAction): void
+  /**
+   * Contribute Open actions for bell rows of `provider.source`. One provider
+   * per source; a duplicate is a registration error. A provider that returns
+   * no actions leaves the shell's generic workspace-reveal fallback in place.
+   */
+  registerNotificationActionProvider(provider: NotificationActionProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
   /**
@@ -2227,6 +2385,12 @@ export type RendererHost = {
    * `order`, so toggling your module shows/hides the door without a reload.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
+  /**
+   * Contribute the waiting-count a drawer / nav-entry row wears. The shell
+   * merges this with that row's unread bell news; the contribution is gone
+   * with the module. Duplicate `rowId` is a registration error.
+   */
+  registerDoorBadge(contribution: DoorBadgeContribution): void
   /**
    * Contribute a control to the app's top bar. Registered once at boot; the
    * bar filters by your module's enablement and orders by `order`, so

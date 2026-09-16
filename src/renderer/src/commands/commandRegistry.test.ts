@@ -21,7 +21,6 @@ for (const id of [
   'panel.knowledge-graph.toggle',
   'specialist.spawn.architect',
   'specialist.spawn.performance',
-  'sprintengine.refresh.board',
   'git.worktrees.open',
   'git.refresh',
   'git.fetch',

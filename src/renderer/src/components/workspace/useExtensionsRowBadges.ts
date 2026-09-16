@@ -9,8 +9,7 @@ import type { RailBadge } from './AppRail'
 import { EXTENSIONS_DRAWER_ROW_IDS, type ExtensionsDrawerRowId } from './extensionsDrawer'
 import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { useDesignArrivals } from './globalSurface/design/designArrivalsStore'
-import { runsForDoor } from './globalSurface/sprints/runDoors'
-import { useSprintRunIndex } from './globalSurface/sprints/useSprintRunIndex'
+import { doorBadgeSourceRows, useDoorBadgeContributions, useDoorBadgeWaitingCounts } from './useDoorBadges'
 
 export type ExtensionsRowBadges = Readonly<Record<ExtensionsDrawerRowId, RailBadge | null>>
 
@@ -23,8 +22,8 @@ const NO_BADGES: ExtensionsRowBadges = Object.fromEntries(
 // for its rows and by the rail hook for the square's sum, so the square and
 // the rows beneath it are one derivation and cannot disagree.
 //
-//   Workflows, Sprints — the door's own runs blocked on an answer (live, from
-//                        the shared run index) plus its unread bell rows.
+//   Workflows, Sprints — waiting counts from the owning module's door-badge
+//                        contribution, plus unread bell rows.
 //   Design             — entries arrived in any registered bundle since that
 //                        bundle was last shown, by the door's own rule, read
 //                        from the arrivals the main process resolves.
@@ -39,31 +38,22 @@ export function useExtensionsRowBadges(): ExtensionsRowBadges {
   const notifications = useNotificationStore((s) => s.notifications)
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const designSeen = useWorkspaceStore((s) => s.appSettings.designSystemSeen)
-  const sprintsEnabled = selectModuleEnabled(moduleOverrides, 'sprint-engine')
   const designEnabled = selectModuleEnabled(moduleOverrides, 'design')
-  // The same shared index the run doors and the Extensions home read: one
-  // subscription and one coalesced scan per window, however many read it.
-  const sprintRuns = useSprintRunIndex()
   const designArrivals = useDesignArrivals(designEnabled)
-  // The rows' names come from the modules that own them, through the one
-  // resolver the drawer and the home use, so a badge's accessible name says
-  // what the row beside it says.
+  const doorBadges = useDoorBadgeContributions()
+  const waitingByRow = useDoorBadgeWaitingCounts()
+  const sourceRows = useMemo(() => doorBadgeSourceRows(doorBadges), [doorBadges])
   const rows = useExtensionsDrawerRows()
 
-  const unread = useMemo(() => unreadByExtensionsRow(notifications), [notifications])
+  const unread = useMemo(
+    () => unreadByExtensionsRow(notifications, sourceRows),
+    [notifications, sourceRows],
+  )
   const labels = useMemo(() => {
     const byRow: Partial<Record<ExtensionsDrawerRowId, string>> = {}
     for (const row of rows) if (row.rowId && row.label) byRow[row.rowId] = row.label
     return byRow
   }, [rows])
-  const waitingByDoor = useMemo(() => {
-    if (!sprintsEnabled) return { workflows: 0, sprints: 0 }
-    const waiting = sprintRuns.runs.filter((run) => run.runtimeState === 'needs_input')
-    return {
-      workflows: runsForDoor(waiting, 'workflows').length,
-      sprints: runsForDoor(waiting, 'sprints').length,
-    }
-  }, [sprintsEnabled, sprintRuns.runs])
   const designArrived = useMemo(
     () =>
       designEnabled
@@ -82,10 +72,10 @@ export function useExtensionsRowBadges(): ExtensionsRowBadges {
       badges[rowId] = extensionsRowBadge({
         label,
         unread: unread[rowId],
-        waiting: rowId === 'workflows' || rowId === 'sprints' ? waitingByDoor[rowId] : 0,
+        waiting: waitingByRow[rowId] ?? 0,
         arrived: rowId === 'design' ? designArrived : 0,
       })
     }
     return badges
-  }, [labels, unread, waitingByDoor, designArrived])
+  }, [labels, unread, waitingByRow, designArrived])
 }

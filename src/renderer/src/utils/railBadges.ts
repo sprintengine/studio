@@ -28,9 +28,9 @@ import type { AppNotification, DiagnosticSource } from '../types/workspace'
 export const AUTOMATIONS_NOTIFICATION_SOURCES: ReadonlySet<DiagnosticSource> = new Set<DiagnosticSource>([
   'automations',
 ])
-// Plugins and skills (marketplace), Sprints and Workflows (sprintengine), and
-// the Agent CLIs row's two feeds (cli updates, hosted models). Which ROW of the
-// drawer each belongs to is `extensionsRowOfNotification`.
+// Plugins and skills (marketplace), and the Agent CLIs row's two feeds
+// (cli updates, hosted models). Sprints / Workflows source→row mapping is a
+// door-badge contribution (`notificationSource`), not a run-door import.
 export const EXTENSIONS_NOTIFICATION_SOURCES: ReadonlySet<DiagnosticSource> = new Set<DiagnosticSource>([
   'marketplace',
   'sprintengine',
@@ -38,52 +38,42 @@ export const EXTENSIONS_NOTIFICATION_SOURCES: ReadonlySet<DiagnosticSource> = ne
   'models',
 ])
 
+/** Core source → drawer row, with no module knowledge of run doors. */
+export const CORE_NOTIFICATION_SOURCE_ROWS: Readonly<Partial<Record<DiagnosticSource, ExtensionsDrawerRowId>>> = {
+  cli: 'agent-clis',
+  models: 'agent-clis',
+  marketplace: 'plugins',
+}
+
 /**
  * The drawer row a piece of news belongs to — the row that wears its count and
  * the row whose opening reads it (owner, 2026-09-08: "put the notification on
  * whatever row it came from"). An emitter that knows says so on the
- * notification; otherwise the source decides:
- *
- *   cli, models   → Agent CLIs. A CLI update and a model feed change are both
- *                   about the runtimes that row lists.
- *   marketplace   → Plugins. The one notice this source carries is the source
- *                   drift check, whose own copy says "Open Plugins and press
- *                   Sync" — Sync there takes the changes for Skills too, since
- *                   the two rows read the same sources.
- *   sprintengine  → Sprints. A run notice that does not name its door falls to
- *                   Sprints, exactly as an unclassifiable run does in the run
- *                   index (`runDoors.ts`); an emitter that knows it is about a
- *                   workflow sets `extensionsRow: 'workflows'`.
+ * notification; otherwise the source decides via `CORE_NOTIFICATION_SOURCE_ROWS`
+ * plus any door-badge `notificationSource` map the caller passes (Sprint Engine
+ * contributes `sprintengine` → `sprints`).
  *
  * Null for everything else: a git failure or a terminal crash is a workspace
  * fact and badges no row.
  */
 export function extensionsRowOfNotification(
   notification: Pick<AppNotification, 'source' | 'extensionsRow'>,
+  sourceRows: Readonly<Partial<Record<string, ExtensionsDrawerRowId>>> = CORE_NOTIFICATION_SOURCE_ROWS,
 ): ExtensionsDrawerRowId | null {
   if (isExtensionsDrawerRowId(notification.extensionsRow)) return notification.extensionsRow
-  switch (notification.source) {
-    case 'cli':
-    case 'models':
-      return 'agent-clis'
-    case 'marketplace':
-      return 'plugins'
-    case 'sprintengine':
-      return 'sprints'
-    default:
-      return null
-  }
+  return sourceRows[notification.source] ?? CORE_NOTIFICATION_SOURCE_ROWS[notification.source] ?? null
 }
 
 /** The unread news under each drawer row. Every row is present, empty or not. */
 export function unreadByExtensionsRow(
   notifications: readonly AppNotification[],
+  sourceRows: Readonly<Partial<Record<string, ExtensionsDrawerRowId>>> = CORE_NOTIFICATION_SOURCE_ROWS,
 ): Readonly<Record<ExtensionsDrawerRowId, AppNotification[]>> {
   const byRow = {} as Record<ExtensionsDrawerRowId, AppNotification[]>
   for (const row of EXTENSIONS_DRAWER_ROW_IDS) byRow[row] = []
   for (const notification of notifications) {
     if (notification.read) continue
-    const row = extensionsRowOfNotification(notification)
+    const row = extensionsRowOfNotification(notification, sourceRows)
     if (row) byRow[row].push(notification)
   }
   return byRow

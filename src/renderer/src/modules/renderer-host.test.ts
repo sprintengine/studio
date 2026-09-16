@@ -93,6 +93,58 @@ assert.deepEqual(
 
 console.log('renderer host workspace type tests passed')
 
+// --- File Explorer action registry ------------------------------------------
+
+const fileActionHost = createRendererHost()
+fileActionHost.hostFor('weather-deck').registerFileAction({
+  id: 'weather-deck.open-notes',
+  label: 'Open forecast notes…',
+  order: 10,
+  isVisible: (context) => context.entries.some((entry) => entry.name.endsWith('.md')),
+  run() {},
+})
+fileActionHost.hostFor('weather-deck').registerFileAction({
+  id: 'weather-deck.open-html',
+  label: 'Open forecast page…',
+  order: 20,
+  run() {},
+})
+fileActionHost.hostFor('notes').registerFileAction({
+  id: 'notes.archive',
+  label: 'Archive note',
+  order: 5,
+  run() {},
+})
+
+const registeredFileActions = fileActionHost.getFileActions()
+assert.deepEqual(
+  registeredFileActions.map((action) => action.id),
+  ['notes.archive', 'weather-deck.open-notes', 'weather-deck.open-html'],
+  'file actions sort by order then label across modules',
+)
+assert.equal(registeredFileActions[1]?.moduleId, 'weather-deck', 'owning module is recorded for enablement gating')
+
+assert.throws(
+  () => fileActionHost.hostFor('weather-deck').registerFileAction({
+    id: 'weather-deck.open-notes',
+    label: 'Duplicate',
+    run() {},
+  }),
+  /File action "weather-deck\.open-notes" is already registered/,
+  'duplicate file-action ids fail clearly',
+)
+assert.throws(
+  () => fileActionHost.hostFor('weather-deck').registerFileAction({
+    id: '   ',
+    label: 'Blank',
+    run() {},
+  }),
+  /File action id must be a non-empty string/,
+  'blank file-action ids are rejected before registration',
+)
+
+console.log('renderer host file action tests passed')
+
 // --- Module command registry -------------------------------------------------
 
 const commandHost = createRendererHost()
@@ -345,6 +397,57 @@ assert.deepEqual(
 )
 
 console.log('renderer host sidebar nav entry tests passed')
+
+// --- Door / nav-entry badge contributions (MC-2577) --------------------------
+
+const doorBadgeHost = createRendererHost()
+doorBadgeHost.hostFor('sprint-engine').registerDoorBadge({
+  rowId: 'sprints',
+  notificationSource: 'sprintengine',
+  getWaitingCount: () => 2,
+  subscribe: () => () => undefined,
+})
+doorBadgeHost.hostFor('sprint-engine').registerDoorBadge({
+  rowId: 'workflows',
+  getWaitingCount: () => 1,
+  subscribe: () => () => undefined,
+})
+assert.deepEqual(
+  doorBadgeHost.getDoorBadges().map((badge) => [badge.rowId, badge.moduleId, badge.getWaitingCount()]),
+  [['sprints', 'sprint-engine', 2], ['workflows', 'sprint-engine', 1]],
+  'both doors contribute waiting counts under the owning module',
+)
+assert.equal(
+  doorBadgeHost.getDoorBadges().find((badge) => badge.rowId === 'sprints')?.notificationSource,
+  'sprintengine',
+  'an unnamed sprintengine notice falls to the Sprints row via the contribution, not a core mapping',
+)
+assert.throws(
+  () =>
+    doorBadgeHost.hostFor('other').registerDoorBadge({
+      rowId: 'sprints',
+      getWaitingCount: () => 0,
+      subscribe: () => () => undefined,
+    }),
+  /already registered by module "sprint-engine"/,
+  'one badge per row — a duplicate rowId fails with the holder named',
+)
+assert.throws(
+  () =>
+    createRendererHost().hostFor('sprint-engine').registerDoorBadge({
+      rowId: '  ',
+      getWaitingCount: () => 0,
+      subscribe: () => () => undefined,
+    }),
+  /row id must be a non-empty string/,
+)
+assert.deepEqual(
+  doorBadgeHost.getDoorBadges((moduleId) => moduleId !== 'sprint-engine').map((badge) => badge.rowId),
+  [],
+  'a disabled module\'s door badges are filtered out reactively',
+)
+
+console.log('renderer host door badge tests passed')
 
 // --- Top bar items (the title-strip host contribution point, MC-1861) ---------
 

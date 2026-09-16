@@ -1,5 +1,6 @@
 import { Actions, DockLocation, Model, RowNode, TabNode, TabSetNode, type IJsonModel } from 'flexlayout-react'
 import { basename, isPathOrChild, pathSeparatorFor } from './paths'
+import { SPRINT_ENGINE_WORKSPACE_TYPE_ID } from '../../../shared/sprintengine/workspace-record'
 
 const AGENT_TAB_SPAWN_FLASH_CLASS = 'agent-tab-spawn-flash'
 const AGENT_TAB_SPAWN_FLASH_PANEL_CLASS = 'agent-tab-spawn-flash-panel'
@@ -567,7 +568,7 @@ function firstTerminalLikeTabset(model: Model): TabSetNode | null {
     const parent = node.getParent()
     if (!(parent instanceof TabSetNode)) return
     const hostsBoard = parent.getChildren().some(
-      (child) => child instanceof TabNode && child.getComponent() === 'sprintengine'
+      (child) => child instanceof TabNode && child.getComponent() === SPRINT_ENGINE_WORKSPACE_TYPE_ID
     )
     if (hostsBoard) return
     found = parent
@@ -629,7 +630,7 @@ function modelHasSprintEngineBoard(model: Model): boolean {
   let found = false
   model.visitNodes((node) => {
     if (found) return
-    if (node instanceof TabNode && node.getComponent() === 'sprintengine') found = true
+    if (node instanceof TabNode && node.getComponent() === SPRINT_ENGINE_WORKSPACE_TYPE_ID) found = true
   })
   return found
 }
@@ -637,9 +638,12 @@ function modelHasSprintEngineBoard(model: Model): boolean {
 // Single-surface control layouts whose control panel owns a non-closeable tab in
 // a tab-strip-hidden tabset: agent run terminals must dock into a right-hand
 // terminals tabset instead of stacking (invisibly) into the control tabset. The
-// Sprint Engine board ('sprintengine') and the Automations control center
-// ('automations-control-center') both follow this pattern.
-const AGENT_DOCK_RIGHT_COMPONENTS = new Set(['sprintengine', 'automations-control-center'])
+// Sprint Engine board (its registered workspace type id) and the Automations
+// control center ('automations-control-center') both follow this pattern.
+const AGENT_DOCK_RIGHT_COMPONENTS = new Set<string>([
+  SPRINT_ENGINE_WORKSPACE_TYPE_ID,
+  'automations-control-center',
+])
 
 function modelDocksAgentsRight(model: Model): boolean {
   let found = false

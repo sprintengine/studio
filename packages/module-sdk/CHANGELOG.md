@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+- **A workspace type can hide its workspaces from the rail.**
+  `WorkspaceTypeDefinition.hiddenFromRail` withholds workspaces of that type
+  from the Projects list, keyboard switch targets, and command-palette
+  results, the same way `hiddenFromPicker` withholds the type from the
+  creation picker. Hidden means hidden from discovery: the workspace stays
+  in the store, in window assignments, and explicitly activatable. A door
+  surface that took over finding those workspaces sets this so they are not
+  listed again under one project.
+
+- **A module can contribute Open actions for its bell rows**
+  (`host.registerNotificationActionProvider`). One provider per `source`; a
+  duplicate is a registration error. `resolveActions` receives
+  `{ notification: { workspaceId?, navigationTarget? }, revealWorkspace }`
+  and returns `{ id, label, run }` actions. Returning none leaves the shell's
+  generic workspace-reveal fallback. New types: `NotificationActionProvider`,
+  `NotificationActionContext`, `NotificationAction`, `NotificationActionView`.
+
+- **A module can contribute a door / nav-entry waiting count**
+  (`host.registerDoorBadge`). `{ rowId, getWaitingCount, subscribe,
+  notificationSource? }` — the shell merges the count with that row's unread
+  bell news, and `notificationSource` is how unnamed notices of that source
+  fall to the row. Duplicate `rowId` is a registration error. Gone with the
+  module, so a count with no row never appears. New type:
+  `DoorBadgeContribution`.
+
+- **A workspace type can own its sidebar row and its create control.**
+  `WorkspaceTypeDefinition` gains `createLabel` (the picker/hub create
+  control; defaults to `label`), `RowMark` (glyph beside the row title),
+  `hasOnDiskState` / `onDiskStateDirectory` (the Delete-with-on-disk-state
+  confirm), and `rowActions` (`{ id, label, variant?, isVisible, confirm,
+  run }`, extra context-menu items on that type's rows). The shell draws
+  those from the registration; they are absent with the module, never a
+  disabled core row. New types: `WorkspaceTypeRowAction`,
+  `WorkspaceTypeRowActionConfirm`, `WorkspaceTypeSidebarWorkspace`.
+
+- **A module can contribute Files-tree context-menu actions**
+  (`host.registerFileAction`). The function receives `{ id, label, order?,
+  getLabel?, isVisible(context), getState(context), run(context) }` where
+  `context` is `{ workspaceId, workspaceRoot, entries }` and each entry is
+  `{ name, path, isDir, gitDeleted? }`. The explorer renders visible
+  contributions from enabled modules under a heading named for the module;
+  the row is absent — not a disabled core item — when the module is off.
+  Duplicate ids are a registration error. New types: `FileAction`,
+  `FileActionContext`, `FileActionEntry`, `FileActionState`.
+
 - **`CommandAvailability` gains `workflowRolesInstalled`.** True when the
   active workspace has at least one installed workflow-role skill, so a
   specialist-spawn or add-role command has something to resolve. Unknown

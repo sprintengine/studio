@@ -20,6 +20,9 @@ import {
 } from '../utils/sprintengineBacklogLinks'
 import type { SprintEngineBacklogLinkOpenPorts } from '../utils/sprintengineBacklogLinks'
 import { bindSprintEngineIpc, createHostBackedSprintEngineIpc, sprintEngineIpc } from './sprint-engine-ipc'
+import { registerSprintEngineFileActions } from './sprint-engine-file-actions'
+import { registerSprintEngineCommands, SPRINT_ENGINE_NEW_MODAL_ID } from './sprint-engine-commands'
+import { registerSprintEngineDoorBadges } from './sprint-engine-door-badges'
 import { SPRINT_ENGINE_AGENT_ID_PREFIX } from '../../../shared/sprintengine/agent-identity'
 
 // Lazy so the Sprint Engine board bundle only loads when the panel is actually
@@ -134,6 +137,14 @@ export const sprintEngineRendererModule: RendererModule = {
   registerRenderer(host) {
     bindSprintEngineIpc(createHostBackedSprintEngineIpc(host))
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
+    registerSprintEngineFileActions(host)
+    registerSprintEngineCommands(host)
+    registerSprintEngineDoorBadges(host)
+    host.registerModalSurface({
+      id: SPRINT_ENGINE_NEW_MODAL_ID,
+      label: 'New sprint',
+      Component: React.lazy(() => import('./sprint-engine-new-sprint-surface')),
+    })
     // The Sprints door at the order-20 slot the hardcoded WorkspaceSidebar row
     // used to hold (item 1763 / D4). That row toggled the Sprint Engines aside;
     // this routes the full page to the instance-global Sprints surface, so runs

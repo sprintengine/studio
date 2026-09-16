@@ -17,6 +17,9 @@ import {
   type AutomationActionProvider,
   type AutomationTriggerProvider,
   type BacklogItemAction,
+  type FileAction,
+  type NotificationActionProvider,
+  type DoorBadgeContribution,
   type CapabilityManifest,
   type GlobalSurfaceDefinition,
   type McpToolRegistration,
@@ -568,6 +571,11 @@ const forecastWorkspaceType: WorkspaceTypeDefinition = {
   },
   createTemplate: createForecastTemplate,
   createWorkspace: createForecastWorkspace,
+  createLabel: 'New forecast',
+  RowMark: () => null,
+  hasOnDiskState: () => false,
+  onDiskStateDirectory: () => null,
+  hiddenFromRail: false,
   supervisors: [{ Component: ForecastSupervisor, scope: 'global' }],
   // Sidebar status from module-owned state (sync — a supervisor-maintained
   // cache in real modules). Only called for this type's own workspaces, so no
@@ -583,6 +591,16 @@ const markChecked: BacklogItemAction = {
   run: async (context) => {
     await context.updateModuleMetadata('weather-deck', { checkedAt: Date.now() })
   },
+}
+
+const openForecastNotes: FileAction = {
+  id: 'weather-deck.open-forecast-notes',
+  label: 'Open forecast notes…',
+  isVisible: (context) =>
+    context.entries.length === 1
+    && !context.entries[0]?.isDir
+    && /\.md$/i.test(context.entries[0]?.name ?? ''),
+  run: () => undefined,
 }
 
 // The command round-trips to entry.main through the bridge: registerIpc set
@@ -643,6 +661,16 @@ export const registerRenderer: RegisterRenderer = (host) => {
   host.registerPanel('weather-deck.forecast', createForecastPanel(host))
   host.registerWorkspaceType(forecastWorkspaceType)
   host.registerBacklogItemAction(markChecked)
+  host.registerFileAction(openForecastNotes)
+  host.registerNotificationActionProvider({
+    source: 'weather-deck',
+    resolveActions: () => [],
+  } satisfies NotificationActionProvider)
+  host.registerDoorBadge({
+    rowId: 'weather-deck-outlook',
+    getWaitingCount: () => 0,
+    subscribe: () => () => undefined,
+  } satisfies DoorBadgeContribution)
   host.registerCommand(quickCheck(host))
   // Agent spawn through the app's SHARED session runtime; structured result,
   // runtime picked from the published availability-filtered catalog.
