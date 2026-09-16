@@ -1089,6 +1089,37 @@ def test_mcp_agent_join_resolves_workspace_only_custom_role(tmp_path) -> None:
     assert joined["result"]["agent"] is None
 
 
+def test_mcp_join_and_soul_get_name_a_dropped_alias(tmp_path) -> None:
+    fixture = create_team(tmp_path, "mcp-dropped-alias", [task("T1", "Work", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    actor_user = actor("workspace-user", "user")
+
+    joined = server.call_tool(
+        "sprintengine.agent.join",
+        {
+            "statePath": str(fixture.state_path),
+            "workspaceRoot": str(tmp_path),
+            "role": "qa-test",
+            "agentId": "qa-1",
+        },
+        actor_user,
+    )
+    assert joined["ok"] is False
+    assert joined["error"]["code"] == "unknown_role"
+    assert "Unknown role 'qa-test'" in joined["error"]["message"]
+    assert "no skill declaring it is installed" in joined["error"]["message"]
+    assert "workflow-roles" in joined["error"]["message"]
+
+    soul = server.call_tool(
+        "sprintengine.soul.get",
+        {"workspaceRoot": str(tmp_path), "roleId": "qa-test"},
+        actor_user,
+    )
+    assert soul["ok"] is False
+    assert soul["error"]["code"] == "unknown_role"
+    assert "Unknown role 'qa-test'" in soul["error"]["message"]
+
+
 def test_mcp_agent_join_response_contains_no_cli_command_strings(tmp_path) -> None:
     """Regression: agent.join must instruct via MCP tools only.
 

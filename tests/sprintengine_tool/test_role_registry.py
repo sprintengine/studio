@@ -71,8 +71,13 @@ def test_unknown_role_names_the_known_set_and_never_falls_back(tmp_path: Path) -
     message = str(exc_info.value)
     assert "not-a-role" in message
     assert "architect" in message
-    with pytest.raises(MissingRoleError):
+    with pytest.raises(MissingRoleError) as alias_info:
         discovery.get_role("qa-test")
+    alias_message = str(alias_info.value)
+    assert "Unknown role 'qa-test'" in alias_message
+    assert "no skill declaring it is installed in this workspace" in alias_message
+    assert "workflow-roles" in alias_message
+    assert "skills folder" in alias_message
 
 
 def test_hyphen_and_underscore_are_the_same_name(tmp_path: Path) -> None:

@@ -11,7 +11,6 @@ from sprintengine_core.role_registry import (
     RegistryDiscovery,
     RoleManifest,
     SkillDocument,
-    SoulRenderError,
     discover_role_registry,
     normalize_role_id,
     resolve_workspace_root,
@@ -55,22 +54,21 @@ def load_soul_prompt(
             backlog_sourced=backlog_sourced,
             knowledge_root_configured=knowledge_root_configured,
         )
-    try:
-        discovery = discover_role_registry(workspace_root=resolved_workspace)
-        return (
-            discovery
-            .render_soul(
-                role,
-                workspace_root=resolved_workspace,
-                extra_skills=sprintengine_soul_extra_skills(
-                    backlog_sourced=backlog_sourced,
-                    knowledge_root_configured=knowledge_root_configured,
-                ),
-            )
-            .content
+    discovery = discover_role_registry(workspace_root=resolved_workspace)
+    # MissingRoleError (and SoulRenderError) propagate: a named role with no
+    # installed skill is a missing-role state, never a quiet None brief.
+    return (
+        discovery
+        .render_soul(
+            role,
+            workspace_root=resolved_workspace,
+            extra_skills=sprintengine_soul_extra_skills(
+                backlog_sourced=backlog_sourced,
+                knowledge_root_configured=knowledge_root_configured,
+            ),
         )
-    except (KeyError, SoulRenderError):
-        return None
+        .content
+    )
 
 
 def load_roleless_soul_prompt(

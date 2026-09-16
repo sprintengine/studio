@@ -31,11 +31,11 @@ async function testKnownSpecialistRendersFromRegistry(): Promise<void> {
   if (!result.ok) return
   assert.equal(typeof result.prompt, 'string')
   assert.ok(result.prompt.length > 200, 'rendered prompt should not be trivially short')
-  // The role resolves through the registry (`sprintengine-role-registry.ts`),
+  // The role resolves through the workspace skills scan (`role_registry.py`),
   // not from a path inside this checkout — that is what lets a dropped-in
-  // specialist pack contribute one. Assert the role it landed on, not where the
+  // role skill contribute one. Assert the role it landed on, not where the
   // registry happens to be materialized on this machine.
-  assert.match(result.path, /[\\/]roles[\\/]architect\.json$/)
+  assert.match(result.path, /[\\/]workflow-roles[\\/]skills[\\/]architect[\\/]SKILL\.md$/)
   assert.doesNotMatch(result.prompt, /# Collaboration Norms/, 'standalone Souls should not include retired collaboration_norms')
   assert.doesNotMatch(result.prompt, /Ask only when a wrong assumption/, 'standalone Souls should not carry ask-vs-act policy')
   assert.match(result.prompt, /collaborative discovery/, 'architect Soul should encourage collaborative discovery')
@@ -44,12 +44,14 @@ async function testKnownSpecialistRendersFromRegistry(): Promise<void> {
 }
 
 async function testAliasedSpecialistResolvesThroughRegistry(): Promise<void> {
-  // qa-test → tester is the alias path declared in souls/registry.py and the migrated registry manifests.
+  // qa-test is a dropped alias (a different name, not a hyphen respelling).
+  // The missing-role state names the spelling that failed.
   const result = await readSpecialistSoul('qa-test')
-  assert.equal(result.ok, true, `qa-test alias should render: ${result.ok ? '' : result.message}`)
-  if (!result.ok) return
-  assert.match(result.path, /[\\/]roles[\\/]tester\.json$/)
-  assert.ok(result.prompt.length > 200)
+  assert.equal(result.ok, false)
+  if (result.ok) return
+  assert.match(result.message, /qa-test/)
+  assert.match(result.message, /no skill declaring it is installed/)
+  assert.equal(result.path, null)
 }
 
 async function testRegistryFailureSurfacesStructuredMessage(): Promise<void> {

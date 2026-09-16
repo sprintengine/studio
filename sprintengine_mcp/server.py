@@ -1235,8 +1235,10 @@ def _compose_registry_prompt(
                     knowledge_root_configured=knowledge_root_configured,
                 ),
             ).content
-        except (KeyError, SoulRenderError):
-            soul_prompt = None
+        except MissingRoleError as exc:
+            raise McpToolError("unknown_role", str(exc)) from exc
+        except SoulRenderError as exc:
+            raise McpToolError("soul_render_failed", str(exc), {"warnings": _warning_payloads(exc.warnings)}) from exc
     return compose_prompt(
         "# SprintEngine Coordination Rules",
         load_sprintengine_coordination_prompt(
