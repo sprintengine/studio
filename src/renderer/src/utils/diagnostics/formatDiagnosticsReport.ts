@@ -9,7 +9,6 @@ import { diffMetricsSamples, type GrowthRates, type MetricsPeaks, type MetricsSa
 import type { IpcThroughput } from './ipcThroughputStore'
 import type { TerminalThroughput } from './terminalThroughputStore'
 import type { ScrollbackFootprint } from './terminalInstanceRegistry'
-import type { TimerRegistrationRow } from './timerRegistry'
 
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
@@ -89,10 +88,9 @@ export function formatDiagnosticsReport(input: {
   ipc?: IpcThroughput | null
   terminalThroughput?: TerminalThroughput | null
   scrollback?: ScrollbackFootprint | null
-  timers?: readonly TimerRegistrationRow[]
   now: number
 }): string {
-  const { aggregation, metrics, profiles, perfEvents, longTasks, frameStats, metricsTrend, ipc, terminalThroughput, scrollback, timers, now } = input
+  const { aggregation, metrics, profiles, perfEvents, longTasks, frameStats, metricsTrend, ipc, terminalThroughput, scrollback, now } = input
   const totals = aggregation.totals
 
   const sections: string[] = []
@@ -267,23 +265,6 @@ export function formatDiagnosticsReport(input: {
           msOrDash(row.p95Ms),
           msOrDash(row.maxMs),
           msOrDash(row.lastMs),
-        ])
-      )
-    )
-  }
-
-  if (timers && timers.length > 0) {
-    sections.push('## Active timers / supervisors')
-    sections.push(
-      table(
-        ['Label', 'Cadence ms', 'Ticks', 'Avg ms', 'Max ms', 'Last tick'],
-        timers.map((row) => [
-          row.label,
-          String(row.cadenceMs),
-          String(row.tickCount),
-          msOrDash(row.avgMs),
-          msOrDash(row.maxMs),
-          lastOutput(row.lastTickAt, now),
         ])
       )
     )
