@@ -25,7 +25,6 @@ import type {
 } from '../../shared/electron-api'
 
 type BacklogIpcRenderer = {
-  invoke(channel: 'backlog:read-object-store', workspaceRoot: string): Promise<BacklogReadResult>
   invoke(channel: 'backlog:resolve-location', workspaceRoot: string): Promise<BacklogLocationResult>
   invoke(channel: 'backlog:set-root', input: BacklogSetRootInput): Promise<BacklogLocationResult>
   invoke(channel: 'backlog:ensure-object-records', workspaceRoot: string, items: BacklogItemRecordInput[]): Promise<BacklogReadResult>
@@ -47,8 +46,6 @@ type BacklogIpcRenderer = {
 
 export function createBacklogApi(renderer: BacklogIpcRenderer) {
   return {
-    readBacklogObjectStore: (workspaceRoot: string): Promise<BacklogReadResult> =>
-      renderer.invoke('backlog:read-object-store', workspaceRoot),
     resolveBacklogLocation: (workspaceRoot: string): Promise<BacklogLocationResult> =>
       renderer.invoke('backlog:resolve-location', workspaceRoot),
     setBacklogRoot: (input: BacklogSetRootInput): Promise<BacklogLocationResult> =>
@@ -85,7 +82,6 @@ export function createBacklogApi(renderer: BacklogIpcRenderer) {
       renderer.invoke('backlog:create-epic', input),
   } satisfies Pick<
     ElectronApi,
-    | 'readBacklogObjectStore'
     | 'resolveBacklogLocation'
     | 'setBacklogRoot'
     | 'ensureBacklogObjectRecords'

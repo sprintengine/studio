@@ -3870,7 +3870,6 @@ export type ElectronApi = {
   // the whole renderer-facing telemetry surface — there is no channel for the
   // renderer to send an event, only this one to stop main sending them.
   setTelemetryEnabled: (enabled: boolean) => Promise<void>
-  readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>
   resolveBacklogLocation: (workspaceRoot: string) => Promise<BacklogLocationResult>
   setBacklogRoot: (input: BacklogSetRootInput) => Promise<BacklogLocationResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>

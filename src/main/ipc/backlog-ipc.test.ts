@@ -19,7 +19,6 @@ async function main(): Promise<void> {
   registerBacklogIpc(ipcMain as unknown as Parameters<typeof registerBacklogIpc>[0])
 
   for (const channel of [
-    'backlog:read-object-store',
     'backlog:ensure-object-records',
     'backlog:update-status',
     'backlog:update-triage',
