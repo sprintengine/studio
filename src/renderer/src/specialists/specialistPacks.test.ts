@@ -75,7 +75,7 @@ function main(): void {
   const marketer = discovered.find((p) => p.id === 'registry:workspace')!.specialists
   assert.equal(marketer.length, 1)
   assert.equal(marketer[0].id, 'marketer')
-  assert.equal(marketer[0].soulRole, 'marketer', 'discovered soulRole is the registry role id')
+  assert.equal(marketer[0].role, 'marketer', 'discovered role is the registry role id')
   assert.equal(marketer[0].icon, 'product', 'discovered icon comes from the manifest')
 
   // The user-layer first-party roles surface with their manifest metadata.
@@ -86,27 +86,27 @@ function main(): void {
   assert.equal(listSpecialistPacks().length, 0)
   assert.equal(listSpecialistPacks(reg).length, 3)
 
-  // Enabled roster merges every discovered pack; disabling one drops only its
-  // agents.
+  // Roster merges every discovered pack. A stored disabled map is ignored —
+  // pickers list what discovery returned, unfiltered.
   const all = resolveEnabledSpecialists([], listSpecialistPacks(reg))
   assert.ok(all.some((s) => s.id === 'marketer'))
   assert.ok(all.some((s) => s.id === 'translator'))
   assert.ok(all.some((s) => s.id === 'architect'))
-  const withoutWorkspace = resolveEnabledSpecialists(['registry:workspace'], listSpecialistPacks(reg))
-  assert.ok(!withoutWorkspace.some((s) => s.id === 'marketer'))
-  assert.ok(withoutWorkspace.some((s) => s.id === 'translator'))
+  const ignoringDisabled = resolveEnabledSpecialists(['registry:workspace'], listSpecialistPacks(reg))
+  assert.ok(ignoringDisabled.some((s) => s.id === 'marketer'), 'a stored pack off-switch does not hide a discovered role')
+  assert.ok(ignoringDisabled.some((s) => s.id === 'translator'))
 
-  // --- spawn resolution: every id is a registry role id (id === soulRole) ---
+  // --- spawn resolution: every id is a registry role id (id === role) ---
   const developerAction = getSpecialistAction('developer')
   assert.equal(developerAction.id, 'developer')
-  assert.equal(developerAction.soulRole, 'developer', 'id spawns via souls get <id>')
+  assert.equal(developerAction.role, 'developer', 'id names the role skill')
   assert.deepEqual(synthesizeSpecialistAction('translator'), {
     id: 'translator',
     label: 'translator',
     shortLabel: 'translator',
     description: '',
     icon: 'code',
-    soulRole: 'translator',
+    role: 'translator',
   })
   // Empty input yields a neutral placeholder instead of throwing.
   assert.equal(getSpecialistAction(null).id, '')

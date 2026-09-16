@@ -4,13 +4,19 @@
  * It used to live under `src/renderer/src/specialists/`, which meant a specialist
  * launch could only be assembled inside a React hook: the main-process
  * `AgentLaunchService` (MC-2159) had no way to wrap a directive in the
- * soul-fetch preamble, so `agent.launch` from the gateway or an automation had
+ * role-assignment preamble, so `agent.launch` from the gateway or an automation had
  * to round-trip through a window. Nothing here touches the DOM or `window` — it
  * is string composition over ids — so it moved rather than being duplicated.
  * `src/renderer/src/specialists/specialistActions.ts` re-exports it verbatim, so
  * every renderer import site is unchanged.
  */
 import type { SpecialistActionId } from '../../renderer/src/types/workspace'
+import {
+  AUTONOMOUS_SPECIALIST_DIRECTIVE_LEAD,
+  buildRoleAssignmentText,
+  defaultWorkspaceRoleSkillRel,
+  missingRoleMessage,
+} from './role-brief'
 
 export type SpecialistIcon =
   | 'architecture'
@@ -35,10 +41,10 @@ export type SpecialistAction = {
   shortLabel: string
   description: string
   icon: SpecialistIcon
-  // A specialist's id is its registry role id, so `soulRole === id` always. The
+  // A specialist's id is its registry role id, so `role === id` always. The
   // field is kept (rather than folded into `id`) so call sites reading a role
-  // for `souls get <role>` stay explicit about intent.
-  soulRole: string
+  // for the skill pointer stay explicit about intent.
+  role: string
   shortcut?: string
 }
 
@@ -72,10 +78,11 @@ export const SPECIALIST_DISPLAY_ORDER: readonly string[] = [
 ]
 
 // Synthesize a specialist action for a registry role id. The id is the registry
-// role id, so its soul is rendered by `souls get <id>`; label/icon fall back to
-// the id and a neutral glyph. Callers that have registry metadata (the pickers,
-// via specialistPacks.ts) prefer that richer action; this is the pure-id
-// fallback for a selected id no longer present in the registry.
+// role id, so its brief is the skill at `.claude/skills/<kebab>/SKILL.md`;
+// label/icon fall back to the id and a neutral glyph. Callers that have
+// registry metadata (the pickers, via specialistPacks.ts) prefer that richer
+// action; this is the pure-id fallback for a selected id no longer present in
+// the registry.
 export function synthesizeSpecialistAction(id: string): SpecialistAction {
   return {
     id,
@@ -83,13 +90,13 @@ export function synthesizeSpecialistAction(id: string): SpecialistAction {
     shortLabel: id,
     description: '',
     icon: 'code',
-    soulRole: id,
+    role: id,
   }
 }
 
 // Resolve a specialist id to an action shape. Every id is a registry role id, so
-// its soul renders via `souls get <id>`; this synthesizes the shape from the id
-// alone. Rich display metadata (manifest label/icon) comes from the
+// its brief is the matching workspace skill; this synthesizes the shape from the
+// id alone. Rich display metadata (manifest label/icon) comes from the
 // registry-sourced pack list, not from here. Empty input yields a neutral empty
 // placeholder rather than throwing, so a missing selection degrades safely.
 export function getSpecialistAction(id: SpecialistActionId | null | undefined): SpecialistAction {
@@ -126,48 +133,28 @@ export function orderSpecialistActions(
 
 export function buildMissingSpecialistSoul(action: SpecialistAction, message?: string): string {
   return [
-    'Soul unavailable.',
+    'Role unavailable.',
     '',
-    message ?? `The Souls registry could not render '${action.soulRole}'.`,
-    'Run `souls validate` to inspect the registry, then restart this agent once the Soul renders cleanly.',
+    message ?? missingRoleMessage(action.role),
   ].join('\n')
 }
 
-export function buildSpecialistSoulStartupPrompt(action: SpecialistAction): string {
-  return [
-    'Fetch your Soul from the Souls CLI before doing any role-specific work.',
-    '',
-    '```bash',
-    `souls get ${action.soulRole}`,
-    '```',
-    '',
-    'Treat the returned text as your role, judgment, and quality bar.',
-    '',
-    'After loading the Soul, do not begin role-specific work yet. Briefly acknowledge that you are ready in this role, then wait for the user to give you a task or question.',
-    '',
-    'If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.',
-  ].join('\n')
+export function buildSpecialistSoulStartupPrompt(action: SpecialistAction, skillRel?: string): string {
+  const roleId = action.role || action.id
+  return buildRoleAssignmentText(roleId, skillRel ?? defaultWorkspaceRoleSkillRel(roleId))
 }
 
-// Autonomous-run variant of the soul startup prompt. Unlike the interactive
-// build above — which fetches the Soul then waits for a human to hand over a
-// task — an automation agent has no human in the loop, so it must fetch the
-// Soul and then immediately carry out the directive in that role. The directive
-// is the main-process-composed automation prompt (autonomy policy + run-status
+// Autonomous-run variant of the role startup prompt. Unlike the interactive
+// build above — which names the role skill then waits for a human to hand over a
+// task — an automation agent has no human in the loop, so it must take the role
+// and then immediately carry out the directive. The directive is the
+// main-process-composed automation prompt (autonomy policy + run-status
 // signal instructions), kept verbatim below so its reporting contract stands.
 export function buildSpecialistDirectiveStartupPrompt(action: SpecialistAction, directive: string): string {
   return [
-    'Fetch your Soul from the Souls CLI before doing any role-specific work.',
+    buildSpecialistSoulStartupPrompt(action),
     '',
-    '```bash',
-    `souls get ${action.soulRole}`,
-    '```',
-    '',
-    'Treat the returned text as your role, judgment, and quality bar.',
-    '',
-    'After loading the Soul, carry out the directive below in this role. Do not wait for further input — this is an autonomous run.',
-    '',
-    'If the `souls` command is unavailable, do not guess the role prompt: treat the run as failed and report that the Souls CLI is unavailable via the run-status reporting described in the directive.',
+    AUTONOMOUS_SPECIALIST_DIRECTIVE_LEAD,
     '',
     '---',
     '',

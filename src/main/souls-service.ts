@@ -124,8 +124,8 @@ async function runSoulsCli(args: string[]): Promise<SoulsCliResult> {
 export async function readSpecialistSoul(specialistId: SpecialistActionId): Promise<SoulPromptResult> {
   // A specialist id is its registry role id, so it is used directly as the role.
   // Hyphen and underscore spellings of that id are the same name. A dropped
-  // alias (a different name, not a respelling) is a missing-role state:
-  // `souls get` reports which spelling failed and how to install a skill for it.
+  // alias (a different name, not a respelling) is a missing-role state: the
+  // souls CLI reports which spelling failed and how to install a skill for it.
   const role = specialistId
   if (!role) {
     return {

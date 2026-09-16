@@ -202,7 +202,7 @@ run('a folderless workspace refuses rather than spawning into the app directory'
   assert.equal(app.spawns.length, 0)
 })
 
-run('a specialist launch wraps the directive in the soul-fetch preamble', async () => {
+run('an automation-launched specialist gets the same role directive as a person', async () => {
   const app = harness({ settings: settings({ lastSelectedCli: 'claude-code' }) })
   const launched = await app.service.launch({
     workspaceId: 'ws-1',
@@ -212,7 +212,8 @@ run('a specialist launch wraps the directive in the soul-fetch preamble', async 
 
   assert.equal(launched.ok, true, JSON.stringify(launched))
   const prompt = app.spawns[0]!.initialPrompt ?? ''
-  assert.match(prompt, /souls get security/, 'the specialist fetches its Soul first')
+  assert.match(prompt, /`.claude\/skills\/security\/SKILL\.md`/, 'the specialist is pointed at its role skill')
+  assert.doesNotMatch(prompt, /souls\s+get/)
   assert.match(prompt, /autonomous run/, 'and is told nobody will answer it')
   assert.match(prompt, /Audit the auth flow\./, 'the caller directive is carried verbatim')
   assert.equal(app.spawns[0]!.agentRecord?.kind, 'specialist')

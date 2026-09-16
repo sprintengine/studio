@@ -651,6 +651,10 @@ export function normalizeSpecialistPacks(
   const source = input as { disabled?: unknown; migratedBundledPack?: unknown } | undefined
   const persisted = source?.migratedBundledPack
   const migratedBundledPack = typeof persisted === 'boolean' ? persisted : migratedFallback
+  // After the one-time pack migration has run, a stored off-switch is dropped
+  // so the next settings write does not persist it. Before that, keep the ids
+  // so the migration can still tell "had the pack off" from "had it on".
+  if (migratedBundledPack) return { disabled: [], migratedBundledPack }
   const raw = source?.disabled
   if (!Array.isArray(raw)) return { disabled: [], migratedBundledPack }
   const seen = new Set<string>()

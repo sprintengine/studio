@@ -235,7 +235,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
     // The picker constrains specialistId to the catalog; trust it at this
     // boundary, exactly as the renderer path did.
     const specialistId = request.specialistId?.trim() || undefined
-    // A specialist run must fetch its Soul before acting, just like an
+    // A specialist run must take its role before acting, just like an
     // interactively-spawned specialist. Composed here rather than by the caller,
     // so a directive sent by the gateway, an automation, or a plan step is
     // wrapped identically; a non-specialist run sends the prompt unchanged.

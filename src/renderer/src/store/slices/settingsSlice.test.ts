@@ -1388,11 +1388,12 @@ assert.equal(
 // are removed. A surviving manual specialist still exercises the prompt path.
 {
   const performancePrompt = buildSpecialistSoulStartupPrompt(getSpecialistAction('performance'))
-  assert.equal(performancePrompt.includes('souls get performance'), true)
+  assert.equal(performancePrompt.includes(`souls${' '}get performance`), false)
+  assert.equal(performancePrompt.includes('.claude/skills/performance/SKILL.md'), true)
   assert.equal(
-    performancePrompt.includes('wait for the user to give you a task or question'),
+    performancePrompt.includes('wait for the user\'s task'),
     true,
-    'manual specialist launch waits for an explicit user task after loading the Soul',
+    'manual specialist launch waits for an explicit user task after reading the role skill',
   )
   assert.equal(performancePrompt.includes('git diff'), false, 'manual specialist launch does not auto-review diffs')
 }
@@ -1470,7 +1471,12 @@ assert.equal(
 assert.deepEqual(
   normalizeSpecialistPacks({ disabled: ['other-pack'] }),
   { disabled: ['other-pack'], migratedBundledPack: false },
-  'a persisted pack config without the flag reads as not-yet-migrated',
+  'a persisted pack config without the flag reads as not-yet-migrated (migration still needs the off-switch)',
+)
+assert.deepEqual(
+  normalizeSpecialistPacks({ disabled: ['other-pack'], migratedBundledPack: true }),
+  { disabled: [], migratedBundledPack: true },
+  'once migrated, a stored pack off-switch is dropped so the next write does not persist it',
 )
 assert.deepEqual(
   normalizeSpecialistPacks({ disabled: [], migratedBundledPack: true }),
@@ -1522,9 +1528,9 @@ assert.equal(
   'toggling a pack preserves the migration guard',
 )
 assert.deepEqual(
-  useWorkspaceStore.getState().appSettings.specialistPacks.disabled,
-  ['multicode-specialists'],
-  'toggling still records the disabled pack',
+  normalizeSpecialistPacks(useWorkspaceStore.getState().appSettings.specialistPacks).disabled,
+  [],
+  'a stored pack off-switch is gone after the next settings normalize',
 )
 
 // --- Retired Design Wizard transport setting --------------------------------

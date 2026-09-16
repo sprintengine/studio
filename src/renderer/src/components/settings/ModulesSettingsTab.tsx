@@ -4,7 +4,6 @@ import type { CapabilityManifest } from '../../../../shared/modules/manifest'
 import { selectModuleEnabled } from '../../modules'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
-  isSpecialistPackEnabled,
   listSpecialistPacks,
   type SpecialistPack,
 } from '../../specialists/specialistPacks'
@@ -23,10 +22,8 @@ import { SettingCard, SettingsPageHeader, SettingsSectionTitle } from './Setting
 // marketplace-shaped surfaces read as one system; the groups are the settings
 // list card under a settings section band (setting-row → The list card,
 // 2026-09-15) so this tab reads as the rest of Settings does. Module enablement
-// writes appSettings.modules; pack enablement writes
-// appSettings.specialistPacks — same stores the old split tabs used.
-
-const EMPTY_DISABLED: string[] = []
+// writes appSettings.modules. Discovered specialist packs are listed here
+// with no per-pack off-switch: pickers show whatever discovery returned.
 
 // The same neutral icon chip the Connectors surface uses, for entries that
 // have no brand image: a glyph when the entry kind ships one, else a monogram.
@@ -84,16 +81,12 @@ function ModuleCard({
 
 function SpecialistPackCard({
   pack,
-  enabled,
   expanded,
   onToggleExpanded,
-  onSetEnabled,
 }: {
   pack: SpecialistPack
-  enabled: boolean
   expanded: boolean
   onToggleExpanded: () => void
-  onSetEnabled: (enabled: boolean) => void
 }) {
   return (
     // The row and its disclosure share one list item, so the roster opens
@@ -115,13 +108,10 @@ function SpecialistPackCard({
         chips={[`${pack.specialists.length} agent${pack.specialists.length === 1 ? '' : 's'}`]}
         selected={expanded}
         onOpen={onToggleExpanded}
-        actions={
-          <Switch checked={enabled} onChange={onSetEnabled} ariaLabel={`Enable ${pack.name}`} />
-        }
       />
       {expanded ? (
         // design-tokens-allow: alignment — the roster's left edge is the pack name's (16px inset + 36px chip + 8px gap), structure not rhythm
-        <ul className={`space-y-3 pb-3 pl-[60px] pr-4 pt-1 ${enabled ? '' : 'opacity-50'}`} aria-label={`${pack.name} agents`}>
+        <ul className="space-y-3 pb-3 pl-[60px] pr-4 pt-1" aria-label={`${pack.name} agents`}>
           {pack.specialists.map((specialist) => (
             <li key={specialist.id} className="flex items-start gap-3">
               <SpecialistActionIcon
@@ -149,10 +139,6 @@ function SpecialistPackCard({
 export function ModulesSettingsTab() {
   const overrides = useWorkspaceStore((state) => state.appSettings.modules)
   const setModuleEnabled = useWorkspaceStore((state) => state.setModuleEnabled)
-  const disabledPacks = useWorkspaceStore(
-    (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED
-  )
-  const setSpecialistPackEnabled = useWorkspaceStore((s) => s.setSpecialistPackEnabled)
   const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
   const packs = React.useMemo(
@@ -247,12 +233,10 @@ export function ModulesSettingsTab() {
               <SpecialistPackCard
                 key={pack.id}
                 pack={pack}
-                enabled={isSpecialistPackEnabled(disabledPacks, pack.id)}
                 expanded={expandedPackId === pack.id}
                 onToggleExpanded={() =>
                   setExpandedPackId((current) => (current === pack.id ? null : pack.id))
                 }
-                onSetEnabled={(next) => setSpecialistPackEnabled(pack.id, next)}
               />
             ))}
           </SettingCard>

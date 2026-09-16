@@ -4,17 +4,11 @@ import type {
 } from '../types/workspace'
 import type { SpecialistAction, SpecialistIcon } from './specialistActions'
 
-// A specialist pack is a named, toggleable group of specialist agents. Nothing
-// ships bundled: specialists are installed like anything else, so every pack is
-// discovered from the role registry (the first-party pack installs into the
-// user-global registry layer; workspace/plugin layers contribute their own).
-// Not installed → no specialists in any picker, and the menu stays valid because
-// the Terminal / General / Conversation quick rows always remain.
-//
-// Each agent's *soul* is composed from skills by the role registry (see
-// sprintengine_core), and is portable: the studio's product layer (Backlog,
-// Knowledge Graph) and the Sprint Engine layer are composed on at spawn time,
-// not baked into the soul.
+// A specialist pack is a named group of specialist agents discovered from the
+// role registry. Nothing ships force-installed: specialists are installed like
+// anything else. Not installed → no specialists in any picker, and the menu
+// stays valid because the Terminal / General / Conversation quick rows always
+// remain. Packs are not toggleable: pickers list whatever discovery returned.
 
 export type SpecialistPack = {
   id: string
@@ -36,15 +30,15 @@ function iconForRegistryRole(icon: string | null | undefined): SpecialistIcon {
 }
 
 function specialistFromRegistryRole(role: SprintEngineRoleRegistryMetadata): SpecialistAction {
-  // A discovered role's id is its registry role id, so its soul renders via
-  // `souls get <id>`. Display comes from the manifest's label/description/icon.
+  // A discovered role's id is its registry role id, so its brief is the
+  // matching workspace skill. Display comes from the skill's label/description/icon.
   return {
     id: role.id,
     label: role.label,
     shortLabel: role.label,
     description: role.description ?? '',
     icon: iconForRegistryRole(role.icon),
-    soulRole: role.id,
+    role: role.id,
   }
 }
 
@@ -108,18 +102,18 @@ export function isSpecialistPackEnabled(
 }
 
 /**
- * The flattened specialist roster contributed by every enabled pack, de-duped
- * by id (first pack wins). Feeds the spawn dropdown; an empty result is valid
- * and the menu still offers its quick rows.
+ * The flattened specialist roster, de-duped by id (first pack wins). A stored
+ * per-pack disabled map is ignored: pickers list whatever discovery returned,
+ * unfiltered. Feeds the spawn dropdown; an empty result is valid and the menu
+ * still offers its quick rows.
  */
 export function resolveEnabledSpecialists(
-  disabled: readonly string[] | undefined,
+  _disabled: readonly string[] | undefined,
   packs: readonly SpecialistPack[] = listSpecialistPacks(),
 ): SpecialistAction[] {
   const seen = new Set<string>()
   const result: SpecialistAction[] = []
   for (const pack of packs) {
-    if (!isSpecialistPackEnabled(disabled, pack.id)) continue
     for (const specialist of pack.specialists) {
       if (seen.has(specialist.id)) continue
       seen.add(specialist.id)

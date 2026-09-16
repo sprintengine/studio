@@ -998,7 +998,8 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
     const startupScript = await readFile(String(mockPty.spawnCalls[0]!.args.at(-1)), 'utf8')
     assert.match(startupScript, /claude/, 'the last-selected CLI is what launched')
     assert.match(startupScript, /--permission-mode auto/, 'the app-level spawn preset reached the argv')
-    assert.match(startupScript, /souls get security/, 'the specialist fetches its Soul first')
+    assert.match(startupScript, /security\/SKILL\.md/, 'the specialist is pointed at its role skill')
+    assert.doesNotMatch(startupScript, /souls\s+get/)
     assert.match(startupScript, /Audit the auth flow\./, 'and carries the caller directive')
     assert.deepEqual(syncInputs.at(-1)?.settings, { syncEnabled: true, servers: {} }, "the user's MCP settings synced")
 
