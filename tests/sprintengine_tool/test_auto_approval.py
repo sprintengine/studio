@@ -414,7 +414,10 @@ def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
     assert "if (status.processAlive) return 'skipped'" in cycle_source
     assert "cliSessionId: undefined" in cycle_source
     assert "if (!agent.cliSessionId)" in cycle_source
-    assert "agent.kind !== 'sprintengine'" in cycle_source
+    # Managed-agent identity left AgentKind (MC-2573); the reconciler skips
+    # non-roster / non-namespaced agents via the module helper instead of a
+    # kind-member compare.
+    assert "isSprintEngineManagedAgent(agent" in cycle_source
     # safeTerminalStatus must keep the fallback shape (terminalStatus call wrapped
     # in try/catch returning processAlive: false) so transient IPC failures do
     # not crash the retry path.
