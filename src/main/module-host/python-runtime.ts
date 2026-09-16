@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { delimiter } from 'node:path'
 
 import { getManagedPython, managedPythonSpawnEnv, type PythonSource, type ResolvedPython } from '../managed-runtime'
+import { productionChildEnv } from '../production-child-env'
 
 // Host-owned Python spawn. The module names a package directory and an entry
 // (`-m` or a script); this file resolves the managed interpreter, prepends the
@@ -73,7 +74,7 @@ export function spawnManagedPython(
     : [input.script as string, ...(input.args ?? [])]
   const env = buildManagedPythonEnv(
     input.pythonRoot,
-    { ...process.env, ...(input.env ?? {}) },
+    productionChildEnv(process.env, input.env),
     resolved.source
   )
   const spawnProcess = deps.spawnProcess ?? spawn

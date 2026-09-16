@@ -48,6 +48,7 @@ import {
 import { asRecord } from '../shared/records'
 import { isPathInsideOrEqual } from './path-containment'
 import { SIDECAR_DIR_NAME, isSidecarDirName } from '../shared/workspace-sidecar'
+import { productionChildEnv } from './production-child-env'
 
 export { SPRINT_ENGINE_RUN_SCHEMA_VERSION, describeUnsupportedSprintEngineStore }
 
@@ -55,6 +56,8 @@ type SprintEngineArtifactDependencies = {
   getAuthenticatedUserId(): string | null
   openExternal(url: string): Promise<void>
   runMcpTool?: SprintEngineMcpToolRunner
+  /** Merged onto the stripped production child env. Tests pass the bundled-roles flag here. */
+  childEnv?: NodeJS.ProcessEnv
 }
 
 type SprintEngineMcpActorContext = {
@@ -652,7 +655,11 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   return args
 }
 
-function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+function runSprintEngineCli(
+  state: ValidSprintEngineStatePath,
+  args: string[],
+  childEnv?: NodeJS.ProcessEnv,
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   return new Promise((resolvePromise) => {
     const runtimeRoot = getSprintEngineMcpRuntimeRoot()
     const toolPath = join(runtimeRoot, 'scripts', 'sprintengine_tool.py')
@@ -662,10 +669,10 @@ function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): 
     // running app knows them (the user-install root the engine now finds
     // natively; see SPRINTENGINE_USER_REGISTRY_ROOT in role_registry.py).
     const registryRoots = sprintEngineRegistryRootsForRead()
-    const cliEnv: NodeJS.ProcessEnv = {
-      ...process.env,
+    const cliEnv: NodeJS.ProcessEnv = productionChildEnv(process.env, {
+      ...childEnv,
       PYTHONPATH: [runtimeRoot, state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
-    }
+    })
     if (registryRoots.length > 0) {
       cliEnv.SPRINTENGINE_REGISTRY_ROOTS = JSON.stringify(registryRoots)
     } else {
@@ -831,7 +838,8 @@ function runSprintEngineMcpToolProcess(
   context: SprintEngineMcpRunnerContext,
   tool: string,
   payload: Record<string, unknown>,
-  actor: SprintEngineMcpActorContext
+  actor: SprintEngineMcpActorContext,
+  childEnv?: NodeJS.ProcessEnv,
 ): ReturnType<SprintEngineMcpToolRunner> {
   return new Promise((resolvePromise) => {
     // A tool call carrying a statePath is a call against that run, so the run's
@@ -845,12 +853,12 @@ function runSprintEngineMcpToolProcess(
       args.push('--allowed-root', root)
     }
     const runtimeRoot = getSprintEngineMcpRuntimeRoot()
-    const mcpEnv: NodeJS.ProcessEnv = {
-      ...process.env,
+    const mcpEnv: NodeJS.ProcessEnv = productionChildEnv(process.env, {
+      ...childEnv,
       PYTHONPATH: [runtimeRoot, context.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
       SPRINTENGINE_MCP_USER_ID: actor.id,
       SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
-    }
+    })
     if (registryRoots.length > 0) {
       mcpEnv.SPRINTENGINE_REGISTRY_ROOTS = JSON.stringify(registryRoots)
     } else {
@@ -1171,7 +1179,11 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
   summarizeFeedback(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult>
 } {
-  const runMcpTool = deps.runMcpTool ?? runSprintEngineMcpToolProcess
+  const runMcpTool = deps.runMcpTool ?? (
+    (context, tool, payload, actor) => runSprintEngineMcpToolProcess(context, tool, payload, actor, deps.childEnv)
+  )
+  const runCli = (state: ValidSprintEngineStatePath, args: string[]) =>
+    runSprintEngineCli(state, args, deps.childEnv)
   return {
     async openArtifact(payload) {
       try {
@@ -1256,7 +1268,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         const actor = await requireSprintEngineMcpAuthority(deps)
         const initialState = resolveInitialSprintEngineStatePayload(payload)
         await mkdir(state.teamDirectory, { recursive: true })
-        const toolResult = await runSprintEngineCli(state, sprintEngineInitArgs(state, initialState))
+        const toolResult = await runCli(state, sprintEngineInitArgs(state, initialState))
         if (toolResult.exitCode !== 0) {
           return {
             ok: false,
@@ -1510,7 +1522,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         if (cliWatchPolling !== 'enabled' && cliWatchPolling !== 'disabled') {
           throw new Error('CLI watch polling must be enabled or disabled.')
         }
-        const toolResult = await runSprintEngineCli(state, [
+        const toolResult = await runCli(state, [
           '--state',
           state.statePath,
           'runner',
@@ -1554,7 +1566,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     async cancelRun(payload) {
       try {
         const state = validateSprintEngineStatePath(payload?.statePath)
-        const toolResult = await runSprintEngineCli(state, [
+        const toolResult = await runCli(state, [
           '--state',
           state.statePath,
           'cancel',
@@ -1585,7 +1597,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     async createPullRequest(payload) {
       try {
         const state = validateSprintEngineStatePath(payload?.statePath)
-        const toolResult = await runSprintEngineCli(state, [
+        const toolResult = await runCli(state, [
           '--state',
           state.statePath,
           'vcs',
@@ -1628,7 +1640,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         const state = validateSprintEngineStatePath(payload?.statePath)
         const taskId = typeof payload?.taskId === 'string' ? payload.taskId.trim() : ''
         if (!taskId) return { ok: false, isolated: false, worktreePath: null, message: 'Task id is required.' }
-        const toolResult = await runSprintEngineCli(state, [
+        const toolResult = await runCli(state, [
           '--state',
           state.statePath,
           'vcs',
@@ -1676,7 +1688,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
       try {
         const state = validateSprintEngineStatePath(payload?.statePath)
         const repo = typeof payload?.repo === 'string' ? payload.repo.trim() : ''
-        const toolResult = await runSprintEngineCli(state, [
+        const toolResult = await runCli(state, [
           '--state',
           state.statePath,
           'vcs',
@@ -1719,7 +1731,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     async refreshPullRequestStatus(payload) {
       try {
         const state = validateSprintEngineStatePath(payload?.statePath)
-        const toolResult = await runSprintEngineCli(state, [
+        const toolResult = await runCli(state, [
           '--state',
           state.statePath,
           'vcs',
@@ -1770,7 +1782,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         if (model) {
           args.push('--model', model)
         }
-        const toolResult = await runSprintEngineCli(state, args)
+        const toolResult = await runCli(state, args)
         if (toolResult.exitCode !== 0) {
           return {
             ok: false,
@@ -1816,7 +1828,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             args.push('--model', model)
           }
         }
-        const toolResult = await runSprintEngineCli(state, args)
+        const toolResult = await runCli(state, args)
         if (toolResult.exitCode !== 0) {
           return {
             ok: false,

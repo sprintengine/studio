@@ -3,6 +3,7 @@ import { existsSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 import type { SoulPromptResult, SpecialistActionId } from '../shared/electron-api'
 import { getManagedPython, managedPythonSpawnEnv, type ResolvedPython } from './managed-runtime'
+import { productionChildEnv } from './production-child-env'
 import { readStudioEnv } from '../shared/studio-env'
 
 type SoulsCliResult =
@@ -49,10 +50,9 @@ async function runSoulsCli(args: string[]): Promise<SoulsCliResult> {
     try {
       child = spawn(python, ['-m', 'souls', ...args], {
         cwd: repoRoot,
-        env: managedPythonSpawnEnv({
-          ...process.env,
+        env: managedPythonSpawnEnv(productionChildEnv(process.env, {
           PYTHONPATH: existingPythonPath ? `${repoRoot}${pathSeparator}${existingPythonPath}` : repoRoot,
-        }, resolvedPython.source),
+        }), resolvedPython.source),
         stdio: ['ignore', 'pipe', 'pipe'],
       })
     } catch (error) {

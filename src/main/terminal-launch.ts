@@ -27,6 +27,7 @@ import {
 import { withMulticodeCliPath } from './cli-install'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
+import { productionChildEnv } from './production-child-env'
 import { compatStudioEnvEntry, studioEnvNames, withoutStudioEnv } from '../shared/studio-env'
 import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
@@ -58,7 +59,7 @@ export type ShellLaunchConfig = {
 
 export function getTerminalEnv(): Record<string, string> {
   const env = Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    Object.entries(productionChildEnv(process.env)).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
   )
 
   delete env.ELECTRON_RUN_AS_NODE
