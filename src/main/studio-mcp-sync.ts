@@ -1,4 +1,4 @@
-import type { McpConfigService } from './mcp-config-service'
+import { RETIRED_SPRINTENGINE_MCP_SERVER_ID, type McpConfigService } from './mcp-config-service'
 import type { McpServerConfig, McpSyncInput } from '../shared/electron-api'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { compatStudioEnvEntry } from '../shared/studio-env'
@@ -12,7 +12,8 @@ export type StudioMcpSyncResult = { ok: true } | { ok: false; message: string }
  * Two passes, not one: the generic writer picks a single target when a user's
  * own servers are user-scoped, and this app-owned entry must never land in a
  * user-global CLI config. The first pass (only when the user has servers to
- * write) carries their settings; the second pins the gateway to the workspace.
+ * write) carries their settings; the second pins the gateway to the workspace
+ * and forgets the retired Sprint Engine server.
  */
 export async function syncStudioMcpConfig(
   input: McpSyncInput,
@@ -59,6 +60,10 @@ export async function syncStudioMcpConfig(
       {
         ...input,
         pruneUnlistedServers: false,
+        // The deleted Sprint Engine's per-run server: forgotten on every pass
+        // that pins the gateway, so a workspace that once ran a sprint stops
+        // listing a server nothing answers.
+        forgetServerIds: [...(input.forgetServerIds ?? []), RETIRED_SPRINTENGINE_MCP_SERVER_ID],
         settings: {
           syncEnabled: true,
           servers: { [studioServer.id]: studioServer },

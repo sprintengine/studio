@@ -612,6 +612,7 @@ export async function installStudioPlugin(
   if (copied.length === 0) {
     return { ok: false, message: warnings[0] ?? 'No SprintEngine Studio skill could be copied into this workspace.' }
   }
+  warnings.push(...(await pruneUnshippedStudioSkills(workspaceRoot, skillDirs)))
 
   // The hook, from the plugin's own declaration. Skipped when Claude Code loads
   // the plugin itself — it would then register these same hooks, and two
@@ -663,6 +664,40 @@ export async function installStudioPlugin(
     hookSettingsPath,
     warnings,
   }
+}
+
+/**
+ * Remove the copies an earlier version of this plugin installed and this build
+ * no longer ships (`studio-sprints`, once the sprint tools were deleted): a
+ * copy left behind tells every agent that reads it to call tools that no
+ * longer exist, and nothing else would ever take it out.
+ *
+ * Only a directory whose provenance marker names this plugin is touched — a
+ * person's own skill, or one another source installed under the same name,
+ * carries a different marker (or none) and stays. Every harness directory is
+ * swept, not only the ones this install targets, because the harness set can
+ * shrink between versions and the stale copy would then sit where no install
+ * looks. Returns warnings for the removals that failed.
+ */
+async function pruneUnshippedStudioSkills(workspaceRoot: string, shipped: readonly string[]): Promise<string[]> {
+  const keep = new Set(shipped)
+  const warnings: string[] = []
+  for (const harnessDir of new Set(Object.values(SKILL_HARNESS_DIR))) {
+    const skillsRoot = join(workspaceRoot, harnessDir, 'skills')
+    const entries = await readdir(skillsRoot, { withFileTypes: true }).catch(() => null)
+    for (const entry of entries ?? []) {
+      if (!entry.isDirectory() || keep.has(entry.name)) continue
+      const directory = join(skillsRoot, entry.name)
+      const provenance = await readSkillProvenance(directory)
+      if (provenance?.sourceId !== STUDIO_PLUGIN_SOURCE_ID) continue
+      try {
+        await rm(directory, { recursive: true, force: true })
+      } catch (error) {
+        warnings.push(`${join(harnessDir, 'skills', entry.name)} is no longer shipped and could not be removed: ${describe(error)}`)
+      }
+    }
+  }
+  return warnings
 }
 
 // ── Claude Code settings ────────────────────────────────────────────────────

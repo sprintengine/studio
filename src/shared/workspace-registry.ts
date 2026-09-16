@@ -21,6 +21,7 @@
  */
 import { isDefaultWorkspaceName } from './workspace-title'
 import { isRecord } from './records'
+import { isRetiredWorkspaceMode } from './workspace-mode'
 import type {
   AgentState,
   Workspace,
@@ -268,6 +269,12 @@ export type WorkspaceRegistryParseResult = {
   file: WorkspaceRegistryFile
   /** Records dropped by per-record validation, with the field that failed. */
   droppedRecords: { id: string; reason: string }[]
+  /**
+   * Records dropped because their mode is retired (`RETIRED_WORKSPACE_MODES`).
+   * Kept apart from `droppedRecords`: they are not malformed, just rows no
+   * build can render any more, and a profile can carry a hundred of them.
+   */
+  retiredRecordIds: string[]
 }
 
 /**
@@ -288,8 +295,17 @@ export function parseWorkspaceRegistryFile(raw: unknown): WorkspaceRegistryParse
   if (!Array.isArray(raw.workspaces)) return null
 
   const droppedRecords: { id: string; reason: string }[] = []
+  const retiredRecordIds: string[] = []
   const workspaces: WorkspaceRegistryRecord[] = []
   for (const [index, candidate] of raw.workspaces.entries()) {
+    // A row whose mode was retired is filtered, not migrated: nothing registers
+    // its type, so it would surface as an uninstalled-type placeholder whose
+    // old roster could still be launched. Dropping it here keeps it out of
+    // every consumer of main's registry, and the next write persists without it.
+    if (isRecord(candidate) && typeof candidate.id === 'string' && isRetiredWorkspaceMode(candidate.mode)) {
+      retiredRecordIds.push(candidate.id)
+      continue
+    }
     const parsed = parseWorkspaceRegistryRecord(candidate)
     if ('reason' in parsed) {
       droppedRecords.push({
@@ -303,6 +319,10 @@ export function parseWorkspaceRegistryFile(raw: unknown): WorkspaceRegistryParse
 
   const primaryWorkspaceWindowId = normalizeId(raw.primaryWorkspaceWindowId)
     || DEFAULT_PRIMARY_WORKSPACE_WINDOW_ID
+  const retired = new Set(retiredRecordIds)
+  const withoutRetired = (workspaceId: string | null): string | null =>
+    workspaceId && retired.has(workspaceId) ? null : workspaceId
+  const rawActiveWorkspaceId = normalizeId(raw.activeWorkspaceId) || null
   const rawWrite = isRecord(raw.lastWrite) ? raw.lastWrite : null
   const file: WorkspaceRegistryFile = {
     schemaVersion: WORKSPACE_REGISTRY_SCHEMA_VERSION,
@@ -314,16 +334,22 @@ export function parseWorkspaceRegistryFile(raw: unknown): WorkspaceRegistryParse
     },
     workspaces,
     workspaceWindows: Array.isArray(raw.workspaceWindows)
-      ? raw.workspaceWindows.filter(isWorkspaceWindowState)
+      ? raw.workspaceWindows.filter(isWorkspaceWindowState).map((windowState) => retired.size === 0
+        ? windowState
+        : {
+            ...windowState,
+            workspaceIds: windowState.workspaceIds.filter((workspaceId) => !retired.has(workspaceId)),
+            activeWorkspaceId: withoutRetired(windowState.activeWorkspaceId),
+          })
       : [],
     primaryWorkspaceWindowId,
-    activeWorkspaceId: normalizeId(raw.activeWorkspaceId) || null,
+    activeWorkspaceId: withoutRetired(rawActiveWorkspaceId),
     registryEmptyState: isRegistryEmptyState(raw.registryEmptyState) ? raw.registryEmptyState : null,
     tombstones: Array.isArray(raw.tombstones)
       ? raw.tombstones.filter(isTombstone).map((entry) => ({ ...entry }))
       : [],
   }
-  return { file, droppedRecords }
+  return { file, droppedRecords, retiredRecordIds }
 }
 
 type RecordParse = { record: WorkspaceRegistryRecord } | { reason: string }

@@ -1,4 +1,5 @@
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, type Workspace } from '../../types/workspace'
+import { isRetiredWorkspaceMode } from '../../../../shared/workspace-mode'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
 import { normalizeAgentState, pickWorkspaceAgentName } from './agentsSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
@@ -12,38 +13,6 @@ import {
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 import { partializeWorkspaceModuleState } from './workspaceModuleState'
 import { partializeWorkspacePaneState } from './workspacePaneSlice'
-
-// Workspace-mode strings whose features were retired. Kept as local literals
-// rather than live `WorkspaceMode` constants precisely because nothing may mint
-// them again: they are legacy values with no producer left, named here only so
-// persisted state written by an older build can be filtered.
-//
-//   `roadmap`   — store v65: the per-project Roadmap workspace became an
-//                 instance-global sidebar surface, and that surface was itself
-//                 deleted on 2026-09-05. The plans on disk (the home project's
-//                 `backlog/roadmaps/`) are untouched files.
-//   `multiloop` — store v66: the feature was removed outright. Any loop state on
-//                 disk under the project folder is untouched.
-//   `guided-brief` — 2026-09-08: the Design Wizard was deleted outright. The
-//                 files it wrote into the project (product/, architecture/,
-//                 mockups/, design-system/) are untouched; only the workspace
-//                 row, which nothing can render any more, is dropped.
-//   `reviews-host` — 2026-09-10: Reviews left the app for an installable module,
-//                 which spawns its guide into the workspace the door was opened
-//                 from, so the per-project background host has no producer left.
-//                 The row and the guide-terminal agent records nested in it go;
-//                 the review data on disk (`.sprintengine/review/`) is untouched.
-//   `sprintengine` — 2026-09-16: the in-tree sprint engine was deleted outright.
-//                 Nothing registers the workspace type any more, so the row has
-//                 no surface to render; the run's own files under the project's
-//                 `.sprintengine/` sidecar are untouched.
-const RETIRED_WORKSPACE_MODES: readonly string[] = [
-  'roadmap',
-  'multiloop',
-  'guided-brief',
-  'reviews-host',
-  'sprintengine',
-]
 
 export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
   state: T,
@@ -143,7 +112,7 @@ export function dedupeAutomationsHostWorkspaces(workspaces: Workspace[]): Worksp
 }
 
 // THE retired-workspace-mode filter. One function for every mode in
-// RETIRED_WORKSPACE_MODES above, because they all need the same treatment and a
+// RETIRED_WORKSPACE_MODES (`shared/workspace-mode.ts`), because they all need the same treatment and a
 // per-feature copy of it only invites the next one to be forgotten.
 //
 // It runs on every list-entry path, not only in the migration rung that retired
@@ -158,7 +127,7 @@ export function dedupeAutomationsHostWorkspaces(workspaces: Workspace[]): Worksp
 // migrate profiles older than vNN"). Returns the input array unchanged — same
 // reference — when there is no retired-mode row, which is the normal load.
 export function dropRetiredModeWorkspaces(workspaces: Workspace[]): Workspace[] {
-  const isRetired = (workspace: Workspace): boolean => RETIRED_WORKSPACE_MODES.includes(workspace.mode)
+  const isRetired = (workspace: Workspace): boolean => isRetiredWorkspaceMode(workspace.mode)
   if (!workspaces.some(isRetired)) return workspaces
   return workspaces.filter((workspace) => !isRetired(workspace))
 }

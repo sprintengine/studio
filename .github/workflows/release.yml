@@ -106,7 +106,7 @@ jobs:
           RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: node scripts/release/release.mjs resolve
 
-  # The whole CI gate -- verify:app, the marketplace registry, pytest -- against
+  # The whole CI gate -- the build, verify:app, the marketplace registry -- against
   # the exact commit being released. It runs beside the packaging legs; only the
   # publish job waits for it, so it costs no wall-clock time.
   quality:

@@ -77,8 +77,8 @@ not, not as a substitute for clicking.
 
 ## The mobile companion and the tailnet
 
-`workspace_snapshot` is the companion document: sprint engines, backlog,
-automations and workspaces as one versioned read, in the same path-token form
+`workspace_snapshot` is the companion document: backlog, automations and
+workspaces as one versioned read, in the same path-token form
 the relay serves — `ws_` tokens round-trip and local paths never leave the
 desktop. Pass `knownSnapshotVersion` from your previous read to get an
 `{unchanged: true}` marker instead of the whole document when nothing moved; a

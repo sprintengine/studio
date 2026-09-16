@@ -20,14 +20,10 @@ pnpm-debug.log*
 *.log
 __pycache__/
 *.py[cod]
-.pytest_cache/
-.pytest-tmp/
-.pytest-tmp*/
 .tmp/
 .tmp-recovery/
 .codex-tmp/
 .codex/
-pytest-run-*/
 tmp/
 
 # Vendored runtimes (CPython + npm) fetched at build time by

@@ -12,6 +12,9 @@ import { readFile, readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import { parseSkillFrontmatter, SKILL_ENTRY_FILE } from '../../shared/skills'
+import { createAutomationTools } from '../automation/automation-tools'
+import { createBrowserTools } from '../automation/browser-tools'
+import { createTailnetTools } from '../automation/tailnet/tailnet-tools'
 import { STUDIO_PLUGIN_ID } from './studio-plugin'
 
 // Bundled into node_modules/.cache before it runs, so `__dirname` says nothing
@@ -29,6 +32,73 @@ const REQUIRED_AREAS = [
   'studio-automations',
   'studio-workspaces',
 ]
+
+/**
+ * Backticked snake_case words the skills use that are NOT tool names — statuses,
+ * option values, error codes, a directory. Anything else in backticks shaped
+ * like `family_verb` is read as a tool the skill tells an agent to call.
+ */
+const NON_TOOL_TOKENS = new Set([
+  'bypass_all',
+  'in_progress',
+  'needs_input',
+  'node_modules',
+  'project_root_required',
+])
+
+/**
+ * Tool families that no longer exist. A bare mention of one (outside
+ * backticks) still counts, because the removed sprint skill named its tools in
+ * prose as often as in code spans.
+ */
+const RETIRED_TOOL_FAMILIES = ['sprint', 'sprintengine']
+
+/**
+ * The tool names the app's MCP server registers, in the form an agent sees
+ * them: the server's `workspace.create` reaches a harness as `workspace_create`.
+ * The factories are built with no backends — only the registrations' names are
+ * read, and no handler runs.
+ */
+function registeredToolNames(): Set<string> {
+  const registrations = [
+    ...createAutomationTools({} as never),
+    ...createBrowserTools({} as never),
+    ...createTailnetTools({ resolveTailnet: () => null }),
+  ]
+  return new Set(registrations.map((registration) => registration.name.replace(/\./g, '_')))
+}
+
+/**
+ * Every tool a shipped skill mentions must be one the server registers. The
+ * sprint tools were deleted while `studio-sprints` and two other skills still
+ * told agents to call them or to read what they returned; this is the check
+ * that would have caught it.
+ */
+async function everyToolASkillNamesIsRegistered(dirs: string[]): Promise<void> {
+  const registered = registeredToolNames()
+  assert.equal(registered.has('workspace_create'), true, 'the registered names are read in their harness form')
+  assert.equal(registered.has('browser_open'), true)
+  assert.equal(registered.has('tailnet_status'), true)
+  const families = new Set([...registered].map((name) => name.split('_')[0]))
+  for (const family of RETIRED_TOOL_FAMILIES) families.add(family)
+  const bareMention = new RegExp(`\\b(?:${[...families].join('|')})_[a-z_]*[a-z]\\b`, 'g')
+  for (const dirName of dirs) {
+    const raw = await readFile(join(SKILLS_ROOT, dirName, SKILL_ENTRY_FILE), 'utf8')
+    const mentioned = new Set<string>()
+    for (const match of raw.matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)) {
+      if (!NON_TOOL_TOKENS.has(match[1])) mentioned.add(match[1])
+    }
+    for (const match of raw.matchAll(bareMention)) mentioned.add(match[0])
+    for (const name of mentioned) {
+      assert.equal(
+        registered.has(name),
+        true,
+        `${dirName}/${SKILL_ENTRY_FILE} names \`${name}\`, which the Studio MCP server does not register. `
+          + 'Fix the skill, or add the word to NON_TOOL_TOKENS if it is not a tool.'
+      )
+    }
+  }
+}
 
 async function main(): Promise<void> {
   const entries = await readdir(SKILLS_ROOT, { withFileTypes: true })
@@ -79,7 +149,12 @@ async function main(): Promise<void> {
     )
   }
 
+  await everyToolASkillNamesIsRegistered(dirs)
+
   console.log(`studio plugin skills: ok (${dirs.length})`)
 }
 
-void main()
+main().catch((error: unknown) => {
+  console.error(error)
+  process.exit(1)
+})

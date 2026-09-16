@@ -871,8 +871,7 @@ function firstPullRequestUrl(text, mustEndInside) {
 // answer again under `structuredContent`). `stdout` / `stderr` / `output` /
 // `result` cover the CLIs that wrap a command result in an object of their own —
 // `stderr` included because `gh` prints the "a pull request already exists"
-// line, URL and all, on the error stream. `pullRequestUrl` covers a server that
-// answers with a value rather than text.
+// line, URL and all, on the error stream.
 const TOOL_RESPONSE_TEXT_FIELDS = [
   'stdout',
   'stderr',
@@ -881,7 +880,6 @@ const TOOL_RESPONSE_TEXT_FIELDS = [
   'text',
   'result',
   'structuredContent',
-  'pullRequestUrl',
 ]
 
 // The pull request URL a tool result carries, wherever in it the CLI put it.

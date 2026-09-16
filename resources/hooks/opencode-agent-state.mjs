@@ -454,7 +454,7 @@ function extractPullRequestUrl(output, depth = 0) {
     return null
   }
   if (!isPlainObject(output)) return null
-  for (const field of ['output', 'stdout', 'stderr', 'text', 'content', 'result', 'pullRequestUrl']) {
+  for (const field of ['output', 'stdout', 'stderr', 'text', 'content', 'result']) {
     const url = extractPullRequestUrl(output[field], depth + 1)
     if (url) return url
   }

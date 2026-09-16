@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '../workspaceStore'
 import {
   createLayoutSlice,
   healRetiredRailLayout,
+  RETIRED_MODULE_TAB_COMPONENTS,
   stripRetiredModuleTabsFromLayout,
   hideNavRailTabStrip,
   modelContainsComponent,
@@ -90,6 +91,42 @@ assert.equal(modelContainsComponent(strippedRetired, 'guided-brief'), false)
 assert.ok(findTab(strippedRetired, 'editor'), 'the rest of the layout survives the strip')
 // Nothing to strip is a no-op by reference, so it is safe on every hydration.
 assert.equal(stripRetiredModuleTabsFromLayout(standardTemplate.layout), standardTemplate.layout)
+
+// The in-tree sprint engine's surfaces (deleted 2026-09-16): its board, the
+// pre-v48 segment tabs, the nav-rail survey and the Architect Plan reader.
+// Each one, dragged into an ordinary workspace, is stripped; every retired
+// component the list names is exercised, so a new entry is covered by name.
+for (const component of [
+  'sprintengine',
+  'sprintengine-inbox',
+  'sprintengine-roster',
+  'sprintengine-tasks',
+  'sprint-engines',
+  'sprintengine-plan-reader',
+]) {
+  assert.ok(RETIRED_MODULE_TAB_COMPONENTS.includes(component), `${component} is a retired tab component`)
+}
+const everyRetiredLayout = {
+  global: {},
+  borders: [],
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        children: [
+          ...RETIRED_MODULE_TAB_COMPONENTS.map((component) => ({ type: 'tab', name: component, component })),
+          { type: 'tab', name: 'Notes', component: 'editor' },
+        ],
+      },
+    ],
+  },
+}
+const everyRetiredStripped = stripRetiredModuleTabsFromLayout(everyRetiredLayout) as IJsonModel
+for (const component of RETIRED_MODULE_TAB_COMPONENTS) {
+  assert.equal(modelContainsComponent(everyRetiredStripped, component), false, `${component} tab is stripped`)
+}
+assert.ok(findTab(everyRetiredStripped, 'editor'), 'the ordinary tab beside them survives')
 
 // Nav-rail strip migration: a tabset holding only the Knowledge Graph switch
 // loses its strip; a tabset mixing a nav switch with the editor keeps its

@@ -13,7 +13,7 @@ import { join, resolve } from 'node:path'
 
 import { SKILL_HARNESS_DIR } from '../../shared/skill-harnesses'
 import { deriveStudioPluginRow, studioPluginRowMatches } from '../../shared/studio-plugin'
-import { readSkillProvenance } from './install'
+import { readSkillProvenance, SKILL_PROVENANCE_FILE } from './install'
 import {
   CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH,
   CLAUDE_SETTINGS_RELATIVE_PATH,
@@ -448,11 +448,11 @@ async function handEditedSkillsAreRestoredOnTheNextOpen(): Promise<void> {
   await rm(workspace, { recursive: true, force: true })
 }
 
-async function workflowRolesRemovedStayRemovedOnTheNextOpen(): Promise<void> {
-  // The correction to the discarded built-in install: deleting a role skill
-  // by hand (or via Remove) must not be undone the next time the workspace
-  // is opened. installStudioPlugin restores its own skills; it must not
-  // restore the sixteen.
+async function skillsThePluginNoLongerShipsArePrunedOnTheNextOpen(): Promise<void> {
+  // An earlier version shipped `studio-sprints`, which tells agents to call
+  // sprint tools that no longer exist. The next open must take that copy out —
+  // from every harness directory — while leaving alone a person's own skill and
+  // a copy another source installed, even under a name the plugin once used.
   const { workspace, reporter } = await workspaceAndReporter()
   const options = {
     workspaceRoot: workspace,
@@ -465,17 +465,40 @@ async function workflowRolesRemovedStayRemovedOnTheNextOpen(): Promise<void> {
   }
   const first = await installStudioPlugin(options)
   assert.ok(first.ok, first.ok ? '' : first.message)
-  const planted = join(workspace, SKILL_HARNESS_DIR.agents, 'skills', 'architect')
-  await mkdir(planted, { recursive: true })
-  await writeFile(join(planted, 'SKILL.md'), '---\nname: architect\n---\nplanted\n', 'utf8')
-  await rm(planted, { recursive: true, force: true })
+  assert.equal(first.skillDirNames.includes('studio-sprints'), false, 'this build ships no sprint skill')
+
+  const plant = async (harnessDir: string, name: string, marker: object | null): Promise<string> => {
+    const dir = join(workspace, harnessDir, 'skills', name)
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'SKILL.md'), `---\nname: ${name}\n---\nplanted\n`, 'utf8')
+    if (marker) await writeFile(join(dir, SKILL_PROVENANCE_FILE), JSON.stringify(marker), 'utf8')
+    return dir
+  }
+  const ours = (skillId: string) => ({ sourceId: STUDIO_PLUGIN_SOURCE_ID, skillId, commitSha: '1.0.0' })
+  const staleAgents = await plant(SKILL_HARNESS_DIR.agents, 'studio-sprints', ours('studio-sprints'))
+  // A harness this install does not target still gets swept.
+  const staleOpencode = await plant(SKILL_HARNESS_DIR.opencode, 'studio-sprints', ours('studio-sprints'))
+  const usersOwn = await plant(SKILL_HARNESS_DIR.agents, 'my-sprints', null)
+  const otherSource = await plant(
+    SKILL_HARNESS_DIR.agents,
+    'studio-roles',
+    { sourceId: 'someone-elses-repo', skillId: 'studio-roles', commitSha: 'abc' },
+  )
+
   const second = await installStudioPlugin(options)
   assert.ok(second.ok, second.ok ? '' : second.message)
-  assert.equal(
-    existsSync(join(planted, 'SKILL.md')),
-    false,
-    'a removed workflow-roles skill must not come back on the next open',
-  )
+  assert.deepEqual(second.warnings, [])
+  assert.equal(existsSync(staleAgents), false, 'a copy this plugin installed and no longer ships is removed')
+  assert.equal(existsSync(staleOpencode), false, 'from every harness directory, not only the targeted ones')
+  assert.equal(existsSync(join(usersOwn, 'SKILL.md')), true, 'a skill with no marker is the person\'s and stays')
+  assert.equal(existsSync(join(otherSource, 'SKILL.md')), true, 'a copy another source installed stays')
+  for (const dirName of second.skillDirNames) {
+    assert.equal(
+      existsSync(join(workspace, SKILL_HARNESS_DIR.agents, 'skills', dirName, 'SKILL.md')),
+      true,
+      `${dirName} still ships and is still installed`,
+    )
+  }
   await rm(workspace, { recursive: true, force: true })
 }
 
@@ -726,7 +749,7 @@ async function main(): Promise<void> {
   await aMissingReporterStopsTheInstallBeforeItRegistersAnything()
   await aWorkspaceThatVanishedIsRefusedByName()
   await handEditedSkillsAreRestoredOnTheNextOpen()
-  await workflowRolesRemovedStayRemovedOnTheNextOpen()
+  await skillsThePluginNoLongerShipsArePrunedOnTheNextOpen()
   await aLaunchInjectedWorkspaceKeepsItsClaudeFilesClean()
   await nativeEnablementIsOffAndSaysSo()
   await proseThatNamesATokenSurvivesVerbatim()

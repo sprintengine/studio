@@ -69,9 +69,12 @@ of the first release that ships it, then delete the line.
   drops the saved binding. There is no replacement shortcut.
 - The Sprint Engine, 2026-09-16: the agent-looping run engine is removed from
   the application. The Sprints door, the run board and its inspector, the New
-  sprint dialog, the run-backed workspace mode, the `sprint.*` MCP tools and the
-  `panel.sprint-engines.toggle` shortcut all go with it, and a custom shortcut
-  saved for that command is dropped from Settings -> Shortcuts on first launch.
+  sprint dialog, the run-backed workspace mode, the `sprint.*` MCP tools, the
+  `panel.sprint-engines.toggle` shortcut and the board and New sprint shortcuts
+  (`sprint-engine.*`, and the older `sprintengine.*` spellings) all go with it;
+  a custom shortcut saved for any of those commands is dropped when Settings ->
+  Shortcuts is opened. A board or Architect Plan tab dragged into another
+  workspace is removed from its layout.
   A workspace saved in the run-backed mode is DROPPED from the Projects list -
   everything a run wrote is on disk and untouched under the workspace's
   `.sprintengine/` sidecar, so open the project as a normal chat to keep working
@@ -193,8 +196,8 @@ done that day.
 - Settings -> Actions -> General: set fork pull request workflows to require
   approval for all outside collaborators.
 - `ci.yml` starts running on every pull request and push to `main` by itself --
-  its jobs skip only while the repository is private. Make `Build`, `JS tests`
-  and `Python tests` required checks on `main` in the branch protection rules.
+  its jobs skip only while the repository is private. Make `Build` and
+  `JS tests` required checks on `main` in the branch protection rules.
 - Set the repository variable `PREVIEW_SCHEDULE` to `enabled` to turn on the
   six-hourly preview builds.
 - The `preview:mac` label (`desktop-preview.yml`) builds a DMG for pull
