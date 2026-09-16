@@ -168,7 +168,8 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // the HTML artifact frame's, which survived it and moved to
     // `components/htmlArtifact` below — the same off-ramps at a new address,
     // not a win — and the wizard's own panes took the rest with them.
-    'components/workspace': 10, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
+    // workspace 10 → 8, 2026-09-16: the unmounted AgentComposer panel was deleted.
+    'components/workspace': 8, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     // 35 → 34, 2026-09-06: the retired plan door's plan column was deleted
     // with its door (a70ba0931).
     // 34 → 26, 2026-09-08: SwitchboardBoardPanel, SwitchboardWorkspacePanel and
@@ -274,7 +275,8 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // workspace 11 → 10, 2026-09-16: the empty-pack notice uses the kit
     // InlineNotice rather than a hand-spelled icon box. Banked, not left as
     // headroom for the next off-ramp.
-    'components/workspace': 9, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
+    // workspace 9 → 7, 2026-09-16: the unmounted AgentComposer panel was deleted.
+    'components/workspace': 7, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     'components/panels': 4, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     // ui 14 → 13, 2026-09-09: the "Project colour" swatch row landed beside the
     // highlight one in `ContextMenu`, and rather than adding a fifth copy of the
