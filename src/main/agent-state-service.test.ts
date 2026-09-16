@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
+import { compatStudioEnvEntry } from '../shared/studio-env'
 import type { AgentStateFrame } from './agent-state'
 import { createAgentStateService, resolveAgentStateSocketPath } from './agent-state-service'
 
@@ -283,13 +284,14 @@ async function run(): Promise<void> {
         const child = spawn(process.execPath, [reporterScript, '--socket', argSocket], {
           env: {
             ...process.env,
-            MULTICODE_AGENT_ID: 'prec-agent',
-            MULTICODE_WORKSPACE_ID: 'prec-ws',
             // Always override: when this test itself runs inside a studio
             // agent session, the launch env carries the LIVE app's socket —
             // inheriting it would silently redirect the "fallback" run to the
             // real app. Empty string is falsy, so the reporter falls to --socket.
-            MULTICODE_AGENT_STATE_SOCKET: envSocket ?? '',
+            // Both spellings: the reporter reads SPRINTENGINE_* first.
+            ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', 'prec-agent'),
+            ...compatStudioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'prec-ws'),
+            ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', envSocket ?? ''),
           },
           stdio: ['pipe', 'ignore', 'ignore'],
         })
@@ -1524,10 +1526,11 @@ async function run(): Promise<void> {
             ...process.env,
             // Always overridden: this suite can itself be running inside a
             // studio agent terminal, whose launch env names the LIVE app's
-            // socket and agent.
-            MULTICODE_AGENT_STATE_SOCKET: options.envSocket ?? '',
-            MULTICODE_AGENT_ID: options.agentId ?? '',
-            MULTICODE_WORKSPACE_ID: 'sl-ws',
+            // socket and agent. Both spellings: the forwarder reads
+            // SPRINTENGINE_* first.
+            ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', options.envSocket ?? ''),
+            ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', options.agentId ?? ''),
+            ...compatStudioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'sl-ws'),
             // Pinned rather than inherited: the wrapped command runs under the
             // person's own $SHELL, and a suite whose result depends on the
             // developer's login shell is a suite that passes for the wrong
@@ -1741,7 +1744,12 @@ async function run(): Promise<void> {
         process.execPath,
         [statusLineScript, '--socket', join(sockDir, 'unused.sock'), '--wrap', Buffer.from(JSON.stringify({ command: trapping }), 'utf8').toString('base64')],
         {
-          env: { ...process.env, MULTICODE_AGENT_STATE_SOCKET: '', MULTICODE_AGENT_ID: '', SHELL: '/bin/sh' },
+          env: {
+            ...process.env,
+            ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', ''),
+            ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', ''),
+            SHELL: '/bin/sh',
+          },
           stdio: ['pipe', 'ignore', 'ignore'],
         }
       )
