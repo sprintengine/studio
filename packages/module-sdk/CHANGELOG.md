@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **A workspace type can hide its workspaces from the rail.**
+  `WorkspaceTypeDefinition.hiddenFromRail` withholds workspaces of that type
+  from the Projects list, keyboard switch targets, and command-palette
+  results, the same way `hiddenFromPicker` withholds the type from the
+  creation picker. Hidden means hidden from discovery: the workspace stays
+  in the store, in window assignments, and explicitly activatable. A door
+  surface that took over finding those workspaces sets this so they are not
+  listed again under one project.
+
 - **A module can contribute Open actions for its bell rows**
   (`host.registerNotificationActionProvider`). One provider per `source`; a
   duplicate is a registration error. `resolveActions` receives

@@ -489,7 +489,7 @@ export default function CommandPalette({
       // folder path rides `description` so typing a path filters here too,
       // preserving the sidebar's path matching.
       ...workspaces
-        .filter((workspace) => !isHiddenFromRail(workspace))
+        .filter((workspace) => !isHiddenFromRail(workspace, moduleEnablement))
         .map((workspace): Command => ({
           id: workspaceSwitchRowId(workspace.id),
           // The chat's own title, the way the sidebar lists it: the group

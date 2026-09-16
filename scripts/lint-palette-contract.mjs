@@ -18,11 +18,14 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-// The shell palette carries the Sprint Engine rows; a capability module that
-// registers its own palette rows through the module path (MC-1533) owns its
-// own dispatch and is not covered here.
+// The Sprint Engine rows left the shell palette and are registered by the
+// module (MC-2577): the module file declares each palette command and the
+// `sprintengine.<verb>.<noun>` panel event it dispatches, so it is the palette
+// side of this contract. The guard matches on the PANEL EVENT id, which is
+// what the board actually listens for — a command id that dispatched an event
+// no panel handles is exactly the silent no-op this exists to catch.
 const PALETTE_FILES = [
-  'src/renderer/src/components/ui/CommandPalette.tsx',
+  'src/renderer/src/modules/sprint-engine-commands.ts',
 ]
 const PANEL_FILES = [
   'src/renderer/src/components/panels/SprintEngineBoardPanel.tsx',

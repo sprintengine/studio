@@ -1,11 +1,4 @@
 import type { IJsonModel } from 'flexlayout-react'
-// The board layout moved to shared with MC-2160 (main composes sprint
-// workspaces headlessly and stores the same layout); re-exported so every
-// existing renderer import site is unchanged.
-import { sprintEngineTabsLayoutModel } from '../../../../shared/sprintengine/workspace-record'
-
-export { sprintEngineTabsLayoutModel }
-
 import { railSideOfComponents } from '../../utils/modelRegistry'
 import { adoptLegacyBacklogTab, paneStateFromLegacyLayout } from './workspacePaneSlice'
 import { workspaceSyncClient } from '../workspaceSyncClient'
@@ -13,7 +6,13 @@ import type {
   Workspace,
   WorkspaceId,
 } from '../../types/workspace'
-import { legacySprintEngineRunState } from './workspaceModuleState'
+
+export { sprintEngineTabsLayoutModel } from '../../../../shared/sprintengine/workspace-record'
+export {
+  hideSprintEngineBoardTabStrip,
+  isLegacySprintEngineLayout,
+  migrateSprintEngineLayout,
+} from '../../modules/sprint-engine-layout'
 
 export function modelContainsComponent(value: unknown, component: string): boolean {
   if (!value) return false
@@ -26,32 +25,6 @@ export function modelContainsComponent(value: unknown, component: string): boole
   if (record.component === component) return true
 
   return Object.values(record).some((entry) => modelContainsComponent(entry, component))
-}
-
-export function isLegacySprintEngineLayout(model: IJsonModel): boolean {
-  // The canonical Sprint Engine layout is a single `'sprintengine'` board
-  // tab; Inbox / Roster / Tasks are now internal chrome inside the board.
-  // Anything that includes the retired view-specific tabs (or that has no
-  // SE board at all) is treated as legacy and rewritten.
-  const serialized = JSON.stringify(model)
-  const hasLegacyViewTabs =
-    serialized.includes('"component":"sprintengine-inbox"')
-    || serialized.includes('"component":"sprintengine-roster"')
-    || serialized.includes('"component":"sprintengine-tasks"')
-  if (hasLegacyViewTabs) return true
-  return !serialized.includes('"component":"sprintengine"')
-}
-
-export function migrateSprintEngineLayout(ws: Workspace): Workspace {
-  const run = legacySprintEngineRunState(ws)
-  if (ws.mode !== 'sprintengine' && !run) return ws
-
-  if (!isLegacySprintEngineLayout(ws.layoutModel)) return ws
-
-  return {
-    ...ws,
-    layoutModel: sprintEngineTabsLayoutModel(run, ws.agents),
-  }
 }
 
 function stripComponentTabsFromLayoutNode(node: unknown, component: string): unknown {
@@ -172,44 +145,6 @@ export function healRetiredRailLayout(ws: Workspace): Workspace {
     layoutModel: layoutModel as Workspace['layoutModel'],
     ...(paneState ? { paneState } : {}),
   }
-}
-
-function tabsetContainsSprintEngineBoard(record: Record<string, unknown>): boolean {
-  const children = Array.isArray(record.children) ? record.children : []
-  return children.some((child) => {
-    if (!child || typeof child !== 'object') return false
-    const childRecord = child as Record<string, unknown>
-    return childRecord.type === 'tab' && childRecord.component === 'sprintengine'
-  })
-}
-
-function hideSprintEngineBoardTabStripInNode(node: unknown): unknown {
-  if (!node || typeof node !== 'object') return node
-  const record = node as Record<string, unknown>
-
-  if (record.type === 'tabset' && tabsetContainsSprintEngineBoard(record)) {
-    return { ...record, enableTabStrip: false }
-  }
-
-  const rawChildren = record.children
-  if (!Array.isArray(rawChildren)) return record
-
-  const nextChildren = rawChildren.map((child) => hideSprintEngineBoardTabStripInNode(child))
-  return { ...record, children: nextChildren }
-}
-
-// The Sprint Engine board has its own icon segmented nav, so the FlexLayout
-// tab strip on the tabset that hosts it is redundant. Apply enableTabStrip:
-// false to whichever tabset wraps the 'sprintengine' tab without touching
-// other tabsets the user may have rearranged.
-export function hideSprintEngineBoardTabStrip(
-  layoutModel: IJsonModel | null | undefined
-): IJsonModel | null | undefined {
-  if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
-  const layout = layoutModel.layout
-  if (!layout) return layoutModel
-  const nextLayout = hideSprintEngineBoardTabStripInNode(layout)
-  return { ...layoutModel, layout: nextLayout as IJsonModel['layout'] }
 }
 
 // Files / Git / Knowledge Graph are exclusive strip-less switches sharing the

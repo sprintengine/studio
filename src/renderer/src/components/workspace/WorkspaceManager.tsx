@@ -107,6 +107,7 @@ import SidebarAccountBar from './SidebarAccountBar'
 import type { SidebarSection } from '../../store/slices/settingsSlice'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
+import { isSprintEngineWorkspace } from '../../utils/sprintEngineWorkspace'
 import { revealAgentTerminalTab } from '../../utils/agentTabReveal'
 import { markLaunchedAgentProjected, retiredLaunchedAgents } from '../../utils/launchedAgentProjection'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
@@ -708,8 +709,8 @@ export default function WorkspaceManager() {
   // still works and still renders the workspace whole — see
   // `windowActiveWorkspaceId` below.
   const railWorkspaces = useMemo(
-    () => visibleWorkspaces.filter((workspace) => !isHiddenFromRail(workspace)),
-    [visibleWorkspaces]
+    () => visibleWorkspaces.filter((workspace) => !isHiddenFromRail(workspace, moduleEnablement)),
+    [visibleWorkspaces, moduleEnablement]
   )
   const windowActiveWorkspaceId =
     currentWorkspaceWindow?.activeWorkspaceId && visibleWorkspaceIdSet.has(currentWorkspaceWindow.activeWorkspaceId)
@@ -868,22 +869,10 @@ export default function WorkspaceManager() {
     const scopes: CommandScope[] = ['global']
     if (!workspaceActionsEnabled) return scopes
     scopes.push('workspace', 'workspace-navigation')
-    if (activeWorkspace.mode === 'sprintengine' || sprintEngineRunContext(activeWorkspace)) {
-      const sprintEngineEnabled = selectModuleEnabled(moduleEnablement, 'sprint-engine')
-      const sprintTypeRegistered = getRendererHost().getWorkspaceTypeModule('sprintengine') === 'sprint-engine'
-      // The named `panel:sprintengine` literal stays until the mode leaves
-      // core (step 5). Module commands use `panel:sprint-engine`, derived
-      // below from the workspace-type registry. Both are pushed only when
-      // the type is registered and the module is on — absent module, neither
-      // scope, and the palette rows are gone rather than disabled.
-      if (sprintEngineEnabled && sprintTypeRegistered) {
-        scopes.push('panel:sprintengine')
-      }
-    }
     // Generic module panel scope: the active mode's owning module (via the
     // workspace-type registry) gets `panel:<moduleId>` — this is how module
     // commands gate on "my workspace is active" without a shell enum arm per
-    // module.
+    // module. Sprint Engine commands use `panel:sprint-engine` only.
     const owningModule = getRendererHost().getWorkspaceTypeModule(activeWorkspace.mode)
     if (owningModule && selectModuleEnabled(moduleEnablement, owningModule)) {
       scopes.push(`panel:${owningModule}`)
@@ -892,8 +881,8 @@ export default function WorkspaceManager() {
     // moduleRegistryGeneration: a late third-party load re-derives the
     // registry-backed panel scope for the already-active workspace.
     // moduleEnablement: a live module toggle must drop `panel:sprint-engine`
-    // (and the leftover `panel:sprintengine` literal) without a reload.
-  }, [activeWorkspace?.mode, (activeWorkspace ? sprintEngineRunContext(activeWorkspace) : null), workspaceActionsEnabled, moduleRegistryGeneration, moduleEnablement])
+    // without a reload.
+  }, [activeWorkspace?.mode, workspaceActionsEnabled, moduleRegistryGeneration, moduleEnablement])
   // The published context view module availability predicates evaluate
   // against — shared by the dispatcher and the palette so both agree.
   const moduleCommandContext = useMemo((): ModuleCommandContext => ({
@@ -925,10 +914,7 @@ export default function WorkspaceManager() {
     // The global Automations screen needs the automations module (its store/IPC).
     if (selectModuleEnabled(moduleEnablement, 'automations')) context.automationsEnabled = true
     if (workflowRolesInstalled(sprintEngineRoleRegistry)) context.workflowRolesInstalled = true
-    if (
-      activeCommandScopes.includes('panel:sprintengine')
-      || activeCommandScopes.includes('panel:sprint-engine')
-    ) {
+    if (activeCommandScopes.includes('panel:sprint-engine')) {
       context.sprintengineWorkspace = true
       const sprintEngineState = (commandWorkspace ? sprintEngineRunState(commandWorkspace) : null) ?? null
       const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
@@ -2227,7 +2213,7 @@ export default function WorkspaceManager() {
           // A launch into a standard workspace is something the operator asked
           // for and gets the view; a launch into a rail-hidden host (Automations,
           // a sprint run) gets its tab without moving anyone into it.
-          { activateWorkspace: !host || !isHiddenFromRail(host) },
+          { activateWorkspace: !host || !isHiddenFromRail(host, moduleEnablement) },
         )
       }
 
@@ -2327,10 +2313,9 @@ export default function WorkspaceManager() {
       // Before the folder is trashed, not alongside it: a still-live agent writing
       // into the run directory recreates what was just deleted (item 1812).
       await terminateWorkspaceTerminals(workspace)
-      const dirPath =
-        workspace.mode === 'sprintengine'
-          ? sprintEngineRunContext(workspace)?.teamDirectoryPath ?? null
-          : null
+      const dirPath = isSprintEngineWorkspace(workspace)
+        ? sprintEngineRunContext(workspace)?.teamDirectoryPath ?? null
+        : null
       if (dirPath) {
         try {
           await window.api.deletePath(dirPath)
@@ -4040,7 +4025,7 @@ export default function WorkspaceManager() {
     // the palette and a keybinding reach the same panel listener (Sprint
     // Engine's ids and the chat view's model-picker toggle alike);
     // module-contributed ids were handled above.
-    if (getCommandDefinition(commandId)?.handlerPath.kind === 'panel-event' || commandId.startsWith('sprintengine.')) {
+    if (getCommandDefinition(commandId)?.handlerPath.kind === 'panel-event') {
       dispatchPanelCommand(commandId)
       return true
     }
@@ -4430,7 +4415,7 @@ export default function WorkspaceManager() {
     // a row that has a workspace behind it.
     const workspace = item.group.kind === 'workspace' ? item.group.workspace : null
     if (!workspace) return
-    if (workspace.mode === 'sprintengine') {
+    if (isSprintEngineWorkspace(workspace)) {
       applySprintEngineAutomationStopReason(workspace.id, 'agent_terminal_closed', {
         ...(item.agentId ? { agentId: item.agentId } : {}),
       })

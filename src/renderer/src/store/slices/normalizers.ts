@@ -7,6 +7,7 @@ import {
 import { normalizeAgentState, pickWorkspaceAgentName } from './agentsSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
 import { normalizeSprintEngineAutoState } from '../../modules/sprint-engine-run-state'
+import { isSprintEngineWorkspace } from '../../utils/sprintEngineWorkspace'
 import {
   normalizeWorkspaceBacklogState,
   normalizeWorkspaceFileExplorerState,
@@ -60,7 +61,7 @@ export function mapMigrationWorkspaces<T extends { workspaces: LegacySprintEngin
 // functions stay in step.
 export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspace {
   const run = legacySprintEngineRunState(workspace)
-  if (workspace.mode !== 'sprintengine' && !run) return workspace
+  if (!isSprintEngineWorkspace(workspace) && !run) return workspace
 
   const sprintEngineAgentIds = sprintEngineRosterAgentIds(run?.sprintEngineAgents)
   const hasSprintEngineAgents = Object.entries(workspace.agents).some(

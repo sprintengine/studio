@@ -228,6 +228,17 @@ export type WorkspaceTypeDefinition = {
    * picker analog of `isHiddenFromRail`.
    */
   hiddenFromPicker?: boolean
+  /**
+   * Keep the type registered (so its runtime workspaces still resolve, render,
+   * and get created programmatically) but withhold those workspaces from the
+   * normal workspace rail — Projects list, keyboard switch targets, and
+   * command-palette results. For a type whose own door surface took over
+   * finding and steering the workspaces, so listing them again under one
+   * project would claim they belong there. Hidden means hidden from
+   * DISCOVERY: the workspace stays in the store, in window assignments, and
+   * explicitly activatable. The rail analog of `hiddenFromPicker`.
+   */
+  hiddenFromRail?: boolean
 }
 
 export type RegisteredWorkspaceTypeDefinition = WorkspaceTypeDefinition & {
@@ -352,7 +363,7 @@ export type NotificationAction = {
 }
 
 export type NotificationActionProvider = {
-  /** The notification source this provider owns (e.g. 'sprintengine'). */
+  /** The notification source this provider owns — the emitter tag its module writes. */
   source: string
   resolveActions(context: NotificationActionContext): NotificationAction[]
 }

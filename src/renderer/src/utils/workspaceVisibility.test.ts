@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
-  SPRINT_ENGINE_WORKSPACE_MODE,
   STANDARD_WORKSPACE_MODE,
   type BundledWorkspaceMode,
 } from '../types/workspace'
 import { isModeHiddenFromRail } from '../../../shared/workspace-mode'
 import { isAutomationsHostWorkspace, isHiddenFromRail, isSprintRunWorkspace } from './workspaceVisibility'
+import { SPRINT_ENGINE_WORKSPACE_TYPE_ID } from '../../../shared/sprintengine/workspace-record'
 
 function run(name: string, body: () => void): void {
   try {
@@ -21,13 +21,10 @@ function run(name: string, body: () => void): void {
 // Expected rail-hidden state for every bundled mode. Typed as a
 // `Record<BundledWorkspaceMode, boolean>` so adding a member to the union
 // without a row here is a compile error — the exhaustiveness guard is real, not
-// just asserted by a comment.
+// just asserted by a comment. Sprint runs are a registered type, not a bundled
+// mode, and are covered separately below.
 const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
   [STANDARD_WORKSPACE_MODE]: false,
-  // Sprint runs moved to the instance-level Sprints door (item 1767), which
-  // lists every run from disk. Their workspaces stay as the residency for the
-  // run's agent terminals, but never as a Projects-list row.
-  [SPRINT_ENGINE_WORKSPACE_MODE]: true,
   // Automations moved to an instance-level surface (the sidebar door), so their
   // host workspaces are rail-hidden background runtime containers — never a
   // Projects-list row, switch target, or palette result.
@@ -46,30 +43,29 @@ run('isAutomationsHostWorkspace is true only for the automations-host mode', () 
   }
 })
 
-run('isHiddenFromRail hides exactly the modes flagged hidden', () => {
+run('isHiddenFromRail hides exactly the bundled modes flagged hidden', () => {
   for (const mode of BUNDLED_MODES) {
     assert.equal(isHiddenFromRail({ mode }), EXPECTED_HIDDEN[mode], `unexpected isHiddenFromRail for ${mode}`)
   }
 })
 
-run('isSprintRunWorkspace is true only for the sprint-run mode', () => {
-  for (const mode of BUNDLED_MODES) {
-    assert.equal(
-      isSprintRunWorkspace({ mode }),
-      mode === SPRINT_ENGINE_WORKSPACE_MODE,
-      `unexpected isSprintRunWorkspace for ${mode}`,
-    )
-  }
+run('a registered sprint workspace is rail-hidden while its module is on', () => {
+  assert.equal(isSprintRunWorkspace({ mode: SPRINT_ENGINE_WORKSPACE_TYPE_ID }), true)
+  assert.equal(isHiddenFromRail({ mode: SPRINT_ENGINE_WORKSPACE_TYPE_ID }), true)
 })
 
-// Item 1807: rail-hidden-ness is one rule in `shared/workspace-mode.ts` because
-// main needs the same answer (the review guide's workspace fallback) and cannot
-// import the renderer. These two must never be able to disagree.
-run('the renderer predicate is the shared rule, over the same mode literals', () => {
+run('a persisted sprint workspace is not rail-hidden when its module is off', () => {
+  const moduleOff = { 'sprint-engine': false }
+  assert.equal(isSprintRunWorkspace({ mode: SPRINT_ENGINE_WORKSPACE_TYPE_ID }, moduleOff), false)
+  assert.equal(isHiddenFromRail({ mode: SPRINT_ENGINE_WORKSPACE_TYPE_ID }, moduleOff), false)
+})
+
+run('the renderer predicate still matches the shared rule for bundled modes', () => {
   assert.equal(AUTOMATIONS_HOST_WORKSPACE_MODE, 'automations-host')
-  assert.equal(SPRINT_ENGINE_WORKSPACE_MODE, 'sprintengine')
   for (const mode of [...BUNDLED_MODES, 'custom-plugin-mode']) {
-    assert.equal(isModeHiddenFromRail(mode), isHiddenFromRail({ mode }), `shared rule differs for ${mode}`)
+    if (mode === AUTOMATIONS_HOST_WORKSPACE_MODE) {
+      assert.equal(isModeHiddenFromRail(mode), isHiddenFromRail({ mode }), `shared rule differs for ${mode}`)
+    }
   }
 })
 

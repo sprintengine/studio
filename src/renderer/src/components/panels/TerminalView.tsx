@@ -67,6 +67,8 @@ import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices
 import {
   isSprintEngineManagedAgent,
 } from '../../../../shared/sprintengine/agent-identity'
+import { SPRINT_ENGINE_WORKSPACE_MODULE_ID } from '../../../../shared/sprintengine/workspace-record'
+import { isSprintEngineWorkspace } from '../../utils/sprintEngineWorkspace'
 
 
 interface Props {
@@ -145,7 +147,7 @@ function agentSessionSystem(
   agent: AgentState | undefined,
   rosterIds?: Iterable<string>,
 ): AgentSessionSystem {
-  if (isSprintEngineManagedAgent(agent, { agentId: agent?.id, rosterIds })) return 'sprintengine'
+  if (isSprintEngineManagedAgent(agent, { agentId: agent?.id, rosterIds })) return SPRINT_ENGINE_WORKSPACE_MODULE_ID
   return 'manual'
 }
 
@@ -270,7 +272,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     if (currentAgent?.cliStartupPrompt) return currentAgent.cliStartupPrompt
 
     const run = workspace ? sprintEngineRunState(workspace) : null
-    if (workspace?.mode !== 'sprintengine' || !run) return null
+    if (!workspace || !isSprintEngineWorkspace(workspace) || !run) return null
 
     const rosterAgent = buildSprintEngineAgentRosterForState(run).find(
       (candidate) => candidate.id === agentId
@@ -1019,6 +1021,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const launchAgent = launchContext.agent
       const launchCli = launchContext.cli
       if (!launchAgent || !launchCli) return
+      // The run file this launch belongs to, when the workspace has one. It is
+      // the module's value, not a mode test: core forwards it so the Sprint
+      // Engine launch contribution can read it back off the request (env, the
+      // managed MCP entry, the managed-session tag) and so main can reconcile
+      // the session against its run. Core itself derives no behaviour from it
+      // any more — `session.managed` comes from the contribution alone
+      // (MC-2577).
       const sprintEngineStatePath = folderReadyPath ? launchContext.sprintEngineContext?.statePath : undefined
       // Redirect a non-worktree agent's spawn into the workspace's worktree.
       // Resolve the worktree cwd once here (one `pathExists`); a persisted
@@ -1133,15 +1142,15 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         finalAgent,
         finalContext.sprintEngineRuntimeRole ? [agentId] : [],
       )
-      const sessionRole = sessionSystem === 'sprintengine'
+      const sessionRole = sessionSystem === SPRINT_ENGINE_WORKSPACE_MODULE_ID
         ? finalContext.sprintEngineRuntimeRole ?? finalContext.sprintEngineRosterRole
         : finalAgent.kind ?? 'manual'
-      const sessionWorkId = sessionSystem === 'sprintengine'
+      const sessionWorkId = sessionSystem === SPRINT_ENGINE_WORKSPACE_MODULE_ID
         ? finalContext.sprintEngineRuntimeCurrentTaskId ?? agentId
         : agentId
       const agentSession = attachedSessionId
         ? undefined
-        : sessionSystem === 'sprintengine' && !sessionRole
+        : sessionSystem === SPRINT_ENGINE_WORKSPACE_MODULE_ID && !sessionRole
           ? undefined
         : {
             executionId: sessionId,

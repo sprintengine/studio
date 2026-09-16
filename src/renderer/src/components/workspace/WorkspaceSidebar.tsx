@@ -1896,8 +1896,8 @@ export default function WorkspaceSidebar({
   // each folder shows them in its Settled shelf (renderFolderBody), so a chat
   // that has come to rest is one glance away rather than gone.
   const railWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => !isHiddenFromRail(workspace)),
-    [workspaces]
+    () => workspaces.filter((workspace) => !isHiddenFromRail(workspace, moduleOverrides)),
+    [workspaces, moduleOverrides]
   )
 
   // Each paired machine's sessions, read while this rail is the one showing; a
@@ -4484,7 +4484,7 @@ export default function WorkspaceSidebar({
         ) : null}
       </Modal>
 
-      {/* Delete with on-disk state (sprintengine) */}
+      {/* Delete with on-disk state (registered type hasOnDiskState) */}
       <Modal
         open={confirmDelete !== null}
         onClose={() => setConfirmDelete(null)}

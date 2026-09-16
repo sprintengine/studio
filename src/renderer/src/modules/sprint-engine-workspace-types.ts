@@ -108,6 +108,7 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
     createTemplate: () => createSprintEngineTemplate(defaultSprintEngineTemplateConfig),
     createWorkspace: createSprintEngineWorkspace,
     createLabel: 'New sprint',
+    hiddenFromRail: true,
     RowMark: SprintEngineRowMark,
     hasOnDiskState: sprintEngineHasOnDiskState,
     onDiskStateDirectory: sprintEngineOnDiskStateDirectory,

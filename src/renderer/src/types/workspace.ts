@@ -4,6 +4,7 @@ import type {
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
 } from '../../../shared/sprintengine/automation-types'
+import { SPRINT_ENGINE_WORKSPACE_MODULE_ID } from '../../../shared/sprintengine/workspace-record'
 // The Sprint Engine run-domain type family (state/task/artifact/roster/…) and
 // the AgentState record are shared with the main process (sprint-runtime-
 // ownership Phase 2: main runs the auto-run planner). Canonical definitions —
@@ -95,20 +96,20 @@ export const STANDARD_WORKSPACE_MODE = 'standard'
 
 export type BundledWorkspaceMode =
   | typeof STANDARD_WORKSPACE_MODE
-  | typeof SPRINT_ENGINE_WORKSPACE_MODE
   | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
 
 // Lifted to the shared layer so shared contracts can name the mode without
 // importing the renderer; `STANDARD_WORKSPACE_MODE` is its `'standard'` member.
-// The rail-hidden modes live there too, beside the `isModeHiddenFromRail`
-// predicate main also consults. Imported here (so this module's own references
-// resolve) and re-exported so every existing import site keeps resolving here.
+// The remaining bundled rail-hidden mode (automations-host) lives there too,
+// beside `isModeHiddenFromRail`. Module-registered types that hide from the
+// rail set `WorkspaceTypeDefinition.hiddenFromRail` instead. Imported here
+// (so this module's own references resolve) and re-exported so every existing
+// import site keeps resolving here.
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
-  SPRINT_ENGINE_WORKSPACE_MODE,
   type WorkspaceMode,
 } from '../../../shared/workspace-mode'
-export { AUTOMATIONS_HOST_WORKSPACE_MODE, SPRINT_ENGINE_WORKSPACE_MODE }
+export { AUTOMATIONS_HOST_WORKSPACE_MODE }
 export type { WorkspaceMode }
 
 export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
@@ -592,7 +593,7 @@ export type DiagnosticSource =
   | 'filesystem'
   | 'marketplace'
   | 'models'
-  | 'sprintengine'
+  | typeof SPRINT_ENGINE_WORKSPACE_MODULE_ID
   | 'terminal'
   | 'update'
   | 'voice'

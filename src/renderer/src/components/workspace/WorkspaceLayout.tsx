@@ -27,9 +27,14 @@ import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
+import { SPRINT_ENGINE_WORKSPACE_TYPE_ID } from '../../../../shared/sprintengine/workspace-record'
 import { samePath } from '../../utils/paths'
-import { EXTENSIONS_BROWSE_DEEPLINK } from '../settings/extensionsRoute'
-import { MissingModulePanelSurface, ModuleNotInstalledSurface, moduleLabelForMode } from './ModuleAbsenceSurfaces'
+import { EXTENSIONS_BROWSE_DEEPLINK, MODULES_SETTINGS_TAB } from '../settings/extensionsRoute'
+import {
+  MissingModulePanelSurface,
+  ModuleNotInstalledSurface,
+  workspaceModuleAbsence,
+} from './ModuleAbsenceSurfaces'
 import {
   isSessionFailed,
   isSessionWorking,
@@ -107,8 +112,9 @@ const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictR
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const FleetTerminalPanel = React.lazy(() => import('../panels/FleetTerminalPanel'))
 // Local lazy const for the defensive fixed-view fallbacks below; the canonical
-// 'sprintengine' board is served through the renderer host (gated). Both resolve
-// to the same chunk, so a disabled Sprint Engine module ships neither.
+// sprint board tab is served through the renderer host (gated) under the
+// module's registered workspace type id. Both resolve to the same chunk, so a
+// disabled Sprint Engine module ships neither.
 const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
 // Lazy so the run-summary / plan-reader bundles only load with their tabs — and
 // never when Sprint Engine is disabled. They stay local (not host-registered)
@@ -666,8 +672,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
             ? renderNewAgentPanel(node.getId(), (config as { agentName?: string } | undefined)?.agentName)
             : null
         // Defensive fallbacks for stale layouts that escaped migration — the
-        // canonical layout now uses a single 'sprintengine' tab whose internal
-        // segmented chrome covers all three views.
+        // canonical layout now uses a single sprint board tab (the module's
+        // registered type id) whose internal segmented chrome covers all three
+        // views.
         case 'sprintengine-inbox':
           return sprintEngineEnabled
             ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="inbox" />)
@@ -1242,14 +1249,18 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
               <RemoteMachineGlyph className={TAB_CHIP_GLYPH_CLASS} />
             </span>
           )
-        } else if (componentId?.startsWith('sprintengine')) {
+        } else if (componentId?.startsWith(SPRINT_ENGINE_WORKSPACE_TYPE_ID)) {
           renderValues.leading = (
             <span
-              className={`${TAB_CHIP_CLASS} ${panelTabAccentClass('sprintengine', moduleOverrides)}`}
+              className={`${TAB_CHIP_CLASS} ${panelTabAccentClass(SPRINT_ENGINE_WORKSPACE_TYPE_ID, moduleOverrides)}`}
               title='Sprint panel'
               aria-label='Sprint panel'
             >
-              <WorkspaceTypeIcon mode="sprintengine" moduleOverrides={moduleOverrides} className={TAB_CHIP_GLYPH_CLASS} />
+              <WorkspaceTypeIcon
+                mode={SPRINT_ENGINE_WORKSPACE_TYPE_ID}
+                moduleOverrides={moduleOverrides}
+                className={TAB_CHIP_GLYPH_CLASS}
+              />
             </span>
           )
         }
@@ -1612,23 +1623,29 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
     openNewAgentTabRef.current?.()
   }, [isEmpty, canOpenNewAgentTab])
 
-  // A workspace whose mode has no registered type: the owning module is not
-  // installed (fresh machine, uninstalled, or a marketplace module pending
-  // install). An explicit, labeled state with an install path — never a grid
-  // of blank "Panel unavailable" tabs. Data stays on disk; installing the
-  // module and relaunching renders the workspace again. (A DISABLED bundled
-  // module still has a registered type and keeps the existing per-tab gating;
-  // shell-owned hidden host modes — sprintengine, automations-host — are
-  // not module-owned surfaces and keep their layouts.)
-  if (
-    workspaceMode !== 'standard'
-    && !isModeHiddenFromRail(workspaceMode)
-    && !getRendererHost().getWorkspaceType(workspaceMode)
-  ) {
+  // A workspace whose mode is owned by a module that is absent or switched off
+  // renders the module-absence surface instead of its layout (MC-2577). The
+  // rule itself — which modes can be absent, and which of the two states this
+  // is — lives in `workspaceModuleAbsence`; this only paints the answer.
+  const moduleAbsence = workspaceModuleAbsence(workspaceMode, {
+    isBundledHiddenMode: isModeHiddenFromRail,
+    workspaceTypeModuleId: (mode) => getRendererHost().getWorkspaceType(mode)?.moduleId,
+    isModuleEnabled: (moduleId) => selectModuleEnabled(moduleOverrides, moduleId),
+  })
+  if (moduleAbsence) {
+    // A module that is on the machine and switched off is a toggle, not an
+    // install: sending that person to the storefront offers to reinstall what
+    // they already have.
+    const openSettings = () =>
+      openSettingsOverlay({
+        initialTab: moduleAbsence.kind === 'disabled' ? MODULES_SETTINGS_TAB : EXTENSIONS_BROWSE_DEEPLINK,
+      })
     return (
       <ModuleNotInstalledSurface
-        label={moduleLabelForMode(workspaceMode)}
-        onOpenMarketplace={() => openSettingsOverlay({ initialTab: EXTENSIONS_BROWSE_DEEPLINK })}
+        label={moduleAbsence.label}
+        installed={moduleAbsence.kind === 'disabled'}
+        {...(moduleAbsence.kind === 'disabled' ? { actionLabel: 'Open module settings' } : {})}
+        onOpenMarketplace={openSettings}
       />
     )
   }

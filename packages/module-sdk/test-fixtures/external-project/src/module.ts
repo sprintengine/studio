@@ -575,6 +575,7 @@ const forecastWorkspaceType: WorkspaceTypeDefinition = {
   RowMark: () => null,
   hasOnDiskState: () => false,
   onDiskStateDirectory: () => null,
+  hiddenFromRail: false,
   supervisors: [{ Component: ForecastSupervisor, scope: 'global' }],
   // Sidebar status from module-owned state (sync — a supervisor-maintained
   // cache in real modules). Only called for this type's own workspaces, so no

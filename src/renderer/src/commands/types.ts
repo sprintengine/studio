@@ -7,7 +7,6 @@ export type CommandCategory =
   | 'panel'
   | 'specialist'
   | 'voice'
-  | 'sprintengine'
   | 'git'
   | 'terminal'
   | 'diagnostics'
@@ -19,13 +18,11 @@ export type CommandScope =
   | 'editor'
   | 'terminal'
   | 'panel'
-  | 'panel:sprintengine'
   // Open scope family (MC-1533): `panel:<moduleId>` scopes are derived from
   // the workspace-type registry — the shell pushes one when the active
   // workspace's mode belongs to that module — so a capability module's
   // commands can gate on "my workspace is active" without growing this union
-  // per module. `panel:sprintengine` stays a named literal until the mode
-  // leaves core; Sprint Engine commands now use `panel:sprint-engine`.
+  // per module. Sprint Engine commands use `panel:sprint-engine`.
   // `(string & {})` keeps the named literals in completions while accepting
   // the derived family.
   | (string & {})
