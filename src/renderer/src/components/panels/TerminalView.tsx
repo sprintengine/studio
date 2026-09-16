@@ -902,6 +902,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const specialist = getSpecialistAction(latestContext.agent.specialistId)
       const prompt = buildSpecialistSoulStartupPrompt(specialist)
       if (disposed) return
+      if (!prompt.trim()) return
 
       const identifiedPrompt = prependAgentIdentifier(prompt, latestContext.agent.name, specialist.shortLabel)
       startupPromptRef.current = identifiedPrompt
@@ -1180,6 +1181,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
           connectorLaunch: finalAgent.connectorMcpSettings != null,
           spawnSkillId: finalAgent.spawnSkillId,
+          ...(finalAgent.kind === 'specialist' && finalAgent.specialistId
+            ? { specialistId: finalAgent.specialistId }
+            : {}),
           visible: true,
           ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {
@@ -1249,6 +1253,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
           connectorLaunch: finalAgent.connectorMcpSettings != null,
           spawnSkillId: finalAgent.spawnSkillId,
+          ...(finalAgent.kind === 'specialist' && finalAgent.specialistId
+            ? { specialistId: finalAgent.specialistId }
+            : {}),
           visible: true,
           ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {

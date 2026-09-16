@@ -212,10 +212,11 @@ run('an automation-launched specialist gets the same role directive as a person'
 
   assert.equal(launched.ok, true, JSON.stringify(launched))
   const prompt = app.spawns[0]!.initialPrompt ?? ''
-  assert.match(prompt, /`.claude\/skills\/security\/SKILL\.md`/, 'the specialist is pointed at its role skill')
+  assert.doesNotMatch(prompt, /acting as the/)
   assert.doesNotMatch(prompt, /souls\s+get/)
   assert.match(prompt, /autonomous run/, 'and is told nobody will answer it')
   assert.match(prompt, /Audit the auth flow\./, 'the caller directive is carried verbatim')
+  assert.equal(app.spawns[0]!.specialistId, 'security', 'so host-context can attach the same Role section a person gets')
   assert.equal(app.spawns[0]!.agentRecord?.kind, 'specialist')
   assert.equal(app.spawns[0]!.agentRecord?.specialistId, 'security')
 })

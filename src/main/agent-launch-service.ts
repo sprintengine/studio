@@ -309,6 +309,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       // the worktree config. Ordinary agents fall through to the user's MCP.
       ...(connectorLaunchMcp(record, settings.mcp)),
       ...(record.spawnSkillId ? { spawnSkillId: record.spawnSkillId } : {}),
+      ...(specialistId ? { specialistId } : {}),
       // Nothing is bound to this session yet. A window open right now projects
       // and reveals it within a session-snapshot tick; a window opened later
       // does the same on its first tick.

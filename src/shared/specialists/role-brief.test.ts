@@ -42,7 +42,7 @@ run('the assignment text is a pointer at the skill file', () => {
   assert.match(text, /`architect` role/)
   assert.match(text, /`.claude\/skills\/architect\/SKILL\.md`/)
   assert.doesNotMatch(text, /souls\s+get/)
-  assert.doesNotMatch(text, /Fetch your Soul/)
+  assert.ok(!text.includes(['Fetch your', 'Soul'].join(' ')))
   assert.equal(AUTONOMOUS_SPECIALIST_DIRECTIVE_LEAD.includes('autonomous run'), true)
 })
 

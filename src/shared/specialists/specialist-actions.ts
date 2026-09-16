@@ -3,8 +3,7 @@
  *
  * It used to live under `src/renderer/src/specialists/`, which meant a specialist
  * launch could only be assembled inside a React hook: the main-process
- * `AgentLaunchService` (MC-2159) had no way to wrap a directive in the
- * role-assignment preamble, so `agent.launch` from the gateway or an automation had
+ * `AgentLaunchService` (MC-2159) had no way to wrap a directive, so `agent.launch` from the gateway or an automation had
  * to round-trip through a window. Nothing here touches the DOM or `window` — it
  * is string composition over ids — so it moved rather than being duplicated.
  * `src/renderer/src/specialists/specialistActions.ts` re-exports it verbatim, so
@@ -13,10 +12,10 @@
 import type { SpecialistActionId } from '../../renderer/src/types/workspace'
 import {
   AUTONOMOUS_SPECIALIST_DIRECTIVE_LEAD,
-  buildRoleAssignmentText,
-  defaultWorkspaceRoleSkillRel,
   missingRoleMessage,
 } from './role-brief'
+
+export { AUTONOMOUS_SPECIALIST_DIRECTIVE_LEAD }
 
 export type SpecialistIcon =
   | 'architecture'
@@ -139,25 +138,15 @@ export function buildMissingSpecialistSoul(action: SpecialistAction, message?: s
   ].join('\n')
 }
 
-export function buildSpecialistSoulStartupPrompt(action: SpecialistAction, skillRel?: string): string {
-  const roleId = action.role || action.id
-  return buildRoleAssignmentText(roleId, skillRel ?? defaultWorkspaceRoleSkillRel(roleId))
+export function buildSpecialistSoulStartupPrompt(_action: SpecialistAction, _skillRel?: string): string {
+  // Role assignment rides the host-context document (system-prompt side). The
+  // first user prompt is the person's task, or empty so the agent waits.
+  return ''
 }
 
-// Autonomous-run variant of the role startup prompt. Unlike the interactive
-// build above — which names the role skill then waits for a human to hand over a
-// task — an automation agent has no human in the loop, so it must take the role
-// and then immediately carry out the directive. The directive is the
-// main-process-composed automation prompt (autonomy policy + run-status
-// signal instructions), kept verbatim below so its reporting contract stands.
-export function buildSpecialistDirectiveStartupPrompt(action: SpecialistAction, directive: string): string {
-  return [
-    buildSpecialistSoulStartupPrompt(action),
-    '',
-    AUTONOMOUS_SPECIALIST_DIRECTIVE_LEAD,
-    '',
-    '---',
-    '',
-    directive.trim(),
-  ].join('\n')
+// Autonomous-run variant. The role assignment is in the host-context document;
+// this prompt keeps only the autonomy sentence (it is about the task, not the
+// role) and the caller directive.
+export function buildSpecialistDirectiveStartupPrompt(_action: SpecialistAction, directive: string): string {
+  return [AUTONOMOUS_SPECIALIST_DIRECTIVE_LEAD, '', '---', '', directive.trim()].join('\n')
 }

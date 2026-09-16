@@ -77,6 +77,43 @@ run('both sections appear, design system first', () => {
   assert.ok(doc.indexOf('## Design system') < doc.indexOf('## Knowledge graph'))
 })
 
+run('a role input renders after design system and knowledge', () => {
+  const withoutRole = buildHostContextDocument({
+    designSystem: { bundlePath: '/repo/design-system' },
+    knowledge: { ok: true, rootPath: '/repo/knowledge', relativeRoot: 'knowledge' },
+  })
+  const withRole = buildHostContextDocument({
+    designSystem: { bundlePath: '/repo/design-system' },
+    knowledge: { ok: true, rootPath: '/repo/knowledge', relativeRoot: 'knowledge' },
+    role: { id: 'architect', skillPath: '.claude/skills/architect/SKILL.md' },
+  })
+  assert.ok(withoutRole)
+  assert.ok(withRole)
+  assert.equal(
+    buildHostContextDocument({
+      designSystem: { bundlePath: '/repo/design-system' },
+      knowledge: { ok: true, rootPath: '/repo/knowledge', relativeRoot: 'knowledge' },
+    }),
+    withoutRole,
+    'omitting role is byte-identical to today',
+  )
+  const design = withRole.indexOf('## Design system')
+  const knowledge = withRole.indexOf('## Knowledge graph')
+  const role = withRole.indexOf('## Role')
+  assert.ok(design >= 0 && knowledge > design && role > knowledge)
+  assert.match(withRole, /`architect` role/)
+  assert.match(withRole, /`.claude\/skills\/architect\/SKILL\.md`/)
+  assert.ok(!withoutRole.includes('## Role'))
+  const withRoleAndModule = buildHostContextDocument({
+    designSystem: { bundlePath: '/repo/design-system' },
+    knowledge: { ok: true, rootPath: '/repo/knowledge', relativeRoot: 'knowledge' },
+    role: { id: 'architect', skillPath: '.claude/skills/architect/SKILL.md' },
+    moduleSections: [{ heading: 'Sprint Engine', body: 'Use the sprintengine CLI for run tools.' }],
+  })
+  assert.ok(withRoleAndModule)
+  assert.ok(withRoleAndModule.indexOf('## Role') < withRoleAndModule.indexOf('## Sprint Engine'))
+})
+
 run('a module section sits after the design-system and knowledge sections', () => {
   const doc = buildHostContextDocument({
     designSystem: { bundlePath: '/Users/dev/project/design-system' },

@@ -1388,12 +1388,11 @@ assert.equal(
 // are removed. A surviving manual specialist still exercises the prompt path.
 {
   const performancePrompt = buildSpecialistSoulStartupPrompt(getSpecialistAction('performance'))
-  assert.equal(performancePrompt.includes(`souls${' '}get performance`), false)
-  assert.equal(performancePrompt.includes('.claude/skills/performance/SKILL.md'), true)
+  assert.equal(performancePrompt, '')
   assert.equal(
     performancePrompt.includes('wait for the user\'s task'),
-    true,
-    'manual specialist launch waits for an explicit user task after reading the role skill',
+    false,
+    'interactive specialist launch does not put the role assignment in the first prompt',
   )
   assert.equal(performancePrompt.includes('git diff'), false, 'manual specialist launch does not auto-review diffs')
 }

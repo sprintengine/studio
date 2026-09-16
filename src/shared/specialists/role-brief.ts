@@ -62,9 +62,9 @@ export function missingRoleMessage(roleId: string, knownRoles: readonly string[]
 }
 
 /**
- * The Role section body for the host-context document (and, until that channel
- * exists, the specialist startup prompt). A pointer, not the brief: the CLI
- * loads the skill from the workspace; pasting the body would duplicate it.
+ * The Role section body for the host-context document. A pointer, not the
+ * brief: the CLI loads the skill from the workspace; pasting the body would
+ * duplicate it and would blow Codex's argv channel on Windows.
  */
 export function buildRoleAssignmentText(roleId: string, skillRel: string): string {
   return [
