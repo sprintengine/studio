@@ -217,50 +217,16 @@ run('an unlabelled model keeps its id, and an unknown CLI keeps its own', () => 
   )
 })
 
-// Source-contract: the wiring a pure test cannot reach — that the panel names
-// the agent row from THAT row's engine. The icon already did this; the label
-// was a constant, so picking a model repainted the icon and not the text.
-const panelSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/AgentComposer.tsx'),
-  'utf8',
-)
-
-run('the composer panel labels the agent row from its own engine, never a constant', () => {
-  assert.match(
-    panelSource,
-    /composer\.engineNamesFor\(\{ kind: 'general' \}\)/,
-    "the agent row's name is resolved against its own engine key, not the highlighted row's",
-  )
-  // Quoted or in JSX text — the rendered name. The prose above the helper may
-  // still call it the General agent; what must never come back is the constant
-  // label that ignored the engine bound to the row.
-  assert.equal(
-    /['"`>]General agent/.test(panelSource),
-    false,
-    '"General agent" is not a name the app renders',
-  )
-  assert.equal(
-    panelSource.includes('general-purpose agent'),
-    false,
-    'the agent is not described as general-purpose',
-  )
-  assert.match(panelSource, /Runs your instructions as written\./, 'keeps the description that is actually true')
-})
-
 // Source-contract for the wiring the pure roster cannot reach: the hook only
 // calls a machine CLI-less once the plugin registry is READY (a pending or
 // failed probe leaves the annotated catalog in place, which is what keeps a
-// transient failure from emptying the picker), and both surfaces answer that
-// state with the shared install route rather than an empty list.
-run('the zero-CLI state is derived from a ready catalog and answered with the install route', () => {
+// transient failure from emptying the picker).
+run('the zero-CLI state is derived from a ready catalog', () => {
   assert.match(
     hookSource,
     /noAgentCliInstalled\s*=\s*pluginCatalogStatus === 'ready' && agentCliOptions\.length === 0/,
     'the flag is "ready and nothing installed", never "the list looks empty"',
   )
-  assert.match(panelSource, /composer\.noAgentCliInstalled/, 'panel: reads the zero-CLI state')
-  assert.match(panelSource, /<CliInstallRosterRow/, 'panel: offers the shared install route in its place')
-  assert.match(panelSource, /No agent CLI is installed\./, 'panel: says what the machine reported')
 })
 
 if (failures > 0) {

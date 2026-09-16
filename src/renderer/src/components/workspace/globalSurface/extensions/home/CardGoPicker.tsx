@@ -26,8 +26,7 @@
 // **The picker is the shipped one, not a second one.** The surface below is
 // `CliModelPopoverSurface` — the same surface the New chat engine control, the
 // spawn picker and a Backlog item's "Hand to agent" open — wired through
-// `useAgentComposer` exactly as `AgentComposer.tsx` and
-// `BacklogHandToAgentButton.tsx` wire it. The one thing this host does
+// `useAgentComposer` exactly as `BacklogHandToAgentButton.tsx` wires it. The one thing this host does
 // differently is the trigger, and only because a card already has exactly one
 // control and it is called Go.
 //

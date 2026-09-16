@@ -72,7 +72,7 @@ import {
   type AgentComposerConfirm,
   type AgentComposerConnector,
   type AgentComposerSelection,
-} from './agentComposer/AgentComposer'
+} from './agentComposer/useAgentComposer'
 // Always-on observer of background automation run events (raises run
 // notifications). Automations is no longer a workspace type, so the shell mounts
 // its global supervisor directly, gated on the automations module + primary

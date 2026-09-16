@@ -21,7 +21,7 @@ import type {
 import type { SkillSource } from '../../../../../shared/skills'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../../shared/modules/permissions'
-import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
+import type { AgentComposerConnector } from '../../workspace/agentComposer/useAgentComposer'
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
 import type { McpServerConfig, McpSettings } from '../../../types/workspace'
 import {

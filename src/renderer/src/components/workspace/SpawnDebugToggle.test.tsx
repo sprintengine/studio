@@ -94,14 +94,10 @@ run('renders on the real server surface with the DEBUG label and aria-pressed', 
   assert.match(on, /aria-pressed="true"/, 'static markup announces the on state')
 })
 
-// Wiring the unit render cannot reach: the composer places the toggle beside
-// (not inside) the preset group, and WorkspaceManager carries the value into the
+// Wiring the unit render cannot reach: DEBUG is not a permission preset, and
+// WorkspaceManager carries the value into the
 // spawn payload + launch input and resets it per spawn. Mirrors the
 // source-contract style of BacklogRow.test.tsx.
-const composerPanelSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/AgentComposer.tsx'),
-  'utf8',
-)
 const sharedSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/workspace/agentComposer/agentSpawnShared.tsx'),
   'utf8',
@@ -115,12 +111,7 @@ const terminalSource = readFileSync(
   'utf8',
 )
 
-run('the spawn surface offers the toggle as a controlled sibling of the permission control', () => {
-  assert.match(
-    composerPanelSource,
-    /<SpawnDebugToggle active=\{debugMode\} onChange=\{onChangeDebugMode\} \/>/,
-    'the New Chat panel renders the toggle in its Permissions & options disclosure',
-  )
+run('DEBUG stays out of the permission options', () => {
   assert.ok(
     !sharedSource.includes("value: 'debug'") && !sharedSource.includes('debug_mode'),
     'DEBUG is not folded into AGENT_SPAWN_PERMISSION_OPTIONS',

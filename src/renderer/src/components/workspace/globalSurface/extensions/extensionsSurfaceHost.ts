@@ -9,7 +9,7 @@
 
 import type { WorkspaceSkill } from '../../../../../../shared/electron-api'
 import type { HostedCard } from '../../../../../../shared/hosted-card-feed'
-import type { AgentComposerConnector } from '../../agentComposer/AgentComposer'
+import type { AgentComposerConnector } from '../../agentComposer/useAgentComposer'
 import type { CardLaunchChoice } from './home/CardGoPicker'
 
 export type ExtensionsSurfaceHostPorts = {
